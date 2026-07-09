@@ -1,4 +1,5 @@
 import { RefreshCcw } from "lucide-react";
+import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { demoCustomers } from "@/lib/data/demo";
 
@@ -37,6 +38,16 @@ export default function RecoveryPage() {
         <StatCard label="Recovered so far" value="£371" sub="wave 1, zero ad cost" tone="good" />
         <StatCard label="Contacts queued" value="118" sub="waves 2–3" />
         <StatCard label="Projected this month" value="£670+" tone="warn" />
+      </div>
+
+      <div className="mb-8 card p-5">
+        <h2 className="mb-3 font-display font-bold text-white">Recoverable revenue by campaign type</h2>
+        <BarChart
+          colorByEntity
+          valuePrefix="£"
+          height={210}
+          data={CAMPAIGN_TYPES.map((t) => ({ label: t.name.replace(" recovery", "").replace(" customer", ""), value: Number(t.est.replace(/[£,]/g, "")) }))}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

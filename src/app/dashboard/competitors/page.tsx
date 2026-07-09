@@ -1,4 +1,5 @@
 import AgentRunner from "@/components/AgentRunner";
+import { HBarList } from "@/components/charts";
 import { PageHeader, Pill } from "@/components/ui";
 import { demoCompetitors } from "@/lib/data/demo";
 
@@ -31,6 +32,13 @@ export default function CompetitorsPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="mb-8 card p-5">
+        <h2 className="mb-4 font-display font-bold text-white">Threat level by competitor</h2>
+        <HBarList
+          data={demoCompetitors.map((c) => ({ label: c.name, value: c.threatLevel, note: c.adActivity }))}
+        />
       </div>
 
       <h2 className="mb-4 font-display text-lg font-bold text-white">Run the Competitor Spy Agent</h2>

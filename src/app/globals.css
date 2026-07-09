@@ -33,3 +33,99 @@ body {
 .label {
   @apply mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400;
 }
+
+/* ---- Premium landing page ---- */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes ticker {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes draw-line {
+  from {
+    stroke-dashoffset: 600;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-float-slow {
+  animation: float-slow 7s ease-in-out infinite;
+}
+
+.animate-marquee {
+  animation: marquee 32s linear infinite;
+}
+
+.animate-ticker {
+  animation: ticker 2.4s ease-in-out infinite;
+}
+
+.chart-line {
+  stroke-dasharray: 600;
+  animation: draw-line 2.2s cubic-bezier(0.4, 0, 0.2, 1) 0.4s both;
+}
+
+.glass {
+  @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+}
+
+.gradient-border {
+  position: relative;
+  background:
+    linear-gradient(#0b0f19, #0b0f19) padding-box,
+    linear-gradient(135deg, rgba(16, 185, 129, 0.5), rgba(56, 189, 248, 0.2), rgba(16, 185, 129, 0.05)) border-box;
+  border: 1px solid transparent;
+}
+
+.text-gradient {
+  @apply bg-gradient-to-r from-emerald-300 via-emerald-400 to-sky-400 bg-clip-text text-transparent;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 50%, transparent 100%);
+}

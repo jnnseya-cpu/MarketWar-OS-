@@ -1,4 +1,5 @@
 import AgentRunner from "@/components/AgentRunner";
+import { BarChart } from "@/components/charts";
 import { PageHeader, StatCard, VerdictBadge } from "@/components/ui";
 import { demoCampaigns } from "@/lib/data/demo";
 
@@ -15,6 +16,19 @@ export default function BudgetProtectionPage() {
         <StatCard label="Protected this week" value="£130" sub="waste stopped + rerouted" tone="good" />
         <StatCard label="Campaigns killed" value="1" sub="Generic Brand Awareness" tone="bad" />
         <StatCard label="Reroute return" value="+£320" sub="projected from scale order" tone="good" />
+      </div>
+
+      <div className="mb-8 card p-5">
+        <h2 className="mb-3 font-display font-bold text-white">Spend by campaign — this month</h2>
+        <BarChart
+          colorByEntity
+          valuePrefix="£"
+          height={210}
+          data={demoCampaigns.filter((c) => c.spend > 0).map((c) => ({ label: c.name, value: c.spend }))}
+        />
+        <p className="mt-2 text-xs text-slate-500">
+          The shield caps FIX campaigns and reroutes STOP budgets into the leading SCALE order.
+        </p>
       </div>
 
       <div className="mb-8 card p-5">

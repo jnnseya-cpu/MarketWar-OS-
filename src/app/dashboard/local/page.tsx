@@ -1,5 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
+import { AreaChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
+import { demoLocalViews } from "@/lib/data/demo";
 
 export default function LocalDominationPage() {
   return (
@@ -15,6 +17,18 @@ export default function LocalDominationPage() {
         <StatCard label="Review velocity" value="2/mo" sub="pack leader: 9/mo" tone="bad" />
         <StatCard label="GBP actions" value="41" sub="calls + directions this month" />
         <StatCard label="Local search views" value="1,860" sub="+12% vs last month" tone="good" />
+      </div>
+
+      <div className="mb-8 card p-5">
+        <h2 className="mb-3 font-display font-bold text-white">Local visibility — 6 months</h2>
+        <AreaChart
+          labels={demoLocalViews.labels}
+          series={[
+            { name: "Map pack views", data: demoLocalViews.mapViews },
+            { name: "Local search views", data: demoLocalViews.searchViews },
+          ]}
+          height={220}
+        />
       </div>
 
       <AgentRunner

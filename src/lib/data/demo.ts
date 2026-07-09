@@ -148,6 +148,44 @@ export const demoActions: DailyAction[] = [
   { id: "a-05", priority: "normal", action: "Add tiered menu PDF to Office Lunch Catering first reply", reason: "6 of 9 leads stalled at pricing. Removing the price-discovery step lifts B2B close rates.", impact: "+1–2 contracts/mo", module: "Campaign Builder", href: "/dashboard/campaigns" },
 ];
 
+// 14-day daily series powering the platform's charts.
+export const demoDaily = {
+  labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  revenue: [42, 58, 51, 74, 88, 96, 110, 98, 122, 134, 128, 155, 171, 190],
+  spend: [18, 20, 19, 22, 24, 23, 26, 24, 27, 28, 26, 30, 31, 33],
+  leads: [4, 6, 5, 8, 9, 11, 12, 9, 12, 13, 12, 15, 16, 18],
+  whatsappThreads: [3, 4, 4, 6, 7, 9, 10, 7, 9, 11, 10, 13, 14, 15],
+};
+
+export const demoChannelOrders = [
+  { label: "WhatsApp", value: 22 },
+  { label: "Meta", value: 12 },
+  { label: "TikTok", value: 7 },
+  { label: "Google", value: 4 },
+];
+
+export const demoFunnel = [
+  { label: "Ad reach", value: 18400 },
+  { label: "Clicks", value: 862 },
+  { label: "WhatsApp threads", value: 214 },
+  { label: "Qualified", value: 121 },
+  { label: "Orders", value: 45 },
+];
+
+export const demoCampaignSparks: Record<string, number[]> = {
+  "cmp-001": [3, 5, 4, 7, 9, 12, 14],
+  "cmp-002": [5, 6, 5, 6, 7, 6, 7],
+  "cmp-003": [4, 3, 3, 2, 2, 1, 1],
+  "cmp-004": [2, 3, 3, 4, 5, 5, 6],
+  "cmp-005": [4, 6, 8, 9, 11, 12, 14],
+};
+
+export const demoLocalViews = {
+  labels: ["Feb", "Mar", "Apr", "May", "Jun", "Jul"],
+  mapViews: [640, 720, 810, 980, 1240, 1860],
+  searchViews: [420, 460, 540, 660, 890, 1210],
+};
+
 export const demoMetrics = {
   spendToday: 23.4,
   spendMonth: 332,

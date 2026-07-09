@@ -91,6 +91,16 @@ src/
     └── types.ts                  # Domain types
 ```
 
+## AI-OS engineering blueprint
+
+The complete production-grade specification for the AI Infrastructure Operating
+System build-out — executive vision, market-gap review, user command centres, the
+full agent workforce, module specs, the BitriPay payment gateway door, connector
+ecosystem, architecture, database schema, API spec, monetisation, security and the
+phased roadmap — lives in [`docs/`](docs/README.md). The original v3.0 source
+specification is preserved unmodified in
+[`docs/reference/`](docs/reference/ai-os-specification-v3-imported.md).
+
 ## Scripts
 
 - `npm run dev` — development server

@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { Sparkline } from "@/components/charts";
+import { SERIES } from "@/lib/palette";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
-import { demoCampaigns, demoMetrics } from "@/lib/data/demo";
+import { demoCampaignSparks, demoCampaigns, demoMetrics } from "@/lib/data/demo";
+
+const SPARK_COLOR: Record<string, string> = {
+  SCALE: SERIES[1],
+  FIX: SERIES[2],
+  STOP: SERIES[5],
+  TESTING: SERIES[0],
+};
 
 export default function WarRoomPage() {
   const m = demoMetrics;
@@ -39,7 +48,13 @@ export default function WarRoomPage() {
                 </div>
                 <p className="mt-1.5 text-sm italic text-slate-400">&ldquo;{c.hook}&rdquo;</p>
               </div>
-              <p className="text-xs text-slate-500">day {c.startedDaysAgo}</p>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">7-day leads</p>
+                  <Sparkline data={demoCampaignSparks[c.id] ?? [1, 1, 1, 1, 1, 1, 1]} color={SPARK_COLOR[c.verdict]} width={110} height={32} />
+                </div>
+                <p className="text-xs text-slate-500">day {c.startedDaysAgo}</p>
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-6">

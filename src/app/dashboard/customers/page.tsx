@@ -1,3 +1,4 @@
+import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { demoCustomers } from "@/lib/data/demo";
 import type { Customer } from "@/lib/types";
@@ -29,6 +30,34 @@ export default function CustomerVaultPage() {
         <StatCard label="Lifetime value" value={`£${totalLtv.toLocaleString()}`} tone="good" />
         <StatCard label="Hot leads now" value={`${hot}`} tone="good" />
         <StatCard label="At churn risk" value={`${atRisk}`} sub={`£${recoverable} recoverable`} tone="warn" />
+      </div>
+
+      <div className="mb-8 grid gap-6 lg:grid-cols-2">
+        <div className="card p-5">
+          <h2 className="mb-3 font-display font-bold text-white">Vault by status</h2>
+          <DonutChart
+            size={185}
+            centerValue="156"
+            centerLabel="contacts"
+            data={[
+              { label: "Active", value: 58 },
+              { label: "Hot leads", value: 21 },
+              { label: "Inactive 60d+", value: 47 },
+              { label: "VIP", value: 12 },
+              { label: "Lost", value: 18 },
+            ]}
+          />
+        </div>
+        <div className="card p-5">
+          <h2 className="mb-4 font-display font-bold text-white">Lifetime value — top customers</h2>
+          <HBarList
+            valuePrefix="£"
+            data={[...demoCustomers]
+              .sort((a, b) => b.totalSpend - a.totalSpend)
+              .slice(0, 5)
+              .map((c) => ({ label: c.name, value: c.totalSpend, note: `${c.purchaseCount} orders` }))}
+          />
+        </div>
       </div>
 
       <div className="card overflow-x-auto">

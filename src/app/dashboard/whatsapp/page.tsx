@@ -1,6 +1,7 @@
 import { MessageCircle } from "lucide-react";
+import { AreaChart, FunnelChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { demoConversations } from "@/lib/data/demo";
+import { demoConversations, demoDaily, demoFunnel } from "@/lib/data/demo";
 import type { WhatsAppConversation } from "@/lib/types";
 
 const STAGE_META: Record<WhatsAppConversation["stage"], { label: string; tone: "good" | "bad" | "warn" | "info" | "neutral" }> = {
@@ -31,6 +32,21 @@ export default function WhatsAppCenterPage() {
         <StatCard label="Threads today" value={`${demoConversations.length}`} />
         <StatCard label="Avg. response time" value="7 min" sub="target: under 10" tone="good" />
         <StatCard label="Ghosted (recoverable)" value={`${ghosted.length}`} sub="follow-up armed" tone="warn" />
+      </div>
+
+      <div className="mb-8 grid gap-6 lg:grid-cols-2">
+        <div className="card p-5">
+          <h2 className="mb-4 font-display font-bold text-white">Ad → WhatsApp → Order funnel (this week)</h2>
+          <FunnelChart stages={demoFunnel} />
+        </div>
+        <div className="card p-5">
+          <h2 className="mb-3 font-display font-bold text-white">New threads per day — 14 days</h2>
+          <AreaChart
+            labels={demoDaily.labels}
+            series={[{ name: "WhatsApp threads", data: demoDaily.whatsappThreads }]}
+            height={220}
+          />
+        </div>
       </div>
 
       <div className="card divide-y divide-ink-800">

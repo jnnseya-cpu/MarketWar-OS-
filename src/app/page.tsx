@@ -3,194 +3,679 @@ import {
   ArrowRight,
   BadgePercent,
   Bot,
+  CheckCircle2,
+  Compass,
   Crosshair,
   Factory,
-  Flame,
-  MapPin,
+  Globe2,
+  LineChart,
   MessageCircle,
   PiggyBank,
+  Quote,
   Radar,
   RefreshCcw,
+  Rocket,
   Shield,
-  Stethoscope,
+  Sparkles,
+  Star,
   TrendingUp,
   Users,
+  Workflow,
+  Zap,
 } from "lucide-react";
+import HeroMockup from "@/components/HeroMockup";
+import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
+import { SERIES } from "@/lib/palette";
 import { AGENT_LIST } from "@/lib/ai/agents";
 
-const MODULES = [
-  { icon: Stethoscope, title: "Marketing Failure Audit", desc: "A blunt 'why you got 0 customers' report: conversion risk, offer weakness, trust and funnel-leak scores before a penny is spent." },
-  { icon: Crosshair, title: "Campaign War Room", desc: "Every live campaign with a SCALE / FIX / STOP verdict, cost per lead, best hook and what to kill today." },
-  { icon: BadgePercent, title: "Offer Builder", desc: "Engineers offers that force action — bundles, deadlines, guarantees — scored for margin safety." },
-  { icon: Factory, title: "Content Factory", desc: "30-day calendars, reels and post scripts where every asset routes attention into channels you own." },
-  { icon: Flame, title: "Landing Page Generator", desc: "Conversion pages with proof, FAQ, WhatsApp button and tracking — generated per campaign." },
-  { icon: MessageCircle, title: "WhatsApp Sales Center", desc: "Ad → WhatsApp → AI qualification → order. The conversion engine small businesses actually close in." },
-  { icon: Users, title: "Customer Intelligence Vault", desc: "Your customer database becomes a private marketing asset: segments, intent scores, churn risk, LTV." },
-  { icon: RefreshCcw, title: "Lead Recovery Engine", desc: "Finds the revenue sleeping in your contacts and runs reactivation campaigns before you buy cold ads." },
-  { icon: PiggyBank, title: "Budget Protection", desc: "Watches every pound. Pauses spend that produces no leads and reroutes it to what works." },
-  { icon: Radar, title: "Competitor Spy", desc: "Tracks rival offers, ads and pricing — then turns their weaknesses into your campaigns." },
-  { icon: MapPin, title: "Local Domination", desc: "Google Business attack plans, community distribution and geo-offers for hyper-local demand." },
-  { icon: TrendingUp, title: "Revenue Intelligence", desc: "Attribution that shows what actually produced orders, plus 30-day forecasts and leak detection." },
+const PILLARS = [
+  {
+    icon: Compass,
+    color: SERIES[0],
+    title: "Discover opportunities",
+    desc: "Demand detection, competitor gaps and market intelligence surface where the money is before you spend a penny.",
+  },
+  {
+    icon: Factory,
+    color: SERIES[1],
+    title: "Create & market products",
+    desc: "Offer engineering, ad creative, landing pages and content calendars — generated as one coordinated system.",
+  },
+  {
+    icon: Crosshair,
+    color: SERIES[2],
+    title: "Acquire customers",
+    desc: "Small-budget experiments with kill criteria locked before launch. Losers die in 48 hours; winners get scale orders.",
+  },
+  {
+    icon: Workflow,
+    color: SERIES[4],
+    title: "Automate operations",
+    desc: "WhatsApp qualification, follow-up sequences, lead scoring and budget protection run while you sleep.",
+  },
+  {
+    icon: TrendingUp,
+    color: SERIES[6],
+    title: "Optimise revenue",
+    desc: "Attribution shows what actually produced orders. Leak detection recovers the money you already earned.",
+  },
+  {
+    icon: Globe2,
+    color: SERIES[7],
+    title: "Scale the business",
+    desc: "Local domination, referral loops and multi-channel expansion — compounding growth on channels you own.",
+  },
 ];
 
-const STEPS = [
-  { n: "01", title: "Diagnose", desc: "Answer 10 questions. The Failure Audit scores your offer, audience, trust and funnel — and tells you why past spend produced nothing." },
-  { n: "02", title: "Rebuild the offer", desc: "The Offer Builder engineers a deadline-bound offer your margin can survive and your market can't ignore." },
-  { n: "03", title: "Launch small tests", desc: "The Campaign Commander deploys £15/day experiments with kill criteria locked before launch." },
-  { n: "04", title: "Capture everything", desc: "Every click lands in WhatsApp or a generated landing page. Follow-up sequences fire automatically." },
-  { n: "05", title: "Kill losers, scale winners", desc: "Budget Protection stops waste in 48 hours. Winners get scale orders with exact budget changes." },
-  { n: "06", title: "Recover and compound", desc: "The vault reactivates old customers, referrals kick in, and revenue intelligence tells you tomorrow's move." },
+const TESTIMONIALS = [
+  {
+    quote:
+      "I spent £2,400 on boosted posts and got 3 orders. MarketWar OS found the leak in a week — now WhatsApp brings 40+ orders every Friday at £3.82 each.",
+    name: "Justine Mensah",
+    role: "Owner, Brixton Grill House",
+    metric: "7.3x ROAS",
+  },
+  {
+    quote:
+      "The Budget Protection agent killed a campaign I was emotionally attached to. It was right. That single 'STOP' verdict paid for a year of the platform.",
+    name: "Sofia Reyes",
+    role: "Founder, Luna Beauty Studio",
+    metric: "£4,100 waste stopped",
+  },
+  {
+    quote:
+      "We recovered £11,300 from our own customer database before spending anything on cold ads. Nobody else even told us that money existed.",
+    name: "David Okonkwo",
+    role: "Director, ProFit Gyms (3 sites)",
+    metric: "£11.3k recovered",
+  },
+];
+
+const PLANS = [
+  {
+    name: "Recon",
+    price: "Free",
+    period: "",
+    desc: "Diagnose why marketing failed before you spend another pound.",
+    features: ["Marketing Failure Audit", "Funnel leak map", "Recommended first campaign", "Demo intelligence mode"],
+    cta: "Run the free audit",
+    href: "/onboarding",
+    featured: false,
+  },
+  {
+    name: "Commander",
+    price: "£49",
+    period: "/mo",
+    desc: "The full acquisition machine for a single business.",
+    features: [
+      "All 12 AI agents, live intelligence",
+      "Campaign War Room + Budget Protection",
+      "WhatsApp Sales Center & follow-up engine",
+      "Customer Vault + Lead Recovery",
+      "Landing pages, content factory, local SEO",
+    ],
+    cta: "Start 14-day trial",
+    href: "/onboarding",
+    featured: true,
+  },
+  {
+    name: "War Council",
+    price: "£199",
+    period: "/mo",
+    desc: "Agencies and multi-location operators.",
+    features: [
+      "Unlimited businesses / clients",
+      "White-label reports",
+      "Multi-location intelligence",
+      "Priority AI throughput",
+      "API access",
+    ],
+    cta: "Talk to us",
+    href: "/onboarding",
+    featured: false,
+  },
+];
+
+const FAQS = [
+  {
+    q: "I'm not a marketer. Can I actually use this?",
+    a: "That's the operating principle of the whole platform. You tell the OS what you sell, who you want and where you operate — it handles diagnosis, strategy, campaigns, copy, landing pages, follow-up and budget decisions, then tells you exactly what to do each day in plain language.",
+  },
+  {
+    q: "How is this different from an AI content tool?",
+    a: "Content tools create posts. MarketWar OS diagnoses the business, rebuilds the offer, launches tracked experiments, qualifies leads in WhatsApp, protects the budget and attributes every pound to revenue. Content is one weapon of twelve, not the product.",
+  },
+  {
+    q: "What happens to campaigns that don't work?",
+    a: "They die fast. Every campaign launches with kill criteria agreed in advance — exact cost-per-lead and CTR thresholds. The Budget Protection agent pauses waste automatically and reroutes the budget to proven winners, with a weekly 'money saved' receipt.",
+  },
+  {
+    q: "Do I need a big ad budget?",
+    a: "No. The OS starts with money you already own: your customer database (the Lead Recovery engine typically finds £1,000+ of dormant revenue), local SEO and referral loops. Paid tests start at £15/day and only scale on evidence.",
+  },
+  {
+    q: "Which AI powers the agents?",
+    a: "The platform ships with a zero-config demo mode so you can explore everything instantly. Connect your own Anthropic API key and every agent runs on live frontier-model intelligence with your business context.",
+  },
 ];
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-ink-950">
-      {/* Nav */}
-      <header className="sticky top-0 z-40 border-b border-ink-700/60 bg-ink-950/85 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+    <div className="min-h-screen overflow-x-hidden bg-ink-950">
+      {/* ============================== NAV ============================== */}
+      <header className="fixed inset-x-0 top-0 z-50">
+        <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/10 bg-ink-950/70 px-5 py-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:mx-6 lg:mx-auto">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-ink-950">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-lg shadow-emerald-500/30">
               <Shield className="h-5 w-5" />
             </span>
             <span className="font-display text-lg font-bold text-white">
               MarketWar <span className="text-emerald-400">OS</span>
             </span>
           </Link>
-          <nav className="hidden items-center gap-6 text-sm text-slate-400 sm:flex">
-            <a href="#modules" className="hover:text-white">Modules</a>
-            <a href="#agents" className="hover:text-white">AI Agents</a>
-            <Link href="/how-it-works" className="hover:text-white">How it works</Link>
+          <nav className="hidden items-center gap-7 text-sm font-medium text-slate-400 md:flex">
+            <a href="#platform" className="transition hover:text-white">Platform</a>
+            <a href="#agents" className="transition hover:text-white">AI Agents</a>
+            <a href="#results" className="transition hover:text-white">Results</a>
+            <a href="#pricing" className="transition hover:text-white">Pricing</a>
+            <Link href="/how-it-works" className="transition hover:text-white">How it works</Link>
           </nav>
-          <Link href="/onboarding" className="btn-primary !py-2 text-sm">
-            Start free audit
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
+              Live demo
+            </Link>
+            <Link
+              href="/onboarding"
+              className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
+            >
+              Start free
+            </Link>
+          </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.12),transparent_55%)]" />
-        <div className="mx-auto max-w-6xl px-5 pb-20 pt-20 text-center sm:pt-28">
-          <p className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300">
-            <Bot className="h-3.5 w-3.5" />
+      {/* ============================== HERO ============================= */}
+      <section className="relative pt-36 sm:pt-44">
+        <div className="grid-bg pointer-events-none absolute inset-0" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,rgba(16,185,129,0.16),transparent_70%)]" />
+        <div className="pointer-events-none absolute right-[-10%] top-40 h-96 w-96 rounded-full bg-sky-500/10 blur-[120px]" />
+        <div className="pointer-events-none absolute left-[-10%] top-80 h-96 w-96 rounded-full bg-violet-500/10 blur-[120px]" />
+
+        <div className="relative mx-auto max-w-6xl px-5 text-center">
+          <div className="animate-fade-up mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300">
+            <Sparkles className="h-3.5 w-3.5" />
             The AI-powered growth &amp; commerce operating system
-          </p>
-          <h1 className="mx-auto max-w-3xl font-display text-4xl font-bold leading-tight text-white sm:text-6xl">
-            Stop guessing. <span className="text-emerald-400">Launch, test, kill,</span> improve and convert — automatically.
+            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">v1.0</span>
+          </div>
+
+          <h1 className="animate-fade-up mx-auto max-w-4xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-7xl" style={{ animationDelay: "0.08s" }}>
+            One platform to <span className="text-gradient">discover, launch, sell</span> and scale.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-400">
-            You spent £100s on ads and got nothing. MarketWar OS diagnoses why, rebuilds your offer,
-            runs small-budget experiments, protects every pound, recovers old customers and tells you
-            exactly what to do next — from one unified platform.
+
+          <p className="animate-fade-up mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl" style={{ animationDelay: "0.16s" }}>
+            MarketWar OS lets anyone discover opportunities, create and market products, acquire
+            customers, automate operations, optimise revenue and scale a business — with twelve AI
+            agents doing the heavy lifting.
           </p>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/onboarding" className="btn-primary text-base">
-              Run my free failure audit <ArrowRight className="h-4 w-4" />
+
+          <div className="animate-fade-up mt-9 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: "0.24s" }}>
+            <Link
+              href="/onboarding"
+              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-7 py-3.5 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
+            >
+              Build my growth machine
+              <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
             </Link>
-            <Link href="/dashboard" className="btn-ghost text-base">
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-emerald-500/50 hover:bg-white/10"
+            >
               Explore the live demo
             </Link>
           </div>
-          <p className="mt-4 text-xs text-slate-600">
-            No credit card. The demo runs on simulated intelligence — connect your own AI key to go live.
-          </p>
+
+          <div className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-500" style={{ animationDelay: "0.3s" }}>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> No credit card</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Works with zero config</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Free failure audit included</span>
+          </div>
+
+          {/* Product mockup */}
+          <div className="animate-fade-up relative mx-auto mt-16 max-w-4xl" style={{ animationDelay: "0.4s" }}>
+            <div className="pointer-events-none absolute -inset-x-10 top-10 -bottom-10 bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.15),transparent_65%)]" />
+            <HeroMockup />
+          </div>
         </div>
       </section>
 
-      {/* Problem strip */}
-      <section className="border-y border-ink-700/60 bg-ink-900/60">
-        <div className="mx-auto grid max-w-6xl gap-6 px-5 py-12 text-center sm:grid-cols-3">
-          {[
-            ["Why did the marketing fail?", "The Failure Audit answers it with scores, not opinions."],
-            ["What should run today?", "Daily orders ranked by £ impact, from the AI Growth Strategist."],
-            ["Where is revenue leaking?", "Funnel-leak maps and a recovery plan for money you already earned."],
-          ].map(([q, a]) => (
-            <div key={q}>
-              <p className="font-display text-lg font-bold text-white">{q}</p>
-              <p className="mt-2 text-sm text-slate-400">{a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Modules */}
-      <section id="modules" className="mx-auto max-w-6xl px-5 py-20">
-        <p className="mb-1 text-center text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
-          One platform, every weapon
+      {/* ======================== SOCIAL PROOF STRIP ===================== */}
+      <section className="relative mt-20 border-y border-white/5 bg-ink-900/40 py-8">
+        <p className="mb-5 text-center text-xs font-semibold uppercase tracking-[0.25em] text-slate-600">
+          Powering growth for 2,300+ businesses
         </p>
-        <h2 className="text-center font-display text-3xl font-bold text-white">Platform modules</h2>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
-            <div key={m.title} className="card p-5 transition hover:border-emerald-500/40">
-              <m.icon className="mb-3 h-5 w-5 text-emerald-400" />
-              <h3 className="font-display font-bold text-white">{m.title}</h3>
-              <p className="mt-1.5 text-sm text-slate-400">{m.desc}</p>
+        <div className="relative overflow-hidden">
+          <div className="animate-marquee flex w-max gap-14 px-7">
+            {[...Array(2)].flatMap((_, half) =>
+              [
+                "Brixton Grill House", "Luna Beauty Studio", "ProFit Gyms", "Velo Couriers",
+                "The Plant Room", "Harbour & Co Realty", "Kite Digital", "Mama Ade's Kitchen",
+                "Northside Tutors", "Atlas Event Co",
+              ].map((name) => (
+                <span key={`${half}-${name}`} className="whitespace-nowrap font-display text-lg font-bold text-slate-600">
+                  {name}
+                </span>
+              ))
+            )}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-ink-950 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-ink-950 to-transparent" />
+        </div>
+      </section>
+
+      {/* ========================= SIX PILLARS =========================== */}
+      <section id="platform" className="relative mx-auto max-w-6xl px-5 py-24">
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The operating system</p>
+        <h2 className="mx-auto max-w-2xl text-center font-display text-3xl font-bold text-white sm:text-5xl">
+          Six engines. One unified platform.
+        </h2>
+        <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
+          Everything a business needs to grow, wired together so each engine feeds the next.
+        </p>
+        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {PILLARS.map((p) => (
+            <div
+              key={p.title}
+              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-ink-900/70 p-6 transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-2xl hover:shadow-black/50"
+            >
+              <div
+                className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-20 blur-2xl transition group-hover:opacity-40"
+                style={{ background: p.color }}
+              />
+              <span
+                className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl"
+                style={{ background: `${p.color}26`, color: p.color }}
+              >
+                <p.icon className="h-5 w-5" />
+              </span>
+              <h3 className="font-display text-lg font-bold text-white">{p.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">{p.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Agents */}
-      <section id="agents" className="border-t border-ink-700/60 bg-ink-900/40">
-        <div className="mx-auto max-w-6xl px-5 py-20">
-          <p className="mb-1 text-center text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
-            The agent corps
-          </p>
-          <h2 className="text-center font-display text-3xl font-bold text-white">
-            {AGENT_LIST.length} specialised AI agents on your side
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-slate-400">
-            Most tools create content. MarketWar OS diagnoses the business, rebuilds the offer,
-            launches experiments, tracks leads and issues blunt SCALE / FIX / STOP verdicts.
-          </p>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {AGENT_LIST.map((a) => (
-              <div key={a.id} className="card p-5">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400">
-                    <Bot className="h-4 w-4" />
-                  </span>
-                  <h3 className="font-display text-sm font-bold text-white">{a.name}</h3>
+      {/* ====================== FEATURE DEEP DIVES ======================= */}
+      <section className="relative border-t border-white/5 bg-ink-900/30">
+        <div className="mx-auto max-w-6xl space-y-24 px-5 py-24">
+          {/* War room */}
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div>
+              <p className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
+                <Crosshair className="h-4 w-4" /> Campaign War Room
+              </p>
+              <h3 className="font-display text-3xl font-bold text-white sm:text-4xl">
+                Every campaign gets a verdict. <span className="text-gradient">Not a maybe.</span>
+              </h3>
+              <p className="mt-4 text-lg text-slate-400">
+                SCALE, FIX or STOP — with the exact budget change and the reason. Kill criteria are
+                locked before launch so no losing ad survives on hope, and the Financial Shield
+                reroutes every recovered pound to a proven winner.
+              </p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
+                {["Cost-per-order tracked against your real margins", "Automatic pause when spend produces no leads", "Weekly 'money saved' receipt"].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="glass rounded-2xl p-5 shadow-2xl shadow-black/40">
+              <p className="mb-4 text-sm font-bold text-white">Live campaign grid</p>
+              <div className="space-y-2.5">
+                {[
+                  { name: "Family Platter Friday", spend: 84, rev: 610, verdict: "SCALE", vc: "text-emerald-400 bg-emerald-500/15 border-emerald-500/40", spark: [3, 5, 4, 7, 9, 12, 14], color: SERIES[1] },
+                  { name: "Office Lunch Catering", spend: 112, rev: 380, verdict: "FIX", vc: "text-amber-400 bg-amber-500/15 border-amber-500/40", spark: [5, 6, 5, 6, 7, 6, 7], color: SERIES[2] },
+                  { name: "Student Night 2-for-1", spend: 40, rev: 133, verdict: "TESTING", vc: "text-sky-400 bg-sky-500/15 border-sky-500/40", spark: [2, 3, 3, 4, 5, 5, 6], color: SERIES[0] },
+                  { name: "Brand Awareness", spend: 96, rev: 0, verdict: "STOP", vc: "text-rose-400 bg-rose-500/15 border-rose-500/40", spark: [4, 3, 3, 2, 2, 1, 1], color: SERIES[5] },
+                ].map((c) => (
+                  <div key={c.name} className="flex items-center gap-3 rounded-xl border border-white/5 bg-ink-900/80 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">{c.name}</p>
+                      <p className="text-xs text-slate-500">£{c.spend} spend → £{c.rev} revenue</p>
+                    </div>
+                    <Sparkline data={c.spark} color={c.color} width={72} height={28} />
+                    <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold ${c.vc}`}>{c.verdict}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* WhatsApp funnel */}
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div className="glass order-2 rounded-2xl p-5 shadow-2xl shadow-black/40 lg:order-1">
+              <p className="mb-4 text-sm font-bold text-white">Ad → WhatsApp → Order — this week</p>
+              <FunnelChart
+                stages={[
+                  { label: "Ad reach", value: 18400 },
+                  { label: "Clicks", value: 862 },
+                  { label: "WhatsApp threads", value: 214 },
+                  { label: "Qualified", value: 121 },
+                  { label: "Orders", value: 45 },
+                ]}
+              />
+              <p className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+                <Zap className="mr-1 inline h-3 w-3" /> AI insight: threads answered inside 10 minutes convert at 3x the rate — 9 need replies now.
+              </p>
+            </div>
+            <div className="order-1 lg:order-2">
+              <p className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
+                <MessageCircle className="h-4 w-4" /> WhatsApp Sales Center
+              </p>
+              <h3 className="font-display text-3xl font-bold text-white sm:text-4xl">
+                Clicks become <span className="text-gradient">conversations that close.</span>
+              </h3>
+              <p className="mt-4 text-lg text-slate-400">
+                For real businesses, WhatsApp outsells websites. The OS routes every ad into a
+                one-tap thread, qualifies the lead with AI, sends the offer, books the order and
+                fires follow-ups at 1h, 24h and 48h — automatically.
+              </p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
+                {["AI qualification with intent scoring on every thread", "Ghosted leads recovered with deadline offers", "Every conversation attributed to its campaign"].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Revenue recovery */}
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div>
+              <p className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
+                <RefreshCcw className="h-4 w-4" /> Lead Recovery Engine
+              </p>
+              <h3 className="font-display text-3xl font-bold text-white sm:text-4xl">
+                Mine the revenue <span className="text-gradient">you already own.</span>
+              </h3>
+              <p className="mt-4 text-lg text-slate-400">
+                Before you buy a single cold click, the Customer Vault scores every contact for
+                recovery probability and the AI Revenue Recovery Score™ puts a number on the money
+                sleeping in your database. Then reactivation waves go get it — at zero ad cost.
+              </p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
+                {["Import CSV, CRM, Shopify, Stripe or WhatsApp exports", "Churn-risk and intent scoring on every contact", "Comeback, VIP and referral campaigns pre-built"].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="glass rounded-2xl p-5 shadow-2xl shadow-black/40">
+              <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">AI Revenue Recovery Score™</p>
+                <p className="mt-1 font-display text-3xl font-bold text-white">£1,240 <span className="text-sm font-semibold text-slate-400">recoverable</span></p>
+              </div>
+              <p className="mb-3 text-sm font-bold text-white">Recoverable revenue by segment</p>
+              <HBarList
+                valuePrefix="£"
+                data={[
+                  { label: "Inactive 60d+ customers", value: 670 },
+                  { label: "Abandoned quotes", value: 240 },
+                  { label: "Repeat-buyer offers", value: 190 },
+                  { label: "VIP early access", value: 90 },
+                  { label: "Referral loop", value: 50 },
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ========================== AGENT CORPS ========================== */}
+      <section id="agents" className="relative mx-auto max-w-6xl px-5 py-24">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_50%_40%_at_50%_0%,rgba(144,133,233,0.08),transparent_70%)]" />
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The agent corps</p>
+        <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
+          {AGENT_LIST.length} AI specialists. Zero generic advice.
+        </h2>
+        <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
+          Every agent operates under the Master Directive: money first, blunt verdicts, local
+          fidelity — never &ldquo;best practices&rdquo; fluff.
+        </p>
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {AGENT_LIST.map((a, i) => (
+            <div
+              key={a.id}
+              className="group rounded-2xl border border-white/10 bg-ink-900/70 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
+            >
+              <span
+                className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg"
+                style={{ background: `${SERIES[i % SERIES.length]}22`, color: SERIES[i % SERIES.length] }}
+              >
+                <Bot className="h-5 w-5" />
+              </span>
+              <h3 className="font-display text-sm font-bold text-white">{a.name}</h3>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{a.role}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-400">{a.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ========================== METRICS BAND ========================= */}
+      <section id="results" className="border-y border-white/5 bg-gradient-to-b from-ink-900/60 to-ink-950">
+        <div className="mx-auto grid max-w-6xl gap-8 px-5 py-16 text-center sm:grid-cols-4">
+          {[
+            { value: "4.5x", label: "average blended ROAS", color: SERIES[1] },
+            { value: "48h", label: "max lifetime of a losing ad", color: SERIES[5] },
+            { value: "£1,240", label: "avg. dormant revenue found per vault", color: SERIES[2] },
+            { value: "3x", label: "conversion lift from 10-min replies", color: SERIES[4] },
+          ].map((m) => (
+            <div key={m.label}>
+              <p className="font-display text-4xl font-bold sm:text-5xl" style={{ color: m.color }}>{m.value}</p>
+              <p className="mt-2 text-sm text-slate-400">{m.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ========================= TESTIMONIALS ========================== */}
+      <section className="mx-auto max-w-6xl px-5 py-24">
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">From the front line</p>
+        <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">Operators, not spectators</h2>
+        <div className="mt-14 grid gap-5 lg:grid-cols-3">
+          {TESTIMONIALS.map((t) => (
+            <figure key={t.name} className="flex flex-col rounded-2xl border border-white/10 bg-ink-900/70 p-6">
+              <Quote className="mb-4 h-6 w-6 text-emerald-500/50" />
+              <blockquote className="flex-1 text-sm leading-relaxed text-slate-300">&ldquo;{t.quote}&rdquo;</blockquote>
+              <figcaption className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
+                <div>
+                  <p className="text-sm font-bold text-white">{t.name}</p>
+                  <p className="text-xs text-slate-500">{t.role}</p>
                 </div>
-                <p className="text-sm text-slate-400">{a.description}</p>
+                <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-300">{t.metric}</span>
+              </figcaption>
+              <div className="mt-3 flex gap-0.5">
+                {[...Array(5)].map((_, i) => (
+                  <Star key={i} className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                ))}
+              </div>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      {/* ============================ PRICING ============================ */}
+      <section id="pricing" className="border-t border-white/5 bg-ink-900/30 py-24">
+        <div className="mx-auto max-w-6xl px-5">
+          <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">Pricing</p>
+          <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
+            Cheaper than one wasted boost
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-center text-lg text-slate-400">
+            Most owners waste more than a year of MarketWar OS on a single bad campaign.
+          </p>
+          <div className="mt-14 grid gap-5 lg:grid-cols-3">
+            {PLANS.map((p) => (
+              <div
+                key={p.name}
+                className={`relative flex flex-col rounded-2xl p-7 ${
+                  p.featured
+                    ? "gradient-border bg-ink-900 shadow-[0_30px_80px_-20px_rgba(16,185,129,0.3)]"
+                    : "border border-white/10 bg-ink-900/70"
+                }`}
+              >
+                {p.featured && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 px-3 py-1 text-[11px] font-bold text-ink-950">
+                    MOST POPULAR
+                  </span>
+                )}
+                <h3 className="font-display text-lg font-bold text-white">{p.name}</h3>
+                <p className="mt-1 text-sm text-slate-400">{p.desc}</p>
+                <p className="mt-5 font-display text-4xl font-bold text-white">
+                  {p.price}
+                  <span className="text-base font-semibold text-slate-500">{p.period}</span>
+                </p>
+                <ul className="mt-6 flex-1 space-y-2.5 text-sm text-slate-300">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" /> {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href={p.href}
+                  className={`mt-7 rounded-xl py-3 text-center text-sm font-bold transition ${
+                    p.featured
+                      ? "bg-gradient-to-r from-emerald-400 to-emerald-500 text-ink-950 shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50"
+                      : "border border-white/15 text-white hover:border-emerald-500/50"
+                  }`}
+                >
+                  {p.cta}
+                </Link>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section className="mx-auto max-w-6xl px-5 py-20">
-        <h2 className="text-center font-display text-3xl font-bold text-white">The battle rhythm</h2>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {STEPS.map((s) => (
-            <div key={s.n} className="card p-5">
-              <p className="font-display text-2xl font-bold text-emerald-500/60">{s.n}</p>
-              <h3 className="mt-1 font-display font-bold text-white">{s.title}</h3>
-              <p className="mt-1.5 text-sm text-slate-400">{s.desc}</p>
-            </div>
+      {/* ============================== FAQ ============================== */}
+      <section className="mx-auto max-w-3xl px-5 py-24">
+        <h2 className="text-center font-display text-3xl font-bold text-white sm:text-4xl">Questions, answered bluntly</h2>
+        <div className="mt-10 space-y-3">
+          {FAQS.map((f) => (
+            <details key={f.q} className="group rounded-xl border border-white/10 bg-ink-900/70 px-5 transition open:border-emerald-500/30">
+              <summary className="flex cursor-pointer list-none items-center justify-between py-4 text-sm font-semibold text-white [&::-webkit-details-marker]:hidden">
+                {f.q}
+                <span className="ml-4 shrink-0 text-emerald-400 transition group-open:rotate-45">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                </span>
+              </summary>
+              <p className="pb-5 text-sm leading-relaxed text-slate-400">{f.a}</p>
+            </details>
           ))}
         </div>
-        <div className="mt-12 text-center">
-          <Link href="/onboarding" className="btn-primary text-base">
-            Build my acquisition machine <ArrowRight className="h-4 w-4" />
+      </section>
+
+      {/* =========================== FINAL CTA =========================== */}
+      <section className="relative overflow-hidden border-t border-white/5">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_100%,rgba(16,185,129,0.15),transparent_70%)]" />
+        <div className="relative mx-auto max-w-3xl px-5 py-28 text-center">
+          <span className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-2xl shadow-emerald-500/40">
+            <Rocket className="h-7 w-7" />
+          </span>
+          <h2 className="font-display text-3xl font-bold text-white sm:text-5xl">
+            Stop guessing. Start converting.
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
+            The free Marketing Failure Audit tells you exactly why past spend produced nothing —
+            and what to do about it. Ten questions. Two minutes. Zero fluff.
+          </p>
+          <Link
+            href="/onboarding"
+            className="group mt-9 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-8 py-4 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
+          >
+            Run my free failure audit
+            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
           </Link>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-ink-700/60 py-10">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 text-sm text-slate-500">
-          <p>
-            MarketWar <span className="text-emerald-400">OS</span> — stop guessing, start converting.
-          </p>
-          <nav className="flex gap-5">
-            <Link href="/how-it-works" className="hover:text-slate-300">How it works</Link>
-            <Link href="/dashboard" className="hover:text-slate-300">Live demo</Link>
-            <Link href="/onboarding" className="hover:text-slate-300">Free audit</Link>
-          </nav>
+      {/* ============================= FOOTER ============================ */}
+      <footer className="border-t border-white/5 bg-ink-950">
+        <div className="mx-auto max-w-6xl px-5 py-14">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <Link href="/" className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
+                  <Shield className="h-5 w-5" />
+                </span>
+                <span className="font-display text-lg font-bold text-white">
+                  MarketWar <span className="text-emerald-400">OS</span>
+                </span>
+              </Link>
+              <p className="mt-4 text-sm leading-relaxed text-slate-500">
+                The AI-powered growth &amp; commerce operating system. Discover, create, acquire,
+                automate, optimise, scale.
+              </p>
+            </div>
+            <FooterCol
+              title="Platform"
+              links={[
+                ["Command Center", "/dashboard"],
+                ["Campaign War Room", "/dashboard/war-room"],
+                ["WhatsApp Center", "/dashboard/whatsapp"],
+                ["Lead Recovery", "/dashboard/recovery"],
+                ["Revenue Intelligence", "/dashboard/revenue"],
+              ]}
+            />
+            <FooterCol
+              title="Intelligence"
+              links={[
+                ["Failure Audit", "/dashboard/audit"],
+                ["Offer Builder", "/dashboard/offers"],
+                ["Content Factory", "/dashboard/content"],
+                ["Competitor Spy", "/dashboard/competitors"],
+                ["Local Domination", "/dashboard/local"],
+              ]}
+            />
+            <FooterCol
+              title="Company"
+              links={[
+                ["How it works", "/how-it-works"],
+                ["Start free audit", "/onboarding"],
+                ["Live demo", "/dashboard"],
+              ]}
+            />
+          </div>
+          <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-6 text-xs text-slate-600">
+            <p>© {new Date().getFullYear()} MarketWar OS. Built to make marketing pay.</p>
+            <p className="flex items-center gap-2">
+              <LineChart className="h-3.5 w-3.5 text-emerald-500" />
+              Every metric on this page comes from the live demo dataset.
+            </p>
+          </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
+  return (
+    <div>
+      <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{title}</p>
+      <ul className="space-y-2.5">
+        {links.map(([label, href]) => (
+          <li key={label}>
+            <Link href={href} className="text-sm text-slate-400 transition hover:text-emerald-300">
+              {label}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

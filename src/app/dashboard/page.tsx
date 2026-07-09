@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, ChevronRight, Crosshair, MessageCircle, Zap } from "lucide-react";
+import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
-import { demoActions, demoBusiness, demoCampaigns, demoConversations, demoMetrics } from "@/lib/data/demo";
+import {
+  demoActions,
+  demoBusiness,
+  demoCampaigns,
+  demoChannelOrders,
+  demoConversations,
+  demoDaily,
+  demoMetrics,
+} from "@/lib/data/demo";
 
 export default function CommandCenterPage() {
   const m = demoMetrics;
@@ -29,6 +38,37 @@ export default function CommandCenterPage() {
         <StatCard label="Cost / order" value={`£${m.costPerOrder}`} sub="vs £9.50 AOV" tone="good" />
         <StatCard label="Revenue (month)" value={`£${m.revenueMonth}`} sub={`ROAS ${m.roas}x`} tone="good" />
         <StatCard label="Recoverable" value={`£${m.recoverableRevenue}`} sub="sleeping in your vault" tone="warn" />
+      </div>
+
+      {/* Performance charts */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-5">
+        <div className="card p-5 lg:col-span-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display font-bold text-white">Revenue vs ad spend — 14 days</h2>
+            <Pill tone="good">ROAS {demoMetrics.roas}x</Pill>
+          </div>
+          <AreaChart
+            labels={demoDaily.labels}
+            series={[
+              { name: "Revenue", data: demoDaily.revenue },
+              { name: "Ad spend", data: demoDaily.spend },
+            ]}
+            valuePrefix="£"
+            height={230}
+          />
+        </div>
+        <div className="card p-5 lg:col-span-2">
+          <h2 className="mb-3 font-display font-bold text-white">Orders by channel</h2>
+          <DonutChart
+            data={demoChannelOrders}
+            centerValue={`${demoMetrics.ordersMonth}`}
+            centerLabel="orders this month"
+            size={190}
+          />
+          <p className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+            WhatsApp produces 49% of orders at zero platform fees — the OS keeps routing paid traffic there.
+          </p>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">

@@ -1,6 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
+import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
-import { demoCampaigns, demoMetrics } from "@/lib/data/demo";
+import { demoCampaigns, demoDaily, demoMetrics } from "@/lib/data/demo";
 
 export default function RevenuePage() {
   const m = demoMetrics;
@@ -25,6 +26,46 @@ export default function RevenuePage() {
         <StatCard label="Blended ROAS" value={`${m.roas}x`} tone="good" />
         <StatCard label="Orders" value={`${m.ordersMonth}`} />
         <StatCard label="Leaking" value="£240" sub="in unanswered threads" tone="bad" />
+      </div>
+
+      <div className="mb-8 grid gap-6 lg:grid-cols-5">
+        <div className="card p-5 lg:col-span-3">
+          <h2 className="mb-3 font-display font-bold text-white">Daily revenue vs spend — 14 days</h2>
+          <AreaChart
+            labels={demoDaily.labels}
+            series={[
+              { name: "Revenue", data: demoDaily.revenue },
+              { name: "Ad spend", data: demoDaily.spend },
+            ]}
+            valuePrefix="£"
+            height={230}
+          />
+        </div>
+        <div className="card p-5 lg:col-span-2">
+          <h2 className="mb-3 font-display font-bold text-white">Revenue share by campaign</h2>
+          <DonutChart
+            size={185}
+            centerValue={`£${demoMetrics.revenueMonth}`}
+            centerLabel="this month"
+            data={demoCampaigns
+              .filter((c) => c.revenue > 0)
+              .map((c) => ({ label: c.name.replace(" Reactivation", ""), value: c.revenue }))}
+          />
+        </div>
+      </div>
+
+      <div className="mb-8 card p-5">
+        <h2 className="mb-3 font-display font-bold text-white">Return on ad spend by campaign</h2>
+        <BarChart
+          colorByEntity
+          data={demoCampaigns
+            .filter((c) => c.spend > 0)
+            .map((c) => ({ label: c.name, value: Number((c.revenue / c.spend).toFixed(1)) }))}
+          height={210}
+        />
+        <p className="mt-2 text-xs text-slate-500">
+          Values are revenue ÷ spend (x). Sunday Roast Reactivation excluded — zero-cost WhatsApp channel.
+        </p>
       </div>
 
       <div className="mb-8 card overflow-x-auto">
