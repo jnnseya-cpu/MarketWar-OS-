@@ -672,3 +672,31 @@ see `docs/DEPLOYMENT.md` for environment configuration.
 *Register generated 2026-07-09 from extraction inventories 1–9 against repo state. When a backlog (📦) item
 is promoted, update its row and the summary counts, and record any conflict resolution from §15 in the
 relevant `docs/ai-os/` chapter.*
+
+---
+
+## 16. MarketWar AI Video War Room (VEED extraction — added to the register)
+
+Source: developer-ready VEED feature extraction supplied 2026-07-09 (chat), specified in full in `ai-os/09-video-war-room.md`.
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| AI Video Generator — 10 input modes (prompt/script/demo/explainer/testimonial/ad/thought-leadership/avatar/image/PPT-PDF) | VEED extraction §1 | 📘 | `ai-os/09` §1.1 |
+| One-Click Campaign Video (brief → script, scenes, VO, captions, CTA + TikTok/Reels/Shorts/FB/LinkedIn/YouTube versions) | VEED extraction §1 | ✅ | `video-commander` agent + `/dashboard/video` |
+| Online Video Editor — 23 editing functions (cut→multi-format export) | VEED extraction §2 | 📘 | `ai-os/09` §1.2 |
+| Subtitle & Caption Engine — 10 functions (auto-subs→timing editor, SRT/VTT, burned-in) | VEED extraction §3 | 📘 | `ai-os/09` §1.3 |
+| OS caption modes: Sales / Education / Viral / Brand | VEED extraction §3 | ✅ | `caption-engine` agent + `/dashboard/video` |
+| Translation & Dubbing — subtitle/voice translation, AI dubbing, voice cloning, 10–50 languages (target 125+) | VEED extraction §4 | 📘 | `ai-os/09` §1.4 |
+| Global Reach Agent — auto-localised versions (EN/FR/Lingala/Swahili/PT/AR/ES…) incl. currency, tone, cultural references, CTA | VEED extraction §4 | ✅ | `global-reach` agent + `/dashboard/video` |
+| AI Avatar Studio — 8 avatar video types + OS roster (business/teacher/professional/influencer/branded spokesperson, multi-language) | VEED extraction §5 | 📘 | `ai-os/09` §1.5 |
+| Audio Studio — 11 functions + Perfect Voice / Ad Voice / Course Voice agents | VEED extraction §6 | 📘 | `ai-os/09` §1.6 |
+| Screen/Webcam/Presentation Recorder — 9 functions + auto-conversion into demos/training/social/help/sales | VEED extraction §7 | 📘 | `ai-os/09` §1.7 |
+| Repurposing Engine — 1 long video → 10 TikToks + 10 Reels + 10 Shorts + 5 LinkedIn + 5 FB ads + blog + email + landing script | VEED extraction §8 | 📘 (plan output ✅ in `video-commander`) | `ai-os/09` §1.8 |
+| Brand Kit — logo/colours/fonts/templates/intro-outro/watermark; auto colour detection; AI rejects off-brand visuals; multi-brand | VEED extraction §9 | 📘 | `ai-os/09` §1.9 (Brand Guardian gate) |
+| Collaboration — workspace/comments/versions/folders; client approval portal (Approve/Reject/Request Change); creator→editor→manager→client→publish; audit trail | VEED extraction §10 | 📘 | `ai-os/09` §1.10 + M-25 audit |
+| Full Business Outcome Engine (video→captions→ads→audience→launch→leads→retarget→ROI) | VEED extraction gaps §1 | 📘 | `ai-os/09` §2.1 (wired to M-06/M-13/M-14) |
+| Video agent corps — Script, Offer, Video Editor, Avatar, Voice, Subtitle, Translation, Brand Guardian, Compliance, Platform Export, Performance Optimisation | VEED extraction gaps §2 | 📘 (3 of 11 ✅) | `ai-os/09` §2.2; shipped: video-commander, caption-engine, global-reach |
+| One-Click Commercial Campaign (6 inputs → 5 videos, 10 captions, 5 ad copies, landing page, email, WhatsApp, follow-ups, analytics) | VEED extraction gaps §3 | 📘 | `ai-os/09` §2.3 |
+| 14 vertical video modes (restaurants→job recruitment) | VEED extraction gaps §4 | 📘 | `ai-os/09` §2.4 (M-06 pack library) |
+| ACU-metered video actions (10 meters) at minimum 4× provider cost, transparent to users | VEED extraction gaps §5 | 📘 | `ai-os/09` §2.5 — note: adds a **4×** rule to the 5x/400%/66% margin-rule conflict in §15; recommended resolution unchanged (charge the max of the applicable floors) |
+| Cloud Run render/dub/avatar farm behind a provider-adapter layer; 10 video_* Firestore collections; platform publishing connectors | VEED extraction (placement) | 📘 | `ai-os/09` §3 per PRODUCTION-ARCHITECTURE |

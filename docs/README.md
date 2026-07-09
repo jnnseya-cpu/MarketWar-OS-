@@ -22,6 +22,7 @@ Operating System (AI-OS)**.
 | 6 | [`ai-os/06-architecture.md`](ai-os/06-architecture.md) | Production system architecture: frontend, backend, AI orchestration, data intelligence layer, events, observability, DR |
 | 7 | [`ai-os/07-database-and-api.md`](ai-os/07-database-and-api.md) | Developer-ready database schema + ERD + REST/webhook API specification |
 | 8 | [`ai-os/08-monetisation-security-roadmap.md`](ai-os/08-monetisation-security-roadmap.md) | Monetisation model, security & compliance architecture, phased build roadmap |
+| 9 | [`ai-os/09-video-war-room.md`](ai-os/09-video-war-room.md) | MarketWar AI Video War Room (M-31): full video creation/editing/captions/dubbing/avatar/repurposing/brand/approval engine + video agent corps |
 
 ## Reading order
 

@@ -383,6 +383,119 @@ channel (WhatsApp/list). End with:
 - Never chase trends that don't end in an order.`,
   },
 
+  "video-commander": {
+    id: "video-commander",
+    name: "Video Commander Agent",
+    role: "One-click campaign video engine",
+    description:
+      "Turns a business brief into a complete campaign video package: script, scenes, voiceover direction, captions, CTA and platform-native versions for TikTok, Reels, Shorts, Facebook, LinkedIn and YouTube.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the VIDEO COMMANDER AGENT of the MarketWar AI Video War Room. From
+the business brief, produce a complete campaign video package. Output:
+## Video Concept (hook-first, outcome-focused, one paragraph)
+## Script (15–30s master version: scene-by-scene table — visual, on-screen text, voiceover line)
+## Voiceover Direction (voice type, pace, emotion)
+## CTA & Capture (exact CTA, where it routes — WhatsApp/landing page)
+## Platform Versions (TikTok/Reels/Shorts, Facebook, LinkedIn, YouTube — length, ratio, hook adaptation for each)
+## Repurposing Plan (what the one long asset becomes: counts per platform + blog/email/landing-script)`,
+    demoOutput: (i) => `## Video Concept
+A 20-second hunger-trigger ad for ${biz(i)}: real flames, real steam, a countdown to the Friday cap — engineered to stop the scroll at dinner-decision time and route straight into WhatsApp.
+
+## Script
+1. **(0–2s)** Close-up flames hit the grill · text: "It's Friday in ${loc(i)}…" · VO: "Stop scrolling. Dinner's solved."
+2. **(2–7s)** Platter assembly speed-run · text: "£25 FEEDS 4" · VO: "One platter. Four people. Twenty-five pounds."
+3. **(7–13s)** Door handoff + family reaction · text: "Hot in 20 minutes" · VO: "From our grill to your table in twenty minutes — or it's free."
+4. **(13–18s)** Live counter "Platter 27/40" · text: "Kitchen caps at 40" · VO: "Forty platters every Friday. When they're gone, they're gone."
+5. **(18–20s)** WhatsApp button animation · text: "Tap to order" · VO: "Tap, order, eat."
+
+## Voiceover Direction
+Warm male or female voice, local accent, conversational pace that accelerates over scenes 3–5. Emotion: confident, hungry, urgent — never salesy-shouty.
+
+## CTA & Capture
+"Order on WhatsApp before 7pm" → wa.me deep link with pre-filled "FRIDAY PLATTER 🔥". Pixel + UTM on every platform version.
+
+## Platform Versions
+- **TikTok/Reels/Shorts** — 9:16, 15s cut, hook = flames + "POV: it's Friday and you're starving"
+- **Facebook** — 4:5, 20s, text-forward for sound-off viewing, price badge always visible
+- **LinkedIn** — 1:1, 25s office-catering re-angle: "Your team's Friday lunch, sorted"
+- **YouTube** — 16:9, 30s with 5s bumper cut for pre-roll
+
+## Repurposing Plan
+Master shoot becomes: 10 TikToks · 10 Reels · 10 Shorts · 5 LinkedIn clips · 5 Facebook ads · 1 blog post ("Behind 40 platters every Friday") · 1 email campaign · 1 landing-page script.`,
+  },
+
+  "caption-engine": {
+    id: "caption-engine",
+    name: "Caption Engine Agent",
+    role: "Conversion-grade subtitles & captions",
+    description:
+      "Generates captions in four OS modes — Sales, Education, Viral and Brand — with styling, timing and platform export guidance.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the CAPTION ENGINE AGENT. Given a video script or transcript and a
+chosen mode, produce conversion-grade captions. Output:
+## Mode Verdict (which caption mode fits this video and why)
+## Caption Track (timestamped lines, written for the mode)
+## Styling Spec (font weight, colour source, highlight pattern, position, safe areas)
+## Platform Notes (burned-in vs SRT/VTT, per-platform differences)
+Modes: SALES (conversion-optimised) · EDUCATION (clear, academic) ·
+VIRAL (punchy TikTok/Reels) · BRAND (logo colours, brand voice).`,
+    demoOutput: (i) => `## Mode Verdict
+**Viral Caption Mode** — this is a scroll-interruption ad for ${biz(i)}; captions must punch word-by-word. (Brand Mode styling applied on top: emerald highlight pulled from the logo.)
+
+## Caption Track
+- 0.0–1.8s — "IT'S FRIDAY. 🔥"
+- 1.8–4.0s — "Feed **4 people** for **£25**"
+- 4.0–7.5s — "Hot at your door in **20 MINUTES**"
+- 7.5–11.0s — "…or it's **FREE**"
+- 11.0–15.0s — "Kitchen caps at **40 platters**"
+- 15.0–18.0s — "27 already gone 👀"
+- 18.0–20.0s — "TAP TO ORDER ↓"
+
+## Styling Spec
+Bold sans (Space Grotesk weight 700), white base, brand-emerald word highlights on prices and numbers, karaoke word-by-word reveal, centred lower-third, 10% safe margin for TikTok UI, drop shadow for sound-off legibility.
+
+## Platform Notes
+- TikTok/Reels/Shorts: burn captions in (85% watch muted); keep SRT master for accessibility.
+- Facebook: burned-in + auto-generated SRT upload for the ad set.
+- YouTube: upload VTT, keep burned-in only for Shorts.
+- Export set: SRT + VTT + burned master per aspect ratio.`,
+  },
+
+  "global-reach": {
+    id: "global-reach",
+    name: "Global Reach Agent",
+    role: "Translation, dubbing & localisation",
+    description:
+      "Turns one video into localised versions across languages — translating captions and voice while adapting currency, tone, cultural references and CTA per market.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the GLOBAL REACH AGENT. Given a video script and target markets,
+produce the localisation plan. Output:
+## Market Priority (rank the requested languages/markets by opportunity)
+## Localised Versions (per language: translated hook + CTA, dubbing voice note, cultural adaptations — currency, references, tone)
+## What NOT To Translate Literally (idioms/claims that must be re-written)
+## Production Notes (dubbing vs subtitles per market, lip-sync needs)`,
+    demoOutput: (i) => `## Market Priority
+For ${biz(i)} in ${loc(i)}: 1. **English** (base) · 2. **French** (large local community, high WhatsApp usage) · 3. **Lingala** (community loyalty signal — nobody else advertises in it) · 4. **Portuguese** · 5. **Arabic**.
+
+## Localised Versions
+- **French** — Hook: "C'est vendredi. Le grill est allumé." CTA: "Commandez sur WhatsApp avant 19h." Voice: warm Parisian-African accent. Keep £ prices (UK market), add "livraison rapide" trust line.
+- **Lingala** — Hook: "Eleko ya Vendredi! 🔥" CTA re-written around family table culture; voice: energetic community tone. This version is a loyalty weapon — share-rate will beat the English cut.
+- **Portuguese** — Angolan-community phrasing, football-night tie-in for Friday timing.
+- **Arabic** — RTL caption layout, halal prominence in scene 2, family-platter framing.
+
+## What NOT To Translate Literally
+- "…or it's free" — re-state as a time promise in French ("en 20 minutes, garanti") to avoid legal-claim tone differences.
+- "POV:" meme framing — keep in English for TikTok in all markets; it is platform language, not English.
+
+## Production Notes
+- French & Lingala: full AI dubbing (voice-clone the same brand voice per language).
+- Portuguese & Arabic: translated burned-in captions over original VO first (test before paying for dubs).
+- All versions: localise the WhatsApp pre-filled message and UTM per market.`,
+  },
+
   "growth-strategist": {
     id: "growth-strategist",
     name: "AI Growth Strategist",

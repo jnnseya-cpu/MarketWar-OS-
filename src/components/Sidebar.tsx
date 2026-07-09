@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BadgePercent,
+  Clapperboard,
   Crosshair,
   Factory,
   Flame,
@@ -37,6 +38,7 @@ const NAV = [
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
+      { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
       { href: "/dashboard/landing-pages", label: "Landing Pages", icon: Flame },
     ],
   },

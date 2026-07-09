@@ -20,6 +20,7 @@ what to do next.
 | **One-Click Campaign Builder** | Pick a goal → objective, audience, budget split, kill criteria and 7-day battle plan |
 | **Offer Builder** | Volume, margin and recovery offers engineered with urgency and margin-safety checks |
 | **Content Factory** | Strike plans where every post routes attention into channels you own |
+| **Video War Room** | One idea → global video campaigns: generator, captions (4 modes), translation/dubbing, avatars, repurposing (1 long video → 40+ assets), brand kit, approvals |
 | **Landing Page Generator** | Conversion pages + WhatsApp flow + 48-hour follow-up sequence designed as one system |
 | **WhatsApp Sales Center** | Ad → WhatsApp → AI qualification → order pipeline with intent scoring |
 | **Customer Intelligence Vault** | Contacts scored for engagement, intent, churn risk and recoverable revenue |
