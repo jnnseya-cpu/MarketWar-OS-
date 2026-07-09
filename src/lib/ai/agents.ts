@@ -496,6 +496,149 @@ For ${biz(i)} in ${loc(i)}: 1. **English** (base) · 2. **French** (large local 
 - All versions: localise the WhatsApp pre-filled message and UTM per market.`,
   },
 
+  "viral-hook": {
+    id: "viral-hook",
+    name: "Viral Hook Agent",
+    role: "Scroll-stopping hook generation & ranking",
+    description:
+      "Generates dozens of hooks for a video concept and ranks them by curiosity, pain, urgency, controversy, authority and scroll-stopping power.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the VIRAL HOOK AGENT of the VideoCommandCentre. Generate 50 hooks
+for the given video concept, then present the ranked result. Output:
+## Top 10 Hooks (ranked table: hook, dominant trigger, score /100)
+## By Trigger (2 best hooks each for: curiosity, pain, urgency, controversy, authority)
+## The One To Test First (and the exact reason)
+## Kill List (hook patterns to avoid for this audience and why)`,
+    demoOutput: (i) => `## Top 10 Hooks
+1. "POV: it's Friday in ${loc(i)} and you're starving" — curiosity+relatability — 94
+2. "We cap at 40 platters. 27 are gone." — urgency+scarcity — 92
+3. "£25. Four people. Twenty minutes. Or it's free." — authority+risk-reversal — 90
+4. "Stop paying £15 per person for cold delivery" — pain — 88
+5. "The grill your neighbours won't shut up about" — social proof — 86
+6. "Watch 40 platters disappear in 90 minutes" — curiosity — 84
+7. "Your family's dinner argument, solved in one tap" — pain+relief — 82
+8. "Nobody in ${loc(i)} promises this. We do." — controversy-lite — 80
+9. "This is what £25 actually buys on our grill" — transparency — 78
+10. "Order by 6, eating by 6:25" — specificity — 77
+
+## By Trigger
+- **Curiosity:** #1, #6 · **Pain:** #4, #7 · **Urgency:** #2, "Last Friday we sold out by 7:04pm" · **Controversy:** #8, "Delivery apps are robbing local families" · **Authority:** #3, "20 minutes. Guaranteed. Timed on camera."
+
+## The One To Test First
+#2 — scarcity with a live number is refreshable weekly, compounds as the count becomes real, and feeds the retargeting hook ("you watched 27 go — 13 left").
+
+## Kill List
+- Generic quality claims ("best grill in London") — unprovable, scroll-past.
+- Discount-led hooks — trains the audience to wait for offers; the platter converts at full price.`,
+  },
+
+  "funnel-video-builder": {
+    id: "funnel-video-builder",
+    name: "Sales Funnel Video Builder",
+    role: "The 8-video funnel from one brief",
+    description:
+      "Auto-creates the full video funnel: awareness, problem, product demo, testimonial, offer, retargeting, abandoned-cart and thank-you videos.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the SALES FUNNEL VIDEO BUILDER. From the business brief produce the
+complete 8-video funnel. For EACH video output one row: funnel stage,
+15-word concept, hook line, CTA, length/format, trigger (when it is shown).
+The 8 stages: Awareness · Problem · Product Demo · Testimonial · Offer ·
+Retargeting · Abandoned Cart · Thank You. End with:
+## Sequencing Logic (how the videos chain, per platform)`,
+    demoOutput: (i) => `## The 8-Video Funnel for ${biz(i)}
+1. **Awareness** — flames + neighbourhood shots · Hook: "POV: Friday in ${loc(i)}" · CTA: follow/watch · 15s 9:16 · cold audiences
+2. **Problem** — cold delivery montage vs our steam · Hook: "Stop paying for lukewarm food" · CTA: "There's a better Friday" · 20s · engaged viewers
+3. **Product Demo** — platter built in 90 seconds real-time · Hook: "This is what £25 buys" · CTA: WhatsApp order · 30s · warm audiences
+4. **Testimonial** — real family at the door, unscripted · Hook: "We didn't pay her to say this" · CTA: WhatsApp · 20s · warm audiences
+5. **Offer** — the cap counter · Hook: "40 platters. Every Friday. Gone by 7." · CTA: "Tap before 7pm" · 15s · Thursday–Friday push
+6. **Retargeting** — "you watched the platter video…" direct address · Hook: "Still thinking about it?" · CTA: 48h code · 10s · video-viewers 3–7d
+7. **Abandoned Cart** — thread-ghosts only · Hook: "Your platter's still waiting" · CTA: "Reply YES to lock it" · 8s + WhatsApp message · started-order no-payment
+8. **Thank You** — kitchen wave + next-week preview · Hook: "You made platter #31" · CTA: referral share · 10s · post-purchase
+
+## Sequencing Logic
+Meta/TikTok: 1→2→3 on view-through; 5 to all engagers Thu–Fri; 6 auto-fires at 3 days; 7 fires from thread state (WhatsApp, not ads); 8 sends in-thread post-order and seeds the referral loop. Every video's CTA lands in WhatsApp — one pipeline, full attribution.`,
+  },
+
+  "video-compliance": {
+    id: "video-compliance",
+    name: "AI Compliance Checker",
+    role: "Pre-publish risk gate",
+    description:
+      "Scans scripts and creative for claim risk: regulated wording, financial/medical claims, political content, copyright, music rights, brand misuse and platform ad-policy risk.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI COMPLIANCE CHECKER of the VideoCommandCentre — a pre-publish
+gate, not a lawyer. Scan the provided script/creative brief. Output:
+## Verdict (PASS / FIX / BLOCK with one-line reason)
+## Findings (table: element, risk category, severity, exact fix)
+Risk categories: unverifiable claims · regulated wording · financial
+promises · medical claims · political content · copyright · music rights ·
+brand misuse · platform ad-policy. End with:
+## Safe Rewrites (compliant versions of any flagged lines)
+Always add: "Automated screening — not legal advice; escalate BLOCK items to a human."`,
+    demoOutput: () => `## Verdict
+**FIX** — one guarantee needs qualifying and one music cue needs licensing before this ad runs.
+
+## Findings
+| Element | Category | Severity | Fix |
+|---|---|---|---|
+| "Hot in 20 minutes or it's free" | Unverifiable claim / ad policy | Medium | Add qualifying terms ("within 3-mile zone, Fridays") on-screen and in the page T&Cs |
+| Trending audio from TikTok library | Music rights | High | Licensed for organic TikTok only — NOT for paid ads; swap to commercial-licensed track for ad placements |
+| "The best grill in South London" | Unverifiable superlative | Low | Use provable framing: "Rated 4.8★ by 200+ locals" |
+| Competitor mention in retargeting script | Brand misuse | Medium | Remove the name; keep the category comparison ("delivery apps") |
+| Customer face in testimonial | Consent | Medium | Written release on file before paid distribution |
+
+## Safe Rewrites
+- "Hot in 20 minutes or it's free — within our Friday delivery zone. T&Cs on the order page."
+- "South London's 4.8★ grill — 200+ local reviews."
+
+Automated screening — not legal advice; escalate BLOCK items to a human.`,
+  },
+
+  "thumbnail-title": {
+    id: "thumbnail-title",
+    name: "Thumbnail & Title Engine",
+    role: "Packaging that earns the click",
+    description:
+      "Creates thumbnail concepts, titles, descriptions, hashtags, SEO tags and platform-specific captions for every video.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AUTO-THUMBNAIL & TITLE ENGINE. For the given video, produce the
+full packaging kit. Output:
+## Thumbnail Concepts (3: visual composition, text overlay ≤4 words, emotion)
+## Titles (5, ranked; ≤60 chars; no clickbait that the video can't cash)
+## Description (SEO-aware, first line = hook, CTA + link placement)
+## Hashtags & Tags (platform-split: TikTok/IG vs YouTube SEO tags)
+## Platform Captions (TikTok, Instagram, Facebook, LinkedIn, YouTube — native tone each)`,
+    demoOutput: (i) => `## Thumbnail Concepts
+1. Overhead platter, steam visible, hand reaching in · overlay: "£25 FEEDS 4" · emotion: hunger
+2. Countdown board "13/40 LEFT" over grill flames · overlay: "GONE BY 7PM" · emotion: urgency
+3. Family reaction at the door, genuine laugh · overlay: "20 MIN. PROMISE." · emotion: trust
+
+## Titles
+1. "£25 Feeds 4 — Hot in 20 Minutes or It's Free"
+2. "Why 40 Families Order This Every Friday"
+3. "The Friday Platter That Sells Out by 7pm"
+4. "We Timed Our Delivery Promise on Camera"
+5. "${biz(i)}: Behind 40 Platters in 90 Minutes"
+
+## Description
+It's Friday in ${loc(i)} and dinner is solved. One platter feeds four for £25 — flame-grilled, packed hot, at your door in 20 minutes or it's free. Kitchen caps at 40 every week. 👉 Order on WhatsApp: [link] · Menu: [link]
+
+## Hashtags & Tags
+- **TikTok/IG:** #${loc(i).split(",")[0].replace(/\s/g, "").toLowerCase()}food #londonfoodie #familydinner #grilled #fridayfeeling #ukfood
+- **YouTube tags:** ${loc(i)} food delivery, family platter deal, flame grilled chicken London, Friday dinner ideas
+
+## Platform Captions
+- **TikTok:** "27 platters gone. 13 left. It's not even 6pm 👀🔥"
+- **Instagram:** "Friday maths: £25 ÷ 4 people = happiest table on the street. Link in bio."
+- **Facebook:** "Feed the whole family this Friday for £25 — hot in 20 minutes or it's free. Order on WhatsApp before 7pm."
+- **LinkedIn:** "Office lunch, sorted: our grill boxes now cater SW9 teams every Friday."
+- **YouTube:** "The £25 platter that feeds 4 — filmed start to finish. Order link below."`,
+  },
+
   "growth-strategist": {
     id: "growth-strategist",
     name: "AI Growth Strategist",

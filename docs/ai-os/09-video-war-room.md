@@ -159,3 +159,80 @@ ACU economics framework — see the margin-rule reconciliation in
 Build phasing: **P0 (shipped)** agents + dashboard · **P1** captions/SRT
 pipeline + repurposing briefs · **P2** Cloud Run render farm + avatar/dubbing
 providers + brand-kit enforcement · **P3** approval portal + auto-publishing.
+
+---
+
+# v2 — VideoCommandCentre expansion
+
+Second extraction pass (2026-07-09). The module's internal codename is
+**VideoCommandCentre**. Positioning: *do not copy the incumbent — become
+VEED + Canva + CapCut + HeyGen + ad strategist + campaign manager +
+compliance officer + sales engine in one OS.* Everything below extends
+(never replaces) v1 above.
+
+## 4. Sub-system additions & expansions
+
+- **§1.1 Prompt-to-Video Studio** additionally covers: tutorials,
+  educational videos, sales videos, recruitment videos and
+  influencer-style **UGC videos** from one prompt.
+- **§1.2 AI Editing Timeline** additionally: progress bars and music;
+  silence removal and filler-word removal are first-class actions.
+- **§1.3 Subtitle & Translation Engine** additionally: subtitle animation,
+  TXT export, closed captions; 100+/125+ language positioning for
+  subtitles/transcription.
+- **§1.4 AI Voice & Dubbing Studio** additionally: **lip sync**,
+  audio-to-text, volume control.
+- **§1.5 Avatar & UGC Actor Studio** additionally: **UGC testimonial
+  actors** and product-explainer actors (actor-style, not just presenter).
+- **§1.9 Brand Kit Control** additionally: CTA style, subtitle style,
+  approved templates and **locked brand rules** for teams (template
+  locking, permissions, approvals).
+- **§1.8 Repurpose Engine** additionally: website hero videos, email GIFs
+  and ad variations.
+- **§1.7 Recorder** additionally: PPT-to-video, PDF-to-audio/video,
+  training-video creator.
+
+### 4.9 AI B-Roll & Visual Enhancer *(new sub-system)*
+AI B-roll generator · image-to-video · video-to-video AI · AI image
+generator · image extender · background remover · green screen · video
+enhancer · upscaler · background expansion.
+
+### 4.10 Publishing & Hosting *(new sub-system)*
+Video hosting · share links · approval links · embed player · export to
+platforms · scheduled publishing · campaign library.
+
+## 5. The ten marketer-gap agents (what ships after the video exists)
+
+| # | Agent | Contract | Status |
+|---|---|---|---|
+| 1 | **Campaign Intelligence Agent** | Pre-creation brief: goal, audience, offer, country, platform, budget, product price, competitor angle, emotional trigger → best script, hook, CTA, format | 📘 (v1 `video-commander` covers the generation half) |
+| 2 | **Viral Hook Agent** | Generates 50 hooks; ranks by curiosity, pain, urgency, controversy, authority, scroll-stopping power | ✅ shipped (`viral-hook`) |
+| 3 | **Competitor Ad Spy Agent** | Competitor name/site → positioning, offers, ad angles, content gaps → stronger video concepts | 📘 (composes with M-11 Competitor Intelligence) |
+| 4 | **UGC Batch Factory** | 100 ad variations in one click: 10 hooks × 5 scripts × 5 avatars × 4 formats × 5 CTAs, ranked by predicted conversion | 📘 (batch matrix spec; ranking model P2) |
+| 5 | **Sales Funnel Video Builder** | Auto-creates the 8-video funnel: awareness, problem, product demo, testimonial, offer, retargeting, abandoned-cart, thank-you | ✅ shipped (`funnel-video-builder`) |
+| 6 | **AI Compliance Checker** | Checks claims, regulated wording, financial promises, medical claims, political content, copyright risk, music rights, brand misuse, platform ad-policy risk | ✅ shipped (`video-compliance`) |
+| 7 | **Performance Feedback Loop** | Connects Meta, TikTok, YouTube, Google Ads, email; learns which hooks/captions/voices/thumbnails/CTAs convert | 📘 (instance of the platform learning loop, doc 06 §6) |
+| 8 | **Auto-Thumbnail & Title Engine** | Thumbnails, titles, descriptions, hashtags, SEO tags, platform-specific captions | ✅ shipped (`thumbnail-title`) |
+| 9 | **ACU Profit Control** | Meters: subtitles, translation, voice cloning, avatar generation, 4K export, B-roll, batch variations, compliance scan, publishing — minimum 4× provider cost, premium actions higher | 📘 (extends v1 §2.5) |
+| 10 | **Human + AI Marketplace** | Designers/editors/influencers/marketers sell templates, voices, video packs, campaign services in-OS; platform commission | 📘 (instance of M-17 Marketplace, revenue stream R4) |
+
+## 6. Developer-ready structure
+
+**Routes** (under `/dashboard/video` in the shipped app; standalone paths at P2):
+`/video/create` · `/video/editor` · `/video/templates` · `/video/brand-kit` ·
+`/video/avatars` · `/video/subtitles` · `/video/translation` · `/video/voice` ·
+`/video/repurpose` · `/video/campaigns` · `/video/publishing` ·
+`/video/analytics` · `/video/compliance` · `/video/marketplace`
+
+**Core actions** (service contract; each is ACU-metered and audit-logged):
+`generateVideoFromPrompt` · `generateScript` · `generateHooks` ·
+`uploadVideo` · `autoEditVideo` · `removeSilence` · `removeFillerWords` ·
+`generateSubtitles` · `translateSubtitles` · `dubVideo` · `cloneVoice` ·
+`generateAvatarVideo` · `generateBroll` · `resizeForPlatform` ·
+`createAdVariations` · `applyBrandKit` · `checkCompliance` · `exportVideo` ·
+`publishVideo` · `trackPerformance` · `deductACUs`
+
+Additional Firestore collections for v2: `video_hooks`, `video_variations`,
+`video_funnels`, `video_compliance_scans`, `video_thumbnails`,
+`video_publish_schedule`, `video_marketplace_listings`,
+`video_performance_events`.

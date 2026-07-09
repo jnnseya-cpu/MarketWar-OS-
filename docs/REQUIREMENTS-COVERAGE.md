@@ -700,3 +700,30 @@ Source: developer-ready VEED feature extraction supplied 2026-07-09 (chat), spec
 | 14 vertical video modes (restaurants→job recruitment) | VEED extraction gaps §4 | 📘 | `ai-os/09` §2.4 (M-06 pack library) |
 | ACU-metered video actions (10 meters) at minimum 4× provider cost, transparent to users | VEED extraction gaps §5 | 📘 | `ai-os/09` §2.5 — note: adds a **4×** rule to the 5x/400%/66% margin-rule conflict in §15; recommended resolution unchanged (charge the max of the applicable floors) |
 | Cloud Run render/dub/avatar farm behind a provider-adapter layer; 10 video_* Firestore collections; platform publishing connectors | VEED extraction (placement) | 📘 | `ai-os/09` §3 per PRODUCTION-ARCHITECTURE |
+
+### 16b. VideoCommandCentre expansion (second VEED extraction, v2)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| Prompt-to-Video additions: tutorials, educational, sales, recruitment, influencer-style UGC videos | VEED v2 §1 | 📘 | `ai-os/09` §4 |
+| Editing timeline additions: progress bars, music; silence + filler-word removal as first-class actions | VEED v2 §2 | 📘 | `ai-os/09` §4 |
+| Subtitle additions: subtitle animation, TXT export, closed captions, 100+/125+ languages | VEED v2 §3 | 📘 | `ai-os/09` §4 |
+| Voice/dubbing additions: lip sync, audio-to-text, volume control | VEED v2 §4 | 📘 | `ai-os/09` §4 |
+| Avatar & UGC Actor Studio: UGC testimonial actors, product explainer actors | VEED v2 §5 | 📘 | `ai-os/09` §4 |
+| Brand Kit Control additions: CTA style, subtitle style, approved templates, locked brand rules, permissions/approvals | VEED v2 §6 | 📘 | `ai-os/09` §4 |
+| Repurpose additions: website hero videos, email GIFs, ad variations | VEED v2 §7 | 📘 | `ai-os/09` §4 |
+| Recorder additions: PPT-to-video, PDF-to-audio/video, training-video creator | VEED v2 §8 | 📘 | `ai-os/09` §4 |
+| AI B-Roll & Visual Enhancer (10 functions: B-roll gen → background expansion) | VEED v2 §9 | 📘 | `ai-os/09` §4.9 |
+| Publishing & Hosting (hosting, share/approval links, embed, scheduled publishing, campaign library) | VEED v2 §10 | 📘 | `ai-os/09` §4.10 |
+| Campaign Intelligence Agent (9-question pre-creation brief → script/hook/CTA/format) | VEED v2 gap 1 | 📘 (generation half ✅ via video-commander) | `ai-os/09` §5 |
+| Viral Hook Agent — 50 hooks ranked by 6 trigger dimensions | VEED v2 gap 2 | ✅ | `viral-hook` agent + `/dashboard/video` |
+| Competitor Ad Spy Agent (video concepts from competitor gaps) | VEED v2 gap 3 | 📘 | `ai-os/09` §5 (composes with M-11) |
+| UGC Batch Factory — 100 variations (10×5×5×4×5), ranked by predicted conversion | VEED v2 gap 4 | 📘 | `ai-os/09` §5 |
+| Sales Funnel Video Builder — 8-stage funnel (awareness→thank-you) | VEED v2 gap 5 | ✅ | `funnel-video-builder` agent + `/dashboard/video` |
+| AI Compliance Checker — 9 risk categories, PASS/FIX/BLOCK gate | VEED v2 gap 6 | ✅ | `video-compliance` agent + `/dashboard/video` |
+| Performance Feedback Loop (Meta/TikTok/YouTube/Google/email learning) | VEED v2 gap 7 | 📘 | `ai-os/09` §5 → doc 06 learning loop |
+| Auto-Thumbnail & Title Engine (thumbnails, titles, descriptions, hashtags, SEO tags, platform captions) | VEED v2 gap 8 | ✅ | `thumbnail-title` agent + `/dashboard/video` |
+| ACU Profit Control — 9 metered video actions, min 4× provider cost, premium tiers | VEED v2 gap 9 | 📘 | `ai-os/09` §5 |
+| Human + AI Marketplace (templates/voices/video packs/services, commission) | VEED v2 gap 10 | 📘 | `ai-os/09` §5 → M-17 / R4 |
+| 14-route structure (/video/create → /video/marketplace) + 21 core actions (generateVideoFromPrompt → deductACUs) | VEED v2 dev structure | 📘 | `ai-os/09` §6 |
+| Positioning: VEED + Canva + CapCut + HeyGen + strategist + campaign manager + compliance officer + sales engine | VEED v2 | 📘 | `ai-os/09` v2 header |

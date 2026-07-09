@@ -5,11 +5,13 @@ import {
   Captions,
   Clapperboard,
   Globe2,
+  ImagePlus,
   Layers,
   Mic,
   MonitorPlay,
   Palette,
   Scissors,
+  Send,
   UserSquare2,
   Users2,
 } from "lucide-react";
@@ -27,12 +29,18 @@ const STUDIO = [
   { icon: Layers, title: "Repurposing Engine", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
   { icon: Palette, title: "Brand Kit", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
   { icon: Users2, title: "Collaboration & Approvals", desc: "Team workspace, versions, client approval portal (Approve/Reject/Request Change), creator→editor→manager→client→publish." },
+  { icon: ImagePlus, title: "B-Roll & Visual Enhancer", desc: "AI B-roll, image-to-video, video-to-video, image generation/extension, background removal, green screen, upscaling." },
+  { icon: Send, title: "Publishing & Hosting", desc: "Hosting, share/approval links, embed player, platform export, scheduled publishing and the campaign library." },
 ];
 
 const TABS = [
   { key: "video", label: "Campaign Video" },
-  { key: "captions", label: "Caption Engine" },
+  { key: "hooks", label: "Viral Hooks" },
+  { key: "funnel", label: "Funnel Builder" },
+  { key: "captions", label: "Captions" },
   { key: "global", label: "Global Reach" },
+  { key: "compliance", label: "Compliance" },
+  { key: "packaging", label: "Thumbnails & Titles" },
 ] as const;
 
 export default function VideoWarRoomPage() {
@@ -83,6 +91,52 @@ export default function VideoWarRoomPage() {
             { key: "location", label: "Target location", defaultValue: "Brixton, London" },
             { key: "audience", label: "Target audience", defaultValue: "Local families and young professionals, evening scrollers", textarea: true },
             { key: "goal", label: "Campaign goal", defaultValue: "WhatsApp orders" },
+          ]}
+        />
+      )}
+      {tab === "hooks" && (
+        <AgentRunner
+          agentId="viral-hook"
+          buttonLabel="Generate & rank hooks"
+          fields={[
+            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "concept", label: "Video concept", defaultValue: "Friday family platter — £25 feeds 4, kitchen caps at 40, hot in 20 minutes or free", textarea: true },
+            { key: "audience", label: "Audience", defaultValue: "Local families, evening scrollers on TikTok/Reels" },
+          ]}
+        />
+      )}
+      {tab === "funnel" && (
+        <AgentRunner
+          agentId="funnel-video-builder"
+          buttonLabel="Build the 8-video funnel"
+          fields={[
+            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "product", label: "Product / offer", defaultValue: "Family platter — feed 4 for £25, Fridays only" },
+            { key: "goal", label: "Funnel goal", defaultValue: "WhatsApp orders" },
+          ]}
+        />
+      )}
+      {tab === "compliance" && (
+        <AgentRunner
+          agentId="video-compliance"
+          buttonLabel="Run compliance scan"
+          fields={[
+            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "platforms", label: "Where it will run", defaultValue: "Meta ads, TikTok ads, organic TikTok" },
+            { key: "script", label: "Script / creative description", defaultValue: "Hot in 20 minutes or it's free. The best grill in South London. Uses trending TikTok audio. Shows a customer testimonial at the door.", textarea: true },
+          ]}
+        />
+      )}
+      {tab === "packaging" && (
+        <AgentRunner
+          agentId="thumbnail-title"
+          buttonLabel="Generate packaging kit"
+          fields={[
+            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "video", label: "Video summary", defaultValue: "20s ad: Friday family platter £25 feeds 4, live 40-platter counter, WhatsApp ordering", textarea: true },
           ]}
         />
       )}
