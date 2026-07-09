@@ -51,16 +51,28 @@ Open [http://localhost:3000](http://localhost:3000).
 The platform boots in **Demo Intelligence mode** — every module works with zero configuration
 using deterministic simulated agent output and a demo business (Brixton Grill House).
 
-### Going live
+### Going live — the AI Gateway
 
-Copy `.env.example` to `.env.local` and add your Anthropic API key:
+Every agent call goes through the **AI Gateway**, a unified layer over three providers
+with automatic failover: **Anthropic Claude → OpenAI → Google Gemini**. Copy
+`.env.example` to `.env.local` and add any (or all) of:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-sonnet-5   # optional
+AI_GATEWAY_ORDER=anthropic,openai,gemini   # routing priority
+
+ANTHROPIC_API_KEY=sk-ant-...               # primary — Claude
+ANTHROPIC_MODEL=claude-opus-4-8
+
+OPENAI_API_KEY=sk-proj-...                 # failover — OpenAI Responses API
+OPENAI_MODEL=gpt-5-mini
+
+GEMINI_API_KEY=AI...                       # failover — Google Gemini
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
-With a key present, every agent call goes to the live model with the agent's system prompt.
+The gateway tries providers in order, retries transient errors (429/5xx) with
+exponential backoff per provider, and fails over to the next configured provider.
+`GET /api/gateway` reports the live routing status (keys are never exposed).
 **Never commit `.env.local` or real keys** — `.gitignore` already excludes env files.
 
 ## Architecture
@@ -81,11 +93,13 @@ src/
 │   │   └── revenue/ budget/ competitors/ local/ briefing/
 │   └── api/
 │       ├── agents/[agentId]/     # Agent execution endpoint (live or demo)
+│       ├── gateway/              # AI Gateway status endpoint
 │       └── audit/                # Deterministic failure-audit scoring engine
-├── components/                   # UI kit, sidebar, AgentRunner harness
+├── components/                   # UI kit, sidebar, AgentRunner harness, chart kit
 └── lib/
     ├── ai/agents.ts              # Agent registry: prompts + demo outputs
-    ├── ai/provider.ts            # Anthropic client with retry/backoff + demo fallback
+    ├── ai/gateway.ts             # AI Gateway: Claude/OpenAI/Gemini adapters + failover
+    ├── ai/provider.ts            # Agent runtime on top of the gateway + demo fallback
     ├── ai/audit.ts               # Failure-audit scoring engine
     ├── data/demo.ts              # Demo Intelligence dataset
     └── types.ts                  # Domain types
