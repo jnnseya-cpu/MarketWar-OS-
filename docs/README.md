@@ -10,7 +10,10 @@ Operating System (AI-OS)**.
 |---|---|---|
 | ★ | [`PRODUCTION-ARCHITECTURE.md`](PRODUCTION-ARCHITECTURE.md) | **ADOPTED production standard**: Hostinger → Cloudflare → Vercel → Firebase (+ Stripe, comms APIs, AI Gateway) |
 | ★ | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Go-live runbook for that architecture, step by step |
-| 0 | [`reference/ai-os-specification-v3-imported.md`](reference/ai-os-specification-v3-imported.md) | The original v3.0 transformation specification (imported source document — nothing removed) |
+| ★ | [`REQUIREMENTS-COVERAGE.md`](REQUIREMENTS-COVERAGE.md) | **Master traceability register** — every requirement from both source documents mapped to code, blueprint, or backlog |
+| 0 | [`reference/ai-os-specification-v3-imported.md`](reference/ai-os-specification-v3-imported.md) | Source document 2: the v3.0 transformation specification (imported verbatim — nothing removed) |
+| 0 | [`reference/source-notes/`](reference/source-notes/README.md) | Source document 1: complete verbatim import in 15 parts (20,538 paragraphs, credentials redacted) |
+| 0 | [`reference/extraction-inventories/`](reference/extraction-inventories/) | Line-by-line extraction inventories of source document 1 (nine full-coverage passes) |
 | 1 | [`ai-os/01-executive-vision-and-market.md`](ai-os/01-executive-vision-and-market.md) | Executive product vision, forensic market-gap review, competitive advantage |
 | 2 | [`ai-os/02-users-and-command-centres.md`](ai-os/02-users-and-command-centres.md) | Complete user ecosystem; the AI Command Centre for every user type |
 | 3 | [`ai-os/03-agent-ecosystem.md`](ai-os/03-agent-ecosystem.md) | Full agent workforce: core, executive, engineering, security, revenue, compliance and self-managing platform agents — with I/O, permissions, triggers, escalation |
