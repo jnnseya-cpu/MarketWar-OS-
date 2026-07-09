@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// MarketWar OS Firestore rules — deny by default.
+// Server-side writes (Next.js API routes on Vercel via the Admin SDK) bypass
+// these rules; they govern direct client access only. As client features
+// (auth, real-time dashboards) come online, open access per-collection with
+// owner checks — never with a blanket allow.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Tenant-scoped data: a signed-in user may only touch their own tenant.
+    match /tenants/{tenantId}/{document=**} {
+      allow read, write: if request.auth != null
+        && request.auth.token.tenantId == tenantId;
+    }
+
+    // Server-written analytics/logs: clients may never read or write.
+    match /audits/{doc} {
+      allow read, write: if false;
+    }
+    match /agent_runs/{doc} {
+      allow read, write: if false;
+    }
+
+    // Everything else: denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

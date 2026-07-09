@@ -8,6 +8,8 @@ Operating System (AI-OS)**.
 
 | # | Document | Covers |
 |---|---|---|
+| ★ | [`PRODUCTION-ARCHITECTURE.md`](PRODUCTION-ARCHITECTURE.md) | **ADOPTED production standard**: Hostinger → Cloudflare → Vercel → Firebase (+ Stripe, comms APIs, AI Gateway) |
+| ★ | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Go-live runbook for that architecture, step by step |
 | 0 | [`reference/ai-os-specification-v3-imported.md`](reference/ai-os-specification-v3-imported.md) | The original v3.0 transformation specification (imported source document — nothing removed) |
 | 1 | [`ai-os/01-executive-vision-and-market.md`](ai-os/01-executive-vision-and-market.md) | Executive product vision, forensic market-gap review, competitive advantage |
 | 2 | [`ai-os/02-users-and-command-centres.md`](ai-os/02-users-and-command-centres.md) | Complete user ecosystem; the AI Command Centre for every user type |

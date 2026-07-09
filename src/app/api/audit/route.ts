@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeAudit, type AuditInput } from "@/lib/ai/audit";
+import { saveAuditReport } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   let body: Partial<AuditInput>;
@@ -26,5 +27,8 @@ export async function POST(req: NextRequest) {
     hasTracking: Boolean(body.hasTracking),
   };
 
-  return NextResponse.json(computeAudit(input));
+  const report = computeAudit(input);
+  // Persist when Firebase is configured; never block or fail the response.
+  saveAuditReport(input, report).catch(() => {});
+  return NextResponse.json(report);
 }

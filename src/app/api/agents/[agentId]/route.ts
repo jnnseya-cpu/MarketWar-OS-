@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AGENTS } from "@/lib/ai/agents";
 import { runAgent } from "@/lib/ai/provider";
+import { logAgentRun } from "@/lib/db";
 
 export async function POST(
   req: NextRequest,
@@ -25,6 +26,8 @@ export async function POST(
 
   try {
     const result = await runAgent(agentId, input);
+    // Persist the run when Firebase is configured; never block the response.
+    logAgentRun(result, input).catch(() => {});
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent execution failed";
