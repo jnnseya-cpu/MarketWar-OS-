@@ -24,24 +24,28 @@ implemented or specified, it is preserved verbatim and tracked here as backlog.
 
 **Summary counts (rows per theme)**
 
-| # | Theme | Rows | ✅ | 📘 | 📦 |
+| # | Theme | Rows | ✅ (incl. partial) | 📘 | 📦 |
 |---|---|---|---|---|---|
-| 1 | Core AI agents | 96 | 13 | 24 | 59 |
-| 2 | Platform modules | 74 | 15 | 31 | 28 |
-| 3 | Dashboards & account system | 42 | 16 | 12 | 14 |
-| 4 | Master Platform AI OS Prompt rules | 22 | 3 | 5 | 14 |
-| 5 | Autonomous Campaign Engine | 30 | 4 | 6 | 20 |
-| 6 | DemandOS / organic acquisition engines | 26 | 2 | 5 | 19 |
-| 7 | Customer Resurrection Engine | 15 | 2 | 3 | 10 |
-| 8 | Landing-page subsystem | 24 | 2 | 3 | 19 |
-| 9 | Competitor-inspired feature packs | 36 | 1 | 3 | 32 |
-| 10 | Independence / external-API architecture | 20 | 2 | 6 | 12 |
-| 11 | Pricing & ACU economics | 24 | 1 | 9 | 14 |
-| 12 | Data model | 12 | 2 | 3 | 7 |
-| 13 | Zero Generic Info Protocol & behaviour mandates | 12 | 4 | 2 | 6 |
-| 14 | Document 2 — AI-OS Transformation Spec v3.0 | 18 | 1 | 15 | 2 |
+| 1 | Core AI agents | 91 | 35 | 9 | 47 |
+| 2 | Platform modules | 47 | 23 | 13 | 11 |
+| 3 | Dashboards & account system | 35 | 25 | 6 | 4 |
+| 4 | Master Platform AI OS Prompt rules | 21 | 7 | 7 | 7 |
+| 5 | Autonomous Campaign Engine | 30 | 13 | 7 | 10 |
+| 6 | DemandOS / organic acquisition engines | 25 | 5 | 9 | 11 |
+| 7 | Customer Resurrection Engine | 15 | 1 | 2 | 12 |
+| 8 | Landing-page subsystem | 24 | 1 | 1 | 22 |
+| 9 | Competitor-inspired feature packs | 24 | 0 | 0 | 24 |
+| 10 | Independence / external-API architecture | 21 | 3 | 7 | 11 |
+| 11 | Pricing & ACU economics | 26 | 0 | 15 | 11 |
+| 12 | Data model | 12 | 1 | 2 | 9 |
+| 13 | Zero Generic Info Protocol & behaviour mandates | 12 | 8 | 0 | 4 |
+| 14 | Document 2 — AI-OS Transformation Spec v3.0 | 18 | 0 | 18 | 0 |
+| — | **Total requirement rows** | **401** | **122** | **96** | **183** |
 
-Counts are indicative (some rows carry a dual status such as "✅ partial / 📦 full spec"); the row itself is authoritative.
+Plus §15 Gaps & conflicts register (15 entries) and §16 Security note (8 redacted credential lines).
+A row counted under ✅ may be "✅ partial" — working code covers the core of the requirement while the full
+spec depth remains backlog; each row's own status cell is authoritative. Many 📦 rows enumerate multiple
+named items (e.g. a 10-agent pack per row), so the underlying requirement count is far higher than 401.
 
 ---
 
@@ -448,3 +452,223 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Landing-page centrality doctrine ("the landing page is where attention becomes action"; without the agent MarketWar OS is another AI content tool) | Part 14 L15497–15517 | 📦 | `source-notes/14` |
 | Conversion Integrity Score, A/B Test Roadmap, Tracking Protocol events (Lead Intent, WhatsApp Trigger, Scroll Depth, Click-to-Call, Form Intent), CTA hierarchy (primary/secondary/tertiary) | Part 11 L6619–6666 | 📦 | `source-notes/11` |
 | Brevo-pass landing-page feature list (26 snake_case features incl. brand_colour_matching, logo_placement, form_friction_score, gdpr_consent_checkbox) | Part 15 L16456–16490, L17078–17121 | 📦 | `source-notes/15` |
+
+---
+
+## 9. Competitor-inspired feature packs (Parts 12 & 15)
+
+Each pack is a full standalone extraction ("copy but make it stronger") preserved verbatim. Agent name lists are in §1.6.
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Serper.dev pack — Live Web/Market Intelligence**: real-time Google-data search (market demand, trending niches, competitor discovery, pain points, opportunities, industry news, brand visibility) by country/city/language/category/keyword | Part 12 L8609–8624; Part 15 L19179–19192 | 📦 | `source-notes/12`, `source-notes/15` |
+| Serper: Opportunity Discovery Agent (opportunity score, demand level, competition level, suggested product, target customer, recommended price, launch strategy) | Part 12 L8625–8643; Part 15 L19193–19209 | 📦 | `source-notes/12`, `source-notes/15` |
+| Serper: competitor tracking, SEO engine (keywords, PAA, briefs, internal linking), internet monitoring command centre with daily intelligence briefing | Part 12 L8644–8683; Part 15 L19210–19246 | 📦 | `source-notes/12`, `source-notes/15` |
+| Serper: Maps/Places lead machine (find businesses, extract details, score leads, detect no-website/poor-rating businesses, outreach emails, CRM push) | Part 12 L8684–8697; Part 15 L19247–19259 | 📦 | `source-notes/12`, `source-notes/15` |
+| Serper: product research, campaign intelligence from SERPs, autocomplete trend miner, research/patents layer, brand reputation tracking, visual + video intelligence, internal /search /news /images /videos /places /maps /shopping /scholar /patents /autocomplete /scrape modules | Part 12 L8699–8797; Part 15 L19260–19350 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Apollo.io pack — B2B sales intelligence**: people/company search with seniority/title/industry/size/revenue/tech-stack filters; hiring/funding/growth/news/website-activity signals; saved searches; daily lead alerts; "UK Decision-Maker Hunter" template | Part 12 L8850–8877; Part 15 L19370–19391 | 📦 | `source-notes/12`, `source-notes/15` |
+| Apollo: AI ICP Builder (persona, best titles/industries/sizes/regions, exclusion rules, scoring formula, outreach angle) | Part 12 L8878–8897; Part 15 L19392–19410 | 📦 | `source-notes/12`, `source-notes/15` |
+| Apollo: autonomous lead-list agent, 17-field enrichment layer, extended intent data (Intent Score 0–100 + "why now"), MarketWar Deal Probability Score (fit/intent/urgency/budget/authority/engagement/risk/close probability/deal value) | Part 12 L8898–8965; Part 15 L19411–19471 | 📦 | `source-notes/12`, `source-notes/15` |
+| Apollo: multi-step sequences (email, LinkedIn task, call, WhatsApp/SMS where compliant, retargeting, CRM task; Day 1/3/5/7/10/14), per-lead AI personalisation, built-in 11-stage pipeline, meeting engine, 13-metric dashboard, 9 APIs, GDPR/UK-EU compliance layer, admin controls | Part 12 L8967–9074; Part 15 L19472–19574 | 📦 | `source-notes/12`, `source-notes/15` |
+| **YepAPI pack — SEO + GEO intelligence**: SEO command centre (site audit, crawl health, Core Web Vitals, AI readability), keyword engine (difficulty, opportunity score, intent classification), rank tracking (SERP features, local pack, alerts) | Part 12 L9115–9163; Part 15 L19592–19635 | 📦 | `source-notes/12`, `source-notes/15` |
+| YepAPI: **GEO — Generative Engine Optimisation** (brand visibility in ChatGPT/Gemini/Perplexity/Google AI Overviews/AI Mode/Claude-style assistants; AI answer share-of-voice, prompt-level ranking, citation tracking, brand authority score, missing-source detection, AI answer optimisation plan — "very important for 2026") | Part 12 L9164–9183; Part 15 L19636–19654 | 📦 | `source-notes/12`, `source-notes/15` |
+| YepAPI: backlink intelligence, competitor teardown ("Beat this page" briefs), content automation, programmatic SEO builder (hundreds of location pages, auto-publish to CMS), local SEO suite, smart scraping, YouTube intelligence, white-label reporting | Part 12 L9186–9293; Part 15 L19655–19754 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Brevo pack — Customer Engagement OS**: email builder (drag-and-drop, AI copywriter, spam-risk preview), bulk sending infra (1k→1M+, throttling, warm-up, suppression, dedicated IP), deliverability centre (SPF/DKIM/DMARC/BIMI, reputation, blacklist monitoring) | Part 12 L9328–9375; Part 15 L19770–19819 | 📦 | `source-notes/12`, `source-notes/15` |
+| Brevo: honesty constraint — never promise "100% inbox / 0 spam"; promise = "Maximum inbox placement through authentication, warm-up, list hygiene, compliance, reputation protection, smart throttling, and AI deliverability optimisation" | Part 12 L9330–9334; Part 15 L19771–19774 | 📦 | `source-notes/12`, `source-notes/15` (legally load-bearing wording — keep verbatim) |
+| Brevo: CRM/CDP, segmentation, 12 lifecycle automations, 10+ channels, transactional messaging (OTP, receipts, invoices), sales CRM, shared inbox with AI suggested replies, 14-metric analytics | Part 12 L9378–9475; Part 15 L19820–19920 | 📦 | `source-notes/12`, `source-notes/15` |
+| Brevo Incorporation Pack (developer-ready): 17-module "Customer Communication & Revenue Automation OS", snake_case feature catalogues per module, 15-trigger/12-action automation vocabulary, ~30 API routes (POST /api/campaigns/omnichannel/create …), 39 collections, 3-phase build priority | Part 12 L11763–12448; Part 15 L16929–17614 | 📦 | `source-notes/12`, `source-notes/15` (pass 2 at 16929–17614 is the canonical developer version) |
+| **Contact Extractor / Lead Harvest AI**: compliant B2B contact intelligence — 23 lawful public sources; low-risk generic vs higher-risk personal email classification; crawler suite; per-email record (13 fields incl. lawful-basis status); 12-check verification; GDPR/LIA/PECR/CAN-SPAM compliance engine; 12-check outreach gate; warm-up/throttled sending | Part 12 L9518–9689; Part 15 L19937–20092 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Trustpilot pack — Trust, Reviews & Reputation Engine**: review collection (email/SMS/WhatsApp/QR invitations), public trust page per business, TrustBox-style widgets (9 types), 13-metric analytics, AI review responses, fake-review/fraud detection (10 controls), review SEO + AI-visibility, reviews→marketing assets studio, reviews→business intelligence, competitor trust benchmark, Free/Starter/Growth/Premium/Enterprise plans | Part 12 L9716–9885; Part 15 L20093–20259 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Yelp pack — Local Discovery, Reviews, Booking & Lead Gen**: consumer search filters, public business profiles, Request-a-Quote marketplace, booking engine (reservations, deposits, no-show protection), verified reviews with AI summaries, AI local concierge ("best restaurant near me for 6 tonight"), local ads (pay-per-click/lead/booking), page upgrades, unified local inbox, AI growth manager, consumer app layer, trust verification, AI video generation | Part 12 L9910–10097; Part 15 L20260–20438 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Yell pack — UK Local Directory + Lead Outreach**: UK business search (website/email/WhatsApp availability filters, lead score), public-data extractor with contact-permission status, one-click compliant contact (10 mandatory checks), profile builder, request-a-quote matching, Local SEO service module (vs Yell £300/£699 per month), reputation manager, 10-channel inbox, Yell-Ads-style advertising (lead guarantee model), Marketing MOT | Part 12 L10122–10230; Part 15 L20439–20537 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Zeely extraction**: URL-to-ad generator, AI video ads with avatars (~7–12 min), prompt-to-ad, mobile-first, credits + $29.95/$49.95/$79.95 tiers; 5 exploitable gaps (full command centre, 12+ channels, industry agents, diagnosis-before-ads, micro-business affordability: mobile money, WhatsApp-first onboarding, no-card trial, local languages English/French/Lingala/Swahili) | Part 12 L10353–10505 | 📦 | `source-notes/12-build-transcript.md` |
+| **TrustSeller AI / AI Creator Commerce Engine**: performance-based creator commerce ("Pay creators for results"); AI-managed discovery, fraud scoring, contracts, briefs, approval, tracking links, commissions, payouts; pay models per sale/lead/signup/hybrid; "Trust Sellers" concept (students, parents, teachers, taxi drivers, church leaders, WhatsApp group admins); creator tiers 0–4; Creator Performance Score (7 dimensions); JNN Creator Growth Network across founder portfolio (Tunakula, 3JN Travel, TicketRoyality, BitriPay, MarketWar OS, Buzz Pro, AxionOS, Veryx, LegAI, Health360, RakaPay, ParkSmart, StudYear, Openn Job, VIBR); anti-fraud controls; revenue model (activation fees, 20% payout commission, success fees, credits, £19/£49/£149 subscriptions) | Part 12 L10716–11152; inv-7 | 📦 | `source-notes/12-build-transcript.md` |
+| **MarketWar Contact Agent (ContactWar AI)**: paste 1 company or CSV up to 10,000; Companies House API first-line validation; Company Match Score 0–100 (bands 95–100 confirmed … <50 rejected); generic-email-first contact discovery; Contact Confidence Score; Buyer Intent & Fit Agent → Opportunity Score ("ranked commercial opportunities, not contacts"); one-click outreach with compliance filters; ~30-field business record schema; commercial power filters; pricing Free/£19/£79/£199/£499+/Enterprise + per-verified-contact + success fee per booked meeting; margin-protection tactics | Part 12 L11451–11762; inv-7 | 📦 | `source-notes/12-build-transcript.md` |
+| Live Market Intelligence Hub, LeadWar Room/Prospecting, SEO Command Centre + GEO Lab, Engagement Hub, Deliverability Guardian, Contact Intelligence Hub, Reputation Shield, Local Grid Control (prototype builds of the packs above) | Part 12 L8830–10240 (Gemini build notes) | 📦 | `source-notes/12` (built only in the discarded Firebase Studio prototype; not in this repo) |
+
+---
+
+## 10. Independence / external-API architecture (Parts 12 & 15)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| Full independence doctrine: MarketWar OS is independent customer acquisition infrastructure, NOT a layer on Meta/Google/TikTok/Brevo/Mailchimp/HubSpot; 21-item must-own list (customer DB, landing pages, forms, CRM, inbox, automation, segmentation, email/SMS campaigns, referral, loyalty, marketplace discovery, local SEO, AI campaign/landing-page/follow-up generation, revenue attribution, ACU billing, analytics, optimisation, Stop/Fix/Scale intelligence) | Part 12 L7597–7620; Part 15 L17615–17639, L18364–18386 | 📘 | `docs/PRODUCTION-ARCHITECTURE.md` (owned stack: Hostinger→Cloudflare→Vercel→Firebase, adopted); `docs/ai-os/06-architecture.md`; verbatim `source-notes/15` |
+| External APIs only for the un-ownable: WhatsApp sending, ad placement, telecom SMS, payments, calendar sync, platform imports, social publishing, identity/login, email deliverability infra | Part 12 L7597; Part 15 L17640–17649 | 📘 | `docs/ai-os/05-bitripay-and-connectors.md` (connector categories) |
+| Platform fully useful if every external API disconnects (18 core capabilities offline-listed); never build as Meta/Google/TikTok wrapper or Brevo/Mailchimp/HubSpot/Canva/Buffer/Hootsuite clone | Part 12 L7620; Part 15 L17656–17695, L18401–18410 | 📘 | `docs/ai-os/06-architecture.md`; ✅ partial — repo works standalone with demo dataset + AI gateway |
+| Integration Adapter Layer — `IntegrationAdapter` interface (provider, connect, disconnect, refreshToken, testConnection, syncData, sendAction, fetchMetrics, handleWebhook) + 7 integration collections (integrations, integration_accounts, integration_tokens, integration_sync_jobs, integration_webhooks, integration_errors, integration_usage_logs) | Part 15 L17700–17725, L18428–18448 | 📦 | `source-notes/15-marketing-strategy-agents-and-tail.md`; 📘 partial in `docs/ai-os/05` |
+| `IntegrationProvider` 24-provider enum: meta_ads, google_ads, tiktok_ads, linkedin_ads, whatsapp_cloud, twilio_sms, sendgrid_email, amazon_ses, mailgun_email, stripe, paypal, shopify, woocommerce, google_calendar, microsoft_calendar, google_business_profile, facebook_pages, instagram_business, linkedin_pages, zapier, make, brevo_import, mailchimp_import, hubspot_import | Part 15 L18451–18475 (24) / L18135–18155 (20-provider draft) | 📦 | `source-notes/15` |
+| `IntegrationAccount` schema (encrypted tokens, scopes, costMode, dependencyLevel optional/recommended/required_for_feature) | Part 15 L18157–18172, L18477–18496 | 📦 | `source-notes/15` |
+| External endpoint maps: Meta (8), Google Ads (8), TikTok (7), LinkedIn (6), WhatsApp Cloud (8), SMS (7), Email (7), Payments (8 + 3 manual fallbacks), Calendar (6), Ecommerce (7), Social publishing (5) | Part 15 L17729–17961, L18498–18596 | 📦 | `source-notes/15`; REST/webhook analogue 📘 `docs/ai-os/07-database-and-api.md` |
+| Internal API entry-point map — AI Core (9: /api/ai/business-diagnosis … /stop-fix-scale), Campaigns (6), Landing Pages (5), Lead Capture (5), CRM (6), Messaging (5), Automation (4), Referrals (5), Marketplace (4) | Part 15 L18067–18131, L18629–18687 | 📘 partial | `docs/ai-os/07-database-and-api.md` (REST + webhook spec); ✅ partial: `/api/agents/[agentId]`, `/api/audit`, `/api/gateway` implemented |
+| Manual Mode fallbacks per channel (paid ads: download creative + copy audience; WhatsApp: wa.me links + CSV export; SMS: CSV export; email: HTML download; social: manual publish) | Part 15 L18174–18200, L18598–18627 | 📦 | `source-notes/15` |
+| Owned channels built first: Landing Page Network `marketwar.site/{business}/{campaign}`, Business Marketplace `/discover/{city}/{service}`, Referral Network `/r/{business}/{code}`, SEO pages `/local/{city}/{service}`, owned CRM, email list manager, automation builder, analytics | Part 15 L17963–18001, L18689–18717 | 📦 | `source-notes/15` |
+| Dependency classification: Must Own Internally (18) / Optional External (11) / Never Fully Depend On (Meta, Google, TikTok, Brevo, Mailchimp, HubSpot, Canva, Buffer, Hootsuite, Klaviyo, Shopify — "bridges, not foundations") | Part 15 L18003–18047 | 📦 | `source-notes/15` |
+| AI Gateway with multi-provider failover (route by task, track provider cost + tokens, convert to ACU, hide provider from user, expose cost to admin, retry, fallback, log runs, store prompts/outputs, safety filters, brand rules — 12 responsibilities) | Part 13 L14214–14232; Part 12 L13042–13072 | ✅ partial | `src/lib/ai/gateway.ts` + `src/lib/ai/provider.ts` (Claude/OpenAI/Gemini failover, `/api/gateway`); ACU conversion + admin cost views 📘 `docs/ai-os/08` |
+| Provider Arbitration Engine (continuously pick cheapest capable model across OpenAI/Gemini/Claude/Vertex/open-source/self-hosted; user never told which model) | Part 12 L7805–7838; Part 15 L19048–19068 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (ACU system); failover (not cost-arbitrage) ✅ `src/lib/ai/gateway.ts` |
+| Infrastructure Independence Protocol UI: Independence Score, Moat Intelligence widget (owned vs rented traffic ratio), Infrastructure Gateway Hub, "Owned Distribution Moat" branding | Part 12 L7602–7628 | 📦 | `source-notes/12` (prototype-only) |
+| 4-phase independent build order: Phase 1 Independent Core (15 items) → Phase 2 Owned Acquisition Infrastructure (9) → Phase 3 Delivery API Connectors (10) → Phase 4 Network Effect (7: marketplace, promoter network, affiliates, public search, discovery, demand routing, performance lead marketplace) | Part 15 L18295–18339, L18817–18862 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (phased roadmap); verbatim `source-notes/15` |
+| Global reach: public SEO routes (/business/{slug}, /discover/{city}/{service}, /local/{city}/{service}, /offers/…, /campaign/…, /referral/…), community promoter network collections (affiliate_promoters, promoter_links, commission_rules, lead_tracking, conversion_tracking, payouts, fraud_checks) | Part 15 L18202–18237, L18689–18717 | 📦 | `source-notes/15` |
+| Email independence strategy: Phase 1 low-cost provider (SES/SendGrid/Mailgun/Postmark/Resend) → Phase 2 own sender-reputation infrastructure → Phase 3 dedicated sending domains per user | Part 15 L17859–17878 | 📦 | `source-notes/15` |
+| SMS provider options (Twilio, Vonage, MessageBird, local telecom aggregators, direct telecom deals later) + bring-your-own-gateway | Part 15 L17839–17857 | 📦 | `source-notes/15` |
+| Adopted production topology: Hostinger (domain/DNS) → Cloudflare (edge/security) → Vercel (Next.js hosting) → Firebase (auth/data/storage) | repo decision record | 📘 | `docs/PRODUCTION-ARCHITECTURE.md` (adopted), `docs/DEPLOYMENT.md` |
+| Firebase scaffolding with Firestore persistence + security rules | Part 12 tech-stack decisions | ✅ | `src/lib/firebase/client.ts`, `src/lib/firebase/admin.ts`, `src/lib/db.ts`, `firestore.rules`, `storage.rules` |
+| Tech stack: Next.js, TypeScript, Tailwind, Shadcn-style UI, Framer-Motion-style animation, chart layer, Firebase Auth/Functions/Firestore/Storage, Stripe, Twilio, SendGrid, WhatsApp Business API, Meta/Google/TikTok/LinkedIn APIs; AI layer OpenAI + Gemini + Claude (+ Vertex) behind internal gateway | Part 01 L304–360; Part 14 L15364–15397; Part 12 L13042–13072 | ✅ partial | Next.js/TS/Tailwind ✅ (repo), custom UI kit ✅ `src/components/ui.tsx`, SVG chart kit ✅ `src/components/charts.tsx`, AI gateway ✅; Functions/Stripe/Twilio/SendGrid/ads APIs 📘 `docs/ai-os/05`–`06` |
+
+---
+
+## 11. Pricing & ACU economics
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| Subscription tiers v1 (Doc 1 original & Version A): Free (1 audit, 3 posts, 1 campaign preview) / Starter **£9**/mo / Growth **£19**/mo / Pro **£39**/mo / Agency-White-Label **£99**/mo with per-tier feature lists | Part 01 L224–280; Part 13 L14249–14280 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md`; verbatim `source-notes/01`, `source-notes/13` |
+| Subscription tiers v2 (Version B "Cheapest In Market"): Free / Starter **£5**/mo / Growth **£15**/mo / Pro £39 / Agency £99 with quantified limits (1/10/50 landing pages etc.) | Part 14 L15305–15340 | 📦 | `source-notes/14` — conflicts with £9/£19 (see §15) |
+| AI Campaign Packs™: Starter **£5** (3 ads, 1 landing page, hashtags, CTA, WhatsApp flow) / Growth **£15** (10 ads, AI visuals, follow-up flows, retargeting copy, competitor analysis) / Domination **£49** (multi-platform, AI strategy, retargeting, WhatsApp automation, local SEO, referral campaign, optimisation) | Part 10 L5709–5763; Part 12 L13003–13019 | 📘 | `docs/ai-os/08` (campaign-pack stream); verbatim `source-notes/10` |
+| ACU exchange rate: **£1 = 100 ACUs** | Part 01 L288; Part 10 L5769; Part 13 L14234; Part 14 L15342 | 📘 | `docs/ai-os/08` (ACU system) |
+| ACU usage costs v1 (Doc 1): audit 50, campaign plan 30, landing page 80, 10 posts 40, competitor scan 60, full funnel 150 | Part 01 L282–302 | 📘 | `docs/ai-os/08`; verbatim `source-notes/01` |
+| ACU usage costs v2 (Version A, 10 items): + offer generation 20, visual generation 60, customer DB analysis 100, full campaign pack 150, autonomous campaign run 500 | Part 13 L14234–14247 | 📘 | `docs/ai-os/08`; verbatim `source-notes/13` |
+| ACU usage costs v3 (Version B, 15 items): + landing-page A/B variants 40, optimisation report 25, WhatsApp flow 30, SMS sequence 25, email sequence 35; 5x rule "provider cost for 100 ACUs ≤ £0.20" | Part 14 L15342–15362 | 📘 | `docs/ai-os/08` (fullest ACU line-item list); verbatim `source-notes/14` |
+| Strategy-agent ACU prices: Avatar 30 / Message Weapon 35 / Channel Commander 35 / Content War Plan 80 / Funnel Architect 70 / Paid Ads Risk 60 / Battle Plan 50 / Landing Page 80; Full Marketing Strategy Pack bundle 350 ACUs, sold at £5, platform cost ≤ £1 (5x) | Part 15 L16263–16279 | 📦 | `source-notes/15` |
+| ACU campaign costs (Option 2, Part 10): basic campaign 50, advanced 200, full autonomous 500 | Part 10 L5765–5777 | 📦 | `source-notes/10` |
+| ACU Economics Framework ("operate like a utility company"): never sell AI at cost; min 100% margin, recommended 300–500%, strategic target 400%+; cost→charge table; provider costs never exposed | Part 12 L7637–7666; Part 15 L18880–18902 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (ACU system); verbatim `source-notes/15` |
+| ACU pipeline: User Request → AI Gateway → Cost Engine → Margin Engine → ACU Calculator → Execution Engine | Part 12 L7671; Part 15 L18904–18917 | 📘 | `docs/ai-os/08`; gateway stage ✅ partial `src/lib/ai/gateway.ts` |
+| Dynamic pricing formula: ACUs = Provider Cost × Complexity × Resource Weight × Margin Multiplier × Demand Multiplier | Part 12 L7679; Part 15 L18919–18938 | 📦 | `source-notes/15` |
+| 4 resource tiers with margin bands: Tier 1 Low (chat/email/social) 5–8x; Tier 2 Medium (research/copy/plans) 4–6x; Tier 3 High (image/brand/logo/mockups) 3–5x; Tier 4 Very High (video/movie/voice cloning) 4–8x | Part 12 L7705–7755; Part 15 L18942–19012 | 📦 | `source-notes/15` |
+| Pre-execution ACU approval preview ("This task will consume 54 ACUs… Generate?") — no surprise spending | Part 12 L7758–7770; Part 15 L19016–19031 | 📦 | `source-notes/15` |
+| AI Profit Protection Engine ("No task runs at a loss": switch provider / cheaper model / reduce quality / request top-up / queue) | Part 12 L7775–7800; Part 15 L19032–19046 | 📦 | `source-notes/15` |
+| Subscription + ACU hybrid tiers: Starter 500 ACUs / Growth 5,000 / Business 25,000 / Enterprise negotiated; unused ACUs expire | Part 12 L7842–7894; Part 15 L19069–19093 | 📘 | `docs/ai-os/08`; verbatim `source-notes/15` |
+| Revenue multipliers: priority/instant processing (20/50/100 ACUs), premium models (50 vs 120), per-collaborator ACUs, export charges (PDF/PowerPoint/Video/API) | Part 12 L7899–7943; Part 15 L19095–19115 | 📦 | `source-notes/15` |
+| ACU Recycling (generate once, sell many times: templates, ad frameworks, prompt libraries, playbooks, funnels, agents — margins beyond 400%) | Part 12 L7948–7973; Part 15 L19117–19129 | 📘 | doc2 §12.2 (ACU recycling as highest-margin strategy); `docs/ai-os/08` |
+| 7 revenue layers: Subscription + ACU consumption + Marketplace + Transaction + Advertising + API + Premium Agents | Part 12 L8007–8017; Part 15 L19155–19160 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (7-stream monetisation) |
+| Margin governance history: 400%+ target → user-ordered **66% Competitive Margin** ("reduce OS profit margin from 100% to 66% to be competitive"), then "66% minimum" guardrail hard-coded in prototype `calculateACUs` | Part 12 L8403–8415, L8586–8601 | 📦 | `source-notes/12` — conflicts with 5x/400% rules (see §15) |
+| 5x gross-margin core business logic (10 cost controls: ACU billing, prompt compression, caching, template reuse, low-cost model routing, output reuse, batch generation, pre-generation scoring, plan-gating, automation surcharges) | Part 11 L6319–6341; Part 14 L14453–14470 | 📘 | `docs/ai-os/08`; verbatim `source-notes/14` |
+| Performance-based model (Option 3): small setup fee + pay per lead / booking / order; £5/mo access + £0.20–£1/lead + £2–£5/appointment + 3–10% commission | Part 10 L5779–5793; Part 02 L558–577; Part 13 L14282–14289 | 📘 | `docs/ai-os/08` (performance stream) |
+| Prototype billing-hub pricing passes: Starter £49 → **£25**/mo, Growth £99, Domination £499; 1 ACU ≈ £0.05; volume-discount bundles; monthly expiry | Part 12 L8572–8601 | 📦 | `source-notes/12` — unreconciled with all other tier sets (see §15) |
+| Strategy-doc tier sets: £9/£29/£99/£299 (Growth-Partner model) and £19/£79/£199/£499+ (Contact Agent) and TrustSeller £9.99/£29.99/£99 activation + £19/£49/£149 subscriptions + 20% payout commission + 5% success fees | Part 12 L11417–11423, L11684–11722, L10820–10855 | 📦 | `source-notes/12` — per-product pricing, unreconciled |
+| Platform Owner admin margin dashboard (total revenue, provider costs, gross margin %, revenue by provider/user/feature, most expensive/profitable users, cost leakage alerts, cost trends, forecast profitability) | Part 12 L7978–8002; Part 15 L19131–19153 | 📘 | `docs/ai-os/04` (Admin Super Control Centre) + `docs/ai-os/08` |
+| Free-tier definition (1 business audit, 3 AI posts, 1 campaign plan, basic landing page preview) | Part 01 L228–236; Part 13 L14250–14254; Part 14 L15307–15312 | 📘 | `docs/ai-os/08` |
+
+---
+
+## 12. Data model (evolution: 15 → 53 → 55 → 71 collections)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| v1 — 15 Firestore core collections: users, businesses, marketing_audits, campaigns, ad_creatives, landing_pages, leads, lead_events, competitor_scans, ai_agents, ai_runs, acu_wallets, subscriptions, provider_costs, performance_reports | Part 01 L362–364; inv-1 | ✅ partial | audits + agent runs persisted via `src/lib/db.ts` + `src/lib/types.ts`; `firestore.rules` scaffolded; remaining collections 📘 |
+| v2 — 53 collections (Version A; adds business_profiles, business_brains, customer_profiles/segments/imports, audit_scores, offers, offer_scores, campaign_packs/assets/experiments, visual_assets, copy_assets, hashtags, landing_page_events, lead_scores, whatsapp_conversations/messages, sms_messages, email_messages, followup_sequences, retargeting_flows, referral_programs, affiliate_promoters, marketplace_listings, competitor_profiles, review_mining_reports, local_market_data, seo_pages, google_business_posts, ai_predictions, ai_recommendations, growth_briefings, acu_transactions, stripe_customers, budget_guard_events, fraud_flags, audit_logs, notifications) | Part 13 L14133–14187; inv-8 | 📦 | `source-notes/13-consolidated-spec-version-a.md`; relational schema 📘 `docs/ai-os/07-database-and-api.md` |
+| v3 — 55 collections (Version B; adds landing_page_versions/sections/forms/scores/ab_tests/recommendations; drops business_profiles, campaign_experiments, stripe_customers, google_business_posts) | Part 14 L15399–15455 | 📦 | `source-notes/14-consolidated-spec-version-b.md` |
+| v4 — **71-collection master list (fullest single list)**: v3 + forms, form_submissions, contacts, contact_identities, contact_events, deals, deal_stages, email_campaigns, sms_campaigns, whatsapp_campaigns, message_templates, message_logs, automation_workflows, workflow_triggers, workflow_actions, referral_links, promoter_commissions, marketplace_categories, local_seo_pages, seo_keywords, + 7 integration_* collections | Part 15 L18719–18790; inv-9 | 📦 | `source-notes/15-marketing-strategy-agents-and-tail.md` — **canonical fullest list**; PostgreSQL analogue 📘 `docs/ai-os/07-database-and-api.md` |
+| Brevo-pack 39 additional collections (contacts, contact_identities, contact_segments, contact_events, campaign_channels, email/sms/whatsapp/push/wallet_campaigns, forms, form_submissions, automation_workflows, workflow_triggers/actions, transactional_messages, message_templates/logs, unified_inbox_threads/messages, chat_widgets, chatbot_flows, sales_pipelines, deals, deal_stages, meetings, call_logs, loyalty_programs/points/rewards, wallet_passes, data_imports, identity_resolution_rules, data_cleaning_rules, customer_scores, integrations, webhooks) | Part 15 L16873–16912, L17488–17526 | 📦 | `source-notes/15` (overlaps v4; reconcile on adoption) |
+| 12 landing-page collections | Part 14 L14997–15009; Part 11 L7125–7144 | 📦 | see §8 |
+| 11 strategy-agent shared collections (ai_agent_sessions, ai_agent_outputs, customer_avatars, messaging_strategies, channel_strategies, content_plans, funnels, paid_ad_strategies, marketing_battle_plans, landing_pages, campaign_packs) + AiAgentSession schema | Part 15 L16226–16262 | 📦 | `source-notes/15` |
+| ~37-collection developer-spec list (incl. acu_wallets, acu_transactions, provider_costs, fraud_detection) | Part 12 L13074–13111 | 📦 | `source-notes/12` (superseded by v4) |
+| 28-field customer profile schema (customer_id … consent_status) + 11 AI segments | Part 13 L13550–13589 | 📦 | `source-notes/13`; customer vault UI ✅ partial with demo data |
+| BrandAsset schema + `brand_assets` collection (13 asset types, AI-detected colours) | Part 11 L6037–6058 | 📦 | `source-notes/11` |
+| Blueprint production data model — PostgreSQL schema + ERD + REST/webhook API spec | doc2 §6–7 | 📘 | `docs/ai-os/07-database-and-api.md` |
+| Master Account System layers A–E as data model | Part 05 L2107–2256 | 📘 | `docs/ai-os/07`; see §3.2 |
+
+---
+
+## 13. Zero Generic Info Protocol & behaviour mandates (Part 12 transcript)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| "MAKE SURE THE WHOLE SYSTEM PROVIDES NO GENERIC INFORMATION BUT REAL DATA AND RELATED INFORMATION BASED ON THE USER REQUEST" — origin of the Zero Generic Info Protocol | Part 11 L7476–7477; Part 12 L7477; inv-7 | ✅ | anti-generic master directive prepended to every agent in `src/lib/ai/agents.ts` |
+| Anti-Generic Directive mechanics: forbid "marketing best practices" fluff; mandate blunt tactical output; "AI Baseline Assumptions" + "Risk of Inaction" when data sparse; "High-Fidelity Tactical Payload" | Part 12 L7480–7494 | ✅ partial | `src/lib/ai/agents.ts` directive; assumption/risk fields 📦 |
+| Blunt STOP / FIX / SCALE (plus RECOVER / WATCH / TEST) strategic verdict language across all agents and dashboards | Part 12 L7485; Part 13 L13946–13952; Part 12 L12435–12448 | ✅ | agent verdict conventions in `src/lib/ai/agents.ts`; dashboard verdict chips |
+| Regional slang, local landmarks and cultural nuance in generated copy (PAS/AIDA with local identity) | Part 12 L7483–7484; Part 08 L4340–4342 | ✅ partial | agent prompts request local specificity; systematic locale engine 📦 |
+| Pre-spend gating: AI Marketing Guarantee Score / Growth Readiness Score — refuse to launch until offer/website/creatives/targeting/tracking pass ("Don't launch yet. Fix this first.") | Part 12 L10681–10691, L11172–11181; Part 15 L16015–16027 | 📦 | `source-notes/12`, `source-notes/15`; audit verdicts ✅ partial |
+| Warfare branding system (War Room, numbered agents as weapons, Infiltration Points, Conquest Missions, Phased Warfare, Ghost Competitors, scanline aesthetic) | Part 12 (throughout); inv-7 §3 | ✅ partial | dashboard naming + design language; full taxonomy 📦 |
+| Reliability mandates: retry with exponential backoff + jitter (up to 5 attempts) on provider 503s, toast alerts | Part 11 L5913–5935; Part 12 L7499–7507 | ✅ partial | failover + retry behaviour in `src/lib/ai/gateway.ts` |
+| Compliance-as-architecture: LIA workflows, lawful-basis fields, 12-check outreach gates, ICO/PECR/CAN-SPAM embedding, "maximum inbox placement" promise discipline | Part 12 L9518–9689, L11737–11752 | 📦 | `source-notes/12`; blueprint compliance 📘 `docs/ai-os/08` + doc2 §9.3 |
+| Emerging-market/Africa-first mandates: mobile-money connectors (M-Pesa, Orange Money, Airtel Money, Afrimoney, Flutterwave, Paystack), WhatsApp-first onboarding, no-card trial, local languages (English, French, Lingala, Swahili) | Part 12 L8281–8291, L10441–10451, L10496 | 📦 | `source-notes/12`; connectors 📘 `docs/ai-os/05` |
+| "Superior flow" doctrine: Diagnose → Position → Create → Launch → Capture → Follow Up → Convert → Measure → Improve | Part 12 L10504, L11153–11450 | ✅ partial | onboarding→audit→campaign→recovery flow across dashboard |
+| Design mandate: dashboards issue commands, not analytics ("Stop this campaign", "Do not spend yet") | Part 12 L7485, L13250–13260 | ✅ | agent outputs + priority panels |
+| Never imply bypassing platform policies, scraping protected data, or guaranteed ad results (compliance caution) | Part 12 L10712–10715 | 📦 | `source-notes/12` (must carry into any future marketing copy) |
+
+---
+
+## 14. Document 2 — AI-OS Transformation Specification v3.0 (17 sections)
+
+Document 2 was imported verbatim to `docs/reference/ai-os-specification-v3-imported.md` and then decomposed
+into the buildable blueprint `docs/ai-os/01–08`. Every section is therefore 📘 (specified) with the verbatim
+import as its source of record, except where noted.
+
+| Requirement | Source (doc2 section) | Status | Where |
+|---|---|---|---|
+| §1 Executive Summary (mission, transformation scope, strategic outcome, post-transformation KPI targets) | doc2 §1.1–1.4 | 📘 | `docs/ai-os/01-executive-vision-and-market.md` |
+| §2 Deep Concept Analysis (core mission extraction, business value chain, user archetype analysis, process friction map) | doc2 §2.1–2.4 | 📘 | `docs/ai-os/01` + `docs/ai-os/02-users-and-command-centres.md` |
+| §3 AI-Agent Operating System Architecture (Central Intelligence Engine; Master Orchestrator Agent enhanced spec) | doc2 §3.1–3.2 | 📘 | `docs/ai-os/03-agent-ecosystem.md` (Master Orchestrator) + `docs/ai-os/06-architecture.md` (AI orchestration) |
+| §4 Complete AI Agent Ecosystem (agent architecture principles; complete agent specifications — growth corps, executive, engineering/QA, cybersecurity corps, revenue/customer/compliance agents) | doc2 §4.1–4.2 | 📘 | `docs/ai-os/03-agent-ecosystem.md` |
+| §5 Complete System Architecture (high-level overview, frontend, backend & microservices, event-driven architecture) | doc2 §5.1–5.4 | 📘 | `docs/ai-os/06-architecture.md` (events, orchestration, observability, DR) + `docs/PRODUCTION-ARCHITECTURE.md` |
+| §6 Database Architecture (data strategy; core Firestore collections production schema) | doc2 §6.1–6.2 | 📘 | `docs/ai-os/07-database-and-api.md` (PostgreSQL schema + ERD; Firestore rules ✅ partial in repo) |
+| §7 API Architecture (design principles, core internal endpoints, external partner & developer API, webhook events) | doc2 §7.1–7.4 | 📘 | `docs/ai-os/07-database-and-api.md` (REST/webhook spec); ✅ partial: 3 API routes live under `src/app/api/` |
+| §8 UX/UI Architecture (AI Command Centre design spec, design system incl. colour tokens, user journey maps) | doc2 §8.1–8.3 | 📘 | `docs/ai-os/02-users-and-command-centres.md`; visual system ✅ partial in `src/app/globals.css` + `src/lib/palette.ts` |
+| §9 Security & Compliance Architecture (zero-trust model, data protection & encryption, compliance framework, AI governance) | doc2 §9.1–9.4 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (zero-trust); `firestore.rules`/`storage.rules` ✅ partial |
+| §10 Analytics & Intelligence Architecture (dashboard architecture, predictive models) | doc2 §10.1–10.2 | 📘 | `docs/ai-os/06-architecture.md` (data intelligence + learning loop) |
+| §11 Automation Framework (core automation architecture, critical automation specifications) | doc2 §11.1–11.2 | 📘 | `docs/ai-os/06-architecture.md`; workflow builder itself 📦 (see §2.3) |
+| §12 Revenue Architecture (seven revenue stream architecture; ACU recycling as highest-margin strategy) | doc2 §12.1–12.2 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (7-stream monetisation + ACU) |
+| §13 Infrastructure & Deployment Architecture (GCP architecture, environment strategy, cost optimisation) | doc2 §13.1–13.3 | 📘 | `docs/PRODUCTION-ARCHITECTURE.md` (adopted topology: Hostinger→Cloudflare→Vercel→Firebase) + `docs/DEPLOYMENT.md` — note doc2's pure-GCP topology was superseded by the adopted stack |
+| §14 Engineering Delivery Roadmap (MVP Phase 0/1A weeks 1–12; V1 Phase 1B/1C; V2 Phase 2A/2B; V3 Phase 2C/3 to week 96; team structure) | doc2 §14.1–14.5 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (phased roadmap) |
+| §15 Risk Assessment (risk register) | doc2 §15.1 | 📘 | `docs/ai-os/08` |
+| §16 Scalability Strategy (principles, scaling milestones) | doc2 §16.1–16.2 | 📘 | `docs/ai-os/06-architecture.md` |
+| §17 Global Expansion Strategy (geographic roadmap, localisation architecture) | doc2 §17.1–17.2 | 📘 partial | `docs/ai-os/01`; detailed localisation architecture 📦 backlog (ties to Part 06/07 locale requirements) |
+| doc2 KPI targets & platform positioning statements ("3.0 — Production Grade") | doc2 header + §1.4 | 📘 | `docs/ai-os/01-executive-vision-and-market.md` |
+
+---
+
+## 15. Gaps & conflicts register
+
+Conflicts found across the source documents, with a recommended resolution for each. None of these block
+current code; all must be settled before the corresponding backlog items are promoted to 📘/✅.
+
+| # | Conflict | Evidence | Recommended resolution |
+|---|---|---|---|
+| 1 | **Subscription pricing: Starter £9 / Growth £19 (v1, Version A) vs Starter £5 / Growth £15 (Version B)** | Part 01 L238/L250 & Part 13 L14255/L14261 vs Part 14 L15314/L15320 | Adopt Version B (£5/£15) as the launch price — it is the later "Cheapest In Market + 5x profit" model and is margin-checked; keep £9/£19 as a post-traction step-up path. Record the decision in `docs/ai-os/08`. |
+| 2 | **Campaign-pack vs subscription confusion (£5/£15/£49 packs alongside £5/£15 subscriptions)** | Part 10 L5709–5763 vs Part 14 L15305–15340 | Keep both but name them distinctly: subscriptions are recurring platform access; Campaign Packs™ are one-off ACU-priced products. Never render both as "Starter/Growth" in the same UI without the pack/plan suffix. |
+| 3 | **Margin rules: 5x gross margin (400%) vs "66% minimum" vs 100%-minimum/300–500%-recommended utility framework** | Part 11 L6320 & Part 14 L14453–14470 vs Part 12 L8403/L8586–8601 vs Part 12 L7649–7655/Part 15 L18884–18890 | Treat them as different quantities: the 66% figure was a *competitive repricing of multipliers* (gross margin ≈ 66% = ~3x markup), not a replacement of the utility framework. Adopt: floor 66% gross margin per task (hard guardrail), target 400%+ blended via ACU recycling. Document in `docs/ai-os/08`. |
+| 4 | **Prototype billing tiers £25/£99/£499 and strategy-doc tiers £9/£29/£99/£299, £19/£79/£199/£499 never reconciled with the master £5–£99 ladder** | Part 12 L8572–8601, L11417–11423, L11684–11722 | Scope them: £19–£499 sets belong to *separate add-on products* (Contact Agent, Growth Partner). The core OS keeps the Free/£5/£15/£39/£99 ladder; add-on products price independently. Flag any UI copy citing £25/£49 Starter as stale. |
+| 5 | **Landing-page score sets: A = Clarity/Trust/Urgency/Emotional/Mobile/Speed/Conversion-Probability (7) vs B = Conversion/Clarity/Trust/Urgency/Mobile/Emotional/Friction/Lead-Quality (8)** | Part 13 L13849–13855 vs Part 14 L14924–14941 | Adopt Version B's 8-score set (it is the deep landing-page spec and includes definitions); keep Speed as a sub-signal of Mobile/Friction rather than a headline score. |
+| 6 | **Campaign scoring: AI Campaign Score™ (8 dims) vs AI Campaign Confidence Score™ (7 dims, different set)** | Part 08 L4731–4755 vs Part 10 L5795–5819 | Keep both as distinct products, per the source's own note: Campaign Score™ = pre-build quality matrix; Confidence Score™ = pre-launch outcome prediction. Do not merge dimension lists. |
+| 7 | **Audit score naming: "Follow-Up Readiness Score" (A) vs "Follow-Up Score" (B); 6-score implemented set vs 8-score spec set** | Part 13 L13486 vs Part 14 L14581; `src/lib/ai/audit.ts` | Standardise on "Follow-Up Readiness Score". When upgrading `src/lib/ai/audit.ts` from 6 to 8 scores, add Follow-Up Readiness + Revenue Leakage + Campaign Readiness and map "audience mismatch" → "Audience Match". |
+| 8 | **MVP phasing: 6 phases (Version A, ends with Marketplace) vs 5 phases (Version B, marketplace folded into Phase 5) vs 4-phase independence build order vs doc2's week-based Phase 0–3 roadmap** | Part 13 L14291–14335 vs Part 14 L15457–15495 vs Part 15 L18295–18339 vs doc2 §14 | Use doc2/`docs/ai-os/08` week-based roadmap as the master plan; map Version A Phase 6 (Marketplace) to its final phase. Keep Version A's 6-phase list as the feature checklist, Version B's for landing-page-first ordering. |
+| 9 | **Collection-list deltas: 15 vs 53 (A) vs 55 (B) vs ~37 (dev spec) vs 71 (independence architecture) + 39 Brevo collections; Version B internally inconsistent (4.12 lists 12 landing-page collections but its own §16 core list repeats only 6)** | Part 01 L364; Part 13 L14133–14187; Part 14 L15399–15455 vs L14997–15009; Part 12 L13074–13111; Part 15 L18719–18790, L16873–16912 | Canonicalise on the 71-collection master list (Part 15 L18719–18790), then merge the 4 A-only collections (business_profiles, campaign_experiments, stripe_customers, google_business_posts), the 4 missing landing-page collections from 4.12 (landing_page_ctas, _assets, _pixels, _submissions), the 11 strategy-agent collections, and the non-overlapping Brevo collections. Maintain the merged list in `docs/ai-os/07`. |
+| 10 | **Duplicated sections in the source** — Autonomous Campaign Engine appears twice (Parts 08 & 09, verbatim); 4.7 landing-page section duplicated (L6936–6957 ≈ L6983–7004); Brevo extraction has two passes (L16294–16928 vs L16929–17614); independence architecture has two passes (L17615–18358 vs L18359–18879); 39-collection list and API route blocks each appear twice | inv-5 §duplicate analysis; inv-6 note; inv-9 §3 | Treat Part 08, the second 4.7 copy's implementation notes, Brevo pass 2, and independence pass 2 as canonical. Parts 09 and the first passes remain preserved for provenance only — never spec from them. |
+| 11 | **Source typo `trigger_retargerting`** (automation action name) | Part 15 L17153; inv-9 | Implement as `trigger_retargeting`; keep the typo untouched in source-notes (verbatim record) and note the correction wherever the action catalogue is specified. |
+| 12 | **Autonomy level numbering: source uses Levels 1–3; blueprint uses dial L0–L3** | Part 08 L4651–4687 vs `docs/ai-os/02` | Adopt blueprint L0–L3 (L0 = manual/off). Map source Level 1→L1, 2→L2, 3→L3. |
+| 13 | **File-boundary artefacts**: doc1 ends at line 20537 (not 20538); "FINAL OPERATING COMMAND" body crosses the Part 03/04 boundary; Part 05→06 header "THE MOST IMPORTANT DESIGN PRINCIPLE" also crosses a boundary | inv-9 note; inv-1 L850–851; inv-3 L2845 | No action needed — the part files are contiguous; readers following inventory line refs across part boundaries should read the adjoining part. |
+| 14 | **Prototype-only features risk being mistaken for repo features** (Google Maps node, locale engine, papaparse CSV import, Firebase Studio pages) | Parts 04–12 Gemini build notes | The Firebase Studio prototype was discarded; only artefacts listed as ✅ in this register exist in this repo. Any "implemented" claim in the transcript is 📦 unless it appears in `src/`. |
+| 15 | **doc2 GCP-only infrastructure vs adopted Hostinger→Cloudflare→Vercel→Firebase topology** | doc2 §13 vs `docs/PRODUCTION-ARCHITECTURE.md` | Resolved: `docs/PRODUCTION-ARCHITECTURE.md` is the adopted decision; doc2 §13 retained as reference for a future GCP scale-out. |
+
+---
+
+## 16. Security note — credential redaction & mandatory key rotation
+
+Eight credential lines were found in the original uploaded document and were **redacted at import**
+(replaced with redaction markers in `docs/reference/source-notes/12-build-transcript.md` and noted in
+`source-notes/README.md` and `extraction-inventories/inventory-6.md`/`inventory-7.md`). No credential
+values appear anywhere in this repository, this register included.
+
+Redacted items (by type and original doc1 location — values NOT reproduced):
+
+| # | Original location | Credential type |
+|---|---|---|
+| 1 | doc1 L7512 | OpenAI API key |
+| 2 | doc1 L7516 | Same OpenAI key repeated in a curl Authorization header |
+| 3 | doc1 L7519 | Google Gemini API key |
+| 4 | doc1 L7521 | Vertex AI API key/token |
+| 5 | doc1 L7523 | Full GCP service-account JSON (project ID, private_key_id, complete RSA private key, client_email, client_id) |
+| 6 | doc1 L7525 | Anthropic Claude API key |
+| 7 | doc1 L7528 | Same Anthropic key repeated in a curl x-api-key header |
+| 8 | doc1 L6792 | Google Maps API key |
+
+**Action required:** every one of these keys was exposed in the original document (and, per doc1 L7537,
+written into a prototype `.env`). All five distinct credentials — OpenAI, Gemini, Vertex/GCP service account,
+Anthropic, Google Maps — **must be rotated/revoked immediately** and never committed. Current code reads
+providers exclusively from environment variables (`src/lib/ai/provider.ts`, `src/lib/firebase/admin.ts`);
+see `docs/DEPLOYMENT.md` for environment configuration.
+
+---
+
+*Register generated 2026-07-09 from extraction inventories 1–9 against repo state. When a backlog (📦) item
+is promoted, update its row and the summary counts, and record any conflict resolution from §15 in the
+relevant `docs/ai-os/` chapter.*
