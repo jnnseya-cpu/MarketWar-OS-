@@ -100,15 +100,15 @@ export default function BviCard() {
         MOA composite across 12 weighted dimensions · recalculated every 15 minutes
       </p>
 
-      <div className="flex items-center gap-5">
+      <div className="flex justify-center">
         <Gauge value={bvi} />
-        <div className="min-w-0 flex-1">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">12-week trajectory</p>
-          <Sparkline data={BVI_HISTORY} color={SERIES[1]} width={150} height={44} />
-          <p className="mt-2 text-xs text-slate-400">
-            +18 points since onboarding — dormant-revenue risk is the biggest drag left.
-          </p>
-        </div>
+      </div>
+      <div className="mt-3 overflow-hidden">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">12-week trajectory</p>
+        <Sparkline data={BVI_HISTORY} color={SERIES[1]} width={210} height={44} />
+        <p className="mt-2 text-xs text-slate-400">
+          +18 points since onboarding — dormant-revenue risk is the biggest drag left.
+        </p>
       </div>
 
       <button
