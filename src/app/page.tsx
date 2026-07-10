@@ -186,21 +186,21 @@ export default function LandingPage() {
             </span>
           </Link>
           <nav className="hidden items-center gap-7 text-sm font-medium text-slate-400 md:flex">
-            <a href="#platform" className="transition hover:text-white">Platform</a>
-            <a href="#agents" className="transition hover:text-white">AI Agents</a>
-            <a href="#results" className="transition hover:text-white">Results</a>
+            <a href="#platform" className="transition hover:text-white">Product</a>
+            <a href="#agents" className="transition hover:text-white">Solutions</a>
+            <Link href="/how-it-works" className="transition hover:text-white">Resources</Link>
             <a href="#pricing" className="transition hover:text-white">Pricing</a>
-            <Link href="/how-it-works" className="transition hover:text-white">How it works</Link>
+            <a href="#results" className="transition hover:text-white">About</a>
           </nav>
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
-              Live demo
+              Log in
             </Link>
             <Link
-              href="/onboarding"
+              href="/dashboard"
               className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
             >
-              Start free
+              Enter MarketWar OS
             </Link>
           </div>
         </div>
