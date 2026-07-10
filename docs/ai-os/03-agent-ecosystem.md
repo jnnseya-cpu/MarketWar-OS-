@@ -55,6 +55,48 @@ escalation_rules · policy_constraints · prompt_version · model_tier
 - **Business value:** converts 20 specialists into one coherent workforce; the
   ServiceNow orchestration pattern applied to growth operations.
 
+### 2.1 MOA enhanced specification (adopted from v3.0 spec §3.2)
+
+The MOA operates as a fully autonomous **Chief of Operations AI** — one brain
+managing platform health, agent performance, user priorities and revenue
+optimisation across every account simultaneously. Core capabilities:
+
+- **Business Vitality Index (BVI)** — real-time composite score (0–100) per
+  business, recalculated **every 15 minutes** across the 12 dimensions below
+- **Priority Intelligence Queue (PIQ)** — the ranked action list behind every
+  command centre's priority panel, ordered by revenue impact × urgency ×
+  confidence, updated in real time
+- **Inter-agent conflict resolution** — competing recommendations resolved by
+  the weighted framework **revenue impact × time-sensitivity × confidence**
+  (subordinate to the standing policy rule that Budget Protection wins spend
+  disputes, §2)
+- **Cross-account pattern recognition** — anonymised cross-business trends
+  feed platform-wide priors (the doc-06 learning loop)
+- **Autonomous threshold management** — autonomy-level thresholds adjust
+  dynamically with business performance trajectory (never above the tenant's
+  dial or platform policy caps)
+- **Natural-language reasoning API** — Ask-the-OS: plain-English queries,
+  structured evidence-backed strategic answers
+- **Anomaly detection broadcasting** — any metric deviating **> 2σ** from
+  expected triggers an emergency broadcast to all relevant agents
+
+#### Business Vitality Index — 12 dimensions (weights + binding alert thresholds)
+
+| Dimension | Weight | Measured as | Alert threshold |
+|---|---|---|---|
+| Campaign ROAS health | 15% | Weighted avg ROAS vs industry benchmark | < 1.5× target ROAS |
+| Revenue trend | 15% | 7-day revenue vs prior 7 days | < 80% of prior period |
+| Lead flow velocity | 12% | Leads/day vs 30-day rolling average | < 60% of rolling average |
+| Customer acquisition cost | 12% | CAC : LTV ratio | CAC > 50% of LTV |
+| Customer retention rate | 10% | 30-day repeat-purchase rate | < 25% (product businesses) |
+| Audience health | 8% | Ad frequency + saturation signals | Frequency > 4.0 or saturation > 70% |
+| Dormant revenue risk | 8% | % of database inactive > 90 days | > 40% inactive |
+| Creative fatigue score | 7% | CTR degradation per creative | CTR down > 35% from peak |
+| Competitor threat level | 5% | Competitor spend increase + creative velocity | Spend up > 30% in 7 days |
+| Budget efficiency | 4% | Spend pacing vs projected return | Projected ROAS below floor |
+| Opportunity capture rate | 2% | High-score opportunities acted on within 48 h | < 50% acted on |
+| Platform engagement | 2% | Daily active usage vs account tier | < 3 active days/week |
+
 ---
 
 ## 3. Growth agent corps (shipped in Phase 0 — `src/lib/ai/agents.ts`)
