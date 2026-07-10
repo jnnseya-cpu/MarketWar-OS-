@@ -229,6 +229,19 @@ the Phase-0 embodiment of the Reasoning Engine's simplification fallback.
 
 ## 6. Data intelligence layer
 
+### 6.0 Polyglot persistence strategy (adopted from v3.0 spec §6.1)
+
+The right store per data type and access pattern — **scale targets binding**:
+
+| Store | Technology | Data types | Access pattern | Scale target |
+|---|---|---|---|---|
+| Primary operational DB | Firestore | Users, businesses, campaigns, leads, tasks, ACU ledger | Real-time R/W, subscription listeners | **10M+ documents, 100K+ concurrent listeners** |
+| Analytics warehouse | BigQuery | Campaign metrics, agent performance, revenue analytics, event logs | Batch analytics, ML training extraction | PB-scale |
+| Vector memory | Pinecone (p1-x1) → pgvector P2 | Agent memory embeddings, business context vectors, knowledge-graph nodes | Top-K semantic search | **100M+ vectors, < 100 ms query P95** |
+| Cache layer | Redis (Memorystore) | **BVI scores, PIQ rankings, sessions, rate-limit counters** | Sub-millisecond KV reads | 64 GB pool, LRU eviction |
+| Asset storage | Cloud Storage + CDN | Generated images, brand assets, exports, audio/video | CDN GET; signed URLs for private files | PB, tiered hot/cold/archive |
+| Search index *(new component)* | Algolia / Typesense | Business listings, customer profiles, content library | Full-text with typo tolerance | **50M+ records, < 50 ms** |
+
 | Component | Technology | Role |
 |---|---|---|
 | Data lake | GCS (raw events, connector payloads) | Cheap immutable history |
