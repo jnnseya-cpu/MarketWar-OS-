@@ -16,6 +16,24 @@
 | R6 | Affiliate/partner network | Take on commission flows (M-18) | ~85% |
 | R7 | Data intelligence | Anonymised industry benchmark reports; premium demand-detection feeds. **Aggregate only, k-anonymity ≥ 50 tenants per cell, never per-tenant data** | ~95% |
 
+### A.1a Owner pricing doctrine (binding — supersedes conflicting margin rules)
+
+1. **Hard floor: profit margin never below 100%** — every billable AI action
+   is priced at **≥ 2× its fully-loaded provider cost**. No exceptions, no
+   promotional breaches of the floor. (Matches the source ACU Economics
+   Framework minimum; supersedes the transcript-era 66% guardrail.)
+2. **Competitiveness mandate: pricing must remain extremely competitive and
+   attractive.** The lever is the **cost base, not the margin**: prompt
+   compression, caching, template/output reuse, lowest-cost-capable model
+   routing (AI Gateway), batch generation, pre-generation scoring, ACU
+   recycling. Every cost saved is passed into lower headline prices at the
+   same or better margin.
+3. **Above the floor, price to win:** the 300–500% recommended band and the
+   per-tier 3×–8× targets apply where value supports them (premium actions);
+   between floor and target, competitive positioning decides.
+4. Budget Protection's ACU-margin monitor enforces the floor per task and
+   alerts the Admin margin dashboard on any action trending below 2×.
+
 ### A.2 ACU system (the AI economy)
 
 - 1 ACU = normalised unit of model cost (router maintains tier→ACU table).

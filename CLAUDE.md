@@ -33,6 +33,13 @@ specifications, or source material.** In practice:
   requirement → ✅ code / 📘 blueprint / 📦 backlog). Update it whenever
   requirements are added or shipped.
 
+## Owner pricing law
+
+Profit margin on AI actions is **never below 100%** (price ≥ 2× provider
+cost) while remaining **extremely competitive and attractive** — win on a
+lower cost base (caching, reuse, cheap-model routing, ACU recycling), never
+by breaching the floor. Detail: docs/ai-os/08 §A.1a.
+
 ## Conventions
 
 - Never commit credentials; any key that appears in source material gets

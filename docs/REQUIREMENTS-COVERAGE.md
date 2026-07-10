@@ -727,3 +727,17 @@ Source: developer-ready VEED feature extraction supplied 2026-07-09 (chat), spec
 | Human + AI Marketplace (templates/voices/video packs/services, commission) | VEED v2 gap 10 | 📘 | `ai-os/09` §5 → M-17 / R4 |
 | 14-route structure (/video/create → /video/marketplace) + 21 core actions (generateVideoFromPrompt → deductACUs) | VEED v2 dev structure | 📘 | `ai-os/09` §6 |
 | Positioning: VEED + Canva + CapCut + HeyGen + strategist + campaign manager + compliance officer + sales engine | VEED v2 | 📘 | `ai-os/09` v2 header |
+
+---
+
+## 17. Owner rulings log
+
+Live decisions by the owner that resolve register conflicts. These override
+earlier conflicting rules; superseded rules remain preserved in the verbatim
+sources per the Additive-Only Law.
+
+| Date | Ruling | Resolves | Codified |
+|---|---|---|---|
+| 2026-07-09 | All exposed credentials cancelled/rotated | Security register (8 redacted keys) | `docs/reference/VERIFICATION.md` |
+| 2026-07-09 | **Additive-Only Law**: everything added builds on top or upgrades; never delete, never downgrade | Governs all future content | `/CLAUDE.md`, docs/README.md |
+| 2026-07-09 | **Pricing doctrine**: margin never below 100% (≥2× provider cost) AND pricing must stay extremely competitive/attractive — compete on cost base, not margin erosion. 300–500% band + tier targets apply above the floor | Margin-rule conflict (66% vs 4×/5×/400%/35% entries, §15) — 66% guardrail superseded | `docs/ai-os/08` §A.1a, `/CLAUDE.md` |
