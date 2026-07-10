@@ -31,9 +31,12 @@ Commercial/investors start at **01 → 08**. Integrators start at **05 → 07**.
 
 ## Governing principles
 
-1. **Nothing is removed.** Every module, agent, journey and revenue stream from the
-   source concept documents is preserved and upgraded — the shipped Next.js platform
-   in `src/` is Phase 0 of this blueprint.
+1. **The Additive-Only Law.** Everything added builds on top of, or upgrades, what
+   already exists — nothing previously delivered is ever deleted or downgraded.
+   Every module, agent, journey and revenue stream from the source concept documents
+   is preserved and upgraded; conflicts are recorded in the coverage matrix, never
+   silently overwritten. The shipped Next.js platform in `src/` is Phase 0 of this
+   blueprint. (Owner directive — see `/CLAUDE.md`.)
 2. **Proven patterns only.** Every architectural recommendation maps to a pattern in
    production at named companies (Stripe, Salesforce, Palantir, ServiceNow, Uber,
    Cloudflare, OpenAI, Anthropic). No speculative infrastructure.
