@@ -383,8 +383,8 @@ frontend — only authenticated API calls reach Functions.
 
 | Milestone | Users | Architecture change | Est. monthly infra cost |
 |---|---|---|---|
-| MVP launch | 0–1,000 | Standard Functions, single-region Firestore, free-tier vector store | **£500–£1,500** |
-| Growth phase 1 | 1,000–10,000 | Min-instances on hot paths, **Redis cache layer added**, paid vector pod | £2,000–£6,000 |
-| Scale phase | 10,000–100,000 | **Multi-region Firestore (eur3)**, BigQuery pipeline, Vertex AI endpoints live | £8,000–£25,000 |
-| Enterprise phase | 100,000–500,000 | Cloud Spanner for highest-consistency data, Dataflow streaming, dedicated vector clusters per region | £30,000–£80,000 |
+| MVP launch | 0–1,000 | Standard Firebase Functions, single-region Firestore, **free-tier Pinecone** | **£500–£1,500** |
+| Growth phase 1 | 1,000–10,000 | Min-instances on hot paths, **Redis cache layer added**, Pinecone p1-x1 pod | £2,000–£6,000 |
+| Scale phase | 10,000–100,000 | **Multi-region Firestore (eur3)**, BigQuery analytics pipeline, Vertex AI endpoints live | £8,000–£25,000 |
+| Enterprise phase | 100,000–500,000 | Cloud Spanner for highest-consistency data, Dataflow streaming pipeline, **dedicated Pinecone clusters per region** | £30,000–£80,000 |
 | Platform phase | 500,000+ | Full microservices migration, multi-cloud strategy, **edge intelligence at CDN layer** | £80,000+ |
