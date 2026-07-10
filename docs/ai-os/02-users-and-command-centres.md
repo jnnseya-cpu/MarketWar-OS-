@@ -157,6 +157,21 @@ Every session is itself audit-logged (who audited the auditors).
 
 ---
 
+## 3a. User journey — new business owner, first 30 days (adopted from v3.0 spec §8.3.1)
+
+| Day | Stage | AI-OS actions | User experience |
+|---|---|---|---|
+| 1 | Onboarding | Profile collection → Business Diagnosis full audit → Customer Pain Intelligence profiles target customer | **"Why You're Not Getting Customers" report within 10 minutes** of completing the profile *(binding SLA; shipped audit already returns in seconds)* |
+| 1–2 | Strategy formation | Growth Strategist 30-day plan → Offer Builder creates 3 scored offers → Campaign Commander designs first campaign | AI growth plan with **one-click approval** for the first campaign |
+| 3–7 | First campaign live | Ad Creative generates creatives → Landing Page Agent builds conversion page → live at **L2 (user approves launch)** | Live monitoring in the War Room — real-time metrics, AI confidence score visible |
+| 7–14 | Optimisation | Budget Protection 24/7 → A/B results feed Campaign Commander → competitor scan runs | Daily briefing with a performance narrative — what's working, what's paused, why |
+| 14–30 | Scale | MOA detects **ROAS > 2.5×** → recommends scaling → executes automatically at L3 → Resurrection Engine imports existing database | Dormant-revenue recovery alongside campaign scaling — **double revenue acceleration** |
+
+The journey chains the shipped modules in exactly their build order
+(onboarding → audit → offers → campaign builder → war room → briefing →
+recovery); the 2.5× scale trigger joins the Budget Protection thresholds
+(Agent 7) as a binding number.
+
 ## 4. Decision rights matrix (excerpt — full matrix in appendix table `decision_rights`)
 
 | Decision | U1 | U2 | U3 | U4 | Agent max autonomy |
