@@ -70,6 +70,15 @@ shipped app; the CIE (§5.1 below) spans T3+T4+T7.
   with validated categorical palette (`src/lib/palette.ts`); dark-first.
 - Mobile: responsive PWA first; native wrapper (Capacitor) at P2 for push.
 
+**Mobile experience contract (adopted from v3.0 spec §5.2.2):**
+PWA fully functional from day one · **React Native shell** wrapping key PWA
+views for app-store distribution (supersedes the earlier Capacitor
+placeholder — RN is the specified wrapper) · push via FCM with **critical
+alerts bypassing email** · offline-capable dashboard locally caching the
+**BVI score and daily briefing** · **biometric authentication (Face ID /
+fingerprint) required for L3 approval confirmations** — a binding security
+control on the autonomy gate flow (doc 02 §2, doc 08 §B.1 step-up auth).
+
 **Frontend stack contract (adopted from v3.0 spec §5.2.1)** — status per item:
 RSC for performance-critical pages (Command Centre, War Room) ✅ shipped ·
 TypeScript strict mode ✅ shipped · Tailwind + design-token system ✅ shipped
