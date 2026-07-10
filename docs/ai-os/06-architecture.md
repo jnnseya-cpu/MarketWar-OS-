@@ -90,6 +90,19 @@ funnel maps/heatmaps at P2 · Firebase Auth with email/Google/Apple SSO +
 custom-claims RBAC — scaffolded (`src/lib/firebase/client.ts`), screens P1 ·
 PWA offline dashboards via service workers 📘 P2 (mobile-first markets).
 
+### 2.2 Portal architecture (adopted from v3.0 spec §5.2.3)
+
+Five portals on a subdomain scheme (each a Cloudflare-proxied CNAME to the
+same Vercel project at go-live; route separation via Next.js middleware):
+
+| Portal | URL | Primary users | Key capabilities | Status |
+|---|---|---|---|---|
+| Main Application | `app.marketwaros.com` | Owners, marketing managers, sales teams | Full Command Centre, War Room, Customer Vault, all agents | ✅ shipped as `/dashboard` |
+| Agency Portal | `agency.marketwaros.com` | Agency super admins, team leads | Multi-client management, white-label reporting, team permissions, client billing | 📘 M-16 / doc 02 §U4 |
+| Admin Console | `admin.marketwaros.com` | Platform super admins | Platform health, user/ACU management, system health, compliance | 📘 M-30 Admin Super Control Centre |
+| Partner Portal | `partner.marketwaros.com` | Affiliates, resellers, API partners | Commission tracking, API credentials, referral analytics, co-marketing tools | 📘 M-18 / doc 02 §U6 |
+| Developer Portal | `dev.marketwaros.com` | API developers, enterprise integrators | API docs, sandbox, webhook config, SDK downloads | 📘 M-26 / doc 02 §U8 |
+
 ## 3. Backend & service decomposition
 
 Stateless services on Cloud Run, one deployable per bounded context:
