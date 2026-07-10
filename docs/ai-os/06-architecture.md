@@ -107,6 +107,32 @@ request/trigger → MOA planner → task graph
 - **Evaluation harness:** golden-set evals per agent (input fixtures → scored
   outputs) run on every prompt/model change; regression blocks rollout.
 
+### 5.1 Central Intelligence Engine — nine cognitive subsystems (adopted from v3.0 spec §3.1)
+
+The agent runtime decomposes into the CIE: a distributed intelligence fabric
+of nine asynchronous subsystems coordinated through a shared context bus and
+unified vector memory graph. Each subsystem's **failure-handling contract is
+binding** — these are the resilience rules the implementation must meet:
+
+| Subsystem | Purpose | Failure handling (binding) |
+|---|---|---|
+| Agent Orchestration Layer | Coordinates all specialist agents via the MOA priority queue | Dead-letter queue + human escalation after **3 consecutive agent failures** |
+| Decision Engine | Multi-criteria scoring for all autonomous decisions | Conservative fallback — defer to human approval if **confidence < 70%** |
+| Memory Engine | Persistent long-term + working memory per user and business | Memory-reconciliation job every **6 hours** to resolve conflicts |
+| Context Engine | Assembles/injects relevant context into every agent prompt | Fall back to **last-known-good context** if retrieval fails |
+| Knowledge Engine | Platform-wide market/industry/strategy intelligence | Stale data flagged — agents use **benchmark fallback** if a feed fails |
+| Reasoning Engine | Chain-of-thought multi-step reasoning for complex decisions | Simplification fallback — reduce to **heuristic rule** if LLM unavailable |
+| Prediction Engine | Time-series forecasting: revenue, churn, demand, ROAS | **Prophet fallback model** if the managed ML service is unavailable |
+| Automation Engine | Executes all L3 autonomous actions + workflow triggers | Circuit breaker — **pause automation if error rate > 5% in 10 min** |
+| Learning Engine | Reinforcement loop improving agents from outcomes | **Rollback to previous model/policy version if performance degrades > 10%** |
+
+Mapping to this document: Orchestration = MOA (§5 runtime), Decision/Reasoning
+= policy check + model router tiers, Memory/Context = the memory layer + twin,
+Knowledge = the knowledge graph (§6), Prediction = prediction services (§6),
+Automation = action adapters + gates, Learning = the nightly grading loop
+(§6). The demo-intelligence fallback shipped in `src/lib/ai/provider.ts` is
+the Phase-0 embodiment of the Reasoning Engine's simplification fallback.
+
 ## 6. Data intelligence layer
 
 | Component | Technology | Role |
