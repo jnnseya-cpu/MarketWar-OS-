@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, ChevronRight, Crosshair, MessageCircle, Zap } from "lucide-react";
 import { AreaChart, DonutChart } from "@/components/charts";
+import BviCard from "@/components/BviCard";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
 import {
   demoActions,
@@ -40,8 +41,11 @@ export default function CommandCenterPage() {
         <StatCard label="Recoverable" value={`£${m.recoverableRevenue}`} sub="sleeping in your vault" tone="warn" />
       </div>
 
-      {/* Performance charts */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-5">
+      {/* Vitality + performance charts */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-7">
+        <div className="lg:col-span-2">
+          <BviCard />
+        </div>
         <div className="card p-5 lg:col-span-3">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-display font-bold text-white">Revenue vs ad spend — 14 days</h2>

@@ -68,3 +68,11 @@ The full platform, captured from the running production build. Click any image t
 
 ### Local Domination
 ![Local Domination](19-local-domination.png)
+
+## Account & access
+
+### Login — Firebase Auth (demo-mode aware)
+![Login](20-login.png)
+
+### Billing & ACUs — the AI economy
+![Billing & ACUs](21-billing-acu.png)

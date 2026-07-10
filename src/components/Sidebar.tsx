@@ -20,6 +20,7 @@ import {
   Shield,
   Stethoscope,
   Users,
+  Wallet,
 } from "lucide-react";
 
 const NAV = [
@@ -58,6 +59,10 @@ const NAV = [
       { href: "/dashboard/competitors", label: "Competitor Spy", icon: Radar },
       { href: "/dashboard/local", label: "Local Domination", icon: MapPin },
     ],
+  },
+  {
+    group: "Account",
+    items: [{ href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet }],
   },
 ];
 

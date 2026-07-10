@@ -56,7 +56,7 @@ frequencies; status marks map to the shipped app:
 
 | Panel | Type | Update frequency (binding) | AI component | User interaction | Status |
 |---|---|---|---|---|---|
-| Business Vitality Index | Gauge + sparkline | Every 15 min (Firestore listener) | MOA + Revenue Intelligence | Tap for dimension breakdown | 📘 build candidate (spec complete: doc 03 §2.1) |
+| Business Vitality Index | Gauge + sparkline | Every 15 min (Firestore listener) | MOA + Revenue Intelligence | Tap for dimension breakdown | ✅ shipped (`src/components/BviCard.tsx` — gauge, sparkline, 12-dimension breakdown with binding weights; Firestore listener at P1) |
 | AI Priority Queue | Action-card stack | Real-time (Pub/Sub push) | MOA + Decision Engine | One-click execute / dismiss / defer | ✅ shipped (priority panel; real-time push at P1) |
 | Daily Growth Briefing | Narrative card, TL;DR + expand | 06:00 daily + on-demand | Growth Strategist | Expand / share / export | ✅ shipped (briefing page) |
 | Live Performance Metrics | Real-time KPI tiles | Every 5 min (campaign API sync) | Revenue Intelligence | Drill down to campaign level | ✅ shipped (metrics bar + charts; live sync at P1) |

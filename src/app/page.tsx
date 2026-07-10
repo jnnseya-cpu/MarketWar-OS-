@@ -193,7 +193,7 @@ export default function LandingPage() {
             <a href="#results" className="transition hover:text-white">About</a>
           </nav>
           <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
+            <Link href="/login" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
               Log in
             </Link>
             <Link
