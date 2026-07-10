@@ -158,6 +158,27 @@ jobs); the Cloud Run rows above remain the home for long-running/heavy work.
 - The Workflow Studio (M-23) and webhook engine are both consumers of this bus —
   external webhooks are just an egress adapter with HMAC signing.
 
+### 4.1 Core event-topic catalogue (adopted from v3.0 spec §5.4)
+
+Guaranteed delivery, complete decoupling, and **event replay** for debugging,
+auditing and ML retraining. Retention periods are binding:
+
+| Topic | Producer | Consumers | Retention |
+|---|---|---|---|
+| `campaign.metric.updated` | Meta/Google integration broker | Budget Protection, Revenue Intelligence, MOA | 7 d |
+| `agent.task.completed` | All specialist agents | MOA, analytics pipeline, memory service, Learning Engine | 30 d |
+| `business.vitality.changed` | MOA service | Command Centre feed, Growth Strategist, notifications | 7 d |
+| `lead.captured` | Landing-page service, WhatsApp broker | Lead Qualification, CRM service, notifications | 90 d |
+| `customer.resurrected` | Resurrection Engine | Revenue Intelligence, Customer Vault, analytics | 90 d |
+| `acu.consumed` | AI Gateway service | Billing, Profit Protection Agent, ACU ledger | **365 d** |
+| `competitor.event.detected` | Competitor Intelligence | Growth Strategist, MOA, Opportunity Discovery | 30 d |
+| `user.action.taken` | Frontend (all portals) | Digital-twin service, analytics, Learning Engine | 180 d |
+
+These topics compose with the event families above (`lead.*`, `campaign.*`,
+`agent.decision.*`, …) — the catalogue names the concrete Pub/Sub topics and
+their retention floors; financial events (`acu.consumed`) retain longest to
+back ledger reconciliation and margin audits.
+
 ## 5. AI orchestration layer (agent runtime)
 
 ```
