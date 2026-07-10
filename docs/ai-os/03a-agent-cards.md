@@ -53,3 +53,43 @@ human-assisted manual profile completion.
 
 **Learning:** trains on remediation outcomes (which fixes produced the
 highest revenue lift); prioritisation weights refined **quarterly**.
+
+---
+
+## Agent 2 — Opportunity Discovery Agent
+
+**Mission:** continuously scan the market landscape to surface profitable
+opportunities — trending niches, demand spikes, competitor weaknesses,
+seasonal windows, emerging customer pain points — before they are widely
+exploited. *(New agent: powers the "Opportunity Discovery" pillar; extends
+the AI Demand Detection engine from the source master notes.)*
+
+**Responsibilities**
+- Scan Google Trends + keyword-volume feeds **every 24 hours** per business category
+- Monitor Meta Ad Library + Google Ads Transparency Centre for emerging creative patterns
+- Analyse review-sentiment clusters to detect unmet pain points in underserved categories
+- Detect seasonal demand curves and event windows on a **12-week forward horizon**
+- Score each opportunity on 5 dimensions: Addressable Demand, Competition Intensity, Conversion Likelihood, Margin Potential, Time Sensitivity
+- Deliver a ranked **Opportunity Brief** — top 5 opportunities, each with a one-click campaign-launch payload (hands off to Campaign Commander / M-06 packs)
+
+**Inputs → Outputs:** business profile, industry category, target geography,
+past brief history, competitor URLs → ranked opportunity brief (JSON),
+opportunity scores, recommended campaign hooks, one-click launch payloads.
+
+**Triggers (binding):** daily **03:00 scheduled run** per active business ·
+user request · **competitor spend surge** flagged by the Competitor
+Intelligence Agent (cross-agent trigger).
+
+**Services:** via AI Gateway + connectors: Google Trends, Google Ads
+transparency, Meta Ad Library, Ahrefs/SEMrush, sentiment model (doc 05
+registry).
+
+**KPIs:** opportunity→campaign conversion **> 40%** · revenue from
+opportunity-triggered vs non-triggered campaigns · score accuracy vs actual
+campaign ROAS · unique opportunities surfaced per 30 days.
+
+**Escalation:** none automated — opportunities are recommendations; the user
+approves launch unless **L3 autonomy** is active.
+
+**Learning:** scoring model refined from which opportunity types convert;
+A/B outcome data re-weights the five scoring dimensions.
