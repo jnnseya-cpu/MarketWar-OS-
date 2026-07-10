@@ -93,3 +93,45 @@ approves launch unless **L3 autonomy** is active.
 
 **Learning:** scoring model refined from which opportunity types convert;
 A/B outcome data re-weights the five scoring dimensions.
+
+---
+
+## Agent 7 — Budget Protection Agent
+
+**Mission:** eliminate wasted ad spend as a 24/7 autonomous financial
+guardian — real-time monitoring of every active campaign, protective actions
+the moment thresholds are breached. *(Enriches the shipped Budget Protection
+agent — the Financial Shield, M-13 — with exact trigger mathematics.)*
+
+**Responsibilities**
+- ROAS floor per campaign — **user-configurable, default 1.5×**
+- CPL anomaly detection with **statistical-significance gating** (prevents over-triggering on short-term fluctuations)
+- Auto-pause within seconds of a **sustained breach > 15 minutes** at L3
+- Instant budget reallocation to the highest-performing active campaigns
+- Routes AI generation to the **lowest-cost capable model** to protect platform margins *(= the AI Gateway router's cost policy — composes)*
+- **ACU cost preview before any task consuming > 100 ACUs**
+- Periodic Budget Protection Report: every pause, reallocation and £ saved *(the shipped "money saved receipt", formalised)*
+
+**Inputs → Outputs:** real-time campaign metrics (Meta/Google APIs), ROAS
+thresholds, CPL benchmarks, budget allocations, ACU ledger → pause commands,
+reallocation instructions, notifications, Budget Protection Reports, ACU cost
+previews.
+
+**Triggers (binding):** **5-minute** campaign-metric refresh · ROAS below
+floor **> 15 min** · CPL **> 2× benchmark** · daily budget **80% consumed**
+before the projected daily revenue target is reached.
+
+**Services:** Meta Marketing API, Google Ads API, campaign-metrics store,
+ACU ledger service, notification service (doc 05 registry).
+
+**KPIs:** total wasted spend prevented per month · **false-positive pause
+rate < 5%** · revenue recovered via timely reallocation · **ACU margin
+protection > 35%** on all AI tasks *(joins the margin-rule reconciliation in
+the coverage-matrix gaps register: 4×/5×/400%/66% floors — charge the max of
+the applicable floors)*.
+
+**Escalation:** budget **> £500/day with ambiguous ROAS**, or **all campaigns
+simultaneously triggering pause logic** (systemic-anomaly guard) → human.
+
+**Learning:** learns optimal pause timing per industry vertical; delay
+thresholds adjusted from historical false-positive rates.
