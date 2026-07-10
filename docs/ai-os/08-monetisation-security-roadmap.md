@@ -223,6 +223,85 @@ deterministic audit engine, chart system, premium landing page.
 **Team shape (P1):** 2 full-stack, 1 AI/agents, 1 payments/backend, 1 design,
 0.5 SRE, 0.5 compliance — the imported v3 spec's team structure applies from P2.
 
+### C.1 Week-by-week delivery roadmap (adopted from v3.0 spec §14 — binding sequence)
+
+The v3 spec's deliverable-level schedule slots inside the phase table above.
+MVP thesis: the core intelligence loop **diagnose → strategise → create →
+execute → protect**, charging subscription revenue and demonstrating ROI
+within 30 days of a business joining.
+
+**MVP (wks 1–12):** Firebase setup + ACU ledger + Pub/Sub (wk 1–2) → AI
+Gateway Router (wk 2–3, *shipped: `src/lib/ai/gateway.ts`*) → app shell +
+design system + Auth (wk 2–4) → Diagnosis Agent 1 (wk 4–6) → Offer Builder 4
++ Pain Intelligence 3 (wk 5–7) → Ad Creative 5, Meta/Google/TikTok formats
+(wk 6–8) → Landing Page Generator 16 (wk 7–9) → Command Centre shell with
+BVI/PIQ/metrics panels (wk 8–10) → Stripe billing + ACU top-up + ledger UI
+(wk 9–11) → Diagnosis report UI with funnel map (wk 10–12).
+
+**V1 (wks 9–20):** Meta Marketing API (9–12) · Google Ads API incl.
+Performance Max (10–14) · Campaign Commander 6 + War Room UI (11–14) ·
+Budget Protection 7 real-time ROAS + auto-pause (13–15) · WhatsApp Engine 15
+via Twilio (13–16) · Lead Capture 8 (14–16) · Customer Vault MVP (15–17) ·
+Revenue Intelligence dashboard (16–18) · Competitor Intelligence 10 (17–19)
+· ACU billing UI (18–20).
+
+**V2 (wks 21–40):** Resurrection 9 (21–24, P0) · Retargeting 17 (22–26, P0)
+· Local Domination 11 (24–28) · Opportunity Discovery 2 (25–28, P0) · Growth
+Strategist 13 (26–30, P0) · Content Factory 14 (27–30) · **L2/L3 autonomy
+engine — MOA priority queue + conflict resolution (29–34, P0)** · Workflow
+Agent 18 visual builder (30–35) · Digital Twin system (32–36) · Agency
+multi-client + white-label + team permissions (35–40, P0).
+
+**V3 (wks 37–96):** TikTok + LinkedIn Ads APIs (37–42, → 5 autonomous paid
+channels) · ML forecasting live (38–44) · Profit Protection 20 + margin
+dashboard (40–46) · **ACU Recycling Marketplace (42–50 — the 10×–50× margin
+stream, §A.2a)** · Developer API portal + SDK (44–52) · affiliate
+infrastructure (46–52) · Marketplace & Demand Router 19 (months 13–18) ·
+cross-business anonymised benchmarks (14–20) · DemandOS routing ecosystem
+(19–24).
+
+Per-deliverable **team owners and dependency chains** (e.g. Diagnosis Agent
+depends on AI Gateway Router; Ad Creative depends on Offer Builder) are
+recorded verbatim in the imported spec §14.1–14.4
+(`docs/reference/ai-os-specification-v3-imported.md`); role responsibilities
+map to §C.2 below.
+
+### C.2 Engineering team structure (adopted from v3.0 spec §14.5 — 9 heads)
+
+| Role | Count | Phase 1 | Phase 2+ |
+|---|---|---|---|
+| Lead full-stack engineer | 1 | Architecture, Firebase setup, AI Gateway design, code review | System design leadership, performance engineering, DevOps |
+| Frontend engineers | 2 | Command Centre UI, War Room, design system | Agency portal, white-label, mobile PWA, component library |
+| Backend / Firebase engineers | 2 | Cloud Functions, Firestore schema, Pub/Sub, agent-task infra | Microservices refactor, BigQuery pipeline, ML inference integration |
+| AI / ML engineer | 1 | All 20 agents' logic, vector memory, LLM orchestration, routing | Model training, Vertex AI deployment, RL pipeline, forecasting |
+| Integration engineer | 1 | Meta, Google Ads, WhatsApp Business, Stripe, Twilio | TikTok, LinkedIn, HubSpot, Shopify, webhook marketplace |
+| QA engineer | 1 | Agent output validation, test automation, regression suites | Performance/load testing, AI output-quality benchmarking |
+| Product designer | 1 | Command Centre UX, design system, Figma library | Agency portal, white-label theming, mobile experience |
+
+### C.3 Global expansion strategy (adopted from v3.0 spec §17)
+
+| Phase | Markets | Timeline | Key adaptations | Revenue opportunity |
+|---|---|---|---|---|
+| 1 — Foundation | **United Kingdom** (primary) | Months 1–6 | UK GDPR, ICO registration, GBP pricing, UK English, UK ad-market knowledge | £0–£800K ARR |
+| 2 — English-speaking | Ireland, Australia, Canada, USA, New Zealand | Months 7–18 | Local tax, USD/AUD/CAD tiers, local Twilio number pools, **US CCPA** | £800K–£5M ARR |
+| 3 — European | France, Germany, Netherlands, Spain, Belgium | Months 13–24 | Full EU GDPR, multi-language LLM fine-tuning, local ad integrations, EUR pricing, local data residency | £5M–£15M ARR |
+| 4 — African diaspora corridor | **DRC**, Nigeria, Kenya, South Africa, Ghana | Months 19–36 | French/Swahili models, **mobile-money rails (BitriPay)**, **low-bandwidth UI mode**, local compliance | £15M–£30M ARR |
+| 5 — Global | LATAM, SEA, MENA | Months 30–48 | Regional LLM fine-tuning, regional ad platforms, multi-currency ACU billing, regional data centres | £30M–£50M+ ARR |
+
+**Localisation architecture (§17.2):** language-specific prompt variants for
+all 20 agents (launch: EN-GB, EN-US, FR, DE, ES) · cultural-calibration
+datasets per market in Pain Intelligence · jurisdiction rule-sets in the
+Compliance Agent — **new markets via configuration, not code** · regional
+ad-platform knowledge in Campaign Commander (WeChat Ads, Snapchat-first
+MENA) · multi-currency ACU via Stripe international + local methods (BitriPay
+for DRC) · **low-bandwidth mode**: dynamic asset reduction, aggressive output
+caching, offline-capable PWA.
+
+**Strategic note (verbatim from spec):** the DRC / African-diaspora corridor
+is a uniquely defensible expansion for Groupe Nseya Digital — existing
+BitriPay payment infrastructure plus regional market intelligence, in a
+market where no competitor has native AI marketing infrastructure.
+
 **Definition of done, every phase:** typecheck/tests/evals green · SLOs met for
 30 days · security review · rollback rehearsed · docs updated (these files are
 the contract of record).

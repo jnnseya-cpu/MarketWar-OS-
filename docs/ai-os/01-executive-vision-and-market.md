@@ -180,3 +180,18 @@ the OKRs the corresponding modules are graded against:
 | SMB churn from slow results | High | Recovery-first onboarding: mine the vault (fast, free wins) before ad spend |
 | Agent error damaging a merchant | Medium | Autonomy levels (L0–L3), spend caps, human gates, full audit replay |
 | Regulatory (marketing consent) | Medium | Consent ledger per contact; GDPR/PECR enforcement in the send path, not in docs |
+
+#### 3.6a Full risk register (adopted from v3.0 spec §15 — ten risks with binding mitigations)
+
+| Risk | Category | Prob. | Impact | Mitigation (binding) |
+|---|---|---|---|---|
+| LLM provider downtime / cost spike | Technical | Med | High | Multi-provider AI Gateway — **auto-failover to Gemini/Groq within 30 seconds**; ACU pricing buffer absorbs spikes |
+| Meta/Google API policy change restricting automation | External | Med | Very High | API version monitoring + **6-week deprecation buffer**; abstraction layer → **API swap within 2 weeks** |
+| GDPR enforcement action (AI content / data processing) | Legal | Low | Very High | UK GDPR from day 1; ICO registration; **Data Protection Officer engaged**; consent management built-in |
+| Customer data breach via third-party integration | Security | Low | Very High | Field-level encryption, WAF, Cloud Armor, zero-trust, **annual penetration testing** |
+| L3 autonomy causes unauthorised spend | Product | Low | High | Configurable spend caps per day/month; **emergency pause within 60 s**; **L3 requires explicit opt-in + TOTP confirmation** |
+| AI-generated content causes brand damage | Product | Med | Med | AI content watermarking; pre-publish compliance check; L1/L2 approval; AI ethics guidelines in T&Cs |
+| Competitor replicates agent architecture | Competitive | Med | Med | Data moat (per-business Vector Memory Graph accumulation), ACU-recycled assets, Phase-3 marketplace network effects |
+| Cash-flow pressure from AI inference costs | Financial | Med | High | ACU margin floor enforced by Profit Protection Agent (owner floor: ≥ 100%); provider arbitration; **break-even modelled at 800 paid users** |
+| Key engineer departure in critical phase | People | Med | High | Documentation-first culture; agent specs in codebase comments; **2-engineer knowledge overlap on all critical systems** |
+| Firebase platform dependency concentration | Technical | Low | High | SDK abstraction layer → **AWS/Azure migration within 8 weeks** if required; Firestore data exportable to any SQL/NoSQL |
