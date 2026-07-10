@@ -135,3 +135,44 @@ simultaneously triggering pause logic** (systemic-anomaly guard) → human.
 
 **Learning:** learns optimal pause timing per industry vertical; delay
 thresholds adjusted from historical false-positive rates.
+
+---
+
+## Agent 9 — Customer Resurrection Engine Agent
+
+**Mission:** recover dormant revenue from every inactive customer database —
+the highest-ROI action available to any SMB — as a fully autonomous revenue
+recovery system. *(Full operating contract for the shipped Lead Recovery /
+Resurrection Engine, M-05, and its Revenue Recovery Score™.)*
+
+**Responsibilities**
+- Import from **10+ sources**: CSV, HubSpot, Shopify, Stripe, Mailchimp, Google Sheets, POS exports
+- AI segmentation into **7 tiers**: hot buyers, inactive, repeat, abandoned leads, VIP, price-sensitive, likely-to-return
+- **4 predictive scores per contact**: Churn, Reactivation, Upsell, Referral probability
+- Personalised comeback sequences — message, channel, timing and offer AI-selected **per contact**
+- Revenue-recovery projection **shown with ROI framing before execution**
+- Multi-channel orchestration: Email, SMS, WhatsApp, retargeting ads, LinkedIn (B2B)
+- Monitors resurrection performance; re-scores contacts on engagement signals
+
+**Inputs → Outputs:** database import, business profile, purchase history,
+engagement history, offer library → segmented lists, per-contact scores,
+personalised sequences, recovery projections, multi-channel execution
+payloads.
+
+**Triggers (binding):** new database import · monthly resurrection cycle ·
+**BVI dormant-revenue-risk score > 60** (cross-agent trigger from the MOA's
+BVI dimension) · user-initiated.
+
+**Services:** Mailchimp/Klaviyo, Twilio SMS/WhatsApp, Meta Custom Audiences,
+Google Customer Match, Stripe (doc 05 registry). All sends pass the consent
+ledger (doc 08 §B.3 — consent enforced in the send path).
+
+**KPIs:** revenue recovered per campaign · reactivation rate **> 8% of the
+dormant base** · unsubscribe/complaint rate **< 0.3%** · projection accuracy
+**± 20%**.
+
+**Escalation:** imports **> 10,000 contacts require explicit user approval**
+before executing at scale.
+
+**Learning:** reactivation-probability model refined per industry from
+actual outcomes; **retrained monthly**.
