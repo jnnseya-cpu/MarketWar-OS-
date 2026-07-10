@@ -9,6 +9,7 @@ import {
   Crosshair,
   Factory,
   Flame,
+  Gauge,
   LayoutDashboard,
   MapPin,
   MessageCircle,
@@ -17,6 +18,7 @@ import {
   RefreshCcw,
   Rocket,
   ScrollText,
+  Settings,
   Shield,
   Stethoscope,
   Users,
@@ -62,7 +64,11 @@ const NAV = [
   },
   {
     group: "Account",
-    items: [{ href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet }],
+    items: [
+      { href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet },
+      { href: "/dashboard/settings", label: "Settings & Security", icon: Settings },
+      { href: "/dashboard/admin", label: "Admin Centre", icon: Gauge },
+    ],
   },
 ];
 

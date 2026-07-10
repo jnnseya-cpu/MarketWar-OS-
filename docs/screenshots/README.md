@@ -76,3 +76,9 @@ The full platform, captured from the running production build. Click any image t
 
 ### Billing & ACUs — the AI economy
 ![Billing & ACUs](21-billing-acu.png)
+
+### Settings & Security — the autonomy dial
+![Settings & Security](22-settings-security.png)
+
+### Admin Super Control Centre — platform economics
+![Admin Centre](23-admin-centre.png)
