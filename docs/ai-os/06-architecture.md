@@ -126,6 +126,27 @@ no shared databases across contexts; BitriPay services live in a separate GCP
 project with restricted peering (PCI + blast-radius isolation — the Stripe
 "money services are their own island" pattern).
 
+### 3.1 Microservice runtime & scaling contract (adopted from v3.0 spec §5.3)
+
+The spec's ten-service decomposition with **binding runtime and scaling
+parameters**. Reconciliation with the table above: same bounded contexts —
+the spec pins event-driven services to Firebase Functions (2nd gen) per the
+adopted production architecture (§7 Cloud Functions / §8 Cloud Run for heavy
+jobs); the Cloud Run rows above remain the home for long-running/heavy work.
+
+| Service | Technology | Responsibility | Scaling (binding) |
+|---|---|---|---|
+| Auth Service | Firebase Auth + custom claims | Authn, sessions, RBAC token issuance | Firebase-managed horizontal |
+| MOA Service | **Functions 2nd gen, 8 GB, 540 s timeout** | Orchestration, BVI calc, PIQ management | Up to **1,000 concurrent instances** |
+| Campaign Service | Functions + Cloud Tasks | Campaign CRUD, metric ingestion, autonomy execution | Task-queued burst operations |
+| AI Gateway Service | Functions + custom router *(shipped router: `src/lib/ai/gateway.ts`)* | LLM provider routing, cost arbitration, fallback | Stateless — **10,000+ concurrent AI requests** |
+| Vector Memory Service | Functions + vector store | Embeddings, semantic search, memory R/W | Index replication, horizontal |
+| Notification Service | Functions + FCM + Twilio | Push, email, SMS, WhatsApp delivery | Queue-based with retry logic |
+| Analytics Pipeline | Cloud Dataflow + BigQuery | Event ingestion, aggregation, warehouse loading | Apache Beam autoscaling |
+| Billing Service | Functions + Stripe SDK | Subscriptions, ACU ledger, invoicing | Stripe-managed + **webhook reconciliation** |
+| Integration Broker | Functions + Cloud Tasks | All third-party API calls (Meta, Google, Twilio…) | **Per-platform rate limiting + exponential-backoff queues** |
+| ML Inference Service | Vertex AI endpoints + Functions | Real-time churn/ROAS/LTV predictions | Vertex autoscaling with **min-instance warm pools** |
+
 ## 4. Event-driven architecture
 
 - Bus: Pub/Sub with schema-registry-validated JSON events
