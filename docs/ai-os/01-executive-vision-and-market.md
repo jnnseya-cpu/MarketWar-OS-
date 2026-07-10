@@ -192,6 +192,6 @@ the OKRs the corresponding modules are graded against:
 | L3 autonomy causes unauthorised spend | Product | Low | High | Configurable spend caps per day/month; **emergency pause within 60 s**; **L3 requires explicit opt-in + TOTP confirmation** |
 | AI-generated content causes brand damage | Product | Med | Med | AI content watermarking; pre-publish compliance check; L1/L2 approval; AI ethics guidelines in T&Cs |
 | Competitor replicates agent architecture | Competitive | Med | Med | Data moat (per-business Vector Memory Graph accumulation), ACU-recycled assets, Phase-3 marketplace network effects |
-| Cash-flow pressure from AI inference costs | Financial | Med | High | ACU margin floor enforced by Profit Protection Agent (owner floor: ≥ 100%); provider arbitration; **break-even modelled at 800 paid users** |
+| Cash-flow pressure from AI inference costs | Financial | Med | High | ACU margin floor enforced by Profit Protection Agent (owner floor: ≥ 100% per task); provider arbitration maintains **> 40% gross margin** platform-wide; **break-even modelled at 800 paid users** |
 | Key engineer departure in critical phase | People | Med | High | Documentation-first culture; agent specs in codebase comments; **2-engineer knowledge overlap on all critical systems** |
 | Firebase platform dependency concentration | Technical | Low | High | SDK abstraction layer → **AWS/Azure migration within 8 weeks** if required; Firestore data exportable to any SQL/NoSQL |
