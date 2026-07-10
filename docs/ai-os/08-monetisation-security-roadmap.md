@@ -108,6 +108,42 @@ enforced in the agent runtime).
 | SOC 2 Type II (P2 target) | Platform controls | Audit log, change mgmt, access reviews |
 | AI governance | All agent actions | Decision log w/ model+prompt versions, eval gates, kill-switches, human escalation (aligned to EU AI Act transparency duties) |
 
+### B.4a Adoptions from v3.0 spec §9 (binding)
+
+**Five authentication layers (§9.1.1):** L1 Firebase Auth (email/Google/
+Apple, JWT) · L2 **TOTP MFA required for all L3-autonomy configuration and
+all agency-admin accounts** · L3 device trust — unrecognised devices need
+email verification + TOTP regardless of MFA setting · L4 behavioural anomaly
+(geography/time/pattern) → step-up auth · L5 **every agent invocation carries
+a signed service-account token**; no agent can exceed its permission scope.
+
+**RBAC matrix (§9.1.2)** — 7 roles × 10 permissions adopted verbatim; the
+consequential rows: L3-autonomy configuration = super-admin/agency-admin/
+owner only · ACU & billing = admin/agency/owner · white-label + API keys =
+admin/agency only · affiliates see only the commission dashboard.
+
+**Encryption upgrades (§9.2):** **TLS 1.3 mandatory — TLS 1.2 disabled on
+all endpoints** (upgrades the earlier "TLS ≥1.2" baseline) · AES-256 at rest
++ **application-layer field encryption for contact phone/email with a
+separate key per business** (inter-tenant isolation) · secrets only in
+Secret Manager — never codebase, env files, or logs · AI training data
+anonymised + pseudonymised before any pipeline.
+
+**Compliance implementations (§9.3):** UK GDPR (consent platform, erasure
+API, export API, agency DPA templates) · EU GDPR (EU data residency + SCCs
+for US providers) · PECR (timestamped consent per contact, **pre-send
+compliance check by the Compliance Agent**) · PCI DSS (Stripe holds all card
+data) · SOC 2 Type II (**audit trail from day 1 via `agent_tasks`; audit prep
+begins month 6**) · ICO registration + **72-hour breach-notification
+protocol** in the incident playbook.
+
+**AI governance additions (§9.4):** full model/prompt lineage in
+`agent_tasks` · plain-English reasoning trace on every autonomous decision ·
+**any L3 action reversible within 60 seconds via emergency override** ·
+AI-content watermarking + generated-asset registry · **quarterly bias audits**
+across industry/demographic groups with statistical-disparity alerts ·
+per-agent permission scopes enforced at service-account level.
+
 ### B.5 AI governance framework
 
 Policy-as-code: autonomy ceilings, spend caps, forbidden actions (pricing,

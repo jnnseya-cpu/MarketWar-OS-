@@ -269,6 +269,21 @@ The right store per data type and access pattern — **scale targets binding**:
 | Recommendation engine | Feature-store-backed rankers | priority panel ordering, pack suggestions |
 | Decision engine | Policy rules + learned priors | verdict thresholds per industry/geo |
 
+### 6.1a Predictive model registry (adopted from v3.0 spec §10.2 — accuracy targets binding)
+
+| Model | Algorithm | Inference trigger | Output | Accuracy target |
+|---|---|---|---|---|
+| Churn prediction | XGBoost + feature engineering | Weekly batch + on-demand | 30-day churn probability per user | **> 78% AUC-ROC** |
+| ROAS trajectory | Prophet + LSTM | Every 6 h per active campaign | 30/60/90-day ROAS forecast + CIs | **± 15% MAPE** |
+| LTV prediction | Gradient boosting + cohorts | Profile update + weekly batch | 12-month LTV per segment | ± 20% |
+| Reactivation probability | Logistic regression + embeddings | DB import + daily | Per-contact score 0–1 | **> 72% AUC** |
+| Demand forecasting | Prophet + external signals | Daily batch | 90-day demand score per category × geo | ± 25% directional |
+| CAC optimisation | **Multi-armed bandit** | Real-time, every campaign decision | Optimal budget allocation across channels | **≥ 20% CAC reduction vs baseline** |
+
+Dashboard refresh contract (§10.1): Command Centre real-time (5-min metrics,
+Pub/Sub alerts) · War Room 5-min · Sales Pipeline instant lead push ·
+Agency executive hourly · Admin console real-time · Affiliate daily.
+
 **Learning loop (the platform-wide reinforcement requirement):** nightly job joins
 `agent.decision.*` events to realised outcomes (orders, revenue, refunds, churn),
 grades decisions, updates per-industry priors (kill thresholds, budget curves,
