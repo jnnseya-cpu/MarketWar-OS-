@@ -6,6 +6,15 @@ revenue, and scale a business — from a single unified platform.
 
 > Stop guessing. Launch, test, kill, improve, and convert automatically.
 
+## The look
+
+| | |
+|---|---|
+| ![Landing page](docs/screenshots/01-landing-page.png) | ![Command Center](docs/screenshots/04-command-center.png) |
+| ![Campaign War Room](docs/screenshots/07-campaign-war-room.png) | ![Video War Room](docs/screenshots/11-video-war-room.png) |
+
+**→ [Full screenshot gallery — all 19 screens](docs/screenshots/README.md)**
+
 Most tools create content. MarketWar OS diagnoses the business, rebuilds the offer, creates
 campaigns, launches experiments, tracks leads, protects the budget and tells the user exactly
 what to do next.
