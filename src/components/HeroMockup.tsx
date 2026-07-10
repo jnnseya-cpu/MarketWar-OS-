@@ -58,9 +58,9 @@ export default function HeroMockup() {
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
-                  Executive Command Center
+                  Operational Ledger
                 </p>
-                <p className="font-display text-sm font-bold text-white">Brixton Grill House</p>
+                <p className="font-display text-sm font-bold text-white">Alex Carter</p>
               </div>
               <div className="flex items-center gap-2 rounded-md bg-ink-850 px-2.5 py-1.5 text-[10px] text-slate-500">
                 <Search className="h-3 w-3" /> Ask the OS anything…
@@ -68,12 +68,11 @@ export default function HeroMockup() {
             </div>
 
             {/* Stat row */}
-            <div className="mb-3 grid grid-cols-4 gap-2">
+            <div className="mb-3 grid grid-cols-3 gap-2">
               {[
-                { label: "Revenue", value: "£1,494", delta: "+38%", spark: [4, 6, 5, 8, 9, 11, 14], color: SERIES[1] },
-                { label: "Leads", value: "95", delta: "+22%", spark: [3, 4, 6, 5, 7, 8, 10], color: SERIES[0] },
-                { label: "ROAS", value: "4.5x", delta: "+1.2x", spark: [2, 3, 3, 4, 4, 5, 6], color: SERIES[4] },
-                { label: "Cost/order", value: "£7.38", delta: "−31%", spark: [9, 8, 8, 7, 6, 6, 5], color: SERIES[2] },
+                { label: "Total Revenue", value: "$124,560", delta: "+24.5% vs last 30 days", spark: [4, 6, 5, 8, 9, 11, 14], color: SERIES[1] },
+                { label: "New Customers", value: "2,345", delta: "+18.2% vs last 30 days", spark: [3, 4, 6, 5, 7, 8, 10], color: SERIES[0] },
+                { label: "AI Opportunity Score", value: "94", delta: "High", spark: [5, 6, 6, 7, 8, 8, 9], color: SERIES[4] },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg border border-white/5 bg-ink-850/80 p-2.5">
                   <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">{s.label}</p>
@@ -115,16 +114,15 @@ export default function HeroMockup() {
               {/* Donut + feed */}
               <div className="col-span-2 space-y-2">
                 <div className="rounded-lg border border-white/5 bg-ink-850/80 p-3">
-                  <p className="mb-1 text-[10px] font-bold text-white">Orders by channel</p>
+                  <p className="mb-1 text-[10px] font-bold text-white">Revenue Breakdown</p>
                   <DonutChart
                     size={104}
-                    centerValue="45"
-                    centerLabel="orders"
+                    centerValue="100%"
+                    centerLabel="revenue mix"
                     data={[
-                      { label: "WhatsApp", value: 22 },
-                      { label: "Meta", value: 12 },
-                      { label: "TikTok", value: 7 },
-                      { label: "Google", value: 4 },
+                      { label: "Products", value: 64 },
+                      { label: "Services", value: 22 },
+                      { label: "Other", value: 14 },
                     ]}
                   />
                 </div>
@@ -133,8 +131,8 @@ export default function HeroMockup() {
                     <Zap className="h-3 w-3 animate-ticker" /> AI Commander
                   </p>
                   <p className="mt-1 text-[10px] leading-snug text-slate-400">
-                    Family Platter Friday hit <span className="font-bold text-emerald-300">7.3x ROAS</span> — scale
-                    order issued: £15 → £21/day. Awareness campaign killed, £96 rerouted.
+                    Opportunity Score <span className="font-bold text-emerald-300">94 (High)</span> — winning
+                    campaign scaled +40%; underperforming ad set paused, budget rerouted.
                   </p>
                 </div>
               </div>

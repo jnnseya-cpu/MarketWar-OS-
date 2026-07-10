@@ -32,38 +32,50 @@ const PILLARS = [
   {
     icon: Compass,
     color: SERIES[0],
-    title: "Discover opportunities",
-    desc: "Demand detection, competitor gaps and market intelligence surface where the money is before you spend a penny.",
+    title: "Opportunity Discovery",
+    desc: "Find profitable markets, trending niches, high-demand products, and untapped customer pain points before anyone else.",
+    cta: "Discover Opportunities",
+    href: "/dashboard/competitors",
   },
   {
     icon: Factory,
     color: SERIES[1],
-    title: "Create & market products",
-    desc: "Offer engineering, ad creative, landing pages and content calendars — generated as one coordinated system.",
+    title: "Product & Offer Creation",
+    desc: "Create products, offers, pricing, funnels, launch plans, and go-to-market strategies powered by AI.",
+    cta: "Create & Launch",
+    href: "/dashboard/offers",
   },
   {
     icon: Crosshair,
     color: SERIES[2],
-    title: "Acquire customers",
-    desc: "Small-budget experiments with kill criteria locked before launch. Losers die in 48 hours; winners get scale orders.",
+    title: "AI Marketing Engine",
+    desc: "Generate ads, landing pages, emails, social campaigns, videos, images, and brand content that convert — in minutes, not days.",
+    cta: "Create Campaigns",
+    href: "/dashboard/campaigns",
   },
   {
     icon: Workflow,
     color: SERIES[4],
-    title: "Automate operations",
-    desc: "WhatsApp qualification, follow-up sequences, lead scoring and budget protection run while you sleep.",
+    title: "Customer Acquisition System",
+    desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies.",
+    cta: "Acquire Customers",
+    href: "/dashboard/war-room",
   },
   {
     icon: TrendingUp,
     color: SERIES[6],
-    title: "Optimise revenue",
-    desc: "Attribution shows what actually produced orders. Leak detection recovers the money you already earned.",
+    title: "Commerce & Revenue Optimisation",
+    desc: "Track performance, optimise pricing, increase order value, and unlock new income streams.",
+    cta: "Optimise Revenue",
+    href: "/dashboard/revenue",
   },
   {
     icon: Globe2,
     color: SERIES[7],
-    title: "Scale the business",
-    desc: "Local domination, referral loops and multi-channel expansion — compounding growth on channels you own.",
+    title: "Business Automation",
+    desc: "Automate workflows, operations, customer support, reporting, and growth execution from one central dashboard.",
+    cta: "Automate Everything",
+    href: "/dashboard/briefing",
   },
 ];
 
@@ -209,35 +221,38 @@ export default function LandingPage() {
           </div>
 
           <h1 className="animate-fade-up mx-auto max-w-4xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-7xl" style={{ animationDelay: "0.08s" }}>
-            One platform to <span className="text-gradient">discover, launch, sell</span> and scale.
+            One Operating System.{" "}
+            <span className="text-gradient">Every Growth Weapon.</span>
           </h1>
 
           <p className="animate-fade-up mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl" style={{ animationDelay: "0.16s" }}>
-            MarketWar OS lets anyone discover opportunities, create and market products, acquire
-            customers, automate operations, optimise revenue and scale a business — with twelve AI
-            agents doing the heavy lifting.
+            MarketWar OS is the AI-powered growth and commerce command centre that helps you
+            discover opportunities, build products, market them, acquire customers, automate
+            operations, optimise revenue, and scale — from one unified platform.
           </p>
 
-          <div className="animate-fade-up mt-9 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: "0.24s" }}>
+          <div className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "0.2s" }}>
+            {["AI-Powered", "All-in-One Platform", "Built for Scale"].map((b) => (
+              <span key={b} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-slate-300">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> {b}
+              </span>
+            ))}
+          </div>
+
+          <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: "0.24s" }}>
             <Link
-              href="/onboarding"
+              href="/dashboard"
               className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-7 py-3.5 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
             >
-              Build my growth machine
+              Enter MarketWar OS
               <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
             </Link>
             <Link
-              href="/dashboard"
+              href="/how-it-works"
               className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-emerald-500/50 hover:bg-white/10"
             >
-              Explore the live demo
+              Watch Demo
             </Link>
-          </div>
-
-          <div className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-500" style={{ animationDelay: "0.3s" }}>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> No credit card</span>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Works with zero config</span>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Free failure audit included</span>
           </div>
 
           {/* Product mockup */}
@@ -251,15 +266,13 @@ export default function LandingPage() {
       {/* ======================== SOCIAL PROOF STRIP ===================== */}
       <section className="relative mt-20 border-y border-white/5 bg-ink-900/40 py-8">
         <p className="mb-5 text-center text-xs font-semibold uppercase tracking-[0.25em] text-slate-600">
-          Powering growth for 2,300+ businesses
+          Trusted by founders &amp; teams
         </p>
         <div className="relative overflow-hidden">
           <div className="animate-marquee flex w-max gap-14 px-7">
-            {[...Array(2)].flatMap((_, half) =>
+            {[...Array(3)].flatMap((_, half) =>
               [
-                "Brixton Grill House", "Luna Beauty Studio", "ProFit Gyms", "Velo Couriers",
-                "The Plant Room", "Harbour & Co Realty", "Kite Digital", "Mama Ade's Kitchen",
-                "Northside Tutors", "Atlas Event Co",
+                "ELEVATE DIGITAL", "NEXORA LABS", "VERTEX COMMERCE", "QUANTUM BRANDS", "ZENITH GROWTH",
               ].map((name) => (
                 <span key={`${half}-${name}`} className="whitespace-nowrap font-display text-lg font-bold text-slate-600">
                   {name}
@@ -274,18 +287,18 @@ export default function LandingPage() {
 
       {/* ========================= SIX PILLARS =========================== */}
       <section id="platform" className="relative mx-auto max-w-6xl px-5 py-24">
-        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The operating system</p>
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The all-in-one growth OS</p>
         <h2 className="mx-auto max-w-2xl text-center font-display text-3xl font-bold text-white sm:text-5xl">
-          Six engines. One unified platform.
+          Everything You Need to Build, Grow &amp; Scale
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
-          Everything a business needs to grow, wired together so each engine feeds the next.
+          Powerful AI agents and tools working together — so you can focus on scaling, not juggling.
         </p>
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {PILLARS.map((p) => (
             <div
               key={p.title}
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-ink-900/70 p-6 transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-2xl hover:shadow-black/50"
+              className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-900/70 p-6 transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-2xl hover:shadow-black/50"
             >
               <div
                 className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-20 blur-2xl transition group-hover:opacity-40"
@@ -298,7 +311,13 @@ export default function LandingPage() {
                 <p.icon className="h-5 w-5" />
               </span>
               <h3 className="font-display text-lg font-bold text-white">{p.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-400">{p.desc}</p>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-400">{p.desc}</p>
+              <Link
+                href={p.href}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-400 transition group-hover:text-emerald-300"
+              >
+                {p.cta} <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
           ))}
         </div>
@@ -586,27 +605,33 @@ export default function LandingPage() {
           <span className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-2xl shadow-emerald-500/40">
             <Rocket className="h-7 w-7" />
           </span>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">Built for winners</p>
           <h2 className="font-display text-3xl font-bold text-white sm:text-5xl">
-            Stop guessing. Start converting.
+            From Idea to Income —<br />
+            <span className="text-gradient">In One Platform.</span>
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
-            The free Marketing Failure Audit tells you exactly why past spend produced nothing —
-            and what to do about it. Ten questions. Two minutes. Zero fluff.
+            MarketWar OS is more than software. It&apos;s your unfair advantage.
+            <br />
+            Strategy. Execution. Automation. Revenue. All in one place.
           </p>
           <Link
-            href="/onboarding"
+            href="/dashboard"
             className="group mt-9 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-8 py-4 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
           >
-            Run my free failure audit
+            Enter MarketWar OS
             <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
           </Link>
+          <p className="mt-4 text-xs font-semibold text-slate-500">
+            Start Building Your Growth Machine • 14-Day Free Trial
+          </p>
         </div>
       </section>
 
       {/* ============================= FOOTER ============================ */}
       <footer className="border-t border-white/5 bg-ink-950">
         <div className="mx-auto max-w-6xl px-5 py-14">
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <Link href="/" className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
@@ -617,44 +642,50 @@ export default function LandingPage() {
                 </span>
               </Link>
               <p className="mt-4 text-sm leading-relaxed text-slate-500">
-                The AI-powered growth &amp; commerce operating system. Discover, create, acquire,
-                automate, optimise, scale.
+                Autonomous Business Growth &amp; Commerce Infrastructure.
               </p>
             </div>
             <FooterCol
-              title="Platform"
+              title="Products"
               links={[
-                ["Command Center", "/dashboard"],
-                ["Campaign War Room", "/dashboard/war-room"],
-                ["WhatsApp Center", "/dashboard/whatsapp"],
-                ["Lead Recovery", "/dashboard/recovery"],
-                ["Revenue Intelligence", "/dashboard/revenue"],
+                ["Campaign Packs", "/dashboard/campaigns"],
+                ["AI Video Studio", "/dashboard/video"],
+                ["Conversion Engine", "/dashboard/whatsapp"],
               ]}
             />
             <FooterCol
               title="Intelligence"
               links={[
                 ["Failure Audit", "/dashboard/audit"],
-                ["Offer Builder", "/dashboard/offers"],
-                ["Content Factory", "/dashboard/content"],
-                ["Competitor Spy", "/dashboard/competitors"],
-                ["Local Domination", "/dashboard/local"],
+                ["Market Scan", "/dashboard/competitors"],
+                ["Warfare Protocol", "/how-it-works"],
               ]}
             />
             <FooterCol
-              title="Company"
+              title="Platform"
               links={[
-                ["How it works", "/how-it-works"],
-                ["Start free audit", "/onboarding"],
-                ["Live demo", "/dashboard"],
+                ["ACU Ledger", "/dashboard/budget"],
+                ["Independence", "/dashboard/local"],
+                ["Business Brain", "/onboarding"],
               ]}
             />
+            <div>
+              <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Mechanics</p>
+              <ul className="space-y-2.5 text-sm text-slate-400">
+                <li>· 66% Competitive Margin</li>
+                <li>· Layer 4.6 Architect</li>
+                <li>· Autonomous ACU Logic</li>
+                <li>· Primary Revenue Ledger</li>
+              </ul>
+            </div>
           </div>
           <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-6 text-xs text-slate-600">
-            <p>© {new Date().getFullYear()} MarketWar OS. Built to make marketing pay.</p>
-            <p className="flex items-center gap-2">
-              <LineChart className="h-3.5 w-3.5 text-emerald-500" />
-              Every metric on this page comes from the live demo dataset.
+            <p>© {new Date().getFullYear()} MarketWar Infrastructure Systems</p>
+            <p className="flex items-center gap-4">
+              <Link href="/how-it-works" className="hover:text-slate-400">Mission Protocol</Link>
+              <span className="flex items-center gap-1.5">
+                <LineChart className="h-3.5 w-3.5 text-emerald-500" /> Privacy Shield
+              </span>
             </p>
           </div>
         </div>
