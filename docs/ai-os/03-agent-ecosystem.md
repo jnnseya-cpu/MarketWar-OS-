@@ -30,6 +30,21 @@ APIs used and business value.
    provider-agnostic (Anthropic primary, per `src/lib/ai/provider.ts` pattern, with
    retry/backoff and demo fallback).
 
+### 1.1 Binding principles adopted from v3.0 spec §4.1
+
+Every agent is a **stateful, memory-aware, self-improving autonomous
+worker** — agents maintain context across sessions, learn from outcomes,
+coordinate through the shared vector memory graph, and escalate to human
+oversight only when explicitly required:
+
+| Principle | Implementation |
+|---|---|
+| Stateful memory | Every agent reads from and writes to the shared vector store before and after every execution |
+| Self-improvement | Every agent logs outcomes into the reinforcement pipeline that refines its prompt templates and decision weights |
+| Failure isolation | Circuit breakers per agent — a failed agent never cascades to peers or blocks the user experience |
+| Transparency | Every autonomous action logged with a full reasoning trace, inspectable by the user in plain English |
+| Configurable autonomy | Three autonomy levels per agent, user-controlled from assisted to fully autonomous (composes with the per-capability dial in doc 02) |
+
 ### Standard agent record (applies to every agent below)
 
 ```
@@ -79,6 +94,30 @@ optimisation across every account simultaneously. Core capabilities:
   structured evidence-backed strategic answers
 - **Anomaly detection broadcasting** — any metric deviating **> 2σ** from
   expected triggers an emergency broadcast to all relevant agents
+
+#### MOA agent card (adopted from v3.0 spec §4.2)
+
+- **Compound-condition workflows:** MOA triggers cross-agent chains when
+  conditions combine (e.g. high churn risk + dormant database → initiate
+  resurrection campaign).
+- **Daily AI Growth Briefing at 06:00 tenant-local** — PIQ capped at the top
+  5 revenue-impact actions (already the shipped briefing contract).
+- **Triggers:** 15-min BVI cron · any campaign-metric breach · new
+  lead/booking event · user login (re-ranks PIQ) · agent-completion events.
+- **Escalation rules (binding):** action value **> £500 at L3**, confidence
+  **< 60%**, or **3+ consecutive agent failures** in the same workflow.
+  Composes with the CIE Decision Engine's stricter **< 70%** deferral
+  (doc 06 §5.1): 70% governs spend-affecting autonomous actions, 60% is the
+  MOA's orchestration floor.
+- **KPIs:** BVI accuracy vs 30-day outcomes · PIQ take-up **> 60%** ·
+  inter-agent conflict rate **< 5%** · L3 escalation rate **< 3%** · daily
+  briefing NPS **> 70**.
+- **Learning:** weekly analysis of PIQ outcomes vs predictions; action-ranking
+  weights updated by gradient descent.
+- **Services:** event bus, Firestore, vector store, scheduler; model calls via
+  the AI Gateway (source spec names a specific provider — the gateway
+  abstraction supersedes hard-coding one, per §9 of the production
+  architecture).
 
 #### Business Vitality Index — 12 dimensions (weights + binding alert thresholds)
 
