@@ -17,6 +17,7 @@ Operating System (AI-OS)**.
 | 1 | [`ai-os/01-executive-vision-and-market.md`](ai-os/01-executive-vision-and-market.md) | Executive product vision, forensic market-gap review, competitive advantage |
 | 2 | [`ai-os/02-users-and-command-centres.md`](ai-os/02-users-and-command-centres.md) | Complete user ecosystem; the AI Command Centre for every user type |
 | 3 | [`ai-os/03-agent-ecosystem.md`](ai-os/03-agent-ecosystem.md) | Full agent workforce: core, executive, engineering, security, revenue, compliance and self-managing platform agents — with I/O, permissions, triggers, escalation |
+| 3a | [`ai-os/03a-agent-cards.md`](ai-os/03a-agent-cards.md) | Per-agent operational cards (v3.0 spec §4.2): missions, binding triggers, escalation rules, KPIs, learning mechanisms |
 | 4 | [`ai-os/04-platform-modules.md`](ai-os/04-platform-modules.md) | Module-by-module product spec + Admin Super Control Centre |
 | 5 | [`ai-os/05-bitripay-and-connectors.md`](ai-os/05-bitripay-and-connectors.md) | BitriPay payment gateway API door; the full third-party connector ecosystem |
 | 6 | [`ai-os/06-architecture.md`](ai-os/06-architecture.md) | Production system architecture: frontend, backend, AI orchestration, data intelligence layer, events, observability, DR |
