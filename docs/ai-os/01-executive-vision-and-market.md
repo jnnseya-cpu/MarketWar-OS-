@@ -115,6 +115,21 @@ each "OS answer" maps to a module in `04-platform-modules.md`.
 
 ---
 
+### 2.4 Friction-elimination SLAs (adopted from v3.0 spec §2.4)
+
+The frictions the OS exists to delete, each with its business cost and the
+binding service level the replacing capability must meet:
+
+| Friction eliminated | Business cost | AI-OS solution & SLA |
+|---|---|---|
+| Manual campaign setup (2–4 h/campaign) | Lost opportunity, human error | Campaign Commander generates full campaigns in **< 90 seconds** |
+| Reactive budget management | ~30% wasted ad spend | Budget Protection monitors the ROAS floor in real time, **auto-pauses within seconds** |
+| Static customer databases | ~40% of dormant revenue unrealised | Customer Vault: continuous AI enrichment + resurrection scoring |
+| Fragmented reporting | 4–8 h/week per manager | AI natural-language reports, one-click export, any cadence |
+| Generic campaign strategy | Poor conversion, wasted spend | Business-specific strategy from live diagnosis + digital twin |
+| Slow competitor response (days) | Market-share erosion | Competitor Intelligence monitors 24/7, **triggers response campaigns autonomously** |
+| Manual lead qualification (hours) | Lost leads, slow response | Lead Qualification scores + nurtures in real time — **responds within 90 seconds** |
+
 ## 3. Competitive Advantage (§16 of the master directive)
 
 ### 3.1 More intelligent
@@ -141,7 +156,22 @@ queue-drained and pre-emptible. Scaling milestones with concrete triggers in
 - BitriPay settlement rails — revenue lock-in
 - "Money saved" positioning — trust moat competitors' business models forbid
 
-### 3.5 Honest risk register (what could kill it)
+### 3.5 Quantified value-chain targets (adopted from v3.0 spec §2.2)
+
+Each AI-OS enhancement carries a measurable revenue-impact target — these are
+the OKRs the corresponding modules are graded against:
+
+| Value-chain stage | AI-OS enhancement | Owner module(s) | Target |
+|---|---|---|---|
+| Discovery & Diagnosis | Continuous business-health monitoring w/ predictive failure detection | M-01/M-02 + learning loop | **churn −35%** |
+| Strategy Formation | Autonomous planning w/ scenario simulation + competitor response modelling | Growth Strategist, M-11 | **LTV +28%** |
+| Campaign Execution | Fully autonomous end-to-end execution (zero human touchpoints at L3) | M-06/M-08/M-13 | **CAC −40%** |
+| Lead Management | Predictive lead scoring + autonomous nurture across channels | M-04/M-08/M-10 | **conversion +22%** |
+| Revenue Recovery | AI-predicted recovery windows + personalised multi-touch reactivation | M-05 | **+15–25% revenue** |
+| Intelligence & Reporting | Executive-grade intelligence, NL querying, prescriptive actions | M-14/M-15, Ask-the-OS | informed scale decisions |
+| Platform Monetisation | AI-optimised pricing, usage forecasting, per-account churn prevention | doc 08 §A engines | **NRR +30%** |
+
+### 3.6 Honest risk register (what could kill it)
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
