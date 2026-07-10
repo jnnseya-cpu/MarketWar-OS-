@@ -16,6 +16,42 @@
 | R6 | Affiliate/partner network | Take on commission flows (M-18) | ~85% |
 | R7 | Data intelligence | Anonymised industry benchmark reports; premium demand-detection feeds. **Aggregate only, k-anonymity ≥ 50 tenants per cell, never per-tenant data** | ~95% |
 
+### A.1b Seven-stream pricing & revenue targets (adopted from v3.0 spec §12.1)
+
+Pricing points and Year-1/Year-3 targets per stream. These compose with the A.1
+stream mechanics (the v3 stream set refines R1–R7 — Campaign Packs and the
+Premium Agent Marketplace are the productised faces of ACU recycling; all
+prices remain subject to the A.1a 100% margin floor):
+
+| Stream | Model | Pricing | AI optimisation | Year 1 | Year 3 |
+|---|---|---|---|---|---|
+| Subscription | Monthly/annual SaaS | **£9–£99/mo (Free → Enterprise)** | Churn-prediction retention triggers; upgrade recommendation engine | **£800K ARR** | **£22M ARR** |
+| ACU consumption | Pay-as-you-go above allowance | **£1 = 100 ACUs; top-ups from £5** | Usage forecasting per user; proactive top-up nudges before depletion | £200K | £12M |
+| Campaign packs | One-off bundles | £5–£49/pack (e.g. "Restaurant Launch Pack") | AI creates once, sells infinite times; seasonal targeting | £80K | £2.5M |
+| Marketplace transactions | Commission on bookings/orders | 8–15% per transaction (Phase 3) | AI demand routing maximises match quality | £0 (P3) | £6M |
+| Performance-based | Pay-per-lead/booking | £2–£50 per qualified lead by industry | Lead-quality scoring maintains advertiser ROI | £50K | £3M |
+| API & white-label | Monthly licensing | £199–£999/mo reseller; £0.001–£0.05/call | Usage-based scaling, enterprise volume discounts | £100K | £3M |
+| Premium agent marketplace | One-off + subscription templates | £9–£199/agent pack; £19/mo premium library | AI-curated top performers; per-business-type recommendations | £50K | £2.5M |
+
+**Total targets: Year 1 ≈ £1.28M · Year 3 ≈ £51M.** Note: the £9–£99
+subscription band is the v3 tier ladder (Free → Enterprise); the earlier
+Commander £49 / War Council £199 naming maps into it as mid/upper tiers —
+both recorded, owner pricing doctrine governs final price cards.
+
+### A.2a ACU recycling — asset economics (adopted from v3.0 spec §12.2)
+
+ACU recycling is the **highest-margin revenue opportunity**: assets created
+once sell repeatedly at near-zero marginal cost. Target gross margin on
+recycled assets: **10×–50×** (900–1,900% — far above the 100% floor).
+
+| Asset type | Creation cost | Sale price | Margin | Volume potential |
+|---|---|---|---|---|
+| Industry campaign playbook (e.g. "Salon Growth Playbook") | 200 ACUs (£2) | £19.99/sale | 900%+ | 1,000+ sales per popular vertical |
+| Proven ad framework pack | 50 ACUs (£0.50) | £9.99/pack | 1,900%+ | Unlimited resales |
+| Pre-built funnel template (per industry) | 300 ACUs (£3) | £29.99 | 900%+ | Every new business needs one |
+| AI agent pack (e.g. "Restaurant Growth Agent") | 500 ACUs (£5) to configure | **£49.99/mo subscription** | Recurring 900%+ | Standalone vertical product |
+| Prompt library (premium collections) | 100 ACUs (£1) | £19.99 one-time | 1,900%+ | Developer & power-user segment |
+
 ### A.1a Owner pricing doctrine (binding — supersedes conflicting margin rules)
 
 1. **Hard floor: profit margin never below 100%** — every billable AI action
@@ -117,10 +153,26 @@ email verification + TOTP regardless of MFA setting · L4 behavioural anomaly
 (geography/time/pattern) → step-up auth · L5 **every agent invocation carries
 a signed service-account token**; no agent can exceed its permission scope.
 
-**RBAC matrix (§9.1.2)** — 7 roles × 10 permissions adopted verbatim; the
-consequential rows: L3-autonomy configuration = super-admin/agency-admin/
-owner only · ACU & billing = admin/agency/owner · white-label + API keys =
-admin/agency only · affiliates see only the commission dashboard.
+**RBAC matrix (§9.1.2)** — adopted verbatim, full 7-role × 10-permission table:
+
+| Permission | Super Admin | Agency Admin | Biz Owner | Mktg Manager | Sales | Social | Affiliate |
+|---|---|---|---|---|---|---|---|
+| View all platform data | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Manage own business | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Configure Level 3 autonomy | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Create & launch campaigns | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| View campaign analytics | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Access customer vault | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Manage ACU & billing | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| White-label configuration | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| View commission dashboard | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ |
+| API key management | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+This matrix maps onto the 12-user-type ecosystem (doc 02): Super Admin = U11,
+Agency Admin = U4, Biz Owner = U1, Mktg Manager = U2, Sales = U3, Social =
+content-scoped U2/U3 variant, Affiliate = U6. The wider ecosystem roles (U5,
+U7–U10, U12) keep their scoping from doc 02/07 — additive composition, no
+role removed.
 
 **Encryption upgrades (§9.2):** **TLS 1.3 mandatory — TLS 1.2 disabled on
 all endpoints** (upgrades the earlier "TLS ≥1.2" baseline) · AES-256 at rest
@@ -139,7 +191,8 @@ protocol** in the incident playbook.
 
 **AI governance additions (§9.4):** full model/prompt lineage in
 `agent_tasks` · plain-English reasoning trace on every autonomous decision ·
-**any L3 action reversible within 60 seconds via emergency override** ·
+**any L3 action reversible within 60 seconds via emergency override; all
+actions reversible by design where technically possible** ·
 AI-content watermarking + generated-asset registry · **quarterly bias audits**
 across industry/demographic groups with statistical-disparity alerts ·
 per-agent permission scopes enforced at service-account level.

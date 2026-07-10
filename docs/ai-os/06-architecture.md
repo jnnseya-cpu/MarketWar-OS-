@@ -163,6 +163,35 @@ jobs); the Cloud Run rows above remain the home for long-running/heavy work.
 | Integration Broker | Functions + Cloud Tasks | All third-party API calls (Meta, Google, Twilio…) | **Per-platform rate limiting + exponential-backoff queues** |
 | ML Inference Service | Vertex AI endpoints + Functions | Real-time churn/ROAS/LTV predictions | Vertex autoscaling with **min-instance warm pools** |
 
+### 3.2 GCP service configuration (adopted from v3.0 spec §13.1 — binding)
+
+Fully managed-services-first, no self-managed infrastructure in MVP:
+
+| GCP service | Purpose | Configuration (binding) |
+|---|---|---|
+| Firebase Functions (2nd gen) | All serverless backend + agent execution | Node.js 20 · 2–8 GB memory · 540 s timeout for agent tasks · **min-instances: 5 for hot paths** |
+| Firestore | Primary operational DB | **Multi-region `eur3`** (UK/EU compliance) · auto-backup every 24 h · PITR 7 days |
+| Cloud Pub/Sub | Async event bus | **Dead-letter topics per event type** · 7-day retention · exactly-once delivery on critical topics |
+| Cloud Tasks | Delayed/scheduled queue | Per-queue rate limits · exponential backoff · max retry 5 · dead-letter Pub/Sub topic |
+| Cloud Scheduler | Cron — daily briefings, **hourly BVI refresh**, nightly ML inference | 1-min granularity · timezone-aware · Cloud Tasks integration |
+| Vertex AI | ML training + inference (churn, ROAS, LTV) | Custom endpoints autoscaling **min-1/max-20** · Gemini integration |
+| BigQuery | Analytics warehouse | Partitioned by date · **clustered by businessId** · daily Firestore exports |
+| Cloud Memorystore (Redis) | Cache — BVI scores, PIQ rankings, rate limits, sessions | **6 GB standard tier at MVP** (Redis 7.0, private VPC, no public IP) — grows toward the §6.0 64 GB pool at scale phase |
+| Cloud Storage | Generated images, exports, brand assets | Multi-regional UK/EU · lifecycle: **hot→nearline at 90 d, archive at 365 d** |
+| Cloud CDN + Cloud Armor | Delivery + DDoS | Edge caching static assets · OWASP WAF rules · geo-blocking sanctioned countries |
+
+**Cost optimisation strategy (§13.3, binding targets):** min-instance 3+ on
+critical agent paths (cold-start) · **Profit Protection Agent routes > 40% of
+tasks to Groq/open-source — blended LLM cost < £0.005/task** · Redis caching
+cuts Firestore reads ~70% · BigQuery scheduled queries + materialised views
+only (no on-demand for high-volume analytics) · storage auto-archive at 90 d
+(−60% storage cost) · Vertex batch prediction for non-real-time ML (−80% on
+non-latency-sensitive predictions).
+
+*Reconciliation note (additive):* §6.0's 64 GB Redis pool is the scale-phase
+target; §13.1's 6 GB standard tier is the MVP/growth sizing. Both stand — the
+cache tier grows along the §10 scaling-milestone ladder.
+
 ## 4. Event-driven architecture
 
 - Bus: Pub/Sub with schema-registry-validated JSON events
@@ -271,14 +300,14 @@ The right store per data type and access pattern — **scale targets binding**:
 
 ### 6.1a Predictive model registry (adopted from v3.0 spec §10.2 — accuracy targets binding)
 
-| Model | Algorithm | Inference trigger | Output | Accuracy target |
-|---|---|---|---|---|
-| Churn prediction | XGBoost + feature engineering | Weekly batch + on-demand | 30-day churn probability per user | **> 78% AUC-ROC** |
-| ROAS trajectory | Prophet + LSTM | Every 6 h per active campaign | 30/60/90-day ROAS forecast + CIs | **± 15% MAPE** |
-| LTV prediction | Gradient boosting + cohorts | Profile update + weekly batch | 12-month LTV per segment | ± 20% |
-| Reactivation probability | Logistic regression + embeddings | DB import + daily | Per-contact score 0–1 | **> 72% AUC** |
-| Demand forecasting | Prophet + external signals | Daily batch | 90-day demand score per category × geo | ± 25% directional |
-| CAC optimisation | **Multi-armed bandit** | Real-time, every campaign decision | Optimal budget allocation across channels | **≥ 20% CAC reduction vs baseline** |
+| Model | Algorithm | Training data | Inference trigger | Output | Accuracy target |
+|---|---|---|---|---|---|
+| Churn prediction | XGBoost + feature engineering | 24-month login, campaign, spend, engagement history per user | Weekly batch + on-demand | 30-day churn probability per user | **> 78% AUC-ROC** |
+| ROAS trajectory | Prophet + LSTM | Campaign metric time-series per platform and industry | Every 6 h per active campaign | 30/60/90-day ROAS forecast + CIs | **± 15% MAPE** |
+| LTV prediction | Gradient boosting + cohorts | Purchase history, AOV, frequency, channel mix per customer | Profile update + weekly batch | 12-month LTV per segment | ± 20% |
+| Reactivation probability | Logistic regression + embeddings | Historical reactivation outcomes, contact attributes, inactivity duration | DB import + daily | Per-contact score 0–1 | **> 72% AUC** |
+| Demand forecasting | Prophet + external signals | Google Trends, keyword volume, review sentiment, seasonality | Daily batch | 90-day demand score per category × geo | ± 25% directional |
+| CAC optimisation | **Multi-armed bandit** | Campaign performance by audience, creative, channel, time | Real-time, every campaign decision | Optimal budget allocation across channels | **≥ 20% CAC reduction vs baseline** |
 
 Dashboard refresh contract (§10.1): Command Centre real-time (5-min metrics,
 Pub/Sub alerts) · War Room 5-min · Sales Pipeline instant lead push ·
@@ -331,3 +360,31 @@ prod (canary + full)`. Scale-out levers in order: Cloud Run concurrency → queu
 sharding by tenant hash → Firestore→Postgres partition migration → regional cells
 (cell-based architecture at 100k+ tenants, Uber/Slack pattern: a tenant lives in
 exactly one cell; global services are thin).
+
+### 10.1 Environment strategy (adopted from v3.0 spec §13.2 — binding)
+
+| Environment | Purpose | Infrastructure | Data strategy |
+|---|---|---|---|
+| **prod** | Live platform — all paying customers | Full redundancy, multi-region Firestore, Vertex AI production endpoints, Cloud Armor on | Real customer data — full encryption, GDPR-compliant, **7-year audit retention** |
+| **staging** | Pre-production validation — exact replica of prod | Single-region; Firestore emulator for destructive tests; real third-party API credentials for integration testing | **Anonymised production snapshot — refreshed weekly** |
+| **dev** | Individual developer environments + CI/CD | Firebase local emulator suite (Firestore, Auth, Functions, Pub/Sub all local) | Seed data only — **never production data** |
+| **dr-prod** | Hot standby — **RTO < 4 h, RPO < 1 h** | Cloud Spanner cross-region backup, Cloud Storage replication to EU-WEST2, daily Firestore export | Automated daily export validation — **restoration tested monthly** |
+
+(The dr-prod envelope composes with the per-tier DR table in §9 — T0/T1 carry
+tighter RPO/RTO than the environment-level floor; both stand.)
+
+### 10.2 Scaling milestones (adopted from v3.0 spec §16)
+
+Scalability principles (§16.1, binding): stateless Functions (state in
+Firestore/Redis only) · Pub/Sub-decoupled consumers scaling independently ·
+each agent type as an independent function pool — **agents never block each
+other** · Firestore auto-sharding + BigQuery petabyte autoscale · CDN-first
+frontend — only authenticated API calls reach Functions.
+
+| Milestone | Users | Architecture change | Est. monthly infra cost |
+|---|---|---|---|
+| MVP launch | 0–1,000 | Standard Functions, single-region Firestore, free-tier vector store | **£500–£1,500** |
+| Growth phase 1 | 1,000–10,000 | Min-instances on hot paths, **Redis cache layer added**, paid vector pod | £2,000–£6,000 |
+| Scale phase | 10,000–100,000 | **Multi-region Firestore (eur3)**, BigQuery pipeline, Vertex AI endpoints live | £8,000–£25,000 |
+| Enterprise phase | 100,000–500,000 | Cloud Spanner for highest-consistency data, Dataflow streaming, dedicated vector clusters per region | £30,000–£80,000 |
+| Platform phase | 500,000+ | Full microservices migration, multi-cloud strategy, **edge intelligence at CDN layer** | £80,000+ |

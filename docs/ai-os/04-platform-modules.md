@@ -130,6 +130,22 @@ preferences and quiet hours; all agent receipts flow through it.
 Visual trigger→condition→action builder over the event bus (the Zapier-killer for
 in-OS flows). Agent actions available as steps; autonomy levels apply.
 
+#### M-23a Critical automation specifications (adopted from v3.0 spec §11 — binding)
+
+The automation framework is a production-grade event-driven orchestration layer
+on Pub/Sub + Cloud Tasks. Every automation defines explicit trigger conditions,
+action sequences, approval gates, fallback paths and outcome logging. Six
+critical automations ship with the platform:
+
+| Automation | Trigger | Conditions | AI action chain | Human gates | Success metric (binding) |
+|---|---|---|---|---|---|
+| **Campaign Auto-Launch (L3)** | Opportunity score > 75 + BVI > 60 + L3 active | Sufficient ACU balance · no active campaign in same category · budget available | Diagnosis pre-flight → Campaign Commander full campaign → Ad Creative assets → Landing Page build → live | Exception alert only — email + push with **60-second abort window** | **Live within 10 minutes** of trigger; ROAS > floor within 48 h |
+| **Budget Protection Auto-Pause** | ROAS < floor for > 15 consecutive min | Not data lag (verified by 2+ data points) · campaign spend > £20 | Pause → calculate reallocation → reallocate to top performer | None at L3; email post-action | Zero further wasted spend; **reallocation completes < 60 seconds** |
+| **Customer Resurrection Cycle** | Monthly schedule + dormant-revenue risk > 60 in BVI | Database imported · **> 100 dormant contacts** · user on **Growth plan+** | Segment → score each contact → personalised sequences → launch across configured channels | L1/L2: user approves launch; L3: executes with notification | **> 8% reactivation rate**; revenue recovery within 30 days |
+| **Competitor Response Campaign** | Competitor spend +30% in 7 days (Competitor Intelligence Agent) | Same category & geography · campaign budget available | Growth Strategist response brief → Campaign Commander counter-campaign → Ad Creative response creatives | L1/L2: user approves; L3: executes with alert | **Counter-campaign live within 4 hours** of trigger |
+| **Creative Fatigue Swap** | CTR degraded > 35% from peak, creative running > 7 days | Statistical significance confirmed (**> 1,000 impressions** at degraded rate) | Ad Creative generates 3 replacements → Campaign Commander schedules swap at next midnight UTC | L1: user approves swaps; L2/L3: auto-swap with notification | CTR recovery to ≥ 80% of peak within 7 days |
+| **Lead Re-Engagement** | Form abandoned > 90 seconds without completion | Name or email captured · WhatsApp/email configured | Lead Capture Agent sends personalised recovery message **within 90 seconds** on configured channel | None — fully autonomous | **> 15% abandoned-lead recovery rate** |
+
 ### M-24 🔵 Reporting & Analytics Module
 Scheduled/white-label PDF + live dashboards per role; warehouse-backed (see
 `06-architecture.md` §Data). All charts follow the platform viz system (validated
