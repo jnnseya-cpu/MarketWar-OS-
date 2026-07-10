@@ -70,7 +70,23 @@ shipped app; the CIE (§5.1 below) spans T3+T4+T7.
   with validated categorical palette (`src/lib/palette.ts`); dark-first.
 - Mobile: responsive PWA first; native wrapper (Capacitor) at P2 for push.
 
-**Mobile experience contract (adopted from v3.0 spec §5.2.2):**
+**Design-system tokens (recorded from v3.0 spec §8.2 — see conflict note):**
+Typography: Inter 700/32 (H1), 600/24 (H2), 600/18 (card), 400/14 (body),
+400/12 (caption), 700/40–60 (metric display), 400-italic/14 (AI briefing),
+JetBrains Mono 400/13 (code). Colours: `--color-brand-dark #1A1A2E` ·
+`--color-brand-mid #16213E` · `--color-accent #E94560` · `--color-gold
+#F5A623` · `--color-surface #F4F6F9` · `--color-success #27AE60` ·
+`--color-warning #F39C12` · `--color-danger #E74C3C` · text `#1A1A2E` /
+`#6B7280`.
+**Conflict + resolution (owner-approved look governs):** the shipped design
+system — emerald-on-ink dark theme, Space Grotesk display + Inter body, the
+CVD-validated chart palette (`src/lib/palette.ts`) — was reviewed and
+approved by the owner via the screenshot gallery and remains the primary
+brand. The §8.2 tokens are preserved as the **specified alternate theme**
+(a light-surface variant candidate for the admin/partner portals or a future
+theme switcher). Semantic parallels already exist: metric-display scale,
+success/warning/danger triad, AI-narrative styling. Owner may re-decide at
+any time; logged in the coverage-matrix gaps register.
 PWA fully functional from day one · **React Native shell** wrapping key PWA
 views for app-store distribution (supersedes the earlier Capacitor
 placeholder — RN is the specified wrapper) · push via FCM with **critical

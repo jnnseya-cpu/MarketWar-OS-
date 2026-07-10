@@ -47,6 +47,24 @@ All command centres share one chassis (built once, themed per role):
    → L2 (execute with spend cap) → L3 (fully autonomous inside policy).
    The dial is per-capability, not global — e.g. L2 for budget shifts, L0 for pricing.
 
+### 2.0 Command Centre panel architecture (adopted from v3.0 spec §8.1)
+
+The Command Centre replaces the static dashboard paradigm with a **living,
+AI-driven mission control** adapting to each user's context, role, business
+state and priorities in real time. Eight panels with binding update
+frequencies; status marks map to the shipped app:
+
+| Panel | Type | Update frequency (binding) | AI component | User interaction | Status |
+|---|---|---|---|---|---|
+| Business Vitality Index | Gauge + sparkline | Every 15 min (Firestore listener) | MOA + Revenue Intelligence | Tap for dimension breakdown | 📘 build candidate (spec complete: doc 03 §2.1) |
+| AI Priority Queue | Action-card stack | Real-time (Pub/Sub push) | MOA + Decision Engine | One-click execute / dismiss / defer | ✅ shipped (priority panel; real-time push at P1) |
+| Daily Growth Briefing | Narrative card, TL;DR + expand | 06:00 daily + on-demand | Growth Strategist | Expand / share / export | ✅ shipped (briefing page) |
+| Live Performance Metrics | Real-time KPI tiles | Every 5 min (campaign API sync) | Revenue Intelligence | Drill down to campaign level | ✅ shipped (metrics bar + charts; live sync at P1) |
+| Opportunity Radar | Ranked cards with scores | Daily refresh + real-time alerts | Opportunity Discovery Agent | One-click Launch Campaign | 📘 with Agent 2 |
+| Campaign War Room Feed | Live campaign cards | Every 5 min | Campaign Commander | Scale / Pause / Retarget / Fix | ✅ shipped (war-room grid + feed card) |
+| Customer Recovery Feed | Segment tiles with revenue projections | Daily refresh | Resurrection Engine | One-click launch resurrection | ✅ shipped (recovery module; feed tile at P1) |
+| Agent Activity Feed | Timeline log of agent actions | Real-time | All agents (audit trail) | Tap to view **reasoning trace** | 📘 P1 — feeds from `agent_tasks.reasoningTrace` |
+
 ### 2.1 Standard command-centre agent staff (per master directive)
 
 Each command centre is staffed by seven personal agents drawn from the roster in
