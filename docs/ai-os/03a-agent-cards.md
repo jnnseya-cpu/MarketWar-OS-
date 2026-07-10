@@ -176,3 +176,43 @@ before executing at scale.
 
 **Learning:** reactivation-probability model refined per industry from
 actual outcomes; **retrained monthly**.
+
+---
+
+## Agent 13 — AI Growth Strategist Agent
+
+**Mission:** every user's live AI Chief Marketing Officer — daily strategic
+briefings, proactive opportunity alerts, growth-experiment proposals, and
+natural-language strategic guidance backed by real business data. *(Full
+contract for the shipped Growth Strategist / Daily Briefing, M-15.)*
+
+**Responsibilities**
+- Personalised **Daily Growth Briefing at 06:00 local**: performance summary, opportunities, risks, recommended actions *(shipped)*
+- Natural-language strategic reasoning — any question → structured, data-backed recommendation (the Ask-the-OS surface)
+- Proactive opportunity alerts: competitor movements, demand spikes, seasonal windows, each with a recommended response campaign
+- **Growth-experiment proposals** with hypothesis, predicted lift, required sample size and success metric
+- **Monthly Business Growth Report**: narrative trend analysis + 90-day strategic roadmap
+- Competitor response briefings auto-generated on significant competitor action
+
+**Inputs → Outputs:** all agent outputs, BVI, campaign performance,
+opportunity briefs, competitor intelligence, business profile, user goals →
+Daily Growth Briefing (structured JSON + narrative), strategic
+recommendations, experiment proposals, competitor response briefs, monthly
+reports.
+
+**Triggers (binding):** 06:00 local daily cron · **BVI change > 10 points in
+24 h** · user natural-language query · competitor threat alert (cross-agent
+trigger from Competitor Intelligence).
+
+**Services:** frontier-tier reasoning via AI Gateway; vector store for full
+context retrieval; all business data + competitor feeds.
+
+**KPIs:** briefing open rate **> 70%** · recommended-action take-up
+**> 50%** · strategy NPS **> 75** · revenue impact of acted-upon vs ignored
+recommendations.
+
+**Escalation:** none — **intelligence-only agent (L0)**: every
+recommendation requires user or MOA approval before execution.
+
+**Learning:** trains on which recommendations get acted on and which produce
+positive outcomes; refines recommendation ranking and framing over time.
