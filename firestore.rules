@@ -14,6 +14,26 @@ service cloud.firestore {
         && request.auth.token.tenantId == tenantId;
     }
 
+    // users (v3.0 spec 6.2.1): owner-only reads. All writes go through
+    // backend services via the Admin SDK (auth/billing/MOA), so client
+    // writes are denied entirely — enforcing "write: service only".
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // businesses (v3.0 spec 6.2.2): owner full access; agency admins of the
+    // same agency may read. BVI/diagnostic fields are service-written.
+    match /businesses/{businessId} {
+      allow read: if request.auth != null
+        && (resource.data.ownerId == request.auth.uid
+            || request.auth.token.role == 'agency_admin');
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+
     // Server-written analytics/logs: clients may never read or write.
     match /audits/{doc} {
       allow read, write: if false;

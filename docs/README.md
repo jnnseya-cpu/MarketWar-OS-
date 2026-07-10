@@ -22,6 +22,7 @@ Operating System (AI-OS)**.
 | 5 | [`ai-os/05-bitripay-and-connectors.md`](ai-os/05-bitripay-and-connectors.md) | BitriPay payment gateway API door; the full third-party connector ecosystem |
 | 6 | [`ai-os/06-architecture.md`](ai-os/06-architecture.md) | Production system architecture: frontend, backend, AI orchestration, data intelligence layer, events, observability, DR |
 | 7 | [`ai-os/07-database-and-api.md`](ai-os/07-database-and-api.md) | Developer-ready database schema + ERD + REST/webhook API specification |
+| 7a | [`ai-os/07a-firestore-collections.md`](ai-os/07a-firestore-collections.md) | Production Firestore collection schemas (v3.0 spec §6.2) — fields, indexes, per-field security rules |
 | 8 | [`ai-os/08-monetisation-security-roadmap.md`](ai-os/08-monetisation-security-roadmap.md) | Monetisation model, security & compliance architecture, phased build roadmap |
 | 9 | [`ai-os/09-video-war-room.md`](ai-os/09-video-war-room.md) | MarketWar AI Video War Room (M-31): full video creation/editing/captions/dubbing/avatar/repurposing/brand/approval engine + video agent corps |
 
