@@ -39,6 +39,25 @@ Pinecone, Next.js on Cloud Run). Phase 2 introduces PostgreSQL (Cloud SQL/AlloyD
 with row-level security for relational/financial workloads and pgvector for tenant
 memory — Firestore remains for real-time UX surfaces (threads, feeds).
 
+### 1.1 Seven-tier decomposition (adopted from v3.0 spec §5.1)
+
+The same system viewed as seven independently deployable, horizontally
+scalable tiers that communicate **exclusively through event contracts** —
+zero tight coupling between layers:
+
+| Tier | Layer | Primary technology | Responsibility |
+|---|---|---|---|
+| T1 | Presentation | Next.js 14+ App Router, Tailwind, Framer Motion | All user-facing interfaces — web, mobile/PWA, admin, partner portals |
+| T2 | API Gateway | Firebase Functions + Cloud Endpoints + rate limiter | Routing, authn, rate limiting, API versioning |
+| T3 | Orchestration | MOA service, Pub/Sub, Cloud Tasks | Agent coordination, task delegation, event routing, workflow state |
+| T4 | Intelligence | LLM Gateway router, vector store, embedding pipeline | AI reasoning, vector memory, knowledge graph, context assembly |
+| T5 | Data | Firestore, BigQuery, Redis, Cloud Storage | Persistence, analytics warehouse, cache, assets |
+| T6 | Integration | Meta/Google Ads APIs, Twilio, SendGrid, Stripe | All third-party integrations — ads, messaging, payments |
+| T7 | Intelligence Fabric | Vertex AI, Prophet, TensorFlow, fine-tuned models | ML forecasting, churn prediction, ROAS modelling, RL training |
+
+T4's LLM Gateway router is shipped (`src/lib/ai/gateway.ts`); T1 is the
+shipped app; the CIE (§5.1 below) spans T3+T4+T7.
+
 ## 2. Frontend architecture
 
 - Next.js App Router (shipped), server components for data surfaces, client
@@ -50,6 +69,17 @@ memory — Firestore remains for real-time UX surfaces (threads, feeds).
 - Design system: tokens in `tailwind.config.ts`; chart kit `src/components/charts.tsx`
   with validated categorical palette (`src/lib/palette.ts`); dark-first.
 - Mobile: responsive PWA first; native wrapper (Capacitor) at P2 for push.
+
+**Frontend stack contract (adopted from v3.0 spec §5.2.1)** — status per item:
+RSC for performance-critical pages (Command Centre, War Room) ✅ shipped ·
+TypeScript strict mode ✅ shipped · Tailwind + design-token system ✅ shipped
+(Shadcn adoption optional at P1) · Framer Motion micro-interactions 📘 P1
+(CSS keyframes shipped) · Zustand for real-time command-centre state 📘 P1 ·
+TanStack Query with optimistic updates + SWR 📘 P1 · charts: shipped
+dependency-free SVG kit covers the Recharts scope; D3 reserved for custom
+funnel maps/heatmaps at P2 · Firebase Auth with email/Google/Apple SSO +
+custom-claims RBAC — scaffolded (`src/lib/firebase/client.ts`), screens P1 ·
+PWA offline dashboards via service workers 📘 P2 (mobile-first markets).
 
 ## 3. Backend & service decomposition
 

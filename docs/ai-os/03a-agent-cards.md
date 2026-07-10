@@ -216,3 +216,46 @@ recommendation requires user or MOA approval before execution.
 
 **Learning:** trains on which recommendations get acted on and which produce
 positive outcomes; refines recommendation ranking and framing over time.
+
+---
+
+## Agent 20 — AI Profit Protection & Margin Intelligence Agent
+
+**Mission:** protect platform profitability at every layer — real-time
+provider cost comparison, ACU margin-floor enforcement, live gross-margin
+monitoring, autonomous cost optimisation on every AI task. *(The enforcement
+engine of the owner pricing doctrine, doc 08 §A.1a; extends the AI Gateway's
+router with cost arbitration.)*
+
+**Responsibilities**
+- Real-time provider cost comparison — OpenAI vs Gemini vs Claude vs Vertex vs open-source via **Groq** — auto-selecting the lowest-cost provider for the required quality tier *(adds Groq/open-source to the gateway provider set — additive)*
+- **ACU cost prediction before every task**; tasks **> 100 ACUs need explicit user approval** *(matches Agent 7's preview rule)*
+- Margin-floor enforcement, escalating through: switch provider → reduce quality tier → queue off-peak → prompt top-up
+- Admin profit dashboard: revenue, provider costs, gross margin %, revenue by provider/user/feature, cost-leakage alerts *(Admin Super Control Centre P&L panel, M-30)*
+- **90-day margin forecast, updated weekly**
+- Platform-wide **ACU ledger reconciliation with double-entry accuracy** *(the doc-07 ledger contract)*
+
+**Inputs → Outputs:** ACU ledger, provider cost feeds, task cost
+predictions, subscription revenue, operating costs → provider routing
+decisions, ACU cost previews, margin alerts, profit dashboard data, cost
+optimisation recommendations.
+
+**Triggers (binding):** every agent task invocation (pre-execution cost
+calc) · daily midnight margin reconciliation · margin below alert threshold ·
+admin dashboard refresh.
+
+**KPIs:** platform gross margin **> 40%** · provider-arbitration savings
+**> 15% vs single-provider** · ACU forecast accuracy **± 10%** · margin-floor
+breach detected in **< 60 seconds**.
+
+**Escalation:** platform gross margin **< 25% → super-admin emergency
+cost-reduction protocol**; alert threshold at 30%.
+
+**Margin-basis reconciliation (owner doctrine governs):** this card's
+40%/30%/25% figures are **platform-wide gross margin** (all revenue, all
+costs). The owner's 100%-margin floor (doc 08 §A.1a) is **per-task**: every
+AI action priced ≥ 2× provider cost (= 50% task-level gross margin). Both
+apply — per-task floor first, platform thresholds as the aggregate guardrail.
+
+**Learning:** identifies consistently mis-priced task types; ACU cost models
+**recalibrated monthly**.
