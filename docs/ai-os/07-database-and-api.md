@@ -274,6 +274,52 @@ Conventions: cursor pagination (`?cursor=…&limit=…`), RFC-7807 errors,
 | Webhooks | CRUD `/webhooks`, `POST /webhooks/{id}/test`, `GET /webhooks/{id}/deliveries` | |
 | Admin | `/admin/*` mirror of M-30 panels | scope `admin:*`, U10/U11 only |
 
+### 3.2a API design principles & core endpoints (adopted from v3.0 spec §7.1–7.2)
+
+Additional binding conventions on top of §3 above:
+
+- REST + JSON everywhere; **GraphQL available for complex retrieval** on the
+  partner and developer portals
+- `/v1/` versioning; breaking changes always increment the major version
+- Auth: Firebase JWT (internal) · **API key + HMAC signature** (external/partner)
+- Rate limiting: **Redis-backed sliding window** — per user, per plan, per endpoint
+- **Response envelope on every response:**
+  `{ data, meta: { requestId, timestamp, version }, error: { code, message, trace } }`
+- **All agent APIs are async** — return a `taskId` immediately; completion via
+  webhook or SSE. *(Upgrade path for the shipped synchronous
+  `/api/agents/[agentId]`: it becomes the submit half of
+  `POST /v1/agents/orchestrate`, with results landing in `agent_tasks`.)*
+
+Core internal endpoints (per-endpoint rate limits binding):
+
+| Endpoint | Method | Purpose | Auth | Rate limit |
+|---|---|---|---|---|
+| `/v1/agents/orchestrate` | POST | Submit task to MOA — returns `taskId` | JWT | 60/min |
+| `/v1/agents/tasks/{taskId}` | GET | Poll agent task status + output | JWT | 120/min |
+| `/v1/business/{businessId}/vitality` | GET | Current BVI with dimension breakdown | JWT | 60/min |
+| `/v1/business/{businessId}/piq` | GET | Priority Intelligence Queue — top 5 actions | JWT | 60/min |
+| `/v1/campaigns` | POST | Create campaign (triggers Campaign Commander) | JWT | 30/min |
+| `/v1/campaigns/{id}/autonomy` | PATCH | Update campaign autonomy level | JWT | 30/min |
+| `/v1/campaigns/{id}/metrics` | GET | Real-time campaign metrics | JWT | 120/min |
+| `/v1/customers/import` | POST | Import customer DB (triggers Resurrection Engine) | JWT | **5/min** |
+| `/v1/customers/{id}/scores` | GET | Full AI predictive scores per customer | JWT | 120/min |
+| `/v1/opportunities` | GET | Current opportunity brief | JWT | 60/min |
+| `/v1/acu/topup` | POST | ACU top-up via Stripe | JWT | 10/min |
+| `/v1/acu/ledger` | GET | ACU transaction history | JWT | 60/min |
+| `/v1/intelligence/briefing` | GET | Today's AI Growth Briefing | JWT | 60/min |
+| `/v1/intelligence/query` | POST | Natural-language strategic query to MOA | JWT | **20/min** |
+
+External partner & developer endpoints (adopted from v3.0 spec §7.3):
+
+| Endpoint | Method | Purpose | Auth |
+|---|---|---|---|
+| `/api/v1/leads/ingest` | POST | Receive lead from external form, chatbot or CRM | API key + HMAC |
+| `/api/v1/webhooks/campaign-event` | POST | Receive campaign event from Meta/Google/TikTok | Webhook signature |
+| `/api/v1/reports/{businessId}` | GET | White-label performance report (agency) | API key + JWT claim |
+| `/api/v1/white-label/client` | POST | Provision new client under agency white-label | Agency API key |
+| `/api/v1/marketplace/listings` | GET | Browse marketplace listings (Phase 3) | Public, rate-limited |
+| `/api/v1/marketplace/demand` | POST | Submit demand intent to the demand router (Phase 3, M-17) | API key |
+
 ### 3.3 BitriPay API (gateway door)
 
 Base: `https://api.bitripay.com/v1` · keys `bp_live_…`/`bp_test_…`
@@ -321,3 +367,14 @@ reject if |now - timestamp| > 300s or !timing_safe_eq(expected, v1)
 `audit.completed` · `verdict.issued` · `gate.opened|resolved` · `lead.created` ·
 `thread.stage_changed` · `recovery.wave.completed` · `campaign.killed|scaled` ·
 `invoice.paid|failed` · `acu.low_balance` · plus the BitriPay family (§A.4 in doc 05).
+
+Payload contracts adopted from v3.0 spec §7.4 (all HMAC-signed per §3):
+
+| Event | Trigger | Payload fields |
+|---|---|---|
+| `agent.task.completed` | Agent task finishes | taskId, agentType, businessId, status, outputSummary, acuCost, timestamp |
+| `campaign.paused` | Budget Protection auto-pause | campaignId, reason, roas, threshold, **reallocationTarget**, timestamp |
+| `lead.qualified` | Lead Qualification assigns score | leadId, score, tier, recommendedAction, channel, timestamp |
+| `resurrection.launched` | Resurrection campaign starts | businessId, segmentSize, projectedRevenue, channels, timestamp |
+| `bvi.alert` | **BVI < 40 or any dimension critical** | businessId, score, dimension, severity, recommendedAction, timestamp |
+| `acu.low` | Balance below configured threshold | userId, balance, threshold, **estimatedRuntime**, timestamp |
