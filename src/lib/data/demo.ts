@@ -201,3 +201,33 @@ export const demoMetrics = {
   worstAd: "The best grill in South London 🔥",
   bestAudience: "Families 25–44, 2 miles of SW9, evening scrollers",
 };
+
+// Multi-brand account (owner ruling 2026-07-11): one account, one bill,
+// multiple brands running simultaneously. demoBusiness above is the active
+// brand; the switcher and billing surfaces render from this roster.
+export const demoAccountBrands = [
+  {
+    id: "brixton-grill",
+    name: "Brixton Grill House",
+    industry: "Restaurant & Food Delivery",
+    bvi: 74,
+    acuBurnMonth: 512,
+    active: true,
+  },
+  {
+    id: "nseya-beauty",
+    name: "Nseya Beauty Studio",
+    industry: "Beauty & Personal Care",
+    bvi: 68,
+    acuBurnMonth: 231,
+    active: false,
+  },
+  {
+    id: "carter-fitness",
+    name: "Carter Fitness Coaching",
+    industry: "Health & Fitness Services",
+    bvi: 81,
+    acuBurnMonth: 109,
+    active: false,
+  },
+] as const;

@@ -1,6 +1,7 @@
-import { ArrowUpRight, Check, Wallet, Zap } from "lucide-react";
+import { ArrowUpRight, Building2, Check, Plus, Wallet, Zap } from "lucide-react";
 import { AreaChart, DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { demoAccountBrands } from "@/lib/data/demo";
 
 // Billing & ACU module (M-21) — the AI economy surface. £1 = 100 ACUs;
 // plan ladder per v3.0 spec §12.1 (£9–£99 band, docs/ai-os/08 §A.1b);
@@ -12,35 +13,35 @@ const PLAN_LADDER = [
     name: "Free Recon",
     price: "£0",
     acus: "50 ACUs/mo",
-    features: ["Marketing Failure Audit", "Daily briefing (lite)", "1 landing page"],
+    features: ["Marketing Failure Audit", "Daily briefing (lite)", "1 brand"],
     current: false,
   },
   {
     name: "Starter",
     price: "£9/mo",
-    acus: "500 ACUs/mo",
-    features: ["All 19 agents (L0–L1)", "WhatsApp Center", "10 landing pages"],
+    acus: "500 ACUs/mo pooled",
+    features: ["All 19 agents (L0–L1)", "WhatsApp Center", "1 brand (+£5/extra, max 3)"],
     current: false,
   },
   {
     name: "Growth",
     price: "£29/mo",
-    acus: "2,000 ACUs/mo",
-    features: ["L2 autonomy + spend caps", "Resurrection Engine", "Campaign packs"],
+    acus: "2,000 ACUs/mo pooled",
+    features: ["L2 autonomy + spend caps", "Resurrection Engine", "3 brands (+£5/extra)"],
     current: true,
   },
   {
     name: "Pro",
     price: "£59/mo",
-    acus: "5,000 ACUs/mo",
-    features: ["L3 autonomy (TOTP-gated)", "Video War Room full", "Priority routing"],
+    acus: "5,000 ACUs/mo pooled",
+    features: ["L3 autonomy (TOTP-gated)", "Video War Room full", "5 brands (+£4/extra)"],
     current: false,
   },
   {
     name: "Agency",
     price: "£99/mo",
     acus: "12,000 pooled ACUs",
-    features: ["Multi-client dashboard", "White-label reports", "ACU pooling"],
+    features: ["15 client workspaces (+£3/extra)", "White-label reports", "ACU pooling"],
     current: false,
   },
 ];
@@ -127,6 +128,53 @@ export default function BillingPage() {
       <div className="mb-8 card p-5">
         <h2 className="mb-3 font-display font-bold text-white">Where your ACUs went</h2>
         <HBarList data={AGENT_BURN.map((a) => ({ ...a, note: "ACUs" }))} />
+      </div>
+
+      {/* Multi-brand: one account, one bill */}
+      <div className="mb-8 card p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-emerald-400" />
+          <h2 className="font-display font-bold text-white">Brands on this account</h2>
+          <Pill tone="good">one account · one bill</Pill>
+        </div>
+        <p className="mb-4 text-xs text-slate-500">
+          Run every brand and activity from a single login. Each brand is fully separated — its own campaigns,
+          customers, agents and audit trail — while the ACU pool and the invoice stay unified.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {demoAccountBrands.map((b) => (
+            <div
+              key={b.id}
+              className={`rounded-xl border p-4 ${b.active ? "border-emerald-500/50 bg-emerald-500/5" : "border-ink-700 bg-ink-850"}`}
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="truncate font-semibold text-white">{b.name}</p>
+                {b.active && <Pill tone="good">active</Pill>}
+              </div>
+              <p className="mb-3 text-xs text-slate-500">{b.industry}</p>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">
+                  BVI <span className="font-bold text-white">{b.bvi}</span>
+                </span>
+                <span className="text-slate-400">
+                  <span className="font-bold text-white">{b.acuBurnMonth}</span> ACUs this month
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">
+            Growth plan: <strong className="text-white">3 of 3 included slots used</strong> — extra brands £5/mo
+            each, drawn from the same pooled ACU allowance.
+          </p>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-lg border border-ink-700 px-3.5 py-2 text-xs font-bold text-slate-200 transition hover:border-emerald-500/50 hover:text-white"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add a brand — £5/mo
+          </button>
+        </div>
       </div>
 
       {/* Plan ladder */}

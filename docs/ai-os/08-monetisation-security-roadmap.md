@@ -70,6 +70,37 @@ recycled assets: **10×–50×** (900–1,900% — far above the 100% floor).
 4. Budget Protection's ACU-margin monitor enforces the floor per task and
    alerts the Admin margin dashboard on any action trending below 2×.
 
+### A.1c Multi-brand, one account, one bill (owner ruling 2026-07-11 — binding)
+
+One user account runs any number of brands/activities simultaneously under a
+**single subscription and a single invoice**. Design goals, in the owner's
+order: financially attractive first, with **100% margin protection built in
+by construction**.
+
+| Plan | Included brand slots | Extra brand slot | ACU allowance |
+|---|---|---|---|
+| Free Recon | 1 | — (upgrade) | 50/mo |
+| Starter £9/mo | 1 | +£5/mo each (max 3) | 500/mo **pooled** |
+| Growth £29/mo | 3 | +£5/mo each | 2,000/mo **pooled** |
+| Pro £59/mo | 5 | +£4/mo each | 5,000/mo **pooled** |
+| Agency £99/mo | 15 client workspaces | +£3/mo each | 12,000/mo **pooled** |
+
+Why this is both attractive and floor-safe:
+
+1. **The ACU pool is the cost governor.** All AI cost is metered per task at
+   ≥ 2× provider cost (§A.1a) from one account-wide pool — adding brands
+   never adds unmetered AI cost, it only spreads the same pooled allowance
+   across more surfaces. The floor cannot be breached by brand count.
+2. **Brand slots are near-pure margin.** An extra slot costs the platform
+   ~storage only; at £3–£5/mo the margin is far above 100% while undercutting
+   every competitor that forces one-subscription-per-brand (the standard
+   agency-tool tax).
+3. **One bill = retention lever.** Consolidated invoicing raises switching
+   cost and NRR; the upsell path (more brands → more ACU top-ups → Agency)
+   is the A.3 Monetisation Agent's primary play.
+4. **Per-brand isolation is preserved** (doc 02 §U1a): pooled billing never
+   pools data — brands stay fully separated tenants under one envelope.
+
 ### A.2 ACU system (the AI economy)
 
 - 1 ACU = normalised unit of model cost (router maintains tier→ACU table).

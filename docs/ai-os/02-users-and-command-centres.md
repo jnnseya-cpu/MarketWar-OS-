@@ -92,6 +92,30 @@ Each command centre is staffed by seven personal agents drawn from the roster in
 - **Recommend-only (L0):** price changes, new market entry, credit decisions.
 - **Data scope:** own tenant, all modules.
 
+#### U1a — Multi-brand ownership (owner ruling 2026-07-11 — binding)
+
+**One account runs multiple brands and/or activities at the same time — one
+login, one bill.** This is native U1 capability, not an agency licence:
+
+- **Data model:** already one-to-many — every brand is a `businesses` document
+  under the same `users.uid` owner (`07a` §6.2.2). Each brand keeps its own
+  BVI, campaigns, vault, agents and audit trail; nothing is shared between
+  brands except the account envelope.
+- **Brand switcher:** every dashboard surface is brand-scoped with a one-tap
+  switcher; agents operate per-brand (a Budget Protection decision on brand A
+  never touches brand B's spend).
+- **One bill:** a single subscription invoice covers the account; brand slots
+  are included per plan tier and extra slots are a flat add-on. The **ACU
+  allowance is pooled account-wide** and drawn by whichever brand acts —
+  identical mechanics to Agency ACU pooling (U4), scoped to one owner.
+- **Margin protection:** brand slots carry near-zero marginal cost (storage
+  only); all AI cost remains ACU-metered at the ≥ 2× floor per task
+  (doc 08 §A.1a), so multi-brand generosity is financially attractive
+  *and* floor-safe by construction. Pricing detail: doc 08 §A.1c.
+- **Upgrade path to U4:** when a multi-brand owner starts running brands they
+  don't own, the account converts to an Agency account (client workspaces,
+  white-label) — same data model, different envelope.
+
 ### U2 — Marketing Manager Command Centre
 - **Sees:** experiment grid with verdict countdowns, creative performance by hook,
   audience overlap warnings, content calendar, channel mix.

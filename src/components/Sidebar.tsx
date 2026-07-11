@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import BrandSwitcher from "@/components/BrandSwitcher";
 import {
   Activity,
   BadgePercent,
@@ -84,6 +85,7 @@ export default function Sidebar() {
           MarketWar <span className="text-emerald-400">OS</span>
         </span>
       </Link>
+      <BrandSwitcher />
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
         {NAV.map((group) => (
           <div key={group.group}>
