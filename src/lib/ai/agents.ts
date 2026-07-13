@@ -673,50 +673,64 @@ ${biz(i)} has a proven winner (7.3x ROAS), £1,240 of dormant revenue in the vau
 
   "viral-product-engine": {
     id: "viral-product-engine",
-    name: "AI Viral Product Engine",
-    role: "Product image → complete campaign",
+    name: "MarketWar VisualStrike AI™",
+    role: "One product picture → autonomous viral campaign factory",
     description:
-      "Vision-based engine: from product images (photos, packaging, listings) it builds a full product dossier — 18 attributes plus Visual Quality, Conversion and Trust scores — then one-click creates viral posts, ads, videos, copy, images, sales boosters and market intelligence.",
+      "Upload one product picture, receive a complete platform-ready viral campaign. Product Identity Lock™ protects the real product; Viral + Commercial Potential Scores rank every angle; the Hook Laboratory, content packs and testing matrix turn attention into attributed revenue.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
-You are the AI VIRAL PRODUCT ENGINE (Agent 21). The user describes or uploads
-product images (product photos, lifestyle shots, packaging, logos, Amazon/
-Etsy/Shopify listings). Transform — never merely analyse. Output:
-## Product Dossier (product type, brand, colours, materials, style, audience, price positioning, luxury-vs-budget, benefits, emotional triggers, weaknesses, pain points solved, gift potential, seasonal + viral opportunities, target countries, market trends)
-## Scores (Visual Quality /100, Conversion /100, Trust /100 — one-line reason each)
-## Viral Social Posts (3 strongest platforms from Facebook/Instagram/TikTok/X/LinkedIn/Pinterest/Threads/Snapchat/Reddit — full caption, hook, CTA, hashtags, emojis per platform)
-## Ad Set (best ad format per paid channel with headline + primary text + visual direction)
-## Video Concept (one UGC-style + one cinematic concept, hook-first)
-## Copy Block (product description + one email + one WhatsApp/SMS message)
-## Sales Booster (one upsell/bundle + one scarcity or flash-sale play)
-## Market Intelligence (pricing recommendation, best posting times, suggested budget, predicted ROAS, purchase-intent score)
-## Launch Order (what to publish first, second, third — and why, in £ terms)`,
+You are MARKETWAR VISUALSTRIKE AI (Agent 21) — an autonomous viral campaign
+factory, not an image tool. The user describes or uploads product images.
+Hard rules: NEVER alter the product's identity, shape, colour, packaging,
+logo or specifications in any creative direction (Product Identity Lock).
+NEVER invent a product capability or any health/financial/technical/
+performance claim — flag uncertain facts as "needs user confirmation".
+Detect and refuse deceptive clickbait. Output:
+## Product Dossier (category, name, brand, visible features, materials, colours, intended use, customer types, price positioning, luxury/mass/budget class, differentiators, photo quality, missing sales info, regulatory/ad risks — mark low-confidence items ⚠ needs confirmation)
+## Product Identity Lock (which characteristics are locked; recommended transformation tier from exact-preservation → controlled-creative)
+## Scores (Viral Potential /100 with the 2–3 dimensions driving it and how to raise it · Commercial Potential /100 — views are not revenue · Visual Quality /100)
+## Viral Angles (top 4 from the 27 angle families — each with audience, pain, emotional trigger, opening hook, proof requirement, CTA, platform, duration, brand-risk level)
+## Hook Laboratory (best visual hook, spoken hook, on-screen hook, retention bridge, CTA — scored)
+## Content Pack (3 strongest platforms natively adapted — full caption/hook/CTA/hashtags per platform + one email + one WhatsApp/SMS)
+## Video Factory (one 6s attention ad + one 15–30s conversion ad concept, following the controlled pipeline: protected product → motion → VO/captions → consistency check)
+## Sales Booster (one upsell/bundle + one honest scarcity play)
+## Testing Matrix (first 3 controlled experiments: variable, variants, kill/scale criteria)
+## Market Intelligence (pricing recommendation, posting times, suggested budget, predicted ROAS, purchase-intent score)
+## Launch Order (publish sequence in £ terms; note compliance/consistency approvals required)`,
     demoOutput: (i) => `## Product Dossier
-**Product:** Signature flame-grilled family platter (hero image analysed) · **Brand:** ${biz(i)} · **Colours:** char-black, flame-orange, emerald accents · **Style:** authentic, hunger-first food photography · **Audience:** families 25–44 + office lunch decision-makers within 3 miles of ${loc(i)} · **Price positioning:** value-premium (£25 feeds 4 — undercuts takeaway aggregators on per-head cost) · **Positioning:** budget-friendly abundance, not luxury · **Benefits:** feeds four, 20-minute doorstep heat, no aggregator fees · **Emotional triggers:** Friday relief, family togetherness, fear of the 40-platter cap · **Weakness:** steam haze softens the hero shot's product edges · **Pain point solved:** "what's for dinner" decision fatigue · **Gift potential:** low — consumable, local · **Seasonal:** match-day bundles, Ramadan iftar platters, Christmas office orders · **Viral opportunity:** platter-assembly speed-run + live counter format · **Target countries:** UK (local radius) · **Trend:** anti-aggregator "order direct" sentiment rising
+**Product:** Signature flame-grilled family platter (hero image analysed) · **Brand:** ${biz(i)} · **Colours:** char-black, flame-orange, emerald accents · **Style:** authentic, hunger-first food photography · **Audience:** families 25–44 + office lunch decision-makers within 3 miles of ${loc(i)} · **Price positioning:** value-premium (£25 feeds 4 — undercuts takeaway aggregators on per-head cost) · **Positioning:** budget-friendly abundance, not luxury · **Benefits:** feeds four, 20-minute doorstep heat, no aggregator fees · **Emotional triggers:** Friday relief, family togetherness, fear of the 40-platter cap · **Weakness:** steam haze softens the hero shot's product edges · **Pain point solved:** "what's for dinner" decision fatigue · **Gift potential:** low — consumable, local · **Seasonal:** match-day bundles, Ramadan iftar platters, Christmas office orders · **Viral opportunity:** platter-assembly speed-run + live counter format · **Target countries:** UK (local radius) · **Trend:** anti-aggregator "order direct" sentiment rising · ⚠ **Needs confirmation:** exact platter contents and allergen list before any ad copy states them
+
+## Product Identity Lock
+**Locked:** platter composition and portions as photographed · brand logo · £25 price point · packaging. **Recommended tier: lifestyle placement** — the real platter, real steam, real table; no synthetic food generation (food is a regulated-adjacent category: what's shown must be what arrives).
 
 ## Scores
+- **Viral Potential 82/100** — first-second stopping power (flames) and comment potential ("tag who you're feeding") drive it; raise to ~90 by opening on the platter-assembly speed-run rather than a static hero.
+- **Commercial Potential 87/100** — radius-targeted dinner-decision traffic with a one-tap WhatsApp CTA; views convert because the viewer can act in 10 seconds.
 - **Visual Quality 78/100** — real flames beat stock, but the hero needs a tighter crop and steam control.
-- **Conversion 84/100** — price-per-head story is instantly legible; add the £25 badge to every asset.
-- **Trust 71/100** — no visible reviews in frame; overlay the 4.8★ rating strip.
 
-## Viral Social Posts
+## Viral Angles
+1. **Product demonstration** — the assembly speed-run · families deciding dinner · trigger: hunger + relief · hook: flames hit the grill · proof: real kitchen, real clock · CTA: WhatsApp "FRIDAY" · TikTok/Reels, 15s · risk: low · objective: orders tonight.
+2. **Urgency & scarcity (honest)** — live "Platter 27/40" counter · trigger: fear of missing Friday · proof: the counter is the real kitchen cap · CTA: order before 7pm · Stories, 10s · risk: low · objective: same-day conversion.
+3. **Comparison** — "£25 direct vs £34 on the apps" · aggregator-fatigued locals · trigger: being overcharged · proof: side-by-side receipt · CTA: order direct · Facebook, 20s · risk: medium (name no competitor) · objective: channel shift.
+4. **Community participation** — "Tag the 3 people you'd share this with" · trigger: belonging · CTA: soft — profile → WhatsApp · Instagram, static+carousel · risk: low · objective: reach that retargets.
+
+## Hook Laboratory
+**Visual hook (9.1/10):** platter lands on the pass, flames flare behind — unexpected speed. **Spoken (8.7):** "You're paying £9 more for the same food on the apps." **On-screen (8.4):** "Friday's 40 platters. 27 gone." **Retention bridge:** "Wait for the price at the end." **CTA:** "Tap to order on WhatsApp." *Clickbait check: every hook is fulfilled by the content — pass.*
+
+## Content Pack
 **TikTok** — Hook: "POV: it's Friday in ${loc(i)} and you just fed 4 people for £25 🔥" · Caption: platter speed-run, live counter, "kitchen caps at 40" · CTA: "Tap the link → WhatsApp, say FRIDAY" · #${loc(i).replace(/[^a-zA-Z]/g, "")}food #familydinner #grillfriday
 **Instagram Reels** — Hook: flame close-up + "£6.25 a head. Hot in 20 minutes." · CTA: "Order direct — link in bio" · Story version with countdown sticker to 7pm.
 **Facebook** — Sound-off text-forward cut, price badge permanent, CTA button → wa.me deep link; boost only to 3-mile radius, families 25–44.
+**Email:** "Friday's 40 platters go live at 4pm" · **WhatsApp/SMS:** "🔥 FRIDAY PLATTER: £25 feeds 4, hot in 20 min. 40 only — reply PLATTER to lock yours."
 
-## Ad Set
-- **Meta carousel** — "Feed 4 for £25" / card 2: 20-min heat promise / card 3: 4.8★ reviews / CTA: Order on WhatsApp.
-- **Google Performance Max** — headline "Family Platter £25 — ${loc(i)}", asset group fed from this dossier.
-- **TikTok Spark ad** — boost the organic speed-run once it clears 5k views.
+## Video Factory
+- **6s attention ad:** flames → platter slam → "£25 FEEDS 4" → WhatsApp button. Product untouched, motion generated around the locked hero.
+- **15–30s conversion ad:** UGC-style doorstep handoff → table reveal → kids' reaction → live counter → CTA. Pipeline: locked product → approved hero → motion → VO/captions → **consistency validation** (what's shown = what arrives) → platform versions → compliance check.
 
-## Video Concept
-- **UGC-style:** customer films doorstep handoff → table reveal → kids' reaction; overlay "£25. 20 minutes. Done."
-- **Cinematic:** slow flame licks in macro, platter build in rhythm cuts, counter hits 40, hard cut to black: "Fridays sell out."
-
-## Copy Block
-**Description:** "One platter. Four people. Twenty minutes. ${biz(i)}'s flame-grilled family platter feeds the whole table for £25 — ordered direct on WhatsApp, no app fees, no cold food."
-**Email subject:** "Friday's 40 platters go live at 4pm" — body: counter, price-per-head math, one-tap WhatsApp button.
-**WhatsApp/SMS:** "🔥 FRIDAY PLATTER: £25 feeds 4, hot in 20 min. 40 only — reply PLATTER to lock yours."
+## Testing Matrix
+1. **Hook** — speed-run open vs flame close-up vs receipt comparison · kill loser at 1,000 impressions, >35% CTR gap.
+2. **CTA** — "Tap to order" vs "40 only — claim yours" · judge on WhatsApp thread starts, not clicks.
+3. **Posting time** — 11:30 vs 16:00 vs 18:30 Thu/Fri · judge on cost per order. Winners recombine into round 2; learnings stored in Creative Intelligence Memory.
 
 ## Sales Booster
 - **Bundle:** Platter + 4 drinks + 2 sides = £32 "Full Table" (AOV +28%).
@@ -733,27 +747,39 @@ Price holds at £25 (2.4× food cost — floor-safe) · Post 11:30am + 4–7pm T
 
   "website-intelligence": {
     id: "website-intelligence",
-    name: "AI Website Marketing Intelligence Engine",
-    role: "Website URL → unified marketing strategy",
+    name: "MarketWar SiteRaid AI™",
+    role: "Authorised URL → autonomous viral growth operation",
     description:
-      "Deep-crawls any website or store, extracts the full brand and catalogue dossier, scores an AI Marketing Health Score, then generates on-brand campaigns, creatives, funnels, competitor benchmarks and growth opportunities — publish-ready.",
+      "Converts an authorised website into a complete, continuously optimised marketing and sales operation: Business DNA™, Website Truth Layer™ (no unverified claims), six-part marketing audit, Competitive Attack Map, five-layer campaign architecture and story-driven assets.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
-You are the AI WEBSITE MARKETING INTELLIGENCE ENGINE (Agent 22). The user
-provides a URL (website, store, listing, booking site). Convert the entire
-site into a unified marketing strategy. Output:
-## Site Dossier (products/services, pricing, brand identity — colours/fonts/logo/voice, audience, CTAs, trust signals, reviews, SEO metadata, offers, social links)
+You are MARKETWAR SITERAID AI (Agent 22) — an autonomous viral growth
+engine, not a scraper. The user provides an authorised URL (they own,
+manage, or have permission; competitor URLs get public analysis only, never
+republished assets). Hard rules: every claim must carry a Truth Layer
+classification (verified-from-website / user-confirmed / inferred-awaiting-
+confirmation / PROHIBITED); superlatives like "best in the UK" are blocked
+unless substantiated; stories must trace to verified facts. Output:
+## Business DNA (market category, business model, core offers, segments, value proposition, brand personality, price position, sales cycle, main conversion action, competitive advantages, proof assets, top objections, trust/content/conversion/SEO gaps)
+## Website Truth Layer (the 4–6 strongest publishable claims with classification + source; anything blocked and why)
 ## AI Marketing Health Score (/100 with sub-scores: SEO, speed, UX, accessibility, mobile, conversion, technical, brand consistency, security, performance — top 3 prioritised fixes)
-## Campaign Factory (30-day content plan skeleton + one seasonal campaign + email/SMS/WhatsApp sequence outline)
-## Creative Direction (on-brand: what every asset must carry — colours, type, voice)
-## Funnel Build (the one funnel this business needs first: pages, lead magnet, flow, abandoned-recovery step)
-## Competitor Benchmark (vs 2–3 named/likely competitors: pricing, SEO, messaging, gaps to exploit)
+## Competitive Attack Map (vs 2–3 competitors: their strengths, weaknesses, saturated angles; where to win WITHOUT copying — ranked: quick revenue wins → defensibility)
+## Campaign Architecture (the five layers — Awareness/Consideration/Conversion/Retention/Advocacy — one concrete play per layer)
+## Site-to-Story (one founder/origin/customer-transformation story built ONLY from verified site facts)
+## Trend Hijack Check (one current trend the brand can credibly join + one to REJECT with the relevance-gate reason)
+## Funnel Build (the one funnel to build first: pages, lead magnet, flow, abandoned-recovery step)
 ## Growth Opportunities (top 3 with revenue impact, effort, expected ROI)
-## One-Click Launch Order (what to generate and publish first, tied to £)
-Brand consistency is law: every recommendation locks to the site's own
-logo, colours, typography, tone and messaging.`,
-    demoOutput: (i) => `## Site Dossier
-**${(i.website || "brixtongrillhouse.co.uk")}** — single-location restaurant site · **Catalogue:** 14 menu items, hero product = £25 family platter · **Pricing:** visible, no per-head math shown · **Brand:** char-black/flame-orange/emerald, Space-Grotesk-style display font, voice = confident-local · **Audience signals:** family imagery, office catering page · **CTAs:** "Order Now" (3 places, all route to phone) · **Trust:** 4.8★ Google embedded, no press strip · **SEO:** title tags present, no schema markup, blog dormant since March · **Offers:** free delivery over £20 buried in footer · **Social:** IG + Facebook linked, TikTok missing
+## Launch Order (generate/publish sequence tied to £; note nothing auto-publishes without approved autopilot rules)
+Brand consistency is law: every asset locks to the site's own logo,
+colours, typography, tone and messaging.`,
+    demoOutput: (i) => `## Business DNA
+**${(i.website || "brixtongrillhouse.co.uk")}** · **Category:** single-location restaurant + office catering · **Model:** direct D2C orders (WhatsApp/phone) undercutting aggregators · **Core offers:** £25 family platter (hero), office catering, free delivery > £20 · **Segments:** local families 25–44, office lunch decision-makers · **Value proposition:** feed 4 for £25, hot in 20 minutes, no app fees · **Brand personality:** confident-local, zero corporate · **Price position:** value-premium · **Sales cycle:** same-day impulse (dinner decision window 4–7pm) · **Main conversion action:** WhatsApp order thread · **Advantages:** speed promise, direct pricing, 4.8★ base · **Proof assets:** Google reviews, real kitchen photography · **Top objections:** "will it arrive hot?", "is £25 really cheaper than the apps?" · **Gaps:** trust (reviews not surfaced), content (blog dormant since March), conversion (CTAs route to phone only), SEO (no schema), GEO (zero AI-search presence)
+
+## Website Truth Layer
+- ✅ **"Free delivery over £20"** — verified from website (footer policy page); surface it site-wide.
+- ✅ **"Rated 4.8★ on Google"** — verified from embedded review widget; approved for ads with source link.
+- ⚠ **"Hot in 20 minutes"** — inferred from homepage copy; needs user confirmation + operational backing before paid ads state it.
+- 🚫 **"Best grill in South London"** (found in an old blog post) — PROHIBITED: unsubstantiated superlative; never regenerate.
 
 ## AI Marketing Health Score — 63/100
 SEO 58 · Speed 71 · UX 74 · Accessibility 62 · Mobile 79 · **Conversion 51** · Technical 68 · Brand consistency 82 · Security 77 · Performance 70
@@ -762,19 +788,28 @@ SEO 58 · Speed 71 · UX 74 · Accessibility 62 · Mobile 79 · **Conversion 51*
 2. **No LocalBusiness/Menu schema** — free local-pack visibility being left on the table.
 3. **Free-delivery offer invisible** — move to a site-wide banner; it's the best converting line on the site.
 
-## Campaign Factory
-**30-day plan:** 3 posts/week — Mon menu hero, Thu platter countdown, Sat behind-the-grill; every post CTA → WhatsApp. **Seasonal:** "Match-Day Platter" for the football calendar. **Sequences:** email (Fri 4pm counter), SMS (Fri 5:30pm last-call), WhatsApp broadcast (opt-ins only, consent-checked).
+## Competitive Attack Map
+- **Flame Republic (0.8mi):** strength = £15 price point; weakness = 2.9★ late-delivery reviews; saturated angle = discount-led ads. **Attack: the 20-minute promise** (quick revenue win — their weakness is our verified strength).
+- **Aggregator listings:** strength = convenience; weakness = 30% fees priced in. **Attack: "same food, £4 cheaper direct"** receipt comparison (conversion improvement).
+- **Unclaimed ground:** nobody in ${loc(i)} owns office catering on LinkedIn (viral + defensibility play) and no local grill has any AI-search/GEO presence (long-term defensibility).
+*Nothing above copies a competitor asset — angles only.*
 
-## Creative Direction
-Every asset: char-black base, flame-orange price badge, emerald CTA button, display font for numbers, voice = "confident local, zero corporate" — pulled from the live site, enforced at generation.
+## Campaign Architecture
+- **Awareness:** platter speed-run TikTok/Reels (trend-format participation).
+- **Consideration:** receipt-comparison video + FAQ content answering the top 2 objections.
+- **Conversion:** Friday counter offer ads + WhatsApp click-to-order campaign.
+- **Retention:** post-order WhatsApp flow — reorder reminder next Thursday + "Friday Club" £89/mo subscription pitch after 3rd order.
+- **Advocacy:** review-collection message 1 hour post-delivery + tag-a-friend giveaway monthly.
+
+## Site-to-Story
+**Origin story (all facts verified from the About page):** the owner's first grill was the family's backyard drum barbecue; the £25 platter is the same recipe scaled to a 40-per-night kitchen cap — "we cap it because that's how many we can grill properly." Runs as a 30s founder video + blog post; every beat traceable.
+
+## Trend Hijack Check
+- ✅ **Join:** "order direct, skip the app fees" creator format — brand-relevant, commercially aligned, low risk.
+- 🚫 **Reject:** viral "giant food challenge" meme — relevance gate fails on brand fit (abundance ≠ waste) and reputation risk.
 
 ## Funnel Build
 **The Friday Platter funnel:** IG/TikTok → one-scroll landing page (hero video, £25 badge, live counter, WhatsApp CTA) → wa.me pre-filled thread → order → post-order upsell (£7 dessert add-on) → **abandoned recovery:** 90-second WhatsApp nudge if thread opened but no order.
-
-## Competitor Benchmark
-- **Flame Republic (0.8mi):** £15 meal deal, weaker reviews (2.9★ late delivery) — exploit with the 20-minute promise.
-- **Aggregator listings:** 30% fees priced in — "order direct, same food, £4 cheaper" message wins.
-- **Gap:** nobody in ${loc(i)} owns office catering on LinkedIn — open lane.
 
 ## Growth Opportunities
 1. **Office catering push** (LinkedIn + landing page) — revenue impact ~£2,400/mo · effort: low · ROI ~6× in 60 days.

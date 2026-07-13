@@ -131,3 +131,228 @@ materials — generated and optionally published.
   (`/dashboard/product-engine`, `/dashboard/website-intel`); vision upload
   pipeline, crawler service and channel publishing land with the connector
   phase (P1) — 📘 tracked in the coverage matrix.
+
+---
+
+# v2 UPGRADE — MarketWar VisualStrike AI™ & SiteRaid AI™ (adopted 2026-07-13)
+
+The owner's second extraction (`docs/reference/visualstrike-siteraid-extraction.md`,
+verbatim) upgrades both engines from generators into **autonomous viral
+campaign factories**: research → create → test → publish → learn → optimise,
+continuously. Parts A–C above remain the v1 foundation; everything below is
+additive and binding. Positioning: *«One picture or one website. MarketWar
+builds, launches and continuously improves the complete campaign — from first
+attention to final revenue.»*
+
+## Part D — VisualStrike AI™ (upgrades M-32)
+
+**Core promise:** upload one product picture → a complete, platform-ready
+viral campaign — *without ever changing the product's identity, shape,
+colour, packaging, logo or specifications*.
+
+1. **Product Intelligence Extraction** — CV + OCR + multimodal reasoning →
+   18-element extraction, each with **confidence score, source location on
+   the image, editable confirmation, "do not change" lock, "needs user
+   confirmation" warning**. The platform never invents a capability or
+   health/financial/technical/performance claim.
+2. **Product Identity Lock™** — protected identity model (12 locked
+   characteristics: shape → core appearance) with six user-selectable
+   transformation tiers from *exact preservation* to *controlled creative
+   transformation*. **Exact preservation mandatory for regulated/high-value
+   products.** Prevents the classic gen-AI failure of ads that misrepresent
+   the real product.
+3. **Autonomous Product Research Agent** — with user approval, builds a live
+   product intelligence file (14 research outputs incl. saturated hooks and
+   under-served segments). Never copies competitors — finds the less crowded
+   angle.
+4. **Viral Potential Score™ (0–100)** — 15 scoring dimensions
+   (first-second stopping power → purchase-intent strength) with explained
+   scores and improvement paths; a separate **Commercial Potential Score**
+   stops the platform confusing empty views with profitable attention.
+5. **Viral Angle Generator** — 27 required angle families
+   (problem-vs-solution → premium cinematic storytelling); every angle
+   carries 11 fields (audience, problem, trigger, hook, message, proof
+   requirement, CTA, platform, duration, brand-risk level, commercial
+   objective).
+6. **Image Transformation Studio** — 17 commercial image types, 14 controls;
+   multi-object ads use **separate product-pairing, layout and background
+   stages** — never one uncontrolled generation call.
+7. **Image-to-Video Factory** — 20 video types (6-second attention ads →
+   marketplace videos), 16 controls, and the binding 7-step controlled
+   pipeline: preserve product → hero image → motion around protected product
+   → voice/music/captions → **product-consistency validation** → platform
+   versions → compliance + quality checks.
+8. **AI Creator & UGC Studio** — 12 virtual-presenter capabilities under 8
+   hard safeguards: AI disclosure, no impersonation, no cloning without
+   consent, **no fabricated testimonials, no fake endorsements**, no false
+   use claims, no unauthorised likeness, full consent/rights records.
+9. **Viral Content Pack Generator** — one approved concept → 32 native
+   formats (TikTok video → press-release draft), **adapted natively, never
+   merely resized**.
+10. **Hook Laboratory™** — ≥130 scored hooks per product (20 visual, 20
+    spoken, 20 text, 10 each: curiosity/pain/comparison/objection/urgency/
+    community/conversion) with the hook→retention-bridge→CTA structure;
+    **deceptive clickbait detected and blocked**.
+11. **Global Localisation Engine** — 17 localisation axes; multilingual VO,
+    subtitles, lip-sync and **transcreation, not direct translation**.
+12. **Autonomous Testing & Optimisation** — 19-variable creative-testing
+    matrix; 8-step loop (publish variants → collect → identify winners →
+    stop waste → recombine winners → transfer learning cross-platform →
+    attribute leads/sales → update **Creative Intelligence Memory**). Must
+    distinguish views-vs-intent, engagement-vs-conversion, clicks-vs-LP
+    performance, sales-vs-margin, short-term-vs-brand-risk, organic-vs-paid.
+13. **One-click campaign modes (8):** Launch Blitz · Viral Sprint (7-day
+    trend-led volume) · Sales Conversion · Product Education · Marketplace
+    Domination (Amazon/Etsy/TikTok Shop/Shopify) · Local Business Push ·
+    Seasonal Takeover · **Always-On Autopilot** (within approved budget +
+    brand rules).
+14. **14-step user workflow** (upload → confirm facts → lock identity →
+    segments/goals → research → angles+scores → select or autonomous →
+    packs → compliance approval → preview → publish/schedule → monitor →
+    iterate).
+
+## Part E — SiteRaid AI™ (upgrades M-33)
+
+**Core promise:** paste any *authorised* URL → a complete, continuously
+optimised marketing and sales operation.
+
+1. **Authorised Website Ingestion** — 13 accepted input types; **mandatory
+   authorisation step** (own / manage / permitted / public-competitor
+   analysis without republishing protected assets); strict separation of
+   competitive analysis vs approved reuse vs original generation vs
+   restricted material.
+2. **Full Website Understanding** — 34-element extraction with a **visual
+   extraction screen** where the user approves/edits/locks/excludes every
+   asset.
+3. **Business DNA Builder™** — continuously updated 24-field profile
+   (market category → referral opportunities).
+4. **Website Truth Layer™** — every generated claim linked to source with
+   5 classifications: *verified from website / verified from connected data /
+   user-confirmed / inferred-awaiting-confirmation / prohibited*. "Best in
+   the UK" blocked unless substantiated; performance claims verified before
+   publication. **Kills hallucinated advertising.**
+5. **Instant Marketing Audit** — six audits in one scan: brand (6 checks),
+   conversion (8), content (8), search incl. **AI-search/GEO visibility**
+   (8), social (7), commercial (9).
+6. **Market Gap & Competitive Attack Map** — 16 gap classes → an Attack Map
+   prioritised by quick revenue wins, viral opportunities, conversion
+   improvements, differentiation, retention, defensibility. Win without
+   copying.
+7. **Autonomous Campaign Architect** — five-layer architecture: Awareness ·
+   Consideration · Conversion · Retention · Advocacy (34 campaign types
+   across layers).
+8. **Website-to-Viral Asset Generation** — 30 asset classes from one site.
+9. **Site-to-Story Engine™** — website facts → 10 story archetypes (founder
+   journeys → social-impact stories); **every story traceable to verified
+   business information**.
+10. **Trend Hijack with Brand Relevance™** — 11 trend categories through an
+    8-factor relevance gate (brand/audience relevance, commercial potential,
+    speed, reputation risk, legal risk, sensitivity, saturation); rejects
+    trends that damage brands, exploit tragedy or mislead.
+11. **Website-to-Influencer Campaign** — 16-part campaign kit; with the
+    creator marketplace: identify → invite → negotiate in approved ranges →
+    brief → approve → track → milestone payments → rights-respecting reuse.
+12. **Competitor Creative Reverse-Engineering** — extracts strategic
+    patterns (12 classes), never protected content; user sees what/why/where
+    weak/how we differentiate/**what must not be copied**.
+13. **Autonomous Landing-Page Generator** — 14 page types, 12 controls
+    (brand-matched, A/B, heatmaps, server-side conversion tracking, consent).
+14. **Generative Search Visibility Engine (GEO)** — 13 output classes for AI
+    answer-engine discovery (entity info, expert answers, citation-friendly
+    summaries, topic clusters).
+15. **Continuous Website Monitoring** — plan-based rescan; 15 change types
+    detected → 7 update proposal classes; **nothing auto-publishes without
+    approved autopilot rules**.
+16. **16-step user workflow** (paste URL → authorisation → scan → extract →
+    Truth Layer review → DNA → audits → Attack Map → objective/budget/
+    countries/channels → architecture → assets → compliance review →
+    approve or guarded autopilot → publish → track → iterate).
+
+## Part F — Shared Intelligence Layer (binding for both engines)
+
+**20 required agents:** Product Understanding · Website Intelligence ·
+Market Research · Customer Psychology · Viral Strategy · Creative Director ·
+Scriptwriting · Image Generation · Video Production · Brand Guardian ·
+Product Fidelity · Claim Verification · Compliance · Localisation ·
+Distribution · Experimentation · Performance · Revenue Attribution ·
+**Margin Protection** · Learning. (Mapping: these specialise/extend the
+platform roster — e.g. Margin Protection = Agent 20's engine-scoped duty,
+Brand Guardian = doc 09 §1.9, Compliance = the pre-publish gate; the roster
+composes, nothing is duplicated.)
+
+**MarketWar Creative Knowledge Graph** — 23 core entities (User →
+Compliance decision) stored as connected entities so the platform knows:
+product→brand, claim→evidence, campaign→audiences, creative→approved
+concept, conversion→campaign, winning hook→related product reuse, and **a
+rejected claim is never regenerated**. (Extends `knowledge_graph_nodes`,
+doc 07a.)
+
+**Autonomy & approval levels (upgrade to the platform dial):**
+L0 Draft Only · L1 User Approval per asset · L2 Campaign Approval (strategy
+approved, AI publishes permitted variations) · L3 Guarded Autopilot (brand/
+budget/channel/compliance limits) · **L4 Revenue Autopilot (budget
+reallocation + new assets driven by profitability)**. High-risk categories
+locked to L0/L1. *Reconciliation (additive): the platform-wide L0–L3 dial
+(doc 02 §2) gains L4 as a publishing-and-budget tier for these engines;
+all existing gates (TOTP for L3+, £500 escalation, 60-second reversal)
+apply unchanged at L4.*
+
+**Performance dashboard — commercial metrics contract (23):** hook rate ·
+3-second retention · avg watch time · completion · save rate · share rate ·
+comment quality · profile visits · CTR · LP conversion · lead quality ·
+CPL · CPA · revenue · gross profit · ROAS · contribution margin · CAC ·
+LTV · refund rate · repeat purchase · creative fatigue · brand-risk events.
+**Viral-to-Revenue Funnel:** Impression → Attention → Engagement → Click →
+Lead → Purchase → Repeat Purchase → Referral.
+
+**Safety, trust & rights (mandatory 18 controls):** AI-content labelling,
+ownership records, creator consent, model releases, copyright + trademark
+checks, claim evidence, regulated-category / political / child-safety
+restrictions, deepfake + impersonation + synthetic-testimonial prevention,
+audit logs, version history, human approval records, provenance metadata,
+**C2PA-compatible provenance where supported**. Disclosure metadata is
+generated and preserved by default.
+
+## Part G — Developer architecture (adopted verbatim contracts)
+
+- **18 frontend modules** `/visual-strike` → `/billing-acu`. Route mapping
+  to the shipped app: `/visual-strike` ↔ `/dashboard/product-engine`,
+  `/site-raid` ↔ `/dashboard/website-intel`, `/billing-acu` ↔
+  `/dashboard/billing`, `/brand-kit` ↔ doc 09 §1.9 module; remaining
+  modules land as the engines' sub-surfaces at P1 (additive — existing
+  routes are never renamed away).
+- **22 backend services** (vision-analysis → margin-protection) — deployed
+  per doc 06 §3.2 (Functions 2nd gen / Cloud Run for heavy generation).
+- **24 API endpoints** — 8 VisualStrike, 9 SiteRaid, 7 shared — join the
+  doc 07 REST contract under `/api/visual-strike/*`, `/api/site-raid/*`,
+  `/api/{claims,compliance,experiments,publishing,autopilot,analytics}/*`.
+- **35 core collections** (`organisations` → `marginRecords`) — additive
+  onto doc 07a; `acuTransactions`/`providerCosts`/`marginRecords` compose
+  with the existing `acu_ledger` + `agent_tasks` margin fields.
+
+## Part H — ACU & profitability (binding commercial rule)
+
+Every generation calculates **actual provider cost before execution**
+(pre-generation ACU estimate shown to the user). 15 charge categories
+(image analysis → performance optimisation).
+
+**Non-negotiable rule for these engines: `Customer ACU Charge ≥ Actual
+Provider Cost × 4`** — a minimum 4× markup before referral rewards, payment
+fees, storage, support and overhead. *Reconciliation (additive): this sits
+above the platform-wide 100% floor (≥2×, §A.1a of doc 08) — the floor is
+unchanged globally; VisualStrike/SiteRaid generation actions carry the
+stricter 4× rule, consistent with the video engines' 4× minimum (doc 09)
+and the 300–500% recommended band.*
+
+**14 cost controls:** pre-generation estimate · max campaign budget · max
+daily ACU burn · low-balance warning · hard stop · cheaper-model fallback ·
+draft-resolution preview · duplicate-generation detection · approved-asset
+reuse · cached website intelligence · batch discount controls · margin
+monitoring by organisation, by feature, by provider.
+
+**Defensibility stack (12):** product/business understanding ·
+product-fidelity protection · verified claims · live trend + competitor
+intelligence · viral + commercial scoring · multi-platform generation ·
+autonomous publishing · revenue attribution · creative experimentation ·
+margin-controlled AI consumption · compliance + provenance · continuously
+learning Business Creative Memory.

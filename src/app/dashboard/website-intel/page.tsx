@@ -37,17 +37,35 @@ const SUITES = [
   { icon: Radar, title: "AI Competitor Intelligence", desc: "Benchmarks products, pricing, SEO, keywords, advertising, social presence, messaging and sentiment — highlights market gaps and differentiation plays." },
   { icon: Sprout, title: "AI Growth Opportunities", desc: "New products, subscriptions, memberships, bundles, geographic expansion, partnerships, affiliate/influencer/marketplace plays — each with revenue impact, effort and ROI." },
   { icon: Gauge, title: "AI Brand Consistency Engine", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
+  { icon: Globe, title: "Site-to-Story Engine™", desc: "Turns website facts into founder journeys, customer transformations, origin and mission stories — every story traceable to verified business information." },
+  { icon: Radar, title: "Trend Hijack with Brand Relevance™", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
+  { icon: Rocket, title: "Website-to-Influencer Campaign", desc: "Creator briefs with talking points, prohibited claims, mandatory disclosure, shot lists, tracking links and performance scorecards — marketplace matching at P2." },
 ];
 
 export default function WebsiteIntelPage() {
   return (
     <div>
       <PageHeader
-        kicker="AI Website Marketing Intelligence Engine"
-        title="Paste a URL. Get the whole marketing strategy."
-        subtitle="Deep-crawls any website, store or listing — extracts the full brand and catalogue dossier, scores the AI Marketing Health Score across 10 dimensions, then generates on-brand campaigns, creatives, funnels, competitor benchmarks and growth opportunities."
-        actions={<Pill tone="info">Module M-33 · Agent 22 · crawler service lands at P1</Pill>}
+        kicker="MarketWar SiteRaid AI™"
+        title="Paste an authorised URL. Launch a growth operation."
+        subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA™, a Website Truth Layer™ that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
+        actions={<Pill tone="info">Module M-33 · Agent 22 · crawler + monitoring lands at P1</Pill>}
       />
+
+      {/* v2 operation guarantees */}
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { title: "Website Truth Layer™", desc: "Every claim links to its source and carries a classification — verified, user-confirmed, inferred-awaiting-confirmation or prohibited. 'Best in the UK' is blocked unless substantiated. No hallucinated advertising, ever." },
+          { title: "Business DNA Builder™", desc: "A continuously updated 24-field profile — model, offers, segments, value proposition, objections and every gap (trust, content, conversion, SEO, GEO, social) — that all campaigns draw from." },
+          { title: "Competitive Attack Map", desc: "Where to win without copying: competitor weaknesses, saturated angles, unclaimed topics — prioritised from quick revenue wins to long-term defensibility." },
+          { title: "Authorised & monitored", desc: "Ownership or permission confirmed before extraction; competitor URLs get public analysis only. Continuous rescans detect changes and propose updates — nothing auto-publishes without approved autopilot rules." },
+        ].map((c) => (
+          <div key={c.title} className="card border-emerald-500/20 p-4">
+            <h3 className="font-display text-sm font-bold text-emerald-300">{c.title}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">{c.desc}</p>
+          </div>
+        ))}
+      </div>
 
       {/* Input + crawl contract */}
       <div className="mb-8 card p-6">

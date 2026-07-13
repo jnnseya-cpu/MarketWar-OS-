@@ -746,6 +746,44 @@ Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md`.
 | One-click marketing launch (14 output classes from image or URL) | F2 launch | 📘 | `ai-os/10` §B.3; publishing via connectors |
 | Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/lib/ai/agents.ts` (21 agents total); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
 
+## 16d. VisualStrike AI™ & SiteRaid AI™ v2 upgrade (owner extraction 2026-07-13, second)
+
+Verbatim source: `docs/reference/visualstrike-siteraid-extraction.md` (1,591 lines).
+Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md` Parts D–H (additive on v1 Parts A–C).
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **VisualStrike AI™** — autonomous viral campaign factory (research → create → test → publish → learn → optimise) | F1 | ✅ core rebranded+upgraded / 📘 pipelines | `viral-product-engine` agent v2 + `/dashboard/product-engine` |
+| Product Intelligence Extraction w/ confidence scores, source locations, locks, needs-confirmation warnings; never invent claims | F1 §1 | ✅ agent contract / 📘 vision UI | doc 10 §D.1; agent prompt hard rules |
+| **Product Identity Lock™** (12 locked traits, 6 transformation tiers, exact-preservation mandatory for regulated) | F1 §2 | ✅ agent contract + page card | doc 10 §D.2 |
+| Autonomous Product Research Agent (14 outputs, anti-copy doctrine) | F1 §3 | 📘 (live research needs connectors/web) | doc 10 §D.3 |
+| **Viral Potential Score™** (15 dims, explained) + Commercial Potential Score | F1 §4 | ✅ | agent output + page card |
+| Viral Angle Generator — 27 angle families × 11 fields | F1 §5 | ✅ (top-4 in output; full families in blueprint) | doc 10 §D.5 |
+| Image Transformation Studio (17 types, 14 controls, staged multi-object pipeline) | F1 §6 | 📘 image models P1 | doc 10 §D.6 |
+| Image-to-Video Factory (20 types, 16 controls, 7-step controlled pipeline w/ consistency validation) | F1 §7 | ✅ concepts / 📘 rendering | doc 10 §D.7 + Video War Room |
+| AI Creator & UGC Studio w/ 8 hard safeguards (no impersonation/cloning/fabricated testimonials) | F1 §8 | 📘 avatars P2; safeguards codified | doc 10 §D.8 |
+| Viral Content Pack Generator (32 native formats) | F1 §9 | ✅ conversational / 📘 rendering | doc 10 §D.9 |
+| **Hook Laboratory™** (130+ scored hooks, clickbait blocked) | F1 §10 | ✅ (structure in output) | doc 10 §D.10 |
+| Global Localisation Engine (17 axes, transcreation, lip-sync) | F1 §11 | 📘 | doc 10 §D.11 + doc 08 §C.3 localisation |
+| Autonomous Testing & Optimisation (19-variable matrix, 8-step loop, Creative Intelligence Memory, 6 distinctions) | F1 §12 | ✅ matrix in output / 📘 live loop | doc 10 §D.12 |
+| 8 one-click campaign modes (Launch Blitz → Always-On Autopilot) | F1 §13 | ✅ page surface / 📘 execution | doc 10 §D.13 |
+| **SiteRaid AI™** — website → continuously optimised marketing & sales operation | F2 | ✅ core rebranded+upgraded / 📘 crawler | `website-intelligence` agent v2 + `/dashboard/website-intel` |
+| Authorised ingestion (13 input types; ownership/permission confirmation; competitor = public analysis only) | F2 §1 | ✅ codified in prompt + page | doc 10 §E.1 |
+| Full understanding (34 elements) + visual extraction screen w/ approve/edit/lock/exclude | F2 §2 | 📘 extraction UI P1 | doc 10 §E.2 |
+| **Business DNA Builder™** (24 fields, continuously updated) | F2 §3 | ✅ agent output | doc 10 §E.3 |
+| **Website Truth Layer™** (5 claim classes; superlatives blocked; sources linked) | F2 §4 | ✅ agent output + page card | doc 10 §E.4 |
+| Instant Marketing Audit — 6 audits (brand/conversion/content/search+GEO/social/commercial) | F2 §5 | ✅ health score shipped; sub-audits 📘 | doc 10 §E.5 |
+| **Competitive Attack Map** (16 gap classes, 6 priorities, win-without-copying) | F2 §6 | ✅ agent output + page card | doc 10 §E.6 |
+| Autonomous Campaign Architect (5 layers, 34 campaign types) | F2 §7 | ✅ one-play-per-layer in output | doc 10 §E.7 |
+| Website-to-viral assets (30 classes) · **Site-to-Story Engine™** (10 archetypes, fact-traceable) · **Trend Hijack™** (8-factor relevance gate) · influencer campaigns (16-part kit + marketplace flow) · competitor reverse-engineering (patterns only) · landing pages (14 types, 12 controls) · **GEO engine** (13 outputs) · continuous monitoring (15 change types, no auto-publish without rules) | F2 §8–15 | ✅ story/trend/launch in agent output; suites on page / 📘 services | doc 10 §E.8–15 |
+| **Shared: 20-agent intelligence layer** (mapped onto platform roster, incl. Margin Protection + Learning) | Shared | 📘 mapping adopted | doc 10 §F |
+| **Creative Knowledge Graph** (23 entities; rejected claim never regenerated) | Shared | 📘 extends knowledge_graph_nodes | doc 10 §F + doc 07a |
+| **Autonomy L0–L4** (L4 Revenue Autopilot; high-risk locked L0/L1) | Shared | ✅ settings dial upgraded to L4 | doc 10 §F; `/dashboard/settings` |
+| Performance dashboard — 23 commercial metrics + Viral-to-Revenue funnel (Impression → Referral) | Shared | 📘 (revenue module covers core; full contract at P1) | doc 10 §F |
+| Safety/trust/rights — 18 mandatory controls incl. C2PA provenance, disclosure metadata by default | Shared | 📘 codified | doc 10 §F + doc 08 §B.4a |
+| Developer architecture: 18 frontend modules (route mapping documented), 22 services, 24 API endpoints, 35 collections | Shared | 📘 | doc 10 §G |
+| **ACU rule: charge ≥ provider cost × 4** + pre-generation estimate + 14 cost controls | Shared | 📘 binding (see §17 ruling) | doc 10 §H |
+
 ---
 
 ## 17. Owner rulings log
@@ -760,5 +798,7 @@ sources per the Additive-Only Law.
 | 2026-07-09 | **Additive-Only Law**: everything added builds on top or upgrades; never delete, never downgrade | Governs all future content | `/CLAUDE.md`, docs/README.md |
 | 2026-07-09 | **Pricing doctrine**: margin never below 100% (≥2× provider cost) AND pricing must stay extremely competitive/attractive — compete on cost base, not margin erosion. 300–500% band + tier targets apply above the floor | Margin-rule conflict (66% vs 4×/5×/400%/35% entries, §15) — 66% guardrail superseded | `docs/ai-os/08` §A.1a, `/CLAUDE.md` |
 | 2026-07-11 | **Multi-brand single account**: one user account runs multiple brands/activities at the same time with one login and one bill, on subscription or other payment models/categories — financially attractive first, 100% margin protection built in | Extends U1 (was implicitly single-brand); distinct from Agency U4 | `docs/ai-os/02` §U1a, `docs/ai-os/08` §A.1c; shipped: brand switcher (`src/components/BrandSwitcher.tsx`) + billing "Brands on this account" |
+| 2026-07-13 | **VisualStrike/SiteRaid 4× rule**: for the two engines' generation actions, Customer ACU Charge ≥ Actual Provider Cost × 4 (non-negotiable) | Sits above the global 100% (2×) floor — floor unchanged platform-wide; matches the video engines' 4× minimum | `docs/ai-os/10` §H |
+| 2026-07-13 | **Autonomy L4 (Revenue Autopilot)** added above L3 for engine publishing/budget reallocation; high-risk categories locked to L0/L1; all L3 gates (TOTP, £500 escalation, 60-s reversal) apply unchanged at L4 | Extends the L0–L3 dial (doc 02 §2) — additive | `docs/ai-os/10` §F; `/dashboard/settings` dial |
 
 **Gap/conflict addendum (§8.2 design system):** v3.0 spec tokens (navy #1A1A2E, accent #E94560, gold #F5A623, light surface #F4F6F9, Inter-only typography) vs the shipped owner-approved emerald-dark system (Space Grotesk + Inter, validated chart palette). Resolution: shipped system remains primary brand; spec tokens preserved in doc 06 as the specified alternate theme (candidate for admin/partner portals or theme switcher). Owner may re-decide.

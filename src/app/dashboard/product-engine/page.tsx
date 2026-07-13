@@ -42,11 +42,26 @@ export default function ProductEnginePage() {
   return (
     <div>
       <PageHeader
-        kicker="AI Viral Product Engine"
-        title="One product image. A complete campaign."
-        subtitle="Upload product photos, packaging or marketplace listings — the engine builds the full dossier (18 attributes + Visual Quality, Conversion and Trust scores), then one click creates posts, ads, videos, copy, images, sales boosters and market intelligence."
-        actions={<Pill tone="info">Module M-32 · Agent 21 · image upload pipeline lands at P1</Pill>}
+        kicker="MarketWar VisualStrike AI™"
+        title="Upload one product picture. Launch a viral campaign factory."
+        subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock™ guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
+        actions={<Pill tone="info">Module M-32 · Agent 21 · vision + video pipeline lands at P1</Pill>}
       />
+
+      {/* v2 factory guarantees */}
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { title: "Product Identity Lock™", desc: "Shape, colour, logo, packaging, text and proportions are locked before any generation — ads never misrepresent the real product. Exact preservation is mandatory for regulated products." },
+          { title: "Viral Potential Score™", desc: "Every concept scored 0–100 across 15 dimensions (stopping power → purchase intent) with explained reasons — plus a separate Commercial Potential Score so views are never confused with profit." },
+          { title: "Hook Laboratory™", desc: "130+ scored hooks per product — visual, spoken, text, curiosity, pain, comparison, objection, urgency, community and conversion families. Deceptive clickbait is detected and blocked." },
+          { title: "Autonomous test loop", desc: "19-variable testing matrix: publish variants → find winners → kill waste → recombine → attribute revenue → store learnings in the product's Creative Intelligence Memory." },
+        ].map((c) => (
+          <div key={c.title} className="card border-emerald-500/20 p-4">
+            <h3 className="font-display text-sm font-bold text-emerald-300">{c.title}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">{c.desc}</p>
+          </div>
+        ))}
+      </div>
 
       {/* Upload zone (demo) */}
       <div className="mb-8 card flex flex-col items-center justify-center border-dashed p-8 text-center">
@@ -80,6 +95,22 @@ export default function ProductEnginePage() {
             <p className="mt-1 text-xs leading-relaxed text-slate-400">{s.desc}</p>
           </div>
         ))}
+      </div>
+
+      {/* One-click campaign modes */}
+      <div className="mb-8 card p-5">
+        <h2 className="mb-1 font-display font-bold text-white">One-click campaign modes</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Eight pre-built strategies — from a 7-day Viral Sprint to Always-On Autopilot inside your approved budget
+          and brand rules. High-risk categories stay at draft/approval levels.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {["Launch Blitz", "Viral Sprint", "Sales Conversion", "Product Education", "Marketplace Domination", "Local Business Push", "Seasonal Takeover", "Always-On Autopilot"].map((m) => (
+            <span key={m} className="rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-400">
+              {m}
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="mb-4 flex items-center gap-2">

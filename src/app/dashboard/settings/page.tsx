@@ -16,14 +16,15 @@ type AutonomyCapability = {
   max: number; // policy ceiling for this capability
 };
 
-const LEVELS = ["L0 · Recommend", "L1 · Reversible", "L2 · Spend-capped", "L3 · Autonomous"];
+const LEVELS = ["L0 · Recommend", "L1 · Reversible", "L2 · Spend-capped", "L3 · Autonomous", "L4 · Revenue"];
 
 const DEFAULT_CAPABILITIES: AutonomyCapability[] = [
-  { name: "Campaign budget shifts", detail: "Reallocate between ad sets within daily caps", level: 2, max: 3 },
+  { name: "Campaign budget shifts", detail: "Reallocate between ad sets within daily caps; L4 reallocates by profitability (Revenue Autopilot)", level: 2, max: 4 },
   { name: "Campaign pause (loss-cutting)", detail: "Budget Protection kills losers — always allowed", level: 3, max: 3 },
   { name: "Recovery & reactivation sends", detail: "Consent-checked sequences to dormant customers", level: 2, max: 3 },
   { name: "Creative rotation", detail: "Swap fatigued creatives at midnight UTC", level: 1, max: 3 },
   { name: "New campaign launch", detail: "Full auto-launch needs L3 + TOTP (spec §9.1)", level: 1, max: 3 },
+  { name: "VisualStrike / SiteRaid publishing", detail: "Draft-only → per-asset approval → campaign approval → guarded autopilot → L4 Revenue Autopilot; high-risk categories locked to L0/L1", level: 1, max: 4 },
   { name: "Pricing changes", detail: "Policy ceiling L0 — owner approval always required", level: 0, max: 0 },
 ];
 
