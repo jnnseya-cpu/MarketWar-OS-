@@ -359,3 +359,14 @@ for the duration of the gateway call only, never logged, never persisted in
 plaintext. True client-held-key E2EE (platform cannot read at all) is
 scoped to the message vault at P2 where no server-side AI processing is
 required; C2PA/provenance metadata per doc 10 §F applies to outputs.
+
+**Conflict check (owner instruction 2026-07-13: implement only if no
+conflict):** verified none — demo mode unaffected (53/53 smoke checks with
+encryption active), AI processing untouched (encryption is at the
+persistence boundary, not the request path), analytics/BVI unaffected
+(only PII fields encrypt), multi-brand isolation strengthened (per-brand
+keys). One forward design note, not a conflict: encrypted fields are not
+directly searchable — when Customer Vault live search-by-email/phone lands
+at P1, add **HMAC-based blind indexes** (deterministic keyed hash stored
+alongside the ciphertext for exact-match lookup) — the standard pattern,
+zero schema disruption.
