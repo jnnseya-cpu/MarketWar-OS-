@@ -127,7 +127,7 @@ materials — generated and optionally published.
 - **Autonomy:** generation is L1 (reversible); **publishing** follows the
   standard gates — L2 with caps, L3 TOTP-gated, consent-checked sends only.
 - **Status:** conversational cores of both agents are ✅ shipped
-  (`src/lib/ai/agents.ts`) with dashboard modules
+  (`src/shared/agents.ts`) with dashboard modules
   (`/dashboard/product-engine`, `/dashboard/website-intel`); vision upload
   pipeline, crawler service and channel publishing land with the connector
   phase (P1) — 📘 tracked in the coverage matrix.

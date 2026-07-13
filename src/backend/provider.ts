@@ -1,6 +1,11 @@
-import { AGENTS } from "@/lib/ai/agents";
-import { gatewayComplete, GatewayUnconfiguredError } from "@/lib/ai/gateway";
-import type { AgentResult } from "@/lib/types";
+// Layer guard: backend modules must never reach the client bundle.
+if (typeof window !== "undefined") {
+  throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
+}
+
+import { AGENTS } from "@/shared/agents";
+import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import type { AgentResult } from "@/shared/types";
 
 // Runs an agent through the AI Gateway (Claude → OpenAI → Gemini with
 // automatic failover). With no provider keys configured the platform runs in

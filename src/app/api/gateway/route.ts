@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { gatewayStatus } from "@/lib/ai/gateway";
+import { gatewayStatus } from "@/backend/gateway";
 
 export const dynamic = "force-dynamic";
 

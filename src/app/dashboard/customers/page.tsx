@@ -1,7 +1,7 @@
 import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { demoCustomers } from "@/lib/data/demo";
-import type { Customer } from "@/lib/types";
+import { demoCustomers } from "@/shared/demo";
+import type { Customer } from "@/shared/types";
 
 const STATUS_TONE: Record<Customer["status"], "good" | "bad" | "warn" | "info" | "neutral"> = {
   hot: "good",

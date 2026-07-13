@@ -1,3 +1,8 @@
+// Layer guard: backend modules must never reach the client bundle.
+if (typeof window !== "undefined") {
+  throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
+}
+
 // MarketWar AI Gateway — one door to Claude (Anthropic), OpenAI and Gemini.
 //
 // The gateway owns provider routing so the rest of the platform never talks to

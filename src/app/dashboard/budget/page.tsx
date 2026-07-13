@@ -1,7 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
 import { BarChart } from "@/components/charts";
 import { PageHeader, StatCard, VerdictBadge } from "@/components/ui";
-import { demoCampaigns } from "@/lib/data/demo";
+import { demoCampaigns } from "@/shared/demo";
 
 export default function BudgetProtectionPage() {
   return (

@@ -1,4 +1,9 @@
-import type { AuditReport } from "@/lib/types";
+// Layer guard: backend modules must never reach the client bundle.
+if (typeof window !== "undefined") {
+  throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
+}
+
+import type { AuditReport } from "@/shared/types";
 
 export interface AuditInput {
   business: string;

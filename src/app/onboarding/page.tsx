@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2, Shield } from "lucide-react";
-import type { AuditReport } from "@/lib/types";
+import type { AuditReport } from "@/shared/types";
 
 interface Intake {
   business: string;

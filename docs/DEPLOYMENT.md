@@ -125,7 +125,7 @@ Time to first production deploy: ~45 minutes. Do the steps in order.
 
 | Milestone | Where | Notes |
 |---|---|---|
-| Auth screens (sign-in/up, session) | Vercel frontend + Firebase Auth | client wiring ready in `src/lib/firebase/client.ts` |
+| Auth screens (sign-in/up, session) | Vercel frontend + Firebase Auth | client wiring ready in `src/frontend/firebase-client.ts` |
 | Stripe billing + ACU wallet | Cloud Functions (webhooks) + Firestore | never on Vercel |
 | WhatsApp/SMS/Email sending | Cloud Functions + provider APIs | consent-checked sends |
 | Heavy AI jobs & bulk work | Cloud Run | same AI Gateway contract |

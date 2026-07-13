@@ -25,8 +25,8 @@ import {
 } from "lucide-react";
 import HeroMockup from "@/components/HeroMockup";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
-import { SERIES } from "@/lib/palette";
-import { AGENT_LIST } from "@/lib/ai/agents";
+import { SERIES } from "@/shared/palette";
+import { AGENT_LIST } from "@/shared/agents";
 
 const PILLARS = [
   {

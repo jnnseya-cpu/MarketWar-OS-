@@ -1,7 +1,7 @@
 import { ArrowUpRight, Building2, Check, Plus, Wallet, Zap } from "lucide-react";
 import { AreaChart, DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { demoAccountBrands } from "@/lib/data/demo";
+import { demoAccountBrands } from "@/shared/demo";
 
 // Billing & ACU module (M-21) — the AI economy surface. £1 = 100 ACUs;
 // plan ladder per v3.0 spec §12.1 (£9–£99 band, docs/ai-os/08 §A.1b);

@@ -2,7 +2,7 @@
 
 import { Bell, Crosshair, LayoutDashboard, MessageCircle, Search, Shield, TrendingUp, Zap } from "lucide-react";
 import { AreaChart, DonutChart, Sparkline } from "@/components/charts";
-import { SERIES } from "@/lib/palette";
+import { SERIES } from "@/shared/palette";
 
 // Photorealistic in-browser product mockup for the landing hero.
 export default function HeroMockup() {

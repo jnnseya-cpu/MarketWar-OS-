@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 // color alone: every multi-series chart renders a legend and marks carry
 // hover tooltips; text stays in ink tokens, never series colors.
 
-import { ORDINAL, SERIES } from "@/lib/palette";
+import { ORDINAL, SERIES } from "@/shared/palette";
 
 const INK_MUTED = "#8b93a7";
 const GRID = "rgba(148,163,184,0.12)";

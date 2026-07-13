@@ -34,6 +34,7 @@ const SECURITY_LAYERS = [
   { icon: Fingerprint, name: "Device trust", status: "active", note: "Unrecognised devices need email + TOTP (layer 3)" },
   { icon: ShieldCheck, name: "Behavioural anomaly watch", status: "active", note: "Unusual geography/time triggers step-up (layer 4)" },
   { icon: KeyRound, name: "Agent service tokens", status: "platform-managed", note: "Every agent call carries a signed scope-limited token (layer 5)" },
+  { icon: Lock, name: "End-to-end encryption", status: "active", note: "TLS 1.3 + HSTS in transit; AES-256-GCM field encryption at rest with a separate key derived per business — your contacts are never stored in plaintext" },
 ];
 
 export default function SettingsPage() {

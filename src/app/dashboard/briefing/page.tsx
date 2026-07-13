@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader } from "@/components/ui";
-import { demoActions } from "@/lib/data/demo";
+import { demoActions } from "@/shared/demo";
 
 export default function BriefingPage() {
   return (

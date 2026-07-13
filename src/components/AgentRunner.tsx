@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, Sparkles, Zap } from "lucide-react";
 import { AgentMarkdown, Pill } from "@/components/ui";
-import type { AgentResult } from "@/lib/types";
+import type { AgentResult } from "@/shared/types";
 
 export interface AgentField {
   key: string;

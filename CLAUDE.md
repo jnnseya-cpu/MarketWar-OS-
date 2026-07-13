@@ -47,7 +47,7 @@ by breaching the floor. Detail: docs/ai-os/08 §A.1a.
 - Push to `claude/marketwar-os-platform-xrgg5r` AND mirror to `main`.
 - Verify before shipping: `npm run typecheck` + `npm run build`, and
   exercise changed routes/agents against the running server.
-- AI calls go through the gateway (`src/lib/ai/gateway.ts`) — never call a
+- AI calls go through the gateway (`src/backend/gateway.ts`) — never call a
   provider directly from feature code.
-- Charts use the validated palette (`src/lib/palette.ts`) and chart kit
+- Charts use the validated palette (`src/shared/palette.ts`) and chart kit
   (`src/components/charts.tsx`).

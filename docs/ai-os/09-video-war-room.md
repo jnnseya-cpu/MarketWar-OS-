@@ -149,7 +149,7 @@ ACU economics framework — see the margin-rule reconciliation in
 | Concern | Home |
 |---|---|
 | Studio UI, brief intake, previews | Vercel frontend (`/dashboard/video`) |
-| Script/caption/localisation generation | AI Gateway (`src/lib/ai/gateway.ts`) via agent contracts |
+| Script/caption/localisation generation | AI Gateway (`src/backend/gateway.ts`) via agent contracts |
 | Rendering, dubbing, avatar synthesis, transcoding | **Cloud Run** (heavy compute, §8 of PRODUCTION-ARCHITECTURE) behind a provider-adapter layer (same pattern as the AI Gateway: swap video/voice providers without app changes) |
 | Media assets, brand kits, exports | Firebase Storage (tenant-scoped rules) |
 | Jobs, versions, approvals, ACU metering | Firestore collections: `video_projects`, `video_jobs`, `video_versions`, `video_captions`, `video_translations`, `video_avatars`, `brand_kits`, `video_approvals`, `video_publish_targets`, `video_metrics` |

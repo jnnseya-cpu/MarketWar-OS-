@@ -1,8 +1,8 @@
 import { MessageCircle } from "lucide-react";
 import { AreaChart, FunnelChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { demoConversations, demoDaily, demoFunnel } from "@/lib/data/demo";
-import type { WhatsAppConversation } from "@/lib/types";
+import { demoConversations, demoDaily, demoFunnel } from "@/shared/demo";
+import type { WhatsAppConversation } from "@/shared/types";
 
 const STAGE_META: Record<WhatsAppConversation["stage"], { label: string; tone: "good" | "bad" | "warn" | "info" | "neutral" }> = {
   new: { label: "New", tone: "info" },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { computeAudit, type AuditInput } from "@/lib/ai/audit";
-import { saveAuditReport } from "@/lib/db";
+import { computeAudit, type AuditInput } from "@/backend/audit";
+import { saveAuditReport } from "@/backend/db";
 
 export async function POST(req: NextRequest) {
   let body: Partial<AuditInput>;

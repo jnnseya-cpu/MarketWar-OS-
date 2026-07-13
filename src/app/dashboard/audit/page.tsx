@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2, Stethoscope } from "lucide-react";
 import { PageHeader, Pill, ScoreBar } from "@/components/ui";
-import type { AuditReport } from "@/lib/types";
+import type { AuditReport } from "@/shared/types";
 
 const DEMO_INPUT = {
   business: "Brixton Grill House",

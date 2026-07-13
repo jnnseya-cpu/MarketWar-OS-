@@ -98,8 +98,8 @@ assignment (custom claims: `tenantId`, `role`), token generation, account
 verification, password reset, account recovery, security rules identity,
 enterprise authentication.
 
-Client wiring lives in `src/lib/firebase/client.ts`; server-side token
-verification in `src/lib/firebase/admin.ts`.
+Client wiring lives in `src/frontend/firebase-client.ts`; server-side token
+verification in `src/backend/firebase-admin.ts`.
 
 ## 5. Database — Cloud Firestore
 
@@ -145,7 +145,7 @@ processing, future enterprise modules.
 External providers: **Anthropic Claude, OpenAI, Google Gemini**, future
 providers. AI routing is abstracted behind a provider layer so providers can
 be switched without touching application logic — **implemented as the AI
-Gateway** (`src/lib/ai/gateway.ts`): configurable routing order, per-provider
+Gateway** (`src/backend/gateway.ts`): configurable routing order, per-provider
 retry/backoff, automatic cross-provider failover, `GET /api/gateway` health.
 Long-running AI jobs execute from Cloud Functions/Cloud Run (§7–§8), calling
 the same gateway contract.

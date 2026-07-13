@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { CampaignVerdict } from "@/lib/types";
+import type { CampaignVerdict } from "@/shared/types";
 
 export function PageHeader({
   kicker,

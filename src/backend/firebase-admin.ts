@@ -1,3 +1,8 @@
+// Layer guard: backend modules must never reach the client bundle.
+if (typeof window !== "undefined") {
+  throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
+}
+
 // Firebase Admin SDK — server-side Firestore/Auth for API routes.
 //
 // Runs on Vercel's Node runtime. Initialises from FIREBASE_PROJECT_ID +

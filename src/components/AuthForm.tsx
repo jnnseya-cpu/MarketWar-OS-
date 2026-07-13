@@ -9,7 +9,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2, Lock, Mail, Shield, User } from "lucide-react";
-import { firebaseAuth, firebaseConfigured } from "@/lib/firebase/client";
+import { firebaseAuth, firebaseConfigured } from "@/frontend/firebase-client";
 
 type Mode = "login" | "signup";
 

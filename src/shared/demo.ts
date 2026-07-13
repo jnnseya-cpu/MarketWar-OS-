@@ -5,7 +5,7 @@ import type {
   Customer,
   DailyAction,
   WhatsAppConversation,
-} from "@/lib/types";
+} from "@/shared/types";
 
 // Demo Intelligence dataset. Every dashboard renders from this until the
 // platform is connected to live channels, so the product is fully

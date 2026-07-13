@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Sparkline } from "@/components/charts";
-import { SERIES } from "@/lib/palette";
+import { SERIES } from "@/shared/palette";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
-import { demoCampaignSparks, demoCampaigns, demoMetrics } from "@/lib/data/demo";
+import { demoCampaignSparks, demoCampaigns, demoMetrics } from "@/shared/demo";
 
 const SPARK_COLOR: Record<string, string> = {
   SCALE: SERIES[1],

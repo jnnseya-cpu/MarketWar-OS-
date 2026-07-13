@@ -1,7 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
 import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
-import { demoCampaigns, demoDaily, demoMetrics } from "@/lib/data/demo";
+import { demoCampaigns, demoDaily, demoMetrics } from "@/shared/demo";
 
 export default function RevenuePage() {
   const m = demoMetrics;

@@ -122,7 +122,7 @@ Vercel (frontend) → Firebase (Auth, Firestore, Storage, Functions, Cloud Run)*
 with Stripe for billing and the AI Gateway for model providers — specified in
 [`docs/PRODUCTION-ARCHITECTURE.md`](docs/PRODUCTION-ARCHITECTURE.md), with the
 step-by-step go-live runbook in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
-Firebase wiring ships in `src/lib/firebase/` and activates via env vars;
+Firebase wiring ships in `src/frontend/firebase-client.ts` + `src/backend/firebase-admin.ts` and activates via env vars;
 `firestore.rules` / `storage.rules` are the deny-by-default baselines.
 
 ## AI-OS engineering blueprint

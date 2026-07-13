@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
 import { Sparkline } from "@/components/charts";
-import { SERIES } from "@/lib/palette";
+import { SERIES } from "@/shared/palette";
 
 type DimensionStatus = "healthy" | "watch" | "alert";
 

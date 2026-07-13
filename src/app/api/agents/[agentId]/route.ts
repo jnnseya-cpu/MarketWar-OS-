@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AGENTS } from "@/lib/ai/agents";
-import { runAgent } from "@/lib/ai/provider";
-import { logAgentRun } from "@/lib/db";
+import { AGENTS } from "@/shared/agents";
+import { runAgent } from "@/backend/provider";
+import { logAgentRun } from "@/backend/db";
 
 export async function POST(
   req: NextRequest,

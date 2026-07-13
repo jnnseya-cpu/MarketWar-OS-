@@ -1,7 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
 import { HBarList } from "@/components/charts";
 import { PageHeader, Pill } from "@/components/ui";
-import { demoCompetitors } from "@/lib/data/demo";
+import { demoCompetitors } from "@/shared/demo";
 
 export default function CompetitorsPage() {
   return (

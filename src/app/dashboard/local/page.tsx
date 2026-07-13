@@ -1,7 +1,7 @@
 import AgentRunner from "@/components/AgentRunner";
 import { AreaChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
-import { demoLocalViews } from "@/lib/data/demo";
+import { demoLocalViews } from "@/shared/demo";
 
 export default function LocalDominationPage() {
   return (

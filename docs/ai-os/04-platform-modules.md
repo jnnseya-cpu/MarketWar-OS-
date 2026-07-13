@@ -22,7 +22,7 @@ Legend: 🟢 shipped (Phase 0) · 🟡 upgrade of shipped module · 🔵 new bui
 - **Accept:** intake ≤3 min median; audit generated <30 s; twin fields ≥80% populated after connectors.
 
 ### M-02 🟡 Marketing Failure Audit
-Shipped scoring engine (`src/lib/ai/audit.ts`) upgraded with model-assisted evidence
+Shipped scoring engine (`src/backend/audit.ts`) upgraded with model-assisted evidence
 extraction (website/GBP/ad-library fetch via connectors). Output contract unchanged:
 9 scores, top-5 reasons, funnel-leak map, marching orders. **Accept:** deterministic
 fallback always available; scores reproducible from stored inputs.

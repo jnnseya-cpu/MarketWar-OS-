@@ -27,7 +27,7 @@ APIs used and business value.
    grades feed nightly policy updates (see `06-architecture.md` §Learning Loop).
 7. **Model routing by task class.** Classification/extraction → SLM tier;
    generation → mid tier; strategy/diagnosis → frontier tier. The router is
-   provider-agnostic (Anthropic primary, per `src/lib/ai/provider.ts` pattern, with
+   provider-agnostic (Anthropic primary, per `src/backend/provider.ts` pattern, with
    retry/backoff and demo fallback).
 
 ### 1.1 Binding principles adopted from v3.0 spec §4.1
@@ -138,7 +138,7 @@ optimisation across every account simultaneously. Core capabilities:
 
 ---
 
-## 3. Growth agent corps (shipped in Phase 0 — `src/lib/ai/agents.ts`)
+## 3. Growth agent corps (shipped in Phase 0 — `src/shared/agents.ts`)
 
 These twelve are live today and remain the revenue-facing core. Contracts unchanged;
 this table adds the AI-OS operational fields.

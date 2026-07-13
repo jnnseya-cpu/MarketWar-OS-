@@ -2,13 +2,15 @@
   "name": "marketwar-os",
   "version": "0.1.0",
   "private": true,
-  "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
+  "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run typecheck && npm run build"
   },
   "dependencies": {
     "firebase": "^12.16.0",

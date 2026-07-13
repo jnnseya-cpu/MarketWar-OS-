@@ -1,7 +1,7 @@
 import { RefreshCcw } from "lucide-react";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { demoCustomers } from "@/lib/data/demo";
+import { demoCustomers } from "@/shared/demo";
 
 const CAMPAIGN_TYPES = [
   { name: "Inactive customer comeback", desc: "“We miss you” + 20% deadline offer to 60d+ inactive contacts.", est: "£670" },

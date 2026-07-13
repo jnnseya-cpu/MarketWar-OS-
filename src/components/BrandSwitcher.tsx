@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
-import { demoAccountBrands } from "@/lib/data/demo";
+import { demoAccountBrands } from "@/shared/demo";
 
 export default function BrandSwitcher() {
   const [open, setOpen] = useState(false);

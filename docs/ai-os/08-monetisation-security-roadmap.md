@@ -262,7 +262,7 @@ execute → protect**, charging subscription revenue and demonstrating ROI
 within 30 days of a business joining.
 
 **MVP (wks 1–12):** Firebase setup + ACU ledger + Pub/Sub (wk 1–2) → AI
-Gateway Router (wk 2–3, *shipped: `src/lib/ai/gateway.ts`*) → app shell +
+Gateway Router (wk 2–3, *shipped: `src/backend/gateway.ts`*) → app shell +
 design system + Auth (wk 2–4) → Diagnosis Agent 1 (wk 4–6) → Offer Builder 4
 + Pain Intelligence 3 (wk 5–7) → Ad Creative 5, Meta/Google/TikTok formats
 (wk 6–8) → Landing Page Generator 16 (wk 7–9) → Command Centre shell with
@@ -336,3 +336,26 @@ market where no competitor has native AI marketing infrastructure.
 **Definition of done, every phase:** typecheck/tests/evals green · SLOs met for
 30 days · security review · rollback rehearsed · docs updated (these files are
 the contract of record).
+
+### B.3a End-to-end encryption posture (implemented 2026-07-13)
+
+**In transit:** TLS 1.3 (§B.4a) with **HSTS preload enforced by the shipped
+security headers** (`next.config.mjs`: Strict-Transport-Security 2 years +
+includeSubDomains + preload, nosniff, DENY framing, strict referrer,
+locked-down permissions policy) — browsers cannot downgrade.
+
+**At rest:** `src/backend/crypto.ts` — **AES-256-GCM application-layer field
+encryption with a separate 256-bit key derived per business**
+(HKDF-SHA256 over `FIELD_ENCRYPTION_MASTER_KEY`). Every persistence write
+passes through `encryptPii()` in `src/backend/db.ts`, so contact PII
+(email/phone/WhatsApp/names) never reaches Firestore in plaintext — on top
+of Firestore's native AES-256. Cross-tenant decryption is cryptographically
+impossible (verified: GCM auth fails under any other tenant's key). Master
+key lives in Secret Manager at go-live; rotation re-derives all tenant keys.
+
+**Honest boundary (recorded, not hidden):** AI generation requires plaintext
+at the model boundary — request payloads are decrypted in the backend layer
+for the duration of the gateway call only, never logged, never persisted in
+plaintext. True client-held-key E2EE (platform cannot read at all) is
+scoped to the message vault at P2 where no server-side AI processing is
+required; C2PA/provenance metadata per doc 10 §F applies to outputs.

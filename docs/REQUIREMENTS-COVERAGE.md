@@ -53,23 +53,23 @@ named items (e.g. a 10-agent pack per row), so the underlying requirement count 
 
 ### 1.1 The original 10 product agents (Document 1, Part 01, L21–41)
 
-All ten exist as working agents with anti-generic prompts in `src/lib/ai/agents.ts`, callable via
-`POST /api/agents/[agentId]` (`src/app/api/agents/[agentId]/route.ts`), with runs persisted through `src/lib/db.ts`.
+All ten exist as working agents with anti-generic prompts in `src/shared/agents.ts`, callable via
+`POST /api/agents/[agentId]` (`src/app/api/agents/[agentId]/route.ts`), with runs persisted through `src/backend/db.ts`.
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| Business Diagnosis Agent (audits product, pricing, audience, landing page, offer, past ads, funnel) | Part 01 L23; inv-1 | ✅ | `src/lib/ai/agents.ts` (`business-diagnosis`) + deterministic scoring in `src/lib/ai/audit.ts` |
-| Customer Pain Agent (pain points, objections, buying triggers, emotional hooks) | Part 01 L25; inv-1 | ✅ | `src/lib/ai/agents.ts` (`customer-pain`) |
-| Offer Builder Agent (discount, bundle, guarantee, urgency, referral, trial, lead magnet) | Part 01 L27; inv-1 | ✅ | `src/lib/ai/agents.ts` (`offer-builder`) |
-| Ad Creative Agent (FB/IG/TikTok/Google/LinkedIn copy, hooks, scripts, image prompts) | Part 01 L29; inv-1 | ✅ | `src/lib/ai/agents.ts` (`ad-creative`) |
-| Campaign Commander Agent (test campaigns, small budgets, clear objectives) | Part 01 L31; inv-1 | ✅ | `src/lib/ai/agents.ts` (`campaign-commander`) |
-| Budget Protection Agent (pause zero-lead campaigns, recommend changes) | Part 01 L33; inv-1 | ✅ | `src/lib/ai/agents.ts` (`budget-protection`) + `src/app/dashboard/budget/` |
-| Lead Capture Agent (landing pages, WhatsApp flows, forms, follow-up, retargeting) | Part 01 L35; inv-1 | ✅ | `src/lib/ai/agents.ts` (`lead-capture`) |
-| Competitor Spy Agent (competitors, offers, ads, pricing, positioning) | Part 01 L37; inv-1 | ✅ | `src/lib/ai/agents.ts` (`competitor-spy`) + `src/app/dashboard/competitors/` |
-| Local Growth Agent (hyper-local campaigns for local verticals) | Part 01 L39; inv-1 | ✅ | `src/lib/ai/agents.ts` (`local-growth`) + `src/app/dashboard/local/` |
-| Revenue Intelligence Agent (what produced leads, bookings, sales, calls, messages) | Part 01 L41; inv-1 | ✅ | `src/lib/ai/agents.ts` (`revenue-intelligence`) + `src/app/dashboard/revenue/` |
-| Content Factory agent (30-day calendars, scripts, posts — agentised from Module: Content Factory) | Part 01 L182–205; inv-1 | ✅ | `src/lib/ai/agents.ts` (`content-factory`) + `src/app/dashboard/content/` |
-| AI Growth Strategist™ ("live CMO", daily briefings, top-3 actions/risks/opportunities) | Part 05 L2759–2789; Part 13 L14084–14098; inv-3, inv-8 | ✅ | `src/lib/ai/agents.ts` (`growth-strategist`) + `src/app/dashboard/briefing/` |
+| Business Diagnosis Agent (audits product, pricing, audience, landing page, offer, past ads, funnel) | Part 01 L23; inv-1 | ✅ | `src/shared/agents.ts` (`business-diagnosis`) + deterministic scoring in `src/backend/audit.ts` |
+| Customer Pain Agent (pain points, objections, buying triggers, emotional hooks) | Part 01 L25; inv-1 | ✅ | `src/shared/agents.ts` (`customer-pain`) |
+| Offer Builder Agent (discount, bundle, guarantee, urgency, referral, trial, lead magnet) | Part 01 L27; inv-1 | ✅ | `src/shared/agents.ts` (`offer-builder`) |
+| Ad Creative Agent (FB/IG/TikTok/Google/LinkedIn copy, hooks, scripts, image prompts) | Part 01 L29; inv-1 | ✅ | `src/shared/agents.ts` (`ad-creative`) |
+| Campaign Commander Agent (test campaigns, small budgets, clear objectives) | Part 01 L31; inv-1 | ✅ | `src/shared/agents.ts` (`campaign-commander`) |
+| Budget Protection Agent (pause zero-lead campaigns, recommend changes) | Part 01 L33; inv-1 | ✅ | `src/shared/agents.ts` (`budget-protection`) + `src/app/dashboard/budget/` |
+| Lead Capture Agent (landing pages, WhatsApp flows, forms, follow-up, retargeting) | Part 01 L35; inv-1 | ✅ | `src/shared/agents.ts` (`lead-capture`) |
+| Competitor Spy Agent (competitors, offers, ads, pricing, positioning) | Part 01 L37; inv-1 | ✅ | `src/shared/agents.ts` (`competitor-spy`) + `src/app/dashboard/competitors/` |
+| Local Growth Agent (hyper-local campaigns for local verticals) | Part 01 L39; inv-1 | ✅ | `src/shared/agents.ts` (`local-growth`) + `src/app/dashboard/local/` |
+| Revenue Intelligence Agent (what produced leads, bookings, sales, calls, messages) | Part 01 L41; inv-1 | ✅ | `src/shared/agents.ts` (`revenue-intelligence`) + `src/app/dashboard/revenue/` |
+| Content Factory agent (30-day calendars, scripts, posts — agentised from Module: Content Factory) | Part 01 L182–205; inv-1 | ✅ | `src/shared/agents.ts` (`content-factory`) + `src/app/dashboard/content/` |
+| AI Growth Strategist™ ("live CMO", daily briefings, top-3 actions/risks/opportunities) | Part 05 L2759–2789; Part 13 L14084–14098; inv-3, inv-8 | ✅ | `src/shared/agents.ts` (`growth-strategist`) + `src/app/dashboard/briefing/` |
 
 ### 1.2 The Master Platform AI OS Prompt's 10 core agents (Part 03, L704–740)
 
@@ -97,11 +97,11 @@ the landing-page sub-agents 4.6–4.14 and Agent 12 are backlog.
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| 4.1 Business Diagnosis Agent (13 inputs, 8 scores, "Why You Are Not Getting Customers" report) | Part 11 L6496–6515; Part 14 L14558–14594; inv-6, inv-8 | ✅ partial | `src/lib/ai/agents.ts` (`business-diagnosis`) + `src/lib/ai/audit.ts` (6-score deterministic engine; 8-score set 📦) |
-| 4.2 Customer Pain Agent (trigger map, objection map, persuasion angle, CTA/LP/WhatsApp direction) | Part 11 L6518–6539; Part 14 L14596–14616 | ✅ | `src/lib/ai/agents.ts` (`customer-pain`) |
-| 4.3 Offer Builder Agent (14 offer types, 7 offer scores) | Part 11 L6542–6562; Part 14 L14618–14643 | ✅ partial | `src/lib/ai/agents.ts` (`offer-builder`) + `src/app/dashboard/offers/`; full 14-type/7-score matrix 📦 |
-| 4.4 Campaign Commander Agent (11 outputs, 11 campaign modes) | Part 11 L6565–6587; Part 14 L14645–14671 | ✅ partial | `src/lib/ai/agents.ts` (`campaign-commander`) + `src/app/dashboard/campaigns/` |
-| 4.5 Ad Creative Agent (13 asset types, AIDA/PAS) | Part 11 L6590–6610; Part 14 L14673–14689 | ✅ | `src/lib/ai/agents.ts` (`ad-creative`) |
+| 4.1 Business Diagnosis Agent (13 inputs, 8 scores, "Why You Are Not Getting Customers" report) | Part 11 L6496–6515; Part 14 L14558–14594; inv-6, inv-8 | ✅ partial | `src/shared/agents.ts` (`business-diagnosis`) + `src/backend/audit.ts` (6-score deterministic engine; 8-score set 📦) |
+| 4.2 Customer Pain Agent (trigger map, objection map, persuasion angle, CTA/LP/WhatsApp direction) | Part 11 L6518–6539; Part 14 L14596–14616 | ✅ | `src/shared/agents.ts` (`customer-pain`) |
+| 4.3 Offer Builder Agent (14 offer types, 7 offer scores) | Part 11 L6542–6562; Part 14 L14618–14643 | ✅ partial | `src/shared/agents.ts` (`offer-builder`) + `src/app/dashboard/offers/`; full 14-type/7-score matrix 📦 |
+| 4.4 Campaign Commander Agent (11 outputs, 11 campaign modes) | Part 11 L6565–6587; Part 14 L14645–14671 | ✅ partial | `src/shared/agents.ts` (`campaign-commander`) + `src/app/dashboard/campaigns/` |
+| 4.5 Ad Creative Agent (13 asset types, AIDA/PAS) | Part 11 L6590–6610; Part 14 L14673–14689 | ✅ | `src/shared/agents.ts` (`ad-creative`) |
 | 4.6 AI Landing Page Creation Agent (core-agent mandate, 18 responsibilities) | Part 11 L6613–6678; Part 14 L14691–14717 | 📦 | `source-notes/11` / `source-notes/14`; basic page ✅ at `src/app/dashboard/landing-pages/` |
 | 4.7 Landing Page Structure Generator (Hero/Problem/Offer/Benefits/Proof/Process/FAQ/Urgency/Form/CTA) | Part 11 L6906–7023; Part 14 L14809–14922 | 📦 | `source-notes/11-acquisition-infrastructure-agents.md`, `source-notes/14-consolidated-spec-version-b.md` |
 | 4.8 Landing Page AI Scoring (8 scores incl. Friction, Lead Quality) | Part 11 L7027–7049; Part 14 L14924–14941 | 📦 | `source-notes/11`, `source-notes/14` |
@@ -111,23 +111,23 @@ the landing-page sub-agents 4.6–4.14 and Agent 12 are backlog.
 | 4.12 Landing Page Database Collections (12 collections) | Part 11 L7125–7144; Part 14 L14997–15009 | 📦 | `source-notes/11`, `source-notes/14`; relational analogue 📘 in `docs/ai-os/07-database-and-api.md` |
 | 4.13 LandingPage TypeScript schema (pageType enum, formConfig, tracking, scores, metrics) | Part 11 L7148–7181; Part 14 L15011–15096 | 📦 | `source-notes/11`, `source-notes/14` |
 | 4.14 Landing Page Agent Prompt (verbatim system prompt, JSON output) | Part 11 L7184–7249; Part 14 L15098–15149 | 📦 | `source-notes/11`, `source-notes/14` |
-| Agent 5 Lead Capture Agent (8 capture types, 7 lead scores) | Part 11 L7253–7273; Part 14 L15151–15170 | ✅ partial | `src/lib/ai/agents.ts` (`lead-capture`); 7-dimension lead-score model 📦 |
+| Agent 5 Lead Capture Agent (8 capture types, 7 lead scores) | Part 11 L7253–7273; Part 14 L15151–15170 | ✅ partial | `src/shared/agents.ts` (`lead-capture`); 7-dimension lead-score model 📦 |
 | Agent 6 WhatsApp Sales Agent (9 conversational capabilities) | Part 11 L7277–7295; Part 14 L15172–15184 | ✅ partial | `src/app/dashboard/whatsapp/` UI + `lead-capture` agent; dedicated conversational agent 📦 |
-| Agent 7 Budget Protection Agent (8 intervention rules; STOP/FIX/SCALE/RECOVER/WATCH/TEST; 25% no-lead auto-STOP) | Part 11 L7299–7318; Part 14 L15186–15205 | ✅ partial | `src/lib/ai/agents.ts` (`budget-protection`); automated 25% stop-loss trigger 📦 |
+| Agent 7 Budget Protection Agent (8 intervention rules; STOP/FIX/SCALE/RECOVER/WATCH/TEST; 25% no-lead auto-STOP) | Part 11 L7299–7318; Part 14 L15186–15205 | ✅ partial | `src/shared/agents.ts` (`budget-protection`); automated 25% stop-loss trigger 📦 |
 | Agent 8 Customer Resurrection Agent (7 input sources, 5 outputs, priority recovery list) | Part 11 L7322–7340; Part 14 L15207–15223 | ✅ partial | `src/app/dashboard/recovery/` (lead recovery UI); full resurrection agent — see §7 |
-| Agent 9 Local Growth Agent (8 generated asset types) | Part 11 L7344–7363; Part 14 L15225–15236 | ✅ | `src/lib/ai/agents.ts` (`local-growth`) |
-| Agent 10 Competitor Spy Agent (9 tracked signals, counter-tactics) | Part 11 L7367–7388; Part 14 L15238–15250 | ✅ | `src/lib/ai/agents.ts` (`competitor-spy`) |
-| Agent 11 Revenue Intelligence Agent (10 metrics, unit-economics grid, SCALE/FIX/STOP/RECOVER verdicts) | Part 11 L7392–7412; Part 14 L15252–15265 | ✅ | `src/lib/ai/agents.ts` (`revenue-intelligence`) |
+| Agent 9 Local Growth Agent (8 generated asset types) | Part 11 L7344–7363; Part 14 L15225–15236 | ✅ | `src/shared/agents.ts` (`local-growth`) |
+| Agent 10 Competitor Spy Agent (9 tracked signals, counter-tactics) | Part 11 L7367–7388; Part 14 L15238–15250 | ✅ | `src/shared/agents.ts` (`competitor-spy`) |
+| Agent 11 Revenue Intelligence Agent (10 metrics, unit-economics grid, SCALE/FIX/STOP/RECOVER verdicts) | Part 11 L7392–7412; Part 14 L15252–15265 | ✅ | `src/shared/agents.ts` (`revenue-intelligence`) |
 | Agent 12 Local Threat Discovery Agent (constant competitor scanning, 5 threat signals, "Ghost Competitors") | Part 12 L7416–7437; inv-6 | 📦 | `source-notes/12-build-transcript.md`; partial overlap with `competitor-spy` ✅ |
 
 ### 1.4 The 22-agent list — consolidated spec Version A (Part 13, L14189–14212)
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| BusinessDiagnosisAgent | Part 13 L14189–14212; inv-8 | ✅ | `src/lib/ai/agents.ts` (`business-diagnosis`) |
-| CustomerPainAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`customer-pain`) |
-| OfferBuilderAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`offer-builder`) |
-| CampaignCommanderAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`campaign-commander`) |
+| BusinessDiagnosisAgent | Part 13 L14189–14212; inv-8 | ✅ | `src/shared/agents.ts` (`business-diagnosis`) |
+| CustomerPainAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`customer-pain`) |
+| OfferBuilderAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`offer-builder`) |
+| CampaignCommanderAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`campaign-commander`) |
 | VisualCreativeAgent (dedicated visual/image generation agent) | Part 13 L14189–14212 | 📦 | `source-notes/13-consolidated-spec-version-a.md`; creative direction partially in `ad-creative` ✅ |
 | CopywritingAgent (dedicated; AIDA/PAS/FOMO/scarcity/authority/social proof/curiosity/local identity/emotional/loss-aversion models) | Part 13 L14189–14212, L13782–13807 | ✅ partial | copy generation folded into `ad-creative` + `content-factory`; standalone agent 📦 |
 | HashtagAgent (hashtag generation + 6-factor scoring) | Part 13 L14189–14212, L13809–13827 | 📦 | `source-notes/13`; hashtags emitted by `content-factory` ✅ partial |
@@ -136,15 +136,15 @@ the landing-page sub-agents 4.6–4.14 and Agent 12 are backlog.
 | SMSFollowUpAgent | Part 13 L14189–14212 | 📦 | `source-notes/13`; follow-up module 📘 in `docs/ai-os/04-platform-modules.md` |
 | EmailFollowUpAgent | Part 13 L14189–14212 | 📦 | `source-notes/13`; 📘 `docs/ai-os/04` |
 | RetargetingAgent | Part 13 L14189–14212 | 📦 | `source-notes/13`; 📘 `docs/ai-os/04` (retargeting module) |
-| BudgetProtectionAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`budget-protection`) |
+| BudgetProtectionAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`budget-protection`) |
 | CustomerResurrectionAgent | Part 13 L14189–14212 | 📦 | see §7 |
-| CompetitorSpyAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`competitor-spy`) |
+| CompetitorSpyAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`competitor-spy`) |
 | ReviewMiningAgent (pain points, language, competitor failures from reviews) | Part 13 L14189–14212, L14045–14062 | 📦 | `source-notes/13`; `source-notes/04` L1430–1444 |
-| LocalGrowthAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`local-growth`) |
+| LocalGrowthAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`local-growth`) |
 | ReferralGrowthAgent | Part 13 L14189–14212 | 📦 | `source-notes/13`; referral engine 📘 in `docs/ai-os/04` |
 | MarketplaceDemandRouterAgent | Part 13 L14189–14212, L14000–14025 | 📦 | `source-notes/13`; marketplace 📘 in `docs/ai-os/01` (phase-3 vision) |
-| RevenueIntelligenceAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`revenue-intelligence`) |
-| GrowthStrategistAgent | Part 13 L14189–14212 | ✅ | `src/lib/ai/agents.ts` (`growth-strategist`) |
+| RevenueIntelligenceAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`revenue-intelligence`) |
+| GrowthStrategistAgent | Part 13 L14189–14212 | ✅ | `src/shared/agents.ts` (`growth-strategist`) |
 | ComplianceSafetyAgent | Part 13 L14189–14212 | 📘 | `docs/ai-os/03-agent-ecosystem.md` (compliance agents); `docs/ai-os/08` (zero-trust) |
 
 ### 1.5 The 7 Core Marketing Strategy Agents (Part 15, L15520–16293)
@@ -196,7 +196,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| Marketing Failure Audit (10 inputs; 6 scores: conversion risk, offer weakness, audience mismatch, landing page, trust, ad creative; funnel leak map; "Why you got 0 customers" report) | Part 01 L43–84; inv-1 | ✅ | `src/lib/ai/audit.ts` (deterministic scoring engine) + `src/app/dashboard/audit/` + `POST /api/audit`; results persisted via `src/lib/db.ts` |
+| Marketing Failure Audit (10 inputs; 6 scores: conversion risk, offer weakness, audience mismatch, landing page, trust, ad creative; funnel leak map; "Why you got 0 customers" report) | Part 01 L43–84; inv-1 | ✅ | `src/backend/audit.ts` (deterministic scoring engine) + `src/app/dashboard/audit/` + `POST /api/audit`; results persisted via `src/backend/db.ts` |
 | AI Campaign War Room dashboard (spend, leads, CPL, cost/message, cost/booking, best hook, worst ad, best audience, stop-today / test-tomorrow directives) | Part 01 L86–107 | ✅ | `src/app/dashboard/war-room/` + `src/app/dashboard/page.tsx` (command center) with `src/components/charts.tsx` |
 | One-Click Campaign Builder (9 selectable goals; 9 AI outputs incl. audience, copy, landing page, budget split) | Part 01 L109–148 | ✅ | `src/app/dashboard/campaigns/` + `campaign-commander` agent |
 | AI Landing Page Generator (headline, offer, problem, benefits, proof, FAQ, CTA, WhatsApp button, lead form, pixels, A/B) | Part 01 L150–173 | ✅ partial | `src/app/dashboard/landing-pages/` (generation UI); full subsystem — see §8 |
@@ -209,7 +209,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
 | MODULE 1 Business Onboarding Intelligence (17 inputs → 7 AI outputs incl. campaign readiness score) | Part 13 L13433–13461; inv-8 | ✅ partial | `src/app/onboarding/` (4-step onboarding); full 17-field intake 📦 |
-| MODULE 2 AI Marketing Failure Audit (13 audit areas, 8 scores, report) | Part 13 L13463–13498 | ✅ partial | `src/lib/ai/audit.ts` + `src/app/dashboard/audit/` (6 scores implemented; 8-score set 📦) |
+| MODULE 2 AI Marketing Failure Audit (13 audit areas, 8 scores, report) | Part 13 L13463–13498 | ✅ partial | `src/backend/audit.ts` + `src/app/dashboard/audit/` (6 scores implemented; 8-score set 📦) |
 | MODULE 3 Business Brain (18 stored attributes, 7 AI uses) | Part 13 L13500–13529 | 📘 | `docs/ai-os/04-platform-modules.md`; `docs/ai-os/06-architecture.md` (data intelligence) |
 | MODULE 4 Customer Intelligence Vault (14 data sources, 28 customer fields, 11 AI segments) | Part 13 L13531–13589 | ✅ partial | `src/app/dashboard/customers/` (customer vault UI, demo data); import + field schema 📦 |
 | MODULE 5 AI Customer Resurrection Engine (10-step process, Revenue Recovery Score™, 9 campaign types) | Part 13 L13591–13618 | 📦 | see §7; recovery UI ✅ partial `src/app/dashboard/recovery/` |
@@ -249,7 +249,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | 12 core modules of the developer-ready master spec (Failure Audit, War Room, Autonomous Campaign Engine, Landing Page Generator, WhatsApp Conversion, Content Factory, Retargeting, Resurrection Engine™, Competitor Intelligence, Local Domination, Demand Detection, Marketplace Infrastructure) | Part 12 L12649–12847; inv-7 | ✅ partial / 📘 | 9 of 12 have ✅ dashboard pages (see §3); Demand Detection + Marketplace 📘 `docs/ai-os/01`, Retargeting 📘 `docs/ai-os/04` |
 | Blueprint module catalogue — 30 platform modules + Admin Super Control Centre | derived from all of the above | 📘 | `docs/ai-os/04-platform-modules.md` |
 | BitriPay payment gateway + 30-category connector ecosystem (incl. Stripe, PayPal, Flutterwave, Paystack, M-Pesa, Orange Money, Airtel Money, Afrimoney, Meta/Google/TikTok Ads, WhatsApp Business, Brevo, Mailchimp, HubSpot, Google Workspace, Shopify, WooCommerce, WordPress, Firebase, Supabase, Vercel, GitHub, Figma, Notion, Airtable, Slack, n8n, Zapier, Make, Klaviyo) | Part 12 L8272–8333; Part 15 L16829–16850 | 📘 | `docs/ai-os/05-bitripay-and-connectors.md` |
-| Marketing MOT (automated 10-point marketing audit, Yell-inspired, 30-day growth plan) | Part 12 L10214–10227 | 📦 | `source-notes/12`; audit engine ✅ partial `src/lib/ai/audit.ts` |
+| Marketing MOT (automated 10-point marketing audit, Yell-inspired, 30-day growth plan) | Part 12 L10214–10227 | 📦 | `source-notes/12`; audit engine ✅ partial `src/backend/audit.ts` |
 | How-It-Works page (detailed step-by-step process, linked in footer; 7-phase "Phased Warfare" timeline) | Part 12 L7574–7581 | ✅ | `src/app/how-it-works/page.tsx` |
 | Worldwide localisation (auto-detect language + currency from device, hydration-safe) | Part 06 L2897–2905, Part 07 L4132–4148 | 📦 | `source-notes/06`, `source-notes/07` (prototype-only; not in this repo) |
 | Premium cinematic landing page ("One Operating System. Every Growth Weapon.", 6 agent pillars, "From idea to income") | Part 12 L8421–8456; Part 15 L19161–19178 | ✅ | `src/app/page.tsx` (premium landing page) |
@@ -262,7 +262,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| Executive Command Center (main homepage; 11 live metric cards: revenue/leads/bookings/messages today, conversion rate, ad spend, cost per customer, returning customers, AI campaigns running, revenue recovered, estimated lost revenue) | Part 05 L2258–2291; inv-3 | ✅ | `src/app/dashboard/page.tsx` (command center) with `src/components/charts.tsx` + demo dataset `src/lib/data/` |
+| Executive Command Center (main homepage; 11 live metric cards: revenue/leads/bookings/messages today, conversion rate, ad spend, cost per customer, returning customers, AI campaigns running, revenue recovered, estimated lost revenue) | Part 05 L2258–2291; inv-3 | ✅ | `src/app/dashboard/page.tsx` (command center) with `src/components/charts.tsx` + demo dataset `src/shared/demo.ts` |
 | AI Command Feed (live AI intelligence feed — "the brain of the platform", example directives) | Part 05 L2293–2311 | ✅ partial | command center feed widgets; live event-driven feed 📘 `docs/ai-os/06-architecture.md` (events) |
 | AI Priority Panel ("What Needs Attention Now" — 7 priority action types) | Part 05 L2313–2333 | ✅ partial | command center + `src/app/dashboard/briefing/` |
 | Live Customer Map (customer locations, active leads, demand hotspots, conversion zones, abandoned leads, strongest markets) | Part 05 L2335–2351 | 📦 | `source-notes/05-account-system-and-dashboards.md` (Google Maps integration was prototype-only) |
@@ -293,12 +293,12 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | 7 user types with per-type needs (Version A: Business Owner, Marketing Manager, Sales Team, Agency, Enterprise/Franchise, Affiliate/Promoter, Platform Admin) | Part 13 L13377–13431 | 📘 | `docs/ai-os/02-users-and-command-centres.md` |
 | Master Account System — A. Identity Layer (15 fields: name, business name, industry, website, social links, locations, timezone, language, team members, roles & permissions, subscription plan, ACU balance, billing profile, Stripe wallet, tax/VAT) | Part 05 L2107–2142 | ✅ partial | `src/app/onboarding/` captures core identity; full layer 📘 `docs/ai-os/07-database-and-api.md` |
 | B. Business Intelligence Layer (13 learned attributes powering all AI decisions) | Part 05 L2144–2174 | 📘 | `docs/ai-os/06-architecture.md` (learning loop); `docs/ai-os/07` schema |
-| C. Customer Intelligence Layer (14 stored customer data types) | Part 05 L2176–2206 | ✅ partial | `src/app/dashboard/customers/` + `src/lib/db.ts`; full layer 📘 `docs/ai-os/07` |
+| C. Customer Intelligence Layer (14 stored customer data types) | Part 05 L2176–2206 | ✅ partial | `src/app/dashboard/customers/` + `src/backend/db.ts`; full layer 📘 `docs/ai-os/07` |
 | D. Marketing Intelligence Layer (campaigns, ads, creatives, hooks, landing pages, A/B tests; CTR/CPC/CPL/ROAS/conversion/lead-quality/channel/audience metrics) | Part 05 L2208–2238 | 📘 | `docs/ai-os/07-database-and-api.md` |
-| E. AI Intelligence Layer (tracks AI-generated campaigns/offers/pages, recommendations, prediction history, experiment outcomes, performance learning) | Part 05 L2240–2256 | ✅ partial | agent runs + audits persisted to Firestore via `src/lib/db.ts`; full learning loop 📘 `docs/ai-os/06` |
+| E. AI Intelligence Layer (tracks AI-generated campaigns/offers/pages, recommendations, prediction history, experiment outcomes, performance learning) | Part 05 L2240–2256 | ✅ partial | agent runs + audits persisted to Firestore via `src/backend/db.ts`; full learning loop 📘 `docs/ai-os/06` |
 | Dashboard must never feel passive — alive, intelligent, predictive, commercial, operational, urgent, strategic; "platform is actively helping me make money" | Part 06 L2845–2867; Part 13 L14401–14416 | ✅ | design language of all 15 dashboard pages + `src/app/page.tsx`; verbatim in `source-notes/06` |
 | Anti-requirements: must NOT feel like a social scheduler / CRM / analytics tool / reporting system; must feel like an AI-Powered Customer Acquisition Command Centre / "AI growth war room" | Part 04 L2042–2079 | ✅ | overall dashboard design; `src/app/dashboard/layout.tsx` |
-| "Stealth Premium" aesthetic (cinematic dark modes, glassmorphism, Space Grotesk headlines, bento-grid, monoline icons, framer-motion transitions) | Part 01 L441–453; Part 06 L3621–3635 | ✅ | `src/app/page.tsx`, `src/app/globals.css`, `src/components/HeroMockup.tsx`, `src/lib/palette.ts` |
+| "Stealth Premium" aesthetic (cinematic dark modes, glassmorphism, Space Grotesk headlines, bento-grid, monoline icons, framer-motion transitions) | Part 01 L441–453; Part 06 L3621–3635 | ✅ | `src/app/page.tsx`, `src/app/globals.css`, `src/components/HeroMockup.tsx`, `src/shared/palette.ts` |
 | Key user journey (10 steps: sign up → business details → audit → fixes/lost revenue → objective → campaign pack → assets → launch/approval → AI monitors → stop/fix/scale directives) | Part 13 L14337–14375 | ✅ partial | `src/app/onboarding/` → `audit` → `campaigns` flow; autonomous monitoring 📘/📦 |
 | AI-Agent dashboard cards (Agent Name, Purpose, Completion Status, Last Result, Revenue Impact Score, Next Recommended Action, Required Inputs, Connected Outputs) | Part 15 L16197–16212 | 📦 | `source-notes/15`; simpler agent runner ✅ `src/components/AgentRunner.tsx` |
 | Onboarding core-principle intake (What do you sell? Who do you want? What result? Budget? Location? Promotion/offer?) | Part 08 L4234–4250 | ✅ | `src/app/onboarding/` (4-step onboarding) |
@@ -309,24 +309,24 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| Identity: "You are not a chatbot. You are the intelligence layer of this platform." — AI-powered OS, decision engine, workflow automation layer, predictive assistant, multi-agent execution platform, self-learning system | Part 03 L639–661; inv-1 | ✅ partial | anti-generic master directive embedded in every agent prompt in `src/lib/ai/agents.ts`; full identity block 📦 `source-notes/03` |
+| Identity: "You are not a chatbot. You are the intelligence layer of this platform." — AI-powered OS, decision engine, workflow automation layer, predictive assistant, multi-agent execution platform, self-learning system | Part 03 L639–661; inv-1 | ✅ partial | anti-generic master directive embedded in every agent prompt in `src/shared/agents.ts`; full identity block 📦 `source-notes/03` |
 | AI Behaviour Standard — 12 silent questions per user action (goal, data, missing, risk, automatable, predictable, improvable, next, notify, save, learn, recommend) | Part 03 L662–670 | 📦 | `source-notes/03-master-platform-ai-os-prompt.md` |
-| Never behave generically; outputs specific, operational, structured, goal-connected | Part 03 L668–670 | ✅ | master directive in `src/lib/ai/agents.ts` (see §13 Zero Generic Info Protocol) |
-| Autosave Principle — mandatory platform-wide; 21-item autosave scope; every module supports autosave, version history, timestamps, attribution, change tracking, rollback, audit trail, AI change summary | Part 03 L672–686 | ✅ partial | audits + agent runs auto-persisted to Firestore (`src/lib/db.ts`); full autosave/versioning framework 📦 `source-notes/03` |
+| Never behave generically; outputs specific, operational, structured, goal-connected | Part 03 L668–670 | ✅ | master directive in `src/shared/agents.ts` (see §13 Zero Generic Info Protocol) |
+| Autosave Principle — mandatory platform-wide; 21-item autosave scope; every module supports autosave, version history, timestamps, attribution, change tracking, rollback, audit trail, AI change summary | Part 03 L672–686 | ✅ partial | audits + agent runs auto-persisted to Firestore (`src/backend/db.ts`); full autosave/versioning framework 📦 `source-notes/03` |
 | AI Memory Structure — 4 levels: User Memory, Workspace Memory, Process Memory, Intelligence Memory | Part 03 L688–702 | 📘 | `docs/ai-os/06-architecture.md` (data intelligence + learning loop); verbatim `source-notes/03` |
-| Agentic AI Structure — specialised agents coordinated via central orchestration layer | Part 03 L704–708 | 📘 | `docs/ai-os/03-agent-ecosystem.md` (Master Orchestrator); runtime ✅ partial via `src/lib/ai/agents.ts` registry + `/api/agents/[agentId]` |
+| Agentic AI Structure — specialised agents coordinated via central orchestration layer | Part 03 L704–708 | 📘 | `docs/ai-os/03-agent-ecosystem.md` (Master Orchestrator); runtime ✅ partial via `src/shared/agents.ts` registry + `/api/agents/[agentId]` |
 | Platform-wide AI functions (21: AI search, summaries, recommendations, risk detection, next-step guidance, drafting, classification, tagging, scoring, forecasting, alerts, workflow automation, document understanding, data extraction, personalisation, comparison, explanation, decision support, performance tracking, anomaly detection, audit-trail generation) | Part 03 L742–746 | 📦 | `source-notes/03`; subset (scoring, recommendations, next actions) ✅ in agent outputs |
-| Standard Output Format — Situation / Insight / Risk / Recommendation / Next Action / Owner / Deadline / Confidence Level | Part 03 L748–766 | ✅ partial | structured agent output format in `src/lib/ai/agents.ts`; full 8-field standard 📦 |
+| Standard Output Format — Situation / Insight / Risk / Recommendation / Next Action / Owner / Deadline / Confidence Level | Part 03 L748–766 | ✅ partial | structured agent output format in `src/shared/agents.ts`; full 8-field standard 📦 |
 | Decision Intelligence Rule (always provide best option, alternative, risk of doing nothing, commercial + operational impact, next step) | Part 03 L768–776 | 📦 | `source-notes/03` |
 | Predictive Intelligence Rule (proactively detect 12 problem classes early) | Part 03 L778–786 | 📘 | doc2 §10.2 predictive models; `docs/ai-os/06` |
 | Automation Rule (can this be automated / templated / event-triggered / auto-assigned / agent-monitored) | Part 03 L788–794 | 📘 | doc2 §11 automation framework |
 | Data Rule (all data structured, tagged, searchable, connected, reusable; raw activity → intelligence) | Part 03 L796–804 | 📘 | `docs/ai-os/07-database-and-api.md` |
-| Security & Control Rule (never expose providers, hidden logic, private keys; respect permissions, roles, boundaries, auditability) | Part 03 L806–816 | ✅ partial | provider abstraction in `src/lib/ai/gateway.ts` + `firestore.rules`/`storage.rules`; full zero-trust 📘 `docs/ai-os/08` |
+| Security & Control Rule (never expose providers, hidden logic, private keys; respect permissions, roles, boundaries, auditability) | Part 03 L806–816 | ✅ partial | provider abstraction in `src/backend/gateway.ts` + `firestore.rules`/`storage.rules`; full zero-trust 📘 `docs/ai-os/08` |
 | User Experience Rule ("platform must feel alive"; every screen: AI Insight, Recommendation, Risk Alert, Next Action, Summary, Confidence Level, Autosave Status) | Part 03 L818–828 | ✅ partial | dashboard widgets; complete per-screen standard 📦 |
 | Learning Rule (learn from corrections, decisions, outcomes, approvals/rejections, edit patterns) | Part 03 L830–838 | 📘 | `docs/ai-os/06-architecture.md` (learning loop) |
 | Market Positioning Rule (infrastructure-grade AI OS replacing fragmented tools; value list of 11) | Part 03 L840–848 | 📘 | `docs/ai-os/01-executive-vision-and-market.md` |
 | Final Operating Command — 8 closing principles ("Think like an AI operating system… save everything automatically… improve the platform with every interaction"); platform must be "impossible to operate without" | Part 03 L850–860; inv-2 | 📦 | `source-notes/03-master-platform-ai-os-prompt.md` |
-| Master prompt applies at platform/system level, adapted per module into developer instructions | Part 03 L860 | ✅ partial | `MASTER_DIRECTIVE` pattern in `src/lib/ai/agents.ts` prepended to all agents |
+| Master prompt applies at platform/system level, adapted per module into developer instructions | Part 03 L860 | ✅ partial | `MASTER_DIRECTIVE` pattern in `src/shared/agents.ts` prepended to all agents |
 | Four-level memory + autosave implemented as Firestore workspace memory (prototype build note) | Part 03/04 L862–877 | 📦 | `source-notes/04` (prototype); this repo persists audits/agent runs only |
 | Executive email doctrine (5-persona email framework: Marketing Director, Financial Marketing Specialist, Business Benefits Expert, Psychology/Persuasion Specialist, Executive Communications Specialist; 120–220 words, aggressive openings, Feature→Benefit→Money, role-calibrated tone incl. CEO/CFO/COO/CTO/Government/Investors) | Part 12 L10264–10352; inv-7 | 📦 | `source-notes/12-build-transcript.md` |
 | Senior-engineer persona directive for build assistant | Part 11 L5937–5952 | 📦 | `source-notes/11` (process note, not product) |
@@ -338,7 +338,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
 | Core principle — 6-question intake, then "the OS does EVERYTHING" | Part 08 L4234–4250; inv-5 | ✅ partial | `src/app/onboarding/` (intake); autonomous execution 📦 |
-| Step 1 AI Business Analysis (14 analysis dimensions) | Part 08 L4254–4288 | ✅ partial | `business-diagnosis` agent + `src/lib/ai/audit.ts` |
+| Step 1 AI Business Analysis (14 analysis dimensions) | Part 08 L4254–4288 | ✅ partial | `business-diagnosis` agent + `src/backend/audit.ts` |
 | Step 2 AI Campaign Objective Engine (11 auto-selected objectives) | Part 08 L4290–4318 | ✅ partial | `campaign-commander` agent (objective selection); auto-selection 📦 |
 | Step 3 AI Customer Psychology Engine (10 trigger classes; food-delivery + education examples) | Part 08 L4320–4372 | ✅ partial | `customer-pain` agent |
 | Step 4 AI Offer Creation Engine (9 auto-created offer types, scored) | Part 08 L4374–4396 | ✅ partial | `offer-builder` agent |
@@ -353,7 +353,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Autonomy Level 2 — Semi-Autonomous (AI creates, user approves launch) | Part 08 L4659–4663 | 📘 | `docs/ai-os/02` |
 | Autonomy Level 3 — Fully Autonomous (create/launch/pause, reallocate budget, change creatives, retarget, follow up, recover leads without intervention) + Fully Autonomous Campaign Mode toggle | Part 08 L4665–4687; Part 10 L5847–5871 | 📘 | `docs/ai-os/02` (L3) + safety controls 📦 Part 13 L13734–13741 |
 | The Real Differentiator — results-driven campaign ecosystems (11 components), never "one ad" | Part 08 L4689–4729 | ✅ partial | campaign builder output structure; full ecosystem generation 📦 |
-| AI Campaign Score™ (8 dimensions: Conversion Probability, Revenue Probability, Audience Match, Emotional Strength, Attention, Trust, Urgency, Scalability) | Part 08 L4731–4755; inv-5 | 📦 | `source-notes/08`; related audit scores ✅ `src/lib/ai/audit.ts` |
+| AI Campaign Score™ (8 dimensions: Conversion Probability, Revenue Probability, Audience Match, Emotional Strength, Attention, Trust, Urgency, Scalability) | Part 08 L4731–4755; inv-5 | 📦 | `source-notes/08`; related audit scores ✅ `src/backend/audit.ts` |
 | AI Campaign Confidence Score™ (7 dimensions: click probability, conversion probability, emotional strength, urgency strength, local relevance, audience fit, trust — distinct from Campaign Score™) | Part 10 L5795–5819; inv-5 | 📦 | `source-notes/10-campaign-packs-and-revenue-models.md` (score-set conflict — see §15) |
 | "AI Autonomous Campaign Warfare OS" identity — OS combines 10 roles (strategist, copywriter, designer, growth hacker, analyst, media buyer, behavioural psychologist, local marketer, conversion optimiser, follow-up engine) | Part 08 L4776–4811; Part 07 L4197–4234 | 📘 | `docs/ai-os/01-executive-vision-and-market.md`; verbatim `source-notes/08` |
 | Agentic Campaign Generation-as-a-Service (users pay for strategy+offer+psychology+visuals+hooks+CTA+hashtags+landing page+audience+follow-up+retargeting+optimisation, automatically) | Part 10 L5362–5407 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (monetisation streams); verbatim `source-notes/10` |
@@ -388,7 +388,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Engine 9 — AI Micro-Influencer Network (local influencers, student ambassadors, promoters, niche creators; performance-based) | Part 07 L3999–4012 | 📦 | `source-notes/07`; superseded by TrustSeller AI spec (§9) |
 | Engine 10 — AI Demand Detection ("the future moat": search trends, local conversations, buying intent, complaints, unmet demand, competitor weaknesses → "There is demand HERE right now") | Part 07 L4014–4033 | 📘 | `docs/ai-os/01` (market-gap thesis); verbatim `source-notes/07` |
 | 13 owned distribution channels: WhatsApp campaigns, SMS, email, referral links, local SEO pages, Google Business posts, community groups, affiliate promoters, QR codes, partner landing pages, marketplace listings, automated outreach, retargeting databases | Part 02 L523–556; inv-1 | 📘 | `docs/ai-os/04-platform-modules.md` (distribution modules); verbatim `source-notes/02` |
-| First-party customer intelligence (leads, WhatsApp chats, calls, bookings, purchases, abandoned forms, objections, repeat buyers, location demand, competitor gaps) | Part 02 L483–506 | ✅ partial | `src/app/dashboard/customers/` + demo intelligence dataset `src/lib/data/`; full capture pipeline 📘 `docs/ai-os/06` |
+| First-party customer intelligence (leads, WhatsApp chats, calls, bookings, purchases, abandoned forms, objections, repeat buyers, location demand, competitor gaps) | Part 02 L483–506 | ✅ partial | `src/app/dashboard/customers/` + demo intelligence dataset `src/shared/demo.ts`; full capture pipeline 📘 `docs/ai-os/06` |
 | Extreme targeting engine — micro-audience intent capture (5 worked examples: Birmingham Congolese food tonight, Year-6 SATs parents, restaurants without delivery, landlords with vacant rooms, emergency-repair posters) | Part 02 L508–521 | 📦 | `source-notes/02-prototype-and-competitive-strategy.md` |
 | Pay-for-result pricing (£5/month + £0.20–£1/verified lead + £2–£5/booked appointment + 3–10% commission) | Part 02 L558–577; Part 13 L14282–14289 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (performance stream) |
 | Gatekeeper strategy — 9-step flow (audit → offer repair → landing page → WhatsApp flow → tracking → micro-campaign → follow-up → retargeting → scale winners) | Part 04 L1502–1534 | ✅ partial | onboarding→audit→campaign flow; full gating 📦 |
@@ -503,15 +503,15 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 | Manual Mode fallbacks per channel (paid ads: download creative + copy audience; WhatsApp: wa.me links + CSV export; SMS: CSV export; email: HTML download; social: manual publish) | Part 15 L18174–18200, L18598–18627 | 📦 | `source-notes/15` |
 | Owned channels built first: Landing Page Network `marketwar.site/{business}/{campaign}`, Business Marketplace `/discover/{city}/{service}`, Referral Network `/r/{business}/{code}`, SEO pages `/local/{city}/{service}`, owned CRM, email list manager, automation builder, analytics | Part 15 L17963–18001, L18689–18717 | 📦 | `source-notes/15` |
 | Dependency classification: Must Own Internally (18) / Optional External (11) / Never Fully Depend On (Meta, Google, TikTok, Brevo, Mailchimp, HubSpot, Canva, Buffer, Hootsuite, Klaviyo, Shopify — "bridges, not foundations") | Part 15 L18003–18047 | 📦 | `source-notes/15` |
-| AI Gateway with multi-provider failover (route by task, track provider cost + tokens, convert to ACU, hide provider from user, expose cost to admin, retry, fallback, log runs, store prompts/outputs, safety filters, brand rules — 12 responsibilities) | Part 13 L14214–14232; Part 12 L13042–13072 | ✅ partial | `src/lib/ai/gateway.ts` + `src/lib/ai/provider.ts` (Claude/OpenAI/Gemini failover, `/api/gateway`); ACU conversion + admin cost views 📘 `docs/ai-os/08` |
-| Provider Arbitration Engine (continuously pick cheapest capable model across OpenAI/Gemini/Claude/Vertex/open-source/self-hosted; user never told which model) | Part 12 L7805–7838; Part 15 L19048–19068 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (ACU system); failover (not cost-arbitrage) ✅ `src/lib/ai/gateway.ts` |
+| AI Gateway with multi-provider failover (route by task, track provider cost + tokens, convert to ACU, hide provider from user, expose cost to admin, retry, fallback, log runs, store prompts/outputs, safety filters, brand rules — 12 responsibilities) | Part 13 L14214–14232; Part 12 L13042–13072 | ✅ partial | `src/backend/gateway.ts` + `src/backend/provider.ts` (Claude/OpenAI/Gemini failover, `/api/gateway`); ACU conversion + admin cost views 📘 `docs/ai-os/08` |
+| Provider Arbitration Engine (continuously pick cheapest capable model across OpenAI/Gemini/Claude/Vertex/open-source/self-hosted; user never told which model) | Part 12 L7805–7838; Part 15 L19048–19068 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (ACU system); failover (not cost-arbitrage) ✅ `src/backend/gateway.ts` |
 | Infrastructure Independence Protocol UI: Independence Score, Moat Intelligence widget (owned vs rented traffic ratio), Infrastructure Gateway Hub, "Owned Distribution Moat" branding | Part 12 L7602–7628 | 📦 | `source-notes/12` (prototype-only) |
 | 4-phase independent build order: Phase 1 Independent Core (15 items) → Phase 2 Owned Acquisition Infrastructure (9) → Phase 3 Delivery API Connectors (10) → Phase 4 Network Effect (7: marketplace, promoter network, affiliates, public search, discovery, demand routing, performance lead marketplace) | Part 15 L18295–18339, L18817–18862 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (phased roadmap); verbatim `source-notes/15` |
 | Global reach: public SEO routes (/business/{slug}, /discover/{city}/{service}, /local/{city}/{service}, /offers/…, /campaign/…, /referral/…), community promoter network collections (affiliate_promoters, promoter_links, commission_rules, lead_tracking, conversion_tracking, payouts, fraud_checks) | Part 15 L18202–18237, L18689–18717 | 📦 | `source-notes/15` |
 | Email independence strategy: Phase 1 low-cost provider (SES/SendGrid/Mailgun/Postmark/Resend) → Phase 2 own sender-reputation infrastructure → Phase 3 dedicated sending domains per user | Part 15 L17859–17878 | 📦 | `source-notes/15` |
 | SMS provider options (Twilio, Vonage, MessageBird, local telecom aggregators, direct telecom deals later) + bring-your-own-gateway | Part 15 L17839–17857 | 📦 | `source-notes/15` |
 | Adopted production topology: Hostinger (domain/DNS) → Cloudflare (edge/security) → Vercel (Next.js hosting) → Firebase (auth/data/storage) | repo decision record | 📘 | `docs/PRODUCTION-ARCHITECTURE.md` (adopted), `docs/DEPLOYMENT.md` |
-| Firebase scaffolding with Firestore persistence + security rules | Part 12 tech-stack decisions | ✅ | `src/lib/firebase/client.ts`, `src/lib/firebase/admin.ts`, `src/lib/db.ts`, `firestore.rules`, `storage.rules` |
+| Firebase scaffolding with Firestore persistence + security rules | Part 12 tech-stack decisions | ✅ | `src/frontend/firebase-client.ts`, `src/backend/firebase-admin.ts`, `src/backend/db.ts`, `firestore.rules`, `storage.rules` |
 | Tech stack: Next.js, TypeScript, Tailwind, Shadcn-style UI, Framer-Motion-style animation, chart layer, Firebase Auth/Functions/Firestore/Storage, Stripe, Twilio, SendGrid, WhatsApp Business API, Meta/Google/TikTok/LinkedIn APIs; AI layer OpenAI + Gemini + Claude (+ Vertex) behind internal gateway | Part 01 L304–360; Part 14 L15364–15397; Part 12 L13042–13072 | ✅ partial | Next.js/TS/Tailwind ✅ (repo), custom UI kit ✅ `src/components/ui.tsx`, SVG chart kit ✅ `src/components/charts.tsx`, AI gateway ✅; **Firebase Auth screens ✅ (`src/app/login` + `src/app/signup` via `src/components/AuthForm.tsx` — email/password + Google SSO, env-guarded demo fallback)**; Functions/Stripe/Twilio/SendGrid/ads APIs 📘 `docs/ai-os/05`–`06` |
 
 ---
@@ -530,7 +530,7 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 | Strategy-agent ACU prices: Avatar 30 / Message Weapon 35 / Channel Commander 35 / Content War Plan 80 / Funnel Architect 70 / Paid Ads Risk 60 / Battle Plan 50 / Landing Page 80; Full Marketing Strategy Pack bundle 350 ACUs, sold at £5, platform cost ≤ £1 (5x) | Part 15 L16263–16279 | 📦 | `source-notes/15` |
 | ACU campaign costs (Option 2, Part 10): basic campaign 50, advanced 200, full autonomous 500 | Part 10 L5765–5777 | 📦 | `source-notes/10` |
 | ACU Economics Framework ("operate like a utility company"): never sell AI at cost; min 100% margin, recommended 300–500%, strategic target 400%+; cost→charge table; provider costs never exposed | Part 12 L7637–7666; Part 15 L18880–18902 | 📘 | `docs/ai-os/08-monetisation-security-roadmap.md` (ACU system); verbatim `source-notes/15` |
-| ACU pipeline: User Request → AI Gateway → Cost Engine → Margin Engine → ACU Calculator → Execution Engine | Part 12 L7671; Part 15 L18904–18917 | 📘 | `docs/ai-os/08`; gateway stage ✅ partial `src/lib/ai/gateway.ts` |
+| ACU pipeline: User Request → AI Gateway → Cost Engine → Margin Engine → ACU Calculator → Execution Engine | Part 12 L7671; Part 15 L18904–18917 | 📘 | `docs/ai-os/08`; gateway stage ✅ partial `src/backend/gateway.ts` |
 | Dynamic pricing formula: ACUs = Provider Cost × Complexity × Resource Weight × Margin Multiplier × Demand Multiplier | Part 12 L7679; Part 15 L18919–18938 | 📦 | `source-notes/15` |
 | 4 resource tiers with margin bands: Tier 1 Low (chat/email/social) 5–8x; Tier 2 Medium (research/copy/plans) 4–6x; Tier 3 High (image/brand/logo/mockups) 3–5x; Tier 4 Very High (video/movie/voice cloning) 4–8x | Part 12 L7705–7755; Part 15 L18942–19012 | 📦 | `source-notes/15` |
 | Pre-execution ACU approval preview ("This task will consume 54 ACUs… Generate?") — no surprise spending | Part 12 L7758–7770; Part 15 L19016–19031 | 📦 | `source-notes/15` |
@@ -553,7 +553,7 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| v1 — 15 Firestore core collections: users, businesses, marketing_audits, campaigns, ad_creatives, landing_pages, leads, lead_events, competitor_scans, ai_agents, ai_runs, acu_wallets, subscriptions, provider_costs, performance_reports | Part 01 L362–364; inv-1 | ✅ partial | audits + agent runs persisted via `src/lib/db.ts` + `src/lib/types.ts`; `firestore.rules` scaffolded; remaining collections 📘 |
+| v1 — 15 Firestore core collections: users, businesses, marketing_audits, campaigns, ad_creatives, landing_pages, leads, lead_events, competitor_scans, ai_agents, ai_runs, acu_wallets, subscriptions, provider_costs, performance_reports | Part 01 L362–364; inv-1 | ✅ partial | audits + agent runs persisted via `src/backend/db.ts` + `src/shared/types.ts`; `firestore.rules` scaffolded; remaining collections 📘 |
 | v2 — 53 collections (Version A; adds business_profiles, business_brains, customer_profiles/segments/imports, audit_scores, offers, offer_scores, campaign_packs/assets/experiments, visual_assets, copy_assets, hashtags, landing_page_events, lead_scores, whatsapp_conversations/messages, sms_messages, email_messages, followup_sequences, retargeting_flows, referral_programs, affiliate_promoters, marketplace_listings, competitor_profiles, review_mining_reports, local_market_data, seo_pages, google_business_posts, ai_predictions, ai_recommendations, growth_briefings, acu_transactions, stripe_customers, budget_guard_events, fraud_flags, audit_logs, notifications) | Part 13 L14133–14187; inv-8 | 📦 | `source-notes/13-consolidated-spec-version-a.md`; relational schema 📘 `docs/ai-os/07-database-and-api.md` |
 | v3 — 55 collections (Version B; adds landing_page_versions/sections/forms/scores/ab_tests/recommendations; drops business_profiles, campaign_experiments, stripe_customers, google_business_posts) | Part 14 L15399–15455 | 📦 | `source-notes/14-consolidated-spec-version-b.md` |
 | v4 — **71-collection master list (fullest single list)**: v3 + forms, form_submissions, contacts, contact_identities, contact_events, deals, deal_stages, email_campaigns, sms_campaigns, whatsapp_campaigns, message_templates, message_logs, automation_workflows, workflow_triggers, workflow_actions, referral_links, promoter_commissions, marketplace_categories, local_seo_pages, seo_keywords, + 7 integration_* collections | Part 15 L18719–18790; inv-9 | 📦 | `source-notes/15-marketing-strategy-agents-and-tail.md` — **canonical fullest list**; PostgreSQL analogue 📘 `docs/ai-os/07-database-and-api.md` |
@@ -572,13 +572,13 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| "MAKE SURE THE WHOLE SYSTEM PROVIDES NO GENERIC INFORMATION BUT REAL DATA AND RELATED INFORMATION BASED ON THE USER REQUEST" — origin of the Zero Generic Info Protocol | Part 11 L7476–7477; Part 12 L7477; inv-7 | ✅ | anti-generic master directive prepended to every agent in `src/lib/ai/agents.ts` |
-| Anti-Generic Directive mechanics: forbid "marketing best practices" fluff; mandate blunt tactical output; "AI Baseline Assumptions" + "Risk of Inaction" when data sparse; "High-Fidelity Tactical Payload" | Part 12 L7480–7494 | ✅ partial | `src/lib/ai/agents.ts` directive; assumption/risk fields 📦 |
-| Blunt STOP / FIX / SCALE (plus RECOVER / WATCH / TEST) strategic verdict language across all agents and dashboards | Part 12 L7485; Part 13 L13946–13952; Part 12 L12435–12448 | ✅ | agent verdict conventions in `src/lib/ai/agents.ts`; dashboard verdict chips |
+| "MAKE SURE THE WHOLE SYSTEM PROVIDES NO GENERIC INFORMATION BUT REAL DATA AND RELATED INFORMATION BASED ON THE USER REQUEST" — origin of the Zero Generic Info Protocol | Part 11 L7476–7477; Part 12 L7477; inv-7 | ✅ | anti-generic master directive prepended to every agent in `src/shared/agents.ts` |
+| Anti-Generic Directive mechanics: forbid "marketing best practices" fluff; mandate blunt tactical output; "AI Baseline Assumptions" + "Risk of Inaction" when data sparse; "High-Fidelity Tactical Payload" | Part 12 L7480–7494 | ✅ partial | `src/shared/agents.ts` directive; assumption/risk fields 📦 |
+| Blunt STOP / FIX / SCALE (plus RECOVER / WATCH / TEST) strategic verdict language across all agents and dashboards | Part 12 L7485; Part 13 L13946–13952; Part 12 L12435–12448 | ✅ | agent verdict conventions in `src/shared/agents.ts`; dashboard verdict chips |
 | Regional slang, local landmarks and cultural nuance in generated copy (PAS/AIDA with local identity) | Part 12 L7483–7484; Part 08 L4340–4342 | ✅ partial | agent prompts request local specificity; systematic locale engine 📦 |
 | Pre-spend gating: AI Marketing Guarantee Score / Growth Readiness Score — refuse to launch until offer/website/creatives/targeting/tracking pass ("Don't launch yet. Fix this first.") | Part 12 L10681–10691, L11172–11181; Part 15 L16015–16027 | 📦 | `source-notes/12`, `source-notes/15`; audit verdicts ✅ partial |
 | Warfare branding system (War Room, numbered agents as weapons, Infiltration Points, Conquest Missions, Phased Warfare, Ghost Competitors, scanline aesthetic) | Part 12 (throughout); inv-7 §3 | ✅ partial | dashboard naming + design language; full taxonomy 📦 |
-| Reliability mandates: retry with exponential backoff + jitter (up to 5 attempts) on provider 503s, toast alerts | Part 11 L5913–5935; Part 12 L7499–7507 | ✅ partial | failover + retry behaviour in `src/lib/ai/gateway.ts` |
+| Reliability mandates: retry with exponential backoff + jitter (up to 5 attempts) on provider 503s, toast alerts | Part 11 L5913–5935; Part 12 L7499–7507 | ✅ partial | failover + retry behaviour in `src/backend/gateway.ts` |
 | Compliance-as-architecture: LIA workflows, lawful-basis fields, 12-check outreach gates, ICO/PECR/CAN-SPAM embedding, "maximum inbox placement" promise discipline | Part 12 L9518–9689, L11737–11752 | 📦 | `source-notes/12`; blueprint compliance 📘 `docs/ai-os/08` + doc2 §9.3 |
 | Emerging-market/Africa-first mandates: mobile-money connectors (M-Pesa, Orange Money, Airtel Money, Afrimoney, Flutterwave, Paystack), WhatsApp-first onboarding, no-card trial, local languages (English, French, Lingala, Swahili) | Part 12 L8281–8291, L10441–10451, L10496 | 📦 | `source-notes/12`; connectors 📘 `docs/ai-os/05` |
 | "Superior flow" doctrine: Diagnose → Position → Create → Launch → Capture → Follow Up → Convert → Measure → Improve | Part 12 L10504, L11153–11450 | ✅ partial | onboarding→audit→campaign→recovery flow across dashboard |
@@ -602,7 +602,7 @@ import as its source of record, except where noted.
 | §5 Complete System Architecture (high-level overview, frontend, backend & microservices, event-driven architecture) | doc2 §5.1–5.4 | 📘 | `docs/ai-os/06-architecture.md` (events, orchestration, observability, DR) + `docs/PRODUCTION-ARCHITECTURE.md` |
 | §6 Database Architecture (data strategy; core Firestore collections production schema) | doc2 §6.1–6.2 | 📘 | `docs/ai-os/07-database-and-api.md` (PostgreSQL schema + ERD; Firestore rules ✅ partial in repo) |
 | §7 API Architecture (design principles, core internal endpoints, external partner & developer API, webhook events) | doc2 §7.1–7.4 | 📘 | `docs/ai-os/07-database-and-api.md` (REST/webhook spec); ✅ partial: 3 API routes live under `src/app/api/` |
-| §8 UX/UI Architecture (AI Command Centre design spec, design system incl. colour tokens, user journey maps) | doc2 §8.1–8.3 | 📘 | `docs/ai-os/02-users-and-command-centres.md`; visual system ✅ partial in `src/app/globals.css` + `src/lib/palette.ts` |
+| §8 UX/UI Architecture (AI Command Centre design spec, design system incl. colour tokens, user journey maps) | doc2 §8.1–8.3 | 📘 | `docs/ai-os/02-users-and-command-centres.md`; visual system ✅ partial in `src/app/globals.css` + `src/shared/palette.ts` |
 | §9 Security & Compliance Architecture (zero-trust model — 5 auth layers + full RBAC matrix, data protection & encryption incl. TLS 1.3 + per-business field keys, compliance framework, AI governance incl. 60-s L3 override + quarterly bias audits) | doc2 §9.1–9.4 | 📘 | `docs/ai-os/08` §B.1–B.5 + **§B.4a (full §9 adoption, RBAC matrix verbatim)**; `firestore.rules`/`storage.rules` ✅ partial |
 | §10 Analytics & Intelligence Architecture (6 dashboards w/ refresh contract; 6 predictive models w/ algorithms, training data, accuracy targets) | doc2 §10.1–10.2 | 📘 | `docs/ai-os/06` **§6.1a (predictive model registry + dashboard refresh contract)** + learning loop |
 | §11 Automation Framework (Pub/Sub + Cloud Tasks orchestration; six critical automations w/ triggers, gates, binding success metrics) | doc2 §11.1–11.2 | 📘 | `docs/ai-os/04` **§M-23a (all six automations verbatim)**; workflow builder itself 📦 (see §2.3) |
@@ -629,7 +629,7 @@ current code; all must be settled before the corresponding backlog items are pro
 | 4 | **Prototype billing tiers £25/£99/£499 and strategy-doc tiers £9/£29/£99/£299, £19/£79/£199/£499 never reconciled with the master £5–£99 ladder** | Part 12 L8572–8601, L11417–11423, L11684–11722 | Scope them: £19–£499 sets belong to *separate add-on products* (Contact Agent, Growth Partner). The core OS keeps the Free/£5/£15/£39/£99 ladder; add-on products price independently. Flag any UI copy citing £25/£49 Starter as stale. |
 | 5 | **Landing-page score sets: A = Clarity/Trust/Urgency/Emotional/Mobile/Speed/Conversion-Probability (7) vs B = Conversion/Clarity/Trust/Urgency/Mobile/Emotional/Friction/Lead-Quality (8)** | Part 13 L13849–13855 vs Part 14 L14924–14941 | Adopt Version B's 8-score set (it is the deep landing-page spec and includes definitions); keep Speed as a sub-signal of Mobile/Friction rather than a headline score. |
 | 6 | **Campaign scoring: AI Campaign Score™ (8 dims) vs AI Campaign Confidence Score™ (7 dims, different set)** | Part 08 L4731–4755 vs Part 10 L5795–5819 | Keep both as distinct products, per the source's own note: Campaign Score™ = pre-build quality matrix; Confidence Score™ = pre-launch outcome prediction. Do not merge dimension lists. |
-| 7 | **Audit score naming: "Follow-Up Readiness Score" (A) vs "Follow-Up Score" (B); 6-score implemented set vs 8-score spec set** | Part 13 L13486 vs Part 14 L14581; `src/lib/ai/audit.ts` | Standardise on "Follow-Up Readiness Score". When upgrading `src/lib/ai/audit.ts` from 6 to 8 scores, add Follow-Up Readiness + Revenue Leakage + Campaign Readiness and map "audience mismatch" → "Audience Match". |
+| 7 | **Audit score naming: "Follow-Up Readiness Score" (A) vs "Follow-Up Score" (B); 6-score implemented set vs 8-score spec set** | Part 13 L13486 vs Part 14 L14581; `src/backend/audit.ts` | Standardise on "Follow-Up Readiness Score". When upgrading `src/backend/audit.ts` from 6 to 8 scores, add Follow-Up Readiness + Revenue Leakage + Campaign Readiness and map "audience mismatch" → "Audience Match". |
 | 8 | **MVP phasing: 6 phases (Version A, ends with Marketplace) vs 5 phases (Version B, marketplace folded into Phase 5) vs 4-phase independence build order vs doc2's week-based Phase 0–3 roadmap** | Part 13 L14291–14335 vs Part 14 L15457–15495 vs Part 15 L18295–18339 vs doc2 §14 | Use doc2/`docs/ai-os/08` week-based roadmap as the master plan; map Version A Phase 6 (Marketplace) to its final phase. Keep Version A's 6-phase list as the feature checklist, Version B's for landing-page-first ordering. |
 | 9 | **Collection-list deltas: 15 vs 53 (A) vs 55 (B) vs ~37 (dev spec) vs 71 (independence architecture) + 39 Brevo collections; Version B internally inconsistent (4.12 lists 12 landing-page collections but its own §16 core list repeats only 6)** | Part 01 L364; Part 13 L14133–14187; Part 14 L15399–15455 vs L14997–15009; Part 12 L13074–13111; Part 15 L18719–18790, L16873–16912 | Canonicalise on the 71-collection master list (Part 15 L18719–18790), then merge the 4 A-only collections (business_profiles, campaign_experiments, stripe_customers, google_business_posts), the 4 missing landing-page collections from 4.12 (landing_page_ctas, _assets, _pixels, _submissions), the 11 strategy-agent collections, and the non-overlapping Brevo collections. Maintain the merged list in `docs/ai-os/07`. |
 | 10 | **Duplicated sections in the source** — Autonomous Campaign Engine appears twice (Parts 08 & 09, verbatim); 4.7 landing-page section duplicated (L6936–6957 ≈ L6983–7004); Brevo extraction has two passes (L16294–16928 vs L16929–17614); independence architecture has two passes (L17615–18358 vs L18359–18879); 39-collection list and API route blocks each appear twice | inv-5 §duplicate analysis; inv-6 note; inv-9 §3 | Treat Part 08, the second 4.7 copy's implementation notes, Brevo pass 2, and independence pass 2 as canonical. Parts 09 and the first passes remain preserved for provenance only — never spec from them. |
@@ -664,7 +664,7 @@ Redacted items (by type and original doc1 location — values NOT reproduced):
 **Action required:** every one of these keys was exposed in the original document (and, per doc1 L7537,
 written into a prototype `.env`). All five distinct credentials — OpenAI, Gemini, Vertex/GCP service account,
 Anthropic, Google Maps — **must be rotated/revoked immediately** and never committed. Current code reads
-providers exclusively from environment variables (`src/lib/ai/provider.ts`, `src/lib/firebase/admin.ts`);
+providers exclusively from environment variables (`src/backend/provider.ts`, `src/backend/firebase-admin.ts`);
 see `docs/DEPLOYMENT.md` for environment configuration.
 
 ---
@@ -744,7 +744,7 @@ Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md`.
 | Website Health Audit — 10 dimensions → AI Marketing Health Score + prioritised fixes | F2 audit | ✅ (agent output contract) | agent systemPrompt + `ai-os/10` §B.2; composes with shipped Failure Audit |
 | Six suites: Campaign Factory · Creative Generator · Funnel Builder · Competitor Intelligence · Growth Opportunities (revenue/effort/ROI) · Brand Consistency Engine | F2 suites | ✅ conversational / 📘 rendering | `/dashboard/website-intel` grid + agent |
 | One-click marketing launch (14 output classes from image or URL) | F2 launch | 📘 | `ai-os/10` §B.3; publishing via connectors |
-| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/lib/ai/agents.ts` (21 agents total); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
+| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/shared/agents.ts` (21 agents total); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
 
 ## 16d. VisualStrike AI™ & SiteRaid AI™ v2 upgrade (owner extraction 2026-07-13, second)
 
@@ -800,5 +800,6 @@ sources per the Additive-Only Law.
 | 2026-07-11 | **Multi-brand single account**: one user account runs multiple brands/activities at the same time with one login and one bill, on subscription or other payment models/categories — financially attractive first, 100% margin protection built in | Extends U1 (was implicitly single-brand); distinct from Agency U4 | `docs/ai-os/02` §U1a, `docs/ai-os/08` §A.1c; shipped: brand switcher (`src/components/BrandSwitcher.tsx`) + billing "Brands on this account" |
 | 2026-07-13 | **VisualStrike/SiteRaid 4× rule**: for the two engines' generation actions, Customer ACU Charge ≥ Actual Provider Cost × 4 (non-negotiable) | Sits above the global 100% (2×) floor — floor unchanged platform-wide; matches the video engines' 4× minimum | `docs/ai-os/10` §H |
 | 2026-07-13 | **Autonomy L4 (Revenue Autopilot)** added above L3 for engine publishing/budget reallocation; high-risk categories locked to L0/L1; all L3 gates (TOTP, £500 escalation, 60-s reversal) apply unchanged at L4 | Extends the L0–L3 dial (doc 02 §2) — additive | `docs/ai-os/10` §F; `/dashboard/settings` dial |
+| 2026-07-13 | **Layered codebase + stabilisation + E2E encryption**: backend/frontend/shared physical separation with runtime layer guards; stabilisation gates (`npm run verify` + `npm run smoke` — 53 checks: 26 routes, security headers, all 21 agents, audit + gateway APIs; global error boundary + not-found); E2EE = TLS 1.3 + HSTS-preload headers in transit, AES-256-GCM per-business-key field encryption at rest wired into every persistence write (cross-tenant decrypt cryptographically blocked — verified), plaintext-at-model-boundary honestly documented | Behaviour-preserving refactor per Additive-Only Law; implements doc 08 §B.4a field-encryption rule in code | `src/backend/` + `src/shared/` + `src/frontend/` (layer READMEs), `src/backend/crypto.ts`, `next.config.mjs`, `scripts/smoke.mjs`; docs: `docs/ai-os/06` §11, `docs/ai-os/08` §B.3a |
 
 **Gap/conflict addendum (§8.2 design system):** v3.0 spec tokens (navy #1A1A2E, accent #E94560, gold #F5A623, light surface #F4F6F9, Inter-only typography) vs the shipped owner-approved emerald-dark system (Space Grotesk + Inter, validated chart palette). Resolution: shipped system remains primary brand; spec tokens preserved in doc 06 as the specified alternate theme (candidate for admin/partner portals or theme switcher). Owner may re-decide.

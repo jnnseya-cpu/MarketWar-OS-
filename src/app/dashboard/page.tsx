@@ -11,7 +11,7 @@ import {
   demoConversations,
   demoDaily,
   demoMetrics,
-} from "@/lib/data/demo";
+} from "@/shared/demo";
 
 export default function CommandCenterPage() {
   const m = demoMetrics;

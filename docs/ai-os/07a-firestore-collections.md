@@ -53,7 +53,7 @@ client rules), so client-side rules deny those writes entirely —
 
 ## 6.2.3 `agent_tasks` (master audit trail)
 
-*The shipped `agent_runs` collection (`src/lib/db.ts`) is the Phase-0 seed of
+*The shipped `agent_runs` collection (`src/backend/db.ts`) is the Phase-0 seed of
 this schema and upgrades into it — additive migration, no data loss.*
 
 | Field | Type | Description |

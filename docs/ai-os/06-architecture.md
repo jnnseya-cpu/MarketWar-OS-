@@ -55,7 +55,7 @@ zero tight coupling between layers:
 | T6 | Integration | Meta/Google Ads APIs, Twilio, SendGrid, Stripe | All third-party integrations — ads, messaging, payments |
 | T7 | Intelligence Fabric | Vertex AI, Prophet, TensorFlow, fine-tuned models | ML forecasting, churn prediction, ROAS modelling, RL training |
 
-T4's LLM Gateway router is shipped (`src/lib/ai/gateway.ts`); T1 is the
+T4's LLM Gateway router is shipped (`src/backend/gateway.ts`); T1 is the
 shipped app; the CIE (§5.1 below) spans T3+T4+T7.
 
 ## 2. Frontend architecture
@@ -67,7 +67,7 @@ shipped app; the CIE (§5.1 below) spans T3+T4+T7.
   priority panel, agent feed, Ask-the-OS — one implementation, role-themed.
 - Realtime: Firestore listeners (threads, feeds) → server-sent events at P2.
 - Design system: tokens in `tailwind.config.ts`; chart kit `src/components/charts.tsx`
-  with validated categorical palette (`src/lib/palette.ts`); dark-first.
+  with validated categorical palette (`src/shared/palette.ts`); dark-first.
 - Mobile: responsive PWA first; native wrapper (Capacitor) at P2 for push.
 
 **Design-system tokens (recorded from v3.0 spec §8.2 — see conflict note):**
@@ -80,7 +80,7 @@ JetBrains Mono 400/13 (code). Colours: `--color-brand-dark #1A1A2E` ·
 `#6B7280`.
 **Conflict + resolution (owner-approved look governs):** the shipped design
 system — emerald-on-ink dark theme, Space Grotesk display + Inter body, the
-CVD-validated chart palette (`src/lib/palette.ts`) — was reviewed and
+CVD-validated chart palette (`src/shared/palette.ts`) — was reviewed and
 approved by the owner via the screenshot gallery and remains the primary
 brand. The §8.2 tokens are preserved as the **specified alternate theme**
 (a light-surface variant candidate for the admin/partner portals or a future
@@ -103,7 +103,7 @@ TypeScript strict mode ✅ shipped · Tailwind + design-token system ✅ shipped
 TanStack Query with optimistic updates + SWR 📘 P1 · charts: shipped
 dependency-free SVG kit covers the Recharts scope; D3 reserved for custom
 funnel maps/heatmaps at P2 · Firebase Auth with email/Google/Apple SSO +
-custom-claims RBAC — scaffolded (`src/lib/firebase/client.ts`), screens P1 ·
+custom-claims RBAC — scaffolded (`src/frontend/firebase-client.ts`), screens P1 ·
 PWA offline dashboards via service workers 📘 P2 (mobile-first markets).
 
 ### 2.2 Portal architecture (adopted from v3.0 spec §5.2.3)
@@ -155,7 +155,7 @@ jobs); the Cloud Run rows above remain the home for long-running/heavy work.
 | Auth Service | Firebase Auth + custom claims | Authn, sessions, RBAC token issuance | Firebase-managed horizontal |
 | MOA Service | **Functions 2nd gen, 8 GB, 540 s timeout** | Orchestration, BVI calc, PIQ management | Up to **1,000 concurrent instances** |
 | Campaign Service | Functions + Cloud Tasks | Campaign CRUD, metric ingestion, autonomy execution | Task-queued burst operations |
-| AI Gateway Service | Functions + custom router *(shipped router: `src/lib/ai/gateway.ts`)* | LLM provider routing, cost arbitration, fallback | Stateless — **10,000+ concurrent AI requests** |
+| AI Gateway Service | Functions + custom router *(shipped router: `src/backend/gateway.ts`)* | LLM provider routing, cost arbitration, fallback | Stateless — **10,000+ concurrent AI requests** |
 | Vector Memory Service | Functions + vector store | Embeddings, semantic search, memory R/W | Index replication, horizontal |
 | Notification Service | Functions + FCM + Twilio | Push, email, SMS, WhatsApp delivery | Queue-based with retry logic |
 | Analytics Pipeline | Cloud Dataflow + BigQuery | Event ingestion, aggregation, warehouse loading | Apache Beam autoscaling |
@@ -236,12 +236,12 @@ request/trigger → MOA planner → task graph
 - **Model router:** task-class table maps to tiers (SLM/mid/frontier), provider
   order, max tokens, cost budget; per-tenant ACU budget enforced pre-call;
   circuit breakers per provider; retry/backoff (shipped pattern in
-  `src/lib/ai/provider.ts`) with cross-provider failover.
+  `src/backend/provider.ts`) with cross-provider failover.
 - **Memory layer:** twin document (versioned) + vector index per tenant +
   conversation summaries. Access via memory API with field ACLs; every read
   recorded in the decision context (replayability).
 - **Prompt/policy registry:** prompts are versioned artefacts (already structured
-  in `src/lib/ai/agents.ts`); deploys of prompts follow the same canary/rollback
+  in `src/shared/agents.ts`); deploys of prompts follow the same canary/rollback
   discipline as code. AI Governance Agent owns drift evals.
 - **Evaluation harness:** golden-set evals per agent (input fixtures → scored
   outputs) run on every prompt/model change; regression blocks rollout.
@@ -269,7 +269,7 @@ Mapping to this document: Orchestration = MOA (§5 runtime), Decision/Reasoning
 = policy check + model router tiers, Memory/Context = the memory layer + twin,
 Knowledge = the knowledge graph (§6), Prediction = prediction services (§6),
 Automation = action adapters + gates, Learning = the nightly grading loop
-(§6). The demo-intelligence fallback shipped in `src/lib/ai/provider.ts` is
+(§6). The demo-intelligence fallback shipped in `src/backend/provider.ts` is
 the Phase-0 embodiment of the Reasoning Engine's simplification fallback.
 
 ## 6. Data intelligence layer
@@ -388,3 +388,19 @@ frontend — only authenticated API calls reach Functions.
 | Scale phase | 10,000–100,000 | **Multi-region Firestore (eur3)**, BigQuery analytics pipeline, Vertex AI endpoints live | £8,000–£25,000 |
 | Enterprise phase | 100,000–500,000 | Cloud Spanner for highest-consistency data, Dataflow streaming pipeline, **dedicated Pinecone clusters per region** | £30,000–£80,000 |
 | Platform phase | 500,000+ | Full microservices migration, multi-cloud strategy, **edge intelligence at CDN layer** | £80,000+ |
+
+## 11. Codebase layering (implemented 2026-07-13 — backend / frontend / shared)
+
+The shipped Next.js codebase is physically separated into three layers with
+runtime enforcement; behaviour and feature surface unchanged (Additive-Only):
+
+| Layer | Path | Contents | Rules |
+|---|---|---|---|
+| **Backend** | `src/backend/` | AI Gateway + provider routing, deterministic audit engine, persistence facade, Firebase Admin, **E2E field-encryption layer** (`crypto.ts`) | Server-only — every module carries a runtime layer guard that throws if it reaches a browser bundle; imported only by `src/app/api/**` and server components; may import shared, never frontend |
+| **Shared** | `src/shared/` | Domain types, validated palette, agent definitions, demo dataset | Pure data/types — no Node APIs, no browser APIs, no secrets; importable by both sides |
+| **Frontend** | `src/frontend/` + `src/components/` | Env-guarded Firebase client SDK, UI component kit; pages in `src/app/**` compose them | Never imports backend — reaches it exclusively through `/api/*`; `NEXT_PUBLIC_*` config only |
+
+Stabilisation gates: `npm run verify` (typecheck + build) and `npm run smoke`
+(`scripts/smoke.mjs` — all 26 page routes, security headers, all 21 agents
+end-to-end, audit + gateway APIs; 53 checks). Global error boundary +
+not-found surfaces ship in `src/app/`.
