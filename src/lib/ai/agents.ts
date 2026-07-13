@@ -670,6 +670,122 @@ ${biz(i)} has a proven winner (7.3x ROAS), £1,240 of dormant revenue in the vau
 ## One Metric That Matters Today
 **WhatsApp response time.** Every thread answered inside 10 minutes converts at ~3x the rate of hour-old replies.`,
   },
+
+  "viral-product-engine": {
+    id: "viral-product-engine",
+    name: "AI Viral Product Engine",
+    role: "Product image → complete campaign",
+    description:
+      "Vision-based engine: from product images (photos, packaging, listings) it builds a full product dossier — 18 attributes plus Visual Quality, Conversion and Trust scores — then one-click creates viral posts, ads, videos, copy, images, sales boosters and market intelligence.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI VIRAL PRODUCT ENGINE (Agent 21). The user describes or uploads
+product images (product photos, lifestyle shots, packaging, logos, Amazon/
+Etsy/Shopify listings). Transform — never merely analyse. Output:
+## Product Dossier (product type, brand, colours, materials, style, audience, price positioning, luxury-vs-budget, benefits, emotional triggers, weaknesses, pain points solved, gift potential, seasonal + viral opportunities, target countries, market trends)
+## Scores (Visual Quality /100, Conversion /100, Trust /100 — one-line reason each)
+## Viral Social Posts (3 strongest platforms from Facebook/Instagram/TikTok/X/LinkedIn/Pinterest/Threads/Snapchat/Reddit — full caption, hook, CTA, hashtags, emojis per platform)
+## Ad Set (best ad format per paid channel with headline + primary text + visual direction)
+## Video Concept (one UGC-style + one cinematic concept, hook-first)
+## Copy Block (product description + one email + one WhatsApp/SMS message)
+## Sales Booster (one upsell/bundle + one scarcity or flash-sale play)
+## Market Intelligence (pricing recommendation, best posting times, suggested budget, predicted ROAS, purchase-intent score)
+## Launch Order (what to publish first, second, third — and why, in £ terms)`,
+    demoOutput: (i) => `## Product Dossier
+**Product:** Signature flame-grilled family platter (hero image analysed) · **Brand:** ${biz(i)} · **Colours:** char-black, flame-orange, emerald accents · **Style:** authentic, hunger-first food photography · **Audience:** families 25–44 + office lunch decision-makers within 3 miles of ${loc(i)} · **Price positioning:** value-premium (£25 feeds 4 — undercuts takeaway aggregators on per-head cost) · **Positioning:** budget-friendly abundance, not luxury · **Benefits:** feeds four, 20-minute doorstep heat, no aggregator fees · **Emotional triggers:** Friday relief, family togetherness, fear of the 40-platter cap · **Weakness:** steam haze softens the hero shot's product edges · **Pain point solved:** "what's for dinner" decision fatigue · **Gift potential:** low — consumable, local · **Seasonal:** match-day bundles, Ramadan iftar platters, Christmas office orders · **Viral opportunity:** platter-assembly speed-run + live counter format · **Target countries:** UK (local radius) · **Trend:** anti-aggregator "order direct" sentiment rising
+
+## Scores
+- **Visual Quality 78/100** — real flames beat stock, but the hero needs a tighter crop and steam control.
+- **Conversion 84/100** — price-per-head story is instantly legible; add the £25 badge to every asset.
+- **Trust 71/100** — no visible reviews in frame; overlay the 4.8★ rating strip.
+
+## Viral Social Posts
+**TikTok** — Hook: "POV: it's Friday in ${loc(i)} and you just fed 4 people for £25 🔥" · Caption: platter speed-run, live counter, "kitchen caps at 40" · CTA: "Tap the link → WhatsApp, say FRIDAY" · #${loc(i).replace(/[^a-zA-Z]/g, "")}food #familydinner #grillfriday
+**Instagram Reels** — Hook: flame close-up + "£6.25 a head. Hot in 20 minutes." · CTA: "Order direct — link in bio" · Story version with countdown sticker to 7pm.
+**Facebook** — Sound-off text-forward cut, price badge permanent, CTA button → wa.me deep link; boost only to 3-mile radius, families 25–44.
+
+## Ad Set
+- **Meta carousel** — "Feed 4 for £25" / card 2: 20-min heat promise / card 3: 4.8★ reviews / CTA: Order on WhatsApp.
+- **Google Performance Max** — headline "Family Platter £25 — ${loc(i)}", asset group fed from this dossier.
+- **TikTok Spark ad** — boost the organic speed-run once it clears 5k views.
+
+## Video Concept
+- **UGC-style:** customer films doorstep handoff → table reveal → kids' reaction; overlay "£25. 20 minutes. Done."
+- **Cinematic:** slow flame licks in macro, platter build in rhythm cuts, counter hits 40, hard cut to black: "Fridays sell out."
+
+## Copy Block
+**Description:** "One platter. Four people. Twenty minutes. ${biz(i)}'s flame-grilled family platter feeds the whole table for £25 — ordered direct on WhatsApp, no app fees, no cold food."
+**Email subject:** "Friday's 40 platters go live at 4pm" — body: counter, price-per-head math, one-tap WhatsApp button.
+**WhatsApp/SMS:** "🔥 FRIDAY PLATTER: £25 feeds 4, hot in 20 min. 40 only — reply PLATTER to lock yours."
+
+## Sales Booster
+- **Bundle:** Platter + 4 drinks + 2 sides = £32 "Full Table" (AOV +28%).
+- **Scarcity:** live "Platter 27/40" counter in every story from 4pm Friday — real cap, real urgency, never fake.
+
+## Market Intelligence
+Price holds at £25 (2.4× food cost — floor-safe) · Post 11:30am + 4–7pm Thu/Fri · Budget: £15/day Meta + £6/day TikTok · **Predicted ROAS 3.8–4.6×** · **Purchase-intent score 81/100** on radius-targeted Friday traffic.
+
+## Launch Order
+1. **TikTok speed-run tonight** (free reach test, zero spend at risk)
+2. **Meta carousel Thursday 4pm** (paid, £15/day, kill if ROAS < 2× by Saturday)
+3. **Email + WhatsApp blast Friday 4pm** (owned list = highest margin £ first)`,
+  },
+
+  "website-intelligence": {
+    id: "website-intelligence",
+    name: "AI Website Marketing Intelligence Engine",
+    role: "Website URL → unified marketing strategy",
+    description:
+      "Deep-crawls any website or store, extracts the full brand and catalogue dossier, scores an AI Marketing Health Score, then generates on-brand campaigns, creatives, funnels, competitor benchmarks and growth opportunities — publish-ready.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI WEBSITE MARKETING INTELLIGENCE ENGINE (Agent 22). The user
+provides a URL (website, store, listing, booking site). Convert the entire
+site into a unified marketing strategy. Output:
+## Site Dossier (products/services, pricing, brand identity — colours/fonts/logo/voice, audience, CTAs, trust signals, reviews, SEO metadata, offers, social links)
+## AI Marketing Health Score (/100 with sub-scores: SEO, speed, UX, accessibility, mobile, conversion, technical, brand consistency, security, performance — top 3 prioritised fixes)
+## Campaign Factory (30-day content plan skeleton + one seasonal campaign + email/SMS/WhatsApp sequence outline)
+## Creative Direction (on-brand: what every asset must carry — colours, type, voice)
+## Funnel Build (the one funnel this business needs first: pages, lead magnet, flow, abandoned-recovery step)
+## Competitor Benchmark (vs 2–3 named/likely competitors: pricing, SEO, messaging, gaps to exploit)
+## Growth Opportunities (top 3 with revenue impact, effort, expected ROI)
+## One-Click Launch Order (what to generate and publish first, tied to £)
+Brand consistency is law: every recommendation locks to the site's own
+logo, colours, typography, tone and messaging.`,
+    demoOutput: (i) => `## Site Dossier
+**${(i.website || "brixtongrillhouse.co.uk")}** — single-location restaurant site · **Catalogue:** 14 menu items, hero product = £25 family platter · **Pricing:** visible, no per-head math shown · **Brand:** char-black/flame-orange/emerald, Space-Grotesk-style display font, voice = confident-local · **Audience signals:** family imagery, office catering page · **CTAs:** "Order Now" (3 places, all route to phone) · **Trust:** 4.8★ Google embedded, no press strip · **SEO:** title tags present, no schema markup, blog dormant since March · **Offers:** free delivery over £20 buried in footer · **Social:** IG + Facebook linked, TikTok missing
+
+## AI Marketing Health Score — 63/100
+SEO 58 · Speed 71 · UX 74 · Accessibility 62 · Mobile 79 · **Conversion 51** · Technical 68 · Brand consistency 82 · Security 77 · Performance 70
+**Priority fixes:**
+1. **CTAs route to phone only** — add WhatsApp deep link + order form (conversion +30–50% on mobile evening traffic).
+2. **No LocalBusiness/Menu schema** — free local-pack visibility being left on the table.
+3. **Free-delivery offer invisible** — move to a site-wide banner; it's the best converting line on the site.
+
+## Campaign Factory
+**30-day plan:** 3 posts/week — Mon menu hero, Thu platter countdown, Sat behind-the-grill; every post CTA → WhatsApp. **Seasonal:** "Match-Day Platter" for the football calendar. **Sequences:** email (Fri 4pm counter), SMS (Fri 5:30pm last-call), WhatsApp broadcast (opt-ins only, consent-checked).
+
+## Creative Direction
+Every asset: char-black base, flame-orange price badge, emerald CTA button, display font for numbers, voice = "confident local, zero corporate" — pulled from the live site, enforced at generation.
+
+## Funnel Build
+**The Friday Platter funnel:** IG/TikTok → one-scroll landing page (hero video, £25 badge, live counter, WhatsApp CTA) → wa.me pre-filled thread → order → post-order upsell (£7 dessert add-on) → **abandoned recovery:** 90-second WhatsApp nudge if thread opened but no order.
+
+## Competitor Benchmark
+- **Flame Republic (0.8mi):** £15 meal deal, weaker reviews (2.9★ late delivery) — exploit with the 20-minute promise.
+- **Aggregator listings:** 30% fees priced in — "order direct, same food, £4 cheaper" message wins.
+- **Gap:** nobody in ${loc(i)} owns office catering on LinkedIn — open lane.
+
+## Growth Opportunities
+1. **Office catering push** (LinkedIn + landing page) — revenue impact ~£2,400/mo · effort: low · ROI ~6× in 60 days.
+2. **Subscription "Friday Club"** (£89/mo, 4 platters) — locks recurring revenue · effort: medium · ROI 4× + churn-resistant base.
+3. **TikTok channel launch** (missing entirely) — reach engine at £0 media cost · effort: low · compounding.
+
+## One-Click Launch Order
+1. Fix the WhatsApp CTA + banner (site-side, unlocks everything downstream)
+2. Generate the Friday funnel landing page (on-brand, from this dossier)
+3. Launch the 30-day content plan with week 1 scheduled tonight`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);

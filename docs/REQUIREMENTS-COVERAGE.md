@@ -728,6 +728,24 @@ Source: developer-ready VEED feature extraction supplied 2026-07-09 (chat), spec
 | 14-route structure (/video/create → /video/marketplace) + 21 core actions (generateVideoFromPrompt → deductACUs) | VEED v2 dev structure | 📘 | `ai-os/09` §6 |
 | Positioning: VEED + Canva + CapCut + HeyGen + strategist + campaign manager + compliance officer + sales engine | VEED v2 | 📘 | `ai-os/09` v2 header |
 
+## 16c. AI Viral Product Engine & Website Intelligence Engine (owner extraction 2026-07-13)
+
+Verbatim source: `docs/reference/viral-product-and-website-engines-extraction.md`.
+Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md`.
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **M-32 AI Viral Product Engine (Agent 21)** — image(s) → dossier → campaign | Extraction F1 | ✅ core / 📘 pipeline | `viral-product-engine` agent + `/dashboard/product-engine`; vision upload (1–100 images, Cloud Tasks fan-out) 📘 P1 |
+| Vision analysis contract: 18 attributes + Visual Quality / Conversion / Trust scores | F1 analysis | ✅ (agent output contract) | agent systemPrompt + `ai-os/10` §A.1 |
+| Seven studios: Viral Social Posts (9 platforms) · Ad Creator · Video Creator · Copy Studio · Image Studio · Sales Booster · Market Intelligence (incl. predicted ROAS, purchase-intent score) | F1 one-click creates | ✅ conversational / 📘 asset rendering | `/dashboard/product-engine` grid + agent; image/video rendering via M-31 pipeline (P1/P2) |
+| One-click publish to connected channels or export | F1 publish | 📘 | connector phase (doc 05); compliance gate + watermark contract in `ai-os/10` §A.2 |
+| **M-33 AI Website Marketing Intelligence Engine (Agent 22)** — URL → unified strategy | Extraction F2 | ✅ core / 📘 crawler | `website-intelligence` agent + `/dashboard/website-intel`; Cloud Run deep-crawl service 📘 P1 |
+| Deep-crawl extraction contract (21 elements: products → social links) | F2 crawl | 📘 (contract adopted) | `ai-os/10` §B.1 |
+| Website Health Audit — 10 dimensions → AI Marketing Health Score + prioritised fixes | F2 audit | ✅ (agent output contract) | agent systemPrompt + `ai-os/10` §B.2; composes with shipped Failure Audit |
+| Six suites: Campaign Factory · Creative Generator · Funnel Builder · Competitor Intelligence · Growth Opportunities (revenue/effort/ROI) · Brand Consistency Engine | F2 suites | ✅ conversational / 📘 rendering | `/dashboard/website-intel` grid + agent |
+| One-click marketing launch (14 output classes from image or URL) | F2 launch | 📘 | `ai-os/10` §B.3; publishing via connectors |
+| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/lib/ai/agents.ts` (21 agents total); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
+
 ---
 
 ## 17. Owner rulings log

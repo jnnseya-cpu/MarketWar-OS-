@@ -82,3 +82,11 @@ The full platform, captured from the running production build. Click any image t
 
 ### Admin Super Control Centre — platform economics
 ![Admin Centre](23-admin-centre.png)
+
+## Campaign engines
+
+### AI Viral Product Engine — image → complete campaign
+![AI Viral Product Engine](24-viral-product-engine.png)
+
+### AI Website Marketing Intelligence Engine — URL → full strategy
+![AI Website Intelligence](25-website-intelligence.png)
