@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "verify": "npm run typecheck && npm run build"
+    "verify": "npm run check:layers && npm run typecheck && npm run build",
+    "check:layers": "node scripts/check-layers.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
