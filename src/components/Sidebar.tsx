@@ -13,6 +13,7 @@ import {
   Gauge,
   Globe,
   LayoutDashboard,
+  Mail,
   MapPin,
   MessageCircle,
   PiggyBank,
@@ -54,6 +55,7 @@ const NAV = [
     group: "Conversion",
     items: [
       { href: "/dashboard/whatsapp", label: "WhatsApp Center", icon: MessageCircle },
+      { href: "/dashboard/email", label: "Email Center", icon: Mail },
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
       { href: "/dashboard/recovery", label: "Lead Recovery", icon: RefreshCcw },
     ],

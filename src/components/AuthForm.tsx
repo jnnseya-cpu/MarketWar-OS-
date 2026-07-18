@@ -94,7 +94,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           <p className="mb-6 text-center text-sm text-slate-400">
             {mode === "login"
               ? "Your command centre is waiting."
-              : "19 AI agents, one operating system — live in minutes."}
+              : "22 AI agents, one operating system — live in minutes."}
           </p>
 
           {firebaseConfigured ? (

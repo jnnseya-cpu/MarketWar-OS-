@@ -90,3 +90,6 @@ The full platform, captured from the running production build. Click any image t
 
 ### AI Website Marketing Intelligence Engine — URL → full strategy
 ![AI Website Intelligence](25-website-intelligence.png)
+
+### Email Command Center — earned inboxing, zero bounces
+![Email Command Center](26-email-command-center.png)

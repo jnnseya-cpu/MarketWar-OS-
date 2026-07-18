@@ -821,6 +821,59 @@ SEO 58 · Speed 71 · UX 74 · Accessibility 62 · Mobile 79 · **Conversion 51*
 2. Generate the Friday funnel landing page (on-brand, from this dossier)
 3. Launch the 30-day content plan with week 1 scheduled tonight`,
   },
+
+  "email-commander": {
+    id: "email-commander",
+    name: "AI Email Deliverability Commander",
+    role: "Massive-scale inbox placement, zero-bounce sending",
+    description:
+      "Commands the M-34 transactional email engine: audits sending posture, runs the address-hygiene pipeline, plans domain/IP warm-up, predicts spam-filter risk per campaign and enforces the zero-bounce doctrine — bad addresses are filtered before send, hard failures are never re-sent.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI EMAIL DELIVERABILITY COMMANDER (Agent 23) of the M-34
+transactional email engine. Doctrine — state it when relevant, never
+promise around it: inbox placement is EARNED through authentication
+(SPF/DKIM/DMARC), warmed sending reputation, consent-checked recipients
+and list hygiene. Never advise evading spam filters for unsolicited mail;
+consent is enforced in the send path and is what keeps inboxing high.
+Bounces are prevented pre-send (hygiene pipeline) and never repeated
+(suppression ledger). Output:
+## Sending Posture Audit (domain auth status: SPF/DKIM/DMARC/BIMI, dedicated vs shared IP verdict, current reputation risks)
+## List Hygiene Report (of the described list: est. invalid/disposable/role/dormant split, what gets filtered pre-send, projected bounce rate after filtering — target < 0.5%)
+## Warm-up Plan (day-by-day volume ramp for the domain/IP: conservative schedule to the target daily volume, engagement-first ordering)
+## Spam-Risk Scan (subject/content triggers to fix, text:image balance, link hygiene, unsubscribe compliance — one-click unsub header)
+## Send Plan (segmentation by engagement recency, send-time optimisation, per-domain throttles for Gmail/Outlook/Yahoo, daily volume path to the target)
+## Zero-Bounce Enforcement (what enters the suppression ledger and why it never gets re-sent; sunset policy for chronic non-openers)
+## KPIs (delivery ≥ 99%, bounce < 0.5%, complaint < 0.1%, inbox-placement seed-test cadence)`,
+    demoOutput: (i) => `## Sending Posture Audit
+**${biz(i)}** sending domain: \`notifications.${(i.website || "brixtongrillhouse.co.uk").replace(/^www\./, "")}\` (subdomain isolation — root domain reputation protected). **SPF** ✅ configure include for the provider pool · **DKIM** ✅ 2048-bit keys per provider · **DMARC** ⚠ start at p=none with rua reports, move to p=quarantine at day 30 · **BIMI** 📘 after DMARC enforcement (logo in Gmail/Yahoo inboxes). **IP:** shared warm pool now; dedicated IP only above ~50k emails/month — below that, a well-run shared pool inboxes better.
+
+## List Hygiene Report
+Described list (~1,240 contacts imported from the vault):
+- **Projected filter-out: ~9%** — 3% invalid syntax/dead domains (would hard-bounce), 2% disposable (spam-trap risk), 2% role addresses (info@/sales@ — excluded from marketing by default), 2% already-suppressed or unsubscribed.
+- **Sendable core: ~1,128 consent-verified contacts.** Projected bounce rate after filtering: **0.3%** (target < 0.5% — Gmail/Yahoo bulk-sender threshold is 2%; we operate at 6× safety margin).
+
+## Warm-up Plan
+Day 1–3: 50/day to the most-engaged decile (openers < 30 days) · Day 4–7: 150/day, add next decile · Week 2: 400/day · Week 3: 900/day · Week 4: full list cadence. Any complaint spike > 0.1% pauses the ramp automatically. Engaged-first ordering trains Gmail's classifier that recipients want this mail — that is the real "never land in spam" mechanism.
+
+## Spam-Risk Scan
+- Subject "🔥 FRIDAY PLATTER — 40 only" scores **low-risk** (emoji fine at this engagement level; no ALL-CAPS beyond the offer name, no "free!!!", no deceptive urgency).
+- Keep text:image above 60:40; the platter photo needs alt text.
+- All links on the sending domain (no shorteners — they're a filter trigger).
+- **One-click unsubscribe header (RFC 8058) mandatory** — required by Gmail/Yahoo for bulk senders and it *reduces* spam reports by giving an exit that isn't the spam button.
+
+## Send Plan
+- Segments: A openers<30d (send first), B 30–90d, C 90d+ (sunset candidates — win-back once, then suppress).
+- Send-time optimisation: Thu/Fri 16:00–17:30 local for the Friday offer; per-recipient last-open time at P1.
+- Per-domain throttles: Gmail ≤ 500/hr initially, Outlook ≤ 300/hr, ramping with reputation. The pool spreads volume so no receiving domain sees a burst.
+- Daily volume path: warm-up ramp above → sustained capacity scales with the provider pool (horizontally unlimited); reputation, not infrastructure, is the governor and the ramp protects it.
+
+## Zero-Bounce Enforcement
+Hard bounce → suppression ledger, permanent, never re-sent. Complaint → suppressed + segment review. Soft bounce ×3 → 30-day cooldown then one retry, else suppressed. Chronic non-opener (12 sends, 0 opens) → sunset flow → suppressed. **The engine physically cannot re-send to a suppressed address — the filter runs before the provider is ever called.**
+
+## KPIs
+Delivery ≥ 99% · bounce < 0.5% · complaints < 0.1% · open proxy > 35% on segment A · seed-list inbox-placement test weekly (Gmail/Outlook/Yahoo/Apple) · suppression-ledger growth reviewed monthly.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);

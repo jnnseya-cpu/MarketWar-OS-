@@ -24,6 +24,7 @@ const PAGES = [
   "/dashboard/video",
   "/dashboard/landing-pages",
   "/dashboard/whatsapp",
+  "/dashboard/email",
   "/dashboard/customers",
   "/dashboard/recovery",
   "/dashboard/revenue",
@@ -74,7 +75,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 21) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 22) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -90,6 +91,32 @@ for (const id of agentIds) {
   } catch (e) {
     bad(`agent ${id}`, e.message);
   }
+}
+
+console.log("\nEmail engine API:");
+try {
+  const res = await fetch(BASE + "/api/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "validate", emails: ["good@gmail.com", "bad@@x", "promo@mailinator.com", "info@corp.co.uk"] }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.sendableCount === 1 && body.filteredCount === 3) ok("POST /api/email validate (hygiene pipeline)");
+  else bad("POST /api/email validate", `HTTP ${res.status}, sendable ${body.sendableCount}, filtered ${body.filteredCount}`);
+} catch (e) {
+  bad("POST /api/email validate", e.message);
+}
+try {
+  const res = await fetch(BASE + "/api/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "send", to: "smoke-test@gmail.com", subject: "Smoke", html: "<p>ok</p>" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.ok) ok(`POST /api/email send (mode: ${body.mode})`);
+  else bad("POST /api/email send", `HTTP ${res.status}`);
+} catch (e) {
+  bad("POST /api/email send", e.message);
 }
 
 console.log("\nAudit + gateway APIs:");
