@@ -209,9 +209,9 @@ export default function LandingPage() {
       {/* ============================== HERO ============================= */}
       <section className="relative pt-36 sm:pt-44">
         <div className="grid-bg pointer-events-none absolute inset-0" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,rgba(16,185,129,0.16),transparent_70%)]" />
-        <div className="pointer-events-none absolute right-[-10%] top-40 h-96 w-96 rounded-full bg-sky-500/10 blur-[120px]" />
-        <div className="pointer-events-none absolute left-[-10%] top-80 h-96 w-96 rounded-full bg-violet-500/10 blur-[120px]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[760px] bg-[radial-gradient(ellipse_55%_50%_at_50%_-5%,rgba(16,185,129,0.20),transparent_68%)]" />
+        <div className="pointer-events-none absolute right-[-12%] top-52 h-[26rem] w-[26rem] rounded-full bg-emerald-500/[0.07] blur-[140px]" />
+        <div className="pointer-events-none absolute left-[-12%] top-96 h-80 w-80 rounded-full bg-emerald-400/[0.05] blur-[130px]" />
 
         <div className="relative mx-auto max-w-6xl px-5 text-center">
           <div className="animate-fade-up mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300">

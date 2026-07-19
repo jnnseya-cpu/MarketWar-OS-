@@ -5,10 +5,10 @@ import Sidebar from "@/components/Sidebar";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-ink-950">
+    <div className="min-h-screen">
       <Sidebar />
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-ink-700/60 bg-ink-950/90 px-5 py-3 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.07] bg-ink-950/70 px-5 py-3 backdrop-blur-xl lg:hidden">
           <Link href="/" className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-ink-950">
               <Shield className="h-4 w-4" />
