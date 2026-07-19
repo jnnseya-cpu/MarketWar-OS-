@@ -97,7 +97,7 @@ the landing-page sub-agents 4.6–4.14 and Agent 12 are backlog.
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| 4.1 Business Diagnosis Agent (13 inputs, 8 scores, "Why You Are Not Getting Customers" report) | Part 11 L6496–6515; Part 14 L14558–14594; inv-6, inv-8 | ✅ partial | `src/shared/agents.ts` (`business-diagnosis`) + `src/backend/audit.ts` (6-score deterministic engine; 8-score set 📦) |
+| 4.1 Business Diagnosis Agent (13 inputs, 8 scores, "Why You Are Not Getting Customers" report) | Part 11 L6496–6515; Part 14 L14558–14594; inv-6, inv-8 | ✅ | `src/shared/agents.ts` (`business-diagnosis`) + `src/backend/audit.ts` — **9-score deterministic engine** (conversionRisk, offerWeakness, audienceMismatch, landingPage, trust, adCreative, followUpReadiness, revenueLeakage, campaignReadiness), meeting/exceeding the 8-score spec |
 | 4.2 Customer Pain Agent (trigger map, objection map, persuasion angle, CTA/LP/WhatsApp direction) | Part 11 L6518–6539; Part 14 L14596–14616 | ✅ | `src/shared/agents.ts` (`customer-pain`) |
 | 4.3 Offer Builder Agent (14 offer types, 7 offer scores) | Part 11 L6542–6562; Part 14 L14618–14643 | ✅ partial | `src/shared/agents.ts` (`offer-builder`) + `src/app/dashboard/offers/`; full 14-type/7-score matrix 📦 |
 | 4.4 Campaign Commander Agent (11 outputs, 11 campaign modes) | Part 11 L6565–6587; Part 14 L14645–14671 | ✅ partial | `src/shared/agents.ts` (`campaign-commander`) + `src/app/dashboard/campaigns/` |
@@ -209,7 +209,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
 | MODULE 1 Business Onboarding Intelligence (17 inputs → 7 AI outputs incl. campaign readiness score) | Part 13 L13433–13461; inv-8 | ✅ partial | `src/app/onboarding/` (4-step onboarding); full 17-field intake 📦 |
-| MODULE 2 AI Marketing Failure Audit (13 audit areas, 8 scores, report) | Part 13 L13463–13498 | ✅ partial | `src/backend/audit.ts` + `src/app/dashboard/audit/` (6 scores implemented; 8-score set 📦) |
+| MODULE 2 AI Marketing Failure Audit (13 audit areas, 8 scores, report) | Part 13 L13463–13498 | ✅ | `src/backend/audit.ts` + `src/app/dashboard/audit/` — **9 scores implemented** (meets/exceeds the 8-score spec; §15 #7 resolved) |
 | MODULE 3 Business Brain (18 stored attributes, 7 AI uses) | Part 13 L13500–13529 | 📘 | `docs/ai-os/04-platform-modules.md`; `docs/ai-os/06-architecture.md` (data intelligence) |
 | MODULE 4 Customer Intelligence Vault (14 data sources, 28 customer fields, 11 AI segments) | Part 13 L13531–13589 | ✅ partial | `src/app/dashboard/customers/` (customer vault UI, demo data); import + field schema 📦 |
 | MODULE 5 AI Customer Resurrection Engine (10-step process, Revenue Recovery Score™, 9 campaign types) | Part 13 L13591–13618 | 📦 | see §7; recovery UI ✅ partial `src/app/dashboard/recovery/` |
@@ -629,7 +629,7 @@ current code; all must be settled before the corresponding backlog items are pro
 | 4 | **Prototype billing tiers £25/£99/£499 and strategy-doc tiers £9/£29/£99/£299, £19/£79/£199/£499 never reconciled with the master £5–£99 ladder** | Part 12 L8572–8601, L11417–11423, L11684–11722 | Scope them: £19–£499 sets belong to *separate add-on products* (Contact Agent, Growth Partner). The core OS keeps the Free/£5/£15/£39/£99 ladder; add-on products price independently. Flag any UI copy citing £25/£49 Starter as stale. |
 | 5 | **Landing-page score sets: A = Clarity/Trust/Urgency/Emotional/Mobile/Speed/Conversion-Probability (7) vs B = Conversion/Clarity/Trust/Urgency/Mobile/Emotional/Friction/Lead-Quality (8)** | Part 13 L13849–13855 vs Part 14 L14924–14941 | Adopt Version B's 8-score set (it is the deep landing-page spec and includes definitions); keep Speed as a sub-signal of Mobile/Friction rather than a headline score. |
 | 6 | **Campaign scoring: AI Campaign Score™ (8 dims) vs AI Campaign Confidence Score™ (7 dims, different set)** | Part 08 L4731–4755 vs Part 10 L5795–5819 | Keep both as distinct products, per the source's own note: Campaign Score™ = pre-build quality matrix; Confidence Score™ = pre-launch outcome prediction. Do not merge dimension lists. |
-| 7 | **Audit score naming: "Follow-Up Readiness Score" (A) vs "Follow-Up Score" (B); 6-score implemented set vs 8-score spec set** | Part 13 L13486 vs Part 14 L14581; `src/backend/audit.ts` | Standardise on "Follow-Up Readiness Score". When upgrading `src/backend/audit.ts` from 6 to 8 scores, add Follow-Up Readiness + Revenue Leakage + Campaign Readiness and map "audience mismatch" → "Audience Match". |
+| 7 | **Audit score naming: "Follow-Up Readiness Score" (A) vs "Follow-Up Score" (B); 6-score implemented set vs 8-score spec set** | Part 13 L13486 vs Part 14 L14581; `src/backend/audit.ts` | **RESOLVED (2026-07-19):** `src/backend/audit.ts` now returns **9 scores** including Follow-Up Readiness, Revenue Leakage and Campaign Readiness — meets/exceeds the 8-score spec. Standardised on "Follow-Up Readiness Score". |
 | 8 | **MVP phasing: 6 phases (Version A, ends with Marketplace) vs 5 phases (Version B, marketplace folded into Phase 5) vs 4-phase independence build order vs doc2's week-based Phase 0–3 roadmap** | Part 13 L14291–14335 vs Part 14 L15457–15495 vs Part 15 L18295–18339 vs doc2 §14 | Use doc2/`docs/ai-os/08` week-based roadmap as the master plan; map Version A Phase 6 (Marketplace) to its final phase. Keep Version A's 6-phase list as the feature checklist, Version B's for landing-page-first ordering. |
 | 9 | **Collection-list deltas: 15 vs 53 (A) vs 55 (B) vs ~37 (dev spec) vs 71 (independence architecture) + 39 Brevo collections; Version B internally inconsistent (4.12 lists 12 landing-page collections but its own §16 core list repeats only 6)** | Part 01 L364; Part 13 L14133–14187; Part 14 L15399–15455 vs L14997–15009; Part 12 L13074–13111; Part 15 L18719–18790, L16873–16912 | Canonicalise on the 71-collection master list (Part 15 L18719–18790), then merge the 4 A-only collections (business_profiles, campaign_experiments, stripe_customers, google_business_posts), the 4 missing landing-page collections from 4.12 (landing_page_ctas, _assets, _pixels, _submissions), the 11 strategy-agent collections, and the non-overlapping Brevo collections. Maintain the merged list in `docs/ai-os/07`. |
 | 10 | **Duplicated sections in the source** — Autonomous Campaign Engine appears twice (Parts 08 & 09, verbatim); 4.7 landing-page section duplicated (L6936–6957 ≈ L6983–7004); Brevo extraction has two passes (L16294–16928 vs L16929–17614); independence architecture has two passes (L17615–18358 vs L18359–18879); 39-collection list and API route blocks each appear twice | inv-5 §duplicate analysis; inv-6 note; inv-9 §3 | Treat Part 08, the second 4.7 copy's implementation notes, Brevo pass 2, and independence pass 2 as canonical. Parts 09 and the first passes remain preserved for provenance only — never spec from them. |
@@ -744,7 +744,7 @@ Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md`.
 | Website Health Audit — 10 dimensions → AI Marketing Health Score + prioritised fixes | F2 audit | ✅ (agent output contract) | agent systemPrompt + `ai-os/10` §B.2; composes with shipped Failure Audit |
 | Six suites: Campaign Factory · Creative Generator · Funnel Builder · Competitor Intelligence · Growth Opportunities (revenue/effort/ROI) · Brand Consistency Engine | F2 suites | ✅ conversational / 📘 rendering | `/dashboard/website-intel` grid + agent |
 | One-click marketing launch (14 output classes from image or URL) | F2 launch | 📘 | `ai-os/10` §B.3; publishing via connectors |
-| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/shared/agents.ts` (21 agents total); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
+| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/shared/agents.ts` (**23 runnable agents total** as of 2026-07-19 — see §17 numbering note); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
 
 ## 16d. VisualStrike AI™ & SiteRaid AI™ v2 upgrade (owner extraction 2026-07-13, second)
 
@@ -805,3 +805,18 @@ sources per the Additive-Only Law.
 | 2026-07-13 | **Layered codebase + stabilisation + E2E encryption**: backend/frontend/shared physical separation with runtime layer guards; stabilisation gates (`npm run verify` + `npm run smoke` — 53 checks: 26 routes, security headers, all 21 agents, audit + gateway APIs; global error boundary + not-found); E2EE = TLS 1.3 + HSTS-preload headers in transit, AES-256-GCM per-business-key field encryption at rest wired into every persistence write (cross-tenant decrypt cryptographically blocked — verified), plaintext-at-model-boundary honestly documented | Behaviour-preserving refactor per Additive-Only Law; implements doc 08 §B.4a field-encryption rule in code | `src/backend/` + `src/shared/` + `src/frontend/` (layer READMEs), `src/backend/crypto.ts`, `next.config.mjs`, `scripts/smoke.mjs`; docs: `docs/ai-os/06` §11, `docs/ai-os/08` §B.3a |
 
 **Gap/conflict addendum (§8.2 design system):** v3.0 spec tokens (navy #1A1A2E, accent #E94560, gold #F5A623, light surface #F4F6F9, Inter-only typography) vs the shipped owner-approved emerald-dark system (Space Grotesk + Inter, validated chart palette). Resolution: shipped system remains primary brand; spec tokens preserved in doc 06 as the specified alternate theme (candidate for admin/partner portals or theme switcher). Owner may re-decide.
+
+**Agent-roster numbering note (2026-07-19 audit):** the shipped `AGENTS` map
+in `src/shared/agents.ts` holds **23 runnable agents**. The numbered lineage
+in agent prompts runs 1–24 because **Agent 20 (Profit Protection & Margin
+Intelligence)** is realised as the AI Gateway cost policy + the Admin margin
+dashboard (`/dashboard/admin`) rather than a standalone conversational key
+(documented in `03a-agent-cards.md`). So: 19 original conversational agents +
+Agents 21, 22, 23, 24 (VisualStrike, SiteRaid, Email Commander, Amplification
+Strategist) = 23 runnable keys; the "Agent 24" label is the lineage number,
+not a 24th key. Smoke gate asserts ≥ 23 (`scripts/smoke.mjs`).
+
+**Trademark-alias index (2026-07-19 audit — features already tracked, aliases added for name-search):**
+- **Creative Payloads™** (`source-notes/11` L727) = the Ad Creative Agent's output — ✅ shipped as `ad-creative` (§1.1 / §1.3 Agent 4.5).
+- **Brand Asset Vault™** (`source-notes/11` L323) = the Brand-Consistent Creative Engine + `brand_assets`/BrandAsset schema (§2.3 row above, 📦).
+- **MarketWar Reputation Shield™** (`source-notes/12` L2417/L2428) = the Trustpilot Trust/Reviews/Reputation Engine pack + TrustScore™ (§9 row above, 📦).

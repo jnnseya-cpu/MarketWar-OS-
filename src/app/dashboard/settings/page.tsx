@@ -1,7 +1,7 @@
 "use client";
 
 // Settings & Security Center (M-27, tenant-facing) — profile, per-capability
-// autonomy dial (L0–L3 per docs/ai-os/02 §2 chassis), security posture
+// autonomy dial (L0–L4 — L4 Revenue Autopilot per docs/ai-os/10 §F), security posture
 // (five-layer auth model, docs/ai-os/08 §B.4a) and API keys. Demo state
 // until Firebase Auth + Firestore preferences land (users.preferences).
 
