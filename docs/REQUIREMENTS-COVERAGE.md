@@ -833,7 +833,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | Portfolio-blog cold-start moat | Dossier summary | 📘 recorded | `docs/ai-os/13` |
 | Africa Theatre Pack (FR/Lingala/Swahili listening + DRC inventory + BitriPay attribution) | Dossier summary | 📘 recorded (ties to doc 08 §C.3 Phase-4 + doc 05 BitriPay) | `docs/ai-os/13` |
 | MW-07 Query Compiler (NL → Boolean listening) | Dossier summary | 📘 characterised; ⏳ full spec pending | `docs/ai-os/13` |
-| **MW-01…MW-13 module bodies** | Dossier (not received) | ⏳ **awaiting full paste** | pending verbatim import |
+| Organic Dominance OS — positioning, 10-step operating loop, 20-surface navigation (Section 1) | Dossier §1–3 | 📘 adopted | `docs/ai-os/13` |
+| Command Centre (23 metrics, "What changed?" briefing, 14 one-click actions); onboarding (18 inputs→17 artefacts); Market Listening (31 sources w/ lawful-access safeguard, Simple/Expert query builder, smart expansion) | Dossier §4–6 | 📘 adopted | `docs/ai-os/13` |
+| Conversation Intelligence (25 attrs/13 emotions/16 intents); Purchase-Intent & Lead Detection (Lead Opportunity Card, consent-safe execution); Search Intelligence + Prompt Universe; Generative Search Visibility (9 platforms, Accuracy Monitor, causal-measurement safeguard) | Dossier §7–10 | 📘 adopted | `docs/ai-os/13` |
+| Technical SEO/GEO/AEO Auditor (Fix mode); Competitor War Room (extends Competitor Spy); Content Opportunity Radar (transparent score); Autonomous Content Factory (26 outputs) | Dossier §11–14 | 📘 adopted | `docs/ai-os/13` |
+| **Content Factory controls continuation + surfaces 8–20 + Sections 2→end (~790 pp)** | Dossier §14b+ | ⏳ **awaiting next sections** | pending verbatim import |
+| **MW-01…MW-13 numbered module bodies** (if mapped) | Dossier | ⏳ **awaiting** | pending |
 | **23-agent LangGraph registry addition** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **ACU-tiered pricing** (to reconcile under ≥2×/100% floor) | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **48-week roadmap** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
