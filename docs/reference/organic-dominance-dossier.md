@@ -1088,3 +1088,15 @@ BABYLOVEGROWTH ── acts, never listens ────►
 - Metrics: **Citation Share of Voice** (tenant vs. named competitors per prompt), first-mention position, sentiment of the mention, source URL attributed, week-over-week citation velocity.
 - **Free public teaser:** "Does ChatGPT recommend your business?" one-shot GEO audit (see MW-09) — the acquisition front-door.
 - Alerts into MW-08 when a competitor displaces the tenant in a high-value prompt.
+
+### MW-03 · Alliance Link Network — THE PORTFOLIO MOAT
+**Extracted from:** BLG A3.4, upgraded with a structural advantage BLG cannot copy
+- **Cold-start solved internally:** Groupe JNN's own portfolio (VERYX, StudYear, BitriPay, Tunakula, Scan & Go, OpenNJob, TradeNerve, 3JN Travel, TicketRoyality, EchoStream, etc. + their blogs) forms the **seed network** — day-one contextual, industry-relevant link inventory across fintech, edtech, food, retail, travel, media verticals.
+- Exchange engine: give/receive ledger, industry matching, contextual in-article placement only, velocity caps + anchor diversity + no-reciprocal-pair rules (**risk-managed above BLG's grey-hat exposure**: prefer 3-way A→B→C exchange graphs, never A↔B).
+- **Africa Publisher Inventory:** actively recruit DRC/francophone-African publishers (news sites, university blogs, business portals) — inventory neither incumbent has, and the backbone of MW-13.
+- Every new MarketWar customer strengthens every existing customer → same compounding defensibility as BLG.
+
+### MW-04 · GEO Recon Agent
+**Extracted from:** BLG A3.5
+- Crawl agent auditing: JSON-LD coverage, llms.txt presence/quality, robots directives for GPTBot/ClaudeBot/PerplexityBot, heading semantics, FAQ schema, sitemap health, Core Web Vitals, hreflang (critical for FR/EN/Lingala multi-locale tenants).
+- Output: prioritised fix list with auto-generated patches (llms.txt generator, schema snippets) — one-click apply via CMS adapter.
