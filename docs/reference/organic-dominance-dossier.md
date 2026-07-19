@@ -1033,3 +1033,58 @@ Brandwatch is the enterprise **consumer-intelligence layer**: "the most intellig
 The two companies are converging on the same battlefield from opposite ends:
 
 <!-- PART C CONTINUES in the next section. -->
+
+```
+BRANDWATCH  ──── listens, never acts ────►
+                                            ◄── THE GAP: one OS that
+                                                LISTENS → DECIDES → EXECUTES → PROVES
+BABYLOVEGROWTH ── acts, never listens ────►
+```
+
+- BLG = **execution without ears** (publishes on autopilot, blind to sentiment, competitors, crises).
+- Brandwatch = **ears without hands** (trillion-conversation awareness, zero execution).
+- Brandwatch's own 2026 GEO roadmap proves the categories are merging.
+
+**MarketWar OS captures the full loop as a governed, multi-agent, ACU-metered war-room** — with two flanks neither can defend: (1) SMB/venture pricing via ACU credits instead of enterprise contracts, and (2) **francophone-Africa data & publisher coverage** (DRC-first: French, Lingala, Swahili; WhatsApp/Facebook-group listening; local publisher backlink inventory) where both incumbents are absent.
+
+### C2. Gap Matrix → Module Assignments
+
+| Capability | BLG | Brandwatch | MarketWar OS Module |
+|---|---|---|---|
+| GEO/AEO content autopilot | ✅ | ❌ | **MW-01 Content Artillery** |
+| LLM citation tracking | ✅ | 🔶 2026 roadmap | **MW-02 LLM Citation Radar** |
+| Network-effect backlinks | ✅ (moat) | ❌ | **MW-03 Alliance Link Network** |
+| Technical GEO audit | ✅ | ❌ | **MW-04 GEO Recon Agent** |
+| Community seeding (Reddit) | ✅ | ❌ | **MW-05 Community Infiltration Engine** |
+| Social listening / sentiment | ❌ | ✅ (moat) | **MW-06 Signals Intelligence (SIGINT) Core** |
+| NL conversational insights (Ask Iris) | ❌ | ✅ | **MW-07 War Room Analyst Agent** |
+| Auto-Boolean / query writing | ❌ | ✅ | inside MW-07 |
+| Narrative AI dashboards + peak detection | ❌ | ✅ | **MW-08 Early Warning & Narrative Engine** |
+| Comment micro-analysis (sentiment×tone×emotion) | ❌ | ✅ | inside MW-06 |
+| Free-tool lead-magnet growth loop | ✅ | ❌ | **MW-09 Magnet Foundry** |
+| Academy / education funnel | ✅ | 🔶 Brandwatch Academy | **MW-10 War College** |
+| Verifiable proof engine | ✅ (Ahrefs/ChatGPT verify links) | 🔶 case studies | **MW-11 Proof Ledger** |
+| First-party data fusion (360°) | ❌ | ✅ | **MW-12 Fusion Layer** |
+| Podcast transcript intelligence | ❌ | ✅ | inside MW-06 |
+| Insight→execution closed loop | 🔶 half | 🔶 half | **MarketWar OS itself** |
+| Francophone-Africa coverage | ❌ | ❌ | **MW-13 Africa Theatre Pack** |
+
+---
+
+## PART D (verbatim) — MODULE SPECIFICATIONS (BUILD-READY)
+
+### MW-01 · Content Artillery (GEO/AEO Autopilot Engine)
+**Extracted from:** BLG A3.1–A3.3
+- **Brand DNA Vault:** per-tenant record of hex palette, voice descriptors, banned phrases, product/offer graph for auto cross-linking. (Reuses VERYX design-system tokenisation pattern.)
+- **Dual-Index Opportunity Miner:** keyword discovery + **prompt discovery** (what users ask ChatGPT/Gemini in the niche) → unified opportunity queue scored by intent × winnability.
+- **Article Assembler pipeline (LangGraph):** Research → Outline → Draft → Statistics/Citation Injector → Internal-Link Weaver → Image/Infographic Generator → JSON-LD & Meta Compiler → **Quality Gate (0–100 Article Score, publish threshold ≥85)** → CMS Publisher.
+- **30-Day Campaign Planner:** replans monthly from live ranking + citation telemetry (compounding prioritisation).
+- **Publisher adapters:** WordPress, Webflow, Shopify, headless API; French-first parity for DRC tenants.
+- **ACU billing:** article generation = heavy inference → billed at 3x multiplier per the portfolio ACU law; audits and rescoring at 1x.
+
+### MW-02 · LLM Citation Radar
+**Extracted from:** BLG A3.7 + Brandwatch GEO roadmap
+- Scheduled prompt battery per tenant (50–500 canonical prompts) fired daily at ChatGPT, Claude, Gemini, Perplexity via API/headless harness.
+- Metrics: **Citation Share of Voice** (tenant vs. named competitors per prompt), first-mention position, sentiment of the mention, source URL attributed, week-over-week citation velocity.
+- **Free public teaser:** "Does ChatGPT recommend your business?" one-shot GEO audit (see MW-09) — the acquisition front-door.
+- Alerts into MW-08 when a competitor displaces the tenant in a high-value prompt.
