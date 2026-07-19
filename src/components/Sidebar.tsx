@@ -20,6 +20,7 @@ import {
   Radar,
   RefreshCcw,
   Rocket,
+  Swords,
   ScrollText,
   Settings,
   Share2,
@@ -42,6 +43,7 @@ const NAV = [
   {
     group: "Acquisition",
     items: [
+      { href: "/dashboard/warfare", label: "Campaign Warfare", icon: Swords },
       { href: "/dashboard/war-room", label: "Campaign War Room", icon: Crosshair },
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },

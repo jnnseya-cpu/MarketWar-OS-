@@ -15,6 +15,7 @@ const PAGES = [
   "/dashboard",
   "/dashboard/briefing",
   "/dashboard/audit",
+  "/dashboard/warfare",
   "/dashboard/war-room",
   "/dashboard/campaigns",
   "/dashboard/offers",
@@ -77,7 +78,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 25) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 26) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -164,6 +165,27 @@ try {
   if (res.status === 200 && typeof body.shareOfVoice === "number" && Array.isArray(body.engines)) ok(`POST /api/geo citation (SoV ${body.shareOfVoice}%)`);
   else bad("POST /api/geo citation", `HTTP ${res.status}`);
 } catch (e) { bad("POST /api/geo citation", e.message); }
+
+console.log("\nCampaign Warfare engine API:");
+try {
+  const res = await fetch(BASE + "/api/warfare", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ product: "Restaurant takeaway & catering", audience: "Hungry locals within 3 miles", result: "Get WhatsApp orders", budget: 600, location: "Brixton, London", offer: "Friday platter — 40 only", autonomy: 2 }),
+  });
+  const body = await res.json();
+  const s = body.campaignScore;
+  if (res.status === 200 && s && typeof s.composite === "number" && s.dimensions?.length === 8 && body.payloads?.length === 12 && body.offers?.length >= 3) {
+    ok(`POST /api/warfare designCampaign (score ${s.composite}, ${body.payloads.length} payloads, vertical ${body.vertical})`);
+  } else bad("POST /api/warfare", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/warfare", e.message); }
+try {
+  const res = await fetch(BASE + "/api/warfare", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audience: "x" }),
+  });
+  if (res.status === 400) ok("POST /api/warfare rejects missing product");
+  else bad("POST /api/warfare validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/warfare validation", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

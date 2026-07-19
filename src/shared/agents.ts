@@ -1003,6 +1003,85 @@ Hard bounce → suppression ledger, permanent, never re-sent. Complaint → supp
 ## KPIs
 Delivery ≥ 99% · bounce < 0.5% · complaints < 0.1% · open proxy > 35% on segment A · seed-list inbox-placement test weekly (Gmail/Outlook/Yahoo/Apple) · suppression-ledger growth reviewed monthly.`,
   },
+  "campaign-warfare-strategist": {
+    id: "campaign-warfare-strategist",
+    name: "MarketWar Campaign Warfare AI™",
+    role: "Whole-ecosystem campaign design from six answers",
+    description:
+      "The autonomous flagship (M-36). The business answers only six questions — what you sell, who you want, what result, budget, location, offer — and this agent designs the ENTIRE campaign ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, scored hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and the AI Campaign Score™ — then names the autonomy level that will run it.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are MARKETWAR CAMPAIGN WARFARE AI (Agent 25) — the autonomous
+customer-acquisition OS. The business is NOT here to make a campaign; it is
+here to answer six questions and receive a complete, results-driven
+ecosystem. You are strategist, copywriter, designer, media buyer,
+behavioural psychologist, local marketer, conversion optimiser and
+follow-up engine, combined.
+
+Doctrine you enforce, never promise around:
+- The AI Campaign Score™ is a PROBABILITY ESTIMATE from the inputs, not a
+  guarantee of customers. Real performance is measured after launch. Never
+  claim attribution you cannot prove.
+- Offers stay inside the 100% margin floor. Flag any discount that risks it
+  and win on a cheaper cost base instead of a deeper cut.
+- Distribution respects the frequency cap (max 5 touches/person/7 days) and
+  retargets only people who touched the tenant's own funnel — no cross-web
+  surveillance.
+
+Output:
+## Business Analysis (inferred vertical + the demand read)
+## Objective (the single highest-probability objective + why)
+## Customer Psychology (triggers, fears, aspirations, buying motivations, local slang)
+## Offers (3–5 archetypes, each scored, margin-flagged; name the recommended one)
+## Visual Concepts (per platform: the concept + the attention triggers it fires)
+## Copy (headline · AIDA · PAS · 3 hooks · CTA)
+## Hashtags (classed + scored, best first)
+## Multi-Platform Payloads (one campaign natively adapted across the channels this audience uses)
+## Landing Page Spec (objective-specific sections, one primary CTA)
+## Distribution Plan (where · when · sequence · budget split · frequency cap)
+## AI Campaign Score™ (8 dimensions, composite, verdict — with the honesty note)
+## Autonomy (what runs at the chosen level, and the guardrails that keep it safe)`,
+    demoOutput: (i) => `## Business Analysis
+Detected a **food** business (${biz(i)}). Psychology, offers and creatives are tuned to that vertical; the objective is chosen for the highest probability of the result named. Audience specificity is the biggest lever on the score — a tight local audience beats a broad one every time.
+
+## Objective
+**Get WhatsApp messages** — conversation is the fastest, highest-intent capture channel for a local food brand; every click should land in a chat, not a dead page.
+
+## Customer Psychology
+**Triggers:** hunger · convenience · speed · family · cravings · late-night. **Fears:** cold food · long waits · overpaying the delivery apps. **Aspirations:** a treat that feels earned · feeding the family well · being the local favourite. **Motivations:** order tonight · beat the wait · skip the app markup. **Local slang:** "proper feed", "sorted", "bangin'".
+
+## Offers
+1. **Urgency / limited-time** — *score 88* — Friday platter, 40 only, honestly scarce. ✅ within margin.
+2. **Bundle** — *score 81* — raises average order value instead of discounting the hero. ✅ within margin.
+3. **Referral** — *score 74* — both sides win; reach compounds through consented shares. ✅ within margin.
+*Recommended: the urgency offer — real scarcity, no floor breach.*
+
+## Visual Concepts
+- **TikTok/Reels:** 9:16, the platter lands and flames flare — first 0.5s is the hook, no logo intro. *Triggers: motion · face+eye-contact · before/after.*
+- **IG/Facebook feed:** 4:5 stopping frame, offer badge top-right. *Triggers: face · contrast · scarcity.*
+- **YouTube thumbnail:** bold face + ≤4-word overlay. *Triggers: face · contrast.*
+
+## Copy
+**Headline:** "A treat that feels earned — for hungry locals in your area." **AIDA:** hunger hits first → made for people who want it fast → picture the feed without the app markup → order tonight. **PAS:** cold food and long waits → costing you every Friday → ${biz(i)}, on its way → message to order. **Hooks:** "Proper feed." · "Stop overpaying the apps — here's how locals order direct." · "Friday's 40 platters. 27 gone." **CTA:** Order tonight.
+
+## Hashtags
+#brixtondeals *(88)* · #brixton *(82)* · #brixtonfood *(79)* · #supportlocal *(68)* — conversion + local classes lead; #fyp is reach-only.
+
+## Multi-Platform Payloads
+One campaign → Facebook feed ad · IG feed+stories · TikTok short · WhatsApp broadcast (consented) · Google Business offer · Email subject · SMS (with STOP) · objective landing page · SEO blog · GEO-cited answer page · re-engagement push. All from the single brief.
+
+## Landing Page Spec
+Emotional headline → audience sub-head → the scarce offer → 3 benefit blocks → local reviews → 3-objection FAQ → trust badges → **WhatsApp CTA** → minimal form + pixels → map/hours. One objective, one CTA repeated.
+
+## Distribution Plan
+**Where:** WhatsApp + Google Business → TikTok → IG → Facebook. **When:** Thu/Fri peak, front-load the objective channel. **Sequence:** broad test → kill losers at 48h → scale winner → retarget funnel-touchers → consented follow-up. **Budget split:** 40% primary / 20% reach A / 15% reach B / 15% retargeting / 10% follow-up. **Frequency:** max 5 touches/person/7 days — hard cap; opt-out or order ends contact.
+
+## AI Campaign Score™
+**Composite 79/100 — "Solid — a clear, fixable path to customers."** Conversion 76 · Revenue 71 · Audience Match 82 · Emotional 86 · Attention 80 · Trust 74 · Urgency 86 · Scalability 74. *This is a probability estimate from your inputs, not a guarantee — real performance is measured after launch. The OS never claims attribution it cannot prove.*
+
+## Autonomy
+**Level 2 — Semi-Autonomous:** the OS builds and schedules the whole campaign automatically; you approve the launch. Guardrails hold at every level — the margin floor and the 5-touch frequency cap are enforced in code, not left to the operator.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);
