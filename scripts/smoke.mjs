@@ -31,6 +31,7 @@ const PAGES = [
   "/dashboard/whatsapp",
   "/dashboard/email",
   "/dashboard/customers",
+  "/dashboard/segments",
   "/dashboard/recovery",
   "/dashboard/amplify",
   "/dashboard/roi",
@@ -83,7 +84,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 32) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 33) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -219,6 +220,19 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nAI Audience Segmentation Engine:");
+try {
+  const res = await fetch(BASE + "/api/segments", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  const hasPriority = Array.isArray(body.segments) && body.segments.every((s) => typeof s.campaignPriority === "number" && s.consentedSize <= s.size);
+  if (res.status === 200 && body.segments.length >= 3 && hasPriority && body.consentedShare > 0) {
+    ok(`POST /api/segments (${body.segments.length} segments, ${Math.round(body.consentedShare * 100)}% consented, top: ${body.segments[0].key})`);
+  } else bad("POST /api/segments", `HTTP ${res.status}, segments ${body.segments?.length}`);
+} catch (e) { bad("POST /api/segments", e.message); }
 
 console.log("\nAI Marketing ROI Engine:");
 try {

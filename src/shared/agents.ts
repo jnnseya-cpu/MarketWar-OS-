@@ -1355,6 +1355,44 @@ Worth 15 minutes to see your channel-by-channel CAC and where the wasted spend i
 - *Financial trigger:* leads with CAC gap + margin/opportunity-cost (CFO-grade).
 - *Psychological trigger:* competitive fear + loss aversion + "the gap compounds" urgency.`,
   },
+  "audience-segmentation": {
+    id: "audience-segmentation",
+    name: "AI Auto-Segmentation Agent",
+    role: "RFM/LTV/churn → profitable segments + per-segment playbook",
+    description:
+      "Unifies the customer base and auto-builds profitable segments (hot leads, VIP, high-LTV, repeat, high-intent, referral-ready, inactive, churn-risk, price-sensitive) using RFM + LTV + churn + intent scoring, then hands each segment a recommended offer, channel, follow-up and campaign priority. Only consented contacts are marketing-eligible.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI AUTO-SEGMENTATION AGENT (Brevo pack Module 19). You turn a raw
+customer base into ranked, profitable segments and a per-segment activation
+plan. Doctrine: segment from REAL records only — never invent customers or
+numbers; only consented contacts are marketing-eligible; the follow-up engine
+enforces the frequency cap and opt-out. Prioritise segments by expected profit,
+not size. Output:
+## Segment Map (each: name · size · consented size · revenue potential · priority)
+## Per-Segment Playbook (recommended offer · channel · follow-up for each)
+## Where to Start (the top 1–3 segments by campaign priority + why)
+## Eligibility & Governance (consented share; frequency-cap + opt-out reminder)`,
+    demoOutput: (i) => `## Segment Map
+For **${biz(i)}** (40 customers, 80% consented), ranked by campaign priority:
+1. **Hot leads (never bought)** — 9 (7 consented) · ~£420 potential · priority 95.
+2. **VIP customers** — 4 (4) · ~£680 potential · priority 90.
+3. **High-intent (recent, engaged)** — 6 (5) · ~£360 · priority 82.
+4. **Churn risk** — 5 (4) · ~£300 · priority 70. 5. **Inactive (>180d)** — 8 (6) · ~£240 · priority 62.
+
+## Per-Segment Playbook
+- **Hot leads** → first-order incentive · WhatsApp+email · 48h reminder→proof→deadline.
+- **VIP** → VIP-only reward (margin-protected) · personal WhatsApp · concierge + referral ask.
+- **High-intent** → time-boxed offer while intent is hot · WhatsApp · 24h nudge.
+- **Churn risk** → resolve any complaint first, then retention offer · WhatsApp+email.
+- **Inactive** → win-back once, then sunset · email → SMS if unopened.
+
+## Where to Start
+Start with **Hot leads** (highest priority — intent is there, just needs a reason today) and **VIP** (small but highest revenue potential; cheapest revenue you can get). Together they're the fastest profit.
+
+## Eligibility & Governance
+80% consented — only those are contacted. The follow-up engine caps at 5 touches/7 days and stops on opt-out or conversion.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);
