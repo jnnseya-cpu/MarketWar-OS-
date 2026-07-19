@@ -1009,3 +1009,27 @@ Brandwatch is the enterprise **consumer-intelligence layer**: "the most intellig
 - **Iris Content Insights:** analyses latest 50 comments per post, clustered by **Sentiment × Tone of Voice × Style × Emotion**, plus comment word clouds.
 - **AI influencer summaries, content translations, AI-powered industry benchmarks.**
 - **2026 roadmap:** Google Gemini analysis engine; **GEO measurement** — Brandwatch is moving INTO BabyLoveGrowth's territory (measuring how brands appear in ChatGPT/Perplexity), confirming GEO as the convergence point of both categories.
+
+### B4. Value Proofs
+- Land O'Lakes: replaced an **$85k/yr agency** with in-house self-serve listening.
+- Social Panels + attribution: DiGiorno/Hot Pockets exposed audiences showed **+9.3% / +25.3% higher purchase value** — listening tied to revenue.
+- Monzo, The Body Shop, Ford: insight distribution across whole organisations.
+
+### B5. Brandwatch Weaknesses & Exposed Flanks
+
+1. **Price wall:** $800+/mo entry, enterprise contracts — SMBs and African-market operators locked out.
+2. **Analyst dependency:** value requires skilled operators ("budget assumes analysts who speak Boolean"); without them it's "an expensive data warehouse."
+3. **Insight ≠ execution:** Brandwatch tells you *what's happening*; it doesn't write, publish, build links, or act. The loop ends at a dashboard.
+4. **Platform API dependency:** X/Meta rule changes are an existential data-access risk.
+5. **AI-slop contamination:** growing synthetic noise threatens signal quality.
+6. **Weak African/francophone-African coverage:** listening depth in DRC-relevant channels (WhatsApp communities, Facebook groups, local radio/press, Lingala/Swahili content) is effectively zero.
+
+---
+
+## PART C (verbatim) — THE STRATEGIC SYNTHESIS
+
+### C1. The Convergence Insight (the MarketWar thesis)
+
+The two companies are converging on the same battlefield from opposite ends:
+
+<!-- PART C CONTINUES in the next section. -->
