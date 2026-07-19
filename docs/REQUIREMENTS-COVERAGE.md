@@ -837,8 +837,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | Command Centre (23 metrics, "What changed?" briefing, 14 one-click actions); onboarding (18 inputs→17 artefacts); Market Listening (31 sources w/ lawful-access safeguard, Simple/Expert query builder, smart expansion) | Dossier §4–6 | 📘 adopted | `docs/ai-os/13` |
 | Conversation Intelligence (25 attrs/13 emotions/16 intents); Purchase-Intent & Lead Detection (Lead Opportunity Card, consent-safe execution); Search Intelligence + Prompt Universe; Generative Search Visibility (9 platforms, Accuracy Monitor, causal-measurement safeguard) | Dossier §7–10 | 📘 adopted | `docs/ai-os/13` |
 | Technical SEO/GEO/AEO Auditor (Fix mode); Competitor War Room (extends Competitor Spy); Content Opportunity Radar (transparent score); Autonomous Content Factory (26 outputs) | Dossier §11–14 | 📘 adopted | `docs/ai-os/13` |
-| **Content Factory controls continuation + surfaces 8–20 + Sections 2→end (~790 pp)** | Dossier §14b+ | ⏳ **awaiting next sections** | pending verbatim import |
-| **MW-01…MW-13 numbered module bodies** (if mapped) | Dossier | ⏳ **awaiting** | pending |
+| Competitive teardowns: BLG (Parts A1–A4: 3-step loop, feature inventory, backlink moat, GTM machine, 6 exposed flanks) + Brandwatch (B1–B5: 1.4T-conversation data asset, Iris AI, 6 flanks) | Dossier Parts A–B | 📘 adopted (positioning intel) | `docs/ai-os/13`; `docs/reference/organic-dominance-dossier.md` |
+| **MW-01…MW-13 module specs** (Content Artillery, LLM Citation Radar, Alliance Link Network/portfolio moat, GEO Recon, Community Infiltration, SIGINT Core, War Room Analyst/Query Compiler, Early Warning, Magnet Foundry, War College, Proof Ledger, Fusion Layer, Africa Theatre Pack) | Dossier Part D | 📘 adopted | `docs/ai-os/13` Part 2 |
+| **23-agent LangGraph registry (A01–A23)** — event-sourced Kafka + CQRS PostgreSQL, per-run ACU metering, BitriPay top-ups | Dossier Part E | 📘 adopted (additive to the shipped roster) | `docs/ai-os/13` Part 2 |
+| **ACU pricing (Recon→Skirmish→Battalion→Command)** — 3× generation / 1× monitoring, reconciled above the ≥2×/100% floor; BitriPay rail | Dossier Part F1 | 📘 adopted | `docs/ai-os/13` Part 2 + doc 08 §A.1a |
+| **48-week / 5-phase roadmap** (Strike→Artillery→Network→Ears→Theatre Africa) | Dossier Part F2 | 📘 adopted | `docs/ai-os/13` Part 2 → doc 08 Part C |
+| First build targets: MW-02 Citation Radar + MW-09 Magnet Foundry (Phase-1 Strike, self-growth-aligned) + MW-07 Query Compiler wedge | Dossier F2 + C | 📦 buildable next | `docs/ai-os/13` Part 2 |
 | **23-agent LangGraph registry addition** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **ACU-tiered pricing** (to reconcile under ≥2×/100% floor) | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **48-week roadmap** | Dossier (not received) | ⏳ **awaiting full paste** | pending |

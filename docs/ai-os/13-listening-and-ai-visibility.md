@@ -116,18 +116,80 @@ Simple→Expert bridge of §6), removing Brandwatch Iris's "analysts-who-speak-
 Boolean" dependency. First buildable module; sibling to SiteRaid's plain-
 input/expert-output pattern.
 
-## PENDING (still to arrive)
+## Dossier status: v1.0 COMPLETE (2026-07-19)
 
-- **Dossier Sections 2 → end** (~790 pages): Content Factory controls
-  continuation, surfaces 8–20 (Authority Engine, Community/Customer Voice/
-  Influencer/Local intelligence, Reputation & Crisis, Conversion Intelligence,
-  Reports & Attribution, Automations, Data Sources, Governance, Cost & ACU).
-- **MW-01 … MW-13** numbered module specs (if the dossier maps its surfaces to
-  that numbering).
-- **23-agent LangGraph registry addition** · **ACU-tiered pricing** (to
-  reconcile under the ≥2×/100% floor, doc 08 §A.1a) · **48-week roadmap**
-  (slots into doc 08 Part C).
+The full 790-page dossier (Parts A–F) is captured verbatim in
+`docs/reference/organic-dominance-dossier.md`. The MW-01…MW-13 module set, the
+23-agent LangGraph registry, ACU pricing and the 48-week roadmap are all
+adopted — see **Part 2** below. (This §Section-1 block above is the first
+adoption pass; Part 2 is the complete module register.)
 
 Build order once the structure settles: **MW-07 Query Compiler** first, then
 the AI-Visibility monitor and Purchase-Intent lead detector (highest-leverage,
 and they dogfood MarketWar's own growth per doc 01 §1.6).
+
+---
+
+## Part 2 — MW-01…MW-13 module register (adopted from dossier Parts C–F, complete)
+
+The dossier's full module set, its 23-agent LangGraph registry, pricing and
+48-week roadmap are now captured verbatim (`docs/reference/organic-dominance-dossier.md`).
+The thesis in one line (dossier C1): **MarketWar OS takes BLG's hands +
+Brandwatch's ears + one LangGraph brain, meters it in ACUs, settles on
+BitriPay, and opens a second front in francophone Africa where neither
+incumbent operates.**
+
+### The 13 modules
+
+| Module | Name | From | Composes with (shipped) |
+|---|---|---|---|
+| MW-01 | Content Artillery (GEO/AEO autopilot: Brand DNA Vault, Dual-Index Miner, LangGraph Article Assembler → **Article Score ≥85 gate** → CMS publish) | BLG A3.1–3.3 | Content Factory, SiteRaid |
+| MW-02 | LLM Citation Radar (50–500 prompt battery → Citation Share-of-Voice across ChatGPT/Claude/Gemini/Perplexity) | BLG A3.7 + BW roadmap | SiteRaid GEO engine |
+| MW-03 | Alliance Link Network — **portfolio moat** (Groupe JNN portfolio seeds the network day-one; 3-way A→B→C exchange graphs, risk-managed above BLG grey-hat) | BLG A3.4 | new |
+| MW-04 | GEO Recon Agent (JSON-LD, llms.txt, GPTBot/ClaudeBot/PerplexityBot directives, CWV, hreflang) | BLG A3.5 | shipped audit engine |
+| MW-05 | Community Infiltration Engine (Reddit + FB Groups + consented WhatsApp/Telegram; human-gated, no astroturfing) | BLG A3.6 | Amplification (M-35) consent model |
+| MW-06 | SIGINT Core — social listening (multi-source ingestion, sentiment × tone × emotion, FR/Lingala/Swahili) | Brandwatch B2–B3 | new (the "ears") |
+| MW-07 | War Room Analyst Agent "Ask MarketWar" (**Query Compiler: NL → Boolean**, cited answers) | Iris AI | SiteRaid plain-input pattern |
+| MW-08 | Early Warning & Narrative Engine (anomaly detection → auto-narrative → info/warning/**war alert** crisis playbook) | Iris peak detection | BVI alerts, M-23a automations |
+| MW-09 | Magnet Foundry (free-tool cluster: GEO audit, llms.txt gen, checkers — the acquisition front door) | BLG A3.9 GTM | **self-growth doctrine, doc 01 §1.6** |
+| MW-10 | War College (100-day academy on the tenant's own data, FR+EN, DRC track) | BLG + BW academies | Knowledge Center M-29 |
+| MW-11 | Proof Ledger (third-party-verified success stories; optional 90-day guarantee) | BLG proof arch | honest-measurement doctrine |
+| MW-12 | Fusion Layer (CRM/GA4/GSC/**BitriPay** attribution — exposed-vs-non-exposed value) | Brandwatch first-party | BitriPay (doc 05) |
+| MW-13 | Africa Theatre Pack — **the uncopyable flank** (FR/Lingala/Swahili NLP, DRC source map + publisher inventory, mobile-money intent, low-bandwidth mode) | original | doc 08 §C.3 Phase-4, BitriPay |
+
+### 23-agent LangGraph registry (dossier Part E)
+
+A01–A23 (OpportunityMiner → LinguaAfrica), event-sourced over Kafka
+(`mw.signals.*` / `mw.content.*` / `mw.network.*` / `mw.alerts.*`), CQRS read
+models in PostgreSQL, per-run ACU metering, BitriPay top-ups. These are the
+Organic Dominance sub-agents; they compose with the platform's existing
+23-agent roster (they extend it, additive — the `A01…A23` namespace is
+distinct from the shipped `agents.ts` keys). Governance agents (A04
+QualityGatekeeper, A08 LinkRiskWarden, A11/A19 human-gated) enforce the
+platform's compliance + consent laws.
+
+### Pricing (dossier F1 — reconciled under the owner floor)
+
+Recon (free wedge) → Skirmish → Battalion (~1/8th Brandwatch entry — the
+"fired the $85k agency" buyer) → Command (enterprise/agency, white-label, DRC
+gov/NGO tier). **Generation billed at the 3× ACU multiplier, monitoring/
+ingestion at 1×** — both sit above the owner's ≥2× / 100% floor (doc 08
+§A.1a); the 3× generation rule aligns with the VisualStrike/SiteRaid 4× and
+video 4× engine rules. BitriPay rail throughout; diaspora credit-gifting
+supported.
+
+### Roadmap (dossier F2 — 48 weeks, 5 phases)
+
+Strike (wks 1–6: MW-02 + MW-09 + MW-04 — fastest wow, pure acquisition) →
+Artillery (7–14: MW-01 + publishers, portfolio blogs as first tenants) →
+Network (15–24: MW-03 + MW-11) → Ears (25–36: MW-06 + MW-07 + MW-08) →
+Theatre Africa (37–48: MW-13 + MW-12, DRC publisher drive, War College FR).
+Slots into doc 08 Part C as the Organic Dominance track.
+
+### First build (self-growth aligned)
+
+Phase-1 Strike is deliberately the acquisition front door — **MW-02 Citation
+Radar + MW-09 Magnet Foundry (free GEO audit)** dogfood MarketWar's own growth
+(doc 01 §1.6) while being the fastest demo. **MW-07 Query Compiler** remains
+the standout wedge (kills Brandwatch's #1 adoption complaint). These are the
+first buildable targets when we move from blueprint to code.
