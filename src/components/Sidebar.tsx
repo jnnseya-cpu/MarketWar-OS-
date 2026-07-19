@@ -20,6 +20,7 @@ import {
   MapPin,
   MessageCircle,
   PiggyBank,
+  Plug,
   Radar,
   RefreshCcw,
   Search,
@@ -96,6 +97,7 @@ const NAV = [
     group: "Account",
     items: [
       { href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet },
+      { href: "/dashboard/integrations", label: "Integration Hub", icon: Plug },
       { href: "/dashboard/settings", label: "Settings & Security", icon: Settings },
       { href: "/dashboard/admin", label: "Admin Centre", icon: Gauge },
     ],

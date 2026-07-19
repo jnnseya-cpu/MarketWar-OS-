@@ -45,6 +45,7 @@ const PAGES = [
   "/dashboard/reputation",
   "/dashboard/local",
   "/dashboard/billing",
+  "/dashboard/integrations",
   "/dashboard/settings",
   "/dashboard/admin",
 ];
@@ -224,6 +225,26 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nIntegration Adapter Layer (independence):");
+try {
+  const res = await fetch(BASE + "/api/integrations");
+  const body = await res.json();
+  // Independence: works with 0 connected; every connector has a manual fallback.
+  const allHaveFallback = body.integrations?.every((i) => Array.isArray(i.manualFallback) && i.manualFallback.length > 0);
+  if (res.status === 200 && body.integrations.length >= 20 && allHaveFallback && body.dependencyClassification?.mustOwnInternally?.length > 0) {
+    ok(`GET /api/integrations (${body.integrations.length} connectors, ${body.connectedCount} connected, all have manual fallback)`);
+  } else bad("GET /api/integrations", `HTTP ${res.status}, fallbacks ${allHaveFallback}`);
+} catch (e) { bad("GET /api/integrations", e.message); }
+try {
+  const res = await fetch(BASE + "/api/integrations", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "manual", provider: "whatsapp_cloud" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.steps) && body.steps.some((s) => /wa\.me/i.test(s))) ok("POST /api/integrations manual (WhatsApp → wa.me fallback)");
+  else bad("POST /api/integrations manual", `steps ${body.steps?.length}`);
+} catch (e) { bad("POST /api/integrations manual", e.message); }
 
 console.log("\n7-Agent Marketing Strategy Chain:");
 try {
