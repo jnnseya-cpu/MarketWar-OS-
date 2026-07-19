@@ -7,6 +7,7 @@ import {
   Activity,
   BadgePercent,
   Clapperboard,
+  Coins,
   Crosshair,
   Factory,
   Flame,
@@ -74,6 +75,7 @@ const NAV = [
   {
     group: "Intelligence",
     items: [
+      { href: "/dashboard/roi", label: "ROI Engine", icon: Coins },
       { href: "/dashboard/revenue", label: "Revenue Intel", icon: Activity },
       { href: "/dashboard/budget", label: "Budget Protection", icon: PiggyBank },
       { href: "/dashboard/competitors", label: "Competitor Spy", icon: Radar },

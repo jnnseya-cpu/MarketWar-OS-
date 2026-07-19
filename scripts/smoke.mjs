@@ -33,6 +33,7 @@ const PAGES = [
   "/dashboard/customers",
   "/dashboard/recovery",
   "/dashboard/amplify",
+  "/dashboard/roi",
   "/dashboard/revenue",
   "/dashboard/budget",
   "/dashboard/competitors",
@@ -82,7 +83,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 30) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 32) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -218,6 +219,29 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nAI Marketing ROI Engine:");
+try {
+  const res = await fetch(BASE + "/api/roi", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "channels", business: "Brixton Grill House", objective: "get orders", budgetGbp: 600, avgOrderValueGbp: 40 }),
+  });
+  const body = await res.json();
+  // Owned channels should be favoured; the cheapest customer + allocation present.
+  if (res.status === 200 && Array.isArray(body.channels) && body.channels.length >= 10 && body.nextCheapestCustomer?.cacGbp > 0 && body.ownedShare >= 0.5) {
+    ok(`POST /api/roi channels (cheapest ${body.nextCheapestCustomer.label} £${body.nextCheapestCustomer.cacGbp}, ${Math.round(body.ownedShare * 100)}% owned)`);
+  } else bad("POST /api/roi channels", `HTTP ${res.status}, ownedShare ${body.ownedShare}`);
+} catch (e) { bad("POST /api/roi channels", e.message); }
+try {
+  const res = await fetch(BASE + "/api/roi", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "readiness", hasOffer: true, offerStrength: 90, hasWebsite: true, hasCreatives: true, hasTargeting: false, hasTracking: false, hasFollowUp: true }),
+  });
+  const body = await res.json();
+  // Missing tracking + targeting must block a clean launch.
+  if (res.status === 200 && body.verdict !== "launch" && body.blockers.length > 0) ok(`POST /api/roi readiness (overall ${body.overall} → ${body.verdict}, ${body.blockers.length} blockers)`);
+  else bad("POST /api/roi readiness", `verdict ${body.verdict}`);
+} catch (e) { bad("POST /api/roi readiness", e.message); }
 
 console.log("\nTrust, Reviews & Reputation Engine:");
 try {

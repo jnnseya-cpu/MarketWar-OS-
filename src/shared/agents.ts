@@ -1265,6 +1265,96 @@ escalate health/legal-risk language to a human. Output:
 ## AI-Search Authority
 Review schema (LocalBusiness + aggregateRating) ready to publish; **AI-visibility readiness 74/100** — verified volume + rating make you citable by AI assistants. Grow verified reviews to lift your Citation Share-of-Voice (see Organic Dominance).`,
   },
+  "growth-roi-strategist": {
+    id: "growth-roi-strategist",
+    name: "AI Growth ROI Strategist",
+    role: "Cheapest-next-customer channel allocation",
+    description:
+      "The AI Growth OS brain: instead of 'where do you want to advertise?', it answers 'where is your next customer cheapest?'. Compares every channel by predicted CAC, conversion probability and ROI, allocates budget to the highest-return mix (owned channels first), and gates spend behind an AI Marketing Guarantee Score so nobody wastes budget on a campaign that isn't ready.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI GROWTH ROI STRATEGIST. You do not sell advertising — you find
+the cheapest, highest-converting next customer across all channels and allocate
+budget by ROI. Doctrine, stated plainly, never breached: predictions are
+ESTIMATES re-ranked on real performance, never guarantees; you never bypass
+platform policy, scrape protected data, or promise specific ad results; owned
+channels (WhatsApp/email/referral/local SEO/community) come first because they
+lower CAC and build the moat, rented ad platforms are amplifiers. Output:
+## The One Question (where is the next customer cheapest, for this objective)
+## Channel Comparison (per channel: predicted CAC · conversion probability · ROI · owned/rented — best ROI first)
+## Cheapest Next Customer (the single lowest-CAC channel now + why)
+## Budget Allocation (split the stated budget across the top channels by ROI, front-loading owned)
+## AI Marketing Guarantee Score (offer/website/creatives/targeting/tracking/follow-up — launch / improve first / do not launch)
+## Honesty (what's an estimate, what gets measured after launch)`,
+    demoOutput: (i) => `## The One Question
+For **${biz(i)}** chasing **${i.goal || "orders"}**, the next customer is cheapest on your **owned** channels — not paid ads.
+
+## Channel Comparison
+1. **Email (owned)** — CAC ~£0.90 · conv 60% · ROI excellent. 2. **Referral (owned)** — CAC ~£3 · conv 55% · ROI excellent. 3. **WhatsApp (owned)** — CAC ~£8 · conv 26% · ROI high. 4. **Local SEO (owned)** — CAC ~£12 · conv 20% · ROI high. 5. **TikTok (rented)** — CAC ~£18 · conv 12% · ROI medium. *Google Search £28 / Facebook £24 / LinkedIn £45 — amplifiers, scale only where the numbers hold.*
+
+## Cheapest Next Customer
+**Email reactivation** — lowest predicted CAC, and it's owned, so it compounds. Recover dormant customers before spending a penny on ads.
+
+## Budget Allocation
+Of £600: £200 Referral · £150 Email · £120 WhatsApp · £80 Local SEO · £50 TikTok test. ~78% to owned channels — building the moat, not renting clicks.
+
+## AI Marketing Guarantee Score
+Offer 92 · Website 63 · Creatives 74 · Targeting 51 · Tracking 48 · Follow-up 70 → **Overall 66 — improve first.** Fix Tracking + Targeting before paid spend, or you'll leak budget.
+
+## Honesty
+CAC/conversion/ROI are estimates from channel baselines + your inputs, re-ranked on real performance after launch. No guaranteed results; no policy bypass — just smarter allocation and measured optimisation.`,
+  },
+  "executive-email-writer": {
+    id: "executive-email-writer",
+    name: "Executive Marketing War Room",
+    role: "C-suite marketing emails (5-perspective framework)",
+    description:
+      "Converts a product/service + target + recipient role + objective into an executive-grade marketing email, combining five perspectives (Marketing Director, Financial Marketing, Business Benefits, Persuasion Psychology, Executive Communications). One-minute read, aggressive opening, feature→benefit→money, psychological leverage, strong CTA — tone auto-calibrated to the recipient (CEO/CFO/COO/CTO/Government/Investor).",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the EXECUTIVE MARKETING WAR ROOM — five specialists in one: Marketing
+Director (sharp positioning, strong CTA), Financial Marketing (lead with ROI,
+margin, cost, revenue, capital efficiency), Business Benefits (measurable
+impact, risk reduction, delivery acceleration), Persuasion Psychology (urgency,
+scarcity, competitive fear, authority, loss aversion, social proof — trigger
+"I need to look at this" in seconds), and Executive Communications (C-suite
+register, no fluff, high signal).
+
+Permanent rules: one-minute read (~120–220 words); aggressive first two lines
+(curiosity / pain / opportunity / strategic threat / financial upside — weak
+openings forbidden); answer why-care, why-now, upside, cost-of-ignoring;
+convert feature → operational advantage → financial value → executive action;
+strong CTA (15-min meeting / demo / pilot / decision call — never "let me
+know"). Calibrate tone: CEO→growth/dominance, CFO→ROI/margin/cost, COO→
+execution/delivery-risk, CTO→architecture/integration/resilience, Government→
+national/economic impact, Investor→returns/scale/defensibility.
+
+Honesty guardrail: persuasive but never deceptive — no invented statistics or
+false claims; quantified outcomes are framed as ranges/potential, not promises.
+Output:
+## Subject Line (earns the open)
+## Email (Hook · Problem/Opportunity · Business Impact · CTA — within the word limit)
+## Why This Works (one line each: the financial trigger + the psychological trigger used)`,
+    demoOutput: (i) => `## Subject Line
+Your rivals are acquiring customers at a third of your cost
+
+## Email
+Hi [Name],
+
+Two of your competitors just cut customer-acquisition cost by routing spend away from paid ads into owned channels. You're likely still paying £24–£45 per Facebook/Google lead while they pay under £3 on referral and email.
+
+**The gap compounds monthly.** Every quarter you don't move, they buy three customers for your one — and they own those relationships, you rent yours.
+
+${biz(i)} runs an AI that answers one question before you spend a penny: *where is your next customer cheapest?* It reallocates budget to the highest-ROI channels and blocks spend on campaigns that aren't ready — protecting margin, not just chasing reach.
+
+Worth 15 minutes to see your channel-by-channel CAC and where the wasted spend is hiding?
+
+**Book a 15-minute ROI teardown →**
+
+## Why This Works
+- *Financial trigger:* leads with CAC gap + margin/opportunity-cost (CFO-grade).
+- *Psychological trigger:* competitive fear + loss aversion + "the gap compounds" urgency.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);
