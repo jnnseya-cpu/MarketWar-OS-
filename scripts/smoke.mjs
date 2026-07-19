@@ -27,6 +27,7 @@ const PAGES = [
   "/dashboard/email",
   "/dashboard/customers",
   "/dashboard/recovery",
+  "/dashboard/amplify",
   "/dashboard/revenue",
   "/dashboard/budget",
   "/dashboard/competitors",
@@ -75,7 +76,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 22) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 23) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -118,6 +119,30 @@ try {
 } catch (e) {
   bad("POST /api/email send", e.message);
 }
+
+console.log("\nAmplification engine API:");
+try {
+  const res = await fetch(BASE + "/api/amplify", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "virality", seedAudience: 1000, shareRate: 0.2, invitesPerSharer: 4, inviteConversion: 0.3, cycles: 5 }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.k === "number" && Array.isArray(body.perCycle)) ok(`POST /api/amplify virality (K=${body.k})`);
+  else bad("POST /api/amplify virality", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/amplify virality", e.message); }
+try {
+  const res = await fetch(BASE + "/api/amplify", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "retarget", subjects: [
+      { id: "a", behaviour: "clicked_no_purchase", consentedChannels: ["whatsapp"], optedOut: false, touchesLast7d: 1, converted: false },
+      { id: "b", behaviour: "abandoned_cart", consentedChannels: ["email"], optedOut: true, touchesLast7d: 0, converted: false },
+      { id: "c", behaviour: "started_form", consentedChannels: ["sms"], optedOut: false, touchesLast7d: 5, converted: false },
+    ] }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.willSend === 1 && body.stopped === 1 && body.held === 1) ok("POST /api/amplify retarget (consent + frequency governance)");
+  else bad("POST /api/amplify retarget", `HTTP ${res.status}, send ${body.willSend}/stop ${body.stopped}/hold ${body.held}`);
+} catch (e) { bad("POST /api/amplify retarget", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

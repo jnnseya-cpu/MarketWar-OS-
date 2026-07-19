@@ -22,6 +22,7 @@ import {
   Rocket,
   ScrollText,
   Settings,
+  Share2,
   Shield,
   Sparkles,
   Stethoscope,
@@ -58,6 +59,7 @@ const NAV = [
       { href: "/dashboard/email", label: "Email Center", icon: Mail },
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
       { href: "/dashboard/recovery", label: "Lead Recovery", icon: RefreshCcw },
+      { href: "/dashboard/amplify", label: "Reach Amplifier", icon: Share2 },
     ],
   },
   {

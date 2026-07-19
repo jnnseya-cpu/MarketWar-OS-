@@ -27,6 +27,7 @@ Operating System (AI-OS)**.
 | 9 | [`ai-os/09-video-war-room.md`](ai-os/09-video-war-room.md) | MarketWar AI Video War Room (M-31): full video creation/editing/captions/dubbing/avatar/repurposing/brand/approval engine + video agent corps |
 | 10 | [`ai-os/10-viral-product-and-website-engines.md`](ai-os/10-viral-product-and-website-engines.md) | AI Viral Product Engine (M-32, Agent 21: image → dossier + 7 studios) & AI Website Marketing Intelligence Engine (M-33, Agent 22: URL → health score + 6 suites) |
 | 11 | [`ai-os/11-email-engine.md`](ai-os/11-email-engine.md) | M-34 AI Transactional Email Engine (Agent 23): multi-provider pool, earned inbox placement, 4-stage hygiene pipeline, zero-bounce doctrine |
+| 12 | [`ai-os/12-amplification-engine.md`](ai-os/12-amplification-engine.md) | M-35 Viral Amplification & Retargeting Engine (Agent 24): earned virality (honest viral coefficient), consent-based frequency-capped retargeting |
 
 ## Reading order
 
