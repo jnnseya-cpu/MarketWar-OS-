@@ -980,3 +980,32 @@ The category-defining insight: **AI assistants are the new search results page.*
 4. **No competitive war-gaming:** competitor analysis is a one-shot free tool, not a continuous battlefield map.
 5. **Anglo/EU-centric network:** 4,000-site network is Western; no African publisher inventory, no francophone-Africa density.
 6. **SMB ceiling:** no enterprise governance, roles, audit trails, or compliance framing.
+
+---
+
+## PART B (verbatim) — DEEP TEARDOWN: BRANDWATCH (CISION)
+
+### B1. Positioning & Core Thesis
+
+Brandwatch is the enterprise **consumer-intelligence layer**: "the most intelligent social listening," trusted by half the Forbes 100. Suite spans Consumer Research (listening), Social Media Management (ex-Falcon), and Influence (influencer marketing), under Cision alongside PR Newswire.
+
+### B2. The Data Asset (the real product)
+
+| Asset | Scale |
+|---|---|
+| Historical conversation archive | **1.4–1.6 trillion conversations, back to 2010** |
+| Real-time ingestion | **500M+ new conversations/day** |
+| Source breadth | 100M+ unique sites; official firehose access to Twitter/X, Reddit, Tumblr; compliant Facebook & Instagram |
+| 2025–26 expansion | Threads, YouTube, TikTok, LinkedIn, search-intelligence data (Trajaan), **70,000+ trending podcasts with transcript analysis** |
+| First-party fusion | Upload/integrate customer, web, marketing & business data → 360° consumer view |
+
+### B3. Iris AI — The Intelligence Layer (extract every capability)
+
+- **Ask Iris:** natural-language chat over the entire data lake — "always-on digital colleague."
+- **AI Query Writer:** converts plain-English prompts into complex Boolean queries (kills the analyst bottleneck).
+- **AI Dashboards:** auto-generated **narrative summaries** explaining the "why" behind every chart.
+- **AI Search / AI Topics:** proprietary in-house models (data never leaves platform — a compliance selling point).
+- **Peak detection + theme summaries:** automatic anomaly detection with explanation (Ford uses this to isolate nuanced concerns like EV battery-range anxiety).
+- **Iris Content Insights:** analyses latest 50 comments per post, clustered by **Sentiment × Tone of Voice × Style × Emotion**, plus comment word clouds.
+- **AI influencer summaries, content translations, AI-powered industry benchmarks.**
+- **2026 roadmap:** Google Gemini analysis engine; **GEO measurement** — Brandwatch is moving INTO BabyLoveGrowth's territory (measuring how brands appear in ChatGPT/Perplexity), confirming GEO as the convergence point of both categories.
