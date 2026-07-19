@@ -216,7 +216,7 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | MODULE 6 Offer Builder Engine (14 offer types, 7 scores, 5 recommendations) | Part 13 L13620–13653 | ✅ partial | `src/app/dashboard/offers/` + `offer-builder` agent |
 | MODULE 7 AI Campaign Pack Generator (17 pack contents; Starter/Growth/Domination pack types) | Part 13 L13655–13712 | 📦 | `source-notes/13`; campaign generation ✅ partial via `campaign-commander` |
 | MODULE 8 Autonomous Campaign Warfare Engine (autonomy L1–L3, 7 safety controls) | Part 13 L13714–13741 | 📘 | `docs/ai-os/02-users-and-command-centres.md` (autonomy dial L0–L3); execution engine 📦 |
-| MODULE 9 AI Visual Creation Engine (12 visual types, 8 inputs, 11 visual-intelligence rules) | Part 13 L13743–13780 | ✅ partial | attention-trigger visual concepts per platform ✅ `src/backend/warfare.ts`; image rendering 📦 (image-gen provider); `source-notes/13`; also Part 08 L4398–4485 |
+| MODULE 9 AI Visual Creation Engine (12 visual types, 8 inputs, 11 visual-intelligence rules) | Part 13 L13743–13780 | ✅ | visual concepts (`src/backend/warfare.ts`) + image rendering via the multi-provider image gateway (`src/backend/image-gateway.ts`, `/dashboard/studio`); `source-notes/13`; also Part 08 L4398–4485 |
 | MODULE 10 AI Copywriting Engine (13 copy types, 10 persuasion models) | Part 13 L13782–13807 | ✅ | AIDA/PAS/hooks/CTA in `src/backend/warfare.ts` + `ad-creative` + `content-factory` agents |
 | MODULE 11 Hashtag & Local Discovery Engine (8 hashtag types, 6-factor scoring) | Part 13 L13809–13827 | ✅ | classed + scored hashtags in `src/backend/warfare.ts` (`buildHashtags`); `source-notes/13` |
 | MODULE 12 Landing Page Generator (15 sections, 7 scores) | Part 13 L13829–13855 | ✅ partial | `src/app/dashboard/landing-pages/`; see §8 |
@@ -342,7 +342,9 @@ Full agent lists preserved verbatim; none are coded. Grouped per pack — every 
 | Step 2 AI Campaign Objective Engine (11 auto-selected objectives) | Part 08 L4290–4318 | ✅ partial | `campaign-commander` agent (objective selection); auto-selection 📦 |
 | Step 3 AI Customer Psychology Engine (10 trigger classes; food-delivery + education examples) | Part 08 L4320–4372 | ✅ | `customer-pain` agent + per-vertical psychology profiles (triggers/fears/aspirations/motivations/slang) in `src/backend/warfare.ts` (M-36) |
 | Step 4 AI Offer Creation Engine (9 auto-created offer types, scored) | Part 08 L4374–4396 | ✅ | `offer-builder` agent + margin-guarded scored offer archetypes in `src/backend/warfare.ts` (M-36) |
-| Step 5 AI Visual Creation Engine (11 visual types; attention triggers; localisation by country/ethnicity/culture/weather/language/trends) | Part 08 L4398–4485 | ✅ partial | attention-trigger visual **concepts** per platform ✅ `src/backend/warfare.ts` (`buildVisuals`) + `ad-creative`/`thumbnail-title`; actual image **rendering** 📦 (needs an image-gen provider — kept out of zero-config demo path) |
+| Step 5 AI Visual Creation Engine (11 visual types; attention triggers; localisation by country/ethnicity/culture/weather/language/trends) | Part 08 L4398–4485 | ✅ | full **12 attention triggers** + per-vertical emphasis + visual localisation in `src/backend/warfare.ts` (`buildVisuals`); actual image **rendering** now ships via the multi-provider image gateway `src/backend/image-gateway.ts` + `/api/image` + `/dashboard/studio` (Gemini Nano Banana 2/Pro, GPT Image 2, FLUX.2, zero-config Demo Composer); brand-safe logo overlay + exact text; smoke-verified |
+| AI Visual Creation Engine — multi-provider image gateway (Gemini Nano Banana 2/Pro, GPT Image 2, FLUX.2; router by quality/text/logo/edit/cost; ≥4× margin ACU pricing; brand-safe composition) | Owner spec 2026-07-19 | ✅ | `src/backend/image-gateway.ts` (`generateImage`, `routeImageProviders`, `estimateImageCost`, `composeBrandSafeSVG`, `extractBrandTheme`), `src/shared/creative.ts`, `/api/image`, `/dashboard/studio`; REST-gated live providers + always-on Demo Composer |
+| Brand Asset Library (`brand_assets`: 13 asset types, AI colour extraction, usage-rights gate) + Logo-Aware AI Brand Visual Creation Agent (place logo undistorted, extract 6-colour theme, brand-consistent variants, platform formats, never generic) | Owner spec 2026-07-19 | ✅ | `BrandAsset`/`CreativeOptions`/`BrandTheme` in `src/shared/creative.ts`; `brand-visual-creation` agent (Agent 26); 6-colour extraction + brand-safe SVG composition in `src/backend/image-gateway.ts`; live upload/Firebase storage 📦 at go-live |
 | Step 6 AI Copywriting Engine (9 outputs; AIDA, PAS, emotional selling, scarcity, authority, urgency, social proof, curiosity, FOMO, local identity) | Part 08 L4487–4531 | ✅ | AIDA + PAS + hooks + CTA generated deterministically in `src/backend/warfare.ts` (`buildCopy`) + `ad-creative` agent |
 | Step 7 AI Hashtag Engine (6 hashtag classes, scored) | Part 08 L4533–4549 | ✅ | classed + scored hashtags in `src/backend/warfare.ts` (`buildHashtags`) |
 | Step 8 AI Multi-Platform Adaptation (12 target formats: FB, IG, TikTok, LinkedIn, WhatsApp, Google Business, Email, SMS, landing page, blog, SEO page, push) | Part 08 L4551–4579 | ✅ | one campaign → all 12 native payloads in `src/backend/warfare.ts` (`buildPayloads`); smoke-verified 12 formats |
@@ -744,7 +746,7 @@ Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md`.
 | Website Health Audit — 10 dimensions → AI Marketing Health Score + prioritised fixes | F2 audit | ✅ (agent output contract) | agent systemPrompt + `ai-os/10` §B.2; composes with shipped Failure Audit |
 | Six suites: Campaign Factory · Creative Generator · Funnel Builder · Competitor Intelligence · Growth Opportunities (revenue/effort/ROI) · Brand Consistency Engine | F2 suites | ✅ conversational / 📘 rendering | `/dashboard/website-intel` grid + agent |
 | One-click marketing launch (14 output classes from image or URL) | F2 launch | 📘 | `ai-os/10` §B.3; publishing via connectors |
-| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/shared/agents.ts` (**26 runnable agents total** as of 2026-07-19 — see §17 numbering note); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
+| Both engines as independent agents in the OS (developer architecture) | Dev architecture | ✅ | Agents 21 + 22 in `src/shared/agents.ts` (**27 runnable agents total** as of 2026-07-19 — see §17 numbering note); gateway-routed, demo fallback, ACU-metered per `ai-os/10` Part C |
 
 ## 16d. VisualStrike AI™ & SiteRaid AI™ v2 upgrade (owner extraction 2026-07-13, second)
 
@@ -808,18 +810,19 @@ sources per the Additive-Only Law.
 
 **Gap/conflict addendum (§8.2 design system):** v3.0 spec tokens (navy #1A1A2E, accent #E94560, gold #F5A623, light surface #F4F6F9, Inter-only typography) vs the shipped owner-approved emerald-dark system (Space Grotesk + Inter, validated chart palette). Resolution: shipped system remains primary brand; spec tokens preserved in doc 06 as the specified alternate theme (candidate for admin/partner portals or theme switcher). Owner may re-decide.
 
-**Agent-roster numbering note (2026-07-19 audit, updated for M-36):** the
-shipped `AGENTS` map in `src/shared/agents.ts` holds **26 runnable agents**.
-The numbered lineage in agent prompts runs 1–25 because **Agent 20 (Profit
+**Agent-roster numbering note (2026-07-19 audit, updated for M-36 + Visual Engine):**
+the shipped `AGENTS` map in `src/shared/agents.ts` holds **27 runnable agents**.
+The numbered lineage in agent prompts runs 1–26 because **Agent 20 (Profit
 Protection & Margin Intelligence)** is realised as the AI Gateway cost policy
 + the Admin margin dashboard (`/dashboard/admin`) rather than a standalone
 conversational key (documented in `03a-agent-cards.md`). Breakdown:
 19 original conversational agents (1–19) + Agent 21 VisualStrike + Agent 22
 SiteRaid + Agent 23 Email Commander + Agent 24 Amplification Strategist +
-Agent 25 Campaign Warfare (`campaign-warfare-strategist`, the M-36 flagship)
-= 24 lineage-numbered keys, **plus 2 Strike-phase agents labelled by MW code
-rather than the 1–25 lineage** (`geo-recon` = MW-04, `citation-radar` = MW-02)
-= **26 runnable keys**. Smoke gate asserts ≥ 26 (`scripts/smoke.mjs`).
+Agent 25 Campaign Warfare (`campaign-warfare-strategist`, the M-36 flagship) +
+Agent 26 Brand Visual Creation (`brand-visual-creation`, the AI Visual Creation
+Engine) = 25 lineage-numbered keys, **plus 2 Strike-phase agents labelled by MW
+code rather than the 1–26 lineage** (`geo-recon` = MW-04, `citation-radar` =
+MW-02) = **27 runnable keys**. Smoke gate asserts ≥ 27 (`scripts/smoke.mjs`).
 
 **Trademark-alias index (2026-07-19 audit — features already tracked, aliases added for name-search):**
 - **Creative Payloads™** (`source-notes/11` L727) = the Ad Creative Agent's output — ✅ shipped as `ad-creative` (§1.1 / §1.3 Agent 4.5).

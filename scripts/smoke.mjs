@@ -20,6 +20,7 @@ const PAGES = [
   "/dashboard/campaigns",
   "/dashboard/offers",
   "/dashboard/product-engine",
+  "/dashboard/studio",
   "/dashboard/website-intel",
   "/dashboard/organic",
   "/dashboard/content",
@@ -78,7 +79,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 26) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 27) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -186,6 +187,34 @@ try {
   if (res.status === 400) ok("POST /api/warfare rejects missing product");
   else bad("POST /api/warfare validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/warfare validation", e.message); }
+
+console.log("\nAI Visual Creation Engine (image gateway):");
+try {
+  const res = await fetch(BASE + "/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "generate", business: "Brixton Grill House", headline: "Order direct", offerText: "20% off", cta: "Order now", quality: "standard", variants: 3, options: { useLogo: true, logoPosition: "top-left", useBrandColours: true, addCtaButton: true, addOfferText: true, platformFormat: "instagram" } }),
+  });
+  const body = await res.json();
+  const v = body.variants?.[0];
+  if (res.status === 200 && body.variants?.length === 3 && v?.imageUrl?.startsWith("data:image/svg+xml") && v?.brandSafe === true && v?.cost?.acus > 0) {
+    ok(`POST /api/image generate (3 brand-safe variants, ${v.cost.acus} ACUs, ${v.cost.marginMultiplier}× margin)`);
+  } else bad("POST /api/image generate", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/image generate", e.message); }
+try {
+  const res = await fetch(BASE + "/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "theme", business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && /^#/.test(body.primary) && /^#/.test(body.cta) && body.source) ok(`POST /api/image theme (6-colour brand theme, ${body.source})`);
+  else bad("POST /api/image theme", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/image theme", e.message); }
+try {
+  const res = await fetch(BASE + "/api/image");
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
+  else bad("GET /api/image", `HTTP ${res.status}`);
+} catch (e) { bad("GET /api/image", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

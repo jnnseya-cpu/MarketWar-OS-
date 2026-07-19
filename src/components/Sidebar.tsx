@@ -27,6 +27,7 @@ import {
   Shield,
   Sparkles,
   Stethoscope,
+  Wand2,
   Users,
   Wallet,
 } from "lucide-react";
@@ -48,6 +49,7 @@ const NAV = [
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
+      { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
       { href: "/dashboard/organic", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },

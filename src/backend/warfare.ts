@@ -210,31 +210,76 @@ function buildOffers(input: WarfareInput, v: Vertical): ScoredOffer[] {
 }
 
 // ---------------------------------------------------------------------------
-// STEP 5 — Visual concepts (attention triggers, platform-matched)
+// STEP 5 — Visual concepts (attention triggers, platform-matched, localised)
 // ---------------------------------------------------------------------------
-export type VisualConcept = { platform: string; concept: string; attentionTriggers: string[] };
+export type VisualConcept = { platform: string; concept: string; attentionTriggers: string[]; localisation: string };
 
-const ATTENTION = ["human face + eye contact", "motion / the reveal", "high contrast", "before/after", "scarcity cue", "authority signal"];
+// The 12 human-attention triggers the visual AI works with (spec STEP 5).
+const TRIGGER = {
+  faces: "human faces", emotions: "visible emotion", eyeContact: "direct eye contact",
+  movement: "movement / the reveal", contrast: "high contrast", luxury: "luxury cues",
+  urgency: "urgency cue (countdown / scarcity badge)", foodCloseup: "food close-up",
+  beforeAfter: "before / after", scarcity: "scarcity cue", authority: "authority signal",
+  crowd: "crowd psychology (people already buying)",
+} as const;
+
+// Per-vertical emphasis — which of the 12 triggers this vertical leans on hardest.
+const VERTICAL_TRIGGERS: Record<Vertical, string[]> = {
+  food: [TRIGGER.foodCloseup, TRIGGER.emotions, TRIGGER.crowd, TRIGGER.urgency],
+  education: [TRIGGER.faces, TRIGGER.emotions, TRIGGER.authority, TRIGGER.beforeAfter],
+  ecommerce: [TRIGGER.contrast, TRIGGER.scarcity, TRIGGER.luxury, TRIGGER.crowd],
+  services: [TRIGGER.authority, TRIGGER.beforeAfter, TRIGGER.faces, TRIGGER.urgency],
+  beauty: [TRIGGER.beforeAfter, TRIGGER.faces, TRIGGER.luxury, TRIGGER.emotions],
+  fitness: [TRIGGER.beforeAfter, TRIGGER.movement, TRIGGER.emotions, TRIGGER.crowd],
+  property: [TRIGGER.luxury, TRIGGER.contrast, TRIGGER.scarcity, TRIGGER.authority],
+  b2b: [TRIGGER.authority, TRIGGER.contrast, TRIGGER.faces, TRIGGER.crowd],
+  generic: [TRIGGER.faces, TRIGGER.emotions, TRIGGER.contrast, TRIGGER.scarcity],
+};
+
+// Localisation directive — the visual AI adapts by country / culture / weather /
+// language / local trends (spec STEP 5). Derived from the location string.
+function localisationNote(input: WarfareInput): string {
+  const loc = input.location || "the local market";
+  const lang = input.currency ? "" : "";
+  return `Adapt to ${loc}: local faces/ethnicity that mirror the audience, culturally-resonant setting, season/weather-appropriate styling, on-image copy in the local language, and current local trends. ${lang}`.trim();
+}
 
 function buildVisuals(input: WarfareInput, v: Vertical): VisualConcept[] {
+  const t = VERTICAL_TRIGGERS[v];
+  const loc = localisationNote(input);
   const hero = v === "food" ? "the hero dish, close-up, steam and gloss"
     : v === "beauty" || v === "fitness" ? "an authentic before/after of a real local customer (with written release)"
     : v === "property" ? "the standout room, wide + warm light"
     : v === "ecommerce" ? "the product in-hand, lifestyle context"
+    : v === "b2b" ? "a confident operator at work, clean composition"
     : "a real customer's face mid-result, natural light";
   return [
-    { platform: "TikTok / Reels", concept: `9:16 native: ${hero}. First 0.5s IS the hook — no logo intro. On-screen text ≤ 5 words. Sound-on, trend-aware.`, attentionTriggers: [ATTENTION[1], ATTENTION[0], ATTENTION[3]] },
-    { platform: "Instagram / Facebook feed", concept: `4:5 stopping frame: ${hero}. One clear focal point, offer badge top-right, brand colour rim.`, attentionTriggers: [ATTENTION[0], ATTENTION[2], ATTENTION[4]] },
-    { platform: "Stories", concept: `Full-bleed vertical, tappable sticker over the offer, urgency countdown.`, attentionTriggers: [ATTENTION[4], ATTENTION[1]] },
-    { platform: "Carousel", concept: `Slide 1 hook → slides 2–4 proof/benefits → slide 5 CTA. Swipe curiosity gap on slide 1.`, attentionTriggers: [ATTENTION[3], ATTENTION[5]] },
-    { platform: "YouTube thumbnail", concept: `Bold face + ≤ 4-word overlay, colour that fights the feed. Emotion legible at thumb size.`, attentionTriggers: [ATTENTION[0], ATTENTION[2]] },
+    { platform: "TikTok / Reels", concept: `9:16 native: ${hero}. First 0.5s IS the hook — no logo intro. On-screen text ≤ 5 words. Sound-on, trend-aware.`, attentionTriggers: [TRIGGER.movement, t[0], t[1]], localisation: loc },
+    { platform: "Instagram / Facebook feed", concept: `4:5 stopping frame: ${hero}. One clear focal point, offer badge top-right, brand colour rim.`, attentionTriggers: [t[0], TRIGGER.contrast, t[2] || TRIGGER.scarcity], localisation: loc },
+    { platform: "Stories", concept: `Full-bleed vertical, tappable sticker over the offer, urgency countdown.`, attentionTriggers: [TRIGGER.urgency, TRIGGER.movement], localisation: loc },
+    { platform: "LinkedIn", concept: `Clean, credible 1:1 or 4:5 — no clickbait. Authority and proof lead; muted brand palette.`, attentionTriggers: [TRIGGER.authority, TRIGGER.faces, TRIGGER.contrast], localisation: loc },
+    { platform: "Carousel", concept: `Slide 1 hook → slides 2–4 proof/benefits → slide 5 CTA. Swipe curiosity gap on slide 1.`, attentionTriggers: [TRIGGER.beforeAfter, TRIGGER.authority], localisation: loc },
+    { platform: "YouTube thumbnail", concept: `Bold face + ≤ 4-word overlay, colour that fights the feed. Emotion legible at thumb size.`, attentionTriggers: [TRIGGER.faces, TRIGGER.emotions, TRIGGER.contrast], localisation: loc },
   ];
 }
 
 // ---------------------------------------------------------------------------
 // STEP 6 — Copywriting engine (AIDA + PAS)
 // ---------------------------------------------------------------------------
-export type CopyPack = { headline: string; aida: string; pas: string; hooks: string[]; cta: string };
+export type CopyPack = {
+  headline: string; aida: string; pas: string; hooks: string[]; cta: string;
+  emojis: string[]; urgencyWording: string; trustWording: string; persuasionModels: string[];
+};
+
+// Emoji sets keyed to vertical — used sparingly, never spam (deliverability +
+// LinkedIn stay clean; the payload builder strips them where inappropriate).
+const VERTICAL_EMOJI: Record<Vertical, string[]> = {
+  food: ["🔥", "🍽️", "🚗", "💨", "🎉"], education: ["📚", "🎯", "✅", "🚀"],
+  ecommerce: ["✨", "🛒", "⚡", "🔥"], services: ["✅", "🛠️", "📞", "⭐"],
+  beauty: ["✨", "💅", "💆", "🌟"], fitness: ["💪", "🔥", "⚡", "🏆"],
+  property: ["🏡", "🔑", "📍", "⭐"], b2b: ["📈", "✅", "🚀", "🎯"],
+  generic: ["✨", "✅", "🔥", "⭐"],
+};
 
 function buildCopy(input: WarfareInput, v: Vertical, p: PsychProfile, obj: Objective): CopyPack {
   const who = input.audience || "local customers";
@@ -250,6 +295,12 @@ function buildCopy(input: WarfareInput, v: Vertical, p: PsychProfile, obj: Objec
       `${p.aspirations[0]} — without ${p.fears[0]}.`,
     ],
     cta,
+    emojis: VERTICAL_EMOJI[v],
+    // Urgency wording stays HONEST — a real, stated deadline/scarcity, never fabricated.
+    urgencyWording: `${input.offer && URGENCY_RE.test(input.offer) ? input.offer : "This week only"} — ${cta.toLowerCase()} before it's gone. (Only use a deadline you will actually honour.)`,
+    // Trust wording — proof and reassurance, not hype.
+    trustWording: `Trusted by ${where} locals · real reviews, not stock · no hidden costs · ${obj.primaryChannel} reply within the hour.`,
+    persuasionModels: ["AIDA", "PAS", "emotional selling", "scarcity", "authority", "urgency", "social proof", "curiosity", "FOMO", "local identity"],
   };
 }
 
@@ -262,16 +313,18 @@ function buildHashtags(input: WarfareInput, v: Vertical): ScoredHashtag[] {
   const loc = (input.location || "local").split(/[ ,]/)[0].replace(/[^a-z0-9]/gi, "").toLowerCase() || "local";
   const niche = v === "generic" ? "smallbusiness" : v;
   const s = seed(input.product + input.location);
+  // Six classes (spec STEP 7): local · trending · niche · conversion · viral · event.
   const raw: [string, string][] = [
-    [`#${loc}`, "local"], [`#${loc}${niche}`, "local-niche"], [`#${niche}`, "niche"],
-    [`#supportlocal`, "community"], [`#${loc}business`, "local"], [`#${niche}life`, "niche"],
-    [`#deal`, "conversion"], [`#${loc}deals`, "conversion"], [`#trending`, "viral"], [`#fyp`, "viral"],
+    [`#${loc}`, "local"], [`#${loc}business`, "local"],
+    [`#${niche}`, "niche"], [`#${niche}life`, "niche"], [`#${loc}${niche}`, "niche"],
+    [`#deal`, "conversion"], [`#${loc}deals`, "conversion"], [`#order${loc}`, "conversion"],
+    [`#trending`, "trending"], [`#${niche}trends`, "trending"],
+    [`#fyp`, "viral"], [`#foryou`, "viral"],
+    [`#${loc}events`, "event"], [`#thisweekend`, "event"],
   ];
-  return raw.map(([tag, cls], i) => {
-    // conversion/local classes score highest for SMB intent; viral is reach-only.
-    const classWeight = cls.includes("local") ? 82 : cls === "conversion" ? 88 : cls === "niche" || cls === "local-niche" ? 74 : cls === "community" ? 68 : 55;
-    return { tag, class: cls, score: clamp(classWeight + ((s >> i) % 12) - 6) };
-  }).sort((a, b) => b.score - a.score);
+  const WEIGHT: Record<string, number> = { conversion: 88, local: 82, niche: 74, event: 70, trending: 66, viral: 55 };
+  return raw.map(([tag, cls], i) => ({ tag, class: cls, score: clamp((WEIGHT[cls] ?? 55) + ((s >> i) % 12) - 6) }))
+    .sort((a, b) => b.score - a.score);
 }
 
 // ---------------------------------------------------------------------------
@@ -306,17 +359,38 @@ function buildLandingSpec(input: WarfareInput, obj: Objective, offer: ScoredOffe
     sections: [
       `Emotional headline — speaks to "${p.aspirations[0]}" and away from "${p.fears[0]}"`,
       `Sub-headline naming the audience: ${input.audience || "local customers"} in ${input.location || "your area"}`,
-      `The offer, stated with honest urgency: ${offer.offer}`,
-      "Three benefit blocks (outcome, not features)",
-      "Proof: reviews / before-after / local testimonials",
+      "Benefit blocks (outcome, not features)",
+      `Urgency section: ${offer.offer}`,
+      "Testimonials + reviews (real, local, with names/photos where consented)",
       "FAQ that dissolves the top 3 objections",
       "Trust badges + guarantees",
-      `Primary CTA: ${obj.primaryChannel} (WhatsApp button where relevant)`,
-      "Lead form (minimum fields) + pixels/UTM for measurement",
+      "WhatsApp button (tap-to-chat) + lead form (minimum fields)",
+      /\b(book|appointment|reservation|slot|viewing|demo)\b/i.test(obj.objective)
+        ? "Booking system (calendar slots, confirmation, reminder)"
+        : "Order / enquiry capture with instant confirmation",
       "Map / hours for local intent",
+      "Pixels/UTM for measurement",
+      `Primary CTA repeated: ${obj.primaryChannel}`,
     ],
     conversionNote: "One objective, one primary CTA repeated. Every element serves the single action or it is cut.",
   };
+}
+
+// ---------------------------------------------------------------------------
+// STEP 11 — Performance learning signals (what gets MEASURED after launch)
+// Honest by design: these are the signals the OS will learn from real data;
+// nothing here is a pre-launch claim. The learning loop runs post-launch.
+// ---------------------------------------------------------------------------
+function learningSignals(): { signal: string; how: string }[] {
+  return [
+    { signal: "Which visuals win", how: "creative-level CTR / thumb-stop rate vs spend" },
+    { signal: "Which colours convert", how: "palette variant → conversion rate A/B" },
+    { signal: "Which emojis perform", how: "subject/caption variant → open & click deltas" },
+    { signal: "Which hashtags drive traffic", how: "tag-tagged reach → profile/site clicks" },
+    { signal: "Which hooks stop the scroll", how: "3-second view rate by hook variant" },
+    { signal: "Which CTA converts", how: "CTA variant → action completion rate" },
+    { signal: "Which audience buys", how: "segment → revenue per 1k reached" },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +495,7 @@ export type CampaignEcosystem = {
   distribution: ReturnType<typeof buildDistribution>;
   campaignScore: CampaignScore;
   autonomy: ReturnType<typeof autonomyPlan>;
+  learningSignals: { signal: string; how: string }[];
 };
 
 export function designCampaign(input: WarfareInput): CampaignEcosystem {
@@ -459,5 +534,6 @@ export function designCampaign(input: WarfareInput): CampaignEcosystem {
     distribution,
     campaignScore,
     autonomy,
+    learningSignals: learningSignals(),
   };
 }
