@@ -1504,6 +1504,53 @@ Purchase (conversion) or opt-out ends the journey instantly; the day-1 condition
 ## Expected Outcome
 Recover the abandoned sale. Measure: recovery rate, revenue recovered, opt-out rate (keep < 0.5%).`,
   },
+  "landing-page-architect": {
+    id: "landing-page-architect",
+    name: "AI Landing Page Creation Agent",
+    role: "The central agent — attention becomes action",
+    description:
+      "Creates complete, conversion-optimised landing pages for every campaign, objective, offer and segment. Not page text — the page strategy: selects the right type (of 10), builds the 10-section structure, writes the CTA hierarchy, adds trust + urgency + the objective-driven form + WhatsApp CTA + tracking, generates A/B variants A–D, scores the page across 8 dimensions and recommends fixes. Never generic.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI LANDING PAGE CREATION AGENT (§4.6–§4.14) — the central agent:
+the landing page is where attention becomes action. Never create a generic
+page. For every page, analyse business, product, customer, location, offer,
+objective, pain, objections, trust gaps and urgency, then design it end to end.
+Doctrine: scores are estimates re-ranked on real performance; forms ask only
+what's needed (friction kills conversion); one objective, one primary CTA
+repeated. Output structured for the frontend:
+## Page Type (which of the 10 + why, from the objective)
+## Hero (headline · subheadline · primary CTA · secondary CTA · trust badge · urgency line)
+## Structure (problem · offer · benefits · proof · process · FAQ · urgency · form · CTA)
+## Form (objective-driven fields + submit action; WhatsApp CTA where relevant)
+## A/B Variants (A offer · B pain · C trust · D urgency — headline + hypothesis each)
+## Scores (conversion · clarity · trust · urgency · mobile · emotional · friction · lead-quality)
+## Fixes (the specific optimisation rules to lift the weak scores)
+## Publish (slug · UTM · pixels)`,
+    demoOutput: (i) => `## Page Type
+**whatsapp_conversion** — the objective is WhatsApp orders, so push straight to chat (lowest friction for local food).
+
+## Hero
+**Headline:** "Hot ${(i.industry || "food")}, on WhatsApp in ${i.location || "Brixton"}." **Subheadline:** "First-order deal — fresh, fast, trusted by locals." **Primary CTA:** Message Us On WhatsApp. **Secondary:** View Menu. **Trust badge:** ★4.1 · 200+ orders. **Urgency:** "Only a few delivery slots left tonight."
+
+## Structure
+Problem ("cold, late, overpriced delivery?") → Offer (20% first order, ends tonight) → Benefits (fast · authentic · easy WhatsApp · local · first-order deal) → Proof (reviews + photos) → Process (tap → order → confirm → enjoy) → FAQ (cost/speed/area/pay) → Urgency (limited slots) → WhatsApp CTA.
+
+## Form
+WhatsApp-first (near-zero friction) — name optional, submit → send_whatsapp with a pre-filled message.
+
+## A/B Variants
+A offer · B "Stop overpaying the apps" · C "Brixton's trusted kitchen" · D "40 platters, ends tonight" — each with a win hypothesis.
+
+## Scores
+Conversion 79 · Clarity 82 · Trust 66 · Urgency 84 · Mobile 90 · Emotional 80 · Friction 90 · Lead-quality 62.
+
+## Fixes
+Add named testimonials (trust 66) and lift lead-quality with a one-line qualifier.
+
+## Publish
+\`marketwar.co/b/${(i.website ? "brixton-grill" : "your-business")}/${i.location ? "brixton" : "local"}-food\` · UTM tagged · pixels ready.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);

@@ -29,6 +29,7 @@ const PAGES = [
   "/dashboard/content",
   "/dashboard/video",
   "/dashboard/landing-pages",
+  "/dashboard/landing-builder",
   "/dashboard/whatsapp",
   "/dashboard/email",
   "/dashboard/customers",
@@ -86,7 +87,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 36) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 37) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -222,6 +223,29 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nAI Landing Page Creation Engine:");
+try {
+  const res = await fetch(BASE + "/api/landing", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business: "Brixton Grill House", objective: "get whatsapp orders", offer: "20% off first order, ends tonight", audience: "hungry locals within 3 miles", location: "Brixton", product: "takeaway", painPoint: "cold late delivery" }),
+  });
+  const body = await res.json();
+  const scoreKeys = body.scores ? Object.keys(body.scores).length : 0;
+  if (res.status === 200 && body.pageType === "whatsapp_conversion" && body.sections.length >= 7 && scoreKeys === 8 && body.abVariants.length === 4) {
+    ok(`POST /api/landing (type ${body.pageType}, ${body.sections.length} sections, 8 scores, 4 A/B variants, conv ${body.scores.conversionScore})`);
+  } else bad("POST /api/landing", `HTTP ${res.status}, type ${body.pageType}, scores ${scoreKeys}`);
+} catch (e) { bad("POST /api/landing", e.message); }
+try {
+  const res = await fetch(BASE + "/api/landing", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business: "Ace Tutors", objective: "book appointments", product: "GCSE tuition" }),
+  });
+  const body = await res.json();
+  // Booking objective → booking page + booking-specific form fields.
+  if (res.status === 200 && body.pageType === "booking" && body.formConfig.fields.some((f) => f.key === "preferred_date")) ok(`POST /api/landing (booking → ${body.formConfig.submitAction} form)`);
+  else bad("POST /api/landing booking", `type ${body.pageType}`);
+} catch (e) { bad("POST /api/landing booking", e.message); }
 
 console.log("\nNo-Code Revenue Automation Builder:");
 try {

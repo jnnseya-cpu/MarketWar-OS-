@@ -33,7 +33,7 @@ implemented or specified, it is preserved verbatim and tracked here as backlog.
 | 5 | Autonomous Campaign Engine | 30 | 13 | 7 | 10 |
 | 6 | DemandOS / organic acquisition engines | 25 | 5 | 9 | 11 |
 | 7 | Customer Resurrection Engine | 15 | 1 | 2 | 12 |
-| 8 | Landing-page subsystem | 24 | 1 | 1 | 22 |
+| 8 | Landing-page subsystem | 24 | 9 | 1 | 14 |
 | 9 | Competitor-inspired feature packs | 24 | 12 | 0 | 12 |
 | 10 | Independence / external-API architecture | 21 | 4 | 6 | 11 |
 | 11 | Pricing & ACU economics | 26 | 8 | 12 | 6 |
@@ -102,15 +102,15 @@ the landing-page sub-agents 4.6–4.14 and Agent 12 are backlog.
 | 4.3 Offer Builder Agent (14 offer types, 7 offer scores) | Part 11 L6542–6562; Part 14 L14618–14643 | ✅ partial | `src/shared/agents.ts` (`offer-builder`) + `src/app/dashboard/offers/`; full 14-type/7-score matrix 📦 |
 | 4.4 Campaign Commander Agent (11 outputs, 11 campaign modes) | Part 11 L6565–6587; Part 14 L14645–14671 | ✅ partial | `src/shared/agents.ts` (`campaign-commander`) + `src/app/dashboard/campaigns/` |
 | 4.5 Ad Creative Agent (13 asset types, AIDA/PAS) | Part 11 L6590–6610; Part 14 L14673–14689 | ✅ | `src/shared/agents.ts` (`ad-creative`) |
-| 4.6 AI Landing Page Creation Agent (core-agent mandate, 18 responsibilities) | Part 11 L6613–6678; Part 14 L14691–14717 | 📦 | `source-notes/11` / `source-notes/14`; basic page ✅ at `src/app/dashboard/landing-pages/` |
-| 4.7 Landing Page Structure Generator (Hero/Problem/Offer/Benefits/Proof/Process/FAQ/Urgency/Form/CTA) | Part 11 L6906–7023; Part 14 L14809–14922 | 📦 | `source-notes/11-acquisition-infrastructure-agents.md`, `source-notes/14-consolidated-spec-version-b.md` |
-| 4.8 Landing Page AI Scoring (8 scores incl. Friction, Lead Quality) | Part 11 L7027–7049; Part 14 L14924–14941 | 📦 | `source-notes/11`, `source-notes/14` |
-| 4.9 Landing Page Optimisation Rules (12 fix rules, projected score lift) | Part 11 L7053–7072; Part 14 L14943–14956 | 📦 | `source-notes/11`, `source-notes/14` |
-| 4.10 Landing Page A/B Testing (variants A–D, 10 tracked metrics) | Part 11 L7076–7095; Part 14 L14958–14978 | 📦 | `source-notes/11`, `source-notes/14` |
-| 4.11 Landing Page Publishing System (slugs, subdomains, QR, pixels, UTM, `marketwar.co/b/{business}/{slug}`) | Part 11 L7099–7121; Part 14 L14980–14995 | 📦 | `source-notes/11`, `source-notes/14` |
+| 4.6 AI Landing Page Creation Agent (core-agent mandate, 18 responsibilities) | Part 11 L6613–6678; Part 14 L14691–14717 | ✅ | `src/backend/landing.ts` (`generateLandingPage`) + `/api/landing` + `/dashboard/landing-builder` (Conversion Architect) + `landing-page-architect` agent (Agent 36); selects type → structure → copy → CTA → form → tracking → A/B → scores → fixes |
+| 4.7 Landing Page Structure Generator (Hero/Problem/Offer/Benefits/Proof/Process/FAQ/Urgency/Form/CTA) | Part 11 L6906–7023; Part 14 L14809–14922 | ✅ | `buildSections()` in `src/backend/landing.ts` (all sections + booking/order/app-specific blocks) |
+| 4.8 Landing Page AI Scoring (8 scores incl. Friction, Lead Quality) | Part 11 L7027–7049; Part 14 L14924–14941 | ✅ | `scoreLanding()` — all 8 (conversion/clarity/trust/urgency/mobile/emotional/friction/lead-quality); smoke-verified |
+| 4.9 Landing Page Optimisation Rules (12 fix rules, projected score lift) | Part 11 L7053–7072; Part 14 L14943–14956 | ✅ | `optimisationRecommendations()` in `src/backend/landing.ts` (score-driven fix rules) |
+| 4.10 Landing Page A/B Testing (variants A–D, 10 tracked metrics) | Part 11 L7076–7095; Part 14 L14958–14978 | ✅ partial | `abVariants()` (A offer / B pain / C trust / D urgency + hypothesis) in `src/backend/landing.ts`; live metric tracking 📦 |
+| 4.11 Landing Page Publishing System (slugs, subdomains, QR, pixels, UTM, `marketwar.co/b/{business}/{slug}`) | Part 11 L7099–7121; Part 14 L14980–14995 | ✅ partial | slug + `publishUrl` (`marketwar.co/b/{business}/{slug}`) + UTM/pixel config in `src/backend/landing.ts`; hosted renderer + QR + custom domain 📦 |
 | 4.12 Landing Page Database Collections (12 collections) | Part 11 L7125–7144; Part 14 L14997–15009 | 📦 | `source-notes/11`, `source-notes/14`; relational analogue 📘 in `docs/ai-os/07-database-and-api.md` |
-| 4.13 LandingPage TypeScript schema (pageType enum, formConfig, tracking, scores, metrics) | Part 11 L7148–7181; Part 14 L15011–15096 | 📦 | `source-notes/11`, `source-notes/14` |
-| 4.14 Landing Page Agent Prompt (verbatim system prompt, JSON output) | Part 11 L7184–7249; Part 14 L15098–15149 | 📦 | `source-notes/11`, `source-notes/14` |
+| 4.13 LandingPage TypeScript schema (pageType enum, formConfig, tracking, scores, metrics) | Part 11 L7148–7181; Part 14 L15011–15096 | ✅ | `GeneratedLandingPage` in `src/backend/landing.ts` implements the schema (10-type pageType enum, formConfig+submitAction, whatsappConfig, tracking, 8 scores) |
+| 4.14 Landing Page Agent Prompt (verbatim system prompt, JSON output) | Part 11 L7184–7249; Part 14 L15098–15149 | ✅ | `landing-page-architect` agent system prompt in `src/shared/agents.ts` (structured JSON output mandate) |
 | Agent 5 Lead Capture Agent (8 capture types, 7 lead scores) | Part 11 L7253–7273; Part 14 L15151–15170 | ✅ partial | `src/shared/agents.ts` (`lead-capture`); 7-dimension lead-score model 📦 |
 | Agent 6 WhatsApp Sales Agent (9 conversational capabilities) | Part 11 L7277–7295; Part 14 L15172–15184 | ✅ partial | `src/app/dashboard/whatsapp/` UI + `lead-capture` agent; dedicated conversational agent 📦 |
 | Agent 7 Budget Protection Agent (8 intervention rules; STOP/FIX/SCALE/RECOVER/WATCH/TEST; 25% no-lead auto-STOP) | Part 11 L7299–7318; Part 14 L15186–15205 | ✅ partial | `src/shared/agents.ts` (`budget-protection`); automated 25% stop-loss trigger 📦 |
@@ -822,7 +822,8 @@ reviews/reputation agent; + Agent 30 Growth ROI Strategist + Agent 31 Executive
 Marketing War Room, the AI Growth-OS ROI + executive-email agents).
 Agent 32 is the AI Auto-Segmentation Agent (Brevo Module 19); Agents 33–34 are
 the ICP Architect + Outreach Commander (Apollo-inspired LeadWar Room); Agent 35
-is the AI Automation Architect (Brevo Module 7 no-code builder).
+is the AI Automation Architect (Brevo Module 7 no-code builder); Agent 36 is
+the AI Landing Page Creation Agent (§4.6 — the central agent).
 The numbered lineage in agent prompts runs 1–31 because **Agent 20 (Profit
 Protection & Margin Intelligence)** is realised as the AI Gateway cost policy
 + the Admin margin dashboard (`/dashboard/admin`) rather than a standalone
