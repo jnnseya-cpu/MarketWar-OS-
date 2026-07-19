@@ -1129,3 +1129,20 @@ BABYLOVEGROWTH ── acts, never listens ────►
 **Extracted from:** BLG's entire free-tools GTM machine
 - Ship the cluster as standalone ranked pages: GEO Audit, llms.txt Generator, Missing Keywords, Robots/Sitemap/H1/Meta checkers, SERP Snippet Preview, Competitor Snapshot.
 - Each tool = SEO asset + email capture + one-click upgrade into paid modules. Reusable across the whole portfolio (StudYear, Tunakula, OpenNJob can each ship vertical magnets from the same foundry).
+
+### MW-10 · War College (Academy Engine)
+**Extracted from:** BLG academies + Brandwatch Academy
+- 100-day MarketWar plan format, **using the tenant's own data** (BLG's cleverest education mechanic), FR + EN tracks; local-market track for DRC entrepreneurs (ties to Justin's Birmingham/Kinshasa youth-entrepreneurship positioning).
+
+### MW-11 · Proof Ledger
+**Extracted from:** BLG's verification-first testimonials
+- Auto-generated success stories with **third-party verification links** (Ahrefs snapshot, shared LLM conversation URLs, GSC screenshots) + before/after metric cards. Feeds the sales site continuously. 90-day performance guarantee framework as an optional commercial weapon.
+
+### MW-12 · Fusion Layer
+**Extracted from:** Brandwatch first-party integration
+- Tenant uploads/connects CRM, GA4, GSC, BitriPay transaction streams → joined in the warehouse for attribution ("exposed vs. non-exposed purchase value" — the DiGiorno proof pattern, powered natively by BitriPay data no Western competitor can access in DRC).
+
+### MW-13 · Africa Theatre Pack (the uncopyable flank)
+**Original — built on both incumbents' blind spot**
+- French/Lingala/Swahili NLP models; DRC & francophone-Africa source map (local press, radio-station Facebook pages, market WhatsApp communities); Africa Publisher Inventory for MW-03; mobile-money-economy intent taxonomy; low-bandwidth dashboard mode.
+- Positions MarketWar OS as **the default growth-intelligence OS for African ventures and diaspora businesses** — and dogfooded by Tunakula, Scan & Go, and BitriPay from day one.
