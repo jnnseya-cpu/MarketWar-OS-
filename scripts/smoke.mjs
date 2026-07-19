@@ -23,6 +23,7 @@ const PAGES = [
   "/dashboard/product-engine",
   "/dashboard/studio",
   "/dashboard/website-intel",
+  "/dashboard/discover",
   "/dashboard/organic",
   "/dashboard/content",
   "/dashboard/video",
@@ -80,7 +81,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 27) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 29) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -216,6 +217,37 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nReal-Time Search & Opportunity Intelligence:");
+try {
+  const res = await fetch(BASE + "/api/search", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "opportunity", niche: "food delivery", location: "Brixton, London" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.opportunityScore === "number" && body.demandLevel && Array.isArray(body.launchStrategy)) {
+    ok(`POST /api/search opportunity (score ${body.opportunityScore}, demand ${body.demandLevel})`);
+  } else bad("POST /api/search opportunity", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/search opportunity", e.message); }
+try {
+  const res = await fetch(BASE + "/api/search", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "leads", category: "grill house", location: "Brixton, London" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.leads) && body.leads.length > 0 && typeof body.leads[0].leadScore === "number") {
+    ok(`POST /api/search leads (${body.leads.length} scored leads, mode ${body.mode})`);
+  } else bad("POST /api/search leads", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/search leads", e.message); }
+try {
+  const res = await fetch(BASE + "/api/search", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "search", query: "food delivery brixton", type: "places" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.type === "places" && Array.isArray(body.results)) ok(`POST /api/search (places, mode ${body.mode})`);
+  else bad("POST /api/search", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/search", e.message); }
 
 console.log("\nMake Anything intent router:");
 try {
