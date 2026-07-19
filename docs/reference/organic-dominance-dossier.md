@@ -941,3 +941,22 @@ The category-defining insight: **AI assistants are the new search results page.*
 - Articles inherit **brand colors (exact hex), tone of voice descriptors, and cross-linked product offerings** — every article funnels readers to the customer's actual products.
 - Output anatomy per article (from live example, scored 95/100): TL;DR block, table of contents, key-takeaways table, comparison tables, inline statistics with cited external sources, "Pro Tip" callouts, a first-person "honest take" section (E-E-A-T signal), product CTA section, FAQ block (schema-ready), recommended internal links, hyper-realistic images + infographics with alt text.
 - **Article Score card** (visible quality gate): optimal structure, cited sources, internal links, external links, statistics data points, plagiarism check, image alt texts, semantic keywords, optimized meta tags, JSON-LD schema, word count, keyword count.
+
+#### A3.2 30-Day Content Strategy
+- Auto-plans a full month of topics/formats based on **current ranking + citation trends** — topics prioritised by what is already moving (compounding logic), including listicles specifically because listicles dominate LLM citation patterns.
+
+#### A3.3 Automated Publishing
+- Direct CMS publishing: WordPress, Webflow, Shopify, **plus raw API** for custom-code platforms. "No integration needed" onboarding — Shopify setup in ~20 minutes.
+
+#### A3.4 Authority Backlinks — THE MOAT
+- **4,000+ site automated link-exchange network.** Every customer both gives and receives links; links are industry-matched and placed **contextually inside real articles**, not footers or directories.
+- **Network effect defensibility: the product gets stronger with every new customer.** ~7 high-quality backlinks/month per customer reported. Documented DR jumps: 12→32 in 3 months; 30→38 in 60 days.
+
+#### A3.5 Technical GEO Audit
+- Scans schema, metadata, structure for AI-visibility gaps (llms.txt, JSON-LD, crawlability for LLM crawlers).
+
+#### A3.6 Reddit Visibility Engine
+- Identifies **high-intent Reddit discussions** in the niche — because Reddit is one of the most heavily weighted sources in LLM training/retrieval. Deliberate seeding of communities "monitored by AI systems."
+
+#### A3.7 LLM Visibility Tracking
+- Tracks brand mentions/citations across ChatGPT, Perplexity, and AI search; measures **citation growth over time** — the GEO-era rank tracker.
