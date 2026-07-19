@@ -401,7 +401,7 @@ runtime enforcement; behaviour and feature surface unchanged (Additive-Only):
 | **Frontend** | `src/frontend/` + `src/components/` | Env-guarded Firebase client SDK, UI component kit; pages in `src/app/**` compose them | Never imports backend — reaches it exclusively through `/api/*`; `NEXT_PUBLIC_*` config only |
 
 Stabilisation gates: `npm run verify` (typecheck + build) and `npm run smoke`
-(`scripts/smoke.mjs` — all 39 page routes, security headers, all 37 agents
-end-to-end, audit + gateway + landing/automation/prospecting/segments/roi/
-reputation/search/intent/warfare/image/acu/geo/email/amplify APIs; 113 checks).
-Global error boundary + not-found surfaces ship in `src/app/`.
+(`scripts/smoke.mjs` — all 40 page routes, security headers, all 39 agents
+end-to-end, audit + gateway + strategy/landing/automation/prospecting/segments/
+roi/reputation/search/intent/warfare/image/acu/geo/email/amplify APIs; 118
+checks). Global error boundary + not-found surfaces ship in `src/app/`.

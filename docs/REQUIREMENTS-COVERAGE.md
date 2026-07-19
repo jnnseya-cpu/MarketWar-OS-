@@ -533,7 +533,7 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 | ACU usage costs v1 (Doc 1): audit 50, campaign plan 30, landing page 80, 10 posts 40, competitor scan 60, full funnel 150 | Part 01 L282–302 | 📘 | `docs/ai-os/08`; verbatim `source-notes/01` |
 | ACU usage costs v2 (Version A, 10 items): + offer generation 20, visual generation 60, customer DB analysis 100, full campaign pack 150, autonomous campaign run 500 | Part 13 L14234–14247 | 📘 | `docs/ai-os/08`; verbatim `source-notes/13` |
 | ACU usage costs v3 (Version B, 15 items): + landing-page A/B variants 40, optimisation report 25, WhatsApp flow 30, SMS sequence 25, email sequence 35; 5x rule "provider cost for 100 ACUs ≤ £0.20" | Part 14 L15342–15362 | 📘 | `docs/ai-os/08` (fullest ACU line-item list); verbatim `source-notes/14` |
-| Strategy-agent ACU prices: Avatar 30 / Message Weapon 35 / Channel Commander 35 / Content War Plan 80 / Funnel Architect 70 / Paid Ads Risk 60 / Battle Plan 50 / Landing Page 80; Full Marketing Strategy Pack bundle 350 ACUs, sold at £5, platform cost ≤ £1 (5x) | Part 15 L16263–16279 | 📦 | `source-notes/15` |
+| Strategy-agent ACU prices: Avatar 30 / Message Weapon 35 / Channel Commander 35 / Content War Plan 80 / Funnel Architect 70 / Paid Ads Risk 60 / Battle Plan 50 / Landing Page 80; Full Marketing Strategy Pack bundle 350 ACUs, sold at £5, platform cost ≤ £1 (5x) | Part 15 L16263–16279 | ✅ | **7-agent connected chain shipped**: `src/backend/strategy.ts` (`buildCustomerAvatar`→`buildMessaging`→`buildChannelStrategy`→`buildContentPlan`→`buildFunnel`→`buildPaidAdsStrategy`→`buildBattlePlan`, each reuses the prior output; funnel always requires a landing page; paid ads risk-gated) + `/api/strategy` + `/dashboard/strategy` + `customer-avatar` (Agent 37) + `marketing-battle-plan` (Agent 38) agents; ACU pricing values indicative per owner deferral |
 | ACU campaign costs (Option 2, Part 10): basic campaign 50, advanced 200, full autonomous 500 | Part 10 L5765–5777 | 📦 | `source-notes/10` |
 | ACU Economics Framework ("operate like a utility company"): never sell AI at cost; min 100% margin, recommended 300–500%, strategic target 400%+; cost→charge table; provider costs never exposed | Part 12 L7637–7666; Part 15 L18880–18902 | ✅ | `src/backend/acu.ts` (`MARGIN_FLOOR`=2×, `STRATEGIC_TARGET_MARGIN`=4×) + `/api/acu`; **provider cost never returned to any client** (smoke-verified); `docs/ai-os/08` |
 | ACU pipeline: User Request → AI Gateway → Cost Engine → Margin Engine → ACU Calculator → Execution Engine | Part 12 L7671; Part 15 L18904–18917 | ✅ | `src/backend/acu.ts` (Cost/Margin/ACU/Profit/Arbitration engine) chained after `src/backend/gateway.ts`; `docs/ai-os/08` |
@@ -823,7 +823,9 @@ Marketing War Room, the AI Growth-OS ROI + executive-email agents).
 Agent 32 is the AI Auto-Segmentation Agent (Brevo Module 19); Agents 33–34 are
 the ICP Architect + Outreach Commander (Apollo-inspired LeadWar Room); Agent 35
 is the AI Automation Architect (Brevo Module 7 no-code builder); Agent 36 is
-the AI Landing Page Creation Agent (§4.6 — the central agent).
+the AI Landing Page Creation Agent (§4.6 — the central agent); Agents 37–38 are
+the Customer Avatar + Marketing Battle Plan agents (the 7-agent strategy chain
+bookends).
 The numbered lineage in agent prompts runs 1–31 because **Agent 20 (Profit
 Protection & Margin Intelligence)** is realised as the AI Gateway cost policy
 + the Admin margin dashboard (`/dashboard/admin`) rather than a standalone

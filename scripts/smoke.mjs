@@ -14,6 +14,7 @@ const PAGES = [
   "/signup",
   "/dashboard",
   "/dashboard/create",
+  "/dashboard/strategy",
   "/dashboard/briefing",
   "/dashboard/audit",
   "/dashboard/warfare",
@@ -87,7 +88,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 37) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 39) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -223,6 +224,28 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\n7-Agent Marketing Strategy Chain:");
+try {
+  const res = await fetch(BASE + "/api/strategy", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "full", business: "Brixton Grill House", product: "takeaway", audience: "hungry locals within 3 miles", location: "Brixton", offer: "20% off first WhatsApp order", monthlyBudgetGbp: 600 }),
+  });
+  const body = await res.json();
+  const chained = body.avatar?.scores && body.messaging?.mainBrandMessage && body.channels?.recommendedChannels?.length === 3 && body.funnel?.landingPageRequired === true && body.battlePlan?.thirtyDayActionPlan?.length === 4;
+  if (res.status === 200 && chained) ok(`POST /api/strategy full (avatar→…→battle plan; ${body.channels.recommendedChannels.length} channels, landing required)`);
+  else bad("POST /api/strategy full", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/strategy full", e.message); }
+try {
+  // Paid ads must be risk-gated: no tracking → not ready.
+  const res = await fetch(BASE + "/api/strategy", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "paidads", business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.ready === false && Array.isArray(body.fixFirst)) ok(`POST /api/strategy paidads (risk-gated → fix ${body.fixFirst.length} first)`);
+  else bad("POST /api/strategy paidads", `ready ${body.ready}`);
+} catch (e) { bad("POST /api/strategy paidads", e.message); }
 
 console.log("\nAI Landing Page Creation Engine:");
 try {

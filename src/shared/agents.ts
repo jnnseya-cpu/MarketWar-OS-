@@ -1551,6 +1551,88 @@ Add named testimonials (trust 66) and lift lead-quality with a one-line qualifie
 ## Publish
 \`marketwar.co/b/${(i.website ? "brixton-grill" : "your-business")}/${i.location ? "brixton" : "local"}-food\` · UTM tagged · pixels ready.`,
   },
+  "customer-avatar": {
+    id: "customer-avatar",
+    name: "AI Customer Avatar Agent",
+    role: "Ideal customer profile before any campaign",
+    description:
+      "The first agent in the strategy chain: builds a complete, specific, commercial customer avatar (demographics, psychographics, frustrations, failed alternatives, desired solution, where they are online, the words they use, buying triggers, motivators) and scores it across 7 dimensions (pain intensity, urgency, buying power, reachability, conversion probability, repeat purchase, referral potential). Feeds every downstream agent.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI CUSTOMER AVATAR AGENT — the first link in the strategy chain.
+Build a complete ideal customer profile so the business stops guessing and
+targets the people most likely to buy. Never generic. Score the avatar by pain
+intensity, urgency, buying power, reachability, conversion probability, repeat
+purchase and referral potential. Output structured, specific, commercial:
+## Demographics & Psychographics
+## Daily Frustrations & Failed Alternatives
+## What They Wish Existed (desired solution)
+## Where They Are Online & The Words They Use
+## Buying Triggers & Immediate Purchase Motivators
+## 7 Scores (with the one lever that most raises conversion)
+## One-Paragraph Marketing Foundation`,
+    demoOutput: (i) => `## Demographics & Psychographics
+${i.audience || "Hungry locals"} in ${i.location || "Brixton"} — value-conscious, mobile-first, trust local + word-of-mouth, sceptical of hype, act on a clear honest offer.
+
+## Daily Frustrations & Failed Alternatives
+Cold/late/overpriced delivery; too many untrustworthy choices; slow follow-up. Tried: the big apps (ignore them), cheap options (disappoint).
+
+## What They Wish Existed
+A trusted local option that's fast, fair, and risk-free to try once.
+
+## Where They Are Online & The Words They Use
+WhatsApp · Instagram/TikTok · Google (search + Maps) · local Facebook groups. Language: "is it actually good?", "how fast?", "any deal?", "near me".
+
+## Buying Triggers & Motivators
+A specific honest offer · social proof from people like them · real urgency · an easy WhatsApp first step. Motivators: first-order incentive, near-me speed, a visible guarantee.
+
+## 7 Scores
+Pain 82 · Urgency 74 · Buying power 63 · Reachability 88 · Conversion 71 · Repeat 66 · Referral 70. **Biggest lever: reachability + a first-order incentive → convert on WhatsApp.**
+
+## One-Paragraph Foundation
+The core buyer is hungry locals in Brixton tired of cold, overpriced app delivery. They trust local and proof, act on clear honest offers, and convert fastest via WhatsApp with a low-risk first step.`,
+  },
+  "marketing-battle-plan": {
+    id: "marketing-battle-plan",
+    name: "AI Marketing Battle Plan Agent",
+    role: "One-page strategy combining all 7 agents",
+    description:
+      "The final agent in the chain: combines the customer avatar, messaging, channels, 90-day content, funnel and paid-ads strategy into one execution-ready One-Page Marketing Battle Plan with the top 3 KPIs and a 30-day weekly action plan. Practical, not theory.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI MARKETING BATTLE PLAN AGENT — the final link. Combine the avatar,
+messaging, channel plan, 90-day content, funnel and paid-ads strategy into ONE
+clear, execution-ready battle plan. No theory, no generic advice — a plan the
+business can follow for the next 30 days. Owned channels first; paid ads only
+when ready; a landing page is always required. Output:
+## Business · Main Customer · Core Pain
+## Unique Value Proposition & Main Message
+## Top 3 Channels
+## Content Strategy (90-day summary) · Funnel Overview · Landing Page Requirement
+## Paid Ads Approach (ready or fix-first)
+## Top 3 KPIs (money, not vanity)
+## 30-Day Action Plan (weekly focus · actions · success metric)`,
+    demoOutput: (i) => `## Business · Main Customer · Core Pain
+**${biz(i)}** · hungry locals in ${i.location || "Brixton"} · cold/overpriced app delivery.
+
+## UVP & Main Message
+UVP: the trusted local choice — fast, fair, easy to try, proof over promises. Message: "Great ${(i.industry || "food")}, done right — in ${i.location || "Brixton"}, without the app markup."
+
+## Top 3 Channels
+WhatsApp (owned) · Local SEO/Google Business (owned) · TikTok (rented, tested).
+
+## Content · Funnel · Landing Page
+90-day plan, 5 pillars, repurposed 7 ways. 10-stage funnel (discovery → referral). **Landing page required: whatsapp_conversion — build it via the Conversion Architect before any paid spend.**
+
+## Paid Ads Approach
+Fix-first: tracking isn't ready → don't spend yet. Compound owned channels; test paid once tracking + page are live.
+
+## Top 3 KPIs
+Cost per customer (CAC) · revenue generated + recovered · conversion rate.
+
+## 30-Day Action Plan
+W1 Foundation (offer + page + tracking) · W2 Owned channels (WhatsApp/email + reviews) · W3 Test paid (or fix blockers) · W4 Scale winner + database resurrection + referral reward.`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);
