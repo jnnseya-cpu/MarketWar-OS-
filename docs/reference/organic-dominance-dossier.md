@@ -960,3 +960,23 @@ The category-defining insight: **AI assistants are the new search results page.*
 
 #### A3.7 LLM Visibility Tracking
 - Tracks brand mentions/citations across ChatGPT, Perplexity, and AI search; measures **citation growth over time** — the GEO-era rank tracker.
+
+#### A3.8 50+ Languages
+- Full multilingual generation incl. French, Arabic, Swahili-adjacent markets via "contact us and we'll add it." **Notably: no African languages listed (no Lingala, no Swahili) — a gap MarketWar can own.**
+
+#### A3.9 Growth Engine (GTM machinery worth copying wholesale)
+- **Free GEO Audit** ("Does ChatGPT recommend your website?") — the single best lead magnet in the category.
+- **Free tool cluster** (each a ranking asset + lead capture): Missing Keywords, Robots.txt Checker, Sitemap Checker, SEO Competitor Analysis, H1 Checker, Meta Description Checker, SERP Snippet Preview, **llms.txt Generator**, Link Building Playbooks.
+- **Academies:** SEO+AEO Academy (100-day plan, 15 skills, uses *your own data*), Shopify Academy (75 lessons/15 chapters, free), Local SEO Academy. Free education → paid autopilot.
+- **Claude MCP integration** — distribution inside the AI assistant itself.
+- **Proof architecture:** every success story ships with third-party verification links ("Verify with Ahrefs", shared ChatGPT conversation links) — externally auditable claims.
+- Affiliate programme + comparison pages targeting competitor brand searches.
+
+### A4. BLG Weaknesses & Exposed Flanks
+
+1. **Single-channel:** blog content only. No social, no video, no email, no paid.
+2. **Link-exchange regulatory risk:** reciprocal networks sit close to Google's link-scheme policies; a core-update penalty could vaporise the moat.
+3. **No listening layer:** zero sentiment, zero share-of-voice, zero crisis detection — it publishes but never listens.
+4. **No competitive war-gaming:** competitor analysis is a one-shot free tool, not a continuous battlefield map.
+5. **Anglo/EU-centric network:** 4,000-site network is Western; no African publisher inventory, no francophone-Africa density.
+6. **SMB ceiling:** no enterprise governance, roles, audit trails, or compliance framing.
