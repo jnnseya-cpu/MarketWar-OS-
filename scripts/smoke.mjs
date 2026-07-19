@@ -34,6 +34,7 @@ const PAGES = [
   "/dashboard/customers",
   "/dashboard/segments",
   "/dashboard/recovery",
+  "/dashboard/automation",
   "/dashboard/amplify",
   "/dashboard/roi",
   "/dashboard/revenue",
@@ -85,7 +86,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 35) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 36) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -221,6 +222,31 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nNo-Code Revenue Automation Builder:");
+try {
+  // Load a template + validate: it must respect the frequency cap.
+  const res = await fetch(BASE + "/api/automation", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "template", id: "abandoned_cart" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.workflow?.steps?.length > 0 && body.validation?.valid === true && body.validation.touchesIn7d <= 5) {
+    ok(`POST /api/automation template (${body.workflow.name}, ${body.validation.touchesIn7d} touches/7d, within cap)`);
+  } else bad("POST /api/automation template", `HTTP ${res.status}, valid ${body.validation?.valid}`);
+} catch (e) { bad("POST /api/automation template", e.message); }
+try {
+  // Non-consented contact → marketing steps must be skipped.
+  const tpl = await (await fetch(BASE + "/api/automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "template", id: "welcome" }) })).json();
+  const res = await fetch(BASE + "/api/automation", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "simulate", workflow: tpl.workflow, consented: false }),
+  });
+  const body = await res.json();
+  const anyBlocked = body.timeline?.some((e) => e.sent === false);
+  if (res.status === 200 && anyBlocked) ok("POST /api/automation simulate (non-consented → marketing steps skipped)");
+  else bad("POST /api/automation simulate", `no steps blocked for non-consented contact`);
+} catch (e) { bad("POST /api/automation simulate", e.message); }
 
 console.log("\nB2B Prospecting Engine (LeadWar Room):");
 try {

@@ -34,6 +34,7 @@ import {
   Wand2,
   Users,
   Wallet,
+  Workflow,
 } from "lucide-react";
 
 const NAV = [
@@ -72,6 +73,7 @@ const NAV = [
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
       { href: "/dashboard/segments", label: "Audience Segments", icon: Layers },
       { href: "/dashboard/recovery", label: "Lead Recovery", icon: RefreshCcw },
+      { href: "/dashboard/automation", label: "Automation Lab", icon: Workflow },
       { href: "/dashboard/amplify", label: "Reach Amplifier", icon: Share2 },
     ],
   },

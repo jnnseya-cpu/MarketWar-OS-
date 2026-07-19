@@ -1467,6 +1467,43 @@ from real prospect signals, never invented facts. Output:
 ## Compliance
 Corporate email → ICO B2B legitimate interest; sender identity + one-click unsubscribe included; suppression list + daily send limits respected. Personal email → LIA + opt-out required before the first send.`,
   },
+  "automation-architect": {
+    id: "automation-architect",
+    name: "AI Automation Architect",
+    role: "No-code revenue journeys (trigger → action → delay → branch)",
+    description:
+      "Designs autonomous customer journeys that wire the owned engines together — welcome, abandoned-cart recovery, win-back, booking reminders, review requests — using triggers, conditions, actions, delays and branches. Every marketing step is consent-gated and frequency-capped; opt-out and conversion end the journey. Transactional messages are exempt.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI AUTOMATION ARCHITECT (Brevo pack Module 7). You design no-code
+revenue journeys: Trigger → Condition → Action → Delay → Branch. Doctrine you
+cannot break: marketing messages are consent-gated and capped at 5 touches per
+person per 7 days; opt-out and conversion end the journey immediately;
+transactional messages (confirmations/reminders) are exempt. Every journey must
+have a stop condition. Never design a spammy flow. Output:
+## Trigger (what starts the journey)
+## Journey Steps (each: action/condition/wait with timing — the full sequence)
+## Stop Conditions (what ends it early — conversion / opt-out / re-engagement)
+## Governance (touches/7d vs the cap; consent gate; which steps are transactional)
+## Expected Outcome (the revenue goal + what to measure)`,
+    demoOutput: (i) => `## Trigger
+**cart_abandoned** — a ${biz(i)} customer left checkout.
+
+## Journey Steps
+1. **Wait 1h** → **WhatsApp** (if opted in): "You left something — want me to hold it?"
+2. **Wait ~1 day** → **Condition:** still not purchased? (exit if recovered).
+3. **SMS** short nudge (+ STOP to opt out).
+4. **Wait 2 days** → **generate_offer**: small time-boxed recovery incentive → **Email** delivers it.
+
+## Stop Conditions
+Purchase (conversion) or opt-out ends the journey instantly; the day-1 condition exits early if already recovered.
+
+## Governance
+3 marketing touches over ~4 days — well under the 5/7-day cap. All gated on marketing consent; none are transactional here, so all respect the cap + opt-out.
+
+## Expected Outcome
+Recover the abandoned sale. Measure: recovery rate, revenue recovered, opt-out rate (keep < 0.5%).`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);
