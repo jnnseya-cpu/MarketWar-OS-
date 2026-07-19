@@ -910,3 +910,34 @@ Content-generation controls
 
 <!-- SECTION 1 ENDS MID-ITEM ("Claims") — Section 2 continues the
 content-generation controls and beyond. -->
+
+---
+
+## PART A (verbatim) — DEEP TEARDOWN: BABYLOVEGROWTH.AI
+
+> Encoding note: the owner's paste arrived with UTF-8-as-latin1 mojibake
+> (â€" → —, curly quotes); normalised to the intended characters here, content
+> unchanged — same policy as the escaped code-fence in VERIFICATION.md.
+
+### A1. Positioning & Core Thesis
+
+BabyLoveGrowth (BLG) sells one promise: **"Grow organic traffic from Google AND AI search on autopilot."** It is the first mover to fully productise **GEO (Generative Engine Optimization)** — being *recommended by ChatGPT, Claude, Perplexity, Gemini* — as the primary value proposition, with classic SEO as the delivery mechanism. Backed by a 90-day money-back guarantee on organic metrics.
+
+The category-defining insight: **AI assistants are the new search results page.** Brands that get cited in LLM answers capture high-intent traffic that never touches Google. One customer (myhair.ai) reports ~20% of total traffic now coming from ChatGPT/Perplexity brand rankings.
+
+<!-- PART A CONTINUES in the next section (A2+). -->
+
+### A2. The Three-Step Product Loop
+
+| Step | What it does | Extractable IP |
+|---|---|---|
+| **1. Business Analysis** | Analyses business, audience, niche, competitors → surfaces keyword discovery + **user prompts** (the LLM-era equivalent of keywords: what people *ask* AI) | Dual-index opportunity mining: keywords AND prompts |
+| **2. Create What Ranks** | Generates brand-aligned articles structured for both SERP ranking and LLM citation | Brand DNA injection (colors, voice, cross-linked offerings) |
+| **3. Grow on Autopilot** | Publishes daily, builds backlinks, tracks AI visibility — zero human loop | Full closed-loop execution, not just insight |
+
+### A3. Complete Feature Inventory (Extracted)
+
+#### A3.1 Branded SEO Content Engine
+- Articles inherit **brand colors (exact hex), tone of voice descriptors, and cross-linked product offerings** — every article funnels readers to the customer's actual products.
+- Output anatomy per article (from live example, scored 95/100): TL;DR block, table of contents, key-takeaways table, comparison tables, inline statistics with cited external sources, "Pro Tip" callouts, a first-person "honest take" section (E-E-A-T signal), product CTA section, FAQ block (schema-ready), recommended internal links, hyper-realistic images + infographics with alt text.
+- **Article Score card** (visible quality gate): optimal structure, cited sources, internal links, external links, statistics data points, plagiarism check, image alt texts, semantic keywords, optimized meta tags, JSON-LD schema, word count, keyword count.
