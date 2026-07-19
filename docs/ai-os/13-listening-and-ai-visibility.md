@@ -186,10 +186,18 @@ Network (15–24: MW-03 + MW-11) → Ears (25–36: MW-06 + MW-07 + MW-08) →
 Theatre Africa (37–48: MW-13 + MW-12, DRC publisher drive, War College FR).
 Slots into doc 08 Part C as the Organic Dominance track.
 
-### First build (self-growth aligned)
+### Phase-1 Strike — SHIPPED (2026-07-19)
 
-Phase-1 Strike is deliberately the acquisition front door — **MW-02 Citation
-Radar + MW-09 Magnet Foundry (free GEO audit)** dogfood MarketWar's own growth
-(doc 01 §1.6) while being the fastest demo. **MW-07 Query Compiler** remains
-the standout wedge (kills Brandwatch's #1 adoption complaint). These are the
-first buildable targets when we move from blueprint to code.
+The acquisition front door is live: `src/backend/geo.ts` (deterministic GEO
+Readiness audit + Citation Share-of-Voice radar + Magnet Foundry cluster),
+`/api/geo`, `/dashboard/organic` (Organic Dominance surface with the live free
+GEO audit "Does ChatGPT recommend your business?" + citation radar), and two
+agents — **`geo-recon` (MW-04)** and **`citation-radar` (MW-02)**. The GEO
+audit and citation radar run live in the backend now; live LLM prompt-firing
+routes through the gateway at go-live. Honesty safeguard enforced: the engine
+reports readiness/visibility, never attribution. These dogfood MarketWar's own
+growth (doc 01 §1.6) and are the fastest demo.
+
+Remaining roadmap (doc 08 Part C): Artillery (MW-01 content pipeline) →
+Network (MW-03) → Ears (MW-06/07/08, incl. the MW-07 Query Compiler wedge) →
+Theatre Africa (MW-13/MW-12).

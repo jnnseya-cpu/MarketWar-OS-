@@ -842,7 +842,8 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **23-agent LangGraph registry (A01–A23)** — event-sourced Kafka + CQRS PostgreSQL, per-run ACU metering, BitriPay top-ups | Dossier Part E | 📘 adopted (additive to the shipped roster) | `docs/ai-os/13` Part 2 |
 | **ACU pricing (Recon→Skirmish→Battalion→Command)** — 3× generation / 1× monitoring, reconciled above the ≥2×/100% floor; BitriPay rail | Dossier Part F1 | 📘 adopted | `docs/ai-os/13` Part 2 + doc 08 §A.1a |
 | **48-week / 5-phase roadmap** (Strike→Artillery→Network→Ears→Theatre Africa) | Dossier Part F2 | 📘 adopted | `docs/ai-os/13` Part 2 → doc 08 Part C |
-| First build targets: MW-02 Citation Radar + MW-09 Magnet Foundry (Phase-1 Strike, self-growth-aligned) + MW-07 Query Compiler wedge | Dossier F2 + C | 📦 buildable next | `docs/ai-os/13` Part 2 |
+| **Phase-1 Strike SHIPPED**: MW-04 GEO Recon + MW-02 Citation Radar + MW-09 Magnet Foundry (free GEO audit front door) | Dossier F2 Phase 1 | ✅ | `src/backend/geo.ts`, `/api/geo`, `/dashboard/organic`, agents `geo-recon` + `citation-radar`; smoke-covered |
+| Remaining roadmap: Artillery (MW-01) → Network (MW-03) → Ears (MW-06/07/08) → Theatre Africa (MW-13/12) | Dossier F2 | 📘 next | `docs/ai-os/13` Part 2 |
 | **23-agent LangGraph registry addition** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **ACU-tiered pricing** (to reconcile under ≥2×/100% floor) | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **48-week roadmap** | Dossier (not received) | ⏳ **awaiting full paste** | pending |

@@ -20,6 +20,7 @@ const PAGES = [
   "/dashboard/offers",
   "/dashboard/product-engine",
   "/dashboard/website-intel",
+  "/dashboard/organic",
   "/dashboard/content",
   "/dashboard/video",
   "/dashboard/landing-pages",
@@ -76,7 +77,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 23) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 25) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -143,6 +144,26 @@ try {
   if (res.status === 200 && body.willSend === 1 && body.stopped === 1 && body.held === 1) ok("POST /api/amplify retarget (consent + frequency governance)");
   else bad("POST /api/amplify retarget", `HTTP ${res.status}, send ${body.willSend}/stop ${body.stopped}/hold ${body.held}`);
 } catch (e) { bad("POST /api/amplify retarget", e.message); }
+
+console.log("\nStrike-phase GEO API:");
+try {
+  const res = await fetch(BASE + "/api/geo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "audit", business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.overall === "number" && Array.isArray(body.fixes)) ok(`POST /api/geo audit (readiness ${body.overall}, tier ${body.tier})`);
+  else bad("POST /api/geo audit", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/geo audit", e.message); }
+try {
+  const res = await fetch(BASE + "/api/geo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "citation", business: "Brixton Grill House", competitors: ["Flame Republic"] }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.shareOfVoice === "number" && Array.isArray(body.engines)) ok(`POST /api/geo citation (SoV ${body.shareOfVoice}%)`);
+  else bad("POST /api/geo citation", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/geo citation", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

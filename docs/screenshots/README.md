@@ -96,3 +96,6 @@ The full platform, captured from the running production build. Click any image t
 
 ### Reach Amplifier — earned virality, consented follow-up
 ![Reach Amplifier](27-reach-amplifier.png)
+
+### Organic Dominance — Strike phase (free GEO audit + Citation Radar)
+![Organic Dominance Strike](28-organic-dominance-strike.png)

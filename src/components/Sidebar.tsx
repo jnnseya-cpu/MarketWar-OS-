@@ -47,6 +47,7 @@ const NAV = [
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
+      { href: "/dashboard/organic", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
       { href: "/dashboard/landing-pages", label: "Landing Pages", icon: Flame },

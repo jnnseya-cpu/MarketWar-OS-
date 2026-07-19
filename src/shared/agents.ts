@@ -822,6 +822,89 @@ SEO 58 · Speed 71 · UX 74 · Accessibility 62 · Mobile 79 · **Conversion 51*
 3. Launch the 30-day content plan with week 1 scheduled tonight`,
   },
 
+  "geo-recon": {
+    id: "geo-recon",
+    name: "AI GEO Recon Agent",
+    role: "Get recommended by ChatGPT, Claude, Gemini & Perplexity",
+    description:
+      "The Organic Dominance Strike-phase agent (MW-04): audits a site's AI-visibility readiness — llms.txt, structured data, AI-crawler access, answerability, authority, freshness, multi-locale — and returns the prioritised fixes that get a business cited in AI answers.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI GEO RECON AGENT (MW-04) of MarketWar Organic Dominance. AI
+assistants are the new search results page — your job is to make a business
+citable in ChatGPT/Claude/Gemini/Perplexity answers. Honesty rule: measure
+readiness/visibility, never claim all AI-referral growth is our doing (compare
+to baselines). Output:
+## GEO Readiness Verdict (is this business citable by AI today? one blunt line + a 0–100 readiness score)
+## Category Breakdown (structured data, AI-crawler access incl. llms.txt, answerability/FAQ, authority/E-E-A-T, freshness, multi-locale/hreflang — score + one-line reason each)
+## Priority Fixes (worst first: fix, severity, and whether it's one-click auto-fixable)
+## Prompt Targets (5 real questions customers ask AI in this niche that the business should own)
+## Quick Win (the single highest-leverage change to make today, in citation terms)`,
+    demoOutput: (i) => `## GEO Readiness Verdict
+**${biz(i)} is currently near-invisible to AI assistants — readiness ~48/100.** ChatGPT is unlikely to recommend it today: no llms.txt, no FAQ schema, and headings aren't written as the questions people actually ask.
+
+## Category Breakdown
+- **Structured data (JSON-LD):** 88 — Organisation schema present, good foundation.
+- **AI-crawler access (llms.txt + bots):** 40 — GPTBot/ClaudeBot allowed, but **no llms.txt** declaring your key pages.
+- **Answerability (FAQ + question headings):** 20 — no FAQ schema, so you won't be quoted.
+- **Authority (named authorship):** 34 — no named expert; weak trust signal for AI ranking.
+- **Freshness:** 80 — content is dated, AI likes that.
+- **Multi-locale (hreflang):** 45 — no FR/Lingala variants; ${loc(i)}'s francophone audience is underserved.
+
+## Priority Fixes
+1. **Add llms.txt** (critical · auto-fixable) — declare your menu, offers and location pages to AI crawlers.
+2. **Add FAQ schema** (high · auto-fixable) — wrap "how much / how fast / do you deliver to…" as FAQPage JSON-LD.
+3. **Question-based headings** (high) — rewrite H2s as "How fast is delivery in ${loc(i)}?".
+4. **Named authorship** (medium) — attribute to the owner with a short bio.
+
+## Prompt Targets
+"best family platter delivery in ${loc(i)}", "who delivers hot food near me tonight", "cheapest way to feed 4 in ${loc(i)}", "is ${biz(i)} any good", "halal grill delivery ${loc(i)}".
+
+## Quick Win
+**Ship an llms.txt + one FAQPage block today.** Those two auto-fixes move you from "invisible" toward "emerging" and are the fastest path to your first AI citation.`,
+  },
+
+  "citation-radar": {
+    id: "citation-radar",
+    name: "AI Citation Radar",
+    role: "Track your share of AI recommendations",
+    description:
+      "The Organic Dominance Strike-phase agent (MW-02): fires a prompt battery at ChatGPT, Claude, Gemini and Perplexity, and reports Citation Share-of-Voice — how often each AI recommends this business versus named competitors, per prompt.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI CITATION RADAR (MW-02) of MarketWar Organic Dominance. You
+measure how often AI assistants recommend a business versus its competitors
+across a battery of buyer prompts. Honesty rule (binding): report visibility
+and share-of-voice as measurements; never claim causation for traffic changes
+without a baseline/control. Output:
+## Citation Share of Voice (one number: % of AI answers that mention this business across the prompt battery, + whether that's winning or losing to the named competitor)
+## By Engine (ChatGPT / Claude / Gemini / Perplexity — tenant cited-rate vs competitor, per engine)
+## Prompt Battery (the buyer prompts tested + who currently gets cited on each)
+## Displacement Alerts (prompts where a competitor is winning that this business should own)
+## Move (the one content/authority action that would lift citation share fastest — hands off to the GEO Recon Agent)`,
+    demoOutput: (i) => `## Citation Share of Voice
+**${biz(i)} holds ~31% citation share** across the buyer-prompt battery — losing to the local leader (~52%). AI is recommending competitors more than half the time on questions your customers are asking right now.
+
+## By Engine
+- **ChatGPT:** you 34% · competitor 58% — biggest gap, biggest opportunity.
+- **Perplexity:** you 41% · competitor 61% — Perplexity leans on citable sources; your missing FAQ schema hurts here most.
+- **Gemini:** you 29% · competitor 49%.
+- **Claude:** you 22% · competitor 44%.
+
+## Prompt Battery
+- "best family platter delivery in ${loc(i)}" → **competitor cited (pos 1)**.
+- "who delivers hot food near me tonight" → **you cited (pos 2)** ✅.
+- "cheapest way to feed 4 in ${loc(i)}" → competitor cited.
+- "is ${biz(i)} any good" → you cited (pos 1) ✅.
+- "halal grill delivery ${loc(i)}" → competitor cited.
+
+## Displacement Alerts
+You should own **"best family platter delivery in ${loc(i)}"** and **"cheapest way to feed 4"** — both high-intent, both currently going to the competitor.
+
+## Move
+**Publish one GEO-optimised comparison + FAQ page targeting those two prompts** (hand to the GEO Recon Agent for the llms.txt + FAQ schema). That's the fastest lever on your citation share.`,
+  },
+
   "amplification-strategist": {
     id: "amplification-strategist",
     name: "AI Viral Amplification Strategist",
