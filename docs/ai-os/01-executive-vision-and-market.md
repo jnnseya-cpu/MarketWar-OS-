@@ -68,6 +68,35 @@ platform-wide prior. The 10,000th restaurant's first campaign starts from the le
 posterior of 9,999 restaurants — a cold-start advantage no point tool can copy.
 That is the Bloomberg/Aladdin pattern: the network's data makes each terminal smarter.
 
+### 1.6 The self-growth doctrine (owner directive 2026-07-19 — binding)
+
+**MarketWar OS supports its users AND supports itself to grow — it uses its
+own OS to acquire its own users and compound its way to market leadership.**
+The platform is its own first customer and its own best proof point ("we grew
+MarketWar OS with MarketWar OS"). This is binding, not aspirational:
+
+- **Dogfood every acquisition surface on ourselves.** The Sales Agent works
+  MarketWar's own trial→paid funnel with the same tools tenants get (doc 03
+  §3); the CLV/growth engines run on our own funnel (doc 08 §A.3, "dogfooding
+  M-13 on ourselves"); the Failure Audit, Offer Builder, Content Factory,
+  Email engine (M-34, earned inboxing), Amplification engine (M-35, earned
+  virality + consented retargeting) and the VisualStrike/SiteRaid engines are
+  all pointed at MarketWar's own growth first.
+- **Every product improvement is a growth improvement.** Because we run on our
+  own platform, a better agent makes the product *and* our own acquisition
+  better simultaneously — a compounding loop no competitor running on someone
+  else's stack can match.
+- **The compound-data moat (§1.5) applies to us too:** our own campaigns feed
+  the same platform-wide priors, so MarketWar's marketing gets smarter with
+  every tenant added — self-reinforcing market leadership.
+- **Always inside the platform's own laws:** self-growth uses the same
+  consent architecture, frequency governance (M-35), margin floor and
+  compliance gates every tenant gets — we never grow ourselves by means the
+  platform forbids tenants. Growing the right way *is* the demonstration.
+
+This doctrine governs prioritisation: when choosing what to build next, the
+tie-breaker is "does this also grow MarketWar itself?"
+
 ---
 
 ## 2. Forensic Market-Gap Review
