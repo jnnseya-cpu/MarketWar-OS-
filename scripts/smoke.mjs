@@ -24,6 +24,7 @@ const PAGES = [
   "/dashboard/studio",
   "/dashboard/website-intel",
   "/dashboard/discover",
+  "/dashboard/prospecting",
   "/dashboard/organic",
   "/dashboard/content",
   "/dashboard/video",
@@ -84,7 +85,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 33) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 35) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -220,6 +221,30 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nB2B Prospecting Engine (LeadWar Room):");
+try {
+  const res = await fetch(BASE + "/api/prospecting", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "search", product: "AI customer-acquisition OS", industry: "marketing services", dealSizeGbp: 8000 }),
+  });
+  const body = await res.json();
+  const p = body.prospects?.[0];
+  // Deal Probability present; personal emails flagged; prospects ranked.
+  const flagged = body.prospects?.every((x) => x.emailType === "generic" || x.complianceFlags.includes("personal-email"));
+  if (res.status === 200 && p?.dealScore?.dealProbability >= 0 && p.dealScore.expectedDealValueGbp >= 0 && flagged) {
+    ok(`POST /api/prospecting search (top deal ${p.dealScore.dealProbability} ${p.dealScore.band}, ${body.prospects.length} prospects, compliance-flagged)`);
+  } else bad("POST /api/prospecting search", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/prospecting search", e.message); }
+try {
+  const res = await fetch(BASE + "/api/prospecting", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "icp", product: "AI customer-acquisition OS", targetIndustry: "hospitality", dealSizeGbp: 20000 }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.bestJobTitles) && body.scoringFormula && body.exclusionRules.length > 0) ok(`POST /api/prospecting icp (${body.bestJobTitles.length} titles, ${body.exclusionRules.length} exclusions)`);
+  else bad("POST /api/prospecting icp", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/prospecting icp", e.message); }
 
 console.log("\nAI Audience Segmentation Engine:");
 try {

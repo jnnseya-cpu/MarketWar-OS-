@@ -57,6 +57,7 @@ const NAV = [
       { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
       { href: "/dashboard/discover", label: "Market Intel", icon: Search },
+      { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
       { href: "/dashboard/organic", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
