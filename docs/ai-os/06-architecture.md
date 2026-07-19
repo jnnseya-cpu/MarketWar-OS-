@@ -402,5 +402,5 @@ runtime enforcement; behaviour and feature surface unchanged (Additive-Only):
 
 Stabilisation gates: `npm run verify` (typecheck + build) and `npm run smoke`
 (`scripts/smoke.mjs` — all 31 page routes, security headers, all 27 agents
-end-to-end, audit + gateway + warfare/image/geo/email/amplify APIs; 75 checks).
-Global error boundary + not-found surfaces ship in `src/app/`.
+end-to-end, audit + gateway + warfare/image/acu/geo/email/amplify APIs;
+78 checks). Global error boundary + not-found surfaces ship in `src/app/`.

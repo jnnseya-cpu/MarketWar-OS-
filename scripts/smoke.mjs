@@ -216,6 +216,38 @@ try {
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
 
+console.log("\nACU Economics Engine:");
+try {
+  const res = await fetch(BASE + "/api/acu", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "quote", providerCostGbp: 0.2, actionClass: "high", complexity: 1.5, marginMultiplier: 4 }),
+  });
+  const body = await res.json();
+  // Margin must clear the 2x floor; provider cost must NOT be exposed.
+  if (res.status === 200 && body.acus > 0 && body.marginMultiplier >= 2 && body.providerCostGbp === undefined) {
+    ok(`POST /api/acu quote (${body.acus} ACUs, ${body.marginMultiplier}× margin, cost hidden)`);
+  } else bad("POST /api/acu quote", `HTTP ${res.status}, exposed cost: ${body.providerCostGbp !== undefined}`);
+} catch (e) { bad("POST /api/acu quote", e.message); }
+try {
+  const res = await fetch(BASE + "/api/acu", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "profit", expectedRevenueGbp: 0.1, expectedCostGbp: 0.2 }),
+  });
+  const body = await res.json();
+  // Below-floor margin must NOT run.
+  if (res.status === 200 && body.ok === false && body.action !== "run") ok(`POST /api/acu profit (loss blocked → ${body.action})`);
+  else bad("POST /api/acu profit", `HTTP ${res.status}, ok=${body.ok}`);
+} catch (e) { bad("POST /api/acu profit", e.message); }
+try {
+  const res = await fetch(BASE + "/api/acu", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "arbitrate", minQuality: 70, candidates: [{ id: "a", costGbp: 0.25, qualityScore: 80 }, { id: "b", costGbp: 0.12, qualityScore: 75 }, { id: "c", costGbp: 0.05, qualityScore: 60 }] }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.winner?.id === "b") ok("POST /api/acu arbitrate (cheapest capable = b)");
+  else bad("POST /api/acu arbitrate", `winner ${body.winner?.id}`);
+} catch (e) { bad("POST /api/acu arbitrate", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
