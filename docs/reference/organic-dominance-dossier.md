@@ -1100,3 +1100,32 @@ BABYLOVEGROWTH ── acts, never listens ────►
 **Extracted from:** BLG A3.5
 - Crawl agent auditing: JSON-LD coverage, llms.txt presence/quality, robots directives for GPTBot/ClaudeBot/PerplexityBot, heading semantics, FAQ schema, sitemap health, Core Web Vitals, hreflang (critical for FR/EN/Lingala multi-locale tenants).
 - Output: prioritised fix list with auto-generated patches (llms.txt generator, schema snippets) — one-click apply via CMS adapter.
+
+### MW-05 · Community Infiltration Engine
+**Extracted from:** BLG A3.6, extended for African market reality
+- Reddit high-intent thread discovery (BLG parity) **plus** the channels that actually matter in DRC/diaspora markets: **Facebook Groups, WhatsApp community monitoring (opt-in/admin-consented), Telegram, LinkedIn, TikTok comments**.
+- Surfaces threads where the tenant should be present; drafts compliant, disclosure-respecting response suggestions (human-approved before posting — governance gate, no astroturfing).
+- Feeds engagement outcomes back into MW-02 (community presence → LLM citation lift is BLG's core mechanic).
+
+### MW-06 · SIGINT Core (Social Listening)
+**Extracted from:** Brandwatch B2–B3, right-sized for ACU economics
+- Ingestion tier (Kafka topics per source): X/Twitter API, Reddit, YouTube, TikTok, news RSS/scrape, Google Reviews, Trustpilot, app-store reviews, podcasts (transcribe top feeds per vertical — Brandwatch's 2025 differentiator, commoditised via Whisper-class ASR), + tenant first-party (support tickets, CSAT, BitriPay transaction sentiment signals where consented).
+- Analysis stack: sentiment, **Tone of Voice × Style × Emotion clustering** (Iris Content Insights parity on comments), entity/aspect extraction, language ID incl. **French, Lingala, Swahili, code-switched text**.
+- Honest scope note for investors: we do not replicate a 1.6T-conversation archive; we deliver **decision-grade listening on the channels that drive revenue for SMB/venture tenants**, at 1/10th Brandwatch's entry price — the Land O'Lakes "replace the $85k agency" pitch, aimed one tier down-market.
+
+### MW-07 · War Room Analyst Agent ("Ask MarketWar")
+**Extracted from:** Iris AI (Ask Iris + AI Query Writer)
+- Natural-language chat over all tenant telemetry (rankings, citations, mentions, sentiment, campaign performance).
+- **Query Compiler:** plain English → structured filters/Boolean → saved monitors (kills the Brandwatch analyst-skills barrier — this is their #1 adoption complaint and our wedge).
+- Answers always cite the underlying data rows (auditability = enterprise trust; consistent with VERYX governed-OS positioning).
+
+### MW-08 · Early Warning & Narrative Engine
+**Extracted from:** Iris peak detection + AI Dashboards
+- Anomaly detection on mention volume, sentiment velocity, citation displacement, competitor content bursts.
+- Every dashboard ships with an **auto-written narrative** ("what happened, why, what to do") — Brandwatch's most-loved feature, generalised.
+- Escalation tiers: info → warning → **war alert** (crisis playbook auto-drafted: holding statement, FAQ update, MW-01 counter-content brief queued).
+
+### MW-09 · Magnet Foundry (Growth-Loop Module)
+**Extracted from:** BLG's entire free-tools GTM machine
+- Ship the cluster as standalone ranked pages: GEO Audit, llms.txt Generator, Missing Keywords, Robots/Sitemap/H1/Meta checkers, SERP Snippet Preview, Competitor Snapshot.
+- Each tool = SEO asset + email capture + one-click upgrade into paid modules. Reusable across the whole portfolio (StudYear, Tunakula, OpenNJob can each ship vertical magnets from the same foundry).
