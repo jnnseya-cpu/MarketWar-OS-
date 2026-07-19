@@ -463,13 +463,14 @@ console.log("\nACU Economics Engine:");
 try {
   const res = await fetch(BASE + "/api/acu", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "quote", providerCostGbp: 0.2, actionClass: "high", complexity: 1.5, marginMultiplier: 4 }),
+    body: JSON.stringify({ action: "quote", providerCostGbp: 1, actionClass: "low" }),
   });
   const body = await res.json();
-  // Margin must clear the 2x floor; provider cost must NOT be exposed.
-  if (res.status === 200 && body.acus > 0 && body.marginMultiplier >= 2 && body.providerCostGbp === undefined) {
-    ok(`POST /api/acu quote (${body.acus} ACUs, ${body.marginMultiplier}× margin, cost hidden)`);
-  } else bad("POST /api/acu quote", `HTTP ${res.status}, exposed cost: ${body.providerCostGbp !== undefined}`);
+  // Owner rule: £1 provider → £4 user (default 4× markup). Simplest class,
+  // no complexity/demand → retail must be exactly £4, 400 ACUs, cost hidden.
+  if (res.status === 200 && body.marginMultiplier === 4 && body.retailGbp === 4 && body.acus === 400 && body.providerCostGbp === undefined) {
+    ok(`POST /api/acu quote (£1 provider → £${body.retailGbp} user = ${body.marginMultiplier}× = ${body.acus} ACUs, cost hidden)`);
+  } else bad("POST /api/acu quote", `HTTP ${res.status}, retail £${body.retailGbp}, ${body.marginMultiplier}×, cost exposed: ${body.providerCostGbp !== undefined}`);
 } catch (e) { bad("POST /api/acu quote", e.message); }
 try {
   const res = await fetch(BASE + "/api/acu", {

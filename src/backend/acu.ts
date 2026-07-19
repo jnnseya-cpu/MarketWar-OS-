@@ -17,8 +17,11 @@ if (typeof window !== "undefined") {
 // deterministic so it works in demo mode and can be unit-checked.
 
 export const ACU_PER_GBP = 100; // £1 = 100 ACUs (platform-wide constant)
-export const MARGIN_FLOOR = 2; // never below 2× provider cost (100% margin)
-export const STRATEGIC_TARGET_MARGIN = 4; // 400%+ average platform target
+export const MARGIN_FLOOR = 2; // never below 2× provider cost (100% margin — hard floor)
+// Owner pricing rule (confirmed 2026-07-19): STANDARD markup is 4× — every £1
+// of provider cost is charged to the user at £4. This is the default for every
+// AI action; it can be tuned upward but never below the 2× floor.
+export const STRATEGIC_TARGET_MARGIN = 4;
 
 // ---------------------------------------------------------------------------
 // Action classes — margin bands by cost tier (spec: low/medium/high/very-high)
@@ -50,11 +53,11 @@ export const ACTION_CLASSES: Record<ActionClass, {
   },
 };
 
-// NOTE (owner directive 2026-07-19): every SPECIFIC price / membership tier /
-// subscription fee / ACU allotment below is an INDICATIVE PLACEHOLDER — the
-// owner sets the final numbers at launch. What is fixed here is the MACHINERY
-// (the margin floor + target, the pricing formula, profit protection and
-// arbitration); the tunable values are config, not doctrine.
+// NOTE (owner directive 2026-07-19): the MARKUP is now confirmed — 4× standard
+// (£1 provider cost → £4 user), 2× hard floor. The subscription tier fees and
+// per-plan ACU allotments below remain INDICATIVE placeholders the owner
+// finalises at launch. The machinery (floor + 4× markup, pricing formula,
+// profit protection, arbitration) is fixed doctrine.
 
 // Speed and premium-model multipliers charge extra ACUs (spec revenue
 // multipliers). Values indicative — final numbers set at launch.
@@ -105,11 +108,17 @@ export function quoteAcu(input: AcuQuoteInput): AcuQuote {
   const complexity = Math.max(1, input.complexity ?? 1);
   const demand = Math.max(1, input.demandMultiplier ?? 1);
   const variants = Math.max(1, input.variants ?? 1);
-  // Default margin = midpoint of the class band; floored at 2×.
-  const margin = clampMargin(input.marginMultiplier ?? (cls.marginMin + cls.marginMax) / 2);
+  // Standard markup = 4× (owner rule 2026-07-19: every £1 of provider cost →
+  // £4 to the user). A caller may override, but never below the 2× floor.
+  const margin = clampMargin(input.marginMultiplier ?? STRATEGIC_TARGET_MARGIN);
 
-  const providerCost = Math.max(0, input.providerCostGbp) * variants;
-  const retailGbp = providerCost * complexity * cls.resourceWeight * margin * demand;
+  // Complexity, resource weight and demand scale the true PROVIDER cost — a
+  // heavier / more complex / peak-demand task genuinely costs the provider more.
+  const baseCost = Math.max(0, input.providerCostGbp) * variants;
+  const trueProviderCost = baseCost * complexity * cls.resourceWeight * demand;
+  // The markup then applies ONCE on top: user charge = 4× the provider cost
+  // (owner rule £1 → £4), never below the 2× floor.
+  const retailGbp = trueProviderCost * margin;
   const baseAcus = Math.ceil(retailGbp * ACU_PER_GBP);
 
   const speedAcus = input.speed ? SPEED_TIERS[input.speed] - SPEED_TIERS.normal : 0;
@@ -117,7 +126,7 @@ export function quoteAcu(input: AcuQuoteInput): AcuQuote {
   const addOnAcus = Math.max(0, speedAcus) + Math.max(0, premiumAcus);
   const acus = baseAcus + addOnAcus;
 
-  const marginPct = providerCost > 0 ? round((retailGbp - providerCost) / providerCost * 100, 0) : 0;
+  const marginPct = trueProviderCost > 0 ? round((retailGbp - trueProviderCost) / trueProviderCost * 100, 0) : 0;
   const estimatedSeconds = Math.round(complexity * cls.resourceWeight * 40 * variants / (input.speed === "instant" ? 4 : input.speed === "priority" ? 2 : 1));
 
   return {
@@ -128,7 +137,7 @@ export function quoteAcu(input: AcuQuoteInput): AcuQuote {
     addOnAcus,
     breakdown: [
       `class "${cls.label}" (×${cls.resourceWeight} resource), complexity ×${complexity}, demand ×${demand}`,
-      `margin ×${round(margin, 2)} (band ${cls.marginMin}–${cls.marginMax}×, floor ${MARGIN_FLOOR}×) → ${baseAcus} ACUs`,
+      `markup ×${round(margin, 2)} (standard 4× = £1 provider → £4 user, floor ${MARGIN_FLOOR}×) → ${baseAcus} ACUs`,
       addOnAcus ? `+ ${addOnAcus} ACUs add-ons (${input.speed ?? "normal"} speed${input.premiumModel ? ", premium model" : ""})` : "no add-ons",
       `≈ £${round(retailGbp, 2)} value · gross margin ${marginPct}%`,
     ],
