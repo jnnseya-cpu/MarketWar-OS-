@@ -34,7 +34,7 @@ implemented or specified, it is preserved verbatim and tracked here as backlog.
 | 6 | DemandOS / organic acquisition engines | 25 | 5 | 9 | 11 |
 | 7 | Customer Resurrection Engine | 15 | 1 | 2 | 12 |
 | 8 | Landing-page subsystem | 24 | 1 | 1 | 22 |
-| 9 | Competitor-inspired feature packs | 24 | 7 | 0 | 17 |
+| 9 | Competitor-inspired feature packs | 24 | 8 | 0 | 16 |
 | 10 | Independence / external-API architecture | 21 | 4 | 6 | 11 |
 | 11 | Pricing & ACU economics | 26 | 8 | 12 | 6 |
 | 12 | Data model | 12 | 1 | 2 | 9 |
@@ -482,7 +482,7 @@ Each pack is a full standalone extraction ("copy but make it stronger") preserve
 | Brevo: CRM/CDP, segmentation, 12 lifecycle automations, 10+ channels, transactional messaging (OTP, receipts, invoices), sales CRM, shared inbox with AI suggested replies, 14-metric analytics | Part 12 L9378–9475; Part 15 L19820–19920 | 📦 | `source-notes/12`, `source-notes/15` |
 | Brevo Incorporation Pack (developer-ready): 17-module "Customer Communication & Revenue Automation OS", snake_case feature catalogues per module, 15-trigger/12-action automation vocabulary, ~30 API routes (POST /api/campaigns/omnichannel/create …), 39 collections, 3-phase build priority | Part 12 L11763–12448; Part 15 L16929–17614 | 📦 | `source-notes/12`, `source-notes/15` (pass 2 at 16929–17614 is the canonical developer version) |
 | **Contact Extractor / Lead Harvest AI**: compliant B2B contact intelligence — 23 lawful public sources; low-risk generic vs higher-risk personal email classification; crawler suite; per-email record (13 fields incl. lawful-basis status); 12-check verification; GDPR/LIA/PECR/CAN-SPAM compliance engine; 12-check outreach gate; warm-up/throttled sending | Part 12 L9518–9689; Part 15 L19937–20092 | 📦 | `source-notes/12`, `source-notes/15` |
-| **Trustpilot pack — Trust, Reviews & Reputation Engine**: review collection (email/SMS/WhatsApp/QR invitations), public trust page per business, TrustBox-style widgets (9 types), 13-metric analytics, AI review responses, fake-review/fraud detection (10 controls), review SEO + AI-visibility, reviews→marketing assets studio, reviews→business intelligence, competitor trust benchmark, Free/Starter/Growth/Premium/Enterprise plans | Part 12 L9716–9885; Part 15 L20093–20259 | 📦 | `source-notes/12`, `source-notes/15` |
+| **Trustpilot pack — Trust, Reviews & Reputation Engine**: review collection (email/SMS/WhatsApp/QR invitations), public trust page per business, TrustBox-style widgets (9 types), 13-metric analytics, AI review responses, fake-review/fraud detection (10 controls), review SEO + AI-visibility, reviews→marketing assets studio, reviews→business intelligence, competitor trust benchmark, Free/Starter/Growth/Premium/Enterprise plans | Part 12 L9716–9885; Part 15 L20093–20259 | ✅ partial | `src/backend/reputation.ts` (`computeTrust` TrustScore+analytics, `analyseSentiment` CX intel, `draftResponse` AI replies with escalation+legal-risk, `fakeReviewRisk` manipulation detection, `reviewToAssets` social-proof studio, `competitorTrust` benchmark, AI-visibility readiness) + `/api/reputation` + `/dashboard/reputation` + `reputation-guardian` agent (Agent 29); review-invitation sending + embeddable widgets + public trust page 📦 |
 | **Yelp pack — Local Discovery, Reviews, Booking & Lead Gen**: consumer search filters, public business profiles, Request-a-Quote marketplace, booking engine (reservations, deposits, no-show protection), verified reviews with AI summaries, AI local concierge ("best restaurant near me for 6 tonight"), local ads (pay-per-click/lead/booking), page upgrades, unified local inbox, AI growth manager, consumer app layer, trust verification, AI video generation | Part 12 L9910–10097; Part 15 L20260–20438 | 📦 | `source-notes/12`, `source-notes/15` |
 | **Yell pack — UK Local Directory + Lead Outreach**: UK business search (website/email/WhatsApp availability filters, lead score), public-data extractor with contact-permission status, one-click compliant contact (10 mandatory checks), profile builder, request-a-quote matching, Local SEO service module (vs Yell £300/£699 per month), reputation manager, 10-channel inbox, Yell-Ads-style advertising (lead guarantee model), Marketing MOT | Part 12 L10122–10230; Part 15 L20439–20537 | 📦 | `source-notes/12`, `source-notes/15` |
 | **Zeely extraction**: URL-to-ad generator, AI video ads with avatars (~7–12 min), prompt-to-ad, mobile-first, credits + $29.95/$49.95/$79.95 tiers; 5 exploitable gaps (full command centre, 12+ channels, industry agents, diagnosis-before-ads, micro-business affordability: mobile money, WhatsApp-first onboarding, no-card trial, local languages English/French/Lingala/Swahili) | Part 12 L10353–10505 | 📦 | `source-notes/12-build-transcript.md` |
@@ -813,10 +813,11 @@ sources per the Additive-Only Law.
 **Gap/conflict addendum (§8.2 design system):** v3.0 spec tokens (navy #1A1A2E, accent #E94560, gold #F5A623, light surface #F4F6F9, Inter-only typography) vs the shipped owner-approved emerald-dark system (Space Grotesk + Inter, validated chart palette). Resolution: shipped system remains primary brand; spec tokens preserved in doc 06 as the specified alternate theme (candidate for admin/partner portals or theme switcher). Owner may re-decide.
 
 **Agent-roster numbering note (2026-07-19 audit, updated for M-36 + Visual Engine):**
-the shipped `AGENTS` map in `src/shared/agents.ts` holds **29 runnable agents**
+the shipped `AGENTS` map in `src/shared/agents.ts` holds **30 runnable agents**
 (+ Agent 27 Opportunity Scout + Agent 28 Lead Hunter, the Serper live-web
-intelligence agents).
-The numbered lineage in agent prompts runs 1–28 because **Agent 20 (Profit
+intelligence agents; + Agent 29 Reputation Guardian, the Trustpilot-inspired
+reviews/reputation agent).
+The numbered lineage in agent prompts runs 1–29 because **Agent 20 (Profit
 Protection & Margin Intelligence)** is realised as the AI Gateway cost policy
 + the Admin margin dashboard (`/dashboard/admin`) rather than a standalone
 conversational key (documented in `03a-agent-cards.md`). Breakdown:

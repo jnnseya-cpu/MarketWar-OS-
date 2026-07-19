@@ -1220,6 +1220,51 @@ The two *no-website* businesses (scores 92, 75) — they're effectively invisibl
 ## Compliance Note
 Outreach is consented + lawful-basis-tagged before any send (GDPR/PECR). This list is business-discovery intelligence; the sending path enforces suppression, unsubscribe and sending limits.`,
   },
+  "reputation-guardian": {
+    id: "reputation-guardian",
+    name: "AI Reputation Guardian",
+    role: "Reviews → trust, response, social proof, AI-search authority",
+    description:
+      "Turns customer reviews into a TrustScore, drafts brand-aligned responses to positive and negative reviews (with escalation + legal-risk flags), extracts CX intelligence (pain points, feature requests, churn signals), flags manipulation, converts real reviews into marketing assets, and readies reviews for SEO + AI-search visibility. Never fabricates a rating.",
+    systemPrompt: `${MASTER_DIRECTIVE}
+
+You are the AI REPUTATION GUARDIAN — the trust, reviews and reputation agent.
+Doctrine, never violated: reviews are EARNED, never fabricated; you work only
+from REAL reviews, never invent a rating or a testimonial, and you flag
+manipulation rather than create it (the honesty safeguard forbids fake social
+proof). On negatives, resolve privately, never admit liability publicly, and
+escalate health/legal-risk language to a human. Output:
+## TrustScore (0–100 + average rating, verified share, star distribution, verdict)
+## Sentiment by Topic (what customers praise vs complain about — mentions + score)
+## CX Intelligence (pain points, feature requests, complaint clusters, churn signals, operational plan)
+## Response Drafts (positive + negative replies in brand tone; escalate/legal-risk flags + internal notes)
+## Manipulation Check (velocity/similarity/incentivised flags → moderation queue)
+## Social Proof Assets (real reviews → social cards, testimonial blocks, ad badges — with consent)
+## AI-Search Authority (review schema + "recommended by AI" readiness — ties to the GEO citation radar)`,
+    demoOutput: (i) => `## TrustScore
+**${biz(i)}** — **TrustScore 78/100**, average **4.1★** across 8 reviews (75% verified). Distribution: 5★×4, 4★×2, 3★×1, 2★×1, 1★×1. **Verdict:** solid — collect more verified reviews to break 80.
+
+## Sentiment by Topic
+- **delivery/speed** — 4 mentions, sentiment −30 (the recurring complaint: late/cold).
+- **food/quality** — 5 mentions, sentiment +60 (consistently praised).
+- **price/value** — 3 mentions, sentiment +55. **ordering/website** — 2 mentions, sentiment −10.
+
+## CX Intelligence
+**Pain points:** delivery timing, website usability. **Feature requests:** clearer menu. **Churn signals:** 2 recent ≤2★ reviews — worst topic is delivery. **Operational plan:** fix delivery timing (appears in 3 negatives — assign an owner, re-measure in 2 weeks); simplify the online menu.
+
+## Response Drafts
+- **5★:** "Thank you so much! We're thrilled — it means a lot to the whole team. See you soon. 🙌"
+- **1★ (no order received):** *escalate* — "We're very sorry — this isn't our standard. Please contact us directly so we can make it right immediately." *Internal: resolve privately within 24h, don't admit liability publicly, log it.*
+
+## Manipulation Check
+1 unverified review with incentivised language flagged (risk 55) → moderation queue; request proof-of-service before it counts.
+
+## Social Proof Assets
+5★ "Fast delivery and the food was hot and authentic" → social card + landing-page testimonial block + ad badge (use with the customer's consent).
+
+## AI-Search Authority
+Review schema (LocalBusiness + aggregateRating) ready to publish; **AI-visibility readiness 74/100** — verified volume + rating make you citable by AI assistants. Grow verified reviews to lift your Citation Share-of-Voice (see Organic Dominance).`,
+  },
 };
 
 export const AGENT_LIST = Object.values(AGENTS);

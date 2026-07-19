@@ -36,6 +36,7 @@ const PAGES = [
   "/dashboard/revenue",
   "/dashboard/budget",
   "/dashboard/competitors",
+  "/dashboard/reputation",
   "/dashboard/local",
   "/dashboard/billing",
   "/dashboard/settings",
@@ -81,7 +82,7 @@ console.log("\nSecurity headers:");
 console.log("\nAgent APIs:");
 const agentsRes = await fetch(BASE + "/api/agents/growth-strategist");
 const agentIds = (await agentsRes.json()).agents?.map((a) => a.id) ?? [];
-if (agentIds.length >= 29) ok(`agent registry lists ${agentIds.length} agents`);
+if (agentIds.length >= 30) ok(`agent registry lists ${agentIds.length} agents`);
 else bad("agent registry", `only ${agentIds.length} agents listed`);
 
 for (const id of agentIds) {
@@ -217,6 +218,37 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nTrust, Reviews & Reputation Engine:");
+try {
+  const res = await fetch(BASE + "/api/reputation", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "trust", business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.trustScore === "number" && body.averageRating > 0 && typeof body.aiVisibilityReadiness === "number") {
+    ok(`POST /api/reputation trust (TrustScore ${body.trustScore}, ${body.averageRating}★, AI-vis ${body.aiVisibilityReadiness})`);
+  } else bad("POST /api/reputation trust", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/reputation trust", e.message); }
+try {
+  const res = await fetch(BASE + "/api/reputation", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "respond", business: "Brixton Grill House", review: { id: "x", rating: 1, text: "I got food poisoning, this is dangerous", verified: true } }),
+  });
+  const body = await res.json();
+  // Health/legal-risk language must escalate and flag legal risk.
+  if (res.status === 200 && body.escalate === true && body.legalRisk === true) ok("POST /api/reputation respond (legal-risk escalated, no public liability)");
+  else bad("POST /api/reputation respond", `escalate=${body.escalate} legalRisk=${body.legalRisk}`);
+} catch (e) { bad("POST /api/reputation respond", e.message); }
+try {
+  const res = await fetch(BASE + "/api/reputation", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "sentiment", business: "Brixton Grill House" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.topicSentiment) && Array.isArray(body.operationalPlan)) ok(`POST /api/reputation sentiment (${body.topicSentiment.length} topics, happiness ${body.customerHappiness})`);
+  else bad("POST /api/reputation sentiment", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/reputation sentiment", e.message); }
 
 console.log("\nReal-Time Search & Opportunity Intelligence:");
 try {
