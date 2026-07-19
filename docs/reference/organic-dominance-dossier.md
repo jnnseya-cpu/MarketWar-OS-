@@ -1146,3 +1146,58 @@ BABYLOVEGROWTH ── acts, never listens ────►
 **Original — built on both incumbents' blind spot**
 - French/Lingala/Swahili NLP models; DRC & francophone-Africa source map (local press, radio-station Facebook pages, market WhatsApp communities); Africa Publisher Inventory for MW-03; mobile-money-economy intent taxonomy; low-bandwidth dashboard mode.
 - Positions MarketWar OS as **the default growth-intelligence OS for African ventures and diaspora businesses** — and dogfooded by Tunakula, Scan & Go, and BitriPay from day one.
+
+---
+
+## PART E (verbatim) — AGENT REGISTRY ADDITIONS (LangGraph)
+
+| # | Agent | Module | Class |
+|---|---|---|---|
+| A01 | OpportunityMiner | MW-01 | Research |
+| A02 | PromptProspector | MW-01/02 | Research |
+| A03 | ArticleAssembler | MW-01 | Generation (3x ACU) |
+| A04 | QualityGatekeeper | MW-01 | Governance |
+| A05 | CMSPublisher | MW-01 | Execution |
+| A06 | CitationScout | MW-02 | Monitoring |
+| A07 | LinkBroker | MW-03 | Network |
+| A08 | LinkRiskWarden | MW-03 | Governance |
+| A09 | GEOAuditor | MW-04 | Diagnostic |
+| A10 | CommunityScout | MW-05 | Monitoring |
+| A11 | EngagementDrafter | MW-05 | Generation (human-gated) |
+| A12 | StreamHarvester | MW-06 | Ingestion |
+| A13 | SentimentAnalyst | MW-06 | Analysis |
+| A14 | PodcastTranscriber | MW-06 | Ingestion |
+| A15 | WarRoomAnalyst | MW-07 | Conversational |
+| A16 | QueryCompiler | MW-07 | Utility |
+| A17 | AnomalySentinel | MW-08 | Monitoring |
+| A18 | NarrativeWriter | MW-08 | Generation |
+| A19 | CrisisPlaybookAgent | MW-08 | Execution (human-gated) |
+| A20 | MagnetSmith | MW-09 | Growth |
+| A21 | ProofScribe | MW-11 | Growth |
+| A22 | FusionETL | MW-12 | Data |
+| A23 | LinguaAfrica | MW-13 | NLP |
+
+All agents event-sourced through Kafka (`mw.signals.*`, `mw.content.*`, `mw.network.*`, `mw.alerts.*` topic families), CQRS read models in PostgreSQL, orchestrated in LangGraph with per-run ACU metering; BitriPay checkout for credit top-ups.
+
+---
+
+## PART F (verbatim) — MONETISATION & ROADMAP
+
+### F1. ACU Pricing Architecture
+- **Recon (free):** Magnet Foundry tools + 1 GEO audit + 5 citation-radar prompts → lead capture.
+- **Skirmish:** MW-01 (8 articles/mo) + MW-02 (50 prompts) + MW-04 — ACU bundle priced under BLG.
+- **Battalion:** + MW-03 network membership + MW-05 + MW-06 core listening + MW-07/08 — priced at ~1/8th Brandwatch entry, aimed at the "fired the $85k agency" buyer.
+- **Command (enterprise/agency):** multi-brand, MW-12 fusion, white-label, DRC-government/NGO tier via VERYX beachhead.
+- Generation workloads billed at the 3x ACU multiplier; monitoring/ingestion at 1x. BitriPay rail throughout; diaspora-funded credit gifting supported (KinetiQ squad-wallet pattern reused).
+
+### F2. Phased Build
+- **Phase 1 (Wks 1–6) — Strike:** MW-02 Citation Radar + MW-09 free GEO audit (fastest wow, pure acquisition) + MW-04.
+- **Phase 2 (Wks 7–14) — Artillery:** MW-01 full content pipeline + publishers + Brand DNA Vault; portfolio blogs as first tenants (instant Proof Ledger material).
+- **Phase 3 (Wks 15–24) — Network:** MW-03 seeded with portfolio inventory; open to external customers; MW-11 live.
+- **Phase 4 (Wks 25–36) — Ears:** MW-06 + MW-07 + MW-08 listening/analyst/alerting stack.
+- **Phase 5 (Wks 37–48) — Theatre Africa:** MW-13 + MW-12; DRC publisher recruitment drive; War College FR launch.
+
+### F3. Board-Level Summary
+BabyLoveGrowth proves execution-on-autopilot sells (and that a customer-powered link network compounds); Brandwatch proves listening-at-scale sells (and that an AI analyst layer is the adoption unlock). Both are converging on GEO; neither owns the closed loop, the SMB price point, or Africa. **MarketWar OS takes BLG's hands, Brandwatch's ears, gives them one LangGraph brain, meters it in ACUs, settles it on BitriPay — and opens a second front on a continent where neither incumbent has boots on the ground.**
+
+*— End of dossier v1.0*
