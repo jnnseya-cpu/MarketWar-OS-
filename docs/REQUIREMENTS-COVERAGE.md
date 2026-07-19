@@ -820,3 +820,19 @@ not a 24th key. Smoke gate asserts ≥ 23 (`scripts/smoke.mjs`).
 - **Creative Payloads™** (`source-notes/11` L727) = the Ad Creative Agent's output — ✅ shipped as `ad-creative` (§1.1 / §1.3 Agent 4.5).
 - **Brand Asset Vault™** (`source-notes/11` L323) = the Brand-Consistent Creative Engine + `brand_assets`/BrandAsset schema (§2.3 row above, 📦).
 - **MarketWar Reputation Shield™** (`source-notes/12` L2417/L2428) = the Trustpilot Trust/Reviews/Reputation Engine pack + TrustScore™ (§9 row above, 📦).
+
+## 18. Listening & AI-Visibility layer (competitive dossier, 2026-07-19)
+
+Verbatim summary: `docs/reference/competitive-dossier-blg-brandwatch.md`.
+Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| Strategic thesis: plant flag at listen × execute × AI-visibility (BLG/Brandwatch convergence) | Dossier summary | 📘 adopted (direction) | `docs/ai-os/13` |
+| Portfolio-blog cold-start moat | Dossier summary | 📘 recorded | `docs/ai-os/13` |
+| Africa Theatre Pack (FR/Lingala/Swahili listening + DRC inventory + BitriPay attribution) | Dossier summary | 📘 recorded (ties to doc 08 §C.3 Phase-4 + doc 05 BitriPay) | `docs/ai-os/13` |
+| MW-07 Query Compiler (NL → Boolean listening) | Dossier summary | 📘 characterised; ⏳ full spec pending | `docs/ai-os/13` |
+| **MW-01…MW-13 module bodies** | Dossier (not received) | ⏳ **awaiting full paste** | pending verbatim import |
+| **23-agent LangGraph registry addition** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
+| **ACU-tiered pricing** (to reconcile under ≥2×/100% floor) | Dossier (not received) | ⏳ **awaiting full paste** | pending |
+| **48-week roadmap** | Dossier (not received) | ⏳ **awaiting full paste** | pending |

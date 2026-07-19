@@ -28,6 +28,7 @@ Operating System (AI-OS)**.
 | 10 | [`ai-os/10-viral-product-and-website-engines.md`](ai-os/10-viral-product-and-website-engines.md) | AI Viral Product Engine (M-32, Agent 21: image → dossier + 7 studios) & AI Website Marketing Intelligence Engine (M-33, Agent 22: URL → health score + 6 suites) |
 | 11 | [`ai-os/11-email-engine.md`](ai-os/11-email-engine.md) | M-34 AI Transactional Email Engine (Agent 23): multi-provider pool, earned inbox placement, 4-stage hygiene pipeline, zero-bounce doctrine |
 | 12 | [`ai-os/12-amplification-engine.md`](ai-os/12-amplification-engine.md) | M-35 Viral Amplification & Retargeting Engine (Agent 24): earned virality (honest viral coefficient), consent-based frequency-capped retargeting |
+| 13 | [`ai-os/13-listening-and-ai-visibility.md`](ai-os/13-listening-and-ai-visibility.md) | Listening & AI-Visibility Command Layer (BLG×Brandwatch wedge) — strategic direction adopted; MW-01…MW-13 module bodies + 23-agent registry + pricing + roadmap ⏳ pending full dossier paste |
 
 ## Reading order
 
