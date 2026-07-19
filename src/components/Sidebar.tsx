@@ -37,6 +37,7 @@ const NAV = [
     group: "Command",
     items: [
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+      { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },
       { href: "/dashboard/briefing", label: "Daily Briefing", icon: ScrollText },
       { href: "/dashboard/audit", label: "Failure Audit", icon: Stethoscope },
     ],

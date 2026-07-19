@@ -13,6 +13,7 @@ const PAGES = [
   "/login",
   "/signup",
   "/dashboard",
+  "/dashboard/create",
   "/dashboard/briefing",
   "/dashboard/audit",
   "/dashboard/warfare",
@@ -215,6 +216,27 @@ try {
   if (res.status === 200 && Array.isArray(body.providers) && body.providers.length >= 8) ok(`GET /api/image (provider hierarchy: ${body.providers.length})`);
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
+
+console.log("\nMake Anything intent router:");
+try {
+  const res = await fetch(BASE + "/api/intent", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: "Make a TikTok video ad for my restaurant" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.best?.id === "video" && body.best?.acuEstimate > 0 && Array.isArray(body.best?.essentialQuestions)) {
+    ok(`POST /api/intent (routed to ${body.best.id}, ~${body.best.acuEstimate} ACUs)`);
+  } else bad("POST /api/intent", `HTTP ${res.status}, routed ${body.best?.id}`);
+} catch (e) { bad("POST /api/intent", e.message); }
+try {
+  const res = await fetch(BASE + "/api/intent", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: "design an instagram ad creative with my logo" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.best?.id === "ad_creative") ok(`POST /api/intent (creative → ${body.best.route})`);
+  else bad("POST /api/intent creative", `routed ${body.best?.id}`);
+} catch (e) { bad("POST /api/intent creative", e.message); }
 
 console.log("\nACU Economics Engine:");
 try {
