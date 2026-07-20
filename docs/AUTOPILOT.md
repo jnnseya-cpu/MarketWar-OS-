@@ -28,19 +28,29 @@ Autopilot is stateless per call; a scheduler fires it nightly per active brand.
 
 ### Firebase (this stack) — Scheduled Cloud Function
 ```js
-// functions/index.js — runs 02:00 daily, one call per active brand
-exports.autopilotNightly = onSchedule("0 2 * * *", async () => {
-  const brands = await db.collection("businesses").where("autopilot", "==", true).get();
-  for (const b of brands.docs) {
-    const brand = b.data();
-    await fetch("https://marketwaros.com/api/autopilot", {
+// functions/index.js — 06:00 daily: run every brand's cycle + email one digest
+// per account ("here's what I did overnight and what needs your approval").
+exports.autopilotNightly = onSchedule("0 6 * * *", async () => {
+  const accounts = await db.collection("accounts").where("autopilot", "==", true).get();
+  for (const acc of accounts.docs) {
+    const a = acc.data();                       // { email, brands: [...], autonomyLevel, autopilotBudgetGbp }
+    await fetch("https://marketwaros.com/api/autopilot/nightly", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brand, requestedLevel: brand.autonomyLevel ?? 3, budgetGbp: brand.autopilotBudgetGbp ?? 0 }),
+      body: JSON.stringify({
+        brands: a.brands,
+        to: a.email,
+        recipientName: a.ownerName,
+        requestedLevel: a.autonomyLevel ?? 3,
+        budgetGbp: a.autopilotBudgetGbp ?? 0,
+      }),
     });
   }
 });
 ```
+`POST /api/autopilot/nightly` runs a cycle per brand and sends **one combined
+morning digest** via the SMTP email engine. (Use `POST /api/autopilot` instead if
+you only want the JSON run, no email.)
 
 ### Vercel — Cron Job
 `vercel.json` → `{ "crons": [{ "path": "/api/autopilot/nightly", "schedule": "0 2 * * *" }] }`

@@ -146,3 +146,66 @@ export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: nu
     actions, autoExecuted, queued, projectedRevenueGbp, digest, guardrails,
   };
 }
+
+// The morning digest email — "here's what I did overnight and what needs your
+// approval", across all of the account's brands. Pure HTML string (inline styles
+// for email clients); the route sends it via the SMTP email engine.
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+
+export function autopilotDigestEmail(runs: AutopilotRun[], opts: { recipientName?: string; dashboardUrl: string }): { subject: string; html: string } {
+  const totalAuto = runs.reduce((s, r) => s + r.autoExecuted, 0);
+  const totalQueued = runs.reduce((s, r) => s + r.queued, 0);
+  const totalProjected = runs.reduce((s, r) => s + r.projectedRevenueGbp, 0);
+  const subject = `☀️ MarketWar overnight — ${totalAuto} done, ${totalQueued} need your approval`;
+
+  const brandBlocks = runs.map((r) => {
+    const rows = r.actions.map((a) => `
+      <tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #1b2430;color:#e6edf5;font-size:13px;">
+          ${esc(a.title)}
+          <div style="color:#7b8794;font-size:11px;margin-top:2px;">${esc(a.channel)} · projected £${a.projectedValueGbp}</div>
+        </td>
+        <td style="padding:8px 10px;border-bottom:1px solid #1b2430;text-align:right;white-space:nowrap;">
+          <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;${a.decision === "auto_executed" ? "background:rgba(16,185,129,.15);color:#34d399;" : "background:rgba(251,191,36,.15);color:#fbbf24;"}">${a.decision === "auto_executed" ? "done" : "approve"}</span>
+        </td>
+      </tr>`).join("");
+    return `
+      <div style="margin:0 0 18px;border:1px solid #1b2430;border-radius:12px;overflow:hidden;">
+        <div style="padding:12px 14px;background:#0d121a;">
+          <div style="color:#fff;font-weight:800;font-size:15px;">${esc(r.brandName)}</div>
+          <div style="color:#7b8794;font-size:12px;margin-top:2px;">${r.autoExecuted} auto-executed · ${r.queued} queued · projected £${r.projectedRevenueGbp} · autonomy L${r.grantedLevel}${r.autonomyCapped ? " (capped — high-risk)" : ""}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">${rows}</table>
+      </div>`;
+  }).join("");
+
+  const html = `
+  <div style="margin:0;padding:24px;background:#070a11;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;">
+    <div style="max-width:600px;margin:0 auto;">
+      <div style="font-size:20px;font-weight:800;color:#fff;">MarketWar <span style="color:#10b981;">OS</span></div>
+      <div style="color:#9aa7b8;font-size:14px;margin:6px 0 18px;">
+        Good morning${opts.recipientName ? `, ${esc(opts.recipientName)}` : ""} — here's what Autopilot did overnight across ${runs.length} brand${runs.length === 1 ? "" : "s"}.
+      </div>
+      <div style="display:flex;gap:8px;margin:0 0 18px;">
+        <div style="flex:1;border:1px solid #1b2430;border-radius:10px;padding:12px;">
+          <div style="color:#7b8794;font-size:11px;text-transform:uppercase;">Auto-executed</div>
+          <div style="color:#34d399;font-size:22px;font-weight:800;">${totalAuto}</div>
+        </div>
+        <div style="flex:1;border:1px solid #1b2430;border-radius:10px;padding:12px;">
+          <div style="color:#7b8794;font-size:11px;text-transform:uppercase;">Need approval</div>
+          <div style="color:#fbbf24;font-size:22px;font-weight:800;">${totalQueued}</div>
+        </div>
+        <div style="flex:1;border:1px solid #1b2430;border-radius:10px;padding:12px;">
+          <div style="color:#7b8794;font-size:11px;text-transform:uppercase;">Projected pipeline</div>
+          <div style="color:#fff;font-size:22px;font-weight:800;">£${totalProjected}</div>
+        </div>
+      </div>
+      ${brandBlocks}
+      <a href="${esc(opts.dashboardUrl)}" style="display:inline-block;background:#10b981;color:#052e1c;font-weight:800;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;">Review &amp; approve →</a>
+      <div style="color:#6b7787;font-size:11px;margin-top:18px;line-height:1.5;">
+        Projected pipeline is an estimate, not booked revenue. Real, attributed revenue appears in your Revenue dashboard as customers convert. High-risk categories (children, health, regulated) are always queued for your approval and never auto-published.
+      </div>
+    </div>
+  </div>`;
+  return { subject, html };
+}

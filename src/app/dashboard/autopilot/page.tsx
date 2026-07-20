@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Loader2, Moon, ShieldCheck, Zap, CheckCircle2, Clock, Building2, Wallet, ArrowRight } from "lucide-react";
+import { Loader2, Moon, ShieldCheck, Zap, CheckCircle2, Clock, Building2, Wallet, ArrowRight, Mail } from "lucide-react";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -22,6 +22,9 @@ export default function AutopilotPage() {
   const [budget, setBudget] = useState("0");
   const [run, setRun] = useState<Run | null>(null);
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ sent: boolean; mode: string; detail: string } | null>(null);
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
   async function runCycle() {
@@ -34,6 +37,20 @@ export default function AutopilotPage() {
       });
       setRun(await res.json());
     } finally { setBusy(false); }
+  }
+
+  async function sendDigest() {
+    if (!activeBrand || !email.trim()) return;
+    setEmailBusy(true); setEmailResult(null);
+    try {
+      const res = await fetch("/api/autopilot/nightly", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brands: [activeBrand], to: email.trim(), requestedLevel: level, budgetGbp: Number(budget) || 0 }),
+      });
+      const d = await res.json();
+      setEmailResult({ sent: !!d.sent, mode: d.mode ?? "demo", detail: d.detail ?? d.error ?? "" });
+    } catch { setEmailResult({ sent: false, mode: "demo", detail: "Network error" }); }
+    finally { setEmailBusy(false); }
   }
 
   if (!activeBrand) {
@@ -74,7 +91,22 @@ export default function AutopilotPage() {
         <button className="btn-primary mt-4" onClick={runCycle} disabled={busy}>
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Running a cycle…</> : <><Zap className="h-4 w-4" /> Run a cycle now</>}
         </button>
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><Moon className="h-3.5 w-3.5" /> Schedule this nightly (cron → POST /api/autopilot) and it runs while you sleep — see docs/AUTOPILOT.md.</p>
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><Moon className="h-3.5 w-3.5" /> Schedule this nightly (cron → POST /api/autopilot/nightly) and it runs while you sleep — see docs/AUTOPILOT.md.</p>
+      </div>
+
+      {/* Morning digest email */}
+      <div className="mb-6 card p-5">
+        <div className="mb-1 flex items-center gap-2"><Mail className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Email me the morning digest</h2></div>
+        <p className="mb-3 text-xs text-slate-400">Each morning you get a &ldquo;here&apos;s what I did overnight and what needs your approval&rdquo; email across your brands. Send yourself one now to see it.</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1"><label className="label">Your email</label><input className="input" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <button className="btn-primary" onClick={sendDigest} disabled={emailBusy || !email.trim()}>{emailBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send me a test digest</button>
+        </div>
+        {emailResult && (
+          <p className={`mt-2 text-xs ${emailResult.sent ? "text-emerald-300" : "text-rose-300"}`}>
+            {emailResult.sent ? `Sent (${emailResult.mode === "live" ? "delivered via SMTP" : "demo — set SMTP to deliver for real"}). ${emailResult.detail}` : `Not sent — ${emailResult.detail}`}
+          </p>
+        )}
       </div>
 
       {run && (

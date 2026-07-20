@@ -1951,6 +1951,25 @@ try {
     ok("POST /api/autopilot (children's brand → capped to L1, nothing auto-published)");
   } else bad("POST /api/autopilot governance", `granted ${b.grantedLevel}, capped ${b.autonomyCapped}, auto ${b.autoExecuted}`);
 } catch (e) { bad("POST /api/autopilot governance", e.message); }
+try {
+  // Nightly digest email across brands (demo mode: simulated send).
+  const res = await fetch(BASE + "/api/autopilot/nightly", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: "owner@example.com", requestedLevel: 3, nowISO: "2026-07-20T00:00:00.000Z", brands: [
+      { id: "smoke-grill", name: "Smoke Grill", industry: "Restaurant", product: "takeaway", audience: "locals", location: "Brixton", offer: "Feed 4 for £25" },
+      { id: "smoke-beauty", name: "Smoke Beauty", industry: "Beauty", product: "facials", audience: "women 25-45", location: "Croydon", offer: "30% off first facial" },
+    ] }),
+  });
+  const b = await res.json();
+  if (res.status === 200 && b.sent === true && /overnight/i.test(b.subject) && Array.isArray(b.brands) && b.brands.length === 2) {
+    ok(`POST /api/autopilot/nightly (digest for 2 brands, mode ${b.mode}: "${b.subject.slice(0, 40)}…")`);
+  } else bad("POST /api/autopilot/nightly", `HTTP ${res.status}, sent ${b.sent}, brands ${b.brands?.length}`);
+} catch (e) { bad("POST /api/autopilot/nightly", e.message); }
+try {
+  const res = await fetch(BASE + "/api/autopilot/nightly", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brands: [{ id: "x", name: "X" }] }) });
+  if (res.status === 400) ok("POST /api/autopilot/nightly requires a recipient (400)");
+  else bad("POST /api/autopilot/nightly validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/autopilot/nightly validation", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

@@ -1003,3 +1003,13 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Runs while you sleep** — nightly schedule | Owner objective 2026-07-20 | ✅ | stateless per-brand cycle; `docs/AUTOPILOT.md` (Firebase Scheduled Function / Vercel Cron / plain cron) |
 | **Never fabricates money** — real revenue only via the money loop | Platform honesty rule | ✅ | projection labelled "estimate — not booked"; digest points to Revenue for actuals |
 | Verified | same | ✅ | smoke **311/0** (+ page, L3 auto-execute, children→L1 cap); screenshot of a live cycle |
+
+## 26. Nightly Autopilot digest email (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **"Here's what I did overnight and what needs approval" email each morning** | Owner directive 2026-07-20 | ✅ | `autopilotDigestEmail` (combined across brands) + `/api/autopilot/nightly` sends via the SMTP email engine; verified render + demo send |
+| Combined across all the account's brands | same | ✅ | one digest lists every brand's auto-executed vs queued moves + projected pipeline |
+| Honest — projection labelled, child-safety visible | platform rule | ✅ | footer disclaimer; high-risk brands show all moves as "approve" (e.g. kids-toy brand L1-capped) |
+| Scheduled nightly | same | ✅ | `docs/AUTOPILOT.md` cron → `POST /api/autopilot/nightly { brands, to }`; "Email me a test digest" button on the Autopilot page |
+| Verified | same | ✅ | smoke 313/0 (+ digest for 2 brands, recipient-required 400); email rendered to image |
