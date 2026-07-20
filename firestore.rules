@@ -41,6 +41,13 @@ service cloud.firestore {
     match /agent_runs/{doc} {
       allow read, write: if false;
     }
+    // Attributed-revenue ledger (results): written ONLY by the Admin SDK
+    // (manual log, owned-form capture, Stripe webhook). No client access — the
+    // dashboard reads via /api/results, which is server-side. Append-only in
+    // spirit; the id is the source event id so redelivery never double-counts.
+    match /results/{doc} {
+      allow read, write: if false;
+    }
 
     // ── ModelGate / commercial core (production architecture §20, §22, §35) ──
     // The client may READ authorised business data but must NEVER directly

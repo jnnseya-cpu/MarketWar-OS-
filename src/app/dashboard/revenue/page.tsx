@@ -10,15 +10,22 @@ import { useState } from "react";
 import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
 import AgentRunner from "@/components/AgentRunner";
-import { Building2, PlusCircle, Trash2, Wallet } from "lucide-react";
+import { Building2, PlusCircle, Trash2, Wallet, Link2, Copy, Check, Loader2 } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
 import type { ResultType } from "@/shared/results";
+
+type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; metadata: { marketwar_brand_id: string; marketwar_source: string }; note: string; error?: string };
 
 export default function RevenuePage() {
   const { activeBrand } = useActiveBrand();
   const { events, summary, logEvent, removeEvent } = useResults();
   const [form, setForm] = useState<{ type: ResultType; source: string; amount: string; note: string }>({ type: "order", source: "", amount: "", note: "" });
+  // Tagged checkout link (payments self-attribute)
+  const [co, setCo] = useState({ product: "", amount: "", source: "" });
+  const [coResult, setCoResult] = useState<CheckoutResult | null>(null);
+  const [coBusy, setCoBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (!activeBrand) {
     return (
@@ -37,6 +44,19 @@ export default function RevenuePage() {
     if (!form.source.trim()) return;
     logEvent({ type: form.type, source: form.source, amountGbp: isLead ? 0 : Number(form.amount) || 0, note: form.note });
     setForm((f) => ({ ...f, amount: "", note: "" }));
+  }
+
+  async function genLink() {
+    if (!co.product.trim() || !(Number(co.amount) > 0)) return;
+    setCoBusy(true); setCoResult(null); setCopied(false);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: activeBrand!.id, source: co.source.trim() || "Checkout link", amountGbp: Number(co.amount), productName: co.product }),
+      });
+      setCoResult(await res.json());
+    } catch { setCoResult({ ok: false, mode: "demo", url: null, metadata: { marketwar_brand_id: activeBrand!.id, marketwar_source: co.source }, note: "Network error", error: "network" }); }
+    finally { setCoBusy(false); }
   }
 
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
@@ -94,6 +114,34 @@ export default function RevenuePage() {
           </div>
         </div>
         <input className="input mt-3" placeholder="Note (optional) — e.g. 14-person office catering order" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+      </div>
+
+      {/* Tagged checkout link — payments self-attribute, no manual logging */}
+      <div className="mb-8 card p-5">
+        <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Create a paid checkout link</h2></div>
+        <p className="mb-3 text-xs text-slate-400">Share this link with a customer. When they pay, the revenue attributes to {activeBrand.name} automatically — no manual logging.</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="lg:col-span-1"><label className="label">Product</label><input className="input" placeholder="e.g. Family platter" value={co.product} onChange={(e) => setCo((c) => ({ ...c, product: e.target.value }))} /></div>
+          <div><label className="label">Amount (£)</label><input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={co.amount} onChange={(e) => setCo((c) => ({ ...c, amount: e.target.value }))} /></div>
+          <div><label className="label">Source / campaign</label><input className="input" placeholder="e.g. Friday Platter — Meta" value={co.source} onChange={(e) => setCo((c) => ({ ...c, source: e.target.value }))} /></div>
+          <div className="flex items-end"><button className="btn-primary w-full" onClick={genLink} disabled={coBusy || !co.product.trim() || !(Number(co.amount) > 0)}>{coBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Generate link</button></div>
+        </div>
+        {coResult && (
+          <div className="mt-3 rounded-lg border border-white/[0.07] bg-ink-900/60 p-3">
+            {coResult.ok && coResult.url ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${coResult.mode === "live" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{coResult.mode === "live" ? "Live Stripe link" : "Demo link"}</span>
+                  <code className="min-w-0 flex-1 truncate text-xs text-sky-300">{coResult.url}</code>
+                  <button onClick={() => { navigator.clipboard?.writeText(coResult.url!); setCopied(true); }} className="shrink-0 text-slate-400 hover:text-white" title="Copy">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}</button>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">Attributes to <span className="text-slate-300">{coResult.metadata.marketwar_brand_id}</span> · source <span className="text-slate-300">{coResult.metadata.marketwar_source}</span>. {coResult.note}</p>
+              </>
+            ) : (
+              <p className="text-xs text-rose-300">{coResult.error || coResult.note}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {!summary.isEmpty && (

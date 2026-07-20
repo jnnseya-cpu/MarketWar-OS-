@@ -1912,6 +1912,19 @@ console.log("\nMoney ledger — per-brand attributed revenue:");
     if (read.summary?.revenueGbp === 0 && read.summary?.isEmpty) ok("money ledger (un-tagged payment → no attribution, empty)");
     else bad("money ledger untagged", `expected empty, got revenue ${read.summary?.revenueGbp}`);
   } catch (e) { bad("money ledger untagged", e.message); }
+  try {
+    // Tagged checkout link carries the attribution metadata (payments self-attribute).
+    const res = await fetch(BASE + "/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandId: "smoke-co", source: "Meta", amountGbp: 25, productName: "Platter" }) });
+    const body = await res.json();
+    if (res.status === 200 && body.ok && body.url && body.metadata?.marketwar_brand_id === "smoke-co" && body.metadata?.marketwar_source === "Meta") {
+      ok(`checkout link (mode ${body.mode}, self-attributing metadata present)`);
+    } else bad("checkout link", `HTTP ${res.status}, ok ${body.ok}`);
+  } catch (e) { bad("checkout link", e.message); }
+  try {
+    const res = await fetch(BASE + "/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandId: "x", source: "y", amountGbp: 0 }) });
+    if (res.status === 400) ok("checkout link rejects zero amount (400)");
+    else bad("checkout link validation", `expected 400, got ${res.status}`);
+  } catch (e) { bad("checkout link validation", e.message); }
 }
 
 console.log("\nAudit + gateway APIs:");

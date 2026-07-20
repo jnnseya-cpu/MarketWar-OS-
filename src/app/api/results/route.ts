@@ -24,8 +24,14 @@ function makeId(): string {
 export async function GET(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";
   if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
-  const events = await listEvents(brandId);
-  return NextResponse.json({ events, summary: summarize(events) });
+  try {
+    const events = await listEvents(brandId);
+    return NextResponse.json({ events, summary: summarize(events) });
+  } catch {
+    // Never silently return £0 on a store failure — the client should show a
+    // load error, not a false "no revenue".
+    return NextResponse.json({ error: "Results store temporarily unavailable" }, { status: 503 });
+  }
 }
 
 export async function POST(req: NextRequest) {

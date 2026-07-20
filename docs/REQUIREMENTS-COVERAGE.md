@@ -984,3 +984,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Server-backed ledger** shared by manual + capture + Stripe | same | ✅ | `src/backend/ledger.ts` (Firestore when configured, in-memory otherwise); `results-context` now fetches/writes via `/api/results` |
 | **No fake money anywhere** — Command Center + Daily Briefing show the real ledger | Owner directive 2026-07-20 | ✅ | `/dashboard` (Command Center) + `/dashboard/briefing` upgraded to per-brand real figures with honest empty states — demo money removed |
 | Verified by the gate | same | ✅ | smoke +2 = **306/0**: owned £45 + Stripe £120 = £165, idempotent (2 orders), un-tagged payment → no attribution |
+
+## 24. Money loop — Firestore persistence + self-attributing checkout links (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Firestore persistence path** confirmed/hardened | Owner directive 2026-07-20 | ✅ code + rules | `firestore.rules` adds `results` (server-only, Admin SDK); `/api/results` GET returns 503 (not false £0) on store failure; ledger reads/writes via `adminDb` when configured, in-memory otherwise |
+| **Self-attributing checkout links** — payments attribute without hand-set metadata | Owner directive 2026-07-20 | ✅ | `src/backend/checkout.ts` `createCheckoutLink` (Stripe Checkout Session pre-stamped with `metadata.marketwar_brand_id`+`marketwar_source`, dependency-free REST, demo-safe) → `/api/checkout`; Revenue page "Create a paid checkout link" card |
+| End-to-end: link → pay → auto-attributed | same | ✅ mechanism | link metadata matches the webhook attributor (`brandRevenueFromEvent`); demo link + live link both carry the exact attributing metadata |
+| Verified | same | ✅ | smoke **308/0** (+ checkout link metadata + zero-amount 400); live curl: demo link carries brand+source metadata |
