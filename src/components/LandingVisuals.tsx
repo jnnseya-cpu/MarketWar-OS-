@@ -1,8 +1,9 @@
 "use client";
 
-// Landing visual showcase — "people like visuals, not walls of text."
-// A colorful spread of the OS's real dashboards + charts (the actual chart kit +
-// demo data), each shown as a product "screen". Purely presentational.
+// Landing visual showcase — premium, cinematic, ultra-real. "People like visuals."
+// A big perspective-tilted "cockpit" device frame + a layered gallery of the OS's
+// real dashboards and charts (the actual chart kit + validated palette). Purely
+// presentational.
 
 import type { ReactNode } from "react";
 import { AreaChart, BarChart, DonutChart, FunnelChart, Sparkline } from "@/components/charts";
@@ -10,17 +11,17 @@ import { StatCard, VerdictBadge } from "@/components/ui";
 import { demoCampaigns, demoChannelOrders, demoDaily, demoFunnel, demoMetrics } from "@/shared/demo";
 import { SERIES } from "@/shared/palette";
 
-// A product "screen" mockup: browser chrome + a rainbow top accent.
+// A product "screen" — browser chrome + a rainbow top accent + deep shadow.
 function Screen({ title, accent, children, className = "" }: { title: string; accent: number; children: ReactNode; className?: string }) {
   return (
-    <div className={`overflow-hidden rounded-xl border border-white/10 bg-ink-900/70 shadow-2xl shadow-black/40 backdrop-blur-xl ${className}`}>
+    <div className={`group overflow-hidden rounded-2xl border border-white/10 bg-ink-900/70 shadow-[0_40px_100px_-30px_rgba(0,0,0,0.9)] backdrop-blur-xl transition duration-500 hover:-translate-y-1 hover:border-white/20 ${className}`}>
       <div className="h-[3px] w-full" style={{ background: `linear-gradient(90deg, ${SERIES[accent % SERIES.length]}, ${SERIES[(accent + 2) % SERIES.length]}, ${SERIES[(accent + 4) % SERIES.length]})` }} />
-      <div className="flex items-center gap-1.5 border-b border-white/[0.06] bg-ink-950/50 px-3 py-2">
-        <span className="h-2 w-2 rounded-full" style={{ background: SERIES[5] }} />
-        <span className="h-2 w-2 rounded-full" style={{ background: SERIES[2] }} />
-        <span className="h-2 w-2 rounded-full" style={{ background: SERIES[1] }} />
+      <div className="flex items-center gap-1.5 border-b border-white/[0.06] bg-ink-950/60 px-3 py-2">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: SERIES[5] }} />
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: SERIES[2] }} />
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: SERIES[1] }} />
         <span className="ml-2 text-[11px] font-semibold text-slate-400">{title}</span>
-        <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-emerald-400">live</span>
+        <span className="ml-auto flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(16,185,129,0.6)]" />live</span>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -31,13 +32,55 @@ export default function LandingVisuals() {
   const roasData = demoCampaigns.filter((c) => c.spend > 0).map((c) => ({ label: c.name, value: Number((c.revenue / c.spend).toFixed(1)) }));
 
   return (
-    <section id="visuals" className="relative border-y border-white/5 py-20">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,rgba(56,189,248,0.10),transparent_70%)]" />
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="mx-auto mb-12 max-w-2xl text-center">
+    <section id="visuals" className="relative overflow-hidden border-y border-white/5 py-24">
+      {/* Ambient cinematic glows */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[8%] top-[6%] h-72 w-72 rounded-full opacity-25 blur-[90px]" style={{ background: SERIES[4] }} />
+        <div className="absolute right-[10%] top-[2%] h-72 w-72 rounded-full opacity-20 blur-[90px]" style={{ background: SERIES[0] }} />
+        <div className="absolute bottom-[10%] left-[40%] h-72 w-72 rounded-full opacity-20 blur-[90px]" style={{ background: SERIES[6] }} />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-5 sm:px-8">
+        <div className="mx-auto mb-14 max-w-2xl text-center">
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-sky-400">One colourful cockpit</p>
-          <h2 className="font-display text-3xl font-bold text-white sm:text-4xl">See the whole operation — <span className="text-gradient">at a glance</span></h2>
-          <p className="mt-4 text-slate-400">No spreadsheets, no guessing. Every number, chart and verdict is on one screen — colour-coded so you know what to do in seconds.</p>
+          <h2 className="font-display text-3xl font-bold text-white sm:text-5xl">See the whole operation — <span className="text-gradient">at a glance</span></h2>
+          <p className="mt-4 text-lg text-slate-400">No spreadsheets, no guessing. Every number, chart and verdict on one screen — colour-coded so you know what to do in seconds.</p>
+        </div>
+
+        {/* Cinematic hero device — perspective-tilted cockpit */}
+        <div className="mb-16 [perspective:2000px]">
+          <div className="mx-auto max-w-5xl overflow-hidden rounded-[20px] border border-white/12 bg-ink-900/80 shadow-[0_60px_140px_-40px_rgba(0,0,0,0.95)] backdrop-blur-2xl transition-transform duration-700 [transform:rotateX(6deg)_rotateY(-3deg)] hover:[transform:rotateX(2deg)_rotateY(0deg)]">
+            <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${SERIES[1]}, ${SERIES[4]}, ${SERIES[5]}, ${SERIES[2]}, ${SERIES[0]})` }} />
+            <div className="flex items-center gap-1.5 border-b border-white/[0.07] bg-ink-950/70 px-4 py-2.5">
+              <span className="h-3 w-3 rounded-full" style={{ background: SERIES[5] }} />
+              <span className="h-3 w-3 rounded-full" style={{ background: SERIES[2] }} />
+              <span className="h-3 w-3 rounded-full" style={{ background: SERIES[1] }} />
+              <span className="mx-auto rounded-md bg-ink-900 px-3 py-0.5 text-[11px] text-slate-400">app.marketwaros.com/dashboard</span>
+            </div>
+            <div className="grid gap-4 p-5 lg:grid-cols-3">
+              <div className="lg:col-span-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { l: "Revenue", v: `£${demoMetrics.revenueMonth}`, a: 1 },
+                  { l: "ROAS", v: `${demoMetrics.roas}x`, a: 0 },
+                  { l: "Orders", v: `${demoMetrics.ordersMonth}`, a: 2 },
+                  { l: "Recoverable", v: `£${demoMetrics.recoverableRevenue}`, a: 3 },
+                ].map((k) => (
+                  <div key={k.l} className="rounded-xl border border-white/[0.07] bg-ink-950/50 p-3" style={{ boxShadow: `inset 0 2px 0 -1px ${SERIES[k.a]}` }}>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500">{k.l}</p>
+                    <p className="font-display text-2xl font-bold text-white">{k.v}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-ink-950/40 p-4 lg:col-span-2">
+                <p className="mb-2 text-xs font-semibold text-slate-300">Revenue vs ad spend</p>
+                <AreaChart labels={demoDaily.labels} series={[{ name: "Revenue", data: demoDaily.revenue }, { name: "Ad spend", data: demoDaily.spend }]} valuePrefix="£" height={190} />
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-ink-950/40 p-4">
+                <p className="mb-2 text-xs font-semibold text-slate-300">Orders by channel</p>
+                <DonutChart size={150} data={demoChannelOrders} centerValue={`${demoMetrics.ordersMonth}`} centerLabel="orders" />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* KPI strip — colourful accents */}
