@@ -239,15 +239,26 @@ try {
   else bad("GET /api/image", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/image", e.message); }
 
-console.log("\nIntegration Adapter Layer (independence):");
+console.log("\nIntegration Adapter Layer (independence + platform-managed):");
 try {
   const res = await fetch(BASE + "/api/integrations");
   const body = await res.json();
   // Independence: works with 0 connected; every connector has a manual fallback.
   const allHaveFallback = body.integrations?.every((i) => Array.isArray(i.manualFallback) && i.manualFallback.length > 0);
-  if (res.status === 200 && body.integrations.length >= 20 && allHaveFallback && body.dependencyClassification?.mustOwnInternally?.length > 0) {
-    ok(`GET /api/integrations (${body.integrations.length} connectors, ${body.connectedCount} connected, all have manual fallback)`);
-  } else bad("GET /api/integrations", `HTTP ${res.status}, fallbacks ${allHaveFallback}`);
+  // Platform-managed connectivity: infra connectors run on our key (tenant does
+  // nothing); every connector carries a provisioning + billing model.
+  const allHaveProvisioning = body.integrations?.every((i) => i.provisioning && i.billing && i.userStatus);
+  const emailIsManaged = body.integrations?.find((i) => i.provider === "sendgrid_email")?.platformManaged === true;
+  const emailPooled = body.integrations?.find((i) => i.provider === "sendgrid_email")?.pool === "Email sending pool";
+  const adsAreUserConnect = body.integrations?.find((i) => i.provider === "meta_ads")?.provisioning === "user_connect";
+  // Autonomy guarantee: works with zero connected; managed connectors are pooled/interchangeable.
+  const autonomy = body.autonomyGuarantee;
+  const autonomyOk = autonomy?.worksWithZeroConnected === true && Array.isArray(autonomy.guarantees) && autonomy.guarantees.length >= 4 && Array.isArray(autonomy.pools) && autonomy.pools.length >= 1;
+  if (res.status === 200 && body.integrations.length >= 20 && allHaveFallback && allHaveProvisioning
+      && body.platformManagedCount >= 5 && body.userConnectCount >= 10 && emailIsManaged && emailPooled && adsAreUserConnect
+      && autonomyOk && body.provisioningModel?.adminOnly && body.dependencyClassification?.mustOwnInternally?.length > 0) {
+    ok(`GET /api/integrations (${body.integrations.length} connectors, ${body.platformManagedCount} managed, ${body.userConnectCount} one-click, pooled+interchangeable, autonomy guaranteed)`);
+  } else bad("GET /api/integrations", `HTTP ${res.status}, managed ${body.platformManagedCount}, autonomy ${autonomyOk}`);
 } catch (e) { bad("GET /api/integrations", e.message); }
 try {
   const res = await fetch(BASE + "/api/integrations", {
@@ -258,6 +269,28 @@ try {
   if (res.status === 200 && Array.isArray(body.steps) && body.steps.some((s) => /wa\.me/i.test(s))) ok("POST /api/integrations manual (WhatsApp → wa.me fallback)");
   else bad("POST /api/integrations manual", `steps ${body.steps?.length}`);
 } catch (e) { bad("POST /api/integrations manual", e.message); }
+try {
+  // Platform-managed send is ACU-billed at the protected margin, cost hidden.
+  const res = await fetch(BASE + "/api/integrations", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "charge", provider: "sendgrid_email", providerCostGbp: 1, units: 1 }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.billable === true && body.acus === 400 && body.marginMultiplier === 4 && body.providerCostGbp === undefined) {
+    ok(`POST /api/integrations charge (£1 → ${body.acus} ACUs at ${body.marginMultiplier}×, provider cost hidden)`);
+  } else bad("POST /api/integrations charge", `HTTP ${res.status}, acus ${body.acus}, cost exposed ${body.providerCostGbp !== undefined}`);
+} catch (e) { bad("POST /api/integrations charge", e.message); }
+try {
+  // User-billed-direct connectors (ad spend) are NOT charged to the ACU wallet.
+  const res = await fetch(BASE + "/api/integrations", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "charge", provider: "meta_ads", providerCostGbp: 5 }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.billable === false && /ad spend|external platform|directly/i.test(body.reason)) {
+    ok("POST /api/integrations charge (ad spend → billed by platform, not ACU wallet)");
+  } else bad("POST /api/integrations charge ads", `billable ${body.billable}`);
+} catch (e) { bad("POST /api/integrations charge ads", e.message); }
 
 console.log("\n7-Agent Marketing Strategy Chain:");
 try {
