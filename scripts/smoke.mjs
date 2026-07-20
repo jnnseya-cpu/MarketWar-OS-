@@ -1286,6 +1286,99 @@ try {
   else bad("attribution validation", "expected 400, got " + res.status);
 } catch (e) { bad("attribution validation", String(e)); }
 
+console.log("\nContent Opportunity Radar:");
+try {
+  const res = await fetch(BASE + "/api/opportunity-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rank", inputs: [
+    { topic: "A", factors: { demand: 0.9, commercialIntent: 0.9, relevance: 0.9, timing: 0.9, authorityProbability: 0.9, conversionProbability: 0.9, competition: 0.2 } },
+    { topic: "B", factors: { demand: 0.2, commercialIntent: 0.2, relevance: 0.3, timing: 0.3, authorityProbability: 0.3, conversionProbability: 0.3, competition: 0.9 } },
+  ] }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.opportunities) && body.opportunities.length === 2 && body.opportunities[0].topic === "A" && body.opportunities[0].opportunityScore >= body.opportunities[1].opportunityScore && typeof body.opportunities[0].breakdown === "string") {
+    ok(`POST /api/opportunity-radar rank (top "A" @ ${body.opportunities[0].opportunityScore}, transparent breakdown)`);
+  } else bad("POST /api/opportunity-radar rank", `HTTP ${res.status}, top ${body.opportunities?.[0]?.topic}`);
+} catch (e) { bad("POST /api/opportunity-radar rank", e.message); }
+try {
+  const res = await fetch(BASE + "/api/opportunity-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { topic: "best grill in Brixton", factors: { competition: 0.2 } } }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.opportunityScore === "number" && body.factors && typeof body.factors.competition === "number" && body.breakdown.includes("÷")) {
+    ok(`POST /api/opportunity-radar score (${body.opportunityScore}/100 with shown factors)`);
+  } else bad("POST /api/opportunity-radar score", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/opportunity-radar score", e.message); }
+try {
+  const res = await fetch(BASE + "/api/opportunity-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rank", inputs: [] }) });
+  if (res.status === 400) ok("POST /api/opportunity-radar rejects empty inputs");
+  else bad("POST /api/opportunity-radar validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/opportunity-radar validation", e.message); }
+
+console.log("\nAI Answer Accuracy Monitor:");
+try {
+  const res = await fetch(BASE + "/api/ai-accuracy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", input: { brand: "Acme Grill", engine: "chatgpt", answerText: "Acme Grill is a plumber in Leeds, priced at £999.", facts: { locations: ["Brixton"], prices: ["£20"], products: ["steak"] } } }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.brandMentioned === "boolean" && Array.isArray(body.issues) && typeof body.accuracyScore === "number" && Array.isArray(body.recommendedFixes)) {
+    ok(`POST /api/ai-accuracy check (accuracy ${body.accuracyScore}, ${body.issues.length} issue(s))`);
+  } else bad("POST /api/ai-accuracy check", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/ai-accuracy check", e.message); }
+try {
+  const res = await fetch(BASE + "/api/ai-accuracy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "causal", input: { treatedTrafficBefore: 100, treatedTrafficAfter: 150, controlTrafficBefore: 100, controlTrafficAfter: 120 } }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.attributableLiftPct === "number" && body.attributableLiftPct <= body.treatedLiftPct && typeof body.verdict === "string") {
+    ok(`POST /api/ai-accuracy causal (attributable ${body.attributableLiftPct}% → ${body.verdict})`);
+  } else bad("POST /api/ai-accuracy causal", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/ai-accuracy causal", e.message); }
+try {
+  const res = await fetch(BASE + "/api/ai-accuracy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", input: { brand: "", engine: "chatgpt", answerText: "x" } }) });
+  if (res.status === 400) ok("POST /api/ai-accuracy rejects missing brand");
+  else bad("POST /api/ai-accuracy validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/ai-accuracy validation", e.message); }
+
+console.log("\nCompetitor War Room:");
+try {
+  const res = await fetch(BASE + "/api/competitor-warroom", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor", input: { competitor: "Rival Smokehouse" } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.competitor === "Rival Smokehouse" && ["gaining", "flat", "losing"].includes(body.momentum) && typeof body.shareOfVoice === "number") {
+    ok(`POST /api/competitor-warroom monitor (momentum ${body.momentum}, SoV ${body.shareOfVoice})`);
+  } else bad("POST /api/competitor-warroom monitor", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/competitor-warroom monitor", e.message); }
+try {
+  const res = await fetch(BASE + "/api/competitor-warroom", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "scan", input: { competitor: "Rival Smokehouse", complaints: ["always late delivery", "rude staff"] } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.weaknesses) && body.weaknesses.length >= 1 && typeof body.weaknesses[0].exploitability === "number") {
+    ok(`POST /api/competitor-warroom scan (${body.weaknesses.length} weaknesses, top exploitability ${body.weaknesses[0].exploitability})`);
+  } else bad("POST /api/competitor-warroom scan", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/competitor-warroom scan", e.message); }
+try {
+  const res = await fetch(BASE + "/api/competitor-warroom", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "battlecard", input: { competitor: "Rival Smokehouse" } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.theirWeaknesses) && Array.isArray(body.ourCounters)) ok("POST /api/competitor-warroom battlecard (weaknesses + counters)");
+  else bad("POST /api/competitor-warroom battlecard", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/competitor-warroom battlecard", e.message); }
+try {
+  const res = await fetch(BASE + "/api/competitor-warroom", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor", input: {} }) });
+  if (res.status === 400) ok("POST /api/competitor-warroom rejects missing competitor");
+  else bad("POST /api/competitor-warroom validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/competitor-warroom validation", e.message); }
+
+console.log("\nAutonomous Content Factory (content-engine):");
+try {
+  const res = await fetch(BASE + "/api/content-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "brief", input: { outputType: "seo_article", topic: "best grill in Brixton" } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.outputType === "seo_article" && Array.isArray(body.outline) && body.outline.length > 0 && typeof body.requiresSourceValidation === "boolean") {
+    ok(`POST /api/content-engine brief (${body.outline.length}-point outline)`);
+  } else bad("POST /api/content-engine brief", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/content-engine brief", e.message); }
+try {
+  const res = await fetch(BASE + "/api/content-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "assemble", input: { outputType: "seo_article", topic: "grill facts", highRisk: true, claims: [{ text: "we cure hunger instantly", hasSource: false }, { text: "rated 4.7", hasSource: true }] } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.claimAudit) && body.claimAudit.length === 2 && typeof body.blocked === "number" && typeof body.publishable === "boolean") {
+    ok(`POST /api/content-engine assemble (${body.blocked} claim(s) blocked, publishable ${body.publishable})`);
+  } else bad("POST /api/content-engine assemble", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/content-engine assemble", e.message); }
+try {
+  const res = await fetch(BASE + "/api/content-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "brief", input: { outputType: "not_a_type", topic: "x" } }) });
+  if (res.status === 400) ok("POST /api/content-engine rejects unknown outputType");
+  else bad("POST /api/content-engine validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/content-engine validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
