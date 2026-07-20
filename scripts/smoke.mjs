@@ -708,6 +708,76 @@ try {
   else bad("POST /api/siteraid dna validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/siteraid dna validation", e.message); }
 
+console.log("\nLead Harvest compliance engine:");
+try {
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "classify", email: "j.smith@acme-legal.co.uk" }),
+  });
+  const body = await res.json();
+  // Named mailbox → personal data, higher risk.
+  if (res.status === 200 && body.contactType === "personal" && body.personalData === true && body.riskCategory === "higher") {
+    ok("POST /api/lead-harvest classify (named mailbox → personal data)");
+  } else bad("POST /api/lead-harvest classify", `HTTP ${res.status}, type ${body.contactType}`);
+} catch (e) { bad("POST /api/lead-harvest classify", e.message); }
+try {
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "verify", email: "bob@mailinator.com" }),
+  });
+  const body = await res.json();
+  // Disposable domain → 12 checks, reject verdict.
+  if (res.status === 200 && Array.isArray(body.checks) && body.checks.length === 12 && body.verdict === "reject") {
+    ok(`POST /api/lead-harvest verify (disposable → ${body.verdict}, ${body.passedCount}/12 passed)`);
+  } else bad("POST /api/lead-harvest verify", `HTTP ${res.status}, verdict ${body.verdict}, checks ${body.checks?.length}`);
+} catch (e) { bad("POST /api/lead-harvest verify", e.message); }
+try {
+  // UK personal data with NO consent and NO LIA → cannot contact.
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "compliance", record: { email: "jane.doe@ukfirm.co.uk", sourceUrl: "ukfirm.co.uk/team", country: "GB" } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.region === "UK_EU" && body.personalData === true && body.lawfulBasis === "none" && body.canContact === false && body.liaRequired === true) {
+    ok("POST /api/lead-harvest compliance (UK personal, no basis → cannot contact, LIA required)");
+  } else bad("POST /api/lead-harvest compliance", `basis ${body.lawfulBasis}, canContact ${body.canContact}`);
+} catch (e) { bad("POST /api/lead-harvest compliance", e.message); }
+try {
+  // Generic UK corporate mailbox → legitimate interest, can contact.
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "compliance", record: { email: "info@ukfirm.co.uk", sourceUrl: "ukfirm.co.uk/contact", country: "GB" } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.lawfulBasis === "legitimate_interest" && body.canContact === true) {
+    ok("POST /api/lead-harvest compliance (UK generic corporate → legitimate interest)");
+  } else bad("POST /api/lead-harvest compliance generic", `basis ${body.lawfulBasis}`);
+} catch (e) { bad("POST /api/lead-harvest compliance generic", e.message); }
+try {
+  // Full gate: missing DKIM/DMARC must block the send.
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "gate", record: { email: "info@ukfirm.co.uk", sourceUrl: "ukfirm.co.uk/contact", country: "GB" },
+      campaign: { domainAuthenticated: true, spf: true, dkim: false, dmarc: false, unsubscribeLink: true, physicalAddress: true, suppressionChecked: true, bounceProbability: 0.05, dailyLimitRespected: true, spamRiskScore: 20, channel: "email" } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.gate.cleared === false && body.gate.checks.length === 12 && body.gate.blockers.includes("dkim") && body.gate.blockers.includes("dmarc")) {
+    ok(`POST /api/lead-harvest gate (missing DKIM/DMARC blocks send, ${body.gate.blockers.length} blockers)`);
+  } else bad("POST /api/lead-harvest gate", `cleared ${body.gate?.cleared}, blockers ${body.gate?.blockers}`);
+} catch (e) { bad("POST /api/lead-harvest gate", e.message); }
+try {
+  // Fully compliant send → gate clears.
+  const res = await fetch(BASE + "/api/lead-harvest", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "gate", record: { email: "sales@peaktech.com", sourceUrl: "peaktech.com/about", country: "US" },
+      campaign: { domainAuthenticated: true, spf: true, dkim: true, dmarc: true, unsubscribeLink: true, physicalAddress: true, suppressionChecked: true, bounceProbability: 0.03, dailyLimitRespected: true, spamRiskScore: 18, channel: "email" } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.gate.cleared === true && body.gate.blockers.length === 0) {
+    ok("POST /api/lead-harvest gate (fully compliant US B2B → cleared)");
+  } else bad("POST /api/lead-harvest gate clear", `cleared ${body.gate?.cleared}`);
+} catch (e) { bad("POST /api/lead-harvest gate clear", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
