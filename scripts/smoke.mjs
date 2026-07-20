@@ -13,6 +13,7 @@ const PAGES = [
   "/login",
   "/signup",
   "/dashboard",
+  "/dashboard/engines",
   "/dashboard/create",
   "/dashboard/strategy",
   "/dashboard/briefing",

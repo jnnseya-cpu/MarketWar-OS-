@@ -8,6 +8,7 @@ import {
   BadgePercent,
   Clapperboard,
   Coins,
+  Cpu,
   Crosshair,
   Factory,
   Flame,
@@ -45,6 +46,7 @@ const NAV = [
     group: "Command",
     items: [
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+      { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },
       { href: "/dashboard/briefing", label: "Daily Briefing", icon: ScrollText },
       { href: "/dashboard/strategy", label: "Strategy Chain", icon: Target },
