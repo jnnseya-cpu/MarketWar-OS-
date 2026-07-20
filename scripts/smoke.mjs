@@ -1170,6 +1170,122 @@ try {
   else bad("loyalty tier validation", JSON.stringify(body));
 } catch (e) { bad("loyalty tier validation", String(e)); }
 
+console.log("\nMarket Listening (Brandwatch-class):");
+const LISTEN_MENTIONS = [
+  { id: "m1", text: "love this place, best steak in London", source: "twitter", author: "@a", authorReach: 40000, engagement: 300, brand: "MyBrand", period: "2026-W24" },
+  { id: "m2", text: "service was slow and cold, disappointed", source: "review", author: "b", authorReach: 200, engagement: 5, brand: "MyBrand", period: "2026-W25" },
+  { id: "m3", text: "can anyone recommend a good grill near Brixton? looking for a supplier", source: "reddit", author: "c", authorReach: 3000, engagement: 20, brand: "MyBrand", period: "2026-W25" },
+  { id: "m4", text: "Rival Co has great burgers now", source: "tiktok", author: "@d", authorReach: 90000, engagement: 700, brand: "Rival Co", period: "2026-W25" },
+];
+try {
+  const res = await fetch(BASE + "/api/market-listening", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyse", brand: "MyBrand", mentions: LISTEN_MENTIONS }) });
+  const body = await res.json();
+  if (res.status === 200 && body.sentiment && typeof body.sentiment.net === "number" && Array.isArray(body.shareOfVoice) && body.shareOfVoice.length >= 2 && Array.isArray(body.recommendedActions) && body.recommendedActions.length > 0) {
+    ok(`POST /api/market-listening analyse (net sentiment ${body.sentiment.net}, ${body.shareOfVoice.length} brands, risk ${body.reputationRisk})`);
+  } else bad("POST /api/market-listening analyse", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/market-listening analyse", e.message); }
+try {
+  const res = await fetch(BASE + "/api/market-listening", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "leads", competitors: ["Rival Co"], mentions: LISTEN_MENTIONS }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.leads) && body.leads.length >= 1 && body.leads[0].need && body.leads[0].recommendedResponse && body.leads[0].complianceStatus === "review") {
+    ok(`POST /api/market-listening leads (${body.leads.length} lead card(s), top need "${body.leads[0].need}")`);
+  } else bad("POST /api/market-listening leads", `HTTP ${res.status}, leads ${body.leads?.length}`);
+} catch (e) { bad("POST /api/market-listening leads", e.message); }
+try {
+  const res = await fetch(BASE + "/api/market-listening", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyse", brand: "MyBrand", mentions: [] }) });
+  if (res.status === 400) ok("POST /api/market-listening rejects empty mentions");
+  else bad("POST /api/market-listening validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/market-listening validation", e.message); }
+
+console.log("\nClaims & Compliance API:");
+try {
+  const res = await fetch(`${BASE}/api/compliance`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verify", input: { text: "The #1 best grill, guaranteed cheapest" } }) });
+  const body = await res.json();
+  if (body.status === "prohibited" && body.publishable === false) ok("compliance verify blocks unsubstantiated superlatives");
+  else bad("compliance verify", JSON.stringify(body));
+} catch (e) { bad("compliance verify", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/compliance`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verify", input: { text: "Delivered hot in 30 minutes", evidenceSource: "internal delivery logs" } }) });
+  const body = await res.json();
+  if (body.status === "verified" && body.publishable === true) ok("compliance verify accepts substantiated claim");
+  else bad("compliance verify substantiated", JSON.stringify(body));
+} catch (e) { bad("compliance verify substantiated", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/compliance`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "review", input: { claims: ["The best grill guaranteed"], category: "health", aiGenerated: true, hasDisclosure: false } }) });
+  const body = await res.json();
+  if (body.verdict === "blocked" && Array.isArray(body.claimResults) && Array.isArray(body.requiredDisclosures) && body.requiredDisclosures.length > 0) ok("compliance review blocks + requires AI disclosure");
+  else bad("compliance review", JSON.stringify(body));
+} catch (e) { bad("compliance review", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/compliance`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "provenance", input: { assetId: "asset-1", aiGenerated: true, creatorConsent: true } }) });
+  const body = await res.json();
+  if (body.aiDisclosure === true && body.c2paCompatible === true && body.consentRecorded === true && typeof body.label === "string") ok("compliance provenance labels AI asset");
+  else bad("compliance provenance", JSON.stringify(body));
+} catch (e) { bad("compliance provenance", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/compliance`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verify", input: {} }) });
+  if (res.status === 400) ok("compliance verify validates missing text (400)");
+  else bad("compliance verify validation", `expected 400 got ${res.status}`);
+} catch (e) { bad("compliance verify validation", String(e)); }
+
+console.log("\nOnboarding engine (Autonomous Business & Market Onboarding):");
+try {
+  const res = await fetch(`${BASE}/api/onboarding`);
+  const body = await res.json();
+  if (body.engine && typeof body.engine === "string" && body.demo && typeof body.demo.businessProfile.business === "string" && Array.isArray(body.demo.audienceMap)) ok("GET returns doctrine + demo onboarding");
+  else bad("onboarding GET", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("onboarding GET", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/onboarding`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "onboard", input: { business: "Bright Dental Clinic", industry: "healthcare / wellness", countries: ["United Kingdom"] } }) });
+  const body = await res.json();
+  if (body.businessProfile.industry === "healthcare / wellness" && Array.isArray(body.brandVoiceProfile) && body.brandVoiceProfile.length > 0 && Array.isArray(body.keywordUniverse) && body.keywordUniverse.length > 0) ok("onboard action builds a market bundle");
+  else bad("onboarding onboard", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("onboarding onboard", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/onboarding`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "onboard", input: { business: "Acme Roofing", competitors: ["Rival Roofers"] } }) });
+  const body = await res.json();
+  if (Array.isArray(body.ninetyDayPlan) && body.ninetyDayPlan.length === 3 && Array.isArray(body.personaHypotheses) && typeof body.competitorMap[0].name === "string" && body.competitorMap[0].name === "Rival Roofers") ok("onboard returns 90-day plan, personas + supplied competitors");
+  else bad("onboarding plan", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("onboarding plan", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/onboarding`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "onboard", input: {} }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("missing business rejected with 400");
+  else bad("onboarding validation", `status ${res.status} ${JSON.stringify(body).slice(0, 150)}`);
+} catch (e) { bad("onboarding validation", e.message); }
+
+console.log("\nRevenue Attribution + Viral-to-Revenue:");
+try {
+  const res = await fetch(`${BASE}/api/attribution`);
+  const body = await res.json();
+  if (Array.isArray(body.funnelStages) && body.funnelStages.length === 8 && body.demo && typeof body.demo.funnel.revenueGbp === "number") ok("GET attribution returns doctrine + 8 funnel stages + demo");
+  else bad("attribution GET", "missing funnelStages(8)/demo.funnel.revenueGbp");
+} catch (e) { bad("attribution GET", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/attribution`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "funnel", input: { impressions: 100000, attention: 30000, clicks: 5000, leads: 1000, purchases: 300, avgOrderValueGbp: 50 } }) });
+  const body = await res.json();
+  if (Array.isArray(body.stages) && body.stages.length === 8 && body.revenueGbp === 15000 && typeof body.biggestDropOff === "string") ok("POST funnel builds 8-stage funnel + revenue estimate");
+  else bad("attribution funnel", "expected 8 stages and revenueGbp 15000, got " + JSON.stringify(body.revenueGbp));
+} catch (e) { bad("attribution funnel", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/attribution`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "channels", touchpoints: [{ channel: "tiktok", position: "first", conversions: 100, revenueGbp: 5000 }, { channel: "email", position: "last", conversions: 80, revenueGbp: 4000 }] }) });
+  const body = await res.json();
+  if (body.model === "u-shaped" && Array.isArray(body.byChannel) && body.byChannel.length === 2 && typeof body.totalRevenueGbp === "number") ok("POST channels applies u-shaped attribution");
+  else bad("attribution channels", "expected u-shaped model + 2 channels");
+} catch (e) { bad("attribution channels", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/attribution`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "roi", input: { contentCostGbp: 1000, attributedRevenueGbp: 3000 } }) });
+  const body = await res.json();
+  if (body.verdict === "scale" && body.roi === 2 && body.roiPct === 200) ok("POST roi returns verdict + roi multiple");
+  else bad("attribution roi", "expected verdict scale, roi 2, got " + JSON.stringify(body.verdict) + "/" + JSON.stringify(body.roi));
+} catch (e) { bad("attribution roi", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/attribution`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "funnel", input: {} }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("POST funnel without impressions returns 400");
+  else bad("attribution validation", "expected 400, got " + res.status);
+} catch (e) { bad("attribution validation", String(e)); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
