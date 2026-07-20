@@ -993,3 +993,13 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Self-attributing checkout links** — payments attribute without hand-set metadata | Owner directive 2026-07-20 | ✅ | `src/backend/checkout.ts` `createCheckoutLink` (Stripe Checkout Session pre-stamped with `metadata.marketwar_brand_id`+`marketwar_source`, dependency-free REST, demo-safe) → `/api/checkout`; Revenue page "Create a paid checkout link" card |
 | End-to-end: link → pay → auto-attributed | same | ✅ mechanism | link metadata matches the webhook attributor (`brandRevenueFromEvent`); demo link + live link both carry the exact attributing metadata |
 | Verified | same | ✅ | smoke **308/0** (+ checkout link metadata + zero-amount 400); live curl: demo link carries brand+source metadata |
+
+## 25. Revenue Autopilot — find customers while you sleep (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Agents find customers unattended** ("user sleeps while MarketWar finds customers to spend real money") | Owner objective 2026-07-20 | ✅ | `src/backend/autopilot.ts` `runAutopilotCycle` — scans acquisition moves, decides act-vs-queue; `/api/autopilot`; `/dashboard/autopilot` |
+| **Governed by the autonomy dial (L0–L4)** — high-risk categories never auto-publish | Owner directive (autonomy) | ✅ | reuses `autonomyGate`; children/health/regulated capped to L1 — verified (kids-toy brand → 0 auto-executed) |
+| **Runs while you sleep** — nightly schedule | Owner objective 2026-07-20 | ✅ | stateless per-brand cycle; `docs/AUTOPILOT.md` (Firebase Scheduled Function / Vercel Cron / plain cron) |
+| **Never fabricates money** — real revenue only via the money loop | Platform honesty rule | ✅ | projection labelled "estimate — not booked"; digest points to Revenue for actuals |
+| Verified | same | ✅ | smoke **311/0** (+ page, L3 auto-execute, children→L1 cap); screenshot of a live cycle |

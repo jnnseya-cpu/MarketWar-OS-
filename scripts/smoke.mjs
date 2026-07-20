@@ -24,6 +24,7 @@ const PAGES = [
   "/login",
   "/signup",
   "/dashboard",
+  "/dashboard/autopilot",
   "/dashboard/engines",
   "/dashboard/comms",
   "/dashboard/create",
@@ -1926,6 +1927,30 @@ console.log("\nMoney ledger — per-brand attributed revenue:");
     else bad("checkout link validation", `expected 400, got ${res.status}`);
   } catch (e) { bad("checkout link validation", e.message); }
 }
+
+console.log("\nRevenue Autopilot — find customers while you sleep:");
+try {
+  // Standard brand at L3 → owned/low-risk moves auto-execute; higher-risk queue.
+  const res = await fetch(BASE + "/api/autopilot", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ brand: { id: "smoke-grill", name: "Smoke Grill", industry: "Restaurant", product: "takeaway", audience: "locals", location: "Brixton", offer: "Feed 4 for £25", goal: "orders" }, requestedLevel: 3, budgetGbp: 200, nowISO: "2026-07-20T00:00:00.000Z" }),
+  });
+  const b = await res.json();
+  if (res.status === 200 && Array.isArray(b.actions) && b.actions.length >= 4 && b.autoExecuted >= 1 && b.grantedLevel === 3 && typeof b.digest === "string") {
+    ok(`POST /api/autopilot (L3: ${b.autoExecuted} auto-executed, ${b.queued} queued, £${b.projectedRevenueGbp} projected)`);
+  } else bad("POST /api/autopilot", `HTTP ${res.status}, auto ${b.autoExecuted}, granted ${b.grantedLevel}`);
+} catch (e) { bad("POST /api/autopilot", e.message); }
+try {
+  // Children's brand at L4 → autonomy gate caps to L1, nothing auto-executes.
+  const res = await fetch(BASE + "/api/autopilot", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ brand: { id: "smoke-toys", name: "Aurora Kids Toys", industry: "Children toys", product: "kids toys", audience: "parents" }, requestedLevel: 4, nowISO: "2026-07-20T00:00:00.000Z" }),
+  });
+  const b = await res.json();
+  if (res.status === 200 && b.grantedLevel === 1 && b.autonomyCapped === true && b.autoExecuted === 0) {
+    ok("POST /api/autopilot (children's brand → capped to L1, nothing auto-published)");
+  } else bad("POST /api/autopilot governance", `granted ${b.grantedLevel}, capped ${b.autonomyCapped}, auto ${b.autoExecuted}`);
+} catch (e) { bad("POST /api/autopilot governance", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {

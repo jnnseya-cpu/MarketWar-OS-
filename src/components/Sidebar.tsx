@@ -21,6 +21,7 @@ import {
   Mail,
   MapPin,
   MessageCircle,
+  Moon,
   PiggyBank,
   Plug,
   Radar,
@@ -47,6 +48,7 @@ const NAV = [
     group: "Command",
     items: [
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+      { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },
       { href: "/dashboard/briefing", label: "Daily Briefing", icon: ScrollText },
