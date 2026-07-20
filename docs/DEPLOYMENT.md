@@ -172,5 +172,33 @@ If you deploy the frontend via **Firebase App Hosting** instead of Vercel:
 3. App Hosting auto-detects Next.js and runs `next build`. With no secrets set,
    it still builds and serves in zero-config demo mode.
 
+### Wiring SMTP email on App Hosting
+
+The SMTP host/port/from are non-secret and live as plain `value:` entries in
+`apphosting.yaml` (already scaffolded — fill them in and uncomment). The
+username and password are **secrets** and must go through Secret Manager:
+
+```bash
+# One-time: create the two SMTP secrets (paste the value when prompted)
+firebase apphosting:secrets:set smtp-user
+firebase apphosting:secrets:set smtp-pass
+
+# Grant the App Hosting backend read access (accept the prompt)
+firebase apphosting:secrets:grantaccess smtp-user --backend <your-backend-id>
+firebase apphosting:secrets:grantaccess smtp-pass --backend <your-backend-id>
+```
+
+Then uncomment the `SMTP_*` block in `apphosting.yaml` (host/port/secure/from as
+values, `smtp-user`/`smtp-pass` as `secret:`) and push — App Hosting redeploys
+from the connected GitHub repo and the email engine flips from demo →
+`provider: "smtp"`. Verify with `POST /api/email {action:"send"}` returning
+`mode: "live"`.
+
+> **Deploying on Vercel instead?** There is no `apphosting.yaml` step — add all
+> six (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`,
+> `EMAIL_FROM`) under **Project → Settings → Environment Variables** (mark
+> `SMTP_USER`/`SMTP_PASS` as sensitive), then redeploy. Either way, these are
+> **host** env vars — they are never stored in GitHub.
+
 The domain (`marketwaros.com`) and the Stripe webhook
 (`https://marketwaros.com/api/webhooks/stripe`) are the same regardless of host.

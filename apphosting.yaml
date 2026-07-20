@@ -63,3 +63,28 @@ env:
   # - variable: STRIPE_WEBHOOK_SECRET
   #   secret: stripe-webhook-secret
   #   availability: [RUNTIME]
+
+  # ── Email / SMTP (the go-live sender) ──────────────────────────────────
+  # Non-secret settings live here as plain values. Fill in your relay's host
+  # (Brevo, Postmark, SES, Mailgun…) and the From identity, then uncomment.
+  # Port 587 = STARTTLS; 465 = implicit TLS (also set SMTP_SECURE=true).
+  # - variable: SMTP_HOST
+  #   value: smtp-relay.brevo.com          # ← your relay host
+  #   availability: [RUNTIME]
+  # - variable: SMTP_PORT
+  #   value: "587"
+  #   availability: [RUNTIME]
+  # - variable: SMTP_SECURE
+  #   value: "false"                        # "true" only for port 465
+  #   availability: [RUNTIME]
+  # - variable: EMAIL_FROM
+  #   value: MarketWar OS <os@notifications.marketwaros.com>
+  #   availability: [RUNTIME]
+  # SMTP credentials are SECRETS — create them in Secret Manager (commands in
+  # docs/DEPLOYMENT.md), never as plain values, then uncomment:
+  # - variable: SMTP_USER
+  #   secret: smtp-user
+  #   availability: [RUNTIME]
+  # - variable: SMTP_PASS
+  #   secret: smtp-pass
+  #   availability: [RUNTIME]
