@@ -574,6 +574,68 @@ try {
   else bad("POST /api/local-marketplace quote validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/local-marketplace quote validation", e.message); }
 
+console.log("\nVisualStrike AI engine:");
+try {
+  const res = await fetch(BASE + "/api/visualstrike", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "lock", regulated: true, requestedMode: "lifestyle_placement" }),
+  });
+  const body = await res.json();
+  // Regulated product → exact preservation forced, all 12 traits locked.
+  if (res.status === 200 && body.mode === "exact" && body.enforcedExact === true && Array.isArray(body.lockedTraits) && body.lockedTraits.length === 12) {
+    ok(`POST /api/visualstrike lock (regulated → exact preservation forced, ${body.lockedTraits.length} traits locked)`);
+  } else bad("POST /api/visualstrike lock", `HTTP ${res.status}, mode ${body.mode}, enforced ${body.enforcedExact}`);
+} catch (e) { bad("POST /api/visualstrike lock", e.message); }
+try {
+  const res = await fetch(BASE + "/api/visualstrike", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "score", concept: { product: "AuraGlow Serum", angle: "before_after", hasProof: true, trendAligned: true, clearProduct: true } }),
+  });
+  const body = await res.json();
+  // 15 dimensions, separate viral vs commercial scores, improvements list.
+  if (res.status === 200 && Array.isArray(body.dimensions) && body.dimensions.length === 15
+      && typeof body.viralPotential === "number" && typeof body.commercialPotential === "number"
+      && Array.isArray(body.improvements) && Array.isArray(body.topDrivers)) {
+    ok(`POST /api/visualstrike score (viral ${body.viralPotential}, commercial ${body.commercialPotential}, 15 dims)`);
+  } else bad("POST /api/visualstrike score", `HTTP ${res.status}, dims ${body.dimensions?.length}`);
+} catch (e) { bad("POST /api/visualstrike score", e.message); }
+try {
+  const res = await fetch(BASE + "/api/visualstrike", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "pack", concept: { product: "AuraGlow Serum", angle: "before_after" } }),
+  });
+  const body = await res.json();
+  // One concept → 32 natively-adapted formats.
+  if (res.status === 200 && body.count === 32 && Array.isArray(body.formats) && body.formats[0].note) {
+    ok(`POST /api/visualstrike pack (1 concept → ${body.count} native formats)`);
+  } else bad("POST /api/visualstrike pack", `HTTP ${res.status}, count ${body.count}`);
+} catch (e) { bad("POST /api/visualstrike pack", e.message); }
+try {
+  const res = await fetch(BASE + "/api/visualstrike", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "hooks", product: { name: "you won't believe miracle cream" }, fulfilled: false }),
+  });
+  const body = await res.json();
+  // Deceptive clickbait must be detected and blocked.
+  if (res.status === 200 && Array.isArray(body.hooks) && body.blocked >= 1 && body.hooks.some((h) => h.deceptive === true)) {
+    ok(`POST /api/visualstrike hooks (Hook Lab; ${body.blocked} deceptive clickbait blocked)`);
+  } else bad("POST /api/visualstrike hooks", `HTTP ${res.status}, blocked ${body.blocked}`);
+} catch (e) { bad("POST /api/visualstrike hooks", e.message); }
+try {
+  const res = await fetch(BASE + "/api/visualstrike", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "guard", fields: [
+      { key: "cures acne", value: "cures acne in 3 days", confidence: 0.3, needsConfirmation: false, locked: false },
+      { key: "colour", value: "amber glass bottle", confidence: 0.95, needsConfirmation: false, locked: true },
+    ] }),
+  });
+  const body = await res.json();
+  // Low-confidence claim flagged for confirmation, never asserted.
+  if (res.status === 200 && Array.isArray(body.flagged) && body.flagged.length === 1 && body.flagged[0].needsConfirmation === true) {
+    ok(`POST /api/visualstrike guard (honesty guard flagged ${body.flagged.length} unverifiable claim)`);
+  } else bad("POST /api/visualstrike guard", `HTTP ${res.status}, flagged ${body.flagged?.length}`);
+} catch (e) { bad("POST /api/visualstrike guard", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {

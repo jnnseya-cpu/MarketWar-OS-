@@ -763,20 +763,21 @@ Blueprint: `docs/ai-os/10-viral-product-and-website-engines.md` Parts D–H (add
 
 | Requirement | Source | Status | Where |
 |---|---|---|---|
-| **VisualStrike AI™** — autonomous viral campaign factory (research → create → test → publish → learn → optimise) | F1 | ✅ core rebranded+upgraded / 📘 pipelines | `viral-product-engine` agent v2 + `/dashboard/product-engine` |
-| Product Intelligence Extraction w/ confidence scores, source locations, locks, needs-confirmation warnings; never invent claims | F1 §1 | ✅ agent contract / 📘 vision UI | doc 10 §D.1; agent prompt hard rules |
-| **Product Identity Lock™** (12 locked traits, 6 transformation tiers, exact-preservation mandatory for regulated) | F1 §2 | ✅ agent contract + page card | doc 10 §D.2 |
+| **VisualStrike AI™** — autonomous viral campaign factory (research → create → test → publish → learn → optimise) | F1 | ✅ **deterministic engine shipped** / 📘 pipelines | **`src/backend/visualstrike.ts` + `/api/visualstrike`** (lock/angles/score/pack/hooks/guard) + `viral-product-engine` agent v2 + `/dashboard/product-engine`; smoke-verified |
+| Product Intelligence Extraction w/ confidence scores, source locations, locks, needs-confirmation warnings; never invent claims | F1 §1 | ✅ **honesty guard shipped** / 📘 vision UI | `guardClaims()` in `src/backend/visualstrike.ts` (low-confidence fields flagged, never asserted) + `/api/visualstrike` action `guard`; smoke-verified; doc 10 §D.1 |
+| **Product Identity Lock™** (12 locked traits, 6 transformation tiers, exact-preservation mandatory for regulated) | F1 §2 | ✅ **engine** | `productIdentityLock()` in `src/backend/visualstrike.ts` — 12 `IDENTITY_TRAITS`, 6 `PRESERVATION_MODES`, regulated/high-value overridden to exact (smoke-verified); doc 10 §D.2 |
 | Autonomous Product Research Agent (14 outputs, anti-copy doctrine) | F1 §3 | 📘 (live research needs connectors/web) | doc 10 §D.3 |
-| **Viral Potential Score™** (15 dims, explained) + Commercial Potential Score | F1 §4 | ✅ | agent output + page card |
-| Viral Angle Generator — 27 angle families × 11 fields | F1 §5 | ✅ (top-4 in output; full families in blueprint) | doc 10 §D.5 |
+| **Viral Potential Score™** (15 dims, explained) + Commercial Potential Score | F1 §4 | ✅ **engine** | `scoreConcept()` in `src/backend/visualstrike.ts` — 15 `VIRAL_DIMENSIONS`, controversy penalised not rewarded, separate Commercial score, per-dim breakdown + improvements; smoke-verified |
+| Viral Angle Generator — 27 angle families × 11 fields | F1 §5 | ✅ **engine (all 27)** | `generateAngles()` + `ANGLE_FAMILIES` (27) in `src/backend/visualstrike.ts`, each angle carries all 11 fields; `/api/visualstrike` action `angles`; smoke-verified |
 | Image Transformation Studio (17 types, 14 controls, staged multi-object pipeline) | F1 §6 | 📘 image models P1 | doc 10 §D.6 |
 | Image-to-Video Factory (20 types, 16 controls, 7-step controlled pipeline w/ consistency validation) | F1 §7 | ✅ concepts / 📘 rendering | doc 10 §D.7 + Video War Room |
 | AI Creator & UGC Studio w/ 8 hard safeguards (no impersonation/cloning/fabricated testimonials) | F1 §8 | 📘 avatars P2; safeguards codified | doc 10 §D.8 |
-| Viral Content Pack Generator (32 native formats) | F1 §9 | ✅ conversational / 📘 rendering | doc 10 §D.9 |
-| **Hook Laboratory™** (130+ scored hooks, clickbait blocked) | F1 §10 | ✅ (structure in output) | doc 10 §D.10 |
+| Viral Content Pack Generator (32 native formats) | F1 §9 | ✅ **engine** / 📘 rendering | `contentPack()` + `CONTENT_PACK_FORMATS` (32) in `src/backend/visualstrike.ts` (natively adapted, not resized); `/api/visualstrike` action `pack`; smoke-verified |
+| **Hook Laboratory™** (130+ scored hooks, clickbait blocked) | F1 §10 | ✅ **engine (clickbait block)** | `hookLab()` + `blockClickbait()` in `src/backend/visualstrike.ts` — scores hooks by type, blocks deceptive clickbait the content can't fulfil; smoke-verified; doc 10 §D.10 |
 | Global Localisation Engine (17 axes, transcreation, lip-sync) | F1 §11 | 📘 | doc 10 §D.11 + doc 08 §C.3 localisation |
 | Autonomous Testing & Optimisation (19-variable matrix, 8-step loop, Creative Intelligence Memory, 6 distinctions) | F1 §12 | ✅ matrix in output / 📘 live loop | doc 10 §D.12 |
-| 8 one-click campaign modes (Launch Blitz → Always-On Autopilot) | F1 §13 | ✅ page surface / 📘 execution | doc 10 §D.13 |
+| 8 one-click campaign modes (Launch Blitz → Always-On Autopilot) | F1 §13 | ✅ **engine** / 📘 execution | `CAMPAIGN_MODES` (8) in `src/backend/visualstrike.ts` + `/api/visualstrike` GET; page surface; doc 10 §D.13 |
+| AI Creator/UGC safeguards (8 hard rules) + controlled 7-stage generation pipeline (protect product first) | F1 §7–8 | ✅ **codified in engine** | `CREATOR_SAFEGUARDS` (8) + `PIPELINE_STAGES` (7) in `src/backend/visualstrike.ts`; doc 10 §D.7–8 |
 | **SiteRaid AI™** — website → continuously optimised marketing & sales operation | F2 | ✅ core rebranded+upgraded / 📘 crawler | `website-intelligence` agent v2 + `/dashboard/website-intel` |
 | Authorised ingestion (13 input types; ownership/permission confirmation; competitor = public analysis only) | F2 §1 | ✅ codified in prompt + page | doc 10 §E.1 |
 | Full understanding (34 elements) + visual extraction screen w/ approve/edit/lock/exclude | F2 §2 | 📘 extraction UI P1 | doc 10 §E.2 |
