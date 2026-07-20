@@ -526,6 +526,54 @@ try {
   } else bad("GET /api/admin-economics", `HTTP ${res.status}`);
 } catch (e) { bad("GET /api/admin-economics", e.message); }
 
+console.log("\nLocal Marketplace Engine:");
+try {
+  const res = await fetch(BASE + "/api/local-marketplace", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "discover", filters: { category: "Plumber", city: "London", verifiedOnly: true } }),
+  });
+  const body = await res.json();
+  // Ranked, verified-only, highest discoveryScore first, with badges.
+  if (res.status === 200 && Array.isArray(body.hits) && body.hits.length >= 2
+      && body.hits.every((h) => h.verified === true && typeof h.discoveryScore === "number")
+      && body.hits[0].discoveryScore >= body.hits[1].discoveryScore && Array.isArray(body.hits[0].badges)) {
+    ok(`POST /api/local-marketplace discover (${body.hits.length} verified plumbers, top ${body.hits[0].name} @ ${body.hits[0].discoveryScore})`);
+  } else bad("POST /api/local-marketplace discover", `HTTP ${res.status}, hits ${body.hits?.length}`);
+} catch (e) { bad("POST /api/local-marketplace discover", e.message); }
+try {
+  const res = await fetch(BASE + "/api/local-marketplace", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "quote", request: { category: "Plumber", city: "London", postcodePrefix: "SW9", budgetGbp: 150, urgency: "urgent" } }),
+  });
+  const body = await res.json();
+  // Only quote-accepting providers, ranked by matchScore, with reasons + expiry.
+  if (res.status === 200 && Array.isArray(body.matches) && body.matches.length >= 1
+      && body.matches[0].matchScore >= (body.matches[1]?.matchScore ?? 0)
+      && Array.isArray(body.matches[0].reasons) && body.matches[0].quoteExpiryHours === 12) {
+    ok(`POST /api/local-marketplace quote (top match ${body.matches[0].name} @ ${body.matches[0].matchScore}, ${body.matches[0].quoteExpiryHours}h expiry)`);
+  } else bad("POST /api/local-marketplace quote", `HTTP ${res.status}, matches ${body.matches?.length}`);
+} catch (e) { bad("POST /api/local-marketplace quote", e.message); }
+try {
+  const res = await fetch(BASE + "/api/local-marketplace", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "book", request: { providerId: "p3", service: "Boiler service", partySize: 1 } }),
+  });
+  const body = await res.json();
+  // Slots offered + deposit + no-show protection + reminder schedule.
+  if (res.status === 200 && Array.isArray(body.slots) && body.slots.length >= 2 && body.slots[0].label
+      && typeof body.depositGbp === "number" && body.depositGbp > 0 && Array.isArray(body.reminders) && body.reminders.length === 3) {
+    ok(`POST /api/local-marketplace book (${body.slots.length} slots, £${body.depositGbp} deposit, no-show protected)`);
+  } else bad("POST /api/local-marketplace book", `HTTP ${res.status}, slots ${body.slots?.length}`);
+} catch (e) { bad("POST /api/local-marketplace book", e.message); }
+try {
+  const res = await fetch(BASE + "/api/local-marketplace", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "quote", request: { city: "London" } }),
+  });
+  if (res.status === 400) ok("POST /api/local-marketplace quote rejects missing category");
+  else bad("POST /api/local-marketplace quote validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/local-marketplace quote validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
