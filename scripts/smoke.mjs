@@ -1630,6 +1630,52 @@ try {
   else bad("profit-guard validation", `status ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
 } catch (e) { bad("profit-guard validation", String(e)); }
 
+console.log("\nSubscription & Commercial model:");
+try {
+  const res = await fetch(BASE + "/api/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "quote-acus", providerCostGbp: 0.75 }) });
+  const body = await res.json();
+  // £0.75 × 4 × 100 = 300 ACUs; 300% markup = 75% gross margin.
+  if (res.status === 200 && body.requiredAcus === 300 && body.customerChargeGbp === 3 && body.markupPct === 300 && body.grossMarginPct === 75) {
+    ok(`POST /api/subscription quote-acus (£0.75 → ${body.requiredAcus} ACUs, ${body.markupPct}% markup = ${body.grossMarginPct}% margin)`);
+  } else bad("POST /api/subscription quote-acus", `HTTP ${res.status}, acus ${body.requiredAcus}, margin ${body.grossMarginPct}`);
+} catch (e) { bad("POST /api/subscription quote-acus", e.message); }
+try {
+  const res = await fetch(BASE + "/api/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "plan", planId: "growth" }) });
+  const body = await res.json();
+  // Growth £49: 980 monthly ACUs (49×20), annual £411.60, top-up £9.80=980.
+  if (res.status === 200 && body.monthlyAcus === 980 && body.annualGbp === 411.6 && body.defaultTopUpAcus === 980 && body.annualMonthlyReleaseAcus === 686) {
+    ok(`POST /api/subscription plan growth (${body.monthlyAcus} ACUs/mo, annual £${body.annualGbp}, release ${body.annualMonthlyReleaseAcus}/mo)`);
+  } else bad("POST /api/subscription plan", `HTTP ${res.status}, monthly ${body.monthlyAcus}, annual ${body.annualGbp}`);
+} catch (e) { bad("POST /api/subscription plan", e.message); }
+try {
+  const res = await fetch(BASE + "/api/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "contribution", acuRevenueGbp: 4, providerCostGbp: 1, processingCostGbp: 0.1, paymentCostGbp: 0.1 }) });
+  const body = await res.json();
+  // £4 rev - £1.20 cost = £2.80 net; margin 70% → amber band.
+  if (res.status === 200 && body.netContributionGbp === 2.8 && body.grossMarginPct === 70 && body.band === "amber") {
+    ok(`POST /api/subscription contribution (net £${body.netContributionGbp}, ${body.grossMarginPct}% → ${body.band})`);
+  } else bad("POST /api/subscription contribution", `HTTP ${res.status}, net ${body.netContributionGbp}, band ${body.band}`);
+} catch (e) { bad("POST /api/subscription contribution", e.message); }
+try {
+  const res = await fetch(BASE + "/api/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "upgrade", usage: { planId: "growth", topUpSpendGbp: 30, monthsToppingUp: 3, usersUsed: 5 } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.shouldUpgrade === true && body.proposedPlan === "Scale" && body.signals.length >= 1) {
+    ok(`POST /api/subscription upgrade (Growth → ${body.proposedPlan}, ${body.signals.length} signals)`);
+  } else bad("POST /api/subscription upgrade", `HTTP ${res.status}, proposed ${body.proposedPlan}`);
+} catch (e) { bad("POST /api/subscription upgrade", e.message); }
+try {
+  const res = await fetch(BASE + "/api/subscription");
+  const body = await res.json();
+  // GET exposes 8 plans + the markup correction; provider cost never a plan field.
+  if (res.status === 200 && Array.isArray(body.plans) && body.plans.length === 8 && body.markupCorrection.grossMarginPct === 75 && body.markupCorrection.markupPct === 300) {
+    ok(`GET /api/subscription (${body.plans.length} plans, 4× = ${body.markupCorrection.markupPct}% markup / ${body.markupCorrection.grossMarginPct}% margin)`);
+  } else bad("GET /api/subscription", `HTTP ${res.status}, plans ${body.plans?.length}`);
+} catch (e) { bad("GET /api/subscription", e.message); }
+try {
+  const res = await fetch(BASE + "/api/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "plan", planId: "nope" }) });
+  if (res.status === 400) ok("POST /api/subscription rejects invalid planId");
+  else bad("POST /api/subscription validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/subscription validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {

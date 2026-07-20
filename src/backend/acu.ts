@@ -96,7 +96,8 @@ export type AcuQuote = {
   acus: number;
   retailGbp: number; // what the ACUs are worth — for internal margin math only
   marginMultiplier: number;
-  marginPct: number; // gross margin %
+  marginPct: number; // MARKUP % over provider cost (4× → 300%). NB: this is markup, not gross margin.
+  grossMarginPct: number; // gross margin % = (retail − cost)/retail (4× → 75%; can never exceed 100%)
   addOnAcus: number; // speed + premium-model surcharges
   breakdown: string[];
   estimatedSeconds: number;
@@ -126,7 +127,11 @@ export function quoteAcu(input: AcuQuoteInput): AcuQuote {
   const addOnAcus = Math.max(0, speedAcus) + Math.max(0, premiumAcus);
   const acus = baseAcus + addOnAcus;
 
+  // marginPct = MARKUP over cost (4× → 300%); grossMarginPct = margin of revenue
+  // (4× → 75%). Owner correction 2026-07-20: a "400% margin" is impossible — the
+  // 4× target is a 300% markup / 75% gross margin.
   const marginPct = trueProviderCost > 0 ? round((retailGbp - trueProviderCost) / trueProviderCost * 100, 0) : 0;
+  const grossMarginPct = retailGbp > 0 ? round((retailGbp - trueProviderCost) / retailGbp * 100, 0) : 0;
   const estimatedSeconds = Math.round(complexity * cls.resourceWeight * 40 * variants / (input.speed === "instant" ? 4 : input.speed === "priority" ? 2 : 1));
 
   return {
@@ -134,12 +139,13 @@ export function quoteAcu(input: AcuQuoteInput): AcuQuote {
     retailGbp: round(retailGbp, 3),
     marginMultiplier: round(margin, 2),
     marginPct,
+    grossMarginPct,
     addOnAcus,
     breakdown: [
       `class "${cls.label}" (×${cls.resourceWeight} resource), complexity ×${complexity}, demand ×${demand}`,
       `markup ×${round(margin, 2)} (standard 4× = £1 provider → £4 user, floor ${MARGIN_FLOOR}×) → ${baseAcus} ACUs`,
       addOnAcus ? `+ ${addOnAcus} ACUs add-ons (${input.speed ?? "normal"} speed${input.premiumModel ? ", premium model" : ""})` : "no add-ons",
-      `≈ £${round(retailGbp, 2)} value · gross margin ${marginPct}%`,
+      `≈ £${round(retailGbp, 2)} value · ${marginPct}% markup = ${grossMarginPct}% gross margin`,
     ],
     estimatedSeconds,
   };

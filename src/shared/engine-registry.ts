@@ -29,7 +29,8 @@ export type EngineEntry = {
 
 export const ENGINE_REGISTRY: EngineEntry[] = [
   // ── Economics & Governance ────────────────────────────────────────────────
-  { id: "acu", name: "ACU Economics", category: "Economics & Governance", blurb: "Utility-company pricing — 4× markup, 2× floor, provider cost never exposed.", actions: ["quote", "preflight", "profit", "arbitrate"] },
+  { id: "subscription", name: "Subscription & Commercial", category: "Economics & Governance", blurb: "8 plans, 20% ACU allocation, 4× markup = 75% gross margin, top-ups, upgrade triggers.", actions: ["quote-acus", "plan", "upgrade", "contribution"] },
+  { id: "acu", name: "ACU Economics", category: "Economics & Governance", blurb: "Utility-company pricing — 4× markup (300%/75% margin), 2× floor, cost never exposed.", actions: ["quote", "preflight", "profit", "arbitrate"] },
   { id: "admin-economics", name: "Owner Economics", category: "Economics & Governance", blurb: "Gross-margin dashboard, cost-leakage alerts, ACU recycling, export charges.", actions: ["dashboard", "recycling"] },
   { id: "profit-guard", name: "ProfitGuard", category: "Economics & Governance", blurb: "9-check pre-scale gate — never scales a low-margin or out-of-stock product.", actions: ["check"] },
   { id: "compliance", name: "Claims & Compliance", category: "Economics & Governance", blurb: "Claim classification + C2PA provenance; unsubstantiated claims never publish.", actions: ["verify", "review", "provenance"] },
