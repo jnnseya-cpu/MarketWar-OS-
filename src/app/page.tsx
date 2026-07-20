@@ -167,10 +167,10 @@ export default function LandingPage() {
               Log in
             </Link>
             <Link
-              href="/dashboard"
+              href="/signup"
               className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
             >
-              Enter MarketWar OS
+              Get started
             </Link>
           </div>
         </div>

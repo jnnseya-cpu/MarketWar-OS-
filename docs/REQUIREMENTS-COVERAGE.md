@@ -1054,3 +1054,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **In-app ACU top-up purchase** — customer can actually buy top-ups | Owner directive 2026-07-20 | ✅ | `createTopupCheckout` (checkout.ts) → `/api/billing/topup`; billing page top-up tiles are buy buttons (live → Stripe redirect; demo → link) |
 | **Top-up payment credits ACUs** — idempotent, no discount | §8/§17 | ✅ | webhook `handleStripeEvent` top-up branch (metadata.marketwar_topup → allocate_acus, ledger `acu_topup`, idempotent by event id) |
 | Verified | same | ✅ | smoke 315/0 (+ £25→2,500 ACUs link, webhook credits 2,500 idempotent); screenshot of the billing top-up flow |
+
+## 31. Sign-up / login panel always visible (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Sign-up/login panel visible in the live (demo) OS** | Owner directive 2026-07-20 ("can't see the sign-up or login panel") | ✅ | `AuthForm` now always renders the real form; demo mode shows a note + submit continues into the demo (was: form hidden, replaced by an "accounts disabled" message) |
+| Header exposes both | same | ✅ | landing header: Log in → /login, Get started → /signup (was Enter→/dashboard) |
+| Goes fully live with Firebase | — | ✅ | with `NEXT_PUBLIC_FIREBASE_*` set, the same form does real email/password + Google auth + verification/reset |
+| Verified | same | ✅ | /login + /signup return 200; screenshot of the sign-up form in demo mode; smoke 315/0 |

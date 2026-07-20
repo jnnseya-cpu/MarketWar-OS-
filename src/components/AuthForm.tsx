@@ -42,7 +42,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!firebaseAuth) return;
+    // Demo mode (no Firebase): the form is real but accounts aren't persisted —
+    // continue into the demo command centre so the flow is testable end to end.
+    if (!firebaseAuth) { router.push("/dashboard"); return; }
     setBusy(true);
     setError(null);
     try {
@@ -72,7 +74,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
   async function forgotPassword() {
     setError(null); setNotice(null);
-    if (!firebaseAuth) return;
+    if (!firebaseAuth) { setNotice("Demo mode — password reset activates once Firebase Auth is connected."); return; }
     if (!email) { setError("Enter your email above first, then tap Forgot password."); return; }
     setBusy(true);
     try {
@@ -87,7 +89,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   }
 
   async function google() {
-    if (!firebaseAuth) return;
+    if (!firebaseAuth) { router.push("/dashboard"); return; }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -122,8 +124,11 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               : "23 AI agents, one operating system — live in minutes."}
           </p>
 
-          {firebaseConfigured ? (
-            <>
+          {!firebaseConfigured && (
+            <p className="mb-4 rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-xs text-sky-200">
+              <strong className="text-white">Demo mode.</strong> This is the real sign-up form — accounts activate the moment Firebase Auth is connected. For now, submit to continue into the demo command centre.
+            </p>
+          )}
               <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
                   <label className="block">
@@ -213,23 +218,6 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                 </svg>
                 Continue with Google
               </button>
-            </>
-          ) : (
-            <div className="space-y-4">
-              <p className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-sm text-sky-200">
-                <strong className="text-white">Demo Intelligence active.</strong> Firebase Auth isn&apos;t configured
-                in this deployment yet, so accounts are disabled — but the entire OS is open to explore with live demo
-                data.
-              </p>
-              <Link href="/dashboard" className="btn-primary w-full justify-center">
-                Enter the demo command centre <ArrowRight className="h-4 w-4" />
-              </Link>
-              <p className="text-center text-xs text-slate-500">
-                Going live? Add the <code className="text-slate-400">NEXT_PUBLIC_FIREBASE_*</code> keys —
-                see <span className="text-slate-400">docs/DEPLOYMENT.md</span>.
-              </p>
-            </div>
-          )}
         </div>
 
         <p className="mt-5 text-center text-sm text-slate-500">
