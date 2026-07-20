@@ -33,6 +33,49 @@ function formEncode(params: Record<string, string>): string {
   return Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
 }
 
+// ACU top-up checkout — the platform selling ACUs to the customer. Creates a
+// Stripe Checkout Session stamped with metadata.marketwar_topup + the ACU
+// quantity, so the webhook credits the customer's ACU wallet on payment. No
+// discount (the 4× provider-cost recovery must stay protected). Demo-safe.
+export async function createTopupCheckout(input: { amountGbp: number; acus: number; orgId?: string; planId?: string }): Promise<CheckoutResult & { acus: number }> {
+  const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
+  const acus = Math.max(0, Math.round(Number(input.acus) || 0));
+  const metadata = { marketwar_brand_id: "", marketwar_source: "ACU top-up" };
+  if (amountGbp <= 0 || acus <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, acus, note: "amount and acus must be > 0", error: "amount and acus must be > 0" };
+
+  if (!checkoutConfigured) {
+    return {
+      ok: true, mode: "demo", sessionId: null, metadata, acus,
+      url: `${APP_URL}/checkout-demo?topup=1&acus=${acus}&amt=${amountGbp}`,
+      note: `Demo mode — set STRIPE_SECRET_KEY to mint a real Stripe link. On payment the webhook credits ${acus} ACUs (metadata.marketwar_topup) to the wallet. No discount on top-ups.`,
+    };
+  }
+
+  const body = formEncode({
+    mode: "payment",
+    success_url: `${APP_URL}/dashboard/billing?topup=success`,
+    cancel_url: `${APP_URL}/dashboard/billing?topup=cancel`,
+    "line_items[0][price_data][currency]": "gbp",
+    "line_items[0][price_data][product_data][name]": `${acus.toLocaleString("en-GB")} ACUs top-up`,
+    "line_items[0][price_data][unit_amount]": String(Math.round(amountGbp * 100)),
+    "line_items[0][quantity]": "1",
+    "metadata[marketwar_topup]": "true",
+    "metadata[marketwar_acus]": String(acus),
+    "metadata[marketwar_org_id]": input.orgId ?? "",
+    "metadata[marketwar_plan]": input.planId ?? "",
+  });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST", headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
+    });
+    const data = (await res.json()) as { url?: string; id?: string; error?: { message?: string } };
+    if (!res.ok) return { ok: false, mode: "live", url: null, sessionId: null, metadata, acus, note: "Stripe rejected the top-up", error: data?.error?.message || `HTTP ${res.status}` };
+    return { ok: true, mode: "live", url: data.url ?? null, sessionId: data.id ?? null, metadata, acus, note: `Live Stripe link — paying it credits ${acus} ACUs to your wallet.` };
+  } catch (e) {
+    return { ok: false, mode: "live", url: null, sessionId: null, metadata, acus, note: "Network error contacting Stripe", error: e instanceof Error ? e.message : "unknown" };
+  }
+}
+
 export async function createCheckoutLink(input: CheckoutInput): Promise<CheckoutResult> {
   const brandId = (input.brandId || "").trim();
   const source = (input.source || "").trim() || "Checkout";

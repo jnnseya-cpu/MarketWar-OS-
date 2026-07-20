@@ -1926,6 +1926,21 @@ console.log("\nMoney ledger — per-brand attributed revenue:");
     if (res.status === 400) ok("checkout link rejects zero amount (400)");
     else bad("checkout link validation", `expected 400, got ${res.status}`);
   } catch (e) { bad("checkout link validation", e.message); }
+  try {
+    // ACU top-up: £25 → 2,500 ACUs checkout link (£1 = 100 ACUs).
+    const res = await fetch(BASE + "/api/billing/topup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amountGbp: 25 }) });
+    const b = await res.json();
+    if (res.status === 200 && b.ok && b.acus === 2500 && b.url) ok(`ACU top-up (£25 → ${b.acus} ACUs, mode ${b.mode})`);
+    else bad("ACU top-up", `HTTP ${res.status}, acus ${b.acus}`);
+  } catch (e) { bad("ACU top-up", e.message); }
+  try {
+    // A top-up webhook credits the specified ACUs (metadata.marketwar_topup).
+    const res = await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt_smoke_topup", type: "checkout.session.completed", created: 1770000000, data: { object: { amount_total: 2500, metadata: { marketwar_topup: "true", marketwar_acus: "2500" } } } }) });
+    const b = await res.json();
+    if (res.status === 200 && b.outcome?.action === "allocate_acus" && b.outcome?.acusAllocated === 2500 && b.outcome?.ledgerEntry?.type === "acu_topup") {
+      ok("ACU top-up webhook (credits 2,500 ACUs, idempotent by event id)");
+    } else bad("ACU top-up webhook", `action ${b.outcome?.action}, acus ${b.outcome?.acusAllocated}`);
+  } catch (e) { bad("ACU top-up webhook", e.message); }
 }
 
 console.log("\nRevenue Autopilot — find customers while you sleep:");

@@ -45,10 +45,28 @@ export default function BillingPage() {
   const [data, setData] = useState<SubResponse | null>(null);
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
   const [error, setError] = useState(false);
+  const [buying, setBuying] = useState<number | null>(null);
+  const [checkout, setCheckout] = useState<{ ok: boolean; mode: string; url: string | null; acus: number; note: string; error?: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/subscription").then((r) => r.json()).then(setData).catch(() => setError(true));
   }, []);
+
+  async function buyTopup(gbp: number, acus: number) {
+    setBuying(gbp); setCheckout(null);
+    try {
+      const res = await fetch("/api/billing/topup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountGbp: gbp, acus }),
+      });
+      const r = await res.json();
+      setCheckout(r);
+      // Live Stripe link → go straight to checkout; demo → show the link + note.
+      if (r.ok && r.url && r.mode === "live") window.location.href = r.url;
+    } catch {
+      setCheckout({ ok: false, mode: "demo", url: null, acus, note: "Network error" });
+    } finally { setBuying(null); }
+  }
 
   // Demo wallet keyed off the Growth plan's monthly allocation (deterministic).
   const currentPlan = data?.plans.find((p) => p.id === "growth");
@@ -149,12 +167,24 @@ export default function BillingPage() {
           <div className="mb-3 flex items-center gap-2"><Zap className="h-4 w-4 text-emerald-400" /><h2 className="font-display text-base font-bold text-white">ACU top-ups</h2><Pill tone="neutral">no discount — protects the 4× rule</Pill></div>
           <div className="flex flex-wrap gap-2">
             {data.topUps.map((t) => (
-              <button key={t.gbp} className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-emerald-500">
-                {fmtGbp(t.gbp)} <span className="text-emerald-300">= {t.acus.toLocaleString("en-GB")} ACUs</span>
+              <button key={t.gbp} onClick={() => buyTopup(t.gbp, t.acus)} disabled={buying !== null} className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-emerald-500 disabled:opacity-50">
+                {buying === t.gbp ? "…" : <>{fmtGbp(t.gbp)} <span className="text-emerald-300">= {t.acus.toLocaleString("en-GB")} ACUs</span></>}
               </button>
             ))}
           </div>
-          <p className="mt-4 text-xs text-slate-500">Subscription pays for access and operating capacity. ACUs pay for AI consumption. Add-ons pay for structural expansion. Provider cost is never shown — you only ever see ACUs.</p>
+          {checkout && (
+            <div className="mt-3 rounded-lg border border-white/[0.07] bg-ink-900/60 p-3 text-xs">
+              {checkout.ok && checkout.url ? (
+                <p className="text-slate-300">
+                  <span className={`mr-2 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${checkout.mode === "live" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{checkout.mode === "live" ? "Redirecting to Stripe" : "Demo link"}</span>
+                  {checkout.acus.toLocaleString("en-GB")} ACUs · {checkout.mode === "live" ? "complete payment to credit your wallet." : <a href={checkout.url} className="text-sky-300 underline">{checkout.url}</a>} <span className="text-slate-500">{checkout.note}</span>
+                </p>
+              ) : (
+                <p className="text-rose-300">{checkout.error || checkout.note}</p>
+              )}
+            </div>
+          )}
+          <p className="mt-4 text-xs text-slate-500">Subscription pays for access and operating capacity. ACUs pay for AI consumption. Add-ons pay for structural expansion. Provider cost is never shown — you only ever see ACUs. Top-ups carry no discount, protecting the 4× provider-cost recovery.</p>
         </div>
       )}
     </div>

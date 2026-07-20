@@ -504,7 +504,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl px-5">
           <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">Pricing</p>
           <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
-            Cheaper than one wasted boost
+            One Marketing OS. <span className="text-gradient">Every Brand. Every Campaign.</span> One Predictable Bill.
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
             Eight tiers from free to global — start where you are, scale when it pays. <span className="text-slate-200">Platform access + AI consumption are separate:</span> every plan includes a monthly ACU allowance for AI actions, and you top up only what you use.

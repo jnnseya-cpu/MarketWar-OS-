@@ -88,6 +88,19 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
   const obj = event.data?.object;
   const base = { eventId: event.id, eventType: event.type };
 
+  // ACU top-up payment (metadata.marketwar_topup) → credit the specified ACUs to
+  // the wallet. Idempotency key = event id (a redelivered webhook never
+  // double-credits). Checked before subscription so a top-up isn't mis-handled.
+  const meta = (obj?.metadata as Record<string, unknown> | undefined) ?? {};
+  if ((event.type === "checkout.session.completed" || event.type === "payment_intent.succeeded") && String(meta.marketwar_topup) === "true") {
+    const acus = Math.max(0, Math.round(Number(meta.marketwar_acus) || 0));
+    return {
+      ...base, handled: true, action: "allocate_acus", acusAllocated: acus,
+      ledgerEntry: { type: "acu_topup", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
+      note: `Credit ${acus} top-up ACUs to the org wallet — append-only, idempotency key = event id. Top-ups carry no discount (4× recovery protected).`,
+    };
+  }
+
   if (event.type === "checkout.session.completed" || event.type === "invoice.paid") {
     const planId = planFromEvent(obj);
     const plan = PLANS.find((p) => p.id === planId)!;

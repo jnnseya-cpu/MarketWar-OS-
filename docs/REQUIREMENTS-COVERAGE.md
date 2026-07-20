@@ -1045,3 +1045,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | §20 Commercial protection + provider-cost-adjustment clause | §20 | ✅ new | `subscription.ts` `COMMERCIAL_PROTECTION` (17), `PROVIDER_COST_ADJUSTMENT_CLAUSE` |
 | §21 Customer-facing pricing message | §21 | ✅ new | `subscription.ts` `PRICING_MESSAGE` |
 | §22 Recommended 8-tier decision | §22 | ✅ | `subscription.ts` PLANS (verified exact) |
+
+## 30. §21 headline on landing + in-app ACU top-up purchase (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **§21 pricing headline on the landing** | Owner directive 2026-07-20 | ✅ | `src/app/page.tsx` pricing → "One Marketing OS. Every Brand. Every Campaign. One Predictable Bill." |
+| **In-app ACU top-up purchase** — customer can actually buy top-ups | Owner directive 2026-07-20 | ✅ | `createTopupCheckout` (checkout.ts) → `/api/billing/topup`; billing page top-up tiles are buy buttons (live → Stripe redirect; demo → link) |
+| **Top-up payment credits ACUs** — idempotent, no discount | §8/§17 | ✅ | webhook `handleStripeEvent` top-up branch (metadata.marketwar_topup → allocate_acus, ledger `acu_topup`, idempotent by event id) |
+| Verified | same | ✅ | smoke 315/0 (+ £25→2,500 ACUs link, webhook credits 2,500 idempotent); screenshot of the billing top-up flow |
