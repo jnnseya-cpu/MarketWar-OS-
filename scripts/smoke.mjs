@@ -1514,6 +1514,121 @@ try {
   else bad("POST /api/creator-intel validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/creator-intel validation", e.message); }
 
+console.log("\nBuyerMind (customer psychology):");
+try {
+  const res = await fetch(BASE + "/api/buyer-psychology", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "detect", text: "I'm so tired of expensive tools that don't work, I just want something simple and fast I can trust" }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.drivers) && body.drivers.length === 15 && typeof body.dominant === "string" && body.drivers[0].score >= body.drivers[14].score) {
+    ok(`POST /api/buyer-psychology detect (dominant "${body.dominant}")`);
+  } else bad("POST /api/buyer-psychology detect", `HTTP ${res.status}, drivers ${body.drivers?.length}`);
+} catch (e) { bad("POST /api/buyer-psychology detect", e.message); }
+try {
+  const res = await fetch(BASE + "/api/buyer-psychology", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "brief", product: "MarketWar OS", driver: "objection" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.driver === "objection" && body.hook && body.proofRequirement.includes("evidence") && body.cta) {
+    ok(`POST /api/buyer-psychology brief (objection → "${body.cta}")`);
+  } else bad("POST /api/buyer-psychology brief", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/buyer-psychology brief", e.message); }
+try {
+  const res = await fetch(BASE + "/api/buyer-psychology", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "brief", product: "X", driver: "not_a_driver" }) });
+  if (res.status === 400) ok("POST /api/buyer-psychology rejects invalid driver");
+  else bad("POST /api/buyer-psychology validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/buyer-psychology validation", e.message); }
+
+console.log("\nOfferForge AI:");
+try {
+  const r = await fetch(BASE + "/api/offer-forge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "forge", input: { product: "Chilli Oil", priceGbp: 12, costGbp: 4.5, stock: 100 } }) });
+  const body = await r.json();
+  if (Array.isArray(body.offers) && body.offers.length === 11 && typeof body.baseMarginPct === "number") ok("forge returns 11 offers with a real base margin");
+  else bad("offer-forge forge", "expected 11 offers + numeric baseMarginPct, got " + JSON.stringify(body).slice(0, 120));
+} catch (e) { bad("offer-forge forge", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/offer-forge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "forge", input: { product: "Chilli Oil", priceGbp: 12, costGbp: 4.5, stock: 100 } }) });
+  const body = await r.json();
+  const allAtOrAboveCost = body.offers.every((o) => o.priceGbp === 0 || o.priceGbp >= 4.5);
+  const floorHeld = body.offers.every((o) => o.priceGbp === 0 || o.marginPct >= 20 || o.viable === false);
+  if (allAtOrAboveCost && floorHeld) ok("no offer sells below cost and the 20% margin floor holds");
+  else bad("offer-forge floor", "an offer breached cost or the margin floor");
+} catch (e) { bad("offer-forge floor", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/offer-forge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "ladder", input: { product: "Chilli Oil", priceGbp: 12, costGbp: 4.5, stock: 100 } }) });
+  const body = await r.json();
+  if (Array.isArray(body.ladder) && body.ladder.every((o) => o.viable === true)) ok("ladder returns only viable offers in ascending order");
+  else bad("offer-forge ladder", "expected a viable-only ladder array, got " + JSON.stringify(body).slice(0, 120));
+} catch (e) { bad("offer-forge ladder", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/offer-forge", { method: "GET" });
+  const body = await r.json();
+  if (Array.isArray(body.offerTypes) && body.offerTypes.length === 11 && typeof body.demo === "object") ok("GET returns doctrine, 11 offer types and demo");
+  else bad("offer-forge GET", "expected 11 offerTypes + demo, got " + JSON.stringify(body).slice(0, 120));
+} catch (e) { bad("offer-forge GET", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/offer-forge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "forge", input: { product: "X", priceGbp: 5, costGbp: 8 } }) });
+  const body = await r.json();
+  if (r.status === 400 && typeof body.error === "string") ok("forge rejects cost > price with 400");
+  else bad("offer-forge validation", "expected 400 for cost>price, got status " + r.status);
+} catch (e) { bad("offer-forge validation", String(e)); }
+
+console.log("\nRightsGuard (rights & consent matrix):");
+try {
+  const res = await fetch(BASE + "/api/rights-guard");
+  const body = await res.json();
+  if (Array.isArray(body.rightsFields) && body.rightsFields.includes("music_licence") && body.demo && typeof body.demo.doctrine === "string") ok("GET returns doctrine + rightsFields + demo");
+  else bad("rights-guard GET", "missing rightsFields/demo shape");
+} catch (e) { bad("rights-guard GET", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/rights-guard");
+  const body = await res.json();
+  const p = body.demo.partiallyCleared;
+  if (p.cleared === false && Array.isArray(p.missing) && p.missing.length > 0 && Array.isArray(p.blockers) && p.blockers.length === p.missing.length) ok("demo partial asset is BLOCKED with blockers");
+  else bad("rights-guard demo partial", "expected blocked asset with blockers");
+} catch (e) { bad("rights-guard demo partial", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/rights-guard");
+  const body = await res.json();
+  const f = body.demo.fullyCleared;
+  if (f.cleared === true && f.missing.length === 0 && Array.isArray(f.satisfied) && f.satisfied.length === f.required.length) ok("demo cleared asset passes with no missing rights");
+  else bad("rights-guard demo cleared", "expected fully cleared asset");
+} catch (e) { bad("rights-guard demo cleared", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/rights-guard", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", input: { assetId: "smoke-1", usesMusic: true, paidAd: true, rights: { source_ownership: true } } }) });
+  const body = await res.json();
+  if (body.assetId === "smoke-1" && body.cleared === false && body.required.includes("music_licence") && body.required.includes("paid_ad_rights")) ok("POST check evaluates use-specific required rights");
+  else bad("rights-guard POST check", "unexpected check result");
+} catch (e) { bad("rights-guard POST check", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/rights-guard", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", input: {} }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("POST check missing assetId returns 400");
+  else bad("rights-guard POST validation", "expected 400 for missing assetId");
+} catch (e) { bad("rights-guard POST validation", String(e)); }
+
+console.log("\nProfitGuard AI:");
+try {
+  const res = await fetch(`${BASE}/api/profit-guard`);
+  const body = await res.json();
+  if (Array.isArray(body.checks) && body.checks.length === 9 && typeof body.doctrine === "string" && body.demo && body.demo.blocked.verdict === "hold" && body.demo.cleared.verdict === "scale") ok("GET returns doctrine, 9 checks, blocked+cleared demo");
+  else bad("profit-guard GET", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("profit-guard GET", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/profit-guard`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", input: { productInStock: true, offerValid: true, priceCorrect: true, marginPct: 42, marginThresholdPct: 20, deliveryCapacity: true, landingPageOk: true, checkoutOk: true, cacGbp: 18, targetCacGbp: 25, aiCostControlled: true } }) });
+  const body = await res.json();
+  if (body.cleared === true && body.verdict === "scale" && Array.isArray(body.checks) && body.checks.length === 9 && Array.isArray(body.blockers) && body.blockers.length === 0) ok("check clears when all 9 pass");
+  else bad("profit-guard check cleared", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("profit-guard check cleared", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/profit-guard`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", input: { productInStock: false, offerValid: true, priceCorrect: true, marginPct: 11, marginThresholdPct: 20, deliveryCapacity: true, landingPageOk: true, checkoutOk: true, cacGbp: 34, targetCacGbp: 25, aiCostControlled: false } }) });
+  const body = await res.json();
+  if (body.cleared === false && body.verdict === "hold" && Array.isArray(body.blockers) && body.blockers.length > 0) ok("check holds out-of-stock low-margin product");
+  else bad("profit-guard check hold", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("profit-guard check hold", String(e)); }
+try {
+  const res = await fetch(`${BASE}/api/profit-guard`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "unknown" }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("unknown action returns 400");
+  else bad("profit-guard validation", `status ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
+} catch (e) { bad("profit-guard validation", String(e)); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
