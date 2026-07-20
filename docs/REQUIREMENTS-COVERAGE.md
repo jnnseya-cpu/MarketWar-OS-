@@ -1021,3 +1021,13 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Pricing reflects the real model** (was showing 3 old tiers → looked like "only 2 kinds") | Owner directive 2026-07-20 | ✅ | `src/app/page.tsx` PLANS → the real 8 tiers (Free→Global) + "platform access + AI consumption are separate" (ACU) note; 4-col responsive grid |
 | **Many colourful dashboards, visuals & graphs on the landing** ("people like visuals") | Owner directive 2026-07-20 | ✅ | `src/components/LandingVisuals.tsx` — colourful KPI strip + product-"screen" gallery: revenue/spend area chart, orders-by-channel donut, campaign-verdict badges, ROAS bars, conversion funnel, Autopilot digest, demand sparkline (real chart kit + palette) |
 | Verified | same | ✅ | typecheck + check:layers + build + smoke; screenshots of the visual + pricing sections |
+
+## 28. Finalized commercial model — verbatim source + verification (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Separate platform access (subscription) from AI consumption (ACUs)** | Owner spec 2026-07-20 (full) | ✅ | `src/backend/subscription.ts` (platform + 20% ACU allocation) + `src/backend/acu.ts` (metered AI); landing pricing note |
+| **Terminology: £4/£1 = 300% markup = 75% gross margin; margin ≤ 100%; target 100–400% markup, min 300%** | Owner correction (authoritative) | ✅ verified | `acu.ts` `marginPct`=markup, `grossMarginPct`=margin — quote proves £1→£4/400 ACUs/300%/75%, cost hidden |
+| **8-tier model with exact ACU economics** (monthly ACUs, annual 30% off on amount paid, monthly release, default + flexible top-ups, expiry/rollover, wallets, add-ons, premium modules) | Owner spec §1–13 | ✅ verified | `subscription.ts` — computed table matches spec exactly (380/980/2,980/7,980/19,980/49,980/149,980; release 266/686/2,086/5,586/13,986/34,986/104,986; top-ups £3.80…£1,499.80) |
+| **Verbatim source captured (immutable record)** | repo law | ✅ | `docs/reference/commercial-model-subscription-acu.md` (§1–13 + partial §14; §14+ pending owner supply) |
+| §14+ "Customer Value by Segment" and beyond | Owner spec (truncated) | ⏳ awaiting full paste | pending |
