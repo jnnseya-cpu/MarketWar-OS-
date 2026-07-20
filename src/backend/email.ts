@@ -12,16 +12,39 @@ if (typeof window !== "undefined") {
 // below BEFORE a send is attempted, and any hard failure lands on the
 // suppression ledger so the platform never sends to it again.
 //
-// Env-guarded like the rest of the OS: with RESEND_API_KEY (or
+// Env-guarded like the rest of the OS: with SMTP credentials (SMTP_HOST +
+// SMTP_USER + SMTP_PASS) or an HTTP provider key (RESEND_API_KEY /
 // SENDGRID_API_KEY) configured, sends go out through the provider pool;
-// without keys sendEmail() returns a simulated demo receipt and nothing
-// leaves the machine.
+// without any of them sendEmail() returns a simulated demo receipt and
+// nothing leaves the machine.
+//
+// Provider order: SMTP first (the go-live path — a relay such as Brevo/
+// Postmark/SES speaks SMTP), then the Resend and SendGrid HTTP APIs as
+// automatic fallbacks. SMTP is spoken over the wire with Node's own tls
+// module — no third-party dependency — supporting both implicit TLS
+// (port 465) and STARTTLS (ports 587/25) with AUTH LOGIN.
 
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
 
-export const emailConfigured = Boolean(RESEND_KEY || SENDGRID_KEY);
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_SECURE = process.env.SMTP_SECURE === "true" || SMTP_PORT === 465; // implicit TLS
+
+export const smtpConfigured = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
+
+// The active sending path, for status surfaces (never exposes credentials).
+export const emailProvider: "smtp" | "resend" | "sendgrid" | "demo" = smtpConfigured
+  ? "smtp"
+  : RESEND_KEY
+    ? "resend"
+    : SENDGRID_KEY
+      ? "sendgrid"
+      : "demo";
 
 // ---------------------------------------------------------------------------
 // 1. Address hygiene pipeline (the "filter" stage — runs before every send)
@@ -105,7 +128,148 @@ export function filterList(rawList: string[]): {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Sending facade (provider pool — Resend first, SendGrid fallback)
+// 1a. Minimal SMTP client (Node tls/net — no third-party dependency)
+// ---------------------------------------------------------------------------
+// Speaks just enough SMTP to deliver one HTML message: greeting → EHLO →
+// (STARTTLS →) AUTH LOGIN → MAIL FROM → RCPT TO → DATA. Implicit TLS on 465,
+// STARTTLS upgrade on 587/25. Returns the accepted queue id from the final
+// 250 response, or throws so the facade can fall through to the HTTP pool.
+
+function angleAddr(addr: string): string {
+  const m = addr.match(/<([^>]+)>/);
+  return m ? m[1] : addr.trim();
+}
+
+async function sendViaSmtp(from: string, to: string, subject: string, html: string): Promise<string> {
+  const net = await import("node:net");
+  const tls = await import("node:tls");
+
+  return new Promise<string>((resolve, reject) => {
+    let socket: import("node:net").Socket | import("node:tls").TLSSocket;
+    let buffer = "";
+    let stage = 0;
+    let upgraded = SMTP_SECURE;
+    let settled = false;
+    const envelopeFrom = angleAddr(from);
+    const envelopeTo = angleAddr(to);
+
+    const finish = (err: Error | null, id?: string) => {
+      if (settled) return;
+      settled = true;
+      try { socket.end(); } catch { /* already closed */ }
+      if (err) reject(err); else resolve(id || "accepted");
+    };
+
+    const write = (line: string) => socket.write(line + "\r\n");
+
+    // Dot-stuffing + bare-LF normalisation so the message body can't break the
+    // DATA terminator or trip strict MTAs.
+    const message =
+      `From: ${from}\r\n` +
+      `To: ${to}\r\n` +
+      `Subject: ${subject}\r\n` +
+      `MIME-Version: 1.0\r\n` +
+      `Content-Type: text/html; charset=utf-8\r\n` +
+      `Content-Transfer-Encoding: 8bit\r\n` +
+      `\r\n` +
+      html.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+
+    const onData = (chunk: Buffer) => {
+      buffer += chunk.toString("utf8");
+      // Process complete response lines (last line of a reply has "code " form).
+      let idx;
+      while ((idx = buffer.indexOf("\r\n")) !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        if (/^\d{3}-/.test(line)) continue; // continuation line
+        const code = Number(line.slice(0, 3));
+        step(code, line);
+      }
+    };
+
+    const startTls = () => {
+      const secure = tls.connect({ socket: socket as import("node:net").Socket, servername: SMTP_HOST }, () => {
+        upgraded = true;
+        socket.removeAllListeners("data");
+        socket = secure;
+        socket.on("data", onData);
+        socket.on("error", (e) => finish(e));
+        write(`EHLO marketwaros.com`);
+      });
+      secure.on("error", (e) => finish(e));
+    };
+
+    const step = (code: number, line: string) => {
+      // 2xx/3xx advance; anything else is a hard failure.
+      const ok = code >= 200 && code < 400;
+      switch (stage) {
+        case 0: // server greeting
+          if (!ok) return finish(new Error(`SMTP greeting: ${line}`));
+          stage = 1;
+          write(`EHLO marketwaros.com`);
+          break;
+        case 1: // EHLO response
+          if (!ok) return finish(new Error(`SMTP EHLO: ${line}`));
+          if (!upgraded) { stage = 2; write("STARTTLS"); }
+          else { stage = 3; write("AUTH LOGIN"); }
+          break;
+        case 2: // STARTTLS accepted → upgrade the socket; new EHLO restarts at stage 1
+          if (!ok) return finish(new Error(`SMTP STARTTLS: ${line}`));
+          stage = 1;
+          startTls();
+          break;
+        case 3: // AUTH LOGIN → send base64 username
+          if (!ok) return finish(new Error(`SMTP AUTH: ${line}`));
+          stage = 4;
+          write(Buffer.from(SMTP_USER).toString("base64"));
+          break;
+        case 4: // username accepted → send base64 password
+          if (!ok) return finish(new Error(`SMTP AUTH user: ${line}`));
+          stage = 5;
+          write(Buffer.from(SMTP_PASS).toString("base64"));
+          break;
+        case 5: // authenticated → MAIL FROM
+          if (!ok) return finish(new Error(`SMTP AUTH failed: ${line}`));
+          stage = 6;
+          write(`MAIL FROM:<${envelopeFrom}>`);
+          break;
+        case 6:
+          if (!ok) return finish(new Error(`SMTP MAIL FROM: ${line}`));
+          stage = 7;
+          write(`RCPT TO:<${envelopeTo}>`);
+          break;
+        case 7:
+          if (!ok) return finish(new Error(`SMTP RCPT TO: ${line}`));
+          stage = 8;
+          write("DATA");
+          break;
+        case 8: // 354 go-ahead → send body + terminator
+          if (code !== 354) return finish(new Error(`SMTP DATA: ${line}`));
+          stage = 9;
+          socket.write(message + "\r\n.\r\n");
+          break;
+        case 9: // final 250 → queued
+          if (!ok) return finish(new Error(`SMTP send: ${line}`));
+          finish(null, (line.match(/queued as (\S+)/i) || [])[1] || "accepted");
+          break;
+      }
+    };
+
+    const connectOpts = { host: SMTP_HOST, port: SMTP_PORT };
+    if (SMTP_SECURE) {
+      socket = tls.connect({ ...connectOpts, servername: SMTP_HOST });
+    } else {
+      socket = net.connect(connectOpts);
+    }
+    socket.setTimeout(15000, () => finish(new Error("SMTP timeout")));
+    socket.on("data", onData);
+    socket.on("error", (e) => finish(e));
+    socket.on("end", () => finish(new Error("SMTP connection closed before completion")));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 2. Sending facade (provider pool — SMTP first, then Resend, then SendGrid)
 // ---------------------------------------------------------------------------
 
 export type SendResult = {
@@ -148,6 +312,15 @@ export async function sendEmail(opts: {
       filteredOut: [],
       detail: "Demo mode — send simulated. Add RESEND_API_KEY or SENDGRID_API_KEY to go live.",
     };
+  }
+
+  if (smtpConfigured) {
+    try {
+      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html);
+      return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: "accepted" };
+    } catch {
+      // fall through to the HTTP pool on any SMTP failure
+    }
   }
 
   if (RESEND_KEY) {

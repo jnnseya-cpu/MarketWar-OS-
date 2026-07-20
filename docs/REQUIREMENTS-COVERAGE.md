@@ -936,3 +936,13 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **23-agent LangGraph registry addition** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **ACU-tiered pricing** (to reconcile under ≥2×/100% floor) | Dossier (not received) | ⏳ **awaiting full paste** | pending |
 | **48-week roadmap** | Dossier (not received) | ⏳ **awaiting full paste** | pending |
+
+## 19. Go-live readiness — PWA, account deletion, SMTP, launch runbook (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **User can delete their account** (GDPR right to erasure) — type-DELETE confirm, deletes Firebase Auth user, `requires-recent-login` re-auth flow, demo-mode notice | Owner directive 2026-07-20 | ✅ | `src/components/DeleteAccount.tsx` in `/dashboard/settings` Danger zone |
+| **PWA fits any screen** — installable manifest, maskable icon, network-first service worker (never caches /api/auth/webhooks), `viewport-fit=cover` safe areas | Owner directive 2026-07-20 | ✅ | `public/manifest.webmanifest`, `public/icon*.svg`, `public/sw.js`, `src/components/PWARegister.tsx`, `src/app/layout.tsx` |
+| **Email SMTP path in place** — SMTP-first provider pool (Node tls/net, zero-dependency; implicit-TLS 465 + STARTTLS 587 + AUTH LOGIN), then Resend/SendGrid HTTP, then demo; hygiene pipeline unchanged | Owner directive 2026-07-20 ("just need the email smtp to be in place") | ✅ | `src/backend/email.ts` (`sendViaSmtp`, `smtpConfigured`, `emailProvider`); `.env.example` SMTP_* block |
+| **Go-live checklist + requirements + test plan** so testing can start | Owner directive 2026-07-20 | ✅ | `docs/GO-LIVE.md` (11 sections: verification gate → domain → env → Firebase → Stripe → SMTP → PWA → lifecycle → prod smoke → rollback → sign-off) |
+| Deploy-ready across frontend + backend + shared (App Hosting root `/`) | Owner directive 2026-07-20 | ✅ code ready; ⏳ owner console rollout | `apphosting.yaml`, `docs/DEPLOYMENT.md`, `docs/GO-LIVE.md` §2 |

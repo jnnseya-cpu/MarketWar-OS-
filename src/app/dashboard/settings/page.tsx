@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Bell, Fingerprint, KeyRound, Lock, Shield, ShieldCheck, Smartphone } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import DeleteAccount from "@/components/DeleteAccount";
 
 type AutonomyCapability = {
   name: string;
@@ -162,6 +163,11 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Danger zone — permanent account deletion (GDPR right to erasure) */}
+      <div className="mt-6">
+        <DeleteAccount />
       </div>
     </div>
   );
