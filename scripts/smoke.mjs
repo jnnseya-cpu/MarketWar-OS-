@@ -778,6 +778,160 @@ try {
   } else bad("POST /api/lead-harvest gate clear", `cleared ${body.gate?.cleared}`);
 } catch (e) { bad("POST /api/lead-harvest gate clear", e.message); }
 
+console.log("\nCreative Optimizer engine:");
+try {
+  const res = await fetch(BASE + "/api/creative-optimizer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "matrix", variables: [
+      { name: "hook", options: ["problem-first", "before-after", "unexpected-use"] },
+      { name: "cta", options: ["Shop now", "See how it works"] },
+      { name: "offer", options: ["10% off", "free trial", "bundle"] },
+    ], cap: 8 }),
+  });
+  const body = await res.json();
+  // Controlled matrix with a fixed baseline, capped.
+  if (res.status === 200 && Array.isArray(body.variants) && body.variants.length <= 8 && body.variants.length >= 3 && body.baseline?.id === "v0") {
+    ok(`POST /api/creative-optimizer matrix (${body.variants.length} controlled variants from baseline)`);
+  } else bad("POST /api/creative-optimizer matrix", `HTTP ${res.status}, variants ${body.variants?.length}`);
+} catch (e) { bad("POST /api/creative-optimizer matrix", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creative-optimizer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "classify", result: { id: "x", views: 20000, clicks: 60, conversions: 1, spendGbp: 50, revenueGbp: 40, marginPct: 60, brandRisk: 10 } }),
+  });
+  const body = await res.json();
+  // Big reach, near-zero intent → high_views_low_intent.
+  if (res.status === 200 && body.classification === "high_views_low_intent") {
+    ok(`POST /api/creative-optimizer classify (attention≠profit → ${body.classification})`);
+  } else bad("POST /api/creative-optimizer classify", `HTTP ${res.status}, class ${body.classification}`);
+} catch (e) { bad("POST /api/creative-optimizer classify", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creative-optimizer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "optimise",
+      variants: [ { id: "v0", values: { hook: "problem-first", cta: "Shop now" } }, { id: "v1", values: { hook: "before-after", cta: "Shop now" } } ],
+      results: [
+        { id: "v0", views: 5000, clicks: 300, conversions: 40, spendGbp: 30, revenueGbp: 1600, marginPct: 70, brandRisk: 12 },
+        { id: "v1", views: 5000, clicks: 60, conversions: 1, spendGbp: 80, revenueGbp: 35, marginPct: 55, brandRisk: 10 },
+      ] }),
+  });
+  const body = await res.json();
+  // v0 wins; v1 is wasteful paid → killed; learnings + next variants produced.
+  if (res.status === 200 && body.winners?.includes("v0") && body.killed?.includes("v1") && Array.isArray(body.nextVariants) && body.nextVariants.length >= 1 && Array.isArray(body.learnings)) {
+    ok(`POST /api/creative-optimizer optimise (winner v0, killed v1, ${body.nextVariants.length} next variants)`);
+  } else bad("POST /api/creative-optimizer optimise", `winners ${body.winners}, killed ${body.killed}`);
+} catch (e) { bad("POST /api/creative-optimizer optimise", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creative-optimizer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "matrix", variables: [] }),
+  });
+  if (res.status === 400) ok("POST /api/creative-optimizer matrix rejects empty variables");
+  else bad("POST /api/creative-optimizer matrix validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/creative-optimizer matrix validation", e.message); }
+
+console.log("\nCustomer Engagement Engine (Brevo-class CDP):");
+try {
+  const res = await fetch(BASE + "/api/engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "segment" }),
+  });
+  const body = await res.json();
+  const shaped = Array.isArray(body.segments) && body.segments.every((s) => typeof s.size === "number" && Array.isArray(s.contactIds) && s.contactIds.length === s.size);
+  if (res.status === 200 && body.segments.length >= 5 && shaped && body.total > 0) {
+    ok(`POST /api/engagement segment (${body.segments.length} segments over ${body.total} contacts, top: ${body.segments[0].segment})`);
+  } else bad("POST /api/engagement segment", `HTTP ${res.status}, segments ${body.segments?.length}`);
+} catch (e) { bad("POST /api/engagement segment", e.message); }
+try {
+  const res = await fetch(BASE + "/api/engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "analytics" }),
+  });
+  const body = await res.json();
+  const m = body.metrics || {};
+  if (res.status === 200 && typeof m.openRate === "number" && typeof m.clickToOpenRate === "number" && typeof m.roi === "string" && m.bestSubject && m.bestSendTime) {
+    ok(`POST /api/engagement analytics (open ${m.openRate}%, CTOR ${m.clickToOpenRate}%, roi ${m.roi})`);
+  } else bad("POST /api/engagement analytics", `HTTP ${res.status}, openRate ${m.openRate}`);
+} catch (e) { bad("POST /api/engagement analytics", e.message); }
+try {
+  const res = await fetch(BASE + "/api/engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "suggest-reply", message: "Please unsubscribe me, not interested." }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.intent === "unsubscribe" && body.isDraft === true && typeof body.draftReply === "string") {
+    ok(`POST /api/engagement suggest-reply (intent ${body.intent}, draft-only)`);
+  } else bad("POST /api/engagement suggest-reply", `HTTP ${res.status}, intent ${body.intent}`);
+} catch (e) { bad("POST /api/engagement suggest-reply", e.message); }
+try {
+  const res = await fetch(BASE + "/api/engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "eligible", contact: { consentStatus: "opted_out", touchesLast7Days: 0 } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.canSend === false && /opted out/i.test(body.reason)) {
+    ok(`POST /api/engagement eligible (opted_out blocked: ${body.reason})`);
+  } else bad("POST /api/engagement eligible", `HTTP ${res.status}, canSend ${body.canSend}`);
+} catch (e) { bad("POST /api/engagement eligible", e.message); }
+try {
+  const res = await fetch(BASE + "/api/engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "suggest-reply" }),
+  });
+  if (res.status === 400) ok("POST /api/engagement suggest-reply (missing message → 400)");
+  else bad("POST /api/engagement suggest-reply validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/engagement suggest-reply validation", e.message); }
+
+console.log("\nClassic-SEO intelligence API:");
+try {
+  const res = await fetch(`${BASE}/api/seo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "keywords", seedKeyword: "coffee shop", opts: { market: "kinshasa", limit: 5 } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.ideas) && Array.isArray(body.buyerIntent) && typeof body.disclaimer === "string" && body.ideas.every((k) => typeof k.opportunityScore === "number")) ok(`POST /api/seo keywords (${body.ideas.length} ideas, ${body.buyerIntent.length} buyer-intent)`);
+  else bad("POST /api/seo keywords", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/seo keywords", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/seo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "serp", keyword: "best coffee shop", domain: "example.com" }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.position === "number" && Array.isArray(body.features) && Array.isArray(body.competitorsAbove) && ["up", "down", "flat"].includes(body.trend)) ok(`POST /api/seo serp (pos ${body.position}, trend ${body.trend})`);
+  else bad("POST /api/seo serp", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/seo serp", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/seo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "backlinks", domain: "example.com" }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.referringDomains === "number" && typeof body.domainAuthorityProxy === "number" && Array.isArray(body.anchorTextTop) && Array.isArray(body.gapVsCompetitor)) ok(`POST /api/seo backlinks (DA proxy ${body.domainAuthorityProxy}, ${body.referringDomains} ref domains)`);
+  else bad("POST /api/seo backlinks", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/seo backlinks", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/seo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "audit", url: "https://example.com/page" }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.score === "number" && Array.isArray(body.issues) && body.issues.every((i) => ["low", "medium", "high"].includes(i.severity))) ok(`POST /api/seo audit (score ${body.score}, ${body.issues.length} issues)`);
+  else bad("POST /api/seo audit", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/seo audit", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/seo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "keywords" }) });
+  if (res.status === 400) ok("POST /api/seo rejects missing seedKeyword (400)");
+  else bad("POST /api/seo missing seedKeyword", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/seo missing seedKeyword", e.message); }
+
+console.log("\nAI Local Concierge:");
+try {
+  const res = await fetch(BASE + "/api/concierge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "ask", text: "Find me a plumber in SW9 tomorrow under £150" }) });
+  const j = await res.json();
+  if (res.status === 200 && j.understood && j.understood.category === "Plumber" && Array.isArray(j.bestMatches) && j.bestMatches.length > 0) ok("concierge ask — plumber SW9 parsed + matched");
+  else bad("concierge ask plumber", `HTTP ${res.status} ${JSON.stringify(j).slice(0, 160)}`);
+} catch (e) { bad("concierge ask plumber", e.message); }
+try {
+  const res = await fetch(BASE + "/api/concierge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "ask", text: "find me something nice around here" }) });
+  const j = await res.json();
+  if (res.status === 200 && typeof j.clarify === "string" && j.clarify.length > 0) ok("concierge ask — ambiguous query returns clarify question");
+  else bad("concierge ask ambiguous", `HTTP ${res.status} ${JSON.stringify(j).slice(0, 160)}`);
+} catch (e) { bad("concierge ask ambiguous", e.message); }
+try {
+  const res = await fetch(BASE + "/api/concierge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "ask" }) });
+  if (res.status === 400) ok("concierge ask — missing text rejected (400)");
+  else bad("concierge ask validation", `expected 400, got HTTP ${res.status}`);
+} catch (e) { bad("concierge ask validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
