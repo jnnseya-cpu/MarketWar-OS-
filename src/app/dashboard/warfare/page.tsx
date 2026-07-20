@@ -31,29 +31,29 @@ type Ecosystem = {
 const scoreTone = (n: number): "good" | "warn" | "bad" => (n >= 75 ? "good" : n >= 55 ? "warn" : "bad");
 
 export default function WarfarePage() {
+  // Clean slate: brand fields start blank and fill from the ACTIVE brand.
   const [form, setForm] = useState({
-    product: "Restaurant takeaway & catering",
-    audience: "Hungry locals within 3 miles who order on Friday nights",
-    result: "Get WhatsApp orders",
+    product: "",
+    audience: "",
+    result: "",
     budget: 600,
-    location: "Brixton, London",
-    offer: "Friday platter — 40 only, this week",
+    location: "",
+    offer: "",
     autonomy: 2 as 1 | 2 | 3,
   });
   const [eco, setEco] = useState<Ecosystem | null>(null);
   const [busy, setBusy] = useState(false);
   const { activeBrand } = useActiveBrand();
 
-  // Seed from the active brand; re-seed on brand switch.
+  // Seed from the active brand; re-seed on brand switch (blank if none).
   useEffect(() => {
-    if (!activeBrand) return;
     setForm((f) => ({
       ...f,
-      product: activeBrand.product || f.product,
-      audience: activeBrand.audience || f.audience,
-      result: activeBrand.goal || f.result,
-      location: activeBrand.location || f.location,
-      offer: activeBrand.offer || f.offer,
+      product: activeBrand?.product ?? "",
+      audience: activeBrand?.audience ?? "",
+      result: activeBrand?.goal ?? "",
+      location: activeBrand?.location ?? "",
+      offer: activeBrand?.offer ?? "",
     }));
     setEco(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps

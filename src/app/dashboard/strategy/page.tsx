@@ -25,20 +25,20 @@ const STAGES = ["Customer Avatar", "Message Weapon", "Channel Commander", "90-Da
 
 export default function StrategyPage() {
   const { activeBrand } = useActiveBrand();
-  const [form, setForm] = useState({ business: "Brixton Grill House", product: "restaurant takeaway", audience: "hungry locals within 3 miles", location: "Brixton, London", offer: "20% off first WhatsApp order", monthlyBudgetGbp: 600 });
+  // Clean slate: brand fields start blank and fill from the ACTIVE brand.
+  const [form, setForm] = useState({ business: "", product: "", audience: "", location: "", offer: "", monthlyBudgetGbp: 600 });
   const [data, setData] = useState<Full | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Seed the chain from the active brand; re-seed on brand switch.
+  // Seed the chain from the active brand; re-seed on brand switch (blank if none).
   useEffect(() => {
-    if (!activeBrand) return;
     setForm((f) => ({
       ...f,
-      business: activeBrand.name || f.business,
-      product: activeBrand.product || f.product,
-      audience: activeBrand.audience || f.audience,
-      location: activeBrand.location || f.location,
-      offer: activeBrand.offer || f.offer,
+      business: activeBrand?.name ?? "",
+      product: activeBrand?.product ?? "",
+      audience: activeBrand?.audience ?? "",
+      location: activeBrand?.location ?? "",
+      offer: activeBrand?.offer ?? "",
     }));
     setData(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps

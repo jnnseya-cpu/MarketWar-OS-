@@ -20,14 +20,16 @@ type BrandContextValue = {
   ready: boolean;
 };
 
-const STORAGE_KEY = "mw.brands.v1";
-const ACTIVE_KEY = "mw.activeBrand.v1";
+// v2: clean-slate release — ignores any previously stored demo brands so a real
+// company starts empty.
+const STORAGE_KEY = "mw.brands.v2";
+const ACTIVE_KEY = "mw.activeBrand.v2";
 
 // Safe fallback so useActiveBrand() never throws outside a provider.
 const fallback: BrandContextValue = {
   brands: SEED_BRANDS,
-  activeBrand: SEED_BRANDS[0],
-  activeId: SEED_BRANDS[0].id,
+  activeBrand: SEED_BRANDS[0] ?? null,
+  activeId: SEED_BRANDS[0]?.id ?? null,
   setActive: () => {},
   addBrand: (i) => newBrand(i),
   updateBrand: () => {},

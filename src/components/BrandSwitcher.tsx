@@ -30,15 +30,15 @@ export default function BrandSwitcher() {
     <div className="relative border-b border-ink-700/60 px-3 py-3">
       <button
         type="button"
-        onClick={() => { setOpen((v) => !v); setAdding(false); }}
+        onClick={() => { setOpen((v) => !v); setAdding(brands.length === 0); }}
         className="flex w-full items-center gap-2.5 rounded-lg border border-ink-700/60 bg-ink-850 px-2.5 py-2 text-left transition hover:border-emerald-500/40"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white" style={{ background: `${active?.color ?? "#199e70"}26`, color: active?.color ?? "#199e70" }}>
-          <Building2 className="h-4 w-4" />
+          {brands.length === 0 ? <Plus className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-white">{active?.name ?? "Select a brand"}</span>
-          <span className="block truncate text-[10px] text-slate-500">{brands.length} brand{brands.length === 1 ? "" : "s"} · one account · one bill</span>
+          <span className="block truncate text-sm font-semibold text-white">{active?.name ?? "Add your first brand"}</span>
+          <span className="block truncate text-[10px] text-slate-500">{brands.length === 0 ? "one account · one bill · many brands" : `${brands.length} brand${brands.length === 1 ? "" : "s"} · one account · one bill`}</span>
         </span>
         <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-500" />
       </button>

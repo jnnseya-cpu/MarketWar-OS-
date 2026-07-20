@@ -5,7 +5,7 @@ import { Loader2, Sparkles, Zap } from "lucide-react";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
-import { brandDefaults } from "@/shared/brand";
+import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
 
 export interface AgentField {
   key: string;
@@ -32,8 +32,13 @@ export default function AgentRunner({
   // A field is filled from the ACTIVE brand when its key is a known brand field
   // (business/product/audience/location/offer/industry/goal/website); otherwise
   // the page's own default stands. Switching brand refills the form below.
+  // Brand fields fill from the active brand; on a clean slate (no brand) they
+  // stay BLANK rather than showing a sample business. Non-brand fields keep
+  // their page default (budgets, toggles, etc.).
   const fillFor = (brandFill: Record<string, string>) =>
-    Object.fromEntries(fields.map((f) => [f.key, brandFill[f.key] ?? f.defaultValue ?? ""]));
+    Object.fromEntries(
+      fields.map((f) => [f.key, brandFill[f.key] ?? (BRAND_FIELD_KEYS.has(f.key) ? "" : f.defaultValue ?? "")])
+    );
   const [values, setValues] = useState<Record<string, string>>(() => fillFor(brandDefaults(activeBrand)));
   const [result, setResult] = useState<AgentResult | null>(null);
   const [loading, setLoading] = useState(false);
