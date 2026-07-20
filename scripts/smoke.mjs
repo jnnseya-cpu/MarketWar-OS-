@@ -492,6 +492,40 @@ try {
   else bad("POST /api/acu arbitrate", `winner ${body.winner?.id}`);
 } catch (e) { bad("POST /api/acu arbitrate", e.message); }
 
+console.log("\nPlatform-Owner Economics Engine:");
+try {
+  const res = await fetch(BASE + "/api/admin-economics", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "dashboard" }),
+  });
+  const body = await res.json();
+  // Owner dashboard must compute a positive margin and surface the watch-lists.
+  if (res.status === 200 && body.totalRevenueGbp > 0 && body.totalProviderCostGbp > 0 && body.grossMarginPct > 0
+      && Array.isArray(body.revenueByProvider) && Array.isArray(body.mostProfitableUsers) && Array.isArray(body.costLeakageAlerts)
+      && body.forecastNextPeriod && typeof body.forecastNextPeriod.revenueGbp === "number") {
+    ok(`POST /api/admin-economics dashboard (£${body.totalRevenueGbp} rev, ${body.grossMarginPct}% margin, ${body.taskCount} tasks, ${body.cacheHitRate}% cache)`);
+  } else bad("POST /api/admin-economics dashboard", `HTTP ${res.status}, margin ${body.grossMarginPct}%`);
+} catch (e) { bad("POST /api/admin-economics dashboard", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin-economics", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "recycling", generationCostGbp: 1, salePriceAcus: 200, unitsSold: 50 }),
+  });
+  const body = await res.json();
+  // Generate once for £1, sell 50× at £2 each → £100 revenue, margin far beyond 400%.
+  if (res.status === 200 && body.revenueGbp === 100 && body.effectiveMarginPct === 9900 && body.unitsSold === 50) {
+    ok(`POST /api/admin-economics recycling (£1 → £${body.revenueGbp} over ${body.unitsSold} sales = ${body.effectiveMarginPct}% margin)`);
+  } else bad("POST /api/admin-economics recycling", `rev £${body.revenueGbp}, margin ${body.effectiveMarginPct}%`);
+} catch (e) { bad("POST /api/admin-economics recycling", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin-economics");
+  const body = await res.json();
+  // GET must expose owner doctrine + export charges, but never a raw provider cost field.
+  if (res.status === 200 && body.ownerOnly === true && Array.isArray(body.exportCharges) && body.exportCharges.every((x) => x.acus > 0 && x.providerCostGbp === undefined) && Array.isArray(body.revenueLayers)) {
+    ok(`GET /api/admin-economics (${body.revenueLayers.length} revenue layers, ${body.exportCharges.length} export charges, cost hidden)`);
+  } else bad("GET /api/admin-economics", `HTTP ${res.status}`);
+} catch (e) { bad("GET /api/admin-economics", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
