@@ -190,7 +190,7 @@ export default function LandingPage() {
             <a href="#agents" className="transition hover:text-white">Solutions</a>
             <Link href="/how-it-works" className="transition hover:text-white">Resources</Link>
             <a href="#pricing" className="transition hover:text-white">Pricing</a>
-            <a href="#results" className="transition hover:text-white">About</a>
+            <Link href="/about" className="transition hover:text-white">About</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link href="/login" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
@@ -631,7 +631,7 @@ export default function LandingPage() {
       {/* ============================= FOOTER ============================ */}
       <footer className="border-t border-white/5 bg-ink-950">
         <div className="mx-auto max-w-6xl px-5 py-14">
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <Link href="/" className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
@@ -642,42 +642,36 @@ export default function LandingPage() {
                 </span>
               </Link>
               <p className="mt-4 text-sm leading-relaxed text-slate-500">
-                Autonomous Business Growth &amp; Commerce Infrastructure.
+                The AI-powered customer-acquisition operating system. One account, every brand, one predictable bill.
               </p>
             </div>
             <FooterCol
-              title="Products"
+              title="Company"
               links={[
-                ["Campaign Packs", "/dashboard/campaigns"],
-                ["AI Video Studio", "/dashboard/video"],
-                ["Conversion Engine", "/dashboard/whatsapp"],
+                ["About", "/about"],
+                ["Industries", "/industries"],
+                ["Blog", "/blog"],
+                ["Contact", "/contact"],
               ]}
             />
             <FooterCol
-              title="Intelligence"
+              title="Product"
               links={[
-                ["Failure Audit", "/dashboard/audit"],
-                ["Market Scan", "/dashboard/competitors"],
-                ["Warfare Protocol", "/how-it-works"],
+                ["How it works", "/how-it-works"],
+                ["Developers", "/developers"],
+                ["Get started", "/get-started"],
+                ["Growth & Influencers", "/growth"],
               ]}
             />
             <FooterCol
-              title="Platform"
+              title="Legal & status"
               links={[
-                ["ACU Ledger", "/dashboard/budget"],
-                ["Independence", "/dashboard/local"],
-                ["Business Brain", "/onboarding"],
+                ["Terms of Service", "/terms"],
+                ["Privacy Policy", "/privacy"],
+                ["All policies", "/policies"],
+                ["Platform status", "/status"],
               ]}
             />
-            <div>
-              <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Mechanics</p>
-              <ul className="space-y-2.5 text-sm text-slate-400">
-                <li>· 66% Competitive Margin</li>
-                <li>· Layer 4.6 Architect</li>
-                <li>· Autonomous ACU Logic</li>
-                <li>· Primary Revenue Ledger</li>
-              </ul>
-            </div>
           </div>
           <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-6 text-xs text-slate-600">
             <p>© {new Date().getFullYear()} MarketWar Infrastructure Systems</p>
