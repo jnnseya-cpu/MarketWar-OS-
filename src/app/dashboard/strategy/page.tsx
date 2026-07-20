@@ -5,10 +5,11 @@
 // Funnel Architect → Paid-Ads Risk-Control → Battle Plan. Each stage reuses the
 // prior output. Wired to /api/strategy ("full" runs the whole chain).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Target, ListChecks } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Full = {
   avatar: { summaryParagraph: string; scores: Record<string, number> };
@@ -23,9 +24,25 @@ type Full = {
 const STAGES = ["Customer Avatar", "Message Weapon", "Channel Commander", "90-Day Content", "Funnel Architect", "Paid-Ads Risk-Control", "Battle Plan"];
 
 export default function StrategyPage() {
+  const { activeBrand } = useActiveBrand();
   const [form, setForm] = useState({ business: "Brixton Grill House", product: "restaurant takeaway", audience: "hungry locals within 3 miles", location: "Brixton, London", offer: "20% off first WhatsApp order", monthlyBudgetGbp: 600 });
   const [data, setData] = useState<Full | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Seed the chain from the active brand; re-seed on brand switch.
+  useEffect(() => {
+    if (!activeBrand) return;
+    setForm((f) => ({
+      ...f,
+      business: activeBrand.name || f.business,
+      product: activeBrand.product || f.product,
+      audience: activeBrand.audience || f.audience,
+      location: activeBrand.location || f.location,
+      offer: activeBrand.offer || f.offer,
+    }));
+    setData(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id]);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: k === "monthlyBudgetGbp" ? Number(e.target.value) : e.target.value }));
 
   async function run() {

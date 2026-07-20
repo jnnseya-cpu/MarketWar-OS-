@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Sparkles, Zap } from "lucide-react";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { brandDefaults } from "@/shared/brand";
 
 export interface AgentField {
   key: string;
@@ -26,12 +28,23 @@ export default function AgentRunner({
   fields: AgentField[];
   autoRunLabel?: string;
 }) {
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(fields.map((f) => [f.key, f.defaultValue ?? ""]))
-  );
+  const { activeBrand } = useActiveBrand();
+  // A field is filled from the ACTIVE brand when its key is a known brand field
+  // (business/product/audience/location/offer/industry/goal/website); otherwise
+  // the page's own default stands. Switching brand refills the form below.
+  const fillFor = (brandFill: Record<string, string>) =>
+    Object.fromEntries(fields.map((f) => [f.key, brandFill[f.key] ?? f.defaultValue ?? ""]));
+  const [values, setValues] = useState<Record<string, string>>(() => fillFor(brandDefaults(activeBrand)));
   const [result, setResult] = useState<AgentResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-skin the form when the active brand changes.
+  useEffect(() => {
+    setValues(fillFor(brandDefaults(activeBrand)));
+    setResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id]);
 
   async function run() {
     setLoading(true);
@@ -84,6 +97,11 @@ export default function AgentRunner({
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
             {loading ? "Agent working…" : buttonLabel}
           </button>
+          {activeBrand && (
+            <p className="text-center text-[11px] text-slate-500">
+              Running for <span className="font-semibold" style={{ color: activeBrand.color }}>{activeBrand.name}</span> · switch brand in the sidebar
+            </p>
+          )}
           {error && <p className="text-sm text-rose-400">{error}</p>}
         </div>
       </div>

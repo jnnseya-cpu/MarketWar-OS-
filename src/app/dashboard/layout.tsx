@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Shield } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import { BrandProvider } from "@/frontend/brand-context";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
+    <BrandProvider>
     <div className="min-h-screen">
       <Sidebar />
       <div className="lg:pl-60">
@@ -24,5 +26,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{children}</main>
       </div>
     </div>
+    </BrandProvider>
   );
 }

@@ -5,10 +5,11 @@
 // (STEPS 1–11) and the AI Campaign Score™. Wired to /api/warfare; the score
 // is a probability estimate, labelled honestly, never a guarantee.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Swords, Target, Brain, BadgePercent, Image as ImageIcon, PenLine, Hash, Share2, Layout, Send, Gauge } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Ecosystem = {
   vertical: string;
@@ -41,6 +42,22 @@ export default function WarfarePage() {
   });
   const [eco, setEco] = useState<Ecosystem | null>(null);
   const [busy, setBusy] = useState(false);
+  const { activeBrand } = useActiveBrand();
+
+  // Seed from the active brand; re-seed on brand switch.
+  useEffect(() => {
+    if (!activeBrand) return;
+    setForm((f) => ({
+      ...f,
+      product: activeBrand.product || f.product,
+      audience: activeBrand.audience || f.audience,
+      result: activeBrand.goal || f.result,
+      location: activeBrand.location || f.location,
+      offer: activeBrand.offer || f.offer,
+    }));
+    setEco(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id]);
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: k === "budget" ? Number(e.target.value) : k === "autonomy" ? (Number(e.target.value) as 1 | 2 | 3) : e.target.value }));

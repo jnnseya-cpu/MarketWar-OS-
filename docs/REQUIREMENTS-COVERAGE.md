@@ -957,3 +957,11 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **User accounts — admin + every role** | Owner directive 2026-07-20 ("create all different user accounts included with admin") | ✅ | `src/shared/roles.ts` (7 roles + scopes), `scripts/seed-accounts.mjs`, `npm run seed:accounts` |
 | **Go-live checklist + real-testing guide** | Owner directive 2026-07-20 ("I need a go live checklist") | ✅ | `docs/GO-LIVE.md` (11-section) + `docs/REAL-TESTING.md` (the demo→live switch, wired-surface map, live walkthrough) |
 | Every interactive surface executes against a real API (Make Anything, Strategy Chain, Warfare, Audit, Briefing, Offer Builder, VisualStrike, One-Click Builder, 19 agents, 39 engines) | Owner directive 2026-07-20 (repeated "fully functioning") | ✅ verified | `npm run smoke` 304/0; surface→endpoint map in `docs/REAL-TESTING.md` §3 |
+
+## 21. Active-brand context + switcher (multi-brand, 2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **One company, multiple brands** — switching brand re-skins the whole OS per brand, no third-party key needed | Owner directive 2026-07-20 ("build the active-brand context and switcher") | ✅ | `src/shared/brand.ts` (Brand model + `brandDefaults` + seeds), `src/frontend/brand-context.tsx` (persisted provider), `src/components/BrandSwitcher.tsx` (switch + add brand) |
+| Every module form + agent call fills from the ACTIVE brand | same | ✅ | `AgentRunner` auto-fills known brand fields; custom forms (strategy, warfare) + Make Anything build payload seed from active brand — verified by screenshot (Brixton → Nseya re-skins the whole page) |
+| Persists across refresh with zero config; Firestore-ready | same | ✅ | localStorage store keyed `mw.brands.v1` / `mw.activeBrand.v1`; same shape syncs to Firestore when wired |

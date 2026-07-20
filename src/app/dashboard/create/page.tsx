@@ -9,6 +9,8 @@ import Link from "next/link";
 import { Loader2, Wand2, ArrowRight, Gauge, Sparkles, Hammer } from "lucide-react";
 import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { brandDefaults } from "@/shared/brand";
 
 type Decision = {
   best: { id: string; label: string; route: string; agentId?: string; api?: string; acuClass: string; acuEstimate: number; essentialQuestions: string[]; confidence: number };
@@ -26,6 +28,7 @@ const EXAMPLES = [
 ];
 
 export default function CreatePage() {
+  const { activeBrand } = useActiveBrand();
   const [prompt, setPrompt] = useState("");
   const [decision, setDecision] = useState<Decision | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,7 +61,9 @@ export default function CreatePage() {
     if (!decision?.best.agentId) return;
     setBuilding(true); setBuildError(null); setBuilt(null);
     try {
-      const payload: Record<string, string> = { request: prompt };
+      // Build for the ACTIVE brand: its profile seeds the agent, then any
+      // answers the user typed override.
+      const payload: Record<string, string> = { ...brandDefaults(activeBrand), request: prompt };
       decision.best.essentialQuestions.forEach((q, i) => { if (answers[`q${i}`]?.trim()) payload[q] = answers[`q${i}`]; });
       const res = await fetch(`/api/agents/${decision.best.agentId}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
