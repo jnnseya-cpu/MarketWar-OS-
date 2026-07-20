@@ -965,3 +965,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **One company, multiple brands** — switching brand re-skins the whole OS per brand, no third-party key needed | Owner directive 2026-07-20 ("build the active-brand context and switcher") | ✅ | `src/shared/brand.ts` (Brand model + `brandDefaults` + seeds), `src/frontend/brand-context.tsx` (persisted provider), `src/components/BrandSwitcher.tsx` (switch + add brand) |
 | Every module form + agent call fills from the ACTIVE brand | same | ✅ | `AgentRunner` auto-fills known brand fields; custom forms (strategy, warfare) + Make Anything build payload seed from active brand — verified by screenshot (Brixton → Nseya re-skins the whole page) |
 | Persists across refresh with zero config; Firestore-ready | same | ✅ | localStorage store keyed `mw.brands.v1` / `mw.activeBrand.v1`; same shape syncs to Firestore when wired |
+
+## 22. Money loop #1 — per-brand attributed revenue (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Revenue attributed to MarketWar, per brand** — real ledger, no fabricated figures | Owner directive 2026-07-20 ("build the money loop… each brand shows its own real (or honestly-empty) attributed revenue") | ✅ | `src/shared/results.ts` (ledger + `summarize`), `src/frontend/results-context.tsx` (per-brand persisted store), `/dashboard/revenue` rewritten |
+| Honest empty state — no sample money for a real company | same | ✅ | Empty banner + £0/— until real events; verified: empty on new brand → £240 after logging one order |
+| Owned capture (manual "Log a result") so it's real day one, no third party | same | ✅ | "Log a result" form (lead/order/sale + source + amount) attributes to the campaign; Stripe payment attribution is the next step |
+| Scoped to the active brand | same | ✅ | ledger filtered by `activeBrand.id`; each brand has its own money view |
