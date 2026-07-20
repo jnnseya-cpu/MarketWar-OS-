@@ -1072,3 +1072,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Monthly ↔ annual toggle, annual = 30% off** | §7 | ✅ | toggle switches all 8 cards to annual (effective /mo + £/yr + saving); ACUs shown as monthly-released for annual |
 | **Free activates immediately; paid → checkout** | §5/§8 | ✅ | `/api/billing/subscribe` → Free no-checkout; paid → `createSubscriptionCheckout` (Stripe subscription, monthly/annual price, metadata.planId; demo-safe) |
 | Verified | same | ✅ | smoke 318/0 (page + subscribe free + Growth annual £411.60 = 30% off); screenshot of the annual toggle across all 8 tiers |
+
+## 33. Close "enter without signing up" loopholes (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **No entering the OS without sign-up** | Owner directive 2026-07-20 ("too much loopholes… enter without signing up") | ✅ | `RequireAuth` guard on the dashboard layout — signed-out visitors redirect to /login when Firebase Auth is configured (production); keyless demo stays open (zero-config rule) |
+| **Public "enter/start" CTAs go through sign-up** | same | ✅ | landing hero + final CTA "Get started free" → /signup; how-it-works "Start Phase 1 now" → /signup; pricing cards Free/Starter/Growth/Scale/Business → /signup |
+| Zero-config demo preserved (owner testing) | repo law | ✅ | guard enforces only when the Firebase web key is set; keyless env = open |
+| Verified | same | ✅ | typecheck + build + smoke 318/0; /dashboard 200 in demo; guard redirects to /login when Firebase configured |

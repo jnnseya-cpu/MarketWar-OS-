@@ -2,11 +2,13 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Shield } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import RequireAuth from "@/components/RequireAuth";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
+    <RequireAuth>
     <BrandProvider>
     <ResultsProvider>
     <div className="min-h-screen">
@@ -30,5 +32,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </div>
     </ResultsProvider>
     </BrandProvider>
+    </RequireAuth>
   );
 }

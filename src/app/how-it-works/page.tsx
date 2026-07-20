@@ -74,7 +74,7 @@ export default function HowItWorksPage() {
         </ol>
 
         <div className="mt-14 text-center">
-          <Link href="/onboarding" className="btn-primary text-base">
+          <Link href="/signup" className="btn-primary text-base">
             Start Phase 1 now <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
