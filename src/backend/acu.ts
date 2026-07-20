@@ -5,10 +5,14 @@ if (typeof window !== "undefined") {
 
 // MarketWar ACU Economics Engine — the utility-company pricing layer.
 //
-// Doctrine (owner pricing law + docs/ai-os/08 §A): MarketWar OS never sells AI
-// at cost. Every AI action must generate positive gross margin, floored at
-// 100% (retail ≥ 2× provider cost) and targeted far higher. Users only ever
-// see ACUs — provider costs are never exposed. Every request flows:
+// Doctrine (owner pricing law + docs/ai-os/08 §A; terminology corrected
+// 2026-07-20): MarketWar OS never sells AI at cost. Every AI action clears a
+// hard floor of 2× provider cost (a 100% MARKUP = 50% gross margin) and targets
+// 4× (a 300% MARKUP = 75% gross margin). NB: gross margin can never exceed 100%
+// — "markup" and "margin" are different measures; a 4× charge is a 300% markup,
+// not a "400% margin". Users only ever see ACUs — provider costs are never
+// exposed. See src/backend/subscription.ts for the authoritative commercial
+// model. Every request flows:
 //
 //   User Request → AI Gateway → Cost Engine → Margin Engine → ACU Calculator
 //                → Profit-Protection check → Provider Arbitration → Execution
@@ -17,10 +21,12 @@ if (typeof window !== "undefined") {
 // deterministic so it works in demo mode and can be unit-checked.
 
 export const ACU_PER_GBP = 100; // £1 = 100 ACUs (platform-wide constant)
-export const MARGIN_FLOOR = 2; // never below 2× provider cost (100% margin — hard floor)
-// Owner pricing rule (confirmed 2026-07-19): STANDARD markup is 4× — every £1
-// of provider cost is charged to the user at £4. This is the default for every
-// AI action; it can be tuned upward but never below the 2× floor.
+export const MARGIN_FLOOR = 2; // never below 2× provider cost (100% markup = 50% gross margin — hard floor)
+// Owner pricing rule (confirmed 2026-07-19, terminology corrected 2026-07-20):
+// STANDARD markup is 4× — every £1 of provider cost is charged at £4 (a 300%
+// markup = 75% gross margin). Default for every AI action; tunable upward but
+// never below the 2× floor. (Named STRATEGIC_TARGET_MARGIN for history; it is a
+// markup multiplier, not a margin percentage.)
 export const STRATEGIC_TARGET_MARGIN = 4;
 
 // ---------------------------------------------------------------------------
