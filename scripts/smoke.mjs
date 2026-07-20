@@ -23,6 +23,7 @@ const PAGES = [
   "/onboarding",
   "/login",
   "/signup",
+  "/choose-plan",
   "/dashboard",
   "/dashboard/autopilot",
   "/dashboard/engines",
@@ -1941,6 +1942,21 @@ console.log("\nMoney ledger — per-brand attributed revenue:");
       ok("ACU top-up webhook (credits 2,500 ACUs, idempotent by event id)");
     } else bad("ACU top-up webhook", `action ${b.outcome?.action}, acus ${b.outcome?.acusAllocated}`);
   } catch (e) { bad("ACU top-up webhook", e.message); }
+  try {
+    // Choose-plan: Free activates immediately (no checkout).
+    const res = await fetch(BASE + "/api/billing/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planId: "free", cycle: "monthly" }) });
+    const b = await res.json();
+    if (res.status === 200 && b.free === true && b.url === null) ok("subscribe (Free → activated, no checkout)");
+    else bad("subscribe free", `free ${b.free}, url ${b.url}`);
+  } catch (e) { bad("subscribe free", e.message); }
+  try {
+    // Paid annual = 30% off → a subscription checkout at the annual amount.
+    const res = await fetch(BASE + "/api/billing/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planId: "growth", cycle: "annual" }) });
+    const b = await res.json();
+    // Growth £49/mo → annual £411.60 (30% off ×12).
+    if (res.status === 200 && b.ok && b.cycle === "annual" && b.amountGbp === 411.6 && b.url) ok(`subscribe (Growth annual £${b.amountGbp} = 30% off, mode ${b.mode})`);
+    else bad("subscribe annual", `cycle ${b.cycle}, amount ${b.amountGbp}`);
+  } catch (e) { bad("subscribe annual", e.message); }
 }
 
 console.log("\nRevenue Autopilot — find customers while you sleep:");

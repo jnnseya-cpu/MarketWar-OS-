@@ -76,6 +76,51 @@ export async function createTopupCheckout(input: { amountGbp: number; acus: numb
   }
 }
 
+// Subscription checkout — a customer choosing a plan at sign-up. Creates a Stripe
+// Checkout Session in `subscription` mode with a recurring price (monthly or
+// annual), stamped with metadata.planId so the webhook activates the plan +
+// allocates ACUs. Annual applies the 30% discount at the amount passed in.
+export async function createSubscriptionCheckout(input: { planId: string; planName: string; cycle: "monthly" | "annual"; amountGbp: number }): Promise<CheckoutResult & { planId: string; cycle: "monthly" | "annual" }> {
+  const cycle = input.cycle === "annual" ? "annual" : "monthly";
+  const interval = cycle === "annual" ? "year" : "month";
+  const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
+  const metadata = { marketwar_brand_id: "", marketwar_source: `subscription:${input.planId}` };
+  if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "amount must be > 0 (Free plan needs no checkout)", error: "amount must be > 0" };
+
+  if (!checkoutConfigured) {
+    return {
+      ok: true, mode: "demo", sessionId: null, metadata, planId: input.planId, cycle,
+      url: `${APP_URL}/checkout-demo?plan=${encodeURIComponent(input.planId)}&cycle=${cycle}&amt=${amountGbp}`,
+      note: `Demo mode — set STRIPE_SECRET_KEY to start a real ${cycle} subscription. On payment the webhook activates ${input.planName} and allocates its ACUs.`,
+    };
+  }
+
+  const body = formEncode({
+    mode: "subscription",
+    success_url: `${APP_URL}/dashboard?subscribed=${encodeURIComponent(input.planId)}`,
+    cancel_url: `${APP_URL}/choose-plan?canceled=1`,
+    "line_items[0][price_data][currency]": "gbp",
+    "line_items[0][price_data][product_data][name]": `MarketWar ${input.planName} (${cycle})`,
+    "line_items[0][price_data][unit_amount]": String(Math.round(amountGbp * 100)),
+    "line_items[0][price_data][recurring][interval]": interval,
+    "line_items[0][quantity]": "1",
+    "metadata[planId]": input.planId,
+    "metadata[cycle]": cycle,
+    "subscription_data[metadata][planId]": input.planId,
+    "subscription_data[metadata][cycle]": cycle,
+  });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST", headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
+    });
+    const data = (await res.json()) as { url?: string; id?: string; error?: { message?: string } };
+    if (!res.ok) return { ok: false, mode: "live", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "Stripe rejected the subscription", error: data?.error?.message || `HTTP ${res.status}` };
+    return { ok: true, mode: "live", url: data.url ?? null, sessionId: data.id ?? null, metadata, planId: input.planId, cycle, note: `Live Stripe ${cycle} subscription for ${input.planName}.` };
+  } catch (e) {
+    return { ok: false, mode: "live", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "Network error contacting Stripe", error: e instanceof Error ? e.message : "unknown" };
+  }
+}
+
 export async function createCheckoutLink(input: CheckoutInput): Promise<CheckoutResult> {
   const brandId = (input.brandId || "").trim();
   const source = (input.source || "").trim() || "Checkout";

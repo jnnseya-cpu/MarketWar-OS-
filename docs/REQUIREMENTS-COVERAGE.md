@@ -1063,3 +1063,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | Header exposes both | same | ✅ | landing header: Log in → /login, Get started → /signup (was Enter→/dashboard) |
 | Goes fully live with Firebase | — | ✅ | with `NEXT_PUBLIC_FIREBASE_*` set, the same form does real email/password + Google auth + verification/reset |
 | Verified | same | ✅ | /login + /signup return 200; screenshot of the sign-up form in demo mode; smoke 315/0 |
+
+## 32. Post-signup plan selection (monthly/annual 30% toggle) (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **After sign-up, choose a subscription** | Owner directive 2026-07-20 | ✅ | `/choose-plan` page; `AuthForm` sign-up (email + Google, demo + live) redirects there (login → /dashboard) |
+| **Monthly ↔ annual toggle, annual = 30% off** | §7 | ✅ | toggle switches all 8 cards to annual (effective /mo + £/yr + saving); ACUs shown as monthly-released for annual |
+| **Free activates immediately; paid → checkout** | §5/§8 | ✅ | `/api/billing/subscribe` → Free no-checkout; paid → `createSubscriptionCheckout` (Stripe subscription, monthly/annual price, metadata.planId; demo-safe) |
+| Verified | same | ✅ | smoke 318/0 (page + subscribe free + Growth annual £411.60 = 30% off); screenshot of the annual toggle across all 8 tiers |

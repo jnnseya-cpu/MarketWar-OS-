@@ -42,9 +42,11 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // After sign-up the user picks a plan; login goes straight to the dashboard.
+    const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
     // Demo mode (no Firebase): the form is real but accounts aren't persisted —
-    // continue into the demo command centre so the flow is testable end to end.
-    if (!firebaseAuth) { router.push("/dashboard"); return; }
+    // continue the flow so it's testable end to end.
+    if (!firebaseAuth) { router.push(dest); return; }
     setBusy(true);
     setError(null);
     try {
@@ -64,7 +66,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           await sendEmailVerification(cred.user, { url: `${window.location.origin}/dashboard` });
         } catch { /* non-fatal — verification can be re-sent from Settings */ }
       }
-      router.push("/dashboard");
+      router.push(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Authentication failed.");
     } finally {
@@ -89,14 +91,15 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   }
 
   async function google() {
-    if (!firebaseAuth) { router.push("/dashboard"); return; }
+    const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
+    if (!firebaseAuth) { router.push(dest); return; }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
       await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
-      router.push("/dashboard");
+      router.push(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Google sign-in failed.");
     } finally {
