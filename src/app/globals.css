@@ -4,9 +4,19 @@
 
 :root {
   color-scheme: dark;
-  /* Cinematic ground tokens — refined emerald-on-ink, premium not "AI". */
+  /* Cinematic ground tokens — colorful AND premium (approved preview). A
+     rainbow accent ramp lights the board over a deep cinematic ground. */
   --mw-bg: #070a11;
   --mw-glow: rgba(16, 185, 129, 0.10);
+  /* Rainbow accent ramp */
+  --c1: #10b981; /* emerald */
+  --c2: #38bdf8; /* sky */
+  --c3: #a78bfa; /* violet */
+  --c4: #fbbf24; /* amber */
+  --c5: #fb7185; /* rose */
+  --c6: #60a5fa; /* blue */
+  --c7: #2dd4bf; /* teal */
+  --c8: #f472b6; /* pink */
 }
 
 body {
@@ -24,8 +34,11 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(120% 80% at 50% -10%, var(--mw-glow), transparent 55%),
-    radial-gradient(100% 100% at 50% 55%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+    radial-gradient(80% 55% at 8% -6%, color-mix(in oklab, var(--c3) 24%, transparent), transparent 60%),
+    radial-gradient(80% 55% at 92% -4%, color-mix(in oklab, var(--c2) 22%, transparent), transparent 60%),
+    radial-gradient(70% 55% at 90% 72%, color-mix(in oklab, var(--c5) 16%, transparent), transparent 60%),
+    radial-gradient(70% 55% at 6% 76%, color-mix(in oklab, var(--c1) 16%, transparent), transparent 60%),
+    radial-gradient(90% 90% at 50% 40%, transparent 60%, rgba(0, 0, 0, 0.42) 100%);
 }
 
 /* Fine film grain — the premium "shot, not generated" texture. Very low
@@ -161,14 +174,38 @@ body::after {
   position: relative;
   background:
     linear-gradient(#0b0f19, #0b0f19) padding-box,
-    linear-gradient(135deg, rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.08), transparent) border-box;
+    linear-gradient(135deg, var(--c2), var(--c3) 45%, var(--c5) 80%, var(--c4)) border-box;
   border: 1px solid transparent;
 }
 
-/* Emerald-dominant, editorial — not the tell-tale rainbow AI gradient. */
+/* Colorful AND premium — the approved multi-hue accent gradient. */
 .text-gradient {
-  @apply bg-gradient-to-b from-white via-emerald-100 to-emerald-400 bg-clip-text text-transparent;
+  background-image: linear-gradient(100deg, var(--c2), var(--c3) 40%, var(--c5) 74%, var(--c4));
+  @apply bg-clip-text text-transparent;
 }
+
+/* Per-tile accent ramp — colorful cards without losing the premium ground.
+   Apply .accent-1..8 to a card to tint its top hairline + glow by ramp hue. */
+.accent-1, .accent-2, .accent-3, .accent-4, .accent-5, .accent-6, .accent-7, .accent-8 {
+  position: relative;
+  overflow: hidden;
+}
+.accent-1::before, .accent-2::before, .accent-3::before, .accent-4::before,
+.accent-5::before, .accent-6::before, .accent-7::before, .accent-8::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  opacity: 0.9;
+}
+.accent-1::before { background: var(--c1); }
+.accent-2::before { background: var(--c2); }
+.accent-3::before { background: var(--c3); }
+.accent-4::before { background: var(--c4); }
+.accent-5::before { background: var(--c5); }
+.accent-6::before { background: var(--c6); }
+.accent-7::before { background: var(--c7); }
+.accent-8::before { background: var(--c8); }
 
 .grid-bg {
   background-image:

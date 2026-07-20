@@ -946,3 +946,14 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Email SMTP path in place** — SMTP-first provider pool (Node tls/net, zero-dependency; implicit-TLS 465 + STARTTLS 587 + AUTH LOGIN), then Resend/SendGrid HTTP, then demo; hygiene pipeline unchanged | Owner directive 2026-07-20 ("just need the email smtp to be in place") | ✅ | `src/backend/email.ts` (`sendViaSmtp`, `smtpConfigured`, `emailProvider`); `.env.example` SMTP_* block |
 | **Go-live checklist + requirements + test plan** so testing can start | Owner directive 2026-07-20 | ✅ | `docs/GO-LIVE.md` (11 sections: verification gate → domain → env → Firebase → Stripe → SMTP → PWA → lifecycle → prod smoke → rollback → sign-off) |
 | Deploy-ready across frontend + backend + shared (App Hosting root `/`) | Owner directive 2026-07-20 | ✅ code ready; ⏳ owner console rollout | `apphosting.yaml`, `docs/DEPLOYMENT.md`, `docs/GO-LIVE.md` §2 |
+
+## 20. Production-readiness & real testing (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Colorful + premium landing page** (approved preview) restored on the live site — the "cinematic emerald-only" refinement had flattened it | Owner directive 2026-07-20 ("the colorful and premium changed last night, not what I see on live") | ✅ | `src/app/globals.css` rainbow accent ramp (--c1..8), multi-hue body glow, rainbow `.text-gradient` headline + `.accent-*`; verified by screenshot |
+| **Make Anything builds inline** (not just routes) | Owner directive 2026-07-20 ("these to work") | ✅ | `/dashboard/create` → `/api/agents/{routed}`; live with keys |
+| **Whole platform flips demo→live with one key** (every agent + generative engine already routes through the gateway) | Owner directive 2026-07-20 ("live keys available, need real testing") | ✅ wired; ⏳ owner sets key | `src/backend/gateway.ts`; `apphosting.yaml` AI keys; `docs/REAL-TESTING.md` |
+| **User accounts — admin + every role** | Owner directive 2026-07-20 ("create all different user accounts included with admin") | ✅ | `src/shared/roles.ts` (7 roles + scopes), `scripts/seed-accounts.mjs`, `npm run seed:accounts` |
+| **Go-live checklist + real-testing guide** | Owner directive 2026-07-20 ("I need a go live checklist") | ✅ | `docs/GO-LIVE.md` (11-section) + `docs/REAL-TESTING.md` (the demo→live switch, wired-surface map, live walkthrough) |
+| Every interactive surface executes against a real API (Make Anything, Strategy Chain, Warfare, Audit, Briefing, Offer Builder, VisualStrike, One-Click Builder, 19 agents, 39 engines) | Owner directive 2026-07-20 (repeated "fully functioning") | ✅ verified | `npm run smoke` 304/0; surface→endpoint map in `docs/REAL-TESTING.md` §3 |

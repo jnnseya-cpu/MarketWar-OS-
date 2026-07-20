@@ -2,7 +2,14 @@
 
 Owner: Justin · Domain: **marketwaros.com** · Support: **info@marketwaros.com**
 Companion runbook: `docs/DEPLOYMENT.md` (step-by-step deploy) · Architecture:
-`docs/PRODUCTION-ARCHITECTURE.md`.
+`docs/PRODUCTION-ARCHITECTURE.md` · **Real (live) testing: `docs/REAL-TESTING.md`**.
+
+> **The one switch: demo → live.** Every module is wired end-to-end and executes
+> against a real API. It renders "Demo intelligence" only while no AI provider
+> key is set. Set `ANTHROPIC_API_KEY` (optionally `OPENAI_API_KEY` /
+> `GEMINI_API_KEY`) and the whole platform flips to "Live intelligence" — no code
+> change. Seed login accounts (admin + every role) with `npm run seed:accounts`.
+> Full walkthrough in `docs/REAL-TESTING.md`.
 
 This is the single "are we ready to test / are we ready to ship" document.
 Work top to bottom. Everything already runs in **zero-config demo mode**; the
@@ -81,6 +88,11 @@ console **only** — never committed. Public `NEXT_PUBLIC_*` identifiers are saf
 
 **App**:
 - [ ] `NEXT_PUBLIC_APP_URL=https://marketwaros.com` · `NEXT_PUBLIC_PRODUCTION_URL=https://marketwaros.com`
+
+**Accounts** (admin + every role — see `docs/REAL-TESTING.md` §2):
+- [ ] `npm run seed:accounts` with Admin SDK env + `SEED_PASSWORD` set — creates
+  the 7 role accounts (owner/director/manager/rep/support/tenant/teammate) with
+  Firebase custom claims. Rotate/disable before public launch.
 
 > Provider cost is never exposed to any client surface. The margin floor
 > (≥100% markup) and target (300% markup = 75% gross margin) are enforced in
