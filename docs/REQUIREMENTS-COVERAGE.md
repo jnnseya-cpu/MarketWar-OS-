@@ -974,3 +974,13 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | Honest empty state — no sample money for a real company | same | ✅ | Empty banner + £0/— until real events; verified: empty on new brand → £240 after logging one order |
 | Owned capture (manual "Log a result") so it's real day one, no third party | same | ✅ | "Log a result" form (lead/order/sale + source + amount) attributes to the campaign; Stripe payment attribution is the next step |
 | Scoped to the active brand | same | ✅ | ledger filtered by `activeBrand.id`; each brand has its own money view |
+
+## 23. Money loop #2–4 — Stripe attribution, owned capture, no fake money (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Stripe payment attribution** — real payments count automatically | Owner directive 2026-07-20 | ✅ | `brandRevenueFromEvent` (stripe-billing) → `/api/webhooks/stripe` records attributed revenue when a checkout carries `metadata.marketwar_brand_id` (+ `marketwar_source`); idempotent by event id (redelivery never double-counts) |
+| **Owned lead-capture endpoint** — form conversions POST straight into the ledger | Owner directive 2026-07-20 | ✅ | `POST /api/results` (rate-limited); owned landing-page forms post `{brandId,type,source,amountGbp}` — no manual entry |
+| **Server-backed ledger** shared by manual + capture + Stripe | same | ✅ | `src/backend/ledger.ts` (Firestore when configured, in-memory otherwise); `results-context` now fetches/writes via `/api/results` |
+| **No fake money anywhere** — Command Center + Daily Briefing show the real ledger | Owner directive 2026-07-20 | ✅ | `/dashboard` (Command Center) + `/dashboard/briefing` upgraded to per-brand real figures with honest empty states — demo money removed |
+| Verified by the gate | same | ✅ | smoke +2 = **306/0**: owned £45 + Stripe £120 = £165, idempotent (2 orders), un-tagged payment → no attribution |

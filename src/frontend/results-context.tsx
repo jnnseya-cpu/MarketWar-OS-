@@ -1,89 +1,95 @@
 "use client";
 
-// Per-brand results ledger context. Records real leads/orders/sales attributed
-// to MarketWar and rolls them up for the ACTIVE brand, so the Revenue dashboard
-// shows that brand's own money — empty until real events are logged. Persisted
-// to localStorage (survives refresh, zero config); same shape syncs to Firestore
-// (results/{brandId}) when wired, without changing consumers.
+// Per-brand results ledger context — server-backed so ALL three sources (manual
+// "Log a result", owned form captures, Stripe payment webhooks) feed the same
+// ledger the Revenue dashboard reads. Fetches the active brand's events from
+// /api/results and applies optimistic updates on log/remove. The server persists
+// to Firestore when configured, else in-memory for the test.
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { type RevenueEvent, type ResultType, type ResultsSummary, summarize } from "@/shared/results";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type LogInput = { type: ResultType; source: string; amountGbp: number; note?: string; at?: string };
 
 type ResultsContextValue = {
-  events: RevenueEvent[];      // for the ACTIVE brand
-  summary: ResultsSummary;     // for the ACTIVE brand
-  logEvent: (input: LogInput) => void;
-  removeEvent: (id: string) => void;
+  events: RevenueEvent[];
+  summary: ResultsSummary;
+  logEvent: (input: LogInput) => Promise<void>;
+  removeEvent: (id: string) => Promise<void>;
+  refresh: () => void;
   ready: boolean;
 };
-
-const STORAGE_KEY = "mw.results.v1";
 
 const emptySummary = summarize([]);
 const fallback: ResultsContextValue = {
   events: [],
   summary: emptySummary,
-  logEvent: () => {},
-  removeEvent: () => {},
+  logEvent: async () => {},
+  removeEvent: async () => {},
+  refresh: () => {},
   ready: false,
 };
 
 const ResultsContext = createContext<ResultsContextValue>(fallback);
 
 function makeId(): string {
-  try {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  } catch { /* fall through */ }
+  try { if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID(); } catch { /* noop */ }
   return `evt_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
 
 export function ResultsProvider({ children }: { children: ReactNode }) {
   const { activeBrand } = useActiveBrand();
-  const [all, setAll] = useState<RevenueEvent[]>([]);
+  const brandId = activeBrand?.id ?? null;
+  const [events, setEvents] = useState<RevenueEvent[]>([]);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(async (id: string | null) => {
+    if (!id) { setEvents([]); setReady(true); return; }
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as RevenueEvent[];
-        if (Array.isArray(parsed)) setAll(parsed);
-      }
-    } catch { /* corrupt → empty */ }
-    setReady(true);
+      const res = await fetch(`/api/results?brandId=${encodeURIComponent(id)}`);
+      const data = await res.json();
+      setEvents(Array.isArray(data.events) ? data.events : []);
+    } catch {
+      setEvents([]); // network error → show empty rather than stale/fake
+    } finally {
+      setReady(true);
+    }
   }, []);
 
-  useEffect(() => {
-    if (!ready) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(all)); } catch { /* quota */ }
-  }, [all, ready]);
+  useEffect(() => { setReady(false); load(brandId); }, [brandId, load]);
 
-  const value = useMemo<ResultsContextValue>(() => {
-    const brandId = activeBrand?.id ?? null;
-    const events = brandId ? all.filter((e) => e.brandId === brandId) : [];
-    return {
-      events,
-      summary: summarize(events),
-      ready,
-      logEvent: (input) => {
-        if (!brandId) return; // no active brand → nothing to attribute to
-        const event: RevenueEvent = {
-          id: makeId(),
-          brandId,
-          type: input.type,
-          source: input.source?.trim() || "Untagged",
-          amountGbp: Math.max(0, Number(input.amountGbp) || 0),
-          note: input.note?.trim() || undefined,
-          at: input.at || new Date().toISOString(),
-        };
-        setAll((prev) => [event, ...prev]);
-      },
-      removeEvent: (id) => setAll((prev) => prev.filter((e) => e.id !== id)),
-    };
-  }, [all, activeBrand?.id, ready]);
+  const value = useMemo<ResultsContextValue>(() => ({
+    events,
+    summary: summarize(events),
+    ready,
+    refresh: () => load(brandId),
+    logEvent: async (input) => {
+      if (!brandId) return;
+      const event: RevenueEvent = {
+        id: makeId(), brandId, type: input.type,
+        source: input.source?.trim() || "Untagged",
+        amountGbp: input.type === "lead" ? 0 : Math.max(0, Number(input.amountGbp) || 0),
+        note: input.note?.trim() || undefined,
+        at: input.at || new Date().toISOString(),
+      };
+      setEvents((prev) => [event, ...prev]); // optimistic
+      try {
+        await fetch("/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(event) });
+      } catch {
+        load(brandId); // reconcile on failure
+      }
+    },
+    removeEvent: async (id) => {
+      if (!brandId) return;
+      setEvents((prev) => prev.filter((e) => e.id !== id)); // optimistic
+      try {
+        await fetch(`/api/results?brandId=${encodeURIComponent(brandId)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      } catch {
+        load(brandId);
+      }
+    },
+  }), [events, brandId, ready, load]);
 
   return <ResultsContext.Provider value={value}>{children}</ResultsContext.Provider>;
 }

@@ -16,6 +16,7 @@ if (typeof window !== "undefined") {
 
 import crypto from "node:crypto";
 import { PLANS, planEconomics } from "@/backend/subscription";
+import { type RevenueEvent } from "@/shared/results";
 
 export const MAIN_DOMAIN = "marketwaros.com";
 export const STRIPE_WEBHOOK_PATH = "/api/webhooks/stripe";
@@ -60,6 +61,7 @@ export function verifyStripeSignature(rawBody: string, signatureHeader: string |
 export type StripeEventLike = {
   id: string;
   type: string;
+  created?: number; // unix seconds (Stripe includes this on every event)
   data?: { object?: Record<string, unknown> };
 };
 
@@ -109,6 +111,27 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
     return { ...base, handled: true, action: "renew", planId, note: `Subscription updated → sync plan (${planId}); next allocation follows the new plan.` };
   }
   return { ...base, handled: false, action: "ignored", note: "Event acknowledged (200) but not actioned — MarketWar only acts on a small allowlist of billing events." };
+}
+
+// Attributed revenue from a Stripe payment webhook. When a MarketWar-created
+// checkout carries metadata.marketwar_brand_id (+ optional marketwar_source),
+// a successful payment is recorded as attributed revenue for that brand — so
+// real customer payments count automatically, no manual logging. Idempotent:
+// the RevenueEvent id IS the Stripe event id, so a redelivered webhook overwrites
+// rather than double-counting. Returns null for non-payment or un-tagged events.
+const PAYMENT_EVENTS = new Set(["checkout.session.completed", "invoice.paid", "charge.succeeded", "payment_intent.succeeded"]);
+
+export function brandRevenueFromEvent(event: StripeEventLike): RevenueEvent | null {
+  if (!PAYMENT_EVENTS.has(event.type)) return null;
+  const obj = event.data?.object ?? {};
+  const meta = (obj.metadata as Record<string, unknown> | undefined) ?? {};
+  const brandId = typeof meta.marketwar_brand_id === "string" ? meta.marketwar_brand_id.trim() : "";
+  if (!brandId) return null;
+  const source = typeof meta.marketwar_source === "string" && meta.marketwar_source.trim() ? meta.marketwar_source.trim() : "Stripe checkout";
+  const pence = Number(obj.amount_total ?? obj.amount_paid ?? obj.amount ?? 0);
+  const amountGbp = Math.max(0, pence / 100);
+  const at = event.created ? new Date(event.created * 1000).toISOString() : new Date().toISOString();
+  return { id: event.id, brandId, type: "sale", source, amountGbp, note: "Stripe payment", at };
 }
 
 export function demoStripe() {

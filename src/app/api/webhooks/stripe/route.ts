@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  verifyStripeSignature, handleStripeEvent, demoStripe, webhookEndpointUrl,
+  verifyStripeSignature, handleStripeEvent, brandRevenueFromEvent, demoStripe, webhookEndpointUrl,
   HANDLED_EVENTS, type StripeEventLike,
 } from "@/backend/stripe-billing";
+import { recordEvent } from "@/backend/ledger";
 
 // Stripe webhook endpoint — https://marketwaros.com/api/webhooks/stripe
 // Configure this exact URL in the Stripe dashboard and set STRIPE_WEBHOOK_SECRET.
@@ -34,7 +35,22 @@ export async function POST(req: NextRequest) {
   // In production the caller records event.id first (idempotency) before applying
   // the ledger credit inside a Firestore transaction. Here we compute the outcome.
   const outcome = handleStripeEvent(event);
-  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome });
+
+  // Automatic revenue attribution: if this is a payment on a MarketWar-created
+  // checkout (metadata.marketwar_brand_id), record it as attributed revenue for
+  // that brand — idempotent by event id. Never blocks the 200 response.
+  let attributed: { brandId: string; amountGbp: number; source: string } | null = null;
+  const revenueEvent = brandRevenueFromEvent(event);
+  if (revenueEvent) {
+    try {
+      await recordEvent(revenueEvent);
+      attributed = { brandId: revenueEvent.brandId, amountGbp: revenueEvent.amountGbp, source: revenueEvent.source };
+    } catch {
+      /* attribution is best-effort; the webhook still acks */
+    }
+  }
+
+  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, attributed });
 }
 
 export async function GET() {

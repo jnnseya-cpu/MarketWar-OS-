@@ -1,192 +1,104 @@
+"use client";
+
+// Executive Command Center — per-brand, money-honest. All figures come from the
+// real results ledger (src/frontend/results-context): attributed revenue, orders
+// and leads for the ACTIVE brand. NO fabricated money — empty until the brand
+// has real activity. Switch brand in the sidebar to see that brand's numbers.
+
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, ChevronRight, Crosshair, MessageCircle, Zap } from "lucide-react";
 import { AreaChart, DonutChart } from "@/components/charts";
-import BviCard from "@/components/BviCard";
-import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
-import {
-  demoActions,
-  demoBusiness,
-  demoCampaigns,
-  demoChannelOrders,
-  demoConversations,
-  demoDaily,
-  demoMetrics,
-} from "@/shared/demo";
+import { PageHeader, StatCard } from "@/components/ui";
+import { ArrowRight, Building2, Crosshair, Hammer, Target, Wallet, Zap } from "lucide-react";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { useResults } from "@/frontend/results-context";
 
 export default function CommandCenterPage() {
-  const m = demoMetrics;
-  const active = demoCampaigns.filter((c) => c.status === "active");
-  const hotThreads = demoConversations.filter((c) => c.unread > 0);
+  const { activeBrand } = useActiveBrand();
+  const { events, summary } = useResults();
+  const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+
+  if (!activeBrand) {
+    return (
+      <div>
+        <PageHeader kicker="Executive Command Center" title="Add your first brand" subtitle="One account, one bill, many brands. Add a brand in the sidebar to see its real numbers here." />
+        <div className="card flex flex-col items-center justify-center gap-3 p-12 text-center">
+          <Building2 className="h-8 w-8 text-emerald-500/60" />
+          <p className="max-w-sm text-sm text-slate-400">Use the brand switcher at the top of the sidebar to add your first real brand — then every module works for that brand.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <PageHeader
         kicker="Executive Command Center"
-        title={demoBusiness.name}
-        subtitle={`${demoBusiness.industry} · ${demoBusiness.location} · Goal: ${demoBusiness.goal}`}
-        actions={
-          <Link href="/dashboard/briefing" className="btn-primary">
-            <Zap className="h-4 w-4" /> Today&apos;s briefing
-          </Link>
-        }
+        title={activeBrand.name}
+        subtitle={[activeBrand.industry, activeBrand.location, activeBrand.goal && `Goal: ${activeBrand.goal}`].filter(Boolean).join(" · ") || "Your brand command center"}
+        actions={<Link href="/dashboard/briefing" className="btn-primary"><Zap className="h-4 w-4" /> Today&apos;s briefing</Link>}
       />
 
-      {/* Live metrics bar */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-        <StatCard label="Spend (month)" value={`£${m.spendMonth}`} sub={`£${m.spendToday} today`} />
-        <StatCard label="Leads (month)" value={`${m.leadsMonth}`} sub={`${m.leadsToday} today`} tone="good" />
-        <StatCard label="Cost / lead" value={`£${m.costPerLead}`} tone="good" />
-        <StatCard label="Cost / order" value={`£${m.costPerOrder}`} sub="vs £9.50 AOV" tone="good" />
-        <StatCard label="Revenue (month)" value={`£${m.revenueMonth}`} sub={`ROAS ${m.roas}x`} tone="good" />
-        <StatCard label="Recoverable" value={`£${m.recoverableRevenue}`} sub="sleeping in your vault" tone="warn" />
+      {/* Real per-brand money — zeros, never fake figures, when empty */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Attributed revenue" value={money(summary.revenueGbp)} tone={summary.revenueGbp > 0 ? "good" : "neutral"} sub="through MarketWar" />
+        <StatCard label="Orders" value={`${summary.orders}`} />
+        <StatCard label="Leads" value={`${summary.leads}`} tone={summary.leads > 0 ? "good" : "neutral"} />
+        <StatCard label="Avg order value" value={summary.orders > 0 ? money(summary.avgOrderGbp) : "—"} />
       </div>
 
-      {/* Vitality + performance charts */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-7">
-        <div className="lg:col-span-2">
-          <BviCard />
-        </div>
-        <div className="card p-5 lg:col-span-3">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display font-bold text-white">Revenue vs ad spend — 14 days</h2>
-            <Pill tone="good">ROAS {demoMetrics.roas}x</Pill>
-          </div>
-          <AreaChart
-            labels={demoDaily.labels}
-            series={[
-              { name: "Revenue", data: demoDaily.revenue },
-              { name: "Ad spend", data: demoDaily.spend },
-            ]}
-            valuePrefix="£"
-            height={230}
-          />
-        </div>
-        <div className="card p-5 lg:col-span-2">
-          <h2 className="mb-3 font-display font-bold text-white">Orders by channel</h2>
-          <DonutChart
-            data={demoChannelOrders}
-            centerValue={`${demoMetrics.ordersMonth}`}
-            centerLabel="orders this month"
-            size={190}
-          />
-          <p className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
-            WhatsApp produces 49% of orders at zero platform fees — the OS keeps routing paid traffic there.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        {/* Priority panel */}
-        <div className="card p-5 lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-display font-bold text-white">AI Priority Panel</h2>
-            <Pill tone="info">ranked by £ impact</Pill>
-          </div>
-          <div className="space-y-3">
-            {demoActions.map((a) => (
-              <Link
-                key={a.id}
-                href={a.href}
-                className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-850 p-4 transition hover:border-emerald-500/50"
-              >
-                <span
-                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
-                    a.priority === "critical"
-                      ? "bg-rose-500/15 text-rose-400"
-                      : a.priority === "high"
-                        ? "bg-amber-500/15 text-amber-400"
-                        : "bg-sky-500/15 text-sky-400"
-                  }`}
-                >
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-white">{a.action}</p>
-                  <p className="mt-0.5 text-sm text-slate-400">{a.reason}</p>
-                  <p className="mt-1 text-xs font-semibold text-emerald-400">{a.impact}</p>
-                </div>
-                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
-              </Link>
-            ))}
+      {summary.isEmpty ? (
+        <div className="mt-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-6">
+          <div className="mb-2 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">No activity yet for {activeBrand.name}</h2></div>
+          <p className="mb-4 max-w-2xl text-sm text-slate-400">This dashboard shows real money as it comes in — nothing is fabricated. Build a campaign, then log or capture the orders it produces and they appear here, attributed to their source.</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/create" className="btn-primary"><Hammer className="h-4 w-4" /> Make anything</Link>
+            <Link href="/dashboard/warfare" className="btn-ghost"><Target className="h-4 w-4" /> Design a campaign</Link>
+            <Link href="/dashboard/revenue" className="btn-ghost"><Wallet className="h-4 w-4" /> Log a result</Link>
           </div>
         </div>
-
-        {/* Command feed */}
-        <div className="space-y-6">
-          <div className="card p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display font-bold text-white">Live campaigns</h2>
-              <Link href="/dashboard/war-room" className="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
-                War room <ArrowRight className="inline h-3 w-3" />
-              </Link>
+      ) : (
+        <>
+          <div className="mt-8 grid gap-6 lg:grid-cols-5">
+            <div className="card p-5 lg:col-span-3">
+              <h2 className="mb-3 font-display font-bold text-white">Attributed revenue by day</h2>
+              <AreaChart labels={summary.byDay.map((d) => d.day.slice(5))} series={[{ name: "Revenue", data: summary.byDay.map((d) => d.revenueGbp) }]} valuePrefix="£" height={230} />
             </div>
-            <div className="space-y-2.5">
-              {active.map((c) => (
-                <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg bg-ink-850 px-3 py-2.5">
+            <div className="card p-5 lg:col-span-2">
+              <h2 className="mb-3 font-display font-bold text-white">Revenue by source</h2>
+              {summary.bySource.some((s) => s.revenueGbp > 0) ? (
+                <DonutChart size={190} centerValue={money(summary.revenueGbp)} centerLabel="attributed" data={summary.bySource.filter((s) => s.revenueGbp > 0).map((s) => ({ label: s.source, value: s.revenueGbp }))} />
+              ) : (
+                <p className="py-10 text-center text-sm text-slate-500">Leads only so far — log an order to see revenue by source.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-8 card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display font-bold text-white">Recent results</h2>
+              <Link href="/dashboard/revenue" className="text-xs font-semibold text-emerald-400 hover:text-emerald-300">Revenue <ArrowRight className="inline h-3 w-3" /></Link>
+            </div>
+            <div className="space-y-2">
+              {events.slice(0, 6).map((e) => (
+                <div key={e.id} className="flex items-center justify-between gap-2 rounded-lg bg-ink-850 px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-200">{c.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {c.channel} · £{c.spend} → {c.leads} leads
-                    </p>
+                    <p className="truncate text-sm font-semibold text-slate-200">{e.source}</p>
+                    <p className="text-xs text-slate-500">{e.at.slice(0, 10)} · {e.type}{e.note ? ` · ${e.note}` : ""}</p>
                   </div>
-                  <VerdictBadge verdict={c.verdict} />
+                  <span className="shrink-0 font-display font-bold text-white">{e.type === "lead" ? "lead" : money(e.amountGbp)}</span>
                 </div>
               ))}
             </div>
           </div>
-
-          <div className="card p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display font-bold text-white">Needs a reply</h2>
-              <Link href="/dashboard/whatsapp" className="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
-                WhatsApp <ArrowRight className="inline h-3 w-3" />
-              </Link>
-            </div>
-            <div className="space-y-2.5">
-              {hotThreads.map((t) => (
-                <div key={t.id} className="flex items-center gap-3 rounded-lg bg-ink-850 px-3 py-2.5">
-                  <MessageCircle className="h-4 w-4 shrink-0 text-emerald-400" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-200">{t.customer}</p>
-                    <p className="truncate text-xs text-slate-500">{t.lastMessage}</p>
-                  </div>
-                  <span className="rounded-full bg-emerald-500 px-1.5 text-xs font-bold text-ink-950">{t.unread}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="card p-5">
-            <h2 className="mb-3 font-display font-bold text-white">Intelligence snapshot</h2>
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-xs uppercase tracking-wider text-slate-500">Best hook</dt>
-                <dd className="text-emerald-300">&ldquo;{m.bestHook}&rdquo;</dd>
-              </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wider text-slate-500">Worst ad (killed)</dt>
-                <dd className="text-rose-300">&ldquo;{m.worstAd}&rdquo;</dd>
-              </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wider text-slate-500">Best audience</dt>
-                <dd className="text-slate-300">{m.bestAudience}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
       <div className="mt-8 card flex flex-wrap items-center justify-between gap-4 border-emerald-500/30 bg-emerald-500/5 p-5">
         <div className="flex items-center gap-3">
           <Crosshair className="h-5 w-5 text-emerald-400" />
-          <p className="text-sm text-slate-300">
-            New here? Run the <span className="font-semibold text-white">Marketing Failure Audit</span> to find out
-            why past spend produced nothing.
-          </p>
+          <p className="text-sm text-slate-300">Run the <span className="font-semibold text-white">Marketing Failure Audit</span> for {activeBrand.name} to find where spend leaks before you scale.</p>
         </div>
-        <Link href="/dashboard/audit" className="btn-primary">
-          Run the audit
-        </Link>
+        <Link href="/dashboard/audit" className="btn-primary">Run the audit</Link>
       </div>
     </div>
   );

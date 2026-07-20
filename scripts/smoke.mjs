@@ -1889,6 +1889,31 @@ try {
   else bad("POST /api/comms-events validation", `expected 404, got ${res.status}`);
 } catch (e) { bad("POST /api/comms-events validation", e.message); }
 
+console.log("\nMoney ledger — per-brand attributed revenue:");
+{
+  const brand = `smoke-brand-${Date.now().toString(36)}`;
+  try {
+    // 1) Owned capture (landing-page form conversion) → records an order.
+    const cap = await (await fetch(BASE + "/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandId: brand, type: "order", source: "Owned landing page", amountGbp: 45 }) })).json();
+    // 2) Stripe payment webhook with brand metadata → auto-attributed £120.
+    await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `evt_smoke_${brand}`, type: "checkout.session.completed", created: 1770000000, data: { object: { amount_total: 12000, metadata: { marketwar_brand_id: brand, marketwar_source: "Meta" } } } }) });
+    // 3) Re-deliver the SAME Stripe event → must NOT double-count (idempotent by event id).
+    await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `evt_smoke_${brand}`, type: "checkout.session.completed", created: 1770000000, data: { object: { amount_total: 12000, metadata: { marketwar_brand_id: brand, marketwar_source: "Meta" } } } }) });
+    const read = await (await fetch(`${BASE}/api/results?brandId=${encodeURIComponent(brand)}`)).json();
+    if (cap.ok && read.summary?.revenueGbp === 165 && read.summary?.orders === 2) {
+      ok(`money ledger (owned £45 + Stripe £120 = £${read.summary.revenueGbp}, idempotent: ${read.summary.orders} orders)`);
+    } else bad("money ledger", `revenue ${read.summary?.revenueGbp}, orders ${read.summary?.orders} (expected 165 / 2)`);
+  } catch (e) { bad("money ledger", e.message); }
+  try {
+    // A payment event WITHOUT brand metadata must not create attributed revenue.
+    const other = `smoke-none-${Date.now().toString(36)}`;
+    await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `evt_none_${other}`, type: "checkout.session.completed", created: 1770000000, data: { object: { amount_total: 9900, metadata: { planId: "growth" } } } }) });
+    const read = await (await fetch(`${BASE}/api/results?brandId=${encodeURIComponent(other)}`)).json();
+    if (read.summary?.revenueGbp === 0 && read.summary?.isEmpty) ok("money ledger (un-tagged payment → no attribution, empty)");
+    else bad("money ledger untagged", `expected empty, got revenue ${read.summary?.revenueGbp}`);
+  } catch (e) { bad("money ledger untagged", e.message); }
+}
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
