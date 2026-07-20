@@ -25,6 +25,7 @@ const PAGES = [
   "/signup",
   "/dashboard",
   "/dashboard/engines",
+  "/dashboard/comms",
   "/dashboard/create",
   "/dashboard/strategy",
   "/dashboard/briefing",
@@ -1813,6 +1814,47 @@ try {
     ok(`POST /api/admin-billing waive (approved 3 months, ${body.remainingAfter} remaining)`);
   } else bad("POST /api/admin-billing waive approved", `HTTP ${res.status}, approved ${body.approved}`);
 } catch (e) { bad("POST /api/admin-billing waive approved", e.message); }
+
+console.log("\nCommunication Event Architecture:");
+try {
+  const res = await fetch(BASE + "/api/comms-events");
+  const body = await res.json();
+  const cov = body.stats?.channelCoverage;
+  if (res.status === 200 && body.stats.totalEvents >= 120 && body.stats.categoryCount === 15 && body.stats.channels.length === 5 && cov && cov.inapp === body.stats.totalEvents) {
+    ok(`GET /api/comms-events (${body.stats.totalEvents} events, ${body.stats.categoryCount} categories, ${body.stats.mandatoryCount} mandatory)`);
+  } else bad("GET /api/comms-events", `HTTP ${res.status}, total ${body.stats?.totalEvents}, cats ${body.stats?.categoryCount}`);
+} catch (e) { bad("GET /api/comms-events", e.message); }
+try {
+  // Mandatory event: recipient opted out of SMS, but it still sends (bypass).
+  const res = await fetch(BASE + "/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fanout", eventId: "security.alert", prefs: { sms: false } }) });
+  const body = await res.json();
+  const sms = body.delivered?.find((d) => d.channel === "sms");
+  if (res.status === 200 && body.mandatory === true && sms && sms.reason === "mandatory") {
+    ok(`POST /api/comms-events fanout (mandatory bypasses opt-out → ${body.delivered.length} channels)`);
+  } else bad("POST /api/comms-events fanout", `HTTP ${res.status}, mandatory ${body.mandatory}`);
+} catch (e) { bad("POST /api/comms-events fanout", e.message); }
+try {
+  // Non-mandatory: opting out of email suppresses that channel; in-app stays.
+  const res = await fetch(BASE + "/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fanout", eventId: "report.scheduled_ready", prefs: { email: false } }) });
+  const body = await res.json();
+  const suppressedEmail = body.suppressed?.some((x) => x.channel === "email");
+  const inappStays = body.delivered?.some((d) => d.channel === "inapp");
+  if (res.status === 200 && suppressedEmail && inappStays) {
+    ok("POST /api/comms-events fanout (opt-out suppresses email, in-app stays)");
+  } else bad("POST /api/comms-events fanout optout", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/comms-events fanout optout", e.message); }
+try {
+  const res = await fetch(BASE + "/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview", eventId: "campaign.generated", brand: { name: "Brixton Grill House", brandColour: "#10b981" }, tokens: { campaign: "Weekend Blitz" } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.subject.includes("ready") && body.brand === "Brixton Grill House" && body.from === "info@marketwaros.com") {
+    ok(`POST /api/comms-events preview (branded "${body.subject}")`);
+  } else bad("POST /api/comms-events preview", `HTTP ${res.status}, subject ${body.subject}`);
+} catch (e) { bad("POST /api/comms-events preview", e.message); }
+try {
+  const res = await fetch(BASE + "/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fanout", eventId: "nope.not.real" }) });
+  if (res.status === 404) ok("POST /api/comms-events rejects unknown event (404)");
+  else bad("POST /api/comms-events validation", `expected 404, got ${res.status}`);
+} catch (e) { bad("POST /api/comms-events validation", e.message); }
 
 console.log("\nAudit + gateway APIs:");
 try {
