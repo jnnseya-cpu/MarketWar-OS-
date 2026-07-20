@@ -1043,6 +1043,133 @@ try {
   else bad("POST /api/inbox validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/inbox validation", e.message); }
 
+console.log("\nCampaign Architect + Trend Hijack + Autonomy:");
+try {
+  const res = await fetch(BASE + "/api/campaign-architect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "architecture", business: "Brixton Grill House", objective: "sales", budgetGbp: 2000 }) });
+  const body = await res.json();
+  const layers = body.layers || [];
+  const conv = layers.find((l) => l.layer === "conversion");
+  if (res.status === 200 && layers.length === 5 && conv && conv.budgetShare >= (layers.find((l) => l.layer === "advocacy")?.budgetShare ?? 0) && conv.kpi) {
+    ok(`POST /api/campaign-architect architecture (5 layers, conversion ${conv.budgetShare}% of budget)`);
+  } else bad("POST /api/campaign-architect architecture", `HTTP ${res.status}, layers ${layers.length}`);
+} catch (e) { bad("POST /api/campaign-architect architecture", e.message); }
+try {
+  const res = await fetch(BASE + "/api/campaign-architect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trend", trend: "capitalising on a local disaster", category: "news_themes", business: "X" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.verdict === "reject" && Array.isArray(body.risk)) {
+    ok(`POST /api/campaign-architect trend (harmful trend → ${body.verdict})`);
+  } else bad("POST /api/campaign-architect trend", `HTTP ${res.status}, verdict ${body.verdict}`);
+} catch (e) { bad("POST /api/campaign-architect trend", e.message); }
+try {
+  const res = await fetch(BASE + "/api/campaign-architect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "autonomy", riskCategory: "health", requestedLevel: 4 }) });
+  const body = await res.json();
+  if (res.status === 200 && body.maxLevel === 1 && body.grantedLevel === 1 && body.capped === true) {
+    ok(`POST /api/campaign-architect autonomy (high-risk capped at L${body.grantedLevel})`);
+  } else bad("POST /api/campaign-architect autonomy", `HTTP ${res.status}, granted ${body.grantedLevel}`);
+} catch (e) { bad("POST /api/campaign-architect autonomy", e.message); }
+try {
+  const res = await fetch(BASE + "/api/campaign-architect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "architecture" }) });
+  if (res.status === 400) ok("POST /api/campaign-architect rejects missing business");
+  else bad("POST /api/campaign-architect validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/campaign-architect validation", e.message); }
+
+console.log("\nYouTube SEO Intelligence:");
+try {
+  const res = await fetch(BASE + "/api/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "keywords", seed: "email marketing" }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.ideas) && body.ideas.length > 0 && typeof body.ideas[0].searchVolumeProxy === "number" && typeof body.ideas[0].opportunity === "number" && typeof body.disclaimer === "string") ok("youtube keywords");
+  else bad("youtube keywords", `HTTP ${res.status} / bad shape`);
+} catch (e) { bad("youtube keywords", e.message); }
+try {
+  const res = await fetch(BASE + "/api/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "titles", titles: ["5 SEO Tips That Work (2026)", "my channel intro"] }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.titles) && body.titles.length === 2 && Array.isArray(body.titles[0].patterns) && typeof body.titles[0].score === "number" && body.titles[0].score >= body.titles[1].score) ok("youtube titles");
+  else bad("youtube titles", `HTTP ${res.status} / bad shape`);
+} catch (e) { bad("youtube titles", e.message); }
+try {
+  const res = await fetch(BASE + "/api/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "comments", comments: ["too long and boring", "love this, so helpful", "the tool doesn't work, error"] }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.painPoints) && body.sentiment && typeof body.sentiment.positive === "number" && typeof body.sentiment.negative === "number" && typeof body.sentiment.neutral === "number") ok("youtube comments");
+  else bad("youtube comments", `HTTP ${res.status} / bad shape`);
+} catch (e) { bad("youtube comments", e.message); }
+try {
+  const res = await fetch(BASE + "/api/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "script", topic: "youtube seo" }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.hook === "string" && body.hook.length > 0 && Array.isArray(body.retentionBeats) && body.retentionBeats.length > 0 && typeof body.cta === "string") ok("youtube script");
+  else bad("youtube script", `HTTP ${res.status} / bad shape`);
+} catch (e) { bad("youtube script", e.message); }
+try {
+  const res = await fetch(BASE + "/api/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "keywords" }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("youtube validation (400)");
+  else bad("youtube validation (400)", `HTTP ${res.status}`);
+} catch (e) { bad("youtube validation (400)", e.message); }
+
+console.log("\nWhite-label Reporting Centre:");
+try {
+  const res = await fetch(BASE + "/api/reporting");
+  const body = await res.json();
+  if (Array.isArray(body.reportSections) && body.reportSections.length === 7 && body.demo && typeof body.demo.overallScore === "number") ok("reporting GET returns 7 sections + demo report");
+  else bad("reporting GET", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("reporting GET", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "build", input: { business: "Acme Cafe", branding: { agencyName: "Northwind" } } }) });
+  const body = await res.json();
+  if (body.business === "Acme Cafe" && body.whiteLabel.agencyName === "Northwind" && Array.isArray(body.sections) && body.sections.length === 7 && typeof body.overallScore === "number" && body.headline.includes("ESTIMATE")) ok("reporting build returns branded 7-section report");
+  else bad("reporting build", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("reporting build", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "build", input: { business: "Solo Shop", sections: ["seo_audit", "backlink"] } }) });
+  const body = await res.json();
+  if (body.sections.length === 2 && body.sections[0].id === "seo_audit" && typeof body.sections[0].score === "number" && body.sections[0].summary.includes("ESTIMATE")) ok("reporting build honours requested sections + labels ESTIMATE");
+  else bad("reporting build sections", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("reporting build sections", String(e)); }
+try {
+  const built = await (await fetch(BASE + "/api/reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "build", input: { business: "Acme Cafe" } }) })).json();
+  const res = await fetch(BASE + "/api/reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "export", report: built, format: "pdf" }) });
+  const body = await res.json();
+  if (body.format === "pdf" && body.filename === "acme-cafe-pdf.pdf" && typeof body.sizeEstimateKb === "number" && body.acuNote === "Premium export consumes ACUs") ok("reporting export returns slugified filename + ACU note");
+  else bad("reporting export", JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("reporting export", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "build", input: {} }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("reporting build rejects missing business (400)");
+  else bad("reporting build validation", res.status + " " + JSON.stringify(body).slice(0, 200));
+} catch (e) { bad("reporting build validation", String(e)); }
+
+console.log("\nLoyalty & Referral Network:");
+try {
+  const r = await fetch(BASE + "/api/loyalty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "tier", points: 2600 }) });
+  const body = await r.json();
+  if (body.tier === "gold" && body.nextTier === "platinum" && typeof body.pointsToNext === "number" && Array.isArray(body.perks)) ok("loyalty tier resolves gold with next platinum");
+  else bad("loyalty tier", JSON.stringify(body));
+} catch (e) { bad("loyalty tier", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/loyalty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "earn", earnAction: "purchase", amountGbp: 42 }) });
+  const body = await r.json();
+  if (body.action === "purchase" && body.points === 420 && typeof body.basis === "string") ok("loyalty earn awards 420 points for £42 purchase");
+  else bad("loyalty earn", JSON.stringify(body));
+} catch (e) { bad("loyalty earn", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/loyalty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "referral", customerId: "cust_9f3a" }) });
+  const body = await r.json();
+  if (typeof body.code === "string" && body.code.startsWith("MW-") && body.consentRequired === true && body.maxTouchesPer7Days === 5) ok("loyalty referral returns stable coded invite with consent cap");
+  else bad("loyalty referral", JSON.stringify(body));
+} catch (e) { bad("loyalty referral", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/loyalty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "kfactor", invitesSent: 8, inviteAcceptRate: 0.35, purchaseRate: 0.45 }) });
+  const body = await r.json();
+  if (typeof body.kFactor === "number" && Array.isArray(body.projectedCycles) && body.projectedCycles.length === 5 && (body.verdict === "viral" || body.verdict === "sub-viral")) ok("loyalty kfactor projects 5 cycles with verdict");
+  else bad("loyalty kfactor", JSON.stringify(body));
+} catch (e) { bad("loyalty kfactor", String(e)); }
+try {
+  const r = await fetch(BASE + "/api/loyalty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "tier" }) });
+  const body = await r.json();
+  if (r.status === 400 && typeof body.error === "string") ok("loyalty tier rejects missing points with 400");
+  else bad("loyalty tier validation", JSON.stringify(body));
+} catch (e) { bad("loyalty tier validation", String(e)); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
