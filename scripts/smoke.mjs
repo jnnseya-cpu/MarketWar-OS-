@@ -1379,6 +1379,141 @@ try {
   else bad("POST /api/content-engine validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/content-engine validation", e.message); }
 
+console.log("\nVideoDominance AI (clip intelligence):");
+const VID_MOMENTS = [
+  { id: "c1", startSec: 12, endSec: 34, transcript: "the secret nobody tells you about grilling", hasFace: true, emotionIntensity: 70 },
+  { id: "c2", startSec: 90, endSec: 108, transcript: "three reasons customers switch, price is £20", hasProduct: true, isNumberedPoint: true },
+  { id: "c3", startSec: 200, endSec: 320, transcript: "long slow intro", hasFace: false },
+];
+try {
+  const res = await fetch(BASE + "/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "genre", title: "Product demo: how our grill works", transcript: "let me demo the features and unbox it" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.genre === "product_demo" && typeof body.confidence === "number") ok(`POST /api/video-intelligence genre (${body.genre} @ ${body.confidence})`);
+  else bad("POST /api/video-intelligence genre", `HTTP ${res.status}, genre ${body.genre}`);
+} catch (e) { bad("POST /api/video-intelligence genre", e.message); }
+try {
+  const res = await fetch(BASE + "/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rank", moments: VID_MOMENTS }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.moments) && body.moments.length === 3 && body.moments[0].momentScore >= body.moments[2].momentScore && Array.isArray(body.moments[0].reasons)) {
+    ok(`POST /api/video-intelligence rank (top ${body.moments[0].id} @ ${body.moments[0].momentScore})`);
+  } else bad("POST /api/video-intelligence rank", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/video-intelligence rank", e.message); }
+try {
+  const res = await fetch(BASE + "/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { clipId: "c2", hookStrength: 78, productVisible: true, ctaPresent: true, buyerIntent: 72, reputationRisk: 8 } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.scores) && body.scores.length === 8 && body.scores.some((s) => s.dimension === "profitability") && typeof body.headline === "string") {
+    ok(`POST /api/video-intelligence score (8 dims, headline ${body.headline})`);
+  } else bad("POST /api/video-intelligence score", `HTTP ${res.status}, dims ${body.scores?.length}`);
+} catch (e) { bad("POST /api/video-intelligence score", e.message); }
+try {
+  const res = await fetch(BASE + "/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "find", query: "find every time the price is mentioned", moments: VID_MOMENTS }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.results) && body.results.length >= 1 && body.results[0].matchReason && typeof body.results[0].startSec === "number") {
+    ok(`POST /api/video-intelligence find (${body.results.length} moment(s), top reason "${body.results[0].matchReason}")`);
+  } else bad("POST /api/video-intelligence find", `HTTP ${res.status}, results ${body.results?.length}`);
+} catch (e) { bad("POST /api/video-intelligence find", e.message); }
+try {
+  const res = await fetch(BASE + "/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rank", moments: [] }) });
+  if (res.status === 400) ok("POST /api/video-intelligence rejects empty moments");
+  else bad("POST /api/video-intelligence validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/video-intelligence validation", e.message); }
+
+console.log("\nCrisis Command API:");
+try {
+  const res = await fetch(BASE + "/api/crisis-command");
+  const body = await res.json();
+  if (Array.isArray(body.warningSignals) && body.warningSignals.length === 13 && Array.isArray(body.severityFactors) && body.severityFactors.length === 10) ok("crisis-command GET doctrine");
+  else bad("crisis-command GET doctrine", `signals=${body.warningSignals && body.warningSignals.length} factors=${body.severityFactors && body.severityFactors.length}`);
+} catch (e) { bad("crisis-command GET doctrine", e.message); }
+try {
+  const res = await fetch(BASE + "/api/crisis-command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "severity", input: { factors: { mention_velocity: 90 }, signals: ["viral_complaints", "product_safety"] } }) });
+  const body = await res.json();
+  if (typeof body.crisisSeverityScore === "number" && Array.isArray(body.factorScores) && body.factorScores.length === 10 && typeof body.levelLabel === "string" && body.estimate === true) ok("crisis-command severity");
+  else bad("crisis-command severity", `score=${body.crisisSeverityScore} factors=${body.factorScores && body.factorScores.length}`);
+} catch (e) { bad("crisis-command severity", e.message); }
+try {
+  const res = await fetch(BASE + "/api/crisis-command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "early-warning", mentions: [{ text: "This is going viral, product is unsafe", sentiment: "negative", authorReach: 100000 }, { text: "time to boycott", sentiment: "negative" }] }) });
+  const body = await res.json();
+  if (Array.isArray(body.alerts) && typeof body.recommendedLevel === "number" && typeof body.negativeEstimate === "number" && body.estimate === true) ok("crisis-command early-warning");
+  else bad("crisis-command early-warning", `alerts=${body.alerts && body.alerts.length} level=${body.recommendedLevel}`);
+} catch (e) { bad("crisis-command early-warning", e.message); }
+try {
+  const res = await fetch(BASE + "/api/crisis-command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "early-warning", mentions: "nope" }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("crisis-command validation 400");
+  else bad("crisis-command validation 400", `status=${res.status}`);
+} catch (e) { bad("crisis-command validation 400", e.message); }
+
+console.log("\nCustomer Voice Intelligence + Product Backlog Bridge:");
+try {
+  const res = await fetch(BASE + "/api/customer-voice", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "analyse", input: { items: [
+      { text: "The app crashed twice and I lost my draft, really frustrating.", type: "support_tickets" },
+      { text: "Too expensive, cancelling because I'm switching to a cheaper competitor.", type: "cancellation_reasons" },
+      { text: "Please add dark mode, that feature is missing.", type: "product_feedback" },
+    ] } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.topPains) && Array.isArray(body.featureRequests) && typeof body.revenueAtRiskGbp === "number" && body.itemsAnalysed === 3) {
+    ok(`POST /api/customer-voice analyse (${body.topPains.length} pains, ${body.featureRequests.length} feature reqs, £${body.revenueAtRiskGbp} at risk ESTIMATE)`);
+  } else bad("POST /api/customer-voice analyse", `HTTP ${res.status}`);
+} catch (e) { bad("POST /api/customer-voice analyse", e.message); }
+try {
+  const res = await fetch(BASE + "/api/customer-voice", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "backlog", input: { theme: "reliability/bugs", mentionVolume: 40, segment: "paying customers", revenueImpactGbp: 8000 } }) });
+  const body = await res.json();
+  if (res.status === 200 && typeof body.problemStatement === "string" && Array.isArray(body.acceptanceCriteria) && body.acceptanceCriteria.length >= 3 && ["P0","P1","P2","P3"].includes(body.priority) && body.mentionVolume === 40) {
+    ok(`POST /api/customer-voice backlog (priority ${body.priority}, ${body.acceptanceCriteria.length} acceptance criteria)`);
+  } else bad("POST /api/customer-voice backlog", `HTTP ${res.status} priority=${body.priority}`);
+} catch (e) { bad("POST /api/customer-voice backlog", e.message); }
+try {
+  const res = await fetch(BASE + "/api/customer-voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "backlog", input: { segment: "smb" } }) });
+  const body = await res.json();
+  if (res.status === 400 && typeof body.error === "string") ok("POST /api/customer-voice backlog validation (400 on missing theme)");
+  else bad("POST /api/customer-voice backlog validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/customer-voice backlog validation", e.message); }
+try {
+  const res = await fetch(BASE + "/api/customer-voice", { method: "GET" });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.inputTypes) && body.inputTypes.length === 12 && body.demo && Array.isArray(body.demo.analysis.topPains)) {
+    ok(`GET /api/customer-voice doctrine (${body.inputTypes.length} input types, demo backlog ${body.demo.backlogItem.priority})`);
+  } else bad("GET /api/customer-voice", `HTTP ${res.status}`);
+} catch (e) { bad("GET /api/customer-voice", e.message); }
+
+console.log("\nCreator Intelligence (§22):");
+try {
+  const res = await fetch(BASE + "/api/creator-intel");
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.discoverySignals) && body.discoverySignals.length === 11 && body.demo && Array.isArray(body.demo.shortlist)) {
+    ok(`GET /api/creator-intel (${body.discoverySignals.length} signals, ${body.demo.shortlist.length} demo creators)`);
+  } else bad("GET /api/creator-intel", `HTTP ${res.status}, signals ${body.discoverySignals?.length}`);
+} catch (e) { bad("GET /api/creator-intel", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creator-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { handle: "@leeds_foodie", followers: 8200, engagementRate: 0.061, topic: "local food", geography: "Leeds, UK", brandSafe: true } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.tier === "micro" && Array.isArray(body.signalScores) && body.signalScores.length === 11 && typeof body.fitScore === "number" && typeof body.priority === "number") {
+    ok(`POST /api/creator-intel score (tier ${body.tier}, priority ${body.priority})`);
+  } else bad("POST /api/creator-intel score", `HTTP ${res.status}, tier ${body.tier}, signals ${body.signalScores?.length}`);
+} catch (e) { bad("POST /api/creator-intel score", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creator-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "shortlist", creators: [{ handle: "@global.lifestyle", followers: 1400000, engagementRate: 0.008 }, { handle: "@budget_mum_uk", followers: 610, engagementRate: 0.092, geography: "Bristol, UK" }] }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.shortlist) && body.shortlist.length === 2 && typeof body.shortlist[0].rationale === "string" && body.shortlist[0].priority >= body.shortlist[1].priority) {
+    ok(`POST /api/creator-intel shortlist (micro-first top ${body.shortlist[0].handle})`);
+  } else bad("POST /api/creator-intel shortlist", `HTTP ${res.status}, len ${body.shortlist?.length}`);
+} catch (e) { bad("POST /api/creator-intel shortlist", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creator-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "brief", input: { handle: "@leeds_foodie", product: "MarketWar OS growth toolkit", budgetGbp: 400 } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.deliverables) && typeof body.mandatoryDisclosure === "string" && typeof body.trackingLink === "string" && Array.isArray(body.milestonePayments) && Array.isArray(body.fraudChecks)) {
+    ok(`POST /api/creator-intel brief (${body.deliverables.length} deliverables, code ${body.promoCode})`);
+  } else bad("POST /api/creator-intel brief", `HTTP ${res.status}, deliverables ${body.deliverables?.length}`);
+} catch (e) { bad("POST /api/creator-intel brief", e.message); }
+try {
+  const res = await fetch(BASE + "/api/creator-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { handle: "@nofollowers" } }) });
+  if (res.status === 400) ok("POST /api/creator-intel rejects missing followers");
+  else bad("POST /api/creator-intel validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/creator-intel validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
