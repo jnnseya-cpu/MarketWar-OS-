@@ -1676,6 +1676,133 @@ try {
   else bad("POST /api/subscription validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/subscription validation", e.message); }
 
+console.log("\nModelGate AI Gateway:");
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "classify", taskType: "analysis", purpose: "health records analysis" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.sensitivity === "restricted" && body.regulated === true && Array.isArray(body.requiredCapabilities)) {
+    ok(`POST /api/modelgate classify (health → ${body.sensitivity})`);
+  } else bad("POST /api/modelgate classify", `HTTP ${res.status}, sensitivity ${body.sensitivity}`);
+} catch (e) { bad("POST /api/modelgate classify", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "route", taskType: "structured_output", mode: "lowest_cost", planId: "growth" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.chosen && body.chosen.id === "ggl-flash" && Array.isArray(body.ranked) && body.ranked.length === 6 && !JSON.stringify(body).includes("PerMTok")) {
+    ok(`POST /api/modelgate route lowest_cost (→ ${body.chosen.displayName}, cost hidden)`);
+  } else bad("POST /api/modelgate route lowest_cost", `HTTP ${res.status}, chosen ${body.chosen?.id}`);
+} catch (e) { bad("POST /api/modelgate route lowest_cost", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "route", taskType: "text_generation", mode: "highest_quality" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.chosen && body.chosen.id === "ant-flagship") {
+    ok(`POST /api/modelgate route highest_quality (→ ${body.chosen.displayName})`);
+  } else bad("POST /api/modelgate route highest_quality", `HTTP ${res.status}, chosen ${body.chosen?.id}`);
+} catch (e) { bad("POST /api/modelgate route highest_quality", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reserve", estProviderCostGbp: 0.037, maxProviderCostGbp: 0.06 }) });
+  const body = await res.json();
+  // 0.037 × 4 × 100 = 14.8 → 15; max 0.06 × 4 × 100 = 24.
+  if (res.status === 200 && body.estimatedAcus === 15 && body.maxReservedAcus === 24) {
+    ok(`POST /api/modelgate reserve (est ${body.estimatedAcus}, max ${body.maxReservedAcus} ACUs)`);
+  } else bad("POST /api/modelgate reserve", `HTTP ${res.status}, est ${body.estimatedAcus}`);
+} catch (e) { bad("POST /api/modelgate reserve", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reconcile", reservedAcus: 24, actualProviderCostGbp: 0.02, success: false }) });
+  const body = await res.json();
+  // Provider failure → charge nothing, release all.
+  if (res.status === 200 && body.charged === false && body.chargedAcus === 0 && body.releasedAcus === 24) {
+    ok("POST /api/modelgate reconcile (provider failure → no charge, all released)");
+  } else bad("POST /api/modelgate reconcile", `HTTP ${res.status}, charged ${body.charged}`);
+} catch (e) { bad("POST /api/modelgate reconcile", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "compare", providerCostsGbp: [0.4, 0.5, 0.2], evaluatorCostGbp: 0.15 }) });
+  const body = await res.json();
+  // £1.25 total × 4 = £5 = 500 ACUs.
+  if (res.status === 200 && body.totalProviderCostGbp === 1.25 && body.customerChargeGbp === 5 && body.acuCharge === 500) {
+    ok(`POST /api/modelgate compare (£1.25 → £${body.customerChargeGbp} = ${body.acuCharge} ACUs)`);
+  } else bad("POST /api/modelgate compare", `HTTP ${res.status}, acus ${body.acuCharge}`);
+} catch (e) { bad("POST /api/modelgate compare", e.message); }
+try {
+  const res = await fetch(BASE + "/api/modelgate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "route" }) });
+  if (res.status === 400) ok("POST /api/modelgate rejects missing taskType");
+  else bad("POST /api/modelgate validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/modelgate validation", e.message); }
+
+console.log("\nStripe webhook (subscription → ACU):");
+try {
+  const res = await fetch(BASE + "/api/webhooks/stripe");
+  const body = await res.json();
+  if (res.status === 200 && body.endpointUrl === "https://marketwaros.com/api/webhooks/stripe" && Array.isArray(body.handledEvents) && body.handledEvents.length >= 5) {
+    ok(`GET /api/webhooks/stripe (endpoint ${body.endpointUrl})`);
+  } else bad("GET /api/webhooks/stripe", `HTTP ${res.status}, url ${body.endpointUrl}`);
+} catch (e) { bad("GET /api/webhooks/stripe", e.message); }
+try {
+  // Demo mode (no STRIPE_WEBHOOK_SECRET) → signature not enforced; growth checkout → 980 ACUs.
+  const res = await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt_smoke_1", type: "checkout.session.completed", data: { object: { metadata: { planId: "growth" } } } }) });
+  const body = await res.json();
+  if (res.status === 200 && body.received === true && body.outcome.action === "allocate_acus" && body.outcome.acusAllocated === 980 && body.outcome.ledgerEntry.idempotencyKey === "evt_smoke_1") {
+    ok(`POST /api/webhooks/stripe checkout (allocate ${body.outcome.acusAllocated} ACUs, idempotent)`);
+  } else bad("POST /api/webhooks/stripe checkout", `HTTP ${res.status}, action ${body.outcome?.action}`);
+} catch (e) { bad("POST /api/webhooks/stripe checkout", e.message); }
+try {
+  const res = await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt_smoke_2", type: "invoice.payment_failed" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.outcome.action === "grace_period") {
+    ok("POST /api/webhooks/stripe payment_failed → grace_period");
+  } else bad("POST /api/webhooks/stripe payment_failed", `HTTP ${res.status}, action ${body.outcome?.action}`);
+} catch (e) { bad("POST /api/webhooks/stripe payment_failed", e.message); }
+try {
+  const res = await fetch(BASE + "/api/webhooks/stripe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ foo: "no id or type" }) });
+  if (res.status === 400) ok("POST /api/webhooks/stripe rejects malformed event");
+  else bad("POST /api/webhooks/stripe validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/webhooks/stripe validation", e.message); }
+
+console.log("\nAdmin Billing:");
+try {
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "change-plan", userId: "u1", fromPlanId: "growth", toPlanId: "scale", immediate: true }) });
+  const body = await res.json();
+  if (res.status === 200 && body.ok === true && body.direction === "upgrade" && body.newMonthlyAcus === 2980) {
+    ok(`POST /api/admin-billing change-plan (growth→scale ${body.direction}, ${body.newMonthlyAcus} ACUs)`);
+  } else bad("POST /api/admin-billing change-plan", `HTTP ${res.status}, dir ${body.direction}`);
+} catch (e) { bad("POST /api/admin-billing change-plan", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "change-plan", userId: "u2", fromPlanId: "business", toPlanId: "growth" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.direction === "downgrade" && Array.isArray(body.downgradeEffects) && body.downgradeEffects.length >= 4) {
+    ok(`POST /api/admin-billing change-plan (downgrade preserves data, ${body.downgradeEffects.length} effects)`);
+  } else bad("POST /api/admin-billing downgrade", `HTTP ${res.status}, dir ${body.direction}`);
+} catch (e) { bad("POST /api/admin-billing downgrade", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "offer", id: "launch", name: "Launch", percentOff: 20, role: "commercial_director", validFrom: "2026-08-01", validTo: "2026-08-07", maxRedemptions: 500 }) });
+  const body = await res.json();
+  if (res.status === 200 && body.ok === true && body.offer.percentOff === 20) {
+    ok("POST /api/admin-billing offer (time-limited, within director authority)");
+  } else bad("POST /api/admin-billing offer", `HTTP ${res.status}, ok ${body.ok}`);
+} catch (e) { bad("POST /api/admin-billing offer", e.message); }
+try {
+  // Discount governance: 25% exceeds sales_rep 5% ceiling → refused.
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "discount-code", code: "toobig", percentOff: 25, role: "sales_rep", expiresAt: "2026-12-31" }) });
+  const body = await res.json();
+  if (res.status === 422 && body.ok === false && /ceiling/i.test(body.error)) {
+    ok("POST /api/admin-billing discount-code (over-authority refused by governance)");
+  } else bad("POST /api/admin-billing discount governance", `HTTP ${res.status}, ok ${body.ok}`);
+} catch (e) { bad("POST /api/admin-billing discount governance", e.message); }
+try {
+  // Waiver: 2 already waived + 2 requested = 4 > 3 cap → denied.
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "waive", userId: "u3", requestedMonths: 2, alreadyWaivedInWindow: 2 }) });
+  const body = await res.json();
+  if (res.status === 200 && body.approved === false && body.cap === 3) {
+    ok(`POST /api/admin-billing waive (denied — would exceed ${body.cap}-in-12 cap)`);
+  } else bad("POST /api/admin-billing waive denied", `HTTP ${res.status}, approved ${body.approved}`);
+} catch (e) { bad("POST /api/admin-billing waive denied", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin-billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "waive", userId: "u4", requestedMonths: 3, alreadyWaivedInWindow: 0 }) });
+  const body = await res.json();
+  if (res.status === 200 && body.approved === true && body.remainingAfter === 0) {
+    ok(`POST /api/admin-billing waive (approved 3 months, ${body.remainingAfter} remaining)`);
+  } else bad("POST /api/admin-billing waive approved", `HTTP ${res.status}, approved ${body.approved}`);
+} catch (e) { bad("POST /api/admin-billing waive approved", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {

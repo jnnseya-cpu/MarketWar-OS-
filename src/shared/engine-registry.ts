@@ -29,7 +29,9 @@ export type EngineEntry = {
 
 export const ENGINE_REGISTRY: EngineEntry[] = [
   // ── Economics & Governance ────────────────────────────────────────────────
-  { id: "subscription", name: "Subscription & Commercial", category: "Economics & Governance", blurb: "8 plans, 20% ACU allocation, 4× markup = 75% gross margin, top-ups, upgrade triggers.", actions: ["quote-acus", "plan", "upgrade", "contribution"] },
+  { id: "modelgate", name: "ModelGate™ AI Gateway", category: "Economics & Governance", blurb: "Provider-neutral routing: model registry, classify, routing score, circuit breaker, ACU reserve/reconcile.", actions: ["classify", "route", "reserve", "reconcile", "compare", "circuit"] },
+  { id: "subscription", name: "Subscription & Commercial", category: "Economics & Governance", blurb: "8 plans, 20% ACU allocation, 4× markup = 75% gross margin, top-ups, upgrade triggers.", actions: ["quote-acus", "plan", "upgrade", "contribution"], dashboard: "/dashboard/billing" },
+  { id: "admin-billing", name: "Admin Billing", category: "Economics & Governance", blurb: "Change a user's plan, time-limited offers, discount codes (governed), 3-in-12 payment waivers.", actions: ["change-plan", "offer", "discount-code", "apply-code", "waive"] },
   { id: "acu", name: "ACU Economics", category: "Economics & Governance", blurb: "Utility-company pricing — 4× markup (300%/75% margin), 2× floor, cost never exposed.", actions: ["quote", "preflight", "profit", "arbitrate"] },
   { id: "admin-economics", name: "Owner Economics", category: "Economics & Governance", blurb: "Gross-margin dashboard, cost-leakage alerts, ACU recycling, export charges.", actions: ["dashboard", "recycling"] },
   { id: "profit-guard", name: "ProfitGuard", category: "Economics & Governance", blurb: "9-check pre-scale gate — never scales a low-margin or out-of-stock product.", actions: ["check"] },

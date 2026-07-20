@@ -42,6 +42,63 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── ModelGate / commercial core (production architecture §20, §22, §35) ──
+    // The client may READ authorised business data but must NEVER directly
+    // modify balances, costs, subscriptions, model pricing, margins, security
+    // or audit history — those writes occur only through trusted Admin SDK
+    // operations (rule #17: block direct balance manipulation).
+    function isOrgMember(orgId) {
+      return request.auth != null && request.auth.token.organisationId == orgId;
+    }
+
+    // ACU ledger + wallets: organisation members read; writes are server-only.
+    match /acuWallets/{walletId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false;
+    }
+    match /acuTransactions/{txId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false; // append-only ledger, Admin SDK only
+    }
+    match /acuReservations/{resId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false;
+    }
+    // AI jobs + generated assets: org members read their own; writes server-only.
+    match /aiJobs/{jobId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false;
+    }
+    match /generatedAssets/{assetId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false;
+    }
+    // Subscriptions + billing events: read own org; writes only via Stripe
+    // webhook / Admin SDK (never the client).
+    match /subscriptions/{subId} {
+      allow read: if isOrgMember(resource.data.organisationId);
+      allow write: if false;
+    }
+    match /billingEvents/{evId} {
+      allow read, write: if false; // server-only
+    }
+    // Model registry + provider health/pricing: public-readable catalogue
+    // (no secrets, no prices client-side), admin-written only.
+    match /providerModels/{modelId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /providerHealth/{providerId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    // Margins, provider costs, security + audit: never client-accessible.
+    match /marginRecords/{doc} { allow read, write: if false; }
+    match /providerUsage/{doc} { allow read, write: if false; }
+    match /providerCosts/{doc} { allow read, write: if false; }
+    match /securityEvents/{doc} { allow read, write: if false; }
+    match /auditLogs/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;
