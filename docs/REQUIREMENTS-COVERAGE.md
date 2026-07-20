@@ -1013,3 +1013,11 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | Honest — projection labelled, child-safety visible | platform rule | ✅ | footer disclaimer; high-risk brands show all moves as "approve" (e.g. kids-toy brand L1-capped) |
 | Scheduled nightly | same | ✅ | `docs/AUTOPILOT.md` cron → `POST /api/autopilot/nightly { brands, to }`; "Email me a test digest" button on the Autopilot page |
 | Verified | same | ✅ | smoke 313/0 (+ digest for 2 brands, recipient-required 400); email rendered to image |
+
+## 27. Landing: real 8-tier pricing + colourful dashboard showcase (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Pricing reflects the real model** (was showing 3 old tiers → looked like "only 2 kinds") | Owner directive 2026-07-20 | ✅ | `src/app/page.tsx` PLANS → the real 8 tiers (Free→Global) + "platform access + AI consumption are separate" (ACU) note; 4-col responsive grid |
+| **Many colourful dashboards, visuals & graphs on the landing** ("people like visuals") | Owner directive 2026-07-20 | ✅ | `src/components/LandingVisuals.tsx` — colourful KPI strip + product-"screen" gallery: revenue/spend area chart, orders-by-channel donut, campaign-verdict badges, ROAS bars, conversion funnel, Autopilot digest, demand sparkline (real chart kit + palette) |
+| Verified | same | ✅ | typecheck + check:layers + build + smoke; screenshots of the visual + pricing sections |

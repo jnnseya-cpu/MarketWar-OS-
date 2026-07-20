@@ -24,6 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import HeroMockup from "@/components/HeroMockup";
+import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
@@ -103,49 +104,18 @@ const TESTIMONIALS = [
   },
 ];
 
+// The real 8-tier model (src/backend/subscription.ts). Platform access is the
+// subscription; AI actions draw from a monthly ACU allowance (top up anytime) —
+// the two are separate so you only pay for what you use.
 const PLANS = [
-  {
-    name: "Recon",
-    price: "Free",
-    period: "",
-    desc: "Diagnose why marketing failed before you spend another pound.",
-    features: ["Marketing Failure Audit", "Funnel leak map", "Recommended first campaign", "Demo intelligence mode"],
-    cta: "Run the free audit",
-    href: "/onboarding",
-    featured: false,
-  },
-  {
-    name: "Commander",
-    price: "£49",
-    period: "/mo",
-    desc: "The full acquisition machine for a single business.",
-    features: [
-      "All 12 AI agents, live intelligence",
-      "Campaign War Room + Budget Protection",
-      "WhatsApp Sales Center & follow-up engine",
-      "Customer Vault + Lead Recovery",
-      "Landing pages, content factory, local SEO",
-    ],
-    cta: "Start 14-day trial",
-    href: "/onboarding",
-    featured: true,
-  },
-  {
-    name: "War Council",
-    price: "£199",
-    period: "/mo",
-    desc: "Agencies and multi-location operators.",
-    features: [
-      "Unlimited businesses / clients",
-      "White-label reports",
-      "Multi-location intelligence",
-      "Priority AI throughput",
-      "API access",
-    ],
-    cta: "Talk to us",
-    href: "/onboarding",
-    featured: false,
-  },
+  { name: "Free", price: "£0", period: "", desc: "Diagnose + try the whole OS.", features: ["1 brand · 1 user", "Marketing Failure Audit", "Demo intelligence mode"], cta: "Start free", href: "/onboarding", featured: false },
+  { name: "Starter", price: "£19", period: "/mo", desc: "Your first real campaigns.", features: ["1 brand · 2 users", "5 campaigns", "Live AI + owned channels"], cta: "Start", href: "/onboarding", featured: false },
+  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users", "20 campaigns", "All agents + Revenue Autopilot"], cta: "Start 14-day trial", href: "/onboarding", featured: true },
+  { name: "Scale", price: "£149", period: "/mo", desc: "Multi-brand operators.", features: ["10 brands · 15 users", "100 campaigns", "Priority AI throughput"], cta: "Choose Scale", href: "/onboarding", featured: false },
+  { name: "Business", price: "£399", period: "/mo", desc: "Agencies + franchises.", features: ["30 brands · 40 users", "500 campaigns", "White-label reports"], cta: "Choose Business", href: "/onboarding", featured: false },
+  { name: "Enterprise", price: "£999", period: "/mo", desc: "Large multi-location.", features: ["100 brands · 100 users", "Unlimited campaigns", "API access + SSO"], cta: "Talk to us", href: "/contact", featured: false },
+  { name: "Corporate", price: "£2,499", period: "/mo", desc: "Networks + resellers.", features: ["300 brands · 300 users", "Unlimited campaigns", "Dedicated throughput"], cta: "Talk to us", href: "/contact", featured: false },
+  { name: "Global", price: "£7,499", period: "/mo", desc: "Custom at any scale.", features: ["Custom brands + users", "Unlimited campaigns", "Custom AI + SLAs"], cta: "Talk to us", href: "/contact", featured: false },
 ];
 
 const FAQS = [
@@ -284,6 +254,9 @@ export default function LandingPage() {
           <div className="pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-ink-950 to-transparent" />
         </div>
       </section>
+
+      {/* ==================== VISUAL SHOWCASE (dashboards) ================ */}
+      <LandingVisuals />
 
       {/* ========================= SIX PILLARS =========================== */}
       <section id="platform" className="relative mx-auto max-w-6xl px-5 py-24">
@@ -533,14 +506,14 @@ export default function LandingPage() {
           <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
             Cheaper than one wasted boost
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-center text-lg text-slate-400">
-            Most owners waste more than a year of MarketWar OS on a single bad campaign.
+          <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
+            Eight tiers from free to global — start where you are, scale when it pays. <span className="text-slate-200">Platform access + AI consumption are separate:</span> every plan includes a monthly ACU allowance for AI actions, and you top up only what you use.
           </p>
-          <div className="mt-14 grid gap-5 lg:grid-cols-3">
+          <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {PLANS.map((p) => (
               <div
                 key={p.name}
-                className={`relative flex flex-col rounded-2xl p-7 ${
+                className={`relative flex flex-col rounded-2xl p-6 ${
                   p.featured
                     ? "gradient-border bg-ink-900 shadow-[0_30px_80px_-20px_rgba(16,185,129,0.3)]"
                     : "border border-white/10 bg-ink-900/70"
