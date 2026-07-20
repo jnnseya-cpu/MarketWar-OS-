@@ -37,6 +37,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const copy = COPY[mode];
 
   async function submit(e: React.FormEvent) {
@@ -45,7 +46,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setBusy(true);
     setError(null);
     try {
-      const { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } = await import(
+      const { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification } = await import(
         "firebase/auth"
       );
       if (mode === "login") {
@@ -53,6 +54,13 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       } else {
         const cred = await createUserWithEmailAndPassword(firebaseAuth, email, password);
         if (name) await updateProfile(cred.user, { displayName: name });
+        // Send the branded email-verification link on sign-up. The action URL
+        // returns to the app so the user lands back in MarketWar OS after
+        // verifying; the email template + sender name are set in the Firebase
+        // console (Authentication → Templates) — see docs/DEPLOYMENT.md.
+        try {
+          await sendEmailVerification(cred.user, { url: `${window.location.origin}/dashboard` });
+        } catch { /* non-fatal — verification can be re-sent from Settings */ }
       }
       router.push("/dashboard");
     } catch (err) {
@@ -62,10 +70,27 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     }
   }
 
+  async function forgotPassword() {
+    setError(null); setNotice(null);
+    if (!firebaseAuth) return;
+    if (!email) { setError("Enter your email above first, then tap Forgot password."); return; }
+    setBusy(true);
+    try {
+      const { sendPasswordResetEmail } = await import("firebase/auth");
+      await sendPasswordResetEmail(firebaseAuth, email, { url: `${window.location.origin}/login` });
+      setNotice(`Password-reset email sent to ${email}. Check your inbox.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Could not send reset email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function google() {
     if (!firebaseAuth) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
       await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
@@ -145,9 +170,22 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                   </span>
                 </label>
 
+                {mode === "login" && (
+                  <div className="flex justify-end">
+                    <button type="button" onClick={forgotPassword} disabled={busy} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 disabled:opacity-60">
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+
                 {error && (
                   <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                     {error}
+                  </p>
+                )}
+                {notice && (
+                  <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+                    {notice}
                   </p>
                 )}
 

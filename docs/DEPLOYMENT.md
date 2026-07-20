@@ -36,6 +36,28 @@ Time to first production deploy: ~45 minutes. Do the steps in order.
    `client_email`, `private_key`. **Never commit this file.**
 9. Recommended: **App Check → Register** the web app with reCAPTCHA
    Enterprise once the domain is live (Step 4).
+10. Deploy the Realtime Database rules too (RTDB is intentionally unused —
+    locked deny-all): `firebase deploy --only database`.
+
+### 1a — Brand the Auth emails (Authentication → Templates)
+
+Firebase's default verification/reset emails are unbranded. Set:
+
+- **Public-facing name** (Project settings → General): `MarketWar OS` — this is
+  what `%APP_NAME%` resolves to in every template.
+- **Sender name**: `MarketWar OS` (currently "not provided").
+- **Custom action domain**: `auth.marketwaros.com` (Authentication → Templates →
+  the pencil/customise → *Customise domain*), so verification/reset links use the
+  brand domain instead of `studio-…firebaseapp.com`. Add the DNS record Firebase
+  supplies at Hostinger (Step 4).
+- **From address**: keep `noreply@…` or, once email DNS is set, `noreply@marketwaros.com`.
+
+Recommended copy (verification): subject `Verify your email for MarketWar OS`;
+body signed `The MarketWar OS team`. Password reset: subject `Reset your
+password for MarketWar OS`. The app already **sends** the verification email on
+sign-up (`src/components/AuthForm.tsx` → `sendEmailVerification`) and offers
+**Forgot password?** (`sendPasswordResetEmail`) on the login form — both use the
+console template above, so branding is a one-time console change.
 
 ## Step 2 — Vercel project (frontend)
 
