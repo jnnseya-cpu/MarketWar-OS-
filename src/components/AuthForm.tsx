@@ -8,8 +8,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2, Lock, Mail, Shield, User } from "lucide-react";
-import { firebaseAuth, firebaseConfigured } from "@/frontend/firebase-client";
+import { Loader2, Lock, Mail, Shield, User } from "lucide-react";
+import { firebaseAuth } from "@/frontend/firebase-client";
 
 type Mode = "login" | "signup";
 
@@ -124,11 +124,6 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               : "23 AI agents, one operating system — live in minutes."}
           </p>
 
-          {!firebaseConfigured && (
-            <p className="mb-4 rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-xs text-sky-200">
-              <strong className="text-white">Demo mode.</strong> This is the real sign-up form — accounts activate the moment Firebase Auth is connected. For now, submit to continue into the demo command centre.
-            </p>
-          )}
               <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
                   <label className="block">
