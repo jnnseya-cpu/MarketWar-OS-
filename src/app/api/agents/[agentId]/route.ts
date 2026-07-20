@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { AGENTS } from "@/shared/agents";
 import { runAgent } from "@/backend/provider";
 import { logAgentRun } from "@/backend/db";
+import { rateLimit, clientKey } from "@/backend/guard";
+
+// Denial-of-wallet defence: every AI call can spend real provider budget once
+// keys are live, so cap requests per caller. 240/min is generous for genuine
+// use (and for the smoke suite's ~39 sequential calls) but stops a runaway.
+const AGENT_RATE_LIMIT = 240;
+const AGENT_WINDOW_MS = 60_000;
 
 export async function POST(
   req: NextRequest,
@@ -10,6 +17,14 @@ export async function POST(
   const { agentId } = params;
   if (!AGENTS[agentId]) {
     return NextResponse.json({ error: `Unknown agent: ${agentId}` }, { status: 404 });
+  }
+
+  const rl = rateLimit(clientKey(req, "agents"), AGENT_RATE_LIMIT, AGENT_WINDOW_MS, Date.now());
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded — slow down." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+    );
   }
 
   let input: Record<string, string> = {};

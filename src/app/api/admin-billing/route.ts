@@ -4,6 +4,7 @@ import {
   isOfferValid, waivePayment, demoAdminBilling,
   DISCOUNT_AUTHORITY, WAIVER_CAP_MONTHS, type Role, type DiscountCode,
 } from "@/backend/admin-billing";
+import { requireAuth } from "@/backend/guard";
 
 // Admin Billing API (owner/admin only). Change a user's plan, create
 // time-limited offers + discount codes (with discount-authority governance),
@@ -16,6 +17,10 @@ import {
 // GET  → discount authority, waiver cap, demo
 
 export async function POST(req: NextRequest) {
+  // Admin/financial surface — enforced when Firebase Admin is configured
+  // (production); open in zero-config demo so the module stays demonstrable.
+  const auth = await requireAuth(req, { scope: "admin_billing" });
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "";
