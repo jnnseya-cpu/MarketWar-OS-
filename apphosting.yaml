@@ -1,0 +1,65 @@
+# Firebase App Hosting — MarketWar OS (Next.js 14, App Router).
+#
+# IMPORTANT: this app lives at the REPOSITORY ROOT (package.json, src/app,
+# next.config are all here). In the App Hosting backend settings → Deployment
+# tab, set the "Root directory" to "/" (or the repo root) — NOT "app/web".
+# The "No buildable app found rooted at /workspace/app/web" error means the
+# root directory is mis-pointed at a folder that does not exist.
+#
+# Build/run: App Hosting auto-detects Next.js from package.json ("next build").
+
+runConfig:
+  minInstances: 0
+  maxInstances: 100
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+# Public (non-secret) build + runtime environment. The web Firebase API key and
+# all real secrets (Firebase private key, Stripe secret + webhook secret, AI
+# provider keys) are NOT committed — add them in Secret Manager and reference
+# them here with `secret:` (see docs/DEPLOYMENT.md). Without them the app builds
+# and runs in zero-config demo mode.
+env:
+  - variable: NEXT_PUBLIC_APP_URL
+    value: https://marketwaros.com
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_PRODUCTION_URL
+    value: https://marketwaros.com
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: studio-1718252475-c6017
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: studio-1718252475-c6017.firebaseapp.com
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: studio-1718252475-c6017.firebasestorage.app
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "221113093533"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:221113093533:web:26a80dc041406d66dc3374"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
+    value: https://studio-1718252475-c6017-default-rtdb.europe-west1.firebasedatabase.app
+    availability: [BUILD, RUNTIME]
+  # Web Firebase API key (public identifier, but kept out of git). Add it as a
+  # Secret-Manager secret named "firebase-web-api-key" then uncomment:
+  # - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+  #   secret: firebase-web-api-key
+  #   availability: [BUILD, RUNTIME]
+  # Server secrets (RUNTIME only) — create in Secret Manager, then uncomment:
+  # - variable: FIREBASE_CLIENT_EMAIL
+  #   value: firebase-adminsdk-fbsvc@studio-1718252475-c6017.iam.gserviceaccount.com
+  #   availability: [RUNTIME]
+  # - variable: FIREBASE_PRIVATE_KEY
+  #   secret: firebase-private-key
+  #   availability: [RUNTIME]
+  # - variable: STRIPE_SECRET_KEY
+  #   secret: stripe-secret-key
+  #   availability: [RUNTIME]
+  # - variable: STRIPE_WEBHOOK_SECRET
+  #   secret: stripe-webhook-secret
+  #   availability: [RUNTIME]

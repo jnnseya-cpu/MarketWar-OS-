@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Mail, MessageCircle, Building2 } from "lucide-react";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 
-const SUPPORT_EMAIL = "hello@marketwaros.com";
+const SUPPORT_EMAIL = "info@marketwaros.com";
 
 export default function ContactPage() {
   const [name, setName] = useState("");

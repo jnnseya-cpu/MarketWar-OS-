@@ -153,3 +153,24 @@ console template above, so branding is a one-time console change.
 | Heavy AI jobs & bulk work | Cloud Run | same AI Gateway contract |
 | Push notifications | FCM | |
 | Multi-env CI/CD | GitHub Actions → Vercel + `firebase deploy` | dev/test/staging/prod projects |
+
+---
+
+## Alternative: Firebase App Hosting (Firebase Studio)
+
+If you deploy the frontend via **Firebase App Hosting** instead of Vercel:
+
+1. **Root directory must be `/`.** This Next.js app lives at the repository
+   root (`package.json`, `src/app`, `next.config` are all here) — there is **no
+   `app/web` folder**. If the deploy fails with *"No buildable app found rooted
+   at `/workspace/app/web`"*, go to the App Hosting **backend → Deployment tab →
+   Root directory** and set it to `/`.
+2. `apphosting.yaml` (repo root) supplies `runConfig` + the public
+   `NEXT_PUBLIC_*` env. Add real secrets (Firebase private key, Stripe secret +
+   webhook secret, AI provider keys, and the web API key) in **Secret Manager**
+   and reference them in `apphosting.yaml` with `secret:` — never commit them.
+3. App Hosting auto-detects Next.js and runs `next build`. With no secrets set,
+   it still builds and serves in zero-config demo mode.
+
+The domain (`marketwaros.com`) and the Stripe webhook
+(`https://marketwaros.com/api/webhooks/stripe`) are the same regardless of host.
