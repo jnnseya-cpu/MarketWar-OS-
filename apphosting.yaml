@@ -89,3 +89,26 @@ env:
   - variable: SMTP_PASS
     secret: smtp-pass
     availability: [RUNTIME]
+
+  # ── AI providers — flips the WHOLE platform to Live intelligence ────────
+  # Every agent + AI-generative engine routes through the gateway (Claude →
+  # OpenAI → Gemini failover). Without these keys the OS still runs, returning
+  # deterministic output labelled "Demo intelligence"; WITH them the same calls
+  # go to the real models and are labelled "Live intelligence". These are the
+  # keys that make real testing real. Create them ONCE before deploying:
+  #   firebase apphosting:secrets:set anthropic-api-key
+  #   firebase apphosting:secrets:set openai-api-key     # optional failover
+  #   firebase apphosting:secrets:set gemini-api-key     # optional failover
+  - variable: AI_GATEWAY_ORDER
+    value: anthropic,openai,gemini
+    availability: [RUNTIME]
+  - variable: ANTHROPIC_API_KEY
+    secret: anthropic-api-key
+    availability: [RUNTIME]
+  # Optional failover providers — uncomment once their secrets exist:
+  # - variable: OPENAI_API_KEY
+  #   secret: openai-api-key
+  #   availability: [RUNTIME]
+  # - variable: GEMINI_API_KEY
+  #   secret: gemini-api-key
+  #   availability: [RUNTIME]

@@ -6,8 +6,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Loader2, Wand2, ArrowRight, Gauge, Sparkles } from "lucide-react";
-import { PageHeader, Pill } from "@/components/ui";
+import { Loader2, Wand2, ArrowRight, Gauge, Sparkles, Hammer } from "lucide-react";
+import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
+import type { AgentResult } from "@/shared/types";
 
 type Decision = {
   best: { id: string; label: string; route: string; agentId?: string; api?: string; acuClass: string; acuEstimate: number; essentialQuestions: string[]; confidence: number };
@@ -28,12 +29,18 @@ export default function CreatePage() {
   const [prompt, setPrompt] = useState("");
   const [decision, setDecision] = useState<Decision | null>(null);
   const [busy, setBusy] = useState(false);
+  // Inline execution — the box doesn't just route, it BUILDS.
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [building, setBuilding] = useState(false);
+  const [built, setBuilt] = useState<AgentResult | null>(null);
+  const [buildError, setBuildError] = useState<string | null>(null);
 
   async function run(p?: string) {
     const q = (p ?? prompt).trim();
     if (!q) return;
     if (p) setPrompt(p);
     setBusy(true);
+    setDecision(null); setBuilt(null); setBuildError(null); setAnswers({});
     try {
       const res = await fetch("/api/intent", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -42,6 +49,28 @@ export default function CreatePage() {
       setDecision(await res.json());
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Build it now — executes the routed OWNED agent for real (live with keys,
+  // deterministic without). Reuses the real /api/agents/{id} gateway path.
+  async function build() {
+    if (!decision?.best.agentId) return;
+    setBuilding(true); setBuildError(null); setBuilt(null);
+    try {
+      const payload: Record<string, string> = { request: prompt };
+      decision.best.essentialQuestions.forEach((q, i) => { if (answers[`q${i}`]?.trim()) payload[q] = answers[`q${i}`]; });
+      const res = await fetch(`/api/agents/${decision.best.agentId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Build failed (${res.status})`);
+      setBuilt(data as AgentResult);
+    } catch (err) {
+      setBuildError(err instanceof Error ? err.message : "Build failed");
+    } finally {
+      setBuilding(false);
     }
   }
 
@@ -94,20 +123,58 @@ export default function CreatePage() {
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-sm text-amber-200">
                   <Gauge className="h-4 w-4" /> ~{decision.best.acuEstimate} ACUs
                 </span>
-                <Link href={decision.best.route} className="btn-primary">
+                <Link href={decision.best.route} className="btn-ghost">
                   Open engine <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
             </div>
 
+            {/* Answer only the essentials, then build inline */}
             <div className="mt-4">
-              <p className="label">The OS will only ask you</p>
-              <ol className="space-y-1 text-sm text-slate-300">
-                {decision.best.essentialQuestions.map((q, i) => <li key={i}>{i + 1}. {q}</li>)}
-              </ol>
+              <p className="label">Answer only the essentials{decision.best.agentId ? "" : " (then open the engine to run)"}</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {decision.best.essentialQuestions.map((q, i) => (
+                  <input
+                    key={i}
+                    className="input"
+                    placeholder={q}
+                    value={answers[`q${i}`] ?? ""}
+                    onChange={(e) => setAnswers((a) => ({ ...a, [`q${i}`]: e.target.value }))}
+                  />
+                ))}
+              </div>
             </div>
-            <p className="mt-3 text-xs text-slate-500">This task will consume ~{decision.best.acuEstimate} ACUs. You approve before it runs — no surprise spending.</p>
+
+            {decision.best.agentId ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button className="btn-primary" onClick={build} disabled={building}>
+                  {building ? <><Loader2 className="h-4 w-4 animate-spin" /> Building…</> : <><Hammer className="h-4 w-4" /> Build it now</>}
+                </button>
+                <span className="text-xs text-slate-500">Runs the owned engine · ~{decision.best.acuEstimate} ACUs · you approve before it runs.</span>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">This goal opens a guided engine. Estimated ~{decision.best.acuEstimate} ACUs — you approve before it runs.</p>
+            )}
+            {buildError && <p className="mt-3 text-sm text-rose-400">{buildError}</p>}
           </div>
+
+          {(building || built) && (
+            <div className="card p-6">
+              {built ? (
+                <div>
+                  <div className="mb-4 flex items-center justify-between border-b border-ink-700 pb-3">
+                    <p className="font-display text-sm font-bold text-white">{built.agentName}</p>
+                    <Pill tone={built.mode === "live" ? "good" : "info"}>{built.mode === "live" ? "Live intelligence" : "Demo intelligence"}</Pill>
+                  </div>
+                  <AgentMarkdown text={built.output} />
+                </div>
+              ) : (
+                <div className="flex min-h-[160px] items-center justify-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> The OS is building your {decision.best.label.toLowerCase()}…
+                </div>
+              )}
+            </div>
+          )}
 
           {decision.alternatives.length > 0 && (
             <div className="card p-5">
