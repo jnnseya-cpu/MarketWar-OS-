@@ -3,7 +3,8 @@ import {
   allPlanEconomics, planEconomics, requiredAcus, markupToMargin, topUps,
   upgradeRecommendation, netContribution, demoSubscription,
   PLANS, EXPIRY_RULES, ADDONS, WALLET_MODELS, ORG_HIERARCHY,
-  STANDARD_MARKUP, type Usage,
+  STANDARD_MARKUP, ENTERPRISE_FEES, COMMERCIAL_PROTECTION,
+  PROVIDER_COST_ADJUSTMENT_CLAUSE, DISCOUNT_EXCLUSIONS, PRICING_MESSAGE, type Usage,
 } from "@/backend/subscription";
 
 // Subscription, ACU & Commercial Profitability API.
@@ -58,6 +59,11 @@ export async function GET() {
     walletModels: WALLET_MODELS,
     expiryRules: EXPIRY_RULES,
     addOns: ADDONS,
+    enterpriseFees: ENTERPRISE_FEES,
+    commercialProtection: COMMERCIAL_PROTECTION,
+    providerCostAdjustmentClause: PROVIDER_COST_ADJUSTMENT_CLAUSE,
+    discountExclusions: DISCOUNT_EXCLUSIONS,
+    pricingMessage: PRICING_MESSAGE,
     topUps: topUps(),
     plans: allPlanEconomics(),
     demo: demoSubscription(),

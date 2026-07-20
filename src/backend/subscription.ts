@@ -176,6 +176,49 @@ export const WALLET_MODELS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
+// Enterprise commercial fees (§19) — large customers don't get implementation
+// for free. Complexity is paid for separately from subscription + ACUs.
+// ---------------------------------------------------------------------------
+export const ENTERPRISE_FEES = {
+  onboarding: { enterprise: "from £2,500", corporate: "from £10,000", global: "£25,000–£250,000+" },
+  customIntegrationGbpFrom: 1500, // per integration
+  dataMigration: "quoted by volume + complexity",
+  training: { remoteTeam: "from £750", department: "from £2,500", enterpriseProgramme: "custom", onSite: "expenses + professional fees" },
+  premiumSupport: { enhancedPctOfAcv: 10, critical247PctOfAcv: "15–20", embeddedSpecialist: "separately contracted" },
+} as const;
+
+// Commercial protection (§20) — every subscription must include these.
+export const COMMERCIAL_PROTECTION = [
+  "Automatic renewal", "Payment-method validation", "Failed-payment retries", "Grace period",
+  "Service restriction after non-payment", "ACU hard stop", "Spend limits", "Fraud monitoring",
+  "Account-sharing controls", "Fair-use policy", "Storage limits", "Export limits",
+  "Provider-cost adjustment clause", "Currency adjustment clause", "Tax treatment", "Refund policy", "Data-retention policy",
+] as const;
+
+// Provider-cost adjustment clause (§20): the customer's PURCHASED ACU quantity
+// never changes, but future actions may require different ACU amounts as provider
+// costs move — which is exactly how the 4× recovery is preserved.
+export const PROVIDER_COST_ADJUSTMENT_CLAUSE =
+  "MarketWar may adjust ACU consumption RATES when external provider costs change. Your purchased ACU quantity is unchanged; future actions may require different ACU amounts based on current provider costs — preserving the 4× provider-cost recovery.";
+
+// Discounts (§18) never apply to these — the 4× recovery must stay protected.
+export const DISCOUNT_EXCLUSIONS = [
+  "ACU top-ups", "Provider pass-through fees", "Implementation", "Custom development",
+  "Premium data", "Dedicated infrastructure", "Creator payments", "Advertising spend", "Third-party licences",
+] as const;
+
+// Customer-facing pricing message (§21).
+export const PRICING_MESSAGE = {
+  headline: "One Marketing OS. Every Brand. Every Campaign. One Predictable Bill.",
+  supporting:
+    "Stop paying separately for disconnected content, video, social, campaign, analytics and AI tools. MarketWar gives your organisation one account to manage all brands, users, channels and campaigns. Every paid plan includes platform access and an automatic AI credit allowance — add ACUs when you need more AI power, without changing your subscription.",
+  promises: [
+    "Start free", "Upgrade as you grow", "Manage several brands under one account", "Pay only for the AI you use",
+    "Keep complete control of budgets", "See where every ACU is spent", "Connect marketing activity to revenue", "Save 30% with annual billing",
+  ],
+} as const;
+
+// ---------------------------------------------------------------------------
 // Upgrade triggers — recommend an upgrade at structural limits.
 // ---------------------------------------------------------------------------
 export type Usage = {
@@ -219,5 +262,10 @@ export function demoSubscription() {
     walletModels: WALLET_MODELS,
     upgradeExample: upgradeRecommendation({ planId: "growth", topUpSpendGbp: 30, monthsToppingUp: 3, usersUsed: 5 }),
     marginExample: netContribution({ acuRevenueGbp: 4, providerCostGbp: 1, processingCostGbp: 0.1, paymentCostGbp: 0.1 }),
+    enterpriseFees: ENTERPRISE_FEES,
+    commercialProtection: COMMERCIAL_PROTECTION,
+    providerCostAdjustmentClause: PROVIDER_COST_ADJUSTMENT_CLAUSE,
+    discountExclusions: DISCOUNT_EXCLUSIONS,
+    pricingMessage: PRICING_MESSAGE,
   };
 }

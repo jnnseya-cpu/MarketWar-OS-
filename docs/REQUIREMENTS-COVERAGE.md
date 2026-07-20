@@ -1031,3 +1031,17 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **8-tier model with exact ACU economics** (monthly ACUs, annual 30% off on amount paid, monthly release, default + flexible top-ups, expiry/rollover, wallets, add-ons, premium modules) | Owner spec §1–13 | ✅ verified | `subscription.ts` — computed table matches spec exactly (380/980/2,980/7,980/19,980/49,980/149,980; release 266/686/2,086/5,586/13,986/34,986/104,986; top-ups £3.80…£1,499.80) |
 | **Verbatim source captured (immutable record)** | repo law | ✅ | `docs/reference/commercial-model-subscription-acu.md` (§1–13 + partial §14; §14+ pending owner supply) |
 | §14+ "Customer Value by Segment" and beyond | Owner spec (truncated) | ⏳ awaiting full paste | pending |
+
+## 29. Commercial model §14–22 — complete source + enterprise fees/protection (2026-07-20)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Full model §14–22** captured verbatim (immutable) | Owner spec 2026-07-20 (remainder) | ✅ | `docs/reference/commercial-model-subscription-acu.md` now complete §1–22 |
+| §15 Upgrade triggers (top-ups >50%/3mo, seat/brand/social/storage/campaign limits + what the recommendation shows) | §15 | ✅ | `subscription.ts` `upgradeRecommendation` |
+| §16 Downgrade protection (assets kept, excess read-only, top-up ACUs valid…) | §16 | ✅ | `admin-billing.ts` `changeUserPlan` (downgrade effects) |
+| §17 ProfitGuard (Net AI Contribution; green≥75/amber65–75/red<65/blocked) | §17 | ✅ | `subscription.ts` `netContribution`+`marginBand`; `acu.ts` |
+| §18 Discount governance (authority ≤5/10/20/exec/30; exclusions; never below 4×) | §18 | ✅ | `admin-billing.ts` `DISCOUNT_AUTHORITY`; `subscription.ts` `DISCOUNT_EXCLUSIONS` |
+| §19 **Enterprise commercial fees** (onboarding/integration/migration/training/support) | §19 | ✅ new | `subscription.ts` `ENTERPRISE_FEES` → `/api/subscription` |
+| §20 Commercial protection + provider-cost-adjustment clause | §20 | ✅ new | `subscription.ts` `COMMERCIAL_PROTECTION` (17), `PROVIDER_COST_ADJUSTMENT_CLAUSE` |
+| §21 Customer-facing pricing message | §21 | ✅ new | `subscription.ts` `PRICING_MESSAGE` |
+| §22 Recommended 8-tier decision | §22 | ✅ | `subscription.ts` PLANS (verified exact) |

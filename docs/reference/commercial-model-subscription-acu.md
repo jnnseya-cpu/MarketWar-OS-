@@ -2,8 +2,7 @@
 
 > **Immutable source record** (repo law: verbatim imports in `docs/reference/`
 > are not edited except credential redaction — none present here). Provided by
-> the owner 2026-07-20. Truncated by the source at §14 ("Customer Value by
-> Segment"); later sections to be appended when supplied.
+> the owner 2026-07-20. Complete (§1–22).
 >
 > **Terminology correction (owner, authoritative):** charging £4 for every £1 of
 > provider cost is a **300% markup**, producing a **75% gross margin** before
@@ -144,4 +143,95 @@ Connection (Enterprise+, setup + monthly management); Dedicated AI Model
 
 ## 14. Customer Value by Segment
 
-*(source truncated here — to be appended when supplied.)*
+- **Freelancer/microbusiness** (from £19): brand workspace, campaign creation, social content, scheduling, AI generation, basic analytics.
+- **Small business** (from £49): one OS for several brands, team collaboration, content generation, video repurposing, social publishing, campaign analytics, website + product marketing.
+- **Growing agency** (from £149): multiple client brands, client approvals, bulk content, white-label reports, campaign automation, profitability tracking, centralised billing.
+- **Large business** (from £399): multi-brand governance, department budgets, approval workflows, advanced attribution, campaign automation, revenue optimisation.
+- **Enterprise** (from £999): central governance, advanced permissions, business units, security controls, API access, audit logs, dedicated support, central ACU management.
+- **Global organisation** (from £7,499): global control with local execution, centralised procurement, one contract, one bill, regional brands + teams, data + security controls, custom infrastructure, executive governance.
+
+## 15. Upgrade Triggers
+
+Recommend an upgrade when a customer repeatedly reaches structural limits. Signals:
+ACU top-ups exceed 50% of subscription price for three months; user-seat limit
+reached; brand limit reached; social-connection limit reached; storage >80%;
+campaign limit reached; API limits repeatedly reached; needs advanced approval;
+needs white labelling; needs centralised business units; needs enterprise
+security. The recommendation must show: current monthly spend, current add-on
+spend, proposed plan, additional capabilities, expected monthly saving,
+additional included ACUs, operational benefits.
+
+## 16. Downgrade Protection
+
+On downgrade: existing assets remain accessible; excess brands become read-only;
+excess users lose editing access; active automations paused; premium
+integrations disconnected after notice; purchased top-up ACUs remain valid;
+included subscription ACUs follow the new plan; data not immediately deleted.
+
+## 17. Profitability Controls
+
+Hard margin floor: no AI action sold for less than **4× underlying provider
+cost** unless expressly approved as promotional credit, customer-acquisition
+incentive, contracted enterprise discount, or service-recovery credit. Provider
+routing selects by: quality requirement, cost, speed, failure rate, customer
+plan, customer-selected mode, commercial rights, geographic availability.
+ProfitGuard: **Net AI Contribution = ACU Revenue − Provider − Processing −
+Payment**. Each action stores: customer ACUs charged, revenue, provider cost,
+rendering cost, storage cost, gross contribution, gross margin, provider used,
+retry cost, failure cost. Margin alerts: **Green ≥75%, Amber 65–74.99%, Red
+<65%, Blocked below configured minimum.**
+
+## 18. Discount Governance
+
+The annual 30% discount is the main standard subscription discount. Additional
+discounts must NOT auto-apply to: ACU top-ups, provider pass-through fees,
+implementation, custom development, premium data, dedicated infrastructure,
+creator payments, advertising spend, third-party licences. Max discount
+authority: sales rep ≤5%, sales manager ≤10%, commercial director ≤20%,
+executive >20%, annual standard 30%. Discounts must not reduce ACU charges below
+the 4× provider-cost rule.
+
+## 19. Enterprise Commercial Fees
+
+Enterprise onboarding from £2,500; corporate onboarding from £10,000; global
+implementation £25,000–£250,000+; custom integration from £1,500 per integration;
+data migration quoted by volume/complexity. Training: remote team from £750,
+department from £2,500, enterprise programme custom, on-site expenses +
+professional fees. Premium support: enhanced 10% of ACV; 24/7 critical 15–20% of
+ACV; dedicated embedded specialist separately contracted.
+
+## 20. Commercial Protection
+
+Every subscription includes: automatic renewal, payment-method validation,
+failed-payment retries, grace period, service restriction after non-payment, ACU
+hard stop, spend limits, fraud monitoring, account-sharing controls, fair-use
+policy, storage limits, export limits, provider-cost adjustment clause, currency
+adjustment clause, tax treatment, refund policy, data-retention policy. MarketWar
+reserves the right to adjust ACU consumption rates when provider costs change —
+the customer's purchased ACU quantity stays unchanged, but future actions may
+require different ACU amounts based on current provider costs.
+
+## 21. Customer-Facing Pricing Message
+
+Headline: **"One Marketing OS. Every Brand. Every Campaign. One Predictable
+Bill."** Supporting: stop paying separately for disconnected content, video,
+social, campaign, analytics and AI tools; one account for all brands, users,
+channels and campaigns; every paid plan includes platform access + an automatic
+AI credit allowance; add ACUs for more AI power without changing your
+subscription. Promise: start free · upgrade as you grow · manage several brands
+under one account · pay only for the AI you use · keep control of budgets · see
+where every ACU is spent · connect marketing to revenue · save 30% annually.
+
+## 22. Recommended Commercial Decision
+
+Free £0 · Starter £19 · Growth £49 · Scale £149 · Business £399 · Enterprise
+£999 · Corporate £2,499 · Global from £7,499. Protects MarketWar via: recurring
+platform revenue, 20% controlled ACU inclusion, 4× provider-cost recovery, paid
+top-ups, brand/user add-ons, enterprise implementation fees, premium support,
+module revenue, data/integration revenue.
+
+**Final commercial formula:** Subscription pays for access + operating capacity.
+ACUs pay for AI consumption. Add-ons pay for structural expansion. Enterprise
+fees pay for complexity. Annual plans release ACUs monthly (not all at once) —
+preserving the 30% discount while protecting cash flow, provider exposure and
+consumption risk.
