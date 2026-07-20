@@ -932,6 +932,117 @@ try {
   else bad("concierge ask validation", `expected 400, got HTTP ${res.status}`);
 } catch (e) { bad("concierge ask validation", e.message); }
 
+console.log("\nProgrammatic SEO Builder:");
+try {
+  const res = await fetch(BASE + "/api/programmatic-seo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "batch", brand: "Coldwater Plumbing", type: "best_x_in_y",
+      services: ["emergency plumber", "boiler repair"], locations: ["Brixton", "Clapham", "Streatham"], cap: 20 }),
+  });
+  const body = await res.json();
+  // service × location grid → unique pages, each with title/meta/slug/JSON-LD.
+  const uniqueSlugs = Array.isArray(body.pages) && new Set(body.pages.map((p) => p.slug)).size === body.pages.length;
+  if (res.status === 200 && body.generated === 6 && uniqueSlugs && body.pages.every((p) => p.title && p.metaDescription && p.structuredData)) {
+    ok(`POST /api/programmatic-seo batch (${body.generated} unique pages, ${body.duplicatesAvoided} dupes avoided)`);
+  } else bad("POST /api/programmatic-seo batch", `HTTP ${res.status}, generated ${body.generated}`);
+} catch (e) { bad("POST /api/programmatic-seo batch", e.message); }
+try {
+  const res = await fetch(BASE + "/api/programmatic-seo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "page", type: "location", fields: { brand: "Halo Hair", service: "hair salon", location: "Brixton" } }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.slug === "hair-salon-in-brixton" && body.structuredData["@type"] === "LocalBusiness" && body.title.includes("Halo Hair")) {
+    ok(`POST /api/programmatic-seo page (slug "${body.slug}", LocalBusiness schema)`);
+  } else bad("POST /api/programmatic-seo page", `HTTP ${res.status}, slug ${body.slug}`);
+} catch (e) { bad("POST /api/programmatic-seo page", e.message); }
+try {
+  const res = await fetch(BASE + "/api/programmatic-seo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "batch", brand: "X", type: "invalid_type" }),
+  });
+  if (res.status === 400) ok("POST /api/programmatic-seo rejects invalid page type");
+  else bad("POST /api/programmatic-seo validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/programmatic-seo validation", e.message); }
+
+console.log("\nBuying Intent Radar:");
+try {
+  const res = await fetch(BASE + "/api/intent-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { company: "PeakTech", signals: ["Series B funding round closed", "hiring 12 engineers"], sector: "SaaS" } }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.subScores) && body.subScores.length === 10 && typeof body.intentScore === "number" && ["cold", "warm", "hot"].includes(body.level) && typeof body.whyNow === "string" && body.recommendedOfferAngle) {
+    ok(`POST /api/intent-radar score (${body.company} intent ${body.intentScore} → ${body.level})`);
+  } else bad("POST /api/intent-radar score", `HTTP ${res.status}, subScores ${body.subScores?.length}`);
+} catch (e) { bad("POST /api/intent-radar score", e.message); }
+try {
+  const res = await fetch(BASE + "/api/intent-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "radar", companies: [ { company: "HotCo", signals: ["funding round", "expansion into EU", "new CTO hire"] }, { company: "ColdCo" } ] }) });
+  const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.results) && body.results.length === 2 && body.results[0].intentScore >= body.results[1].intentScore) {
+    ok(`POST /api/intent-radar radar (sorted, hottest ${body.results[0].company} @ ${body.results[0].intentScore})`);
+  } else bad("POST /api/intent-radar radar", `HTTP ${res.status}, results ${body.results?.length}`);
+} catch (e) { bad("POST /api/intent-radar radar", e.message); }
+try {
+  const res = await fetch(BASE + "/api/intent-radar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", input: { company: "" } }) });
+  if (res.status === 400) ok("POST /api/intent-radar rejects empty company");
+  else bad("POST /api/intent-radar validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/intent-radar validation", e.message); }
+
+console.log("\nGlobal Localisation Engine:");
+try {
+  const res = await fetch(BASE + "/api/localisation");
+  const j = await res.json();
+  if (Array.isArray(j.axes) && j.axes.length === 17 && j.axes[0] === "country" && j.axes[16] === "purchasing_power") ok("GET /api/localisation returns the 17 axes");
+  else bad("GET /api/localisation axes", `got ${Array.isArray(j.axes) ? j.axes.length : typeof j.axes}`);
+} catch (e) { bad("GET /api/localisation axes", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/localisation");
+  const j = await res.json();
+  if (j.demo && j.demo.target && j.demo.target.language === "French" && typeof j.demo.currencyDisplay === "string") ok("GET demo localises a non-English market");
+  else bad("GET demo", `target=${j.demo && j.demo.target && j.demo.target.language}`);
+} catch (e) { bad("GET demo", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/localisation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "localise", input: { headline: "Win more customers", body: "All-in-one growth platform.", priceGbp: 100, target: { country: "AE" } } }) });
+  const j = await res.json();
+  if (Array.isArray(j.transcreationNotes) && j.transcreationNotes.length > 0 && j.currencyDisplay.indexOf("AED") !== -1 && Array.isArray(j.recommendedPlatforms)) ok("POST localise transcreates + converts currency for AE");
+  else bad("POST localise AE", `currencyDisplay=${j.currencyDisplay}`);
+} catch (e) { bad("POST localise AE", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/localisation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "localise", input: { headline: "Hi", body: "There", target: { country: "NG" } } }) });
+  const j = await res.json();
+  if (typeof j.disclaimer === "string" && j.disclaimer.indexOf("ESTIMATE") !== -1 && Array.isArray(j.legalFlags) && j.legalFlags.length > 0) ok("POST localise flags legal + honesty disclaimer for NG");
+  else bad("POST localise NG flags", `legalFlags=${JSON.stringify(j.legalFlags)}`);
+} catch (e) { bad("POST localise NG flags", String(e)); }
+try {
+  const res = await fetch(BASE + "/api/localisation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "localise", input: { headline: "Missing country", body: "No target country here", target: {} } }) });
+  if (res.status === 400) ok("POST localise rejects missing target.country with 400");
+  else bad("POST localise validation", `HTTP ${res.status}`);
+} catch (e) { bad("POST localise validation", String(e)); }
+
+console.log("\nUnified Inbox + CRM Pipeline (/api/inbox):");
+try {
+  const res = await fetch(`${BASE}/api/inbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "inbox" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.threadCount === 7 && body.breachedCount === 2 && body.openCount === 6) ok(`POST /api/inbox inbox (${body.breachedCount} SLA-breached of ${body.threadCount})`);
+  else bad("POST /api/inbox inbox", `HTTP ${res.status}, threads ${body.threadCount}/breached ${body.breachedCount}/open ${body.openCount}`);
+} catch (e) { bad("POST /api/inbox inbox", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/inbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "inbox" }) });
+  const body = await res.json();
+  const top = Array.isArray(body.threads) ? body.threads[0] : {};
+  if (res.status === 200 && top.priority === "high" && top.slaBreached === true && typeof top.suggestedReply === "string" && top.suggestedReply.startsWith("DRAFT")) ok("POST /api/inbox reply is a DRAFT, top thread prioritised");
+  else bad("POST /api/inbox draft", `HTTP ${res.status}, priority ${top.priority}, reply ${String(top.suggestedReply).slice(0, 12)}`);
+} catch (e) { bad("POST /api/inbox draft", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/inbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "pipeline" }) });
+  const body = await res.json();
+  if (res.status === 200 && body.totalValueGbp === 35500 && body.weightedForecastGbp === 19005 && body.wonValueGbp === 4700 && Array.isArray(body.byStage)) ok(`POST /api/inbox pipeline (forecast £${body.weightedForecastGbp} ESTIMATE)`);
+  else bad("POST /api/inbox pipeline", `HTTP ${res.status}, total ${body.totalValueGbp}/forecast ${body.weightedForecastGbp}`);
+} catch (e) { bad("POST /api/inbox pipeline", e.message); }
+try {
+  const res = await fetch(`${BASE}/api/inbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "inbox", slaMinutes: -5 }) });
+  if (res.status === 400) ok("POST /api/inbox rejects invalid slaMinutes (400)");
+  else bad("POST /api/inbox validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/inbox validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
