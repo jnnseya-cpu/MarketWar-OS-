@@ -636,6 +636,78 @@ try {
   } else bad("POST /api/visualstrike guard", `HTTP ${res.status}, flagged ${body.flagged?.length}`);
 } catch (e) { bad("POST /api/visualstrike guard", e.message); }
 
+console.log("\nSiteRaid AI engine:");
+const DEMO_SITE = { business: "Brixton Grill House", category: "Restaurant", offers: ["Dine-in", "Table booking"], pricePosition: "mass", location: "Brixton, London", reviews: 213, rating: 4.7 };
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "authorise", authorisation: "competitor_public" }),
+  });
+  const body = await res.json();
+  // Competitor URL → allowed but public-analysis only (no republish).
+  if (res.status === 200 && body.allowed === true && body.mode === "public_analysis_only") {
+    ok("POST /api/siteraid authorise (competitor → public-analysis only)");
+  } else bad("POST /api/siteraid authorise", `HTTP ${res.status}, mode ${body.mode}`);
+} catch (e) { bad("POST /api/siteraid authorise", e.message); }
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "authorise" }),
+  });
+  const body = await res.json();
+  if (res.status === 200 && body.allowed === false && body.mode === "blocked") ok("POST /api/siteraid authorise blocks no-basis ingestion");
+  else bad("POST /api/siteraid authorise no-basis", `allowed ${body.allowed}`);
+} catch (e) { bad("POST /api/siteraid authorise no-basis", e.message); }
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "truth", claims: [
+      { text: "Rated 4.7 by 213 diners", source: "Google reviews" },
+      { text: "The best grill in London", substantiated: false },
+    ] }),
+  });
+  const body = await res.json();
+  // Verified claim publishable; unsubstantiated superlative blocked as prohibited.
+  const superlative = body.verdicts?.find((v) => v.text.includes("best grill"));
+  if (res.status === 200 && body.publishable?.length === 1 && superlative?.classification === "prohibited" && superlative?.publishable === false) {
+    ok(`POST /api/siteraid truth (verified published, superlative blocked as ${superlative.classification})`);
+  } else bad("POST /api/siteraid truth", `HTTP ${res.status}, publishable ${body.publishable?.length}`);
+} catch (e) { bad("POST /api/siteraid truth", e.message); }
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "audit", site: DEMO_SITE }),
+  });
+  const body = await res.json();
+  // 6 audit sections, each with 6 dimensions + a verdict + overall headline.
+  if (res.status === 200 && Array.isArray(body.sections) && body.sections.length === 6
+      && body.sections.every((s) => s.dimensions.length === 6 && ["strong","improve","urgent"].includes(s.verdict))
+      && typeof body.overall === "number" && body.headline) {
+    ok(`POST /api/siteraid audit (6 audits, overall ${body.overall}/100)`);
+  } else bad("POST /api/siteraid audit", `HTTP ${res.status}, sections ${body.sections?.length}`);
+} catch (e) { bad("POST /api/siteraid audit", e.message); }
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "attack", site: DEMO_SITE }),
+  });
+  const body = await res.json();
+  // 16 gap classes → 6 priority buckets, ranked by opportunity.
+  if (res.status === 200 && Array.isArray(body.moves) && body.moves.length === 16
+      && body.moves[0].opportunity >= body.moves[1].opportunity && body.byPriority
+      && Object.keys(body.byPriority).length === 6) {
+    ok(`POST /api/siteraid attack (16 gaps → 6 priorities, top ${body.moves[0].gap} @ ${body.moves[0].opportunity})`);
+  } else bad("POST /api/siteraid attack", `HTTP ${res.status}, moves ${body.moves?.length}`);
+} catch (e) { bad("POST /api/siteraid attack", e.message); }
+try {
+  const res = await fetch(BASE + "/api/siteraid", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "dna" }),
+  });
+  if (res.status === 400) ok("POST /api/siteraid dna rejects missing site");
+  else bad("POST /api/siteraid dna validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("POST /api/siteraid dna validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {
