@@ -1218,3 +1218,16 @@ Verified: typecheck + check:layers + clean build + smoke 339/0; campaigns/offers
 | Verified | ✅ | typecheck + check:layers + clean build (sharp 0.35.3) + smoke **342/0**; sharp SVG→PNG rasterize verified locally (valid PNG) |
 
 Activation: set Firebase Admin secrets (FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY) for hosted upload, and OPENAI_API_KEY for the photoreal background. Without them the OS runs on honest inline previews.
+
+## 43. Video render pipeline (Veo/Sora) → attach to posts (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **Async video render pipeline (start → poll)** | ✅ | `video-gateway.ts` — `startVideoRender` returns a jobId; `getVideoRender` polls the provider op; job store Firestore (`video_jobs`) or in-memory |
+| **Veo + Sora adapters** | ✅ | Veo via Gemini API (`predictLongRunning` + poll), Sora via OpenAI (`/v1/videos` + poll), env-gated, defensive/graceful |
+| **Finished MP4 → hosted URL** | ✅ | on completion, `uploadPublicMedia()` uploads the MP4 to Firebase Storage → hosted URL |
+| **Attach rendered video to a post** | ✅ | `VideoRenderAndPublish` component on VisualStrike: render → poll → `<video>` preview → `PublishToChannels` with the hosted MP4 |
+| **Demo-safe + honest** | ✅ | no Veo/Sora key → honest demo job ("activates with a Veo/Sora key"), never a fabricated video URL; `/api/video-render` GET status + POST start/status |
+| Verified | ✅ | typecheck + check:layers + clean build + smoke **346/0** (+4: gateway status, start no-fake-URL, status poll, brandId 400) |
+
+Activation: GEMINI_API_KEY (Veo) or OPENAI_API_KEY (Sora) for rendering + Firebase Storage for hosting the MP4.

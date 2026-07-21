@@ -2156,5 +2156,22 @@ try { const { status, body } = await jpost("/api/image", { action: "generate", b
   else bad("Image render", `HTTP ${status}, hosted ${hosted}, note ${(v[0]?.notes||[])[0]}`);
 } catch (e) { bad("Image render", e.message); }
 
+console.log("\nVideo render pipeline (Veo/Sora → attach):");
+try { const res = await fetch(BASE + "/api/video-render"); const body = await res.json();
+  if (res.status === 200 && body.async === true && typeof body.provider === "string") ok(`Video gateway status (${body.configured ? "live" : "demo"}, provider ${body.provider}, async)`);
+  else bad("Video gateway status", `HTTP ${res.status}`); } catch (e) { bad("Video gateway status", e.message); }
+let vidJob;
+try { const { status, body } = await jpost("/api/video-render", { action: "start", brandId: "smoke-brand", prompt: "8s vertical clip of the platter, steam rising" });
+  vidJob = body.jobId;
+  // No Veo/Sora key here → honest demo job (never a fake hosted video).
+  if (status === 200 && body.jobId && (body.status === "demo" || body.status === "rendering") && body.videoUrl === null) ok(`Video render start (${body.status}, no fabricated video URL)`);
+  else bad("Video render start", `HTTP ${status}, status ${body.status}, url ${body.videoUrl}`); } catch (e) { bad("Video render start", e.message); }
+try { const { status, body } = await jpost("/api/video-render", { action: "status", jobId: vidJob });
+  if (status === 200 && body.jobId === vidJob) ok(`Video render status poll (${body.status})`);
+  else bad("Video render status poll", `HTTP ${status}`); } catch (e) { bad("Video render status poll", e.message); }
+try { const { status } = await jpost("/api/video-render", { action: "start", brandId: "", prompt: "x" });
+  if (status === 400) ok("Video render requires brandId (400)");
+  else bad("Video render brandId guard", `HTTP ${status}`); } catch (e) { bad("Video render brandId guard", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

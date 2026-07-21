@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import GenerateAndPublish from "@/components/GenerateAndPublish";
 import VisualStrikeHooks from "@/components/VisualStrikeHooks";
+import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import { PageHeader, Pill } from "@/components/ui";
 
 type Status = "live" | "p1";
@@ -170,6 +171,9 @@ export default function ProductEnginePage() {
 
       {/* Hook Lab — generate the 130-hook library and publish a chosen hook */}
       <VisualStrikeHooks />
+
+      {/* AI Video Creator — render a video and attach it to a post */}
+      <VideoRenderAndPublish />
 
       <div className="mb-4 flex items-center gap-2">
         <Rocket className="h-4 w-4 text-emerald-400" />
