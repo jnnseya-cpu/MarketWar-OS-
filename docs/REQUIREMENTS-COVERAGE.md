@@ -1173,3 +1173,12 @@ Adopted Zernio (white-label — preserves the "not a wrapper" doctrine) over Ayr
 | **Live REST wired, demo-safe** | ✅ | `POST /v1/posts` live when key set; deterministic demo (published/watermarked) + graceful degrade on any live error; `/api/zernio` GET status + POST connect/publish/profiles/quote |
 | **Deployed app picks up the key** | ✅ | `apphosting.yaml` → `ZERNIO_API_KEY` (secret `zernio-api-key`) |
 | Verified | ✅ | typecheck + check:layers + clean build + smoke **339/0** (+6: status/connect/publish/compliance-block/seat-billing/hub-listing) |
+
+## 39. Generated content → one-click publish (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **VisualStrike + Content Factory publish generated content** | ✅ | both pages now render `GenerateAndPublish` (AgentRunner + `PublishToChannels`) — the copy the agent just produced seeds the publish caption |
+| **Publish routes through the Zernio gateway** | ✅ | `PublishToChannels` POSTs `/api/zernio` action=publish (compliance gate + AI watermark), demo-safe / live with key |
+| **Reusable, non-breaking** | ✅ | `AgentRunner` gained an optional `onResult` callback (existing callers unaffected); `PublishToChannels` + `GenerateAndPublish` are additive components; links to the full Publish Center to connect socials |
+| Verified | ✅ | typecheck + check:layers + clean build + smoke 339/0; /dashboard/product-engine, /content, /publish all 200 |

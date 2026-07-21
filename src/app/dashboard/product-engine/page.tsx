@@ -24,7 +24,7 @@ import {
   Send,
   UploadCloud,
 } from "lucide-react";
-import AgentRunner from "@/components/AgentRunner";
+import GenerateAndPublish from "@/components/GenerateAndPublish";
 import { PageHeader, Pill } from "@/components/ui";
 
 type Status = "live" | "p1";
@@ -172,9 +172,10 @@ export default function ProductEnginePage() {
         <h2 className="font-display text-lg font-bold text-white">Run the engine</h2>
         <StatusChip status="live" />
       </div>
-      <AgentRunner
+      <GenerateAndPublish
         agentId="viral-product-engine"
         buttonLabel="Build dossier + full campaign"
+        publishSourceLabel="campaign copy"
         fields={[
           { key: "business", label: "Business / brand", defaultValue: "Brixton Grill House" },
           { key: "location", label: "Target market", defaultValue: "Brixton, London" },

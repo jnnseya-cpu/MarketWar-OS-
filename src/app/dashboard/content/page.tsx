@@ -1,4 +1,4 @@
-import AgentRunner from "@/components/AgentRunner";
+import GenerateAndPublish from "@/components/GenerateAndPublish";
 import { PageHeader } from "@/components/ui";
 
 export default function ContentFactoryPage() {
@@ -9,9 +9,10 @@ export default function ContentFactoryPage() {
         title="Manufacture conversion content"
         subtitle="Calendars, reels scripts and posts — every asset engineered to route attention into WhatsApp and channels you own. No posting for posting's sake."
       />
-      <AgentRunner
+      <GenerateAndPublish
         agentId="content-factory"
         buttonLabel="Generate my strike plan"
+        publishSourceLabel="content"
         fields={[
           { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
           { key: "location", label: "Location", defaultValue: "Brixton, London" },

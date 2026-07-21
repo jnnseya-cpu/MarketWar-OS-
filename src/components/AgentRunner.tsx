@@ -22,11 +22,15 @@ export default function AgentRunner({
   buttonLabel,
   fields,
   autoRunLabel,
+  onResult,
 }: {
   agentId: string;
   buttonLabel: string;
   fields: AgentField[];
   autoRunLabel?: string;
+  // Optional: surfaces the agent's result to a parent (e.g. to seed a Publish
+  // action with the freshly generated copy). Non-breaking — most callers omit it.
+  onResult?: (result: AgentResult) => void;
 }) {
   const { activeBrand } = useActiveBrand();
   // A field is filled from the ACTIVE brand when its key is a known brand field
@@ -63,6 +67,7 @@ export default function AgentRunner({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setResult(data as AgentResult);
+      onResult?.(data as AgentResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent execution failed");
     } finally {
