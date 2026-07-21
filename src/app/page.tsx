@@ -36,7 +36,7 @@ const PILLARS = [
     title: "Opportunity Discovery",
     desc: "Find profitable markets, trending niches, high-demand products, and untapped customer pain points before anyone else.",
     cta: "Discover Opportunities",
-    href: "/dashboard/competitors",
+    href: "/signup",
   },
   {
     icon: Factory,
@@ -44,7 +44,7 @@ const PILLARS = [
     title: "Product & Offer Creation",
     desc: "Create products, offers, pricing, funnels, launch plans, and go-to-market strategies powered by AI.",
     cta: "Create & Launch",
-    href: "/dashboard/offers",
+    href: "/signup",
   },
   {
     icon: Crosshair,
@@ -52,7 +52,7 @@ const PILLARS = [
     title: "AI Marketing Engine",
     desc: "Generate ads, landing pages, emails, social campaigns, videos, images, and brand content that convert — in minutes, not days.",
     cta: "Create Campaigns",
-    href: "/dashboard/campaigns",
+    href: "/signup",
   },
   {
     icon: Workflow,
@@ -60,7 +60,7 @@ const PILLARS = [
     title: "Customer Acquisition System",
     desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies.",
     cta: "Acquire Customers",
-    href: "/dashboard/war-room",
+    href: "/signup",
   },
   {
     icon: TrendingUp,
@@ -68,7 +68,7 @@ const PILLARS = [
     title: "Commerce & Revenue Optimisation",
     desc: "Track performance, optimise pricing, increase order value, and unlock new income streams.",
     cta: "Optimise Revenue",
-    href: "/dashboard/revenue",
+    href: "/signup",
   },
   {
     icon: Globe2,
@@ -76,7 +76,7 @@ const PILLARS = [
     title: "Business Automation",
     desc: "Automate workflows, operations, customer support, reporting, and growth execution from one central dashboard.",
     cta: "Automate Everything",
-    href: "/dashboard/briefing",
+    href: "/signup",
   },
 ];
 
