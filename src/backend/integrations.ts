@@ -22,7 +22,8 @@ export type IntegrationProvider =
   | "stripe" | "paypal" | "shopify" | "woocommerce"
   | "google_calendar" | "microsoft_calendar" | "google_business_profile"
   | "facebook_pages" | "instagram_business" | "linkedin_pages" | "zapier" | "make"
-  | "brevo_import" | "mailchimp_import" | "hubspot_import";
+  | "brevo_import" | "mailchimp_import" | "hubspot_import"
+  | "zernio_publish";
 
 export type IntegrationCategory = "paid_ads" | "messaging" | "email" | "payments" | "calendar" | "ecommerce" | "social" | "automation";
 export type DependencyLevel = "optional" | "recommended" | "required_for_feature";
@@ -66,6 +67,7 @@ export const INTEGRATIONS: IntegrationMeta[] = [
   { provider: "brevo_import", label: "Brevo (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of contacts/lists from Brevo", envKey: "BREVO_API_KEY", manualFallback: ["Export a CSV from Brevo", "Import into the OS Customer Data Platform"] },
   { provider: "mailchimp_import", label: "Mailchimp (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of audiences from Mailchimp", envKey: "MAILCHIMP_API_KEY", manualFallback: ["Export a CSV from Mailchimp", "Import into the OS Customer Data Platform"] },
   { provider: "hubspot_import", label: "HubSpot (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of contacts/deals from HubSpot", envKey: "HUBSPOT_API_KEY", manualFallback: ["Export a CSV from HubSpot", "Import into the OS CRM"] },
+  { provider: "zernio_publish", label: "Social Publishing (15 channels)", category: "social", dependencyLevel: "recommended", costMode: "usage_based", accelerates: "One-click publish + schedule to Instagram/TikTok/Facebook/YouTube/LinkedIn/X/Pinterest and more — white-label, no per-platform app review", envKey: "ZERNIO_API_KEY", manualFallback: ["Download the creative", "Copy the caption + hashtags", "Publish manually on each channel"] },
 ];
 
 function configured(envKey: string): boolean {
@@ -148,6 +150,11 @@ const PROVISIONING: Record<IntegrationProvider, ProvisioningMeta> = {
   brevo_import: { provisioning: "user_connect", billing: "included", userAction: "One-click connect for a one-time contact import — nothing ongoing.", reason: "Reads YOUR existing Brevo account once; included." },
   mailchimp_import: { provisioning: "user_connect", billing: "included", userAction: "One-click connect for a one-time audience import — nothing ongoing.", reason: "Reads YOUR existing Mailchimp account once; included." },
   hubspot_import: { provisioning: "user_connect", billing: "included", userAction: "One-click connect for a one-time contact/deal import — nothing ongoing.", reason: "Reads YOUR existing HubSpot account once; included." },
+  // Social publishing — MarketWar owns ONE white-label Zernio key; each brand
+  // one-click connects its own socials (Zernio hosts the OAuth, so no app review
+  // on our side). Posting runs through the platform account; billed as plan seats
+  // + ACU overflow at the protected margin.
+  zernio_publish: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "ZERNIO_API_KEY", userAction: "One-click connect your socials in the Publish Center — then post to 15 channels. Seats are included in your plan; extra connected accounts are metered from your ACU balance.", reason: "Runs through MarketWar's white-label publishing account; you never do per-platform app review." },
 };
 
 export function provisioningOf(provider: IntegrationProvider): ProvisioningMeta {
@@ -164,6 +171,7 @@ export const PROVIDER_POOLS: Record<string, { pool: string; members: Integration
   email: { pool: "Email sending pool", members: ["sendgrid_email", "amazon_ses", "resend_email", "mailgun_email"], failover: "SMTP → Resend → SendGrid → SES → demo — automatic, per send." },
   sms: { pool: "SMS pool", members: ["twilio_sms"], failover: "Add a second SMS vendor and the platform load-balances + fails over automatically." },
   whatsapp: { pool: "WhatsApp pool", members: ["whatsapp_cloud"], failover: "Falls back to SMS/email + wa.me manual link if the WhatsApp provider is unavailable." },
+  publishing: { pool: "Social publishing pool", members: ["zernio_publish", "facebook_pages", "instagram_business", "linkedin_pages", "google_business_profile"], failover: "White-label aggregator fans out to 15 channels; if it is unavailable, falls back to direct page connectors or the download-and-post-manually path — the OS still works." },
 };
 
 export function poolOf(provider: IntegrationProvider): string | undefined {

@@ -1156,3 +1156,20 @@ Phases 2 (audit) and 3 (offer margin-safety) were already fully true.
 All deterministic (no wall-clock/randomness), layer-guarded, demo-safe, additive-only.
 Verified: typecheck + check:layers + clean build + smoke **333/0** (+4: forecast
 monotonic+deterministic, forecast empty-state, forecast malformed-body hardened, weekly receipt).
+
+## 38. Zernio publish connector — platform-managed, white-label (2026-07-21)
+
+Owner directive: platform-level social publishing, users billed through their plan.
+Adopted Zernio (white-label — preserves the "not a wrapper" doctrine) over Ayrshare.
+
+| Requirement | Status | Where |
+|---|---|---|
+| **One platform key fans out to 15 channels** | ✅ | `zernio.ts` (Bearer `ZERNIO_API_KEY`, base `https://zernio.com/api`); `ZERNIO_PLATFORMS` (IG/TikTok/FB/YouTube/LinkedIn/X/Pinterest/Reddit/Bluesky/Telegram/GBP/Snapchat/Discord/WhatsApp/Threads) |
+| **White-label, no per-platform app review** | ✅ | brand connects own socials via minted `POST /v1/profiles` → `/v1/platform-invites/{token}/connect` link; Zernio hosts the OAuth |
+| **One-click connect + publish UI** | ✅ | `/dashboard/publish` Publish Center (connect link + compose/schedule/cross-post) + sidebar entry |
+| **Compliance gate + AI-content watermark before ship** | ✅ | `complianceGate()` (prohibited-claim block) + AI watermark appended in `publishPost()` |
+| **Platform-managed + ACU-seat billing at protected margin** | ✅ | `integrations.ts` `zernio_publish` (provisioning `platform`, billing `acu_metered`) + `seatQuote()` (plan seats + overflow via `quoteAcu`, margin ≥2×/4×, provider cost never exposed) |
+| **Autonomy preserved (pooled + manual fallback)** | ✅ | `PROVIDER_POOLS.publishing` + manualFallback (download creative + copy caption + post manually) |
+| **Live REST wired, demo-safe** | ✅ | `POST /v1/posts` live when key set; deterministic demo (published/watermarked) + graceful degrade on any live error; `/api/zernio` GET status + POST connect/publish/profiles/quote |
+| **Deployed app picks up the key** | ✅ | `apphosting.yaml` → `ZERNIO_API_KEY` (secret `zernio-api-key`) |
+| Verified | ✅ | typecheck + check:layers + clean build + smoke **339/0** (+6: status/connect/publish/compliance-block/seat-billing/hub-listing) |

@@ -2117,5 +2117,26 @@ try { const { status, body } = await jpost("/api/budget", { business: "Acme", mo
   if (status === 200 && body.weeklyReceipt && typeof body.weeklyReceipt.weekProtectedGbp === "number" && body.weeklyReceipt.cadence === "weekly" && typeof body.weeklyReceipt.headline === "string") ok(`Budget weekly receipt (£${body.weeklyReceipt.weekProtectedGbp}/wk protected)`);
   else bad("Budget weekly receipt", `HTTP ${status}, receipt ${JSON.stringify(body.weeklyReceipt)}`); } catch (e) { bad("Budget weekly receipt", e.message); }
 
+console.log("\nPublish Gateway (Zernio — platform-managed, white-label):");
+try { const res = await fetch(BASE + "/api/zernio"); const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.platforms) && body.platforms.length === 15 && body.whiteLabel) ok(`Zernio status (${body.platforms.length} channels, white-label, ${body.configured ? "live" : "demo"})`);
+  else bad("Zernio status", `HTTP ${res.status}, platforms ${body.platforms?.length}`); } catch (e) { bad("Zernio status", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "connect", brandId: "smoke-brand", brandName: "Smoke Co" });
+  if (status === 200 && typeof body.connectUrl === "string" && body.connectUrl.includes("/platform-invites/")) ok(`Zernio connect link (${body.mode}, real connect-URL shape)`);
+  else bad("Zernio connect", `HTTP ${status}, url ${body.connectUrl}`); } catch (e) { bad("Zernio connect", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "publish", brandId: "smoke-brand", text: "Fresh platters this Friday — order now.", platforms: ["instagram", "facebook", "tiktok"] });
+  if (status === 200 && (body.status === "published" || body.status === "scheduled") && body.watermarked && body.compliance.pass && body.platforms.length === 3) ok(`Zernio publish (${body.mode}, ${body.status}, watermarked, compliance pass)`);
+  else bad("Zernio publish", `HTTP ${status}, status ${body.status}, wm ${body.watermarked}`); } catch (e) { bad("Zernio publish", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "publish", brandId: "smoke-brand", text: "100% guaranteed returns, risk-free investment!", platforms: ["x"] });
+  if (status === 200 && body.status === "blocked" && !body.compliance.pass) ok(`Zernio compliance gate (blocked prohibited claim: ${body.compliance.reasons.length} reason)`);
+  else bad("Zernio compliance gate", `HTTP ${status}, status ${body.status}`); } catch (e) { bad("Zernio compliance gate", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "quote", connectedAccounts: 8, includedSeats: 5 });
+  if (status === 200 && body.billableAccounts === 3 && body.acus > 0 && body.grossMarginPct <= 100 && body.grossMarginPct >= 50) ok(`Zernio seat billing (3 billable, ${body.acus} ACUs, ${body.grossMarginPct}% margin — within floor/cap)`);
+  else bad("Zernio seat billing", `HTTP ${status}, billable ${body.billableAccounts}, margin ${body.grossMarginPct}`); } catch (e) { bad("Zernio seat billing", e.message); }
+try { const res = await fetch(BASE + "/api/integrations"); const body = await res.json();
+  const z = (body.integrations || []).find((i) => i.provider === "zernio_publish");
+  if (res.status === 200 && z && z.platformManaged && z.pool) ok(`Integration Hub lists Zernio (platform-managed, pool: ${z.pool})`);
+  else bad("Integration Hub Zernio", `present ${!!z}`); } catch (e) { bad("Integration Hub Zernio", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

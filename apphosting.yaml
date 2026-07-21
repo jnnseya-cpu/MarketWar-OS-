@@ -105,6 +105,17 @@ env:
   - variable: ANTHROPIC_API_KEY
     secret: anthropic-api-key
     availability: [RUNTIME]
+
+  # ── Social publishing (Zernio — white-label, 15 channels) ───────────────
+  # ONE platform key fans out to Instagram/TikTok/Facebook/YouTube/LinkedIn/X/
+  # Pinterest and more. Each brand connects its OWN socials in one click (Zernio
+  # hosts the per-platform OAuth, so MarketWar never does app review). Posting
+  # runs through this platform account, billed as plan seats + ACU overflow.
+  # Without the key the Publish Center runs in demo mode. Create the secret ONCE:
+  #   firebase apphosting:secrets:set zernio-api-key
+  - variable: ZERNIO_API_KEY
+    secret: zernio-api-key
+    availability: [RUNTIME]
   # Optional failover providers — uncomment once their secrets exist:
   # - variable: OPENAI_API_KEY
   #   secret: openai-api-key
