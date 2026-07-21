@@ -90,17 +90,19 @@ env:
   - variable: EMAIL_FROM
     value: MarketWar OS <os@notifications.marketwaros.com>
     availability: [RUNTIME]
-  # SMTP credentials are SECRETS — never plain values. Create them ONCE before
-  # deploying (else the deploy fails on a missing secret):
+  # SMTP credentials are SECRETS — never plain values. COMMENTED OUT until the
+  # secrets exist (a reference to a missing secret FAILS the whole deploy).
+  # To turn email on: create both secrets, then uncomment:
   #   firebase apphosting:secrets:set smtp-user   # paste your Brevo login/email
   #   firebase apphosting:secrets:set smtp-pass   # paste a Brevo SMTP key
-  #   (grantaccess is offered automatically — accept it). See docs/DEPLOYMENT.md.
-  - variable: SMTP_USER
-    secret: smtp-user
-    availability: [RUNTIME]
-  - variable: SMTP_PASS
-    secret: smtp-pass
-    availability: [RUNTIME]
+  #   firebase apphosting:secrets:grantaccess smtp-user --backend marketwar
+  #   firebase apphosting:secrets:grantaccess smtp-pass --backend marketwar
+  # - variable: SMTP_USER
+  #   secret: smtp-user
+  #   availability: [RUNTIME]
+  # - variable: SMTP_PASS
+  #   secret: smtp-pass
+  #   availability: [RUNTIME]
 
   # ── AI providers — flips the WHOLE platform to Live intelligence ────────
   # Every agent + AI-generative engine routes through the gateway (Claude →
