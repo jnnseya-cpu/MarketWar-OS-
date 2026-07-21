@@ -1231,3 +1231,13 @@ Activation: set Firebase Admin secrets (FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE
 | Verified | ✅ | typecheck + check:layers + clean build + smoke **346/0** (+4: gateway status, start no-fake-URL, status poll, brandId 400) |
 
 Activation: GEMINI_API_KEY (Veo) or OPENAI_API_KEY (Sora) for rendering + Firebase Storage for hosting the MP4.
+
+## 44. Live-readiness verification (close the "first live run" caveat) (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **Safe pre-flight: which live capabilities are wired vs demo** | ✅ | `GET /api/health/live` — 10-capability matrix (AI, Firebase Admin, Storage, hosted images, photoreal, video render, hosted video, Zernio, SMTP, Stripe), each with exactly what to set; no provider calls, no spend |
+| **One-command live smoke for the deployed app** | ✅ | `scripts/smoke-live.mjs` (`npm run smoke:live -- <url>`): prints the matrix; `--exercise` runs the real image-generate / video-start / Zernio-connect paths (no social publishing), asserting a capability reported "ready" actually works |
+| Verified | ✅ | typecheck + check:layers + clean build + smoke **347/0**; live-smoke pre-flight verified against the demo server (0/10, honest activation hints) |
+
+Usage after setting production secrets: `npm run smoke:live -- https://marketwaros.com` (pre-flight), then `--exercise` once to watch the first live run.

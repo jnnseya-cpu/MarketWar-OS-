@@ -2173,5 +2173,10 @@ try { const { status } = await jpost("/api/video-render", { action: "start", bra
   if (status === 400) ok("Video render requires brandId (400)");
   else bad("Video render brandId guard", `HTTP ${status}`); } catch (e) { bad("Video render brandId guard", e.message); }
 
+console.log("\nLive-readiness matrix (safe pre-flight):");
+try { const res = await fetch(BASE + "/api/health/live"); const body = await res.json();
+  if (res.status === 200 && Array.isArray(body.capabilities) && body.capabilities.length >= 8 && typeof body.liveReady === "number") ok(`GET /api/health/live (${body.liveReady}/${body.total} live, each shows how to activate)`);
+  else bad("GET /api/health/live", `HTTP ${res.status}`); } catch (e) { bad("GET /api/health/live", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

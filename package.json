@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:live": "node scripts/smoke-live.mjs",
     "seed:accounts": "node scripts/seed-accounts.mjs",
     "verify": "npm run check:layers && npm run typecheck && npm run build",
     "check:layers": "node scripts/check-layers.mjs"
