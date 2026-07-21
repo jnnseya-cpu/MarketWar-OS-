@@ -664,10 +664,11 @@ try {
     body: JSON.stringify({ action: "hooks", product: { name: "you won't believe miracle cream" }, fulfilled: false }),
   });
   const body = await res.json();
-  // Deceptive clickbait must be detected and blocked.
-  if (res.status === 200 && Array.isArray(body.hooks) && body.blocked >= 1 && body.hooks.some((h) => h.deceptive === true)) {
-    ok(`POST /api/visualstrike hooks (Hook Lab; ${body.blocked} deceptive clickbait blocked)`);
-  } else bad("POST /api/visualstrike hooks", `HTTP ${res.status}, blocked ${body.blocked}`);
+  // Deceptive clickbait must be detected and blocked, AND the library must be a
+  // real 130+ hooks across 13 families (the card's claim must be literally true).
+  if (res.status === 200 && Array.isArray(body.hooks) && body.count >= 130 && body.families === 13 && body.blocked >= 1 && body.hooks.some((h) => h.deceptive === true)) {
+    ok(`POST /api/visualstrike hooks (Hook Lab; ${body.count} hooks across ${body.families} families, ${body.blocked} deceptive clickbait blocked)`);
+  } else bad("POST /api/visualstrike hooks", `HTTP ${res.status}, count ${body.count}, families ${body.families}, blocked ${body.blocked}`);
 } catch (e) { bad("POST /api/visualstrike hooks", e.message); }
 try {
   const res = await fetch(BASE + "/api/visualstrike", {

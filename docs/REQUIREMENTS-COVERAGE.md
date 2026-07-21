@@ -1092,3 +1092,12 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Public invite validation + accept** | same | ✅ | `/api/invites/[token]` GET (public, returns non-sensitive `publicInvite`) + POST accept (rate-limited); no secrets leaked to the sign-up page |
 | **Invited sign-up shows who invited them + accepts on completion** | same | ✅ | `AuthForm` reads `?invite=<token>`, shows the banner (company · plan · brands), prefills company name, calls accept on every sign-up success path (demo + live, email + Google) |
 | Verified | same | ✅ | typecheck + check:layers + build + smoke 320/0 (+ invite create→validate→accept, missing-company 400); live curl create→validate→accept; screenshots admin-invites + invite-signup |
+
+## 35. VisualStrike honesty pass — real 130+ Hook Lab + Live/P1 labels (2026-07-21)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Hook Laboratory™ card must be literally true (130+ scored hooks)** | Owner directive 2026-07-21 (overclaim = reputation damage) | ✅ | `hookLab()` in `src/backend/visualstrike.ts` now generates **130 hooks across 13 families × 10 variants** (`HOOK_FAMILIES`), each scored + deception-checked; returns `count`/`families`/`byFamily`. Was 10. |
+| **No feature may misrepresent itself as live to a tester** | same | ✅ | `/dashboard/product-engine` badges every capability **Live now** vs **Coming at P1** (StatusChip) + an honesty legend; upload zone, studios, campaign modes and guarantees all labelled truthfully |
+| Deception guard unchanged + widened | F1 §10 | ✅ | `blockClickbait` markers extended; every one of the 130 hooks passes through it |
+| Verified | same | ✅ | typecheck + check:layers + build (121 pages) + smoke 320/0 (hook test strengthened: asserts count>=130 and families===13); live curl 130/13 confirmed |
