@@ -45,11 +45,12 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
     value: https://studio-1718252475-c6017-default-rtdb.europe-west1.firebasedatabase.app
     availability: [BUILD, RUNTIME]
-  # Web Firebase API key (public identifier, but kept out of git). Add it as a
-  # Secret-Manager secret named "firebase-web-api-key" then uncomment:
-  # - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-  #   secret: firebase-web-api-key
-  #   availability: [BUILD, RUNTIME]
+  # Web Firebase API key — enables real browser sign-up / login. A NEXT_PUBLIC_
+  # var, so it must be available at BUILD (inlined into the client bundle).
+  # Synced from the GitHub secret NEXT_PUBLIC_FIREBASE_API_KEY → firebase-web-api-key.
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: firebase-web-api-key
+    availability: [BUILD, RUNTIME]
   # Storage bucket (RUNTIME) — where live-rendered creatives are uploaded so
   # they get a hosted URL that can attach to social posts. Non-secret.
   - variable: FIREBASE_STORAGE_BUCKET

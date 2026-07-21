@@ -33,8 +33,17 @@ have. Names must be exactly these (UPPER_SNAKE):
 | `STRIPE_SECRET_KEY` | Checkout, subscriptions, ACU top-ups |
 | `STRIPE_WEBHOOK_SECRET` | (optional) auto revenue/ACU attribution |
 | `GEMINI_API_KEY` | (optional) AI failover + Veo video |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | real browser sign-up / login (see note below) |
 
 Only the ones you add get synced; the rest are skipped.
+
+> **`NEXT_PUBLIC_FIREBASE_API_KEY` is a BUILD-time secret** (Next.js inlines
+> `NEXT_PUBLIC_*` into the client bundle at build). App Hosting must therefore
+> expose it to the **build** service account, not just the runtime one. The
+> optional grant step (below) covers the runtime SA; to be safe for this one,
+> also run once:
+> `firebase apphosting:secrets:grantaccess firebase-web-api-key --backend <backend-id>`
+> — the Firebase CLI grants every service account App Hosting needs (build + run).
 
 > **Note on `FIREBASE_PRIVATE_KEY`:** paste the `private_key` value from your
 > Firebase service-account JSON, including the `-----BEGIN PRIVATE KEY-----` /
