@@ -1195,3 +1195,13 @@ Adopted Zernio (white-label — preserves the "not a wrapper" doctrine) over Ayr
 All route through the Zernio gateway (`/api/zernio`, compliance gate + AI watermark),
 reuse the shared `PublishToChannels`/`GenerateAndPublish` components, additive-only.
 Verified: typecheck + check:layers + clean build + smoke 339/0; campaigns/offers/studio/product-engine all 200.
+
+## 41. Attach generated creative (image/video) to posts (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **Posts carry media, not just caption** | ✅ | `PublishToChannels` accepts `defaultMediaUrls`, previews thumbnails, passes `mediaUrls` to `/api/zernio` |
+| **Only hosted media posts; demo/preview dropped honestly** | ✅ | `zernio.ts` `postableMedia()` keeps http(s) only; result carries `mediaCount` + `droppedMedia`; UI badges demo creatives "preview — won't attach until live rendering returns a hosted URL" |
+| **Brand Studio attaches a chosen creative** | ✅ | `/dashboard/studio` — click a variant to select, publish panel attaches its `imageUrl` + headline/offer/CTA caption |
+| **VisualStrike renders flow into media** | ✅ (wiring ready) | same `mediaUrls` path — VisualStrike image/video renders attach the moment live rendering returns hosted URLs (image render is P1) |
+| Verified | ✅ | typecheck + check:layers + clean build + smoke **341/0** (+2: hosted image attaches, demo data: URI dropped) |

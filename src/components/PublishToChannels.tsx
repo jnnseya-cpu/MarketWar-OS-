@@ -19,8 +19,12 @@ type PublishResult = {
   compliance: { pass: boolean; reasons: string[] };
   watermarked: boolean;
   scheduledFor: string | null;
+  mediaCount: number;
+  droppedMedia: number;
   note: string;
 };
+
+const isHosted = (u: string) => /^https?:\/\//i.test(u);
 
 const CHANNELS = [
   ["instagram", "Instagram"], ["facebook", "Facebook"], ["tiktok", "TikTok"],
@@ -40,17 +44,22 @@ function toCaption(md: string): string {
     .slice(0, 600);
 }
 
-export default function PublishToChannels({ defaultText = "", sourceLabel }: { defaultText?: string; sourceLabel?: string }) {
+export default function PublishToChannels({ defaultText = "", defaultMediaUrls, sourceLabel }: { defaultText?: string; defaultMediaUrls?: string[]; sourceLabel?: string }) {
   const { activeBrand } = useActiveBrand();
   const [text, setText] = useState("");
+  const [media, setMedia] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set(["instagram", "facebook", "tiktok"]));
   const [result, setResult] = useState<PublishResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Seed the caption when new content is generated upstream.
   useEffect(() => { if (defaultText) { setText(toCaption(defaultText)); setResult(null); } }, [defaultText]);
+  // Seed attached media (image/video URLs) from the generator.
+  useEffect(() => { setMedia(defaultMediaUrls ?? []); setResult(null); }, [defaultMediaUrls]);
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const hostedCount = media.filter(isHosted).length;
+  const previewCount = media.length - hostedCount;
 
   async function publish() {
     if (!activeBrand || !text.trim() || selected.size === 0) return;
@@ -58,7 +67,7 @@ export default function PublishToChannels({ defaultText = "", sourceLabel }: { d
     try {
       const r = await fetch("/api/zernio", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "publish", brandId: activeBrand.id, text, platforms: [...selected] }),
+        body: JSON.stringify({ action: "publish", brandId: activeBrand.id, text, platforms: [...selected], mediaUrls: media }),
       });
       setResult(await r.json());
     } finally { setBusy(false); }
@@ -76,6 +85,25 @@ export default function PublishToChannels({ defaultText = "", sourceLabel }: { d
       </p>
 
       <textarea className="input min-h-[90px]" placeholder="Generate above, then edit the caption here — or write your own." value={text} onChange={(e) => setText(e.target.value)} />
+
+      {media.length > 0 && (
+        <div className="mt-2">
+          <div className="flex flex-wrap gap-2">
+            {media.map((url, i) => (
+              <div key={i} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`Attachment ${i + 1}`} className="h-16 w-16 rounded-lg border border-white/[0.08] object-cover" />
+                <button type="button" onClick={() => setMedia((m) => m.filter((_, j) => j !== i))} className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink-900 text-[10px] text-slate-300 ring-1 ring-white/10 hover:text-rose-400">×</button>
+                {!isHosted(url) && <span className="absolute inset-x-0 bottom-0 rounded-b-lg bg-amber-500/80 py-0.5 text-center text-[8px] font-bold uppercase text-ink-950">preview</span>}
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {hostedCount > 0 && <span className="text-emerald-300">{hostedCount} hosted media will attach to the post. </span>}
+            {previewCount > 0 && <span className="text-amber-300">{previewCount} demo/preview creative won&apos;t attach — it posts once live rendering returns a hosted URL.</span>}
+          </p>
+        </div>
+      )}
 
       <div className="mt-2 flex flex-wrap gap-1.5">
         {CHANNELS.map(([id, label]) => (

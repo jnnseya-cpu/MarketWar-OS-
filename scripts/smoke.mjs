@@ -2130,6 +2130,12 @@ try { const { status, body } = await jpost("/api/zernio", { action: "publish", b
 try { const { status, body } = await jpost("/api/zernio", { action: "publish", brandId: "smoke-brand", text: "100% guaranteed returns, risk-free investment!", platforms: ["x"] });
   if (status === 200 && body.status === "blocked" && !body.compliance.pass) ok(`Zernio compliance gate (blocked prohibited claim: ${body.compliance.reasons.length} reason)`);
   else bad("Zernio compliance gate", `HTTP ${status}, status ${body.status}`); } catch (e) { bad("Zernio compliance gate", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "publish", brandId: "smoke-brand", text: "New drop — see it in action.", platforms: ["instagram"], mediaUrls: ["https://cdn.example.com/creative-1.png"] });
+  if (status === 200 && body.mediaCount === 1 && body.droppedMedia === 0) ok("Zernio media attach (1 hosted image attached to the post)");
+  else bad("Zernio media attach", `HTTP ${status}, mediaCount ${body.mediaCount}, dropped ${body.droppedMedia}`); } catch (e) { bad("Zernio media attach", e.message); }
+try { const { status, body } = await jpost("/api/zernio", { action: "publish", brandId: "smoke-brand", text: "Demo creative post.", platforms: ["facebook"], mediaUrls: ["data:image/svg+xml,demo"] });
+  if (status === 200 && body.mediaCount === 0 && body.droppedMedia === 1) ok("Zernio media guard (demo data: URI dropped, not posted)");
+  else bad("Zernio media guard", `HTTP ${status}, mediaCount ${body.mediaCount}, dropped ${body.droppedMedia}`); } catch (e) { bad("Zernio media guard", e.message); }
 try { const { status, body } = await jpost("/api/zernio", { action: "quote", connectedAccounts: 8, includedSeats: 5 });
   if (status === 200 && body.billableAccounts === 3 && body.acus > 0 && body.grossMarginPct <= 100 && body.grossMarginPct >= 50) ok(`Zernio seat billing (3 billable, ${body.acus} ACUs, ${body.grossMarginPct}% margin — within floor/cap)`);
   else bad("Zernio seat billing", `HTTP ${status}, billable ${body.billableAccounts}, margin ${body.grossMarginPct}`); } catch (e) { bad("Zernio seat billing", e.message); }

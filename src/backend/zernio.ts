@@ -181,20 +181,32 @@ export type PublishResult = {
   compliance: { pass: boolean; reasons: string[] };
   watermarked: boolean;
   scheduledFor: string | null;
+  mediaCount: number;       // hosted media actually attached to the post
+  droppedMedia: number;     // media rejected (e.g. demo data: URIs — not postable)
   note: string;
 };
+
+// Only hosted http(s) media can post to social platforms — demo data: URIs and
+// blob: previews are dropped (with a count) rather than sent.
+function postableMedia(urls?: string[]): { ok: string[]; dropped: number } {
+  const all = urls || [];
+  const ok = all.filter((u) => /^https?:\/\//i.test(u));
+  return { ok, dropped: all.length - ok.length };
+}
 
 export async function publishPost(input: PublishInput): Promise<PublishResult> {
   const platforms = (input.platforms || []).filter((p) => PLATFORM_IDS.has(p as ZernioPlatform));
   const watermark = input.watermark !== false;
   const bodyText = watermark && input.text ? `${input.text}\n\n${AI_WATERMARK}` : input.text;
+  const { ok: media, dropped: droppedMedia } = postableMedia(input.mediaUrls);
+  const mediaNote = droppedMedia > 0 ? ` ${droppedMedia} demo/preview asset(s) not attached — a hosted image/video URL attaches once live rendering is on.` : media.length ? ` ${media.length} media attached.` : "";
 
   const compliance = complianceGate(input.text);
   if (!compliance.pass) {
-    return { mode: zernioConfigured() ? "live" : "demo", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor: null, note: "Blocked by the compliance gate before any channel was touched." };
+    return { mode: zernioConfigured() ? "live" : "demo", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor: null, mediaCount: 0, droppedMedia, note: "Blocked by the compliance gate before any channel was touched." };
   }
   if (!platforms.length) {
-    return { mode: zernioConfigured() ? "live" : "demo", status: "blocked", postId: null, platforms, compliance: { pass: false, reasons: ["No valid platform selected."] }, watermarked: watermark, scheduledFor: null, note: "Pick at least one connected platform." };
+    return { mode: zernioConfigured() ? "live" : "demo", status: "blocked", postId: null, platforms, compliance: { pass: false, reasons: ["No valid platform selected."] }, watermarked: watermark, scheduledFor: null, mediaCount: media.length, droppedMedia, note: "Pick at least one connected platform." };
   }
 
   const scheduledFor = input.scheduleAt && /\d{4}-\d{2}-\d{2}/.test(input.scheduleAt) ? input.scheduleAt : null;
@@ -207,20 +219,20 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
           text: bodyText,
           platforms,
           ...(input.profileId ? { profile: input.profileId, profileKey: input.profileId } : {}),
-          ...(input.mediaUrls?.length ? { mediaUrls: input.mediaUrls, media: input.mediaUrls } : {}),
+          ...(media.length ? { mediaUrls: media, media } : {}),
           ...(scheduledFor ? { schedule: scheduledFor, scheduleDate: scheduledFor } : {}),
         }),
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         const postId = pick(data, ["id", "postId", "post_id"]) ?? null;
-        return { mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms, compliance, watermarked: watermark, scheduledFor, note: `Sent to Zernio for ${platforms.length} platform(s).` };
+        return { mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Sent to Zernio for ${platforms.length} platform(s).${mediaNote}` };
       }
       // Non-2xx from Zernio — degrade honestly rather than throw a 500.
       const errText = await res.text().catch(() => "");
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, note: `Zernio rejected the post (HTTP ${res.status}). ${errText.slice(0, 160)}` };
+      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Zernio rejected the post (HTTP ${res.status}). ${errText.slice(0, 160)}` };
     } catch {
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, note: "Could not reach Zernio — the post was not sent. Try again shortly." };
+      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: "Could not reach Zernio — the post was not sent. Try again shortly." };
     }
   }
 
@@ -233,7 +245,9 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
     compliance,
     watermarked: watermark,
     scheduledFor,
-    note: "Demo publish — passed the compliance gate and carried the AI-content watermark. With ZERNIO_API_KEY set this posts to the connected channels for real.",
+    mediaCount: media.length,
+    droppedMedia,
+    note: `Demo publish — passed the compliance gate and carried the AI-content watermark.${mediaNote} With ZERNIO_API_KEY set this posts to the connected channels for real.`,
   };
 }
 

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Image as ImageIcon, Palette, Layers, ShieldCheck, Upload } from "lucide-react";
 import GenerateAndPublish from "@/components/GenerateAndPublish";
+import PublishToChannels from "@/components/PublishToChannels";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import {
   DEFAULT_CREATIVE_OPTIONS, type CreativeOptions, type PlatformFormat, type LogoPosition,
@@ -43,6 +44,7 @@ export default function StudioPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [busy, setBusy] = useState(false);
+  const [publishIdx, setPublishIdx] = useState(0);
 
   useEffect(() => {
     fetch("/api/image").then((r) => r.json()).then((d) => setProviders(d.providers || [])).catch(() => {});
@@ -60,6 +62,7 @@ export default function StudioPage() {
       });
       const data = await res.json();
       setVariants(data.variants || []);
+      setPublishIdx(0);
     } finally {
       setBusy(false);
     }
@@ -177,22 +180,29 @@ export default function StudioPage() {
       {/* Variants */}
       {variants.length > 0 && (
         <div className="mb-8">
-          <h3 className="mb-3 font-display font-bold text-white">Creative variants</h3>
+          <h3 className="mb-3 font-display font-bold text-white">Creative variants <span className="text-xs font-normal text-slate-500">— click one to attach it to a post</span></h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {variants.map((v) => (
-              <div key={v.variantIndex} className="card overflow-hidden p-0">
+              <button key={v.variantIndex} type="button" onClick={() => setPublishIdx(v.variantIndex)} className={`card overflow-hidden p-0 text-left transition ${publishIdx === v.variantIndex ? "ring-2 ring-emerald-500/70" : "hover:ring-1 hover:ring-emerald-500/30"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={v.imageUrl} alt={`Variant ${v.variantIndex + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
                 <div className="p-3">
                   <div className="flex items-center justify-between">
                     <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? v.model : "demo composer"}</Pill>
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300"><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300">{publishIdx === v.variantIndex ? "✓ selected" : <><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</>}</span>
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500">{v.notes[1]}</p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
+
+          {/* Attach the selected creative to a post and publish */}
+          <PublishToChannels
+            defaultText={[headline, offerText, cta].filter(Boolean).join("\n")}
+            defaultMediaUrls={variants[publishIdx] ? [variants[publishIdx].imageUrl] : []}
+            sourceLabel="creative"
+          />
         </div>
       )}
 
