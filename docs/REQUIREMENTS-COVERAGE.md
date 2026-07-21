@@ -1205,3 +1205,16 @@ Verified: typecheck + check:layers + clean build + smoke 339/0; campaigns/offers
 | **Brand Studio attaches a chosen creative** | ✅ | `/dashboard/studio` — click a variant to select, publish panel attaches its `imageUrl` + headline/offer/CTA caption |
 | **VisualStrike renders flow into media** | ✅ (wiring ready) | same `mediaUrls` path — VisualStrike image/video renders attach the moment live rendering returns hosted URLs (image render is P1) |
 | Verified | ✅ | typecheck + check:layers + clean build + smoke **341/0** (+2: hosted image attaches, demo data: URI dropped) |
+
+## 42. Live image rendering → hosted, attachable creatives (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **Brand Studio creatives render to a hosted URL (attachable), not just a preview** | ✅ | `image-gateway.ts` rasterizes the brand-safe creative to PNG via `sharp` and uploads via `storage.ts` → `https://storage.googleapis.com/...` |
+| **Live photoreal via one provider** | ✅ | OpenAI `gpt-image-1` generates a text/logo-free scene (`openaiBackground`), then exact copy/logo composited on top (brand-safety preserved — model never spells text) |
+| **Firebase Storage upload** | ✅ | `adminStorage` added to `firebase-admin.ts`; `uploadPublicMedia()` (public PNG, deterministic name) in new `storage.ts`; `FIREBASE_STORAGE_BUCKET` wired in `apphosting.yaml` |
+| **Demo-safe + honest fallback** | ✅ | no Storage/OpenAI → inline SVG preview with note "attaches once Storage/live rendering configured"; never falsely claims hosted |
+| **Node runtime** | ✅ | `/api/image` pinned `runtime = "nodejs"` (sharp + firebase-admin) |
+| Verified | ✅ | typecheck + check:layers + clean build (sharp 0.35.3) + smoke **342/0**; sharp SVG→PNG rasterize verified locally (valid PNG) |
+
+Activation: set Firebase Admin secrets (FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY) for hosted upload, and OPENAI_API_KEY for the photoreal background. Without them the OS runs on honest inline previews.

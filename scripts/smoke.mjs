@@ -2144,5 +2144,17 @@ try { const res = await fetch(BASE + "/api/integrations"); const body = await re
   if (res.status === 200 && z && z.platformManaged && z.pool) ok(`Integration Hub lists Zernio (platform-managed, pool: ${z.pool})`);
   else bad("Integration Hub Zernio", `present ${!!z}`); } catch (e) { bad("Integration Hub Zernio", e.message); }
 
+console.log("\nLive image rendering (Brand Studio → hosted, attachable):");
+try { const { status, body } = await jpost("/api/image", { action: "generate", business: "Acme", headline: "Fresh Fridays", variants: 2 });
+  const v = body.variants || [];
+  const hosted = /^https?:\/\//.test(v[0]?.imageUrl || "");
+  const dataUri = (v[0]?.imageUrl || "").startsWith("data:");
+  // Without Storage/OpenAI (this env) it MUST be an honest inline preview, never
+  // a hosted claim. With creds set the same path returns a hosted PNG URL.
+  const honest = hosted ? true : (dataUri && /preview/i.test((v[0]?.notes || [])[0] || ""));
+  if (status === 200 && v.length === 2 && honest) ok(`Image render (${v.length} variants, ${hosted ? "hosted PNG" : "honest inline preview"}, brand-safe)`);
+  else bad("Image render", `HTTP ${status}, hosted ${hosted}, note ${(v[0]?.notes||[])[0]}`);
+} catch (e) { bad("Image render", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

@@ -7,6 +7,10 @@ import { DEFAULT_CREATIVE_OPTIONS, IMAGE_PROVIDERS, type CreativeOptions, type I
 // POST { action: "estimate", ... } → cost/ACU estimate before generation
 // POST { action: "theme", business?, detectedColours? } → 6-colour brand theme
 // GET → provider hierarchy + status (which providers are live vs demo)
+//
+// Node runtime: live rendering uses sharp (raster composite) + firebase-admin
+// (Storage upload), both of which require Node — not the edge runtime.
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};

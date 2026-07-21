@@ -50,7 +50,16 @@ env:
   # - variable: NEXT_PUBLIC_FIREBASE_API_KEY
   #   secret: firebase-web-api-key
   #   availability: [BUILD, RUNTIME]
-  # Server secrets (RUNTIME only) — create in Secret Manager, then uncomment:
+  # Storage bucket (RUNTIME) — where live-rendered creatives are uploaded so
+  # they get a hosted URL that can attach to social posts. Non-secret.
+  - variable: FIREBASE_STORAGE_BUCKET
+    value: studio-1718252475-c6017.firebasestorage.app
+    availability: [RUNTIME]
+  # Server secrets (RUNTIME only) — create in Secret Manager, then uncomment.
+  # Firebase Admin (below) also unlocks LIVE IMAGE RENDERING: with these +
+  # OPENAI_API_KEY, Brand Studio creatives render to a hosted PNG (photoreal AI
+  # background + exact brand text/logo) instead of an inline preview, so they
+  # can attach to published posts.
   # - variable: FIREBASE_CLIENT_EMAIL
   #   value: firebase-adminsdk-fbsvc@studio-1718252475-c6017.iam.gserviceaccount.com
   #   availability: [RUNTIME]

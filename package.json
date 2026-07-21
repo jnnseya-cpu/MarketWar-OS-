@@ -2,7 +2,7 @@
   "name": "marketwar-os",
   "version": "0.1.0",
   "private": true,
-  "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
+  "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -20,7 +20,8 @@
     "lucide-react": "^0.469.0",
     "next": "^14.2.21",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^20",

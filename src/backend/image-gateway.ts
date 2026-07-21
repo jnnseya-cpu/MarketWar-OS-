@@ -23,6 +23,7 @@ if (typeof window !== "undefined") {
 // - Never generic: every creative uses the uploaded assets or the logo colour
 //   theme, so output is always on-brand (spec "Best final rule").
 
+import sharp from "sharp";
 import {
   IMAGE_PROVIDERS, IMAGE_MARGIN_MULTIPLIER, IMAGE_MARGIN_FLOOR, ACU_PER_GBP, USD_TO_GBP,
   FORMAT_DIMENSIONS,
@@ -30,6 +31,7 @@ import {
   type ImageGenerationRequest, type ImageResult, type ImageRoutingFactors,
   type ImageCostEstimate, type BrandTheme, type ImageQuality, type CreativeOptions,
 } from "@/shared/creative";
+import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 
 // ---------------------------------------------------------------------------
 // Brand colour extraction — the 6-colour theme (spec "Brand Colour Extraction")
@@ -188,7 +190,16 @@ function logoBox(pos: CreativeOptions["logoPosition"], w: number, h: number) {
   }
 }
 
-export function composeBrandSafeSVG(req: ImageGenerationRequest, theme: BrandTheme, variantIndex: number): string {
+// Raw brand-safe SVG string. `overlayOnly` renders text/logo over a TRANSPARENT
+// background (used to composite exactly-rendered copy on top of an AI-generated
+// scene — the model never spells text or draws the logo). Default draws the
+// brand-gradient background too (the standalone demo creative).
+export function brandSafeSvgString(
+  req: ImageGenerationRequest,
+  theme: BrandTheme,
+  variantIndex: number,
+  overlayOnly = false,
+): string {
   const dim = FORMAT_DIMENSIONS[req.options.platformFormat];
   const { w, h } = dim;
   const o = req.options;
@@ -204,9 +215,12 @@ export function composeBrandSafeSVG(req: ImageGenerationRequest, theme: BrandThe
   const parts: string[] = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`);
   parts.push(`<defs>${bg}</defs>`);
-  parts.push(`<rect width="${w}" height="${h}" fill="url(#bg)"/>`);
-  // subtle depth overlay for readability
-  parts.push(`<rect width="${w}" height="${h}" fill="#000000" opacity="0.28"/>`);
+  if (!overlayOnly) {
+    parts.push(`<rect width="${w}" height="${h}" fill="url(#bg)"/>`);
+  }
+  // subtle depth overlay for readability (kept in overlay mode too — a scrim
+  // behind the copy so text stays legible over any AI scene).
+  parts.push(`<rect width="${w}" height="${h}" fill="#000000" opacity="${overlayOnly ? 0.22 : 0.28}"/>`);
   // headline (exact spelling, wrapped simply)
   const lines = wrap(headline, Math.floor(w / (fontH * 0.55)));
   const startY = Math.round(h * 0.5) - (lines.length - 1) * fontH * 0.6;
@@ -232,7 +246,13 @@ export function composeBrandSafeSVG(req: ImageGenerationRequest, theme: BrandThe
     parts.push(`<text x="${lb.x + lb.bw / 2}" y="${lb.y + lb.bh * 0.62}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.round(lb.bh * 0.32)}" font-weight="800" fill="${theme.primary}">${xml((req.business || "LOGO").slice(0, 14))}</text>`);
   }
   parts.push(`</svg>`);
-  return `data:image/svg+xml,${encodeURIComponent(parts.join(""))}`;
+  return parts.join("");
+}
+
+// Standalone demo creative as a data: URI (inline preview — not postable to
+// socials; the live path below produces a hosted PNG that IS postable).
+export function composeBrandSafeSVG(req: ImageGenerationRequest, theme: BrandTheme, variantIndex: number): string {
+  return `data:image/svg+xml,${encodeURIComponent(brandSafeSvgString(req, theme, variantIndex, false))}`;
 }
 
 function wrap(text: string, perLine: number): string[] {
@@ -262,6 +282,61 @@ export function factorsFromRequest(req: ImageGenerationRequest): ImageRoutingFac
   };
 }
 
+// OpenAI GPT Image — generate a TEXT/LOGO-FREE brand scene we then overlay copy
+// on (brand-safety: the model never spells text or draws the logo). Returns the
+// raw image bytes, or null on any failure (caller falls back to the composer).
+async function openaiBackground(req: ImageGenerationRequest, theme: BrandTheme, size: string): Promise<Buffer | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+  const subject = req.business || "a premium brand";
+  const prompt = `Professional advertising background scene for "${subject}". Brand palette ${theme.primary} and ${theme.accent}. Photographic, premium, high detail, clean composition with generous negative space. Absolutely NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks — leave clear space for copy that will be overlaid separately.`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 60_000);
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST", signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, prompt, size, n: 1 }),
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const b64 = data?.data?.[0]?.b64_json;
+    if (typeof b64 === "string") return Buffer.from(b64, "base64");
+    const url = data?.data?.[0]?.url;
+    if (typeof url === "string") { const img = await fetch(url); return Buffer.from(await img.arrayBuffer()); }
+    return null;
+  } catch { return null; }
+}
+
+// OpenAI image sizes are constrained — map the requested format to the nearest.
+function openaiSize(w: number, h: number): "1024x1024" | "1024x1536" | "1536x1024" {
+  const r = w / h;
+  return r > 1.2 ? "1536x1024" : r < 0.83 ? "1024x1536" : "1024x1024";
+}
+
+// Rasterize the brand-safe creative to a HOSTED PNG (so it can attach to a post).
+// With an AI background, composite the exact copy/logo over it; otherwise
+// rasterize the full brand composer. Returns the hosted URL, or null.
+async function renderAndUpload(req: ImageGenerationRequest, theme: BrandTheme, i: number, aiBg: Buffer | null): Promise<string | null> {
+  try {
+    const dim = FORMAT_DIMENSIONS[req.options.platformFormat];
+    let png: Buffer;
+    if (aiBg) {
+      const overlay = Buffer.from(brandSafeSvgString(req, theme, i, true));
+      png = await sharp(aiBg).resize(dim.w, dim.h, { fit: "cover" }).composite([{ input: overlay }]).png().toBuffer();
+    } else {
+      png = await sharp(Buffer.from(brandSafeSvgString(req, theme, i, false))).png().toBuffer();
+    }
+    const slug = (req.business || "brand").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32);
+    return await uploadPublicMedia(png, {
+      contentType: "image/png", ext: "png", keyPrefix: `creatives/${slug}`,
+      nameSeed: `${req.business}|${req.headline}|${req.offerText}|${req.options.platformFormat}|${i}|${aiBg ? "ai" : "svg"}`,
+    });
+  } catch { return null; }
+}
+
 export async function generateImage(req: ImageGenerationRequest): Promise<ImageResult[]> {
   const dim = FORMAT_DIMENSIONS[req.options.platformFormat];
   const theme = req.brandTheme
@@ -270,36 +345,34 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
       business: req.business,
     });
   const variants = Math.max(1, Math.min(req.variants || 3, 6));
-  const factors = factorsFromRequest(req);
-  const order = routeImageProviders(factors);
-  const attempts: { provider: ImageProviderId; error: string }[] = [];
-
-  // Try each configured live provider once; on total failure use the Demo
-  // Composer, which always succeeds and is fully brand-safe.
-  let liveProvider: ImageAdapter | null = null;
-  for (const id of order) {
-    const a = ADAPTERS.find((x) => x.meta.id === id);
-    if (a && a.configured()) { liveProvider = a; break; }
-  }
+  const dimForSize = FORMAT_DIMENSIONS[req.options.platformFormat];
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  const hasStorage = storageConfigured();
 
   const results: ImageResult[] = [];
   for (let i = 0; i < variants; i++) {
-    const svg = composeBrandSafeSVG(req, theme, i);
-    let imageUrl = svg;
+    const attempts: { provider: ImageProviderId; error: string }[] = [];
+    // Preview fallback — an inline data: URI (NOT postable to socials).
+    let imageUrl = composeBrandSafeSVG(req, theme, i);
     let mode: "live" | "demo" = "demo";
     let providerId: ImageProviderId = "demo";
     let model = "svg-brand-composer";
+    let hosted = false;
 
-    if (liveProvider) {
-      try {
-        // Live: model generates the background scene, then we composite the
-        // exact logo + text on top (brand-safe). Here the REST call is stubbed
-        // to fail-over cleanly; go-live wires the vendor endpoint.
-        const bgUrl = await liveProvider.generateLive(req, theme);
-        imageUrl = bgUrl; mode = "live"; providerId = liveProvider.meta.id; model = liveProvider.meta.model;
-      } catch (e) {
-        attempts.push({ provider: liveProvider.meta.id, error: e instanceof Error ? e.message : String(e) });
-      }
+    // Live photoreal: OpenAI generates a text/logo-free scene; we composite the
+    // exact copy/logo on top (brand-safe). Failure falls back to the composer.
+    let aiBg: Buffer | null = null;
+    if (hasOpenAI) {
+      aiBg = await openaiBackground(req, theme, openaiSize(dimForSize.w, dimForSize.h));
+      if (aiBg) { mode = "live"; providerId = "gpt-image-2"; model = "gpt-image-1 + brand composite"; }
+      else attempts.push({ provider: "gpt-image-2", error: "live image call failed — used the brand composer" });
+    }
+
+    // Hosted, postable PNG when Storage is configured (with or without an AI bg).
+    if (hasStorage) {
+      const url = await renderAndUpload(req, theme, i, aiBg);
+      if (url) { imageUrl = url; hosted = true; }
+      else attempts.push({ provider: "demo", error: "storage upload failed — served inline preview" });
     }
 
     const meta = IMAGE_PROVIDERS.find((p) => p.id === providerId) ?? IMAGE_PROVIDERS.find((p) => p.id === "demo")!;
@@ -311,7 +384,9 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
       variantIndex: i,
       cost: estimateImageCost(meta.id === "demo" ? (IMAGE_PROVIDERS.find((p) => p.id === "gemini-nano-banana-2")!) : meta, req),
       notes: [
-        mode === "demo" ? "Demo Composer — zero-config brand-safe SVG. Live providers activate with API keys." : `Generated via ${meta.label}, brand-safe composited.`,
+        hosted
+          ? (mode === "live" ? `Hosted PNG via ${meta.label} + brand composite — attachable to posts.` : "Hosted brand-safe PNG — attachable to posts.")
+          : "Inline preview (brand-safe SVG) — attaches to posts once Firebase Storage / live rendering is configured.",
         `Logo ${req.options.useLogo ? `overlaid (${req.options.logoPosition}) — original asset, never redrawn` : "off"}; text rendered exactly.`,
         `Theme ${theme.source === "logo" ? "extracted from logo" : "derived from brand identity"}.`,
       ],
