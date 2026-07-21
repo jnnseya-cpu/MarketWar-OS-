@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSubscriptionCheckout } from "@/backend/checkout";
 import { PLANS, planEconomics } from "@/backend/subscription";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
 // Choose-a-plan checkout — POST { planId, cycle: "monthly"|"annual" }.
 // Free → no checkout (activate immediately). Paid → a Stripe subscription
@@ -11,6 +11,9 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "subscribe"), 60, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }

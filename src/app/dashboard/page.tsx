@@ -12,6 +12,7 @@ import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { AlertTriangle, ArrowRight, Banknote, Building2, Crosshair, Hammer, Lightbulb, ListChecks, Target, Wallet, Zap } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
+import { authedFetch } from "@/frontend/api-client";
 
 // Local mirror of the backend CommandBriefing shape (the engine is server-only,
 // layer-guarded) — the page consumes it via /api/command-summary.
@@ -40,7 +41,7 @@ export default function CommandCenterPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/command-summary", {
+        const res = await authedFetch("/api/command-summary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ business: activeBrand.name, summary }),

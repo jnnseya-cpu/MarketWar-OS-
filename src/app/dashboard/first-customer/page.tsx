@@ -12,6 +12,7 @@ import Link from "next/link";
 import { Building2, BadgePercent, Users, MessageCircle, Link2, Loader2, Copy, Check, Rocket, ArrowRight, Send } from "lucide-react";
 import { AgentMarkdown, PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults } from "@/shared/brand";
 
 type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; note: string; error?: string };
@@ -79,7 +80,7 @@ export default function FirstCustomerPage() {
     setBusy("checkout");
     try {
       const amt = Number(form.amount) || Number((form.price.match(/[\d.]+/) || [])[0]) || 25;
-      const res = await fetch("/api/checkout", {
+      const res = await authedFetch("/api/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId: activeBrand.id, source: "First Customer — direct outreach", amountGbp: amt, productName: form.product || "First order" }),
       });

@@ -10,6 +10,7 @@ import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck,
 import { PageHeader, Pill } from "@/components/ui";
 import DeleteAccount from "@/components/DeleteAccount";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type AutonomyCapability = {
   name: string;
@@ -55,7 +56,7 @@ export default function SettingsPage() {
     setSaveState("loading");
     (async () => {
       try {
-        const res = await fetch(`/api/settings?key=${encodeURIComponent(settingsKey)}`);
+        const res = await authedFetch(`/api/settings?key=${encodeURIComponent(settingsKey)}`);
         const data = await res.json();
         const saved: Record<string, number> | undefined = data?.settings?.autonomy;
         if (!cancelled) {
@@ -80,7 +81,7 @@ export default function SettingsPage() {
     const autonomy: Record<string, number> = {};
     for (const c of next) autonomy[c.name] = c.level;
     try {
-      const res = await fetch("/api/settings", {
+      const res = await authedFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: settingsKey, autonomy }),

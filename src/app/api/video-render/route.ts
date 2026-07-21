@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startVideoRender, getVideoRender, videoGatewayStatus } from "@/backend/video-gateway";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Video Render Gateway API (async — start then poll).
 //   GET  → status (configured provider, async note)
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
       const brandId = typeof body.brandId === "string" ? body.brandId : "";
       const prompt = typeof body.prompt === "string" ? body.prompt : "";
       if (!brandId.trim()) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+      const access = await resolveBrandAccess(req, brandId);
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
       if (!prompt.trim()) return NextResponse.json({ error: "prompt is required" }, { status: 400 });
       return NextResponse.json(await startVideoRender({ brandId, prompt }));
     }

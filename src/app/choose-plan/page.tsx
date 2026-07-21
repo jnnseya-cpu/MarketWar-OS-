@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2, Shield, Sparkles } from "lucide-react";
+import { authedFetch } from "@/frontend/api-client";
 
 type Plan = {
   id: string; name: string; monthlyGbp: number; annualGbp: number; annualSavingGbp: number;
@@ -37,7 +38,7 @@ export default function ChoosePlanPage() {
   async function choose(p: Plan) {
     setBusy(p.id); setMsg(null);
     try {
-      const res = await fetch("/api/billing/subscribe", {
+      const res = await authedFetch("/api/billing/subscribe", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId: p.id, cycle }),
       });

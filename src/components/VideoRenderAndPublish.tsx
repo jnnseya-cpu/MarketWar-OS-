@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { Clapperboard, Loader2, Clock, AlertTriangle } from "lucide-react";
 import PublishToChannels from "@/components/PublishToChannels";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type VideoJob = {
   jobId: string; status: "queued" | "rendering" | "ready" | "failed" | "demo";
@@ -29,7 +30,7 @@ export default function VideoRenderAndPublish() {
     if (!activeBrand || !prompt.trim()) return;
     setBusy(true); setJob(null);
     try {
-      const r = await fetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt }) });
+      const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt }) });
       const j = (await r.json()) as VideoJob;
       setJob(j);
       if (j.status === "rendering") poll(j.jobId);
@@ -39,7 +40,7 @@ export default function VideoRenderAndPublish() {
   function poll(jobId: string) {
     timer.current = setTimeout(async () => {
       try {
-        const r = await fetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "status", jobId }) });
+        const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "status", jobId }) });
         const j = (await r.json()) as VideoJob;
         setJob(j);
         if (j.status === "rendering") poll(jobId);

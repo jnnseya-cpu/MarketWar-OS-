@@ -13,6 +13,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { Building2, PlusCircle, Trash2, Wallet, Link2, Copy, Check, Loader2, TrendingUp } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
+import { authedFetch } from "@/frontend/api-client";
 import type { ResultType } from "@/shared/results";
 
 type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; metadata: { marketwar_brand_id: string; marketwar_source: string }; note: string; error?: string };
@@ -35,7 +36,7 @@ export default function RevenuePage() {
   // Keyed on stable primitives (not the summary object) to avoid a render loop.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/forecast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary }) })
+    authedFetch("/api/forecast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary }) })
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setForecast(d as RevenueForecast); })
       .catch(() => {});
@@ -66,7 +67,7 @@ export default function RevenuePage() {
     if (!co.product.trim() || !(Number(co.amount) > 0)) return;
     setCoBusy(true); setCoResult(null); setCopied(false);
     try {
-      const res = await fetch("/api/checkout", {
+      const res = await authedFetch("/api/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId: activeBrand!.id, source: co.source.trim() || "Checkout link", amountGbp: Number(co.amount), productName: co.product }),
       });

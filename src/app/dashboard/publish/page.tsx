@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Building2, Check, Copy, Link2, Loader2, Send, ShieldCheck, Clock } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Platform = { id: string; label: string };
 type Status = { configured: boolean; whiteLabel: boolean; platforms: Platform[]; billing: string; userAction: string; note: string };
@@ -38,7 +39,7 @@ export default function PublishCenterPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/zernio").then((r) => r.json()).then(setStatus).catch(() => {});
+    authedFetch("/api/zernio").then((r) => r.json()).then(setStatus).catch(() => {});
   }, []);
   // Reset per-brand state when the active brand changes.
   useEffect(() => { setLink(null); setResult(null); }, [activeBrand?.id]);
@@ -49,7 +50,7 @@ export default function PublishCenterPage() {
     if (!activeBrand) return;
     setLinkBusy(true); setCopied(false);
     try {
-      const r = await fetch("/api/zernio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", brandId: activeBrand.id, brandName: activeBrand.name }) });
+      const r = await authedFetch("/api/zernio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", brandId: activeBrand.id, brandName: activeBrand.name }) });
       setLink(await r.json());
     } finally { setLinkBusy(false); }
   }
@@ -58,7 +59,7 @@ export default function PublishCenterPage() {
     if (!activeBrand || !text.trim() || selected.size === 0) return;
     setBusy(true); setResult(null);
     try {
-      const r = await fetch("/api/zernio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish", brandId: activeBrand.id, text, platforms: [...selected], scheduleAt: scheduleAt || undefined }) });
+      const r = await authedFetch("/api/zernio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish", brandId: activeBrand.id, text, platforms: [...selected], scheduleAt: scheduleAt || undefined }) });
       setResult(await r.json());
     } finally { setBusy(false); }
   }

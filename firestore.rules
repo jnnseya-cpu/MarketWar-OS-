@@ -34,6 +34,24 @@ service cloud.firestore {
         && resource.data.ownerId == request.auth.uid;
     }
 
+    // brands (multi-tenant isolation): the ownership record claimed on first use
+    // by src/backend/brand-access.ts. The owner may READ their own brand record;
+    // ALL writes (claim, transfer) go through the Admin SDK server-side so a
+    // client can never re-assign ownership. This is the database-level backstop
+    // to the server guard — even a direct client request cannot read another
+    // brand's ownership record or forge a claim.
+    match /brands/{brandId} {
+      allow read: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+      allow write: if false;
+    }
+    // Per-brand settings are written AND read only through the Admin SDK (the
+    // /api/settings route, which now enforces brand ownership). No direct client
+    // access. (The results ledger is likewise server-only — see /results below.)
+    match /settings/{doc} {
+      allow read, write: if false;
+    }
+
     // Server-written analytics/logs: clients may never read or write.
     match /audits/{doc} {
       allow read, write: if false;

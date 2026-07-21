@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2, Wallet, Zap, TrendingUp, Star } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import { authedFetch } from "@/frontend/api-client";
 
 type PlanEconomics = {
   id: string; name: string; monthlyGbp: number; annualGbp: number; annualSavingGbp: number;
@@ -55,7 +56,7 @@ export default function BillingPage() {
   async function buyTopup(gbp: number, acus: number) {
     setBuying(gbp); setCheckout(null);
     try {
-      const res = await fetch("/api/billing/topup", {
+      const res = await authedFetch("/api/billing/topup", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amountGbp: gbp, acus }),
       });

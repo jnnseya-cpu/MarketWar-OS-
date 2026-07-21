@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordEvent, listEvents, deleteEvent, brandSummary } from "@/backend/ledger";
 import { summarize, type ResultType, type RevenueEvent } from "@/shared/results";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Per-brand results API — the money ledger.
 // GET  ?brandId=…                → { events, summary }
@@ -24,6 +25,8 @@ function makeId(): string {
 export async function GET(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";
   if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+  const access = await resolveBrandAccess(req, brandId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   try {
     const events = await listEvents(brandId);
     return NextResponse.json({ events, summary: summarize(events) });
@@ -45,6 +48,8 @@ export async function POST(req: NextRequest) {
   const type = TYPES.includes(body.type as ResultType) ? (body.type as ResultType) : "lead";
   const source = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "Untagged";
   if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+  const access = await resolveBrandAccess(req, brandId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   const amountGbp = type === "lead" ? 0 : Math.max(0, Number(body.amountGbp) || 0);
   const at = typeof body.at === "string" && body.at ? body.at : new Date().toISOString();
@@ -60,6 +65,8 @@ export async function DELETE(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";
   const id = req.nextUrl.searchParams.get("id") || "";
   if (!brandId || !id) return NextResponse.json({ error: "brandId and id are required" }, { status: 400 });
+  const access = await resolveBrandAccess(req, brandId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   await deleteEvent(brandId, id);
   return NextResponse.json({ ok: true, summary: await brandSummary(brandId) });
 }

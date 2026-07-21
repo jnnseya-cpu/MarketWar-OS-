@@ -9,6 +9,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { type RevenueEvent, type ResultType, type ResultsSummary, summarize } from "@/shared/results";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type LogInput = { type: ResultType; source: string; amountGbp: number; note?: string; at?: string };
 
@@ -47,7 +48,7 @@ export function ResultsProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async (id: string | null) => {
     if (!id) { setEvents([]); setReady(true); return; }
     try {
-      const res = await fetch(`/api/results?brandId=${encodeURIComponent(id)}`);
+      const res = await authedFetch(`/api/results?brandId=${encodeURIComponent(id)}`);
       const data = await res.json();
       setEvents(Array.isArray(data.events) ? data.events : []);
     } catch {
@@ -75,7 +76,7 @@ export function ResultsProvider({ children }: { children: ReactNode }) {
       };
       setEvents((prev) => [event, ...prev]); // optimistic
       try {
-        await fetch("/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(event) });
+        await authedFetch("/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(event) });
       } catch {
         load(brandId); // reconcile on failure
       }
@@ -84,7 +85,7 @@ export function ResultsProvider({ children }: { children: ReactNode }) {
       if (!brandId) return;
       setEvents((prev) => prev.filter((e) => e.id !== id)); // optimistic
       try {
-        await fetch(`/api/results?brandId=${encodeURIComponent(brandId)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        await authedFetch(`/api/results?brandId=${encodeURIComponent(brandId)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
       } catch {
         load(brandId);
       }

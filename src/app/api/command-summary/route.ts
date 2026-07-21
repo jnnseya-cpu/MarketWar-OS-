@@ -3,6 +3,7 @@ import { commandBriefing } from "@/backend/command-summary";
 import { summarize, type RevenueEvent } from "@/shared/results";
 import { brandSummary } from "@/backend/ledger";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Command-Centre Briefing API.
 // Turns a brand's REAL results-ledger summary into a prioritised "what to do
@@ -25,11 +26,17 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
   const business = typeof body.business === "string" ? body.business : "Your brand";
+  const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+  // The brandId branch reads a brand's real ledger — verify ownership first.
+  if (brandId) {
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  }
 
   try {
     // 1) Load the brand's real ledger summary if a brandId is supplied.
-    if (typeof body.brandId === "string" && body.brandId.trim()) {
-      const summary = await brandSummary(body.brandId.trim());
+    if (brandId) {
+      const summary = await brandSummary(brandId);
       return NextResponse.json(commandBriefing(business, summary));
     }
 

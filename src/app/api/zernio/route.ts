@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createConnectLink, listProfiles, publishPost, seatQuote, zernioStatus } from "@/backend/zernio";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Publish Gateway API (Zernio, platform-managed).
 //   GET  → status (platforms, configured, billing model)
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
     if (action === "connect") {
       const brandId = typeof body.brandId === "string" ? body.brandId : "";
       if (!brandId.trim()) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+      const access = await resolveBrandAccess(req, brandId);
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
       return NextResponse.json(await createConnectLink({ brandId, brandName: typeof body.brandName === "string" ? body.brandName : undefined }));
     }
     if (action === "profiles") {
@@ -37,6 +40,8 @@ export async function POST(req: NextRequest) {
       const text = typeof body.text === "string" ? body.text : "";
       const platforms = Array.isArray(body.platforms) ? (body.platforms as unknown[]).filter((p): p is string => typeof p === "string") : [];
       if (!brandId.trim()) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+      const access = await resolveBrandAccess(req, brandId);
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
       return NextResponse.json(await publishPost({
         brandId, text, platforms,
         profileId: typeof body.profileId === "string" ? body.profileId : undefined,

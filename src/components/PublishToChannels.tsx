@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Loader2, Send, ShieldCheck } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type PublishResult = {
   mode: "live" | "demo";
@@ -65,7 +66,7 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
     if (!activeBrand || !text.trim() || selected.size === 0) return;
     setBusy(true); setResult(null);
     try {
-      const r = await fetch("/api/zernio", {
+      const r = await authedFetch("/api/zernio", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "publish", brandId: activeBrand.id, text, platforms: [...selected], mediaUrls: media }),
       });

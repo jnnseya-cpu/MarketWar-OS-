@@ -3,6 +3,7 @@ import { forecastRevenue } from "@/backend/forecast";
 import { summarize, type RevenueEvent } from "@/shared/results";
 import { brandSummary } from "@/backend/ledger";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Revenue Forecast API — next-30-day money computed from the REAL results ledger
 // (run-rate + open-lead upside), never an LLM narrative or a fixed figure.
@@ -19,9 +20,15 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
+  const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+  if (brandId) {
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
   try {
-    if (typeof body.brandId === "string" && body.brandId.trim()) {
-      const summary = await brandSummary(body.brandId.trim());
+    if (brandId) {
+      const summary = await brandSummary(brandId);
       return NextResponse.json(forecastRevenue(summary));
     }
     if (body.summary && typeof body.summary === "object") {

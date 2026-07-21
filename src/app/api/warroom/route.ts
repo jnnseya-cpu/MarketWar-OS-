@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildWarBoard } from "@/backend/warroom";
 import { brandSummary } from "@/backend/ledger";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Campaign War Room Engine API.
 // POST { business?, brandId? } → the live campaign board: active campaigns each
@@ -17,6 +18,10 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const business = typeof body.business === "string" ? body.business : "";
   const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+  if (brandId) {
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  }
 
   let ledger = null;
   if (brandId) {

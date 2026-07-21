@@ -13,6 +13,7 @@ import Link from "next/link";
 import { Plus, Play, Loader2, Building2, Swords } from "lucide-react";
 import { Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
+import { authedFetch } from "@/frontend/api-client";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import type { CampaignVerdict } from "@/shared/types";
@@ -56,7 +57,7 @@ export default function WarRoomPage() {
     if (!business.trim()) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/warroom", {
+      const res = await authedFetch("/api/warroom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business, brandId: activeBrand?.id }),
