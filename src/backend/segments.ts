@@ -114,6 +114,22 @@ export type SegmentationReport = {
   note: string;
 };
 
+// ---------------------------------------------------------------------------
+// Individual scored-customer rows (additive export — the Customer Vault reads
+// these directly; segment roll-ups above are unchanged). Sorted by LTV so the
+// vault's "top customers" and table share one deterministic ordering.
+// ---------------------------------------------------------------------------
+export function scoredCustomerList(business: string, customers: CustomerRecord[]): ScoredCustomer[] {
+  const base = customers.length ? customers : sampleCustomers(business);
+  return base.map(scoreCustomer).sort((a, b) => b.ltvGbp - a.ltvGbp);
+}
+
+// Human label for a segment key (additive — surfaces PLAYBOOK labels without
+// exposing the map). Falls back to the raw key prettified.
+export function segmentLabel(key: string): string {
+  return PLAYBOOK[key]?.label ?? key.replace(/_/g, " ");
+}
+
 export function segmentAudience(business: string, customers: CustomerRecord[]): SegmentationReport {
   const base = customers.length ? customers : sampleCustomers(business);
   const scored = base.map(scoreCustomer);

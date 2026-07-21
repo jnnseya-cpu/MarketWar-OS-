@@ -2053,5 +2053,40 @@ try {
   bad("GET /api/gateway", e.message);
 }
 
+console.log("\nHardening sweep — modules wired to real engines (no static/fake data):");
+const jpost = async (path, body) => {
+  const res = await fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
+};
+try { const { status, body } = await jpost("/api/segments", { business: "Acme", action: "customers" });
+  if (status === 200 && Array.isArray(body.customers) && typeof body.totalLtvGbp !== "undefined") ok(`Customer Vault (/api/segments customers → ${body.customers.length} scored contacts)`);
+  else bad("Customer Vault /api/segments customers", `HTTP ${status}`); } catch (e) { bad("Customer Vault", e.message); }
+try { const { status, body } = await jpost("/api/recovery", { business: "Acme" });
+  if (status === 200 && Array.isArray(body.cohorts) && body.cohorts.length) ok(`Lead Recovery (/api/recovery → ${body.cohorts.length} cohorts, £${body.totalRecoverableGbp ?? "?"} recoverable)`);
+  else bad("Lead Recovery /api/recovery", `HTTP ${status}`); } catch (e) { bad("Lead Recovery", e.message); }
+try { const { status, body } = await jpost("/api/whatsapp", { business: "Acme" });
+  if (status === 200 && body.funnel && body.templates) ok("WhatsApp Center (/api/whatsapp → funnel + template pipeline)");
+  else bad("WhatsApp Center /api/whatsapp", `HTTP ${status}`); } catch (e) { bad("WhatsApp Center", e.message); }
+try { const { status, body } = await jpost("/api/warroom", { business: "Acme" });
+  if (status === 200 && Array.isArray(body.campaigns)) ok(`Campaign War Room (/api/warroom → ${body.campaigns.length} campaigns, mode ${body.mode})`);
+  else bad("Campaign War Room /api/warroom", `HTTP ${status}`); } catch (e) { bad("Campaign War Room", e.message); }
+try { const { status, body } = await jpost("/api/local", { business: "Acme", location: "London" });
+  if (status === 200 && Array.isArray(body.actions)) ok("Local Domination (/api/local → map-pack + prioritized actions)");
+  else bad("Local Domination /api/local", `HTTP ${status}`); } catch (e) { bad("Local Domination", e.message); }
+try { const { status, body } = await jpost("/api/email-metrics", { business: "Acme" });
+  if (status === 200 && (body.isEstimate || body.estimateNote || body.series)) ok("Email Center (/api/email-metrics → labelled deliverability estimate)");
+  else bad("Email Center /api/email-metrics", `HTTP ${status}`); } catch (e) { bad("Email Center", e.message); }
+try { const { status, body } = await jpost("/api/budget", { business: "Acme", monthlyBudget: 2000 });
+  if (status === 200 && (body.note || body.isEstimate)) ok("Budget Protection (/api/budget → Stop/Fix/Scale protection board)");
+  else bad("Budget Protection /api/budget", `HTTP ${status}`); } catch (e) { bad("Budget Protection", e.message); }
+try { const { status, body } = await jpost("/api/command-summary", { business: "Acme", summary: { isEmpty: true, events: 0 } });
+  const partial = await jpost("/api/command-summary", { summary: { totalRevenue: 0 } }); // malformed body must NOT 500
+  if (status === 200 && body.isEmpty && Array.isArray(body.nextActions) && partial.status === 200) ok("Command Center briefing (/api/command-summary → empty-state + malformed body hardened to 200)");
+  else bad("Command Center /api/command-summary", `HTTP ${status}, partial ${partial.status}`); } catch (e) { bad("Command Center", e.message); }
+try { const res = await fetch(BASE + "/api/settings?key=smoke-key");
+  const body = await res.json();
+  if (res.status === 200 && "settings" in body) ok("Settings persistence (/api/settings GET → store reachable)");
+  else bad("Settings /api/settings", `HTTP ${res.status}`); } catch (e) { bad("Settings", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

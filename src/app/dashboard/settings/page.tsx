@@ -5,10 +5,11 @@
 // (five-layer auth model, docs/ai-os/08 §B.4a) and API keys. Demo state
 // until Firebase Auth + Firestore preferences land (users.preferences).
 
-import { useState } from "react";
-import { Bell, Fingerprint, KeyRound, Lock, Shield, ShieldCheck, Smartphone } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck, Smartphone } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import DeleteAccount from "@/components/DeleteAccount";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type AutonomyCapability = {
   name: string;
@@ -38,12 +39,74 @@ const SECURITY_LAYERS = [
   { icon: Lock, name: "End-to-end encryption", status: "active", note: "TLS 1.3 + HSTS in transit; AES-256-GCM field encryption at rest with a separate key derived per business — your contacts are never stored in plaintext" },
 ];
 
+type SaveState = "idle" | "loading" | "saving" | "saved" | "error";
+
 export default function SettingsPage() {
+  const { activeBrand } = useActiveBrand();
+  const settingsKey = activeBrand?.id || "default";
   const [caps, setCaps] = useState(DEFAULT_CAPABILITIES);
+  const [saveState, setSaveState] = useState<SaveState>("loading");
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load persisted autonomy levels for the active scope, clamped to each
+  // capability's policy ceiling. Falls back to defaults when nothing is saved.
+  useEffect(() => {
+    let cancelled = false;
+    setSaveState("loading");
+    (async () => {
+      try {
+        const res = await fetch(`/api/settings?key=${encodeURIComponent(settingsKey)}`);
+        const data = await res.json();
+        const saved: Record<string, number> | undefined = data?.settings?.autonomy;
+        if (!cancelled) {
+          if (saved && typeof saved === "object") {
+            setCaps(DEFAULT_CAPABILITIES.map((c) => (
+              typeof saved[c.name] === "number" ? { ...c, level: Math.max(0, Math.min(saved[c.name], c.max)) } : c
+            )));
+          } else {
+            setCaps(DEFAULT_CAPABILITIES);
+          }
+          setSaveState("idle");
+        }
+      } catch {
+        if (!cancelled) { setCaps(DEFAULT_CAPABILITIES); setSaveState("idle"); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [settingsKey]);
+
+  async function persist(next: AutonomyCapability[]) {
+    setSaveState("saving");
+    const autonomy: Record<string, number> = {};
+    for (const c of next) autonomy[c.name] = c.level;
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: settingsKey, autonomy }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      setSaveState("saved");
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaveState("idle"), 2000);
+    } catch {
+      setSaveState("error");
+    }
+  }
 
   function setLevel(i: number, level: number) {
-    setCaps((prev) => prev.map((c, idx) => (idx === i ? { ...c, level: Math.min(level, c.max) } : c)));
+    const next = caps.map((c, idx) => (idx === i ? { ...c, level: Math.min(level, c.max) } : c));
+    setCaps(next);        // optimistic UI
+    void persist(next);   // persisted server-side
   }
+
+  const saveBadge = {
+    loading: <Pill tone="neutral"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</Pill>,
+    saving: <Pill tone="info"><Loader2 className="h-3 w-3 animate-spin" /> Saving…</Pill>,
+    saved: <Pill tone="good"><Check className="h-3 w-3" /> Saved</Pill>,
+    error: <Pill tone="bad">Save failed — retry</Pill>,
+    idle: <Pill tone="neutral">Autonomy persisted</Pill>,
+  }[saveState];
 
   return (
     <div>
@@ -55,9 +118,12 @@ export default function SettingsPage() {
 
       {/* Autonomy dial */}
       <div className="mb-8 card p-5">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display font-bold text-white">Autonomy dial — per capability</h2>
-          <Pill tone="info">L3 requires TOTP enrolment</Pill>
+          <div className="flex items-center gap-2">
+            {saveBadge}
+            <Pill tone="info">L3 requires TOTP enrolment</Pill>
+          </div>
         </div>
         <div className="space-y-4">
           {caps.map((c, i) => (

@@ -10,9 +10,9 @@ import { Plug, ShieldCheck, Hand, Building2, Sparkles, MousePointerClick } from 
 import { PageHeader, Pill } from "@/components/ui";
 
 type Integration = {
-  provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: string; manualFallback: string[];
+  provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: "connected" | "disconnected"; manualFallback: string[];
   provisioning: "platform" | "user_connect" | "manual_only"; billing: "included" | "acu_metered" | "user_billed_direct";
-  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; userStatus: "ready" | "connect" | "manual"; pool?: string;
+  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; adminConfigured: boolean; userStatus: "ready" | "connect" | "manual"; pool?: string;
 };
 type Data = {
   integrations: Integration[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; note: string;
@@ -116,7 +116,15 @@ export default function IntegrationsPage() {
                         <div className="flex flex-col items-end gap-1.5">
                           <div className="flex items-center gap-2">
                             {i.userStatus === "ready" ? (
-                              <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Ready — nothing to set up</Pill>
+                              i.adminConfigured ? (
+                                <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Live · managed for you</Pill>
+                              ) : (
+                                // Honest: the managed model needs no keys from the tenant, but the
+                                // pool is not live in THIS environment yet — never show it as connected.
+                                <Pill tone="info"><Sparkles className="mr-1 inline h-3 w-3" />Managed · activates when enabled</Pill>
+                              )
+                            ) : i.status === "connected" ? (
+                              <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Connected</Pill>
                             ) : (
                               <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
                                 <MousePointerClick className="h-3 w-3" /> Connect

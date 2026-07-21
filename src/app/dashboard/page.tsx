@@ -6,16 +6,54 @@
 // has real activity. Switch brand in the sidebar to see that brand's numbers.
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { AreaChart, DonutChart } from "@/components/charts";
-import { PageHeader, StatCard } from "@/components/ui";
-import { ArrowRight, Building2, Crosshair, Hammer, Target, Wallet, Zap } from "lucide-react";
+import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { AlertTriangle, ArrowRight, Building2, Crosshair, Hammer, Lightbulb, ListChecks, Target, Wallet, Zap } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
+
+// Local mirror of the backend CommandBriefing shape (the engine is server-only,
+// layer-guarded) — the page consumes it via /api/command-summary.
+type BriefItem = { title: string; detail: string; priority: number; metric?: string; href?: string; cta?: string };
+type CommandBriefing = {
+  business: string;
+  isEmpty: boolean;
+  headline: string;
+  opportunities: BriefItem[];
+  risks: BriefItem[];
+  nextActions: BriefItem[];
+  note: string;
+};
 
 export default function CommandCenterPage() {
   const { activeBrand } = useActiveBrand();
   const { events, summary } = useResults();
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+
+  // Generative briefing — computed by the command-summary engine from THIS
+  // brand's real ledger summary. Re-derives whenever the money moves.
+  const [briefing, setBriefing] = useState<CommandBriefing | null>(null);
+  const summaryKey = `${summary.events}|${summary.revenueGbp}|${summary.orders}|${summary.leads}`;
+  useEffect(() => {
+    if (!activeBrand) { setBriefing(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/command-summary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ business: activeBrand.name, summary }),
+        });
+        const data = (await res.json()) as CommandBriefing;
+        if (!cancelled) setBriefing(data);
+      } catch {
+        if (!cancelled) setBriefing(null);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id, activeBrand?.name, summaryKey]);
 
   if (!activeBrand) {
     return (
@@ -45,6 +83,82 @@ export default function CommandCenterPage() {
         <StatCard label="Leads" value={`${summary.leads}`} tone={summary.leads > 0 ? "good" : "neutral"} />
         <StatCard label="Avg order value" value={summary.orders > 0 ? money(summary.avgOrderGbp) : "—"} />
       </div>
+
+      {/* Generative command briefing — computed from the real ledger, not fabricated */}
+      {briefing && (
+        <div className="mt-8 card border-emerald-500/25 p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-emerald-400" />
+              <h2 className="font-display font-bold text-white">What to do next</h2>
+            </div>
+            <Pill tone="info">computed from your ledger</Pill>
+          </div>
+          <p className="mb-4 text-sm text-slate-300">{briefing.headline}</p>
+
+          {briefing.isEmpty ? (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {briefing.nextActions.map((a) => (
+                <Link key={a.title} href={a.href ?? "/dashboard"} className="rounded-lg border border-ink-700 bg-ink-850 p-3.5 transition hover:border-emerald-500/50">
+                  <p className="text-sm font-semibold text-white">{a.title}</p>
+                  <p className="mt-1 text-xs text-slate-500">{a.detail}</p>
+                  {a.cta && <span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-emerald-400">{a.cta} <ArrowRight className="h-3 w-3" /></span>}
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-3">
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400"><Lightbulb className="h-3.5 w-3.5" /> Opportunities</div>
+                <div className="space-y-2">
+                  {briefing.opportunities.length === 0 && <p className="text-xs text-slate-500">No standout opportunities yet — keep logging results.</p>}
+                  {briefing.opportunities.map((o) => (
+                    <div key={o.title} className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-white">{o.title}</p>
+                        <Pill tone="good">P{o.priority}</Pill>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{o.detail}</p>
+                      {o.metric && <p className="mt-1 text-[11px] font-semibold text-emerald-300">{o.metric}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-400"><AlertTriangle className="h-3.5 w-3.5" /> At risk</div>
+                <div className="space-y-2">
+                  {briefing.risks.length === 0 && <p className="text-xs text-slate-500">No structural risks flagged in the ledger.</p>}
+                  {briefing.risks.map((r) => (
+                    <div key={r.title} className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-white">{r.title}</p>
+                        <Pill tone="warn">P{r.priority}</Pill>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{r.detail}</p>
+                      {r.metric && <p className="mt-1 text-[11px] font-semibold text-amber-300">{r.metric}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-sky-400"><ListChecks className="h-3.5 w-3.5" /> Next actions</div>
+                <div className="space-y-2">
+                  {briefing.nextActions.map((a, i) => (
+                    <Link key={a.title} href={a.href ?? "/dashboard"} className="flex items-start gap-2 rounded-lg border border-ink-700 bg-ink-850 p-3 transition hover:border-emerald-500/50">
+                      <span className="mt-0.5 font-display text-sm font-bold text-emerald-400">{i + 1}.</span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-white">{a.cta ?? a.title}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500">{a.title}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <p className="mt-4 text-xs text-slate-500">{briefing.note}</p>
+        </div>
+      )}
 
       {summary.isEmpty ? (
         <div className="mt-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-6">

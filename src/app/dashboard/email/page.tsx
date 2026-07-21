@@ -5,8 +5,9 @@
 // facade are live in src/backend/email.ts (/api/email); provider pool,
 // webhook feedback loops and warm-up automation land at P1.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Building2,
   Filter,
   Flame,
   Inbox,
@@ -20,6 +21,28 @@ import {
 import AgentRunner from "@/components/AgentRunner";
 import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
+
+// Headline deliverability posture is COMPUTED per brand by the Email
+// Deliverability Posture Engine (/api/email-metrics) — every figure is a
+// clearly-labelled ESTIMATE / projection, never booked send history. Real
+// provider telemetry replaces the estimates in place once sends go live.
+type Posture = {
+  business: string;
+  listSize: number;
+  composition: { label: string; count: number; kind: "healthy" | "filtered" }[];
+  sendableCount: number;
+  filteredCount: number;
+  listHealthPct: number;
+  projectedInboxRatePct: number;
+  projectedSpamRatePct: number;
+  projectedBounceRatePct: number;
+  projectedComplaintRatePct: number;
+  days: number;
+  series: { label: string; delivered: number; filtered: number }[];
+  estimateNote: string;
+  isEstimate: true;
+};
 
 const PIPELINE = [
   { icon: ListChecks, title: "1 · Syntax & domain", desc: "RFC-valid address, real domain with MX records — dead addresses never reach a provider." },
@@ -34,13 +57,9 @@ const CAPABILITIES = [
   { icon: MailCheck, title: "Zero-bounce doctrine", desc: "Bounces are prevented before send (hygiene pipeline) and never repeated (suppression ledger). Target bounce rate < 0.5% — 6× inside the Gmail/Yahoo bulk-sender threshold." },
 ];
 
-const DELIVERY_14D = {
-  labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-  delivered: [120, 180, 240, 420, 510, 150, 90, 380, 460, 520, 680, 840, 210, 160],
-  filtered: [11, 14, 17, 26, 30, 9, 6, 21, 24, 26, 31, 38, 12, 9],
-};
-
 export default function EmailPage() {
+  const { activeBrand } = useActiveBrand();
+  const [posture, setPosture] = useState<Posture | null>(null);
   const [raw, setRaw] = useState(
     "marcus@gmail.com\nleah.simmons@outlook.com\ninfo@somecompany.co.uk\nbad-address@@nowhere\npromo@mailinator.com\namara.okafor@yahoo.com"
   );
@@ -51,6 +70,31 @@ export default function EmailPage() {
     filtered: { email: string; reason: string | null }[];
   } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Compute the deliverability posture for the active brand (estimates only).
+  useEffect(() => {
+    if (!activeBrand) {
+      setPosture(null);
+      return;
+    }
+    let cancelled = false;
+    setPosture(null);
+    fetch("/api/email-metrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ business: activeBrand.name, days: 14 }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setPosture(d as Posture);
+      })
+      .catch(() => {
+        if (!cancelled) setPosture(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBrand]);
 
   async function runFilter() {
     setBusy(true);
@@ -72,15 +116,54 @@ export default function EmailPage() {
         kicker="AI Email Command Center"
         title="Massive email. Earned inboxing. Zero bounces."
         subtitle="The M-34 transactional engine: every address passes the hygiene pipeline before a send is attempted, every send rides authenticated warmed reputation, and every hard failure is suppressed forever — volume scales with the provider pool, deliverability scales with discipline."
-        actions={<Pill tone="info">Module M-34 · Agent 23 · provider pool live via env keys</Pill>}
+        actions={
+          activeBrand ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-ink-900/60 px-3 py-1.5 text-xs text-slate-300">
+              <Building2 className="h-3.5 w-3.5" style={{ color: activeBrand.color }} /> {activeBrand.name}
+            </span>
+          ) : (
+            <Pill tone="info">Module M-34 · Agent 23 · provider pool live via env keys</Pill>
+          )
+        }
       />
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Delivery rate" value="99.4%" sub="target ≥ 99%" tone="good" />
-        <StatCard label="Bounce rate" value="0.3%" sub="target < 0.5% — bounces prevented pre-send" tone="good" />
-        <StatCard label="Complaint rate" value="0.04%" sub="target < 0.1%" tone="good" />
-        <StatCard label="Addresses filtered (month)" value="214" sub="never sent to — never bounced" tone="warn" />
-      </div>
+      {/* Deliverability posture — COMPUTED per brand (estimates, not booked history) */}
+      {activeBrand ? (
+        posture ? (
+          <>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-sm font-bold text-slate-300">
+                Projected deliverability posture · {posture.listSize.toLocaleString()} modelled contacts
+              </h2>
+              <Pill tone="warn">estimate — not booked send history</Pill>
+            </div>
+            <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Projected inbox rate" value={`${posture.projectedInboxRatePct}%`} sub="estimate — earned via hygiene + auth" tone="good" />
+              <StatCard label="Projected bounce rate" value={`${posture.projectedBounceRatePct}%`} sub="target < 0.5% — bounces prevented pre-send" tone={posture.projectedBounceRatePct < 0.5 ? "good" : "warn"} />
+              <StatCard label="Projected complaint rate" value={`${posture.projectedComplaintRatePct}%`} sub="target < 0.1% (estimate)" tone={posture.projectedComplaintRatePct < 0.1 ? "good" : "warn"} />
+              <StatCard label="Filtered pre-send (est.)" value={posture.filteredCount.toLocaleString()} sub={`of ${posture.listSize.toLocaleString()} — never sent to, never bounced`} tone="warn" />
+            </div>
+          </>
+        ) : (
+          <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="card p-4">
+                <div className="h-3 w-24 animate-pulse rounded bg-ink-700" />
+                <div className="mt-2 h-7 w-16 animate-pulse rounded bg-ink-700" />
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="mb-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-6 text-center">
+          <Building2 className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" />
+          <h3 className="font-display font-bold text-white">Add a brand to model its deliverability posture</h3>
+          <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
+            Headline metrics here are computed per brand — never a fake number. Add a brand in the sidebar and the engine
+            projects its inbox/bounce posture and list health. You can still run the live hygiene filter below with zero setup.
+          </p>
+        </div>
+      )}
 
       {/* Capabilities */}
       <div className="mb-8 grid gap-4 lg:grid-cols-3">
@@ -93,37 +176,37 @@ export default function EmailPage() {
         ))}
       </div>
 
-      <div className="mb-8 grid gap-6 lg:grid-cols-5">
-        <div className="card p-5 lg:col-span-3">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display font-bold text-white">Delivered vs filtered — 14 days</h2>
-            <Pill tone="good">every filtered address = a bounce that never happened</Pill>
+      {activeBrand && posture && (
+        <div className="mb-8 grid gap-6 lg:grid-cols-5">
+          <div className="card p-5 lg:col-span-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display font-bold text-white">Delivered vs filtered — {posture.days}-day projection</h2>
+              <Pill tone="warn">estimate — not booked history</Pill>
+            </div>
+            <AreaChart
+              labels={posture.series.map((p) => p.label)}
+              series={[
+                { name: "Delivered (projected)", data: posture.series.map((p) => p.delivered) },
+                { name: "Filtered pre-send (projected)", data: posture.series.map((p) => p.filtered) },
+              ]}
+              height={230}
+            />
+            <p className="mt-2 text-xs text-slate-500">{posture.estimateNote}</p>
           </div>
-          <AreaChart
-            labels={DELIVERY_14D.labels}
-            series={[
-              { name: "Delivered", data: DELIVERY_14D.delivered },
-              { name: "Filtered pre-send", data: DELIVERY_14D.filtered },
-            ]}
-            height={230}
-          />
+          <div className="card p-5 lg:col-span-2">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="font-display font-bold text-white">List health</h2>
+              <Pill tone="warn">estimate</Pill>
+            </div>
+            <DonutChart
+              data={posture.composition.filter((c) => c.count > 0).map((c) => ({ label: c.label, value: c.count }))}
+              centerValue={`${posture.listHealthPct}%`}
+              centerLabel="list health (est.)"
+              size={185}
+            />
+          </div>
         </div>
-        <div className="card p-5 lg:col-span-2">
-          <h2 className="mb-3 font-display font-bold text-white">List health</h2>
-          <DonutChart
-            data={[
-              { label: "Sendable, consented", value: 1128 },
-              { label: "Role addresses", value: 25 },
-              { label: "Disposable", value: 25 },
-              { label: "Invalid syntax", value: 37 },
-              { label: "Suppressed", value: 25 },
-            ]}
-            centerValue="91%"
-            centerLabel="list health score"
-            size={185}
-          />
-        </div>
-      </div>
+      )}
 
       {/* Hygiene pipeline */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -38,6 +38,7 @@ export type SignalBoard = {
   shareOfVoice: number; // 0-100 ESTIMATE
   contentOutput: number; // 0-100 ESTIMATE (publishing cadence)
   momentum: Momentum;
+  threatLevel: number; // 0-100 ESTIMATE — composite pressure this rival exerts
   estimate: true;
   note: string;
 };
@@ -55,9 +56,13 @@ export function monitorCompetitor(input: { competitor: string; signals?: string[
   const contentOutput = clamp(metric(competitor, "content") + boost);
   const trend = seed(`${competitor}::momentum`) % 3;
   const momentum: Momentum = trend === 0 ? "gaining" : trend === 1 ? "flat" : "losing";
+  // Threat = how much pressure this rival exerts on us: their visibility surfaces
+  // averaged, nudged by momentum (a gaining rival is a bigger threat). ESTIMATE.
+  const momentumAdj = momentum === "gaining" ? 12 : momentum === "losing" ? -12 : 0;
+  const threatLevel = clamp((searchVisibility + aiVisibility + socialAttention + shareOfVoice) / 4 + momentumAdj);
   return {
     competitor, searchVisibility, aiVisibility, socialAttention, sentiment,
-    shareOfVoice, contentOutput, momentum, estimate: true,
+    shareOfVoice, contentOutput, momentum, threatLevel, estimate: true,
     note: "All figures are ESTIMATES derived from observed signals — treat as directional, not measured.",
   };
 }

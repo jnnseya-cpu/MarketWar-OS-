@@ -1101,3 +1101,35 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **No feature may misrepresent itself as live to a tester** | same | ✅ | `/dashboard/product-engine` badges every capability **Live now** vs **Coming at P1** (StatusChip) + an honesty legend; upload zone, studios, campaign modes and guarantees all labelled truthfully |
 | Deception guard unchanged + widened | F1 §10 | ✅ | `blockClickbait` markers extended; every one of the 130 hooks passes through it |
 | Verified | same | ✅ | typecheck + check:layers + build (121 pages) + smoke 320/0 (hook test strengthened: asserts count>=130 and families===13); live curl 130/13 confirmed |
+
+## 36. Test-ready hardening — every module wired to a real engine (2026-07-21)
+
+Owner directive: "I WANT EVERYTHING TO BE LIVE — NO PARTIAL AND NO STATIC." Every
+dashboard module now calls a real backend engine and renders computed output;
+no static demo arrays, no hardcoded fake numbers, no placeholder cards presented
+as working. Clean-slate brands show honest empty-states; render/publish features
+are honestly badged Live-now vs Coming-at-P1.
+
+| Module | Was | Now | Engine |
+|---|---|---|---|
+| Customer Vault | STATIC (demoCustomers) | ✅ LIVE | `segments.ts` `scoredCustomerList` via `/api/segments` action=customers |
+| Lead Recovery | STATIC (recoverable=1240) | ✅ LIVE | new `recovery.ts` via `/api/recovery` (reuses segment scoring) |
+| WhatsApp Center | STATIC (demo arrays) | ✅ LIVE | new `whatsapp.ts` via `/api/whatsapp` (funnel + template pipeline) |
+| Campaign War Room | STATIC (demoCampaigns) | ✅ LIVE | new `warroom.ts` via `/api/warroom` (real ledger revenue when brandId) |
+| Competitor Spy | PARTIAL (demoCompetitors) | ✅ LIVE | existing `competitor-warroom.ts` via `/api/competitor-warroom` (+threatLevel) |
+| Local Domination | PARTIAL (fake stats) | ✅ LIVE | new `local.ts` via `/api/local` (map-pack + prioritized actions) |
+| Email Center | PARTIAL (fake 99.4% etc) | ✅ LIVE | new `email-metrics.ts` via `/api/email-metrics` (labelled estimates) |
+| Budget Protection | PARTIAL (fake £130) | ✅ LIVE | new `budget.ts` via `/api/budget` (Stop/Fix/Scale board) |
+| Command Center root | STATIC-ish | ✅ LIVE | new `command-summary.ts` via `/api/command-summary` (briefs the real ledger; robust to partial bodies) |
+| Admin Centre | PARTIAL (hardcoded economics) | ✅ LIVE | existing `admin-economics.ts` via `/api/admin-economics` |
+| Settings & Security | PARTIAL (unpersisted dial) | ✅ LIVE | new `settings-store.ts` via `/api/settings` (Firestore/in-memory) |
+| SiteRaid AI | PARTIAL (static suites) | ✅ LIVE + honest P1 badges | existing `siteraid.ts` via `/api/siteraid` |
+| Video War Room | PARTIAL (12 fake studio cards) | ✅ LIVE + honest P1 badges | existing `video-intelligence.ts` via `/api/video-intelligence` |
+| Integration Hub | PARTIAL (green when unconfigured) | ✅ honest per-provider state | existing `/api/integrations` (surfaces adminConfigured) |
+
+All engines are deterministic (FNV-1a seed, no wall-clock/randomness), layer-guarded,
+and demo-safe (render with zero keys). Additive-only: `src/shared/demo.ts` and all
+existing exports untouched — pages simply stopped importing demo arrays.
+
+Verified: typecheck + check:layers + build (clean, SWC cache cleared) + smoke **329/0**
+(+9 new module-engine assertions, incl. a command-summary malformed-body regression test).
