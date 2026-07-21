@@ -1254,3 +1254,13 @@ Usage after setting production secrets: `npm run smoke:live -- https://marketwar
 | **No ad-platform dependency** | ✅ | owned channels only; send manually from own WhatsApp/email, or organic via Publish Center; "first-customer kit" + send CTAs |
 | Prominent entry | ✅ | Sidebar "First Customer" (Banknote) under Command Center |
 | Verified | ✅ | typecheck + check:layers + clean build + live sequence (offer/leads/outreach all return output, checkout link minted); page 200 |
+
+## 46. Strict live-only + Command Center "First Customer" CTA (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **Never serve deterministic demo AI output to real users** | ✅ | `provider.ts` `runAgent`: with `REQUIRE_LIVE` set, an unconfigured gateway throws an honest "Live AI is activating" error instead of `demoOutput` — no canned fallback ever reaches a user |
+| Enabled in production | ✅ | `apphosting.yaml` `REQUIRE_LIVE=1` (keys are set, so agents run live; guard is the safety net) |
+| Local/dev/tests stay demo-safe | ✅ | `REQUIRE_LIVE` unset → deterministic demo fallback preserved (smoke 347/0) |
+| **"Land your first customer" CTA on Command Center home** | ✅ | prominent gradient hero card at top of `/dashboard` → `/dashboard/first-customer` (first thing after sign-in) |
+| Verified | ✅ | typecheck + layers + build; REQUIRE_LIVE=1 → agent 502 honest error (no demo); dashboard root 200; smoke 347/0 |

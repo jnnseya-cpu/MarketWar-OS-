@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
-import { AlertTriangle, ArrowRight, Building2, Crosshair, Hammer, Lightbulb, ListChecks, Target, Wallet, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, Banknote, Building2, Crosshair, Hammer, Lightbulb, ListChecks, Target, Wallet, Zap } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
 
@@ -75,6 +75,30 @@ export default function CommandCenterPage() {
         subtitle={[activeBrand.industry, activeBrand.location, activeBrand.goal && `Goal: ${activeBrand.goal}`].filter(Boolean).join(" · ") || "Your brand command center"}
         actions={<Link href="/dashboard/briefing" className="btn-primary"><Zap className="h-4 w-4" /> Today&apos;s briefing</Link>}
       />
+
+      {/* The day-one money move — impossible to miss, first thing after sign-in */}
+      <Link
+        href="/dashboard/first-customer"
+        className="mb-6 block card border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.14] to-emerald-500/[0.02] p-5 transition hover:border-emerald-500/70"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-ink-950">
+              <Banknote className="h-6 w-6" />
+            </span>
+            <div>
+              <h2 className="font-display text-lg font-bold text-white">
+                {summary.isEmpty ? "Land your first customer" : "Land another customer"}
+              </h2>
+              <p className="mt-0.5 max-w-2xl text-sm text-slate-300">
+                One screen, no ads: engineer the offer, find who to reach, write the outreach, and mint a payment link.
+                Owned channels only — zero to a real paying customer in a single sitting.
+              </p>
+            </div>
+          </div>
+          <span className="btn-primary shrink-0">Start the sprint <ArrowRight className="h-4 w-4" /></span>
+        </div>
+      </Link>
 
       {/* Real per-brand money — zeros, never fake figures, when empty */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

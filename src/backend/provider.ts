@@ -44,6 +44,15 @@ export async function runAgent(
     };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
+      // Strict live-only (production): with REQUIRE_LIVE set, NEVER return the
+      // deterministic demo output — surface an honest "activating" error instead,
+      // so a real user only ever sees live-model output, never a canned fallback.
+      if (process.env.REQUIRE_LIVE) {
+        throw new Error(
+          "Live AI is activating — the AI provider key isn't reachable for this request yet. This agent runs on the real model the moment the key is live; please retry in a moment."
+        );
+      }
+      // Zero-config demo (local/dev/no-key): deterministic output so nothing breaks.
       return {
         agentId: agent.id,
         agentName: agent.name,

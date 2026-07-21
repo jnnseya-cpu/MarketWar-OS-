@@ -116,6 +116,12 @@ env:
   - variable: AI_GATEWAY_ORDER
     value: anthropic,openai,gemini
     availability: [RUNTIME]
+  # Strict live-only: never serve deterministic demo AI output to real users.
+  # If the AI key is momentarily unreachable, agents show an honest "activating"
+  # message instead of a canned fallback. (Keys are set, so agents run live.)
+  - variable: REQUIRE_LIVE
+    value: "1"
+    availability: [RUNTIME]
   - variable: ANTHROPIC_API_KEY
     secret: anthropic-api-key
     availability: [RUNTIME]
