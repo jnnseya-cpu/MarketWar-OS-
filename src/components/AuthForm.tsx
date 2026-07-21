@@ -5,11 +5,13 @@
 // five-layer model in docs/ai-os/08 §B.4a); otherwise renders the demo-mode
 // path so the zero-config platform stays fully usable.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, Mail, Shield, User } from "lucide-react";
+import { Loader2, Lock, Mail, Shield, User, Ticket } from "lucide-react";
 import { firebaseAuth } from "@/frontend/firebase-client";
+
+type PublicInvite = { token: string; companyName: string; planId: string; brands: number; status: string };
 
 type Mode = "login" | "signup";
 
@@ -38,7 +40,29 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [invite, setInvite] = useState<PublicInvite | null>(null);
   const copy = COPY[mode];
+
+  // Invited company? Read ?invite=<token> (client-only, no Suspense needed) and
+  // validate it, so sign-up shows who invited them and accepts on completion.
+  useEffect(() => {
+    if (mode !== "signup" || typeof window === "undefined") return;
+    const token = new URLSearchParams(window.location.search).get("invite");
+    if (!token) return;
+    fetch(`/api/invites/${encodeURIComponent(token)}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.valid && d.invite) { setInvite(d.invite); if (d.invite.companyName) setName(d.invite.companyName); } })
+      .catch(() => {});
+  }, [mode]);
+
+  async function acceptInviteIfAny(uid?: string) {
+    if (!invite) return;
+    try {
+      await fetch(`/api/invites/${encodeURIComponent(invite.token)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid }),
+      });
+    } catch { /* non-fatal */ }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,7 +70,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
     // Demo mode (no Firebase): the form is real but accounts aren't persisted —
     // continue the flow so it's testable end to end.
-    if (!firebaseAuth) { router.push(dest); return; }
+    if (!firebaseAuth) { await acceptInviteIfAny(); router.push(dest); return; }
     setBusy(true);
     setError(null);
     try {
@@ -66,6 +90,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           await sendEmailVerification(cred.user, { url: `${window.location.origin}/dashboard` });
         } catch { /* non-fatal — verification can be re-sent from Settings */ }
       }
+      await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
       router.push(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Authentication failed.");
@@ -92,13 +117,14 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
   async function google() {
     const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
-    if (!firebaseAuth) { router.push(dest); return; }
+    if (!firebaseAuth) { await acceptInviteIfAny(); router.push(dest); return; }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
       await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+      await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
       router.push(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Google sign-in failed.");
@@ -127,6 +153,12 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               : "23 AI agents, one operating system — live in minutes."}
           </p>
 
+              {invite && mode === "signup" && (
+                <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-4 py-3 text-xs text-emerald-100">
+                  <Ticket className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <span>You&apos;re invited to test <strong className="text-white">{invite.companyName}</strong> on MarketWar OS — {invite.planId} plan, {invite.brands} brands. Create your account to start.</span>
+                </div>
+              )}
               <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
                   <label className="block">

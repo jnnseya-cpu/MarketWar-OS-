@@ -1,6 +1,7 @@
 import { AlertTriangle, ShieldAlert, TrendingUp } from "lucide-react";
 import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import AdminInvites from "@/components/AdminInvites";
 
 // Admin Super Control Centre (M-30) — platform-operator view (U10/U11).
 // Centrepiece: the ACU margin dashboard that enforces the owner pricing
@@ -144,6 +145,8 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+
+      <AdminInvites />
     </div>
   );
 }

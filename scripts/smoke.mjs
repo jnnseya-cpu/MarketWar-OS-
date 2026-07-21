@@ -2002,6 +2002,26 @@ try {
   else bad("POST /api/autopilot/nightly validation", `expected 400, got ${res.status}`);
 } catch (e) { bad("POST /api/autopilot/nightly validation", e.message); }
 
+console.log("\nAdmin — invite a company to test:");
+try {
+  // Admin creates an invite (admin-open in demo); public validates + accepts it.
+  const create = await fetch(BASE + "/api/admin/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyName: "Smoke Group", email: "owner@smoke.co", planId: "scale", brands: 4 }) });
+  const cd = await create.json();
+  if (create.status === 200 && cd.ok && cd.invite?.token && cd.invite.brands === 4) {
+    const token = cd.invite.token;
+    const val = await (await fetch(`${BASE}/api/invites/${token}`)).json();
+    const acc = await (await fetch(`${BASE}/api/invites/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+    if (val.valid && val.invite.companyName === "Smoke Group" && acc.ok && acc.invite.status === "accepted") {
+      ok(`invite flow (create → validate → accept: Smoke Group, scale, 4 brands)`);
+    } else bad("invite flow", `valid ${val.valid}, accepted ${acc.invite?.status}`);
+  } else bad("invite create", `HTTP ${create.status}, token ${cd.invite?.token}`);
+} catch (e) { bad("invite flow", e.message); }
+try {
+  const res = await fetch(BASE + "/api/admin/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "x@y.z" }) });
+  if (res.status === 400) ok("invite create rejects missing company (400)");
+  else bad("invite validation", `expected 400, got ${res.status}`);
+} catch (e) { bad("invite validation", e.message); }
+
 console.log("\nAudit + gateway APIs:");
 try {
   const res = await fetch(BASE + "/api/audit", {

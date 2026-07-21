@@ -1081,3 +1081,14 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 | **Public "enter/start" CTAs go through sign-up** | same | ✅ | landing hero + final CTA "Get started free" → /signup; how-it-works "Start Phase 1 now" → /signup; pricing cards Free/Starter/Growth/Scale/Business → /signup |
 | Zero-config demo preserved (owner testing) | repo law | ✅ | guard enforces only when the Firebase web key is set; keyless env = open |
 | Verified | same | ✅ | typecheck + build + smoke 318/0; /dashboard 200 in demo; guard redirects to /login when Firebase configured |
+
+## 34. Admin access — invite a multi-brand company to test (2026-07-21)
+
+| Requirement | Source | Status | Where |
+|---|---|---|---|
+| **Admin can invite a (multi-brand) company to test** | Owner directive 2026-07-21 ("create the admin access, so I can invite a multiple brands company to test") | ✅ | `/dashboard/admin` → "Invite a company to test" (`AdminInvites`): set company, plan, brand allotment, note → shareable `/signup?invite=<token>` link with copy + revoke |
+| **Invite engine** — create/list/get/accept/revoke | same | ✅ | `src/backend/invites.ts` (Firestore `invites/{token}` when configured, in-memory otherwise; token = 24-char id) |
+| **Admin API is scoped** | repo security law | ✅ | `/api/admin/invites` GET/POST/DELETE behind `requireAuth({ scope: "tenant_manage" })` (enforced when Firebase Admin set; open in zero-config demo) |
+| **Public invite validation + accept** | same | ✅ | `/api/invites/[token]` GET (public, returns non-sensitive `publicInvite`) + POST accept (rate-limited); no secrets leaked to the sign-up page |
+| **Invited sign-up shows who invited them + accepts on completion** | same | ✅ | `AuthForm` reads `?invite=<token>`, shows the banner (company · plan · brands), prefills company name, calls accept on every sign-up success path (demo + live, email + Google) |
+| Verified | same | ✅ | typecheck + check:layers + build + smoke 320/0 (+ invite create→validate→accept, missing-company 400); live curl create→validate→accept; screenshots admin-invites + invite-signup |
