@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AgentRunner from "@/components/AgentRunner";
+import GenerateAndPublish from "@/components/GenerateAndPublish";
 import { PageHeader } from "@/components/ui";
 
 const GOALS = [
@@ -81,10 +82,11 @@ export default function CampaignBuilderPage() {
           ]}
         />
       ) : (
-        <AgentRunner
+        <GenerateAndPublish
           key={`creative-${goal}`}
           agentId="ad-creative"
           buttonLabel="Generate ad creative"
+          publishSourceLabel="ad creative"
           fields={[
             { key: "goal", label: "Goal", defaultValue: goal },
             { key: "business", label: "Business", defaultValue: "Brixton Grill House" },

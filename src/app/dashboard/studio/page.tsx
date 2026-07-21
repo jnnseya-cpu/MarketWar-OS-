@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, Image as ImageIcon, Palette, Layers, ShieldCheck, Upload } from "lucide-react";
-import AgentRunner from "@/components/AgentRunner";
+import GenerateAndPublish from "@/components/GenerateAndPublish";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import {
   DEFAULT_CREATIVE_OPTIONS, type CreativeOptions, type PlatformFormat, type LogoPosition,
@@ -213,9 +213,10 @@ export default function StudioPage() {
       </div>
 
       {/* The agent */}
-      <AgentRunner
+      <GenerateAndPublish
         agentId="brand-visual-creation"
         buttonLabel="Direct the brand creative"
+        publishSourceLabel="creative direction"
         fields={[
           { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
           { key: "product", label: "Product / service", defaultValue: "Restaurant takeaway" },

@@ -1182,3 +1182,16 @@ Adopted Zernio (white-label — preserves the "not a wrapper" doctrine) over Ayr
 | **Publish routes through the Zernio gateway** | ✅ | `PublishToChannels` POSTs `/api/zernio` action=publish (compliance gate + AI watermark), demo-safe / live with key |
 | **Reusable, non-breaking** | ✅ | `AgentRunner` gained an optional `onResult` callback (existing callers unaffected); `PublishToChannels` + `GenerateAndPublish` are additive components; links to the full Publish Center to connect socials |
 | Verified | ✅ | typecheck + check:layers + clean build + smoke 339/0; /dashboard/product-engine, /content, /publish all 200 |
+
+## 40. One-click publish on every content generator (2026-07-21)
+
+| Surface | Publish action | Where |
+|---|---|---|
+| **Campaign Builder** (Ad creative tab) | ✅ | `GenerateAndPublish` (ad-creative agent → publish) |
+| **Offer Builder** (Offer tab) | ✅ | `GenerateAndPublish` (offer-builder agent → publish) |
+| **Brand Studio** (creative direction) | ✅ | `GenerateAndPublish` (brand-visual-creation agent → publish; images stay preview until hosted-URL posting) |
+| **VisualStrike Hook Lab** | ✅ | new `VisualStrikeHooks` — generates the 130-hook library (/api/visualstrike), pick a hook → `PublishToChannels` |
+
+All route through the Zernio gateway (`/api/zernio`, compliance gate + AI watermark),
+reuse the shared `PublishToChannels`/`GenerateAndPublish` components, additive-only.
+Verified: typecheck + check:layers + clean build + smoke 339/0; campaigns/offers/studio/product-engine all 200.

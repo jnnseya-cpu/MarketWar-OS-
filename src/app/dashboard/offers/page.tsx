@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AgentRunner from "@/components/AgentRunner";
+import GenerateAndPublish from "@/components/GenerateAndPublish";
 import { PageHeader } from "@/components/ui";
 
 export default function OffersPage() {
@@ -34,9 +35,10 @@ export default function OffersPage() {
       </div>
 
       {tab === "offers" ? (
-        <AgentRunner
+        <GenerateAndPublish
           agentId="offer-builder"
           buttonLabel="Engineer my offers"
+          publishSourceLabel="offer"
           fields={[
             { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
             { key: "product", label: "Product / service", defaultValue: "Flame-grilled meals, family platters, office catering", textarea: true },
