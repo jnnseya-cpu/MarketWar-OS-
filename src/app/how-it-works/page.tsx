@@ -18,31 +18,31 @@ const PHASES = [
     phase: "Phase 3 — Offer Engineering",
     title: "Rebuild the offer until it forces action",
     detail:
-      "The Offer Builder engineers volume, margin and recovery offers with deadlines, caps and guarantees — each one checked for margin safety before it ships.",
+      "The Offer Builder engineers volume, margin and recovery offers with deadlines and caps — each one arithmetic-checked for margin safety (it trims any discount that would breach your floor) before you launch it.",
   },
   {
     phase: "Phase 4 — Campaign Warfare",
     title: "Launch small-budget experiments with kill criteria locked",
     detail:
-      "The Campaign Commander deploys £15/day tests: one offer, three hooks, a WhatsApp destination. Kill and scale criteria are exact numbers agreed before launch, so no losing ad survives on hope.",
+      "The Campaign Commander designs £15/day test plans: one offer, three hooks, a WhatsApp destination — with exact kill and scale numbers set before launch, so no losing ad survives on hope. Connect your ad accounts and it launches and manages them for you.",
   },
   {
     phase: "Phase 5 — Capture & Conversion",
     title: "Every click lands somewhere that converts",
     detail:
-      "Generated landing pages and the WhatsApp Sales Center qualify leads, send offers and book orders. Follow-up sequences fire at 1h, 24h and 48h so no lead dies of silence.",
+      "Generated landing pages and the WhatsApp Sales Center are built to qualify leads, present offers and take orders — with follow-up sequences timed at 1h, 24h and 48h so no lead dies of silence. Live capture and sending switch on when you connect WhatsApp/email.",
   },
   {
     phase: "Phase 6 — Budget Protection",
     title: "The Financial Shield watches every pound",
     detail:
-      "Campaigns that spend without producing leads are paused automatically and the budget is rerouted to proven winners — with a weekly 'money saved' receipt.",
+      "Campaigns that spend without producing leads are flagged to pause — and auto-pause the moment your ad accounts connect — with the budget rerouted to proven winners and a weekly 'money saved' receipt.",
   },
   {
     phase: "Phase 7 — Recovery & Compounding",
     title: "Mine the revenue you already own, then scale",
     detail:
-      "The Customer Vault scores every contact for recovery probability. Reactivation waves, referral loops and local domination compound growth while Revenue Intelligence forecasts next month's money.",
+      "The Customer Vault scores every contact for recovery probability. Reactivation waves, referral loops and local domination compound growth, while Revenue Intelligence forecasts next month's money (base/push/stretch) from your own attributed-revenue ledger.",
   },
 ];
 

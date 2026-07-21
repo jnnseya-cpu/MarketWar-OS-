@@ -12,6 +12,7 @@ interface Intake {
   location: string;
   product: string;
   price: string;
+  margin: string;
   offer: string;
   targetCustomer: string;
   pastSpend: string;
@@ -29,6 +30,7 @@ const EMPTY: Intake = {
   location: "",
   product: "",
   price: "",
+  margin: "",
   offer: "",
   targetCustomer: "",
   pastSpend: "",
@@ -113,6 +115,7 @@ export default function OnboardingPage() {
             <>
               <Field label="Who exactly should buy?" value={intake.targetCustomer} onChange={(v) => set({ targetCustomer: v })} placeholder="Local families and young professionals within 3 miles" textarea />
               <Field label="Current price point" value={intake.price} onChange={(v) => set({ price: v })} placeholder="£9.50 average order" />
+              <Field label="Rough margin or unit cost" value={intake.margin} onChange={(v) => set({ margin: v })} placeholder="~60% margin (≈£4 cost per order)" />
               <Field label="Current offer (if any)" value={intake.offer} onChange={(v) => set({ offer: v })} placeholder="Free delivery over £20" />
             </>
           )}

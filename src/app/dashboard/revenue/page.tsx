@@ -6,16 +6,18 @@
 // — empty until the brand has real activity. Owned manual capture ("Log a
 // result") gives real data day one; Stripe payment attribution lands next.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, StatCard } from "@/components/ui";
 import AgentRunner from "@/components/AgentRunner";
-import { Building2, PlusCircle, Trash2, Wallet, Link2, Copy, Check, Loader2 } from "lucide-react";
+import { Building2, PlusCircle, Trash2, Wallet, Link2, Copy, Check, Loader2, TrendingUp } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
 import type { ResultType } from "@/shared/results";
 
 type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; metadata: { marketwar_brand_id: string; marketwar_source: string }; note: string; error?: string };
+type ForecastScenario = { label: string; revenueGbp: number; basis: string };
+type RevenueForecast = { isEmpty: boolean; horizonDays: number; observedRevenueGbp: number; dailyRunRateGbp: number; openLeads: number; avgOrderGbp: number; scenarios: { base: ForecastScenario; push: ForecastScenario; stretch: ForecastScenario }; assumptions: string[]; note: string };
 
 export default function RevenuePage() {
   const { activeBrand } = useActiveBrand();
@@ -26,6 +28,20 @@ export default function RevenuePage() {
   const [coResult, setCoResult] = useState<CheckoutResult | null>(null);
   const [coBusy, setCoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [forecast, setForecast] = useState<RevenueForecast | null>(null);
+
+  // Deterministic next-30-day forecast, computed from THIS brand's real ledger
+  // (run-rate + open-lead upside) — not an LLM narrative. Re-runs when money moves.
+  // Keyed on stable primitives (not the summary object) to avoid a render loop.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/forecast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary }) })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setForecast(d as RevenueForecast); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary.events, summary.revenueGbp, summary.leads, summary.orders]);
 
   if (!activeBrand) {
     return (
@@ -82,6 +98,25 @@ export default function RevenuePage() {
         <div className="mb-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-5">
           <div className="mb-1 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">No revenue captured yet for {activeBrand.name}</h3></div>
           <p className="text-sm text-slate-400">This is honest by design — you&apos;ll see real money here, not a sample. Log the first order below (or connect Stripe / an owned form) and it appears instantly, attributed to its campaign.</p>
+        </div>
+      )}
+
+      {/* Next-30-day forecast — computed from the real ledger (run-rate + open-lead
+          upside), not an LLM narrative. Only shown once there is activity to project. */}
+      {forecast && !forecast.isEmpty && (
+        <div className="mb-8 card p-5">
+          <div className="mb-1 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Next-30-day forecast</h2><span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-sky-500/15 text-sky-300">Estimate</span></div>
+          <p className="mb-4 text-xs text-slate-400">Computed from {activeBrand.name}&apos;s own attributed revenue — run-rate £{forecast.dailyRunRateGbp}/day plus upside on {forecast.openLeads} open lead{forecast.openLeads === 1 ? "" : "s"} at £{forecast.avgOrderGbp} AOV. Deterministic, not a guess.</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[forecast.scenarios.base, forecast.scenarios.push, forecast.scenarios.stretch].map((sc, i) => (
+              <div key={sc.label} className={`rounded-lg border p-4 ${i === 1 ? "border-emerald-500/40 bg-emerald-500/[0.05]" : "border-white/[0.07] bg-ink-900/50"}`}>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{sc.label}</p>
+                <p className="mt-1 font-display text-2xl font-bold text-white">{money(sc.revenueGbp)}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{sc.basis}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-slate-600">{forecast.assumptions.join(" · ")}</p>
         </div>
       )}
 

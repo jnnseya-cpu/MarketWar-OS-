@@ -2088,5 +2088,34 @@ try { const res = await fetch(BASE + "/api/settings?key=smoke-key");
   if (res.status === 200 && "settings" in body) ok("Settings persistence (/api/settings GET → store reachable)");
   else bad("Settings /api/settings", `HTTP ${res.status}`); } catch (e) { bad("Settings", e.message); }
 
+console.log("\nHow-it-works truth-fixes (margin question, weekly receipt, real forecast):");
+// Phase 7 — deterministic forecast from the ledger (not an LLM/fixed string).
+try {
+  const events = [
+    { id: "e1", brandId: "b", type: "order", source: "Meta", amountGbp: 120, at: "2026-07-01T10:00:00Z" },
+    { id: "e2", brandId: "b", type: "order", source: "Meta", amountGbp: 80, at: "2026-07-11T10:00:00Z" },
+    { id: "e3", brandId: "b", type: "lead", source: "WhatsApp", amountGbp: 0, at: "2026-07-12T10:00:00Z" },
+  ];
+  const { status, body } = await jpost("/api/forecast", { events });
+  const s = body.scenarios;
+  const monotonic = s && s.base.revenueGbp <= s.push.revenueGbp && s.push.revenueGbp <= s.stretch.revenueGbp;
+  const r1 = await jpost("/api/forecast", { events });
+  const deterministic = r1.body?.scenarios?.stretch?.revenueGbp === s?.stretch?.revenueGbp;
+  if (status === 200 && !body.isEmpty && monotonic && deterministic) ok(`Revenue forecast (/api/forecast → base £${s.base.revenueGbp} ≤ push £${s.push.revenueGbp} ≤ stretch £${s.stretch.revenueGbp}, deterministic)`);
+  else bad("Revenue forecast /api/forecast", `HTTP ${status}, monotonic ${monotonic}, deterministic ${deterministic}`);
+} catch (e) { bad("Revenue forecast", e.message); }
+// Empty ledger → honest empty forecast, no fabricated numbers.
+try { const { status, body } = await jpost("/api/forecast", { events: [] });
+  if (status === 200 && body.isEmpty && body.scenarios.base.revenueGbp === 0) ok("Revenue forecast empty-state (£0, honest)");
+  else bad("Revenue forecast empty-state", `HTTP ${status}, isEmpty ${body.isEmpty}`); } catch (e) { bad("Revenue forecast empty-state", e.message); }
+// Malformed body must not 500.
+try { const { status } = await jpost("/api/forecast", { summary: { totalRevenue: 0 } });
+  if (status === 200) ok("Revenue forecast hardened (malformed body → 200)");
+  else bad("Revenue forecast hardened", `HTTP ${status}`); } catch (e) { bad("Revenue forecast hardened", e.message); }
+// Phase 6 — weekly money-saved receipt now exists on the budget report.
+try { const { status, body } = await jpost("/api/budget", { business: "Acme", monthlyBudget: 2000 });
+  if (status === 200 && body.weeklyReceipt && typeof body.weeklyReceipt.weekProtectedGbp === "number" && body.weeklyReceipt.cadence === "weekly" && typeof body.weeklyReceipt.headline === "string") ok(`Budget weekly receipt (£${body.weeklyReceipt.weekProtectedGbp}/wk protected)`);
+  else bad("Budget weekly receipt", `HTTP ${status}, receipt ${JSON.stringify(body.weeklyReceipt)}`); } catch (e) { bad("Budget weekly receipt", e.message); }
+
 console.log(`\n${pass} passed, ${fail} failed${fail ? ":\n  " + failures.join("\n  ") : "."}`);
 process.exit(fail ? 1 : 0);

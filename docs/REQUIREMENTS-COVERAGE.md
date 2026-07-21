@@ -1133,3 +1133,26 @@ existing exports untouched — pages simply stopped importing demo arrays.
 
 Verified: typecheck + check:layers + build (clean, SWC cache cleared) + smoke **329/0**
 (+9 new module-engine assertions, incl. a command-summary malformed-body regression test).
+
+## 37. How-it-works truth pass — 3 claims made literally true + connector-honest verbs (2026-07-21)
+
+A code-level audit of the 7-phase "How it works" page found the intelligence real
+but 3 specific claims overclaiming and several execution verbs implying autonomy
+that is connector-gated. Fixed:
+
+| Phase | Was | Now |
+|---|---|---|
+| **1 Brain Sync** ("…margins…") | onboarding never asked cost/margin | ✅ added "Rough margin or unit cost" question to onboarding intake |
+| **6 Budget Protection** ("weekly money-saved receipt") | no such code | ✅ `budget.ts` computes `weeklyReceipt` (protected/reroute/paused + headline); rendered on /dashboard/budget |
+| **7 Recovery** ("forecasts next month's money") | LLM narrative / hardcoded £1,500/2,400/3,100 | ✅ new deterministic `forecast.ts` + `/api/forecast` (base/push/stretch from the real ledger: run-rate + open-lead upside); rendered on /dashboard/revenue |
+
+Connector-honest wording (true today as plans, auto once connected): Phase 4 "deploys"
+→ "designs… then launches once your ad accounts connect"; Phase 5 "send offers / book
+orders / sequences fire" → "built to… live capture/sending switch on when you connect
+WhatsApp/email"; Phase 6 "paused automatically" → "flagged to pause — auto-pause once
+your ad accounts connect"; Phase 3 dropped unmodelled "guarantees"/"before it ships".
+Phases 2 (audit) and 3 (offer margin-safety) were already fully true.
+
+All deterministic (no wall-clock/randomness), layer-guarded, demo-safe, additive-only.
+Verified: typecheck + check:layers + clean build + smoke **333/0** (+4: forecast
+monotonic+deterministic, forecast empty-state, forecast malformed-body hardened, weekly receipt).

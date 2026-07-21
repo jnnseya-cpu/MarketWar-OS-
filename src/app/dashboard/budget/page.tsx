@@ -25,6 +25,7 @@ type ProtectedCampaign = {
   protectedGbp: number;
 };
 type StandingOrder = { rule: string; detail: string };
+type WeeklyReceipt = { weekProtectedGbp: number; weekRerouteReturnGbp: number; campaignsPaused: number; headline: string; cadence: "weekly" };
 type BudgetReport = {
   business: string;
   monthlyBudgetGbp: number;
@@ -35,6 +36,7 @@ type BudgetReport = {
   rerouteReturnGbp: number;
   projectedRoas: number;
   standingOrders: StandingOrder[];
+  weeklyReceipt: WeeklyReceipt;
   note: string;
   isEstimate: true;
 };
@@ -78,7 +80,7 @@ export default function BudgetProtectionPage() {
       <PageHeader
         kicker="Budget Protection Engine"
         title="The Financial Shield"
-        subtitle="Campaigns that spend without producing revenue get paused automatically. Budget flows to proven winners — with a receipt. Figures below are modelled estimates per brand until live ad spend connects."
+        subtitle="Campaigns that spend without producing revenue are flagged to pause — and auto-pause the moment your ad accounts connect. Budget flows to proven winners, with a weekly money-saved receipt. Figures below are modelled estimates per brand until live ad spend connects."
         actions={
           activeBrand ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-ink-900/60 px-3 py-1.5 text-xs text-slate-300">
@@ -112,9 +114,23 @@ export default function BudgetProtectionPage() {
           </div>
           <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Protected this cycle" value={money(report.protectedGbp)} sub="waste stopped + rerouted (est.)" tone="good" />
-            <StatCard label="Campaigns killed" value={`${report.killedCount}`} sub="zero-capture spend, auto-paused" tone={report.killedCount > 0 ? "bad" : "neutral"} />
+            <StatCard label="Campaigns flagged" value={`${report.killedCount}`} sub="zero-capture spend, flagged to pause" tone={report.killedCount > 0 ? "bad" : "neutral"} />
             <StatCard label="Reroute return" value={`+${money(report.rerouteReturnGbp)}`} sub="projected from scale winner (est.)" tone="good" />
             <StatCard label="Blended ROAS" value={`${report.projectedRoas}×`} sub={`£${report.totalSpendGbp.toLocaleString()} modelled spend`} tone={report.projectedRoas >= 2 ? "good" : "warn"} />
+          </div>
+
+          {/* Weekly money-saved receipt — the artifact the shield emails each week. */}
+          <div className="mb-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-5">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">This week&apos;s money-saved receipt</h2></div>
+              <Pill tone="warn">weekly · estimate</Pill>
+            </div>
+            <p className="text-sm text-slate-300">{report.weeklyReceipt.headline}</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div><p className="font-display text-2xl font-bold text-emerald-300">{money(report.weeklyReceipt.weekProtectedGbp)}</p><p className="text-[11px] text-slate-500">protected this week</p></div>
+              <div><p className="font-display text-2xl font-bold text-white">+{money(report.weeklyReceipt.weekRerouteReturnGbp)}</p><p className="text-[11px] text-slate-500">projected reroute return</p></div>
+              <div><p className="font-display text-2xl font-bold text-white">{report.weeklyReceipt.campaignsPaused}</p><p className="text-[11px] text-slate-500">campaign{report.weeklyReceipt.campaignsPaused === 1 ? "" : "s"} flagged to pause</p></div>
+            </div>
           </div>
 
           <div className="mb-8 card p-5">

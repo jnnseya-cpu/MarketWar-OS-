@@ -55,6 +55,16 @@ export type ProtectedCampaign = {
 
 export type StandingOrder = { rule: string; detail: string };
 
+// The weekly "money saved" receipt (spec Phase 6) — the shield's protection
+// expressed at a weekly cadence, the artifact a user gets emailed each week.
+export type WeeklyReceipt = {
+  weekProtectedGbp: number;    // waste stopped this week (monthly ÷ 4.33)
+  weekRerouteReturnGbp: number; // projected extra revenue from rerouting it
+  campaignsPaused: number;
+  headline: string;
+  cadence: "weekly";
+};
+
 export type BudgetReport = {
   business: string;
   monthlyBudgetGbp: number;
@@ -65,9 +75,13 @@ export type BudgetReport = {
   rerouteReturnGbp: number; // projected extra revenue from reroute into top winner
   projectedRoas: number;
   standingOrders: StandingOrder[];
+  weeklyReceipt: WeeklyReceipt;
   note: string;
   isEstimate: true;
 };
+
+// Weeks per month (365.25 / 12 / 7) — a constant, keeps the receipt deterministic.
+const WEEKS_PER_MONTH = 4.348;
 
 // Deterministic modelled campaign set when the caller supplies none — a realistic
 // SMB mix (one winner, one middling, one waster) scaled to the budget.
@@ -140,7 +154,7 @@ export function protectBudget(
   const standingOrders: StandingOrder[] = [
     {
       rule: "Auto-pause zero-capture spend",
-      detail: `Any campaign that spends without producing revenue is paused automatically — the shield caught ${killedCount} this cycle.`,
+      detail: `Any campaign that spends without producing revenue is flagged to pause — and auto-pauses the moment your ad accounts connect. The shield caught ${killedCount} this cycle.`,
     },
     {
       rule: "Cap FIX campaigns at break-even",
@@ -158,6 +172,20 @@ export function protectBudget(
     },
   ];
 
+  // Weekly "money saved" receipt — the protection expressed at a weekly cadence.
+  const weekProtectedGbp = round(protectedGbp / WEEKS_PER_MONTH);
+  const weekRerouteReturnGbp = round(rerouteReturnGbp / WEEKS_PER_MONTH);
+  const weeklyReceipt: WeeklyReceipt = {
+    weekProtectedGbp,
+    weekRerouteReturnGbp,
+    campaignsPaused: killedCount,
+    headline:
+      weekProtectedGbp > 0
+        ? `This week the shield protected £${weekProtectedGbp} of wasted spend${killedCount ? ` across ${killedCount} paused campaign${killedCount === 1 ? "" : "s"}` : ""}${weekRerouteReturnGbp > 0 ? `, rerouted for a projected +£${weekRerouteReturnGbp}` : ""}.`
+        : "This week no wasted spend was detected — every campaign is clearing break-even.",
+    cadence: "weekly",
+  };
+
   return {
     business: business || "your brand",
     monthlyBudgetGbp: budget,
@@ -171,6 +199,7 @@ export function protectBudget(
     rerouteReturnGbp,
     projectedRoas,
     standingOrders,
+    weeklyReceipt,
     note:
       "Demo intelligence — the protection board is modelled from your budget and typical campaign efficiency; every figure is an ESTIMATE, not booked spend. Connect your ad accounts and live spend/return replaces these modelled campaigns in place.",
     isEstimate: true,
