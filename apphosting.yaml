@@ -76,33 +76,31 @@ env:
   #   secret: stripe-webhook-secret
   #   availability: [RUNTIME]
 
-  # ── Email / SMTP (the go-live sender — Brevo) ──────────────────────────
-  # Non-secret settings are plain values. Port 587 = STARTTLS (Brevo default).
+  # ── Email / SMTP (the go-live sender — Hostinger, own domain) ──────────
+  # Sends from the real MarketWar mailbox on the owned domain, not a relay.
+  # Port 465 = implicit TLS (SSL), so SMTP_SECURE must be "true".
   - variable: SMTP_HOST
-    value: smtp-relay.brevo.com
+    value: smtp.hostinger.com
     availability: [RUNTIME]
   - variable: SMTP_PORT
-    value: "587"
+    value: "465"
     availability: [RUNTIME]
   - variable: SMTP_SECURE
-    value: "false"                          # "true" only for port 465 (implicit TLS)
+    value: "true"                           # port 465 = implicit TLS (SSL)
     availability: [RUNTIME]
   - variable: EMAIL_FROM
-    value: MarketWar OS <os@notifications.marketwaros.com>
+    value: MarketWar OS <info@marketwaros.com>
     availability: [RUNTIME]
-  # SMTP credentials are SECRETS — never plain values. COMMENTED OUT until the
-  # secrets exist (a reference to a missing secret FAILS the whole deploy).
-  # To turn email on: create both secrets, then uncomment:
-  #   firebase apphosting:secrets:set smtp-user   # paste your Brevo login/email
-  #   firebase apphosting:secrets:set smtp-pass   # paste a Brevo SMTP key
-  #   firebase apphosting:secrets:grantaccess smtp-user --backend marketwar
-  #   firebase apphosting:secrets:grantaccess smtp-pass --backend marketwar
-  # - variable: SMTP_USER
-  #   secret: smtp-user
-  #   availability: [RUNTIME]
-  # - variable: SMTP_PASS
-  #   secret: smtp-pass
-  #   availability: [RUNTIME]
+  # SMTP credentials are SECRETS — never plain values. Both secrets exist in
+  # Secret Manager and are granted to the backend SA, so they are wired live:
+  #   smtp-user = info@marketwaros.com   (the mailbox login)
+  #   smtp-pass = the mailbox password   (rotate after go-live)
+  - variable: SMTP_USER
+    secret: smtp-user
+    availability: [RUNTIME]
+  - variable: SMTP_PASS
+    secret: smtp-pass
+    availability: [RUNTIME]
 
   # ── AI providers — flips the WHOLE platform to Live intelligence ────────
   # Every agent + AI-generative engine routes through the gateway (Claude →
