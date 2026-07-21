@@ -6,6 +6,7 @@ import BrandSwitcher from "@/components/BrandSwitcher";
 import {
   Activity,
   BadgePercent,
+  Banknote,
   Bell,
   Clapperboard,
   Coins,
@@ -49,6 +50,7 @@ const NAV = [
     group: "Command",
     items: [
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+      { href: "/dashboard/first-customer", label: "First Customer", icon: Banknote },
       { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },

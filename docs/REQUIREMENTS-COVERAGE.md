@@ -1241,3 +1241,16 @@ Activation: GEMINI_API_KEY (Veo) or OPENAI_API_KEY (Sora) for rendering + Fireba
 | Verified | ✅ | typecheck + check:layers + clean build + smoke **347/0**; live-smoke pre-flight verified against the demo server (0/10, honest activation hints) |
 
 Usage after setting production secrets: `npm run smoke:live -- https://marketwaros.com` (pre-flight), then `--exercise` once to watch the first live run.
+
+## 45. First Customer guided sprint — zero → first paying customer, no ads (2026-07-21)
+
+| Requirement | Status | Where |
+|---|---|---|
+| **One-screen wizard: offer → leads → outreach → payment link** | ✅ | `/dashboard/first-customer` runs real agents in sequence + mints a checkout link |
+| Step 1 Offer | ✅ | `offer-builder` agent (margin-safe offer) |
+| Step 2 Leads | ✅ | `lead-hunter` agent (who to reach + where, no ads) |
+| Step 3 Outreach | ✅ | `outreach-commander` agent (WhatsApp/email messages built around the offer) |
+| Step 4 Payment link | ✅ | `/api/checkout` self-attributing Stripe link |
+| **No ad-platform dependency** | ✅ | owned channels only; send manually from own WhatsApp/email, or organic via Publish Center; "first-customer kit" + send CTAs |
+| Prominent entry | ✅ | Sidebar "First Customer" (Banknote) under Command Center |
+| Verified | ✅ | typecheck + check:layers + clean build + live sequence (offer/leads/outreach all return output, checkout link minted); page 200 |
