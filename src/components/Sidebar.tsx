@@ -76,6 +76,7 @@ const NAV = [
       { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
       { href: "/dashboard/organic", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
+      { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
       { href: "/dashboard/landing-pages", label: "Landing Pages", icon: Flame },
       { href: "/dashboard/landing-builder", label: "Conversion Architect", icon: LayoutTemplate },
