@@ -32,6 +32,16 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // firebase-admin (and its native/gRPC deps: gRPC, protobufjs, farmhash) must
+  // NOT be bundled by Next's server compiler. Bundling builds green but then
+  // fails to load at runtime cold-start on Vercel's serverless runtime — every
+  // route that imports firebase-admin 500s with a bare "Internal Server Error".
+  // Marking it external makes Next load it as a normal node_module at runtime,
+  // which is how the Admin SDK is designed to be consumed. (Next 14.2 key; in
+  // Next 15 this graduates to the top-level `serverExternalPackages`.)
+  experimental: {
+    serverComponentsExternalPackages: ["firebase-admin"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
