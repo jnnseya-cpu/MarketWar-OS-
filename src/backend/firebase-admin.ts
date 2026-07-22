@@ -70,6 +70,23 @@ if (hasCreds) {
 // True only when the Admin SDK actually initialised — so callers that guard on
 // this never touch a half-initialised app.
 export const adminConfigured = Boolean(app);
-export const adminDb: Firestore | null = app ? getFirestore(app) : null;
-export const adminAuth: Auth | null = app ? getAuth(app) : null;
-export const adminStorage: Storage | null = app ? getStorage(app) : null;
+
+// Build the service handles DEFENSIVELY. getFirestore/getAuth/getStorage run at
+// MODULE LOAD — outside the init try/catch above — so if any of them throws on
+// the serverless runtime (a known failure mode with certain credential/runtime
+// combinations), it takes down the ENTIRE module import and every route that
+// imports it 500s at cold-start with a bare "Internal Server Error" before any
+// handler-level try/catch can run. Wrapping each call keeps module load total-
+// failure-proof: a throw here degrades to null (demo mode), never a crash.
+function safeInit<T>(make: (a: App) => T, name: string): T | null {
+  if (!app) return null;
+  try {
+    return make(app);
+  } catch (e) {
+    console.error(`[firebase-admin] ${name}() failed at init — degrading to demo:`, (e as Error).message);
+    return null;
+  }
+}
+export const adminDb: Firestore | null = safeInit((a) => getFirestore(a), "getFirestore");
+export const adminAuth: Auth | null = safeInit((a) => getAuth(a), "getAuth");
+export const adminStorage: Storage | null = safeInit((a) => getStorage(a), "getStorage");
