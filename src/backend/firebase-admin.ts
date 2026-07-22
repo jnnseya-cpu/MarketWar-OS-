@@ -15,18 +15,35 @@ import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getStorage, type Storage } from "firebase-admin/storage";
 
-// On Google Cloud the project id is auto-injected; on Vercel it is not, so fall
-// back to the public project id (always set for the client SDK). This makes the
-// Admin backend + brand-isolation enforcement light up on Vercel without needing
-// a separate FIREBASE_PROJECT_ID var.
-const projectId =
-  process.env.FIREBASE_PROJECT_ID ||
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-  process.env.GOOGLE_CLOUD_PROJECT ||
-  process.env.GCLOUD_PROJECT;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-// Vercel stores multiline secrets with literal \n — normalise them.
-const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+// Credentials may be supplied EITHER as a full service-account JSON (the whole
+// file pasted into ONE env var — FIREBASE_SERVICE_ACCOUNT or FIREBASE_PRIVATE_KEY)
+// OR as the three individual fields. The JSON path is the most robust: it carries
+// project_id + client_email + private_key together and sidesteps the mangled-
+// newline problems that plague a multiline PEM pasted into an env var. This is
+// the recommended setup on Vercel — set FIREBASE_PRIVATE_KEY to the whole JSON.
+function loadCreds(): { projectId?: string; clientEmail?: string; privateKey?: string } {
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_PRIVATE_KEY || "").trim();
+  if (raw.startsWith("{")) {
+    try {
+      const j = JSON.parse(raw) as { project_id?: string; client_email?: string; private_key?: string };
+      return { projectId: j.project_id, clientEmail: j.client_email, privateKey: j.private_key };
+    } catch {
+      /* not valid JSON — fall through to individual fields */
+    }
+  }
+  return {
+    projectId:
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.GCLOUD_PROJECT,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    // Vercel stores multiline secrets with literal \n — normalise them.
+    privateKey: raw ? raw.replace(/\\n/g, "\n") : undefined,
+  };
+}
+
+const { projectId, clientEmail, privateKey } = loadCreds();
 
 const hasCreds = Boolean(projectId && clientEmail && privateKey);
 
