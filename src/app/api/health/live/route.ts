@@ -1,35 +1,61 @@
 import { NextResponse } from "next/server";
-import { adminConfigured } from "@/backend/firebase-admin";
-import { storageConfigured } from "@/backend/storage";
-import { zernioConfigured } from "@/backend/zernio";
-import { videoGatewayConfigured } from "@/backend/video-gateway";
 
 // Live-readiness matrix — a SAFE, no-spend pre-flight for the deployed app.
 // Reports which live capabilities are wired vs still demo, and exactly what to
-// set to activate each. Use it after adding production secrets to confirm the
-// platform flipped to live BEFORE spending on a real generate/render.
+// set to activate each.
+//
+// CRASH-PROOF BY CONSTRUCTION: this route imports NOTHING from @/backend at the
+// top level. A static top-level import that throws at MODULE LOAD (e.g. an SDK
+// init on the serverless runtime) cannot be caught by any try/catch inside the
+// handler — it takes down the whole module and returns a bare "Internal Server
+// Error" 500. So every backend module here is pulled in via DYNAMIC import()
+// INSIDE a try/catch. If a module throws on import, we capture the message and
+// report it in the JSON instead of 500-ing — which also makes this endpoint a
+// self-diagnosing probe: it names the exact module and error that's failing.
 export const runtime = "nodejs";
-// MUST be dynamic: this reads runtime secrets from process.env. Without this,
-// Next.js statically prerenders the handler at BUILD time (no secrets present)
-// and caches a permanent "0/10" — even though the running container has every
-// secret. force-dynamic makes it evaluate process.env on each request.
 export const dynamic = "force-dynamic";
 
 const env = (k: string) => Boolean(process.env[k]);
-// Never let a single capability probe throw the whole endpoint into a 500 —
-// a health check that can itself go down is worse than useless.
-const safe = (fn: () => boolean): boolean => { try { return fn(); } catch { return false; } };
+
+// Dynamically import a backend module and run a probe against it. Any failure —
+// import-time throw OR probe throw — is captured, never propagated.
+async function probe(load: () => Promise<boolean>): Promise<{ ready: boolean; error?: string }> {
+  try {
+    return { ready: await load() };
+  } catch (e) {
+    return { ready: false, error: (e as Error).message };
+  }
+}
 
 export async function GET() {
-  try {
+  const errors: Record<string, string> = {};
+  const track = (name: string, r: { ready: boolean; error?: string }) => {
+    if (r.error) errors[name] = r.error;
+    return r.ready;
+  };
+
+  const admin = track("firebase-admin", await probe(async () => {
+    const m = await import("@/backend/firebase-admin");
+    return Boolean(m.adminConfigured);
+  }));
+  const storage = track("storage", await probe(async () => {
+    const m = await import("@/backend/storage");
+    return m.storageConfigured();
+  }));
+  const video = track("video-gateway", await probe(async () => {
+    const m = await import("@/backend/video-gateway");
+    return m.videoGatewayConfigured();
+  }));
+  const zernio = track("zernio", await probe(async () => {
+    const m = await import("@/backend/zernio");
+    return m.zernioConfigured();
+  }));
+
   const ai = env("ANTHROPIC_API_KEY") || env("OPENAI_API_KEY") || env("GEMINI_API_KEY");
-  const storage = safe(storageConfigured);
-  const adminReady = safe(() => adminConfigured);
-  const video = safe(videoGatewayConfigured);
-  const zernio = safe(zernioConfigured);
+
   const caps = [
     { capability: "AI intelligence (agents + engines)", ready: ai, activates: "ANTHROPIC_API_KEY (or OPENAI_API_KEY / GEMINI_API_KEY)" },
-    { capability: "Firebase Admin (persistence, storage, auth)", ready: adminReady, activates: "FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY" },
+    { capability: "Firebase Admin (persistence, storage, auth)", ready: admin, activates: "FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY" },
     { capability: "Media hosting (Firebase Storage)", ready: storage, activates: "Firebase Admin secrets + FIREBASE_STORAGE_BUCKET" },
     { capability: "Hosted, attachable images (Brand Studio)", ready: storage, activates: "Firebase Storage (above) — brand-safe PNG hosts even without an image model" },
     { capability: "Photoreal image backgrounds", ready: env("OPENAI_API_KEY"), activates: "OPENAI_API_KEY (gpt-image-1)" },
@@ -40,16 +66,16 @@ export async function GET() {
     { capability: "Payments (Stripe)", ready: env("STRIPE_SECRET_KEY"), activates: "STRIPE_SECRET_KEY (+ STRIPE_WEBHOOK_SECRET)" },
   ];
   const readyCount = caps.filter((c) => c.ready).length;
+
   return NextResponse.json({
     service: "MarketWar OS",
     liveReady: readyCount,
     total: caps.length,
     allDemo: readyCount === 0,
     capabilities: caps,
-    note: "Safe pre-flight — no provider calls, no spend. Each 'ready:false' shows exactly what to set. Run scripts/smoke-live.mjs against the deployed URL to exercise the live paths end to end.",
+    // Present ONLY if a backend module failed to import/probe — names the module
+    // and the exact error so a 500's root cause is visible without server logs.
+    moduleErrors: Object.keys(errors).length ? errors : undefined,
+    note: "Safe pre-flight — no provider calls, no spend. Each 'ready:false' shows exactly what to set. If 'moduleErrors' is present, a backend module is crashing on import — that's the root cause of any 500.",
   });
-  } catch (e) {
-    // Even a total failure returns 200 JSON — the checker must never be the thing that's down.
-    return NextResponse.json({ service: "MarketWar OS", liveReady: 0, total: 10, allDemo: true, error: (e as Error).message, capabilities: [] });
-  }
 }
