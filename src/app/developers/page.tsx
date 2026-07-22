@@ -42,7 +42,7 @@ Required ACUs = ceil(providerCostGBP x 4 x 100)   // 4x = 300% markup = 75% marg
         <p>
           {ENGINE_REGISTRY.length} engines are live behind their own API today — each with a GET that returns a
           doctrine plus a fully-populated demo (zero config, no keys). Explore them in the in-app
-          {" "}<Link href="/dashboard/engines" className="text-emerald-400 hover:text-emerald-300">AI Engines index</Link>.
+          {" "}<Link href="/signup" className="text-emerald-400 hover:text-emerald-300">AI Engines index</Link>.
         </p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {ENGINE_REGISTRY.slice(0, 12).map((e) => (
@@ -62,7 +62,7 @@ Required ACUs = ceil(providerCostGBP x 4 x 100)   // 4x = 300% markup = 75% marg
         </p>
 
         <div className="mt-10 flex flex-wrap gap-3">
-          <Link href="/dashboard/engines" className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">Open the engine index</Link>
+          <Link href="/signup" className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">Open the engine index</Link>
           <Link href="/contact" className="rounded-lg border border-ink-700 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-emerald-500">Request API access</Link>
         </div>
         <p className="mt-4 text-[13px] text-slate-500">Full public API keys and rate-limited developer plans roll out with the production gateway release.</p>

@@ -49,7 +49,7 @@ export default function GetStartedPage() {
             </div>
           ))}
         </div>
-        <p className="text-[13px] text-slate-500">Business, Enterprise, Corporate and Global plans available — see the full ladder and ACU allowances on the <Link href="/dashboard/billing" className="text-emerald-400 hover:text-emerald-300">billing page</Link>. Save 30% with annual billing.</p>
+        <p className="text-[13px] text-slate-500">Business, Enterprise, Corporate and Global plans available — see the full ladder and ACU allowances on the <Link href="/signup" className="text-emerald-400 hover:text-emerald-300">create your account</Link>. Save 30% with annual billing.</p>
 
         <div className="mt-10 flex flex-wrap gap-3">
           <Link href="/signup" className="rounded-lg bg-emerald-500 px-6 py-3 text-sm font-bold text-ink-950 hover:bg-emerald-400">Create free account</Link>
