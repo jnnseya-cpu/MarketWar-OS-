@@ -28,20 +28,31 @@ const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 // Vercel stores multiline secrets with literal \n — normalise them.
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
 
-export const adminConfigured = Boolean(projectId && clientEmail && privateKey);
+const hasCreds = Boolean(projectId && clientEmail && privateKey);
 
-function adminApp(): App | null {
-  if (!adminConfigured) return null;
-  return (
-    getApps()[0] ??
-    initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey }),
-    })
-  );
+// Initialise DEFENSIVELY. A malformed credential — most commonly a private key
+// whose newlines got mangled when pasted into an env var — must NEVER crash the
+// whole app. Before, cert() throwing here 500-ed every route that imports this
+// module. Now we catch it, log it, and degrade to demo mode (no persistence)
+// so the site stays up and the rest of the platform keeps working.
+let app: App | null = null;
+if (hasCreds) {
+  try {
+    app =
+      getApps()[0] ??
+      initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
+  } catch (e) {
+    console.error(
+      "[firebase-admin] init failed — running without persistence. Check FIREBASE_PRIVATE_KEY formatting:",
+      (e as Error).message
+    );
+    app = null;
+  }
 }
 
-const app = adminApp();
-
+// True only when the Admin SDK actually initialised — so callers that guard on
+// this never touch a half-initialised app.
+export const adminConfigured = Boolean(app);
 export const adminDb: Firestore | null = app ? getFirestore(app) : null;
 export const adminAuth: Auth | null = app ? getAuth(app) : null;
 export const adminStorage: Storage | null = app ? getStorage(app) : null;
