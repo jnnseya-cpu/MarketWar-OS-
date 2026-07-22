@@ -2,6 +2,9 @@
   "name": "marketwar-os",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "jose": "^5.10.0"
+  },
   "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
     "dev": "next dev",
