@@ -18,6 +18,18 @@ import { adminAuth, adminConfigured } from "@/backend/firebase-admin";
 import type { Role, Scope } from "@/shared/roles";
 import { hasScope } from "@/shared/roles";
 
+// Bootstrap-admin allowlist: any signed-in user whose (Firebase-verified) email
+// is listed in PLATFORM_ADMIN_EMAILS is treated as an `executive` (full admin) —
+// WITHOUT needing a custom claim set out-of-band. The owner controls this env
+// var, and Firebase already verified the email, so it's a safe, reliable way to
+// grant the first admin. Comma-separated, case-insensitive.
+const ADMIN_EMAILS = new Set(
+  (process.env.PLATFORM_ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
 // ---------------------------------------------------------------------------
 // Rate limiting (in-memory; per-instance). A shared store (Redis/Firestore)
 // is required for multi-instance correctness — tracked as a launch action.
@@ -65,7 +77,12 @@ export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promi
   } catch {
     return { ok: false, status: 401, error: "Invalid or expired session" };
   }
-  const role = (decoded.role as Role | undefined) ?? null;
+  let role = (decoded.role as Role | undefined) ?? null;
+  // Bootstrap admin by verified-email allowlist — grants executive even without
+  // a custom claim. Owner-controlled env var; never widens access on its own.
+  if (decoded.email && ADMIN_EMAILS.has(String(decoded.email).toLowerCase())) {
+    role = "executive";
+  }
   if (opts?.scope) {
     if (!role || !hasScope(role, opts.scope)) {
       return { ok: false, status: 403, error: `Insufficient permission (requires ${opts.scope})` };
