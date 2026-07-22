@@ -34,7 +34,7 @@ const ASSET_TYPES: AssetType[] = [
 ];
 
 export default function StudioPage() {
-  const [business, setBusiness] = useState("Brixton Grill House");
+  const [business, setBusiness] = useState("");
   const [headline, setHeadline] = useState("Hungry tonight? Order direct.");
   const [offerText, setOfferText] = useState("20% OFF your first order — today only");
   const [cta, setCta] = useState("Order on WhatsApp");
@@ -104,7 +104,7 @@ export default function StudioPage() {
           <h2 className="font-display text-lg font-bold text-white">Create a creative</h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} /></div>
+          <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Your business name" /></div>
           <div><label className="label">Headline (rendered exactly)</label><input className="input" value={headline} onChange={(e) => setHeadline(e.target.value)} /></div>
           <div><label className="label">Offer text</label><input className="input" value={offerText} onChange={(e) => setOfferText(e.target.value)} /></div>
           <div><label className="label">CTA</label><input className="input" value={cta} onChange={(e) => setCta(e.target.value)} /></div>

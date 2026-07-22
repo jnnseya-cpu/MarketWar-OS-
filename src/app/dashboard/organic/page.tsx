@@ -34,7 +34,7 @@ const MAGNETS = [
 const SEV: Record<string, "bad" | "warn" | "info"> = { critical: "bad", high: "warn", medium: "info" };
 
 export default function OrganicPage() {
-  const [business, setBusiness] = useState("Brixton Grill House");
+  const [business, setBusiness] = useState("");
   const [audit, setAudit] = useState<Audit | null>(null);
   const [radar, setRadar] = useState<Radar | null>(null);
   const [busy, setBusy] = useState<"" | "audit" | "citation">("");
@@ -79,6 +79,7 @@ export default function OrganicPage() {
             <input
               value={business}
               onChange={(e) => setBusiness(e.target.value)}
+              placeholder="Your business name"
               className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60"
             />
           </label>

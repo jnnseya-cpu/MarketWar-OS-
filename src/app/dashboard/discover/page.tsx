@@ -22,7 +22,7 @@ const tone = (n: number): "good" | "warn" | "bad" => (n >= 70 ? "good" : n >= 50
 
 export default function DiscoverPage() {
   const [niche, setNiche] = useState("food delivery");
-  const [location, setLocation] = useState("Brixton, London");
+  const [location, setLocation] = useState("");
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [leads, setLeads] = useState<LeadReport | null>(null);
   const [busy, setBusy] = useState<"" | "opp" | "leads">("");
@@ -53,7 +53,7 @@ export default function DiscoverPage() {
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">Niche / category</label><input className="input" value={niche} onChange={(e) => setNiche(e.target.value)} /></div>
-          <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} /></div>
+          <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City or area (e.g. your town)" /></div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => run("opp")} disabled={busy === "opp"}>

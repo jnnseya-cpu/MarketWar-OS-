@@ -6,10 +6,11 @@
 // behind the AI Marketing Guarantee Score. Wired to /api/roi. Estimates only —
 // re-ranked on real performance; no guaranteed results, no policy bypass.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2, Coins, Target, ShieldAlert, TrendingDown } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type ChannelROI = { channel: string; label: string; owned: boolean; predictedCacGbp: number; conversionProbability: number; predictedRoi: number; recommended: boolean; note: string };
 type RoiReport = { business: string; objective: string; budgetGbp: number; channels: ChannelROI[]; nextCheapestCustomer: { label: string; cacGbp: number; why: string }; allocation: { channel: string; label: string; amountGbp: number; share: number; owned: boolean }[]; ownedShare: number; doctrine: string; honesty: string };
@@ -18,7 +19,10 @@ type Readiness = { scores: { name: string; score: number }[]; overall: number; v
 const roiTone = (n: number): "good" | "warn" | "bad" => (n >= 3 ? "good" : n >= 1.5 ? "warn" : "bad");
 
 export default function RoiPage() {
-  const [business, setBusiness] = useState("Brixton Grill House");
+  const { activeBrand } = useActiveBrand();
+  // No fake example business — prefill from the active brand, else empty.
+  const [business, setBusiness] = useState("");
+  useEffect(() => { setBusiness((b) => b || activeBrand?.name || ""); }, [activeBrand]);
   const [objective, setObjective] = useState("get orders");
   const [budget, setBudget] = useState(600);
   const [aov, setAov] = useState(40);
@@ -52,7 +56,7 @@ export default function RoiPage() {
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} /></div>
+          <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder={activeBrand?.name || "Your business name"} /></div>
           <div><label className="label">Objective</label><input className="input" value={objective} onChange={(e) => setObjective(e.target.value)} /></div>
           <div><label className="label">Budget (£)</label><input className="input" type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></div>
           <div><label className="label">Avg order value (£)</label><input className="input" type="number" value={aov} onChange={(e) => setAov(Number(e.target.value))} /></div>

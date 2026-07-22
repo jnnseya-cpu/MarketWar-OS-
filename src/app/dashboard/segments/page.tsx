@@ -16,7 +16,7 @@ type Report = { business: string; totalCustomers: number; consentedShare: number
 const prTone = (n: number): "good" | "warn" | "neutral" => (n >= 80 ? "good" : n >= 60 ? "warn" : "neutral");
 
 export default function SegmentsPage() {
-  const [business, setBusiness] = useState("Brixton Grill House");
+  const [business, setBusiness] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,7 +39,7 @@ export default function SegmentsPage() {
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <label className="label">Business</label>
-        <input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} />
+        <input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Your business name" />
         <button className="btn-primary mt-4" onClick={run} disabled={busy}>
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Segmenting…</> : <><Layers className="h-4 w-4" /> Build segments</>}
         </button>

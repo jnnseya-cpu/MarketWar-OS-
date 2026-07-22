@@ -77,7 +77,7 @@ export default function LocalDominationPage() {
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Your business name" /></div>
-          <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Brixton, London (SW9)" /></div>
+          <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. your city or area" /></div>
         </div>
         <button className="btn-primary mt-4" onClick={run} disabled={busy}>
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing local presence…</> : <><MapPin className="h-4 w-4" /> Build my domination plan</>}

@@ -25,7 +25,7 @@ const tone = (n: number): "good" | "warn" | "bad" => (n >= 75 ? "good" : n >= 60
 const SCORE_LABELS: Record<string, string> = { conversionScore: "Conversion", clarityScore: "Clarity", trustScore: "Trust", urgencyScore: "Urgency", mobileScore: "Mobile", emotionalScore: "Emotional", frictionScore: "Friction", leadQualityScore: "Lead quality" };
 
 export default function LandingBuilderPage() {
-  const [form, setForm] = useState({ business: "Brixton Grill House", objective: "get whatsapp orders", offer: "20% off your first order, ends tonight", audience: "hungry locals within 3 miles", location: "Brixton, London", product: "restaurant takeaway", painPoint: "cold, late, overpriced app delivery" });
+  const [form, setForm] = useState({ business: "", objective: "", offer: "", audience: "", location: "", product: "", painPoint: "" });
   const [page, setPage] = useState<Page | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));

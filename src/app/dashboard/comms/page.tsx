@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Mail, Bell, MessageSquare, Smartphone, MessageCircle, ShieldAlert, Send, Eye } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Channel = "email" | "inapp" | "sms" | "push" | "whatsapp";
 type Sev = "info" | "success" | "warning" | "critical";
@@ -17,6 +18,7 @@ const CH_ICON: Record<Channel, typeof Mail> = { email: Mail, inapp: Bell, sms: M
 const SEV_TONE: Record<Sev, string> = { info: "text-sky-300", success: "text-emerald-300", warning: "text-amber-300", critical: "text-rose-300" };
 
 export default function CommsPage() {
+  const { activeBrand } = useActiveBrand();
   const [data, setData] = useState<Resp | null>(null);
   const [sel, setSel] = useState<string>("account.registration.requested");
   const [preview, setPreview] = useState<{ subject: string; brand: string; brandColour: string; from: string } | null>(null);
@@ -30,7 +32,7 @@ export default function CommsPage() {
 
   async function runPreview() {
     setBusy(true); setTestResult(null);
-    const r = await fetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview", eventId: sel, brand: { name: "Brixton Grill House", brandColour: "#10b981", fromEmail: "info@marketwaros.com" } }) }).then((x) => x.json());
+    const r = await fetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview", eventId: sel, brand: { name: activeBrand?.name || "Your brand", brandColour: activeBrand?.color || "#10b981", fromEmail: "info@marketwaros.com" } }) }).then((x) => x.json());
     setPreview(r); setBusy(false);
   }
   async function runTest() {

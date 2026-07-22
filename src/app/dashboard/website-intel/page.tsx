@@ -105,10 +105,10 @@ const AUTHS: { value: string; label: string }[] = [
 export default function WebsiteIntelPage() {
   const { activeBrand } = useActiveBrand();
   const [website, setWebsite] = useState(activeBrand?.website || "brixtongrillhouse.co.uk");
-  const [business, setBusiness] = useState(activeBrand?.name || "Brixton Grill House");
+  const [business, setBusiness] = useState(activeBrand?.name || "");
   const [category, setCategory] = useState(activeBrand?.industry || "Restaurant");
   const [offers, setOffers] = useState(activeBrand?.offer || "Dine-in, Table booking, Private hire");
-  const [location, setLocation] = useState(activeBrand?.location || "Brixton, London");
+  const [location, setLocation] = useState(activeBrand?.location || "");
   const [price, setPrice] = useState<"budget" | "mass" | "premium">("mass");
   const [authorisation, setAuthorisation] = useState("own");
   const [reviews] = useState(213);

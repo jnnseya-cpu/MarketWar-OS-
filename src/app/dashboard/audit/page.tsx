@@ -7,9 +7,9 @@ import { PageHeader, Pill, ScoreBar } from "@/components/ui";
 import type { AuditReport } from "@/shared/types";
 
 const DEMO_INPUT = {
-  business: "Brixton Grill House",
+  business: "Sample Business",
   industry: "Restaurant & Food Delivery",
-  location: "Brixton, London",
+  location: "Your City",
   product: "Flame-grilled meals, family platters, office catering",
   price: "£9.50 average order",
   offer: "Free delivery over £20",
@@ -65,7 +65,7 @@ export default function AuditPage() {
         actions={
           source && (
             <Pill tone={source === "onboarding" ? "good" : "info"}>
-              {source === "onboarding" ? "Your business" : "Demo business"}
+              {source === "onboarding" ? "Your business" : "Sample report"}
             </Pill>
           )
         }
@@ -76,8 +76,8 @@ export default function AuditPage() {
           <Stethoscope className="mb-4 h-10 w-10 text-emerald-500/70" />
           <h2 className="font-display text-xl font-bold text-white">No audit on file</h2>
           <p className="mt-2 max-w-md text-sm text-slate-400">
-            Run the onboarding intake to audit your own business, or generate the demo report for
-            Brixton Grill House to see what the diagnosis looks like.
+            Run the onboarding intake to audit your own business, or generate a sample report to
+            see what the diagnosis looks like.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Link href="/onboarding" className="btn-primary">
@@ -85,7 +85,7 @@ export default function AuditPage() {
             </Link>
             <button className="btn-ghost" onClick={runDemo} disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? "Diagnosing…" : "Show demo report"}
+              {loading ? "Diagnosing…" : "Show sample report"}
             </button>
           </div>
         </div>

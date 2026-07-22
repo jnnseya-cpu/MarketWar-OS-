@@ -16,7 +16,7 @@ type Sentiment = { topicSentiment: { topic: string; mentions: number; sentiment:
 const tone = (n: number): "good" | "warn" | "bad" => (n >= 70 ? "good" : n >= 50 ? "warn" : "bad");
 
 export default function ReputationPage() {
-  const [business, setBusiness] = useState("Brixton Grill House");
+  const [business, setBusiness] = useState("");
   const [trust, setTrust] = useState<Trust | null>(null);
   const [sentiment, setSentiment] = useState<Sentiment | null>(null);
   const [busy, setBusy] = useState<"" | "trust" | "sentiment">("");
@@ -44,7 +44,7 @@ export default function ReputationPage() {
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <label className="label">Business</label>
-        <input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} />
+        <input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Your business name" />
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => run("trust")} disabled={busy === "trust"}>
             {busy === "trust" ? <><Loader2 className="h-4 w-4 animate-spin" /> Scoring…</> : <><ShieldCheck className="h-4 w-4" /> Compute TrustScore</>}

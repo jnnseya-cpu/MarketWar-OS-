@@ -108,10 +108,10 @@ export default function FirstCustomerPage() {
       <div className="mb-6 card p-5">
         <Step n={0} done={ready} icon={Rocket} title="Set the scene" sub="A few basics — the whole sprint runs off these." />
         <div className="grid gap-3 sm:grid-cols-2">
-          <div><label className="label">Business / brand</label><input className="input" value={form.business} onChange={(e) => set("business", e.target.value)} placeholder="Brixton Grill House" /></div>
+          <div><label className="label">Business / brand</label><input className="input" value={form.business} onChange={(e) => set("business", e.target.value)} placeholder="Your business name" /></div>
           <div><label className="label">Product / service</label><input className="input" value={form.product} onChange={(e) => set("product", e.target.value)} placeholder="Flame-grilled family platters" /></div>
           <div><label className="label">Who should buy?</label><input className="input" value={form.targetCustomer} onChange={(e) => set("targetCustomer", e.target.value)} placeholder="Local families within 3 miles" /></div>
-          <div><label className="label">Location / area</label><input className="input" value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="Brixton, London" /></div>
+          <div><label className="label">Location / area</label><input className="input" value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="City or area" /></div>
           <div><label className="label">Usual price</label><input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="£25 platter" /></div>
           <div><label className="label">First-order price (£) — for the link</label><input className="input" type="number" min="1" value={form.amount} onChange={(e) => set("amount", e.target.value)} placeholder="20" /></div>
         </div>
