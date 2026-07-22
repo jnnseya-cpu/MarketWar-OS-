@@ -5,6 +5,9 @@ import {
 } from "@/backend/admin-economics";
 import { requireAuth } from "@/backend/guard";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 // Platform-Owner Economics API (spec §16 + "Administrative Controls").
 // OWNER-ONLY surface — this is the single place provider cost and gross margin
 // are ever computed for display; user-facing surfaces (/api/acu et al.) never
@@ -17,29 +20,35 @@ import { requireAuth } from "@/backend/guard";
 // GET  → doctrine, ACU rules, cost controls, revenue layers, export charges, demo dashboard
 
 export async function POST(req: NextRequest) {
-  // Owner-only economics (provider cost + gross margin). Enforced in production;
-  // open in zero-config demo. Requires the platform_admin scope when live.
-  const auth = await requireAuth(req, { scope: "platform_admin" });
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
-  const action = typeof body.action === "string" ? body.action : "dashboard";
+  try {
+    // Owner-only economics (provider cost + gross margin). Enforced in production;
+    // open in zero-config demo. Requires the platform_admin scope when live.
+    const auth = await requireAuth(req, { scope: "platform_admin" });
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
+    const action = typeof body.action === "string" ? body.action : "dashboard";
 
-  if (action === "dashboard") {
-    const ledger = Array.isArray(body.ledger) ? (body.ledger as LedgerEntry[]) : null;
-    return NextResponse.json(ledger && ledger.length ? ownerDashboard(ledger) : demoOwnerDashboard());
+    if (action === "dashboard") {
+      const ledger = Array.isArray(body.ledger) ? (body.ledger as LedgerEntry[]) : null;
+      const live = Boolean(ledger && ledger.length);
+      return NextResponse.json({ ...(live ? ownerDashboard(ledger!) : demoOwnerDashboard()), mode: live ? "live" : "demo" });
+    }
+
+    if (action === "recycling") {
+      const num = (k: string, d = 0) => (typeof body[k] === "number" ? (body[k] as number) : d);
+      return NextResponse.json(recyclingRoi({
+        generationCostGbp: num("generationCostGbp", 1),
+        salePriceAcus: num("salePriceAcus", 200),
+        unitsSold: num("unitsSold", 1),
+      }));
+    }
+
+    return NextResponse.json({ error: "Unknown action — use dashboard or recycling" }, { status: 400 });
+  } catch {
+    // Never 500 the owner console — degrade to the deterministic demo dashboard.
+    return NextResponse.json({ ...demoOwnerDashboard(), mode: "demo" });
   }
-
-  if (action === "recycling") {
-    const num = (k: string, d = 0) => (typeof body[k] === "number" ? (body[k] as number) : d);
-    return NextResponse.json(recyclingRoi({
-      generationCostGbp: num("generationCostGbp", 1),
-      salePriceAcus: num("salePriceAcus", 200),
-      unitsSold: num("unitsSold", 1),
-    }));
-  }
-
-  return NextResponse.json({ error: "Unknown action — use dashboard or recycling" }, { status: 400 });
 }
 
 export async function GET(req: NextRequest) {
