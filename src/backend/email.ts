@@ -314,11 +314,15 @@ export async function sendEmail(opts: {
     };
   }
 
+  let smtpError = "";
   if (smtpConfigured) {
     try {
       const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html);
       return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: "accepted" };
-    } catch {
+    } catch (e) {
+      // Capture the reason (safe — SMTP status lines carry no credentials) so a
+      // failed send is diagnosable instead of a silent "pool-exhausted".
+      smtpError = e instanceof Error ? e.message : String(e);
       // fall through to the HTTP pool on any SMTP failure
     }
   }
@@ -352,5 +356,12 @@ export async function sendEmail(opts: {
     }
   }
 
-  return { ok: false, mode: "live", provider: "pool-exhausted", id: null, filteredOut: [], detail: "all providers failed — send queued for retry" };
+  return {
+    ok: false,
+    mode: "live",
+    provider: "pool-exhausted",
+    id: null,
+    filteredOut: [],
+    detail: smtpError ? `SMTP send failed: ${smtpError}` : "all providers failed — send queued for retry",
+  };
 }

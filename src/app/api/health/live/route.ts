@@ -9,6 +9,11 @@ import { videoGatewayConfigured } from "@/backend/video-gateway";
 // set to activate each. Use it after adding production secrets to confirm the
 // platform flipped to live BEFORE spending on a real generate/render.
 export const runtime = "nodejs";
+// MUST be dynamic: this reads runtime secrets from process.env. Without this,
+// Next.js statically prerenders the handler at BUILD time (no secrets present)
+// and caches a permanent "0/10" — even though the running container has every
+// secret. force-dynamic makes it evaluate process.env on each request.
+export const dynamic = "force-dynamic";
 
 const env = (k: string) => Boolean(process.env[k]);
 
