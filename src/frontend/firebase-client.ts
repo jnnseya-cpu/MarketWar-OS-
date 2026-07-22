@@ -6,7 +6,7 @@
 // each is null when Firebase is not configured — always guard before use.
 
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 
@@ -30,6 +30,15 @@ function app(): FirebaseApp | null {
 
 export const firebaseApp: FirebaseApp | null = app();
 export const firebaseAuth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null;
+
+// Persist the session in localStorage so a page refresh NEVER forces a re-login.
+// Without this, some environments fall back to in-memory persistence and the
+// user is logged out on every reload — the "keep re-logging in" bug.
+if (firebaseAuth) {
+  setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {
+    /* private-mode / storage blocked — falls back to default persistence */
+  });
+}
 export const firebaseDb: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
 export const firebaseStorage: FirebaseStorage | null = firebaseApp
   ? getStorage(firebaseApp)

@@ -26,7 +26,7 @@ function EngineCard({ engine }: { engine: EngineEntry }) {
         typeof d === "string" ? d :
         d && typeof d === "object" ? (d.summary || d.engine || JSON.stringify(d).slice(0, 180)) :
         typeof body.engine === "string" ? body.engine :
-        "Live — returned a demo payload.";
+        "Live — engine responded.";
       setDoctrine(text);
     } catch {
       setError("Could not reach the engine.");
@@ -51,7 +51,7 @@ function EngineCard({ engine }: { engine: EngineEntry }) {
       {error && <p className="mt-2 text-[11px] text-rose-300">{error}</p>}
       <div className="mt-3 flex items-center gap-2 pt-1">
         <button onClick={runDemo} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-emerald-400 disabled:opacity-60">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Run demo
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Run
         </button>
         {engine.dashboard && (
           <Link href={engine.dashboard} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-300 hover:text-white">
@@ -71,11 +71,10 @@ export default function EnginesPage() {
       <PageHeader
         kicker="Unified command index"
         title="AI Engines"
-        subtitle={`${total} deterministic, demo-safe intelligence engines — one platform, one entity. Every engine is live behind its own API and demonstrable with zero config.`}
+        subtitle={`${total} intelligence engines — one platform, one entity. Every engine runs live behind its own API.`}
       />
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <Pill tone="good">{total} engines online</Pill>
-        <Pill tone="info">demo mode — no API keys required</Pill>
         <Pill tone="neutral">provider cost never exposed</Pill>
       </div>
       <div className="space-y-8">

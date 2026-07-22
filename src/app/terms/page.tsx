@@ -11,11 +11,6 @@ export default function TermsPage() {
   return (
     <MarketingShell kicker="Legal" title="Terms of Service" subtitle="Last updated 20 July 2026. These terms govern your access to and use of MarketWar OS. By creating an account you agree to them.">
       <Prose>
-        <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-[13px] text-emerald-100">
-          This is a plain-English summary-style agreement provided as a starting template. Review with qualified legal
-          counsel and localise for your jurisdiction before commercial launch.
-        </p>
-
         <H2>1. The service</H2>
         <p>MarketWar OS (&quot;the Service&quot;, operated at marketwaros.com) is an AI-powered customer-acquisition platform. We grant you a limited, non-exclusive, non-transferable right to access and use the Service in accordance with these terms and your subscription plan.</p>
 

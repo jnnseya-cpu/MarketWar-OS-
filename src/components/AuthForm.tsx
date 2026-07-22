@@ -75,9 +75,11 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setBusy(true);
     setError(null);
     try {
-      const { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification } = await import(
+      const { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification, setPersistence, browserLocalPersistence } = await import(
         "firebase/auth"
       );
+      // Keep the session across refreshes (localStorage) so the user stays logged in.
+      await setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
       if (mode === "login") {
         await signInWithEmailAndPassword(firebaseAuth, email, password);
       } else {
@@ -123,7 +125,8 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setError(null);
     setNotice(null);
     try {
-      const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
+      const { GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } = await import("firebase/auth");
+      await setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
       await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
       router.push(dest);

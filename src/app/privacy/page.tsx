@@ -11,11 +11,6 @@ export default function PrivacyPage() {
   return (
     <MarketingShell kicker="Legal" title="Privacy Policy" subtitle="Last updated 20 July 2026. How we collect, use, protect and share personal data — written to align with UK GDPR and equivalent regimes.">
       <Prose>
-        <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-[13px] text-emerald-100">
-          A starting template aligned with UK/EU GDPR principles. Review with a data-protection specialist and localise
-          (including your ICO/DPA registration details) before launch.
-        </p>
-
         <H2>1. Who we are</H2>
         <p>MarketWar OS (marketwaros.com) is the data controller for account and marketing data, and a data processor for the customer data you upload and process through the platform. Contact our privacy team via the <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact page</Link>.</p>
 

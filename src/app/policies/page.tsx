@@ -41,7 +41,7 @@ export default function PoliciesPage() {
             </Link>
           ))}
         </div>
-        <p className="mt-8 text-[13px] text-slate-500">Policies marked SUMMARY are described within the Terms/Privacy documents today and will be published as standalone pages before commercial launch. Need a signed DPA or bespoke terms? <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">Contact us</Link>.</p>
+        <p className="mt-8 text-[13px] text-slate-500">Need a signed DPA or bespoke terms? <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">Contact us</Link>.</p>
       </Prose>
     </MarketingShell>
   );

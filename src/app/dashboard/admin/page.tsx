@@ -15,6 +15,7 @@ import { AlertTriangle, Loader2, ShieldAlert, TrendingUp } from "lucide-react";
 import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import AdminInvites from "@/components/AdminInvites";
+import { authedFetch } from "@/frontend/api-client";
 
 // Mirrors of the backend OwnerDashboard shape (the engine is server-only).
 type Breakdown = { key: string; revenueGbp: number; costGbp: number; grossMarginPct: number; share: number };
@@ -52,7 +53,9 @@ export default function AdminPage() {
       try {
         // No ledger passed → the API serves the deterministic demo ledger.
         // A real acu_ledger would be posted here to render live economics.
-        const res = await fetch("/api/admin-economics", {
+        // authedFetch sends the Firebase ID token so the owner-only economics
+        // route can verify the platform_admin scope (plain fetch omits it → 401).
+        const res = await authedFetch("/api/admin-economics", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "dashboard" }),
@@ -62,8 +65,8 @@ export default function AdminPage() {
           if (!cancelled) setError(body.error || `Economics unavailable (${res.status})`);
           return;
         }
-        const data = (await res.json()) as OwnerDashboard;
-        if (!cancelled) { setDash(data); setLive(false); }
+        const data = (await res.json()) as OwnerDashboard & { mode?: string };
+        if (!cancelled) { setDash(data); setLive(data?.mode === "live"); }
       } catch {
         if (!cancelled) setError("Economics engine temporarily unavailable");
       }
