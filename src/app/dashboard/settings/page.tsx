@@ -6,9 +6,9 @@
 // until Firebase Auth + Firestore preferences land (users.preferences).
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck, Smartphone, UserRound } from "lucide-react";
+import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck, Smartphone } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
-import UserMenu from "@/components/UserMenu";
+import AccountCard from "@/components/AccountCard";
 import DeleteAccount from "@/components/DeleteAccount";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -118,14 +118,8 @@ export default function SettingsPage() {
         subtitle="Autonomy is per-capability, never global. Every level respects platform policy ceilings, spend caps and the consent ledger — and every agent action stays reversible."
       />
 
-      {/* Account — signed-in identity + sign out */}
-      <div className="mb-8 card p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <UserRound className="h-5 w-5 text-emerald-400" />
-          <h3 className="font-display text-sm font-bold text-white">Account</h3>
-        </div>
-        <UserMenu />
-      </div>
+      {/* Account — identity, details, password, sign out */}
+      <AccountCard />
 
       {/* Autonomy dial */}
       <div className="mb-8 card p-5">
