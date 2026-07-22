@@ -15,7 +15,15 @@ import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getStorage, type Storage } from "firebase-admin/storage";
 
-const projectId = process.env.FIREBASE_PROJECT_ID;
+// On Google Cloud the project id is auto-injected; on Vercel it is not, so fall
+// back to the public project id (always set for the client SDK). This makes the
+// Admin backend + brand-isolation enforcement light up on Vercel without needing
+// a separate FIREBASE_PROJECT_ID var.
+const projectId =
+  process.env.FIREBASE_PROJECT_ID ||
+  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.GCLOUD_PROJECT;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 // Vercel stores multiline secrets with literal \n — normalise them.
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
