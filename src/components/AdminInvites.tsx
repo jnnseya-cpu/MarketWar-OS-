@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { Copy, Check, Loader2, Mail, Trash2, UserPlus } from "lucide-react";
+import { authedFetch } from "@/frontend/api-client";
 
 type Invite = { token: string; email: string; companyName: string; planId: string; brands: number; status: string; createdAt: string };
 
@@ -26,7 +27,7 @@ export default function AdminInvites() {
 
   async function load() {
     try {
-      const r = await fetch("/api/admin/invites");
+      const r = await authedFetch("/api/admin/invites");
       if (r.status === 401 || r.status === 403) { setErr("Admin sign-in required to manage invites."); setInvites([]); return; }
       const d = await r.json();
       setInvites(Array.isArray(d.invites) ? d.invites : []);
@@ -38,7 +39,7 @@ export default function AdminInvites() {
     if (!form.companyName.trim()) return;
     setBusy(true); setErr(null);
     try {
-      const r = await fetch("/api/admin/invites", {
+      const r = await authedFetch("/api/admin/invites", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, brands: Number(form.brands) || 3 }),
       });
@@ -50,7 +51,7 @@ export default function AdminInvites() {
   }
 
   async function revoke(token: string) {
-    await fetch(`/api/admin/invites?token=${encodeURIComponent(token)}`, { method: "DELETE" });
+    await authedFetch(`/api/admin/invites?token=${encodeURIComponent(token)}`, { method: "DELETE" });
     load();
   }
 
