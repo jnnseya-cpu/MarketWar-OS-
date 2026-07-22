@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { BrandLockup } from "@/components/Logo";
 import Sidebar from "@/components/Sidebar";
+import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
@@ -18,9 +19,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <Link href="/" className="flex items-center gap-2">
             <BrandLockup markClass="h-6 w-auto" textClass="font-display font-bold text-white" />
           </Link>
-          <Link href="/dashboard" className="text-sm font-semibold text-emerald-400">
-            Command Center
-          </Link>
+          <UserMenu compact />
         </header>
         <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{children}</main>
       </div>

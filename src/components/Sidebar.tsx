@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import BrandSwitcher from "@/components/BrandSwitcher";
 import { BrandLockup } from "@/components/Logo";
+import UserMenu from "@/components/UserMenu";
 import {
   Activity,
   BadgePercent,
@@ -164,6 +165,9 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
+      <div className="border-t border-ink-700/60 px-5 py-3">
+        <UserMenu />
+      </div>
       <div className="border-t border-ink-700/60 px-5 py-4">
         {liveReady === null ? (
           <p className="text-xs text-slate-500">Checking status…</p>
