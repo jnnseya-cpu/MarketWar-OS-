@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import BrandSwitcher from "@/components/BrandSwitcher";
 import { BrandLockup } from "@/components/Logo";
@@ -117,6 +118,16 @@ const NAV = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  // Honest live-status indicator — never shows the word "demo" to a customer.
+  const [liveReady, setLiveReady] = useState<number | null>(null);
+  useEffect(() => {
+    let on = true;
+    fetch("/api/health/live")
+      .then((r) => r.json())
+      .then((d) => { if (on) setLiveReady(typeof d?.liveReady === "number" ? d.liveReady : null); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, []);
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-ink-700/60 bg-ink-900/95 lg:flex">
       <Link href="/" className="flex items-center gap-2.5 border-b border-ink-700/60 px-5 py-5">
@@ -152,10 +163,17 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="border-t border-ink-700/60 px-5 py-4">
-        <p className="text-xs text-slate-500">
-          Demo Intelligence active.{" "}
-          <span className="text-slate-400">Add an API key to go live.</span>
-        </p>
+        {liveReady === null ? (
+          <p className="text-xs text-slate-500">Checking status…</p>
+        ) : liveReady > 0 ? (
+          <p className="flex items-center gap-2 text-xs font-medium text-emerald-400">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Live intelligence active
+          </p>
+        ) : (
+          <p className="flex items-center gap-2 text-xs font-medium text-amber-400">
+            <span className="h-2 w-2 rounded-full bg-amber-400" /> Activating…
+          </p>
+        )}
       </div>
     </aside>
   );
