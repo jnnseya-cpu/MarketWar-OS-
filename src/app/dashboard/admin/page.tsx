@@ -45,6 +45,7 @@ function providerLabel(key: string): string {
 export default function AdminPage() {
   const [dash, setDash] = useState<OwnerDashboard | null>(null);
   const [live, setLive] = useState(false);
+  const [empty, setEmpty] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,8 +66,8 @@ export default function AdminPage() {
           if (!cancelled) setError(body.error || `Economics unavailable (${res.status})`);
           return;
         }
-        const data = (await res.json()) as OwnerDashboard & { mode?: string };
-        if (!cancelled) { setDash(data); setLive(data?.mode === "live"); }
+        const data = (await res.json()) as OwnerDashboard & { mode?: string; empty?: boolean };
+        if (!cancelled) { setDash(data); setLive(data?.mode === "live"); setEmpty(Boolean(data?.empty)); }
       } catch {
         if (!cancelled) setError("Economics engine temporarily unavailable");
       }
@@ -89,6 +90,12 @@ export default function AdminPage() {
 
       {error && (
         <div className="mb-8 card border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-200">{error}</div>
+      )}
+
+      {empty && !error && (
+        <div className="mb-8 card border-emerald-500/25 bg-emerald-500/[0.04] p-4 text-sm text-emerald-100/90">
+          <span className="font-semibold text-emerald-300">Live — no usage yet.</span> These are your real figures: everything is zero because no AI actions have been billed on this account. As agents and engines run, the ledger fills in here. (No demo numbers.)
+        </div>
       )}
 
       {!dash && !error && (

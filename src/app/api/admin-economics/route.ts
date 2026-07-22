@@ -4,9 +4,24 @@ import {
   ACU_RULES, COST_CONTROLS, REVENUE_LAYERS, type LedgerEntry,
 } from "@/backend/admin-economics";
 import { requireAuth } from "@/backend/guard";
+import { adminDb } from "@/backend/firebase-admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Read the REAL platform ACU cost-ledger from Firestore. A fresh live account has
+// no usage yet, so this returns [] → the dashboard shows honest zeros, never the
+// fabricated demo seed. Once AI actions log LedgerEntry rows to `acu_ledger`, the
+// owner console fills in automatically.
+async function readOwnerLedger(): Promise<LedgerEntry[]> {
+  if (!adminDb) return [];
+  try {
+    const snap = await adminDb.collection("acu_ledger").limit(5000).get();
+    return snap.docs.map((d) => d.data() as LedgerEntry);
+  } catch {
+    return [];
+  }
+}
 
 // Platform-Owner Economics API (spec §16 + "Administrative Controls").
 // OWNER-ONLY surface — this is the single place provider cost and gross margin
@@ -30,6 +45,13 @@ export async function POST(req: NextRequest) {
     const action = typeof body.action === "string" ? body.action : "dashboard";
 
     if (action === "dashboard") {
+      // LIVE (Firebase configured + authenticated owner): compute from the REAL
+      // ledger. No usage yet → honest zeros, never the demo seed.
+      if (auth.enforced) {
+        const ledger = await readOwnerLedger();
+        return NextResponse.json({ ...ownerDashboard(ledger), mode: "live", empty: ledger.length === 0 });
+      }
+      // DEMO (zero-config, no Firebase): a client-supplied ledger, else the seed.
       const ledger = Array.isArray(body.ledger) ? (body.ledger as LedgerEntry[]) : null;
       const live = Boolean(ledger && ledger.length);
       return NextResponse.json({ ...(live ? ownerDashboard(ledger!) : demoOwnerDashboard()), mode: live ? "live" : "demo" });
