@@ -15,7 +15,6 @@ import {
   Radar,
   RefreshCcw,
   Rocket,
-  Shield,
   Sparkles,
   Star,
   TrendingUp,
@@ -28,6 +27,7 @@ import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
+import { BrandLockup } from "@/components/Logo";
 
 const PILLARS = [
   {
@@ -148,12 +148,7 @@ export default function LandingPage() {
       <header className="fixed inset-x-0 top-0 z-50">
         <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/10 bg-ink-950/70 px-5 py-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:mx-6 lg:mx-auto">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-lg shadow-emerald-500/30">
-              <Shield className="h-5 w-5" />
-            </span>
-            <span className="font-display text-lg font-bold text-white">
-              MarketWar <span className="text-emerald-400">OS</span>
-            </span>
+            <BrandLockup />
           </Link>
           <nav className="hidden items-center gap-7 text-sm font-medium text-slate-400 md:flex">
             <a href="#platform" className="transition hover:text-white">Product</a>
@@ -607,12 +602,7 @@ export default function LandingPage() {
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <Link href="/" className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
-                  <Shield className="h-5 w-5" />
-                </span>
-                <span className="font-display text-lg font-bold text-white">
-                  MarketWar <span className="text-emerald-400">OS</span>
-                </span>
+                <BrandLockup />
               </Link>
               <p className="mt-4 text-sm leading-relaxed text-slate-500">
                 The AI-powered customer-acquisition operating system. One account, every brand, one predictable bill.

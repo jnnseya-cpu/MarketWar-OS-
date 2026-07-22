@@ -7,8 +7,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, Loader2, Shield, Sparkles } from "lucide-react";
+import { Check, Loader2, Sparkles } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
+import { BrandLockup } from "@/components/Logo";
 
 type Plan = {
   id: string; name: string; monthlyGbp: number; annualGbp: number; annualSavingGbp: number;
@@ -57,8 +58,7 @@ export default function ChoosePlanPage() {
     <div className="min-h-screen px-4 py-14">
       <div className="mx-auto max-w-6xl">
         <Link href="/" className="mb-8 flex items-center justify-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-ink-950"><Shield className="h-5 w-5" /></span>
-          <span className="font-display text-lg font-bold tracking-tight text-white">MarketWar <span className="text-emerald-400">OS</span></span>
+          <BrandLockup />
         </Link>
 
         <div className="mb-8 text-center">

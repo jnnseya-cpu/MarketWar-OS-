@@ -8,7 +8,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, Mail, Shield, User, Ticket } from "lucide-react";
+import { Loader2, Lock, Mail, User, Ticket } from "lucide-react";
+import { BrandLockup } from "@/components/Logo";
 import { firebaseAuth } from "@/frontend/firebase-client";
 
 type PublicInvite = { token: string; companyName: string; planId: string; brands: number; status: string };
@@ -137,12 +138,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     <div className="flex min-h-screen items-center justify-center px-4 py-16">
       <div className="w-full max-w-md">
         <Link href="/" className="mb-8 flex items-center justify-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-ink-950">
-            <Shield className="h-5 w-5" />
-          </span>
-          <span className="font-display text-lg font-bold tracking-tight text-white">
-            MarketWar <span className="text-emerald-400">OS</span>
-          </span>
+          <BrandLockup />
         </Link>
 
         <div className="card p-7">

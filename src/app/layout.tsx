@@ -20,7 +20,13 @@ export const metadata: Metadata = {
     "Stop guessing. Launch, test, kill, improve, and convert automatically. MarketWar OS diagnoses your business, rebuilds your offer, runs campaigns, protects your budget and tells you exactly what to do next.",
   applicationName: "MarketWar OS",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  icons: {
+    icon: [
+      { url: "/brand/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/brand/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/brand/icon-180.png",
+  },
   appleWebApp: { capable: true, title: "MarketWar OS", statusBarStyle: "black-translucent" },
 };
 

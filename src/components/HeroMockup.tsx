@@ -2,6 +2,7 @@
 
 import { Bell, Crosshair, LayoutDashboard, MessageCircle, Search, Shield, TrendingUp, Zap } from "lucide-react";
 import { AreaChart, DonutChart, Sparkline } from "@/components/charts";
+import { BrandLockup } from "@/components/Logo";
 import { SERIES } from "@/shared/palette";
 
 // Photorealistic in-browser product mockup for the landing hero.
@@ -27,12 +28,7 @@ export default function HeroMockup() {
           {/* Mini sidebar */}
           <div className="hidden w-40 shrink-0 border-r border-white/5 bg-ink-950/50 p-3 sm:block">
             <div className="mb-3 flex items-center gap-1.5 px-1">
-              <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500 text-ink-950">
-                <Shield className="h-3 w-3" />
-              </span>
-              <span className="font-display text-[11px] font-bold text-white">
-                MarketWar <span className="text-emerald-400">OS</span>
-              </span>
+              <BrandLockup markClass="h-4 w-auto" textClass="font-display text-[11px] font-bold text-white" />
             </div>
             {[
               { icon: LayoutDashboard, label: "Command Center", active: true },

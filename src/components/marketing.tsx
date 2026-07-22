@@ -4,7 +4,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Shield } from "lucide-react";
+import { BrandLockup } from "@/components/Logo";
 
 // Canonical public-site navigation (grouped for the footer).
 export const FOOTER_NAV: { title: string; links: [string, string][] }[] = [
@@ -42,12 +42,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-30 border-b border-white/5 bg-ink-950/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
-            <Shield className="h-5 w-5" />
-          </span>
-          <span className="font-display text-lg font-bold text-white">
-            MarketWar <span className="text-emerald-400">OS</span>
-          </span>
+          <BrandLockup />
         </Link>
         <nav className="hidden items-center gap-6 text-sm font-semibold text-slate-300 md:flex">
           <Link href="/how-it-works" className="hover:text-white">How it works</Link>
@@ -71,12 +66,7 @@ export function SiteFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Link href="/" className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
-                <Shield className="h-5 w-5" />
-              </span>
-              <span className="font-display text-lg font-bold text-white">
-                MarketWar <span className="text-emerald-400">OS</span>
-              </span>
+              <BrandLockup />
             </Link>
             <p className="mt-4 text-sm leading-relaxed text-slate-500">
               The AI-powered customer-acquisition operating system. One account, every brand, one predictable bill.
