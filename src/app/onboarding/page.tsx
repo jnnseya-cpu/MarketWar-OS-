@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2, Shield } from "lucide-react";
 import type { AuditReport } from "@/shared/types";
+import { newBrand } from "@/shared/brand";
 
 interface Intake {
   business: string;
@@ -66,6 +67,28 @@ export default function OnboardingPage() {
       const report = (await res.json()) as AuditReport;
       sessionStorage.setItem("mwos.audit", JSON.stringify(report));
       sessionStorage.setItem("mwos.intake", JSON.stringify(intake));
+
+      // Create this company's FIRST brand from the intake so the whole OS is
+      // pre-populated (switcher + every module form). Onboarding lives outside
+      // the BrandProvider, so we write directly to the same localStorage key the
+      // dashboard hydrates from (mw.brands.v2 / mw.activeBrand.v2).
+      if (intake.business.trim()) {
+        try {
+          const brand = newBrand({
+            name: intake.business.trim(),
+            industry: intake.industry,
+            location: intake.location,
+            product: intake.product,
+            offer: intake.offer,
+            audience: intake.targetCustomer,
+          });
+          const existing = JSON.parse(localStorage.getItem("mw.brands.v2") || "[]") as { id: string; name: string }[];
+          const merged = [brand, ...existing.filter((b) => b.name !== brand.name)];
+          localStorage.setItem("mw.brands.v2", JSON.stringify(merged));
+          localStorage.setItem("mw.activeBrand.v2", brand.id);
+        } catch { /* storage blocked — dashboard still works, brand can be added manually */ }
+      }
+
       router.push("/dashboard/audit?from=onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -105,17 +128,17 @@ export default function OnboardingPage() {
         <div className="card space-y-5 p-6">
           {step === 0 && (
             <>
-              <Field label="Business name" value={intake.business} onChange={(v) => set({ business: v })} placeholder="Brixton Grill House" />
+              <Field label="Business name" value={intake.business} onChange={(v) => set({ business: v })} placeholder="Your business name" />
               <Field label="Industry" value={intake.industry} onChange={(v) => set({ industry: v })} placeholder="Restaurant & food delivery" />
-              <Field label="Location / service area" value={intake.location} onChange={(v) => set({ location: v })} placeholder="Brixton, London (SW9)" />
-              <Field label="Product or service" value={intake.product} onChange={(v) => set({ product: v })} placeholder="Flame-grilled meals, family platters, office catering" textarea />
+              <Field label="Location / service area" value={intake.location} onChange={(v) => set({ location: v })} placeholder="Your city or service area" />
+              <Field label="Product or service" value={intake.product} onChange={(v) => set({ product: v })} placeholder="What you sell — products or services" textarea />
             </>
           )}
           {step === 1 && (
             <>
-              <Field label="Who exactly should buy?" value={intake.targetCustomer} onChange={(v) => set({ targetCustomer: v })} placeholder="Local families and young professionals within 3 miles" textarea />
-              <Field label="Current price point" value={intake.price} onChange={(v) => set({ price: v })} placeholder="£9.50 average order" />
-              <Field label="Rough margin or unit cost" value={intake.margin} onChange={(v) => set({ margin: v })} placeholder="~60% margin (≈£4 cost per order)" />
+              <Field label="Who exactly should buy?" value={intake.targetCustomer} onChange={(v) => set({ targetCustomer: v })} placeholder="Who exactly should buy from you" textarea />
+              <Field label="Current price point" value={intake.price} onChange={(v) => set({ price: v })} placeholder="e.g. average order value" />
+              <Field label="Rough margin or unit cost" value={intake.margin} onChange={(v) => set({ margin: v })} placeholder="rough margin or unit cost" />
               <Field label="Current offer (if any)" value={intake.offer} onChange={(v) => set({ offer: v })} placeholder="Free delivery over £20" />
             </>
           )}
