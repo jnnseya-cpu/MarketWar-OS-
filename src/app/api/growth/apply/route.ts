@@ -46,12 +46,14 @@ export async function POST(req: NextRequest) {
   // partner account (followers unverified until the AI/human verifier confirms).
   const socials = Array.isArray(body.socials) ? (body.socials as { followers?: number }[]) : [];
   const scout = scoutScore({ followers, platforms: Math.max(1, socials.length), niche: audience });
-  await upsertCreator({ name, email, tier: tier as CreatorAccount["tier"], followers, followersVerified: false, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
+  const account = await upsertCreator({ name, email, tier: tier as CreatorAccount["tier"], followers, followersVerified: false, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
+  const dashboardUrl = account.accessToken ? `/partner?t=${account.accessToken}` : undefined;
 
   return NextResponse.json({
     ok: true,
     applicationId: record.id,
     scoutScore: scout.score,
+    dashboardUrl,
     message: followers >= 10_000
       ? `You're in the network (Scout score ${scout.score}/100). ${followers.toLocaleString()} combined followers puts you on the MAIN programme: recurring cash commission (0.75%) on verified sales, once your follower count is verified. We match you to brands and issue a tracked code/link for each of your ${programmes} programme(s).`
       : `You're in the network (Scout score ${scout.score}/100). With ${followers.toLocaleString()} combined followers you can promote and accrue now — your commission accumulates until you reach 10,000, then pays out. You also earn 250 ACUs per referral (use them to create a brand + advertise), and auto-upgrade to full cash payout the moment you reach 10,000. We issue a tracked code/link per programme.`,

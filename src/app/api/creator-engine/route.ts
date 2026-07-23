@@ -3,7 +3,7 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
-  createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, listCreators, subscribe, listSubscriptions,
+  createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, getCreatorByToken, listCreators, subscribe, listSubscriptions,
   recordConversion, creatorWallet, requestPayout, setFollowerVerification, creatorId as makeCreatorId,
   type CreatorAccount, type PayoutRegion,
 } from "@/backend/creator-engine";
@@ -114,6 +114,22 @@ export async function POST(req: NextRequest) {
     }
     case "creator":
       return NextResponse.json({ creator: await getCreator(s("creatorId")) });
+    case "partner_portal": {
+      // Token-gated: the partner's own access token IS the credential (no
+      // platform login). Returns only that partner's own data.
+      const partner = await getCreatorByToken(s("token"));
+      if (!partner) return NextResponse.json({ error: "Invalid or expired dashboard link." }, { status: 401 });
+      const [wallet, subscriptions] = await Promise.all([creatorWallet(partner.id), listSubscriptions(partner.id)]);
+      // Enrich subscriptions with programme name/brand for display.
+      const enriched = await Promise.all(subscriptions.map(async (sub) => {
+        const prog = await getProgramme(sub.programmeId);
+        return { code: sub.code, link: sub.link, programme: prog?.name || "", brand: prog?.brandName || "", destinationUrl: prog?.destinationUrl || "" };
+      }));
+      return NextResponse.json({
+        partner: { name: partner.name, tier: partner.tier, followers: partner.followers, followersVerified: partner.followersVerified, payoutEligible: partner.payoutEligible, scoutScore: partner.scoutScore },
+        wallet, subscriptions: enriched,
+      });
+    }
     case "list_creators": {
       // Strip PII (email) — the network panel only needs display fields.
       const creators = (await listCreators()).map((c) => ({ id: c.id, name: c.name, followers: c.followers, tier: c.tier, scoutScore: c.scoutScore, payoutEligible: c.payoutEligible, followersVerified: c.followersVerified }));

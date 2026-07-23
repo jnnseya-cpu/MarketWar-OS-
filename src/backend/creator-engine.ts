@@ -128,6 +128,14 @@ export async function getCreator(id: string): Promise<CreatorAccount | null> {
   if (useDb()) { const s = await adminDb!.collection("creator_accounts").doc(id).get(); return s.exists ? (s.data() as CreatorAccount) : null; }
   return memCreator.get(id) ?? null;
 }
+// Resolve a creator by their opaque access token (the key to their own
+// self-serve dashboard). Token is the only credential — treat it as a secret.
+export async function getCreatorByToken(token: string): Promise<CreatorAccount | null> {
+  const t = (token || "").trim();
+  if (t.length < 16) return null;
+  if (useDb()) { const q = await adminDb!.collection("creator_accounts").where("accessToken", "==", t).limit(1).get(); return q.empty ? null : (q.docs[0].data() as CreatorAccount); }
+  return [...memCreator.values()].find((c) => c.accessToken === t) ?? null;
+}
 // The real partner pool — every registered creator in the network.
 export async function listCreators(): Promise<CreatorAccount[]> {
   if (useDb()) return (await adminDb!.collection("creator_accounts").limit(500).get()).docs.map((d) => d.data() as CreatorAccount);

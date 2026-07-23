@@ -33,6 +33,7 @@ export default function PartnerApplyForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
 
   const followers = socials.reduce((s, r) => s + (Number(r.followers) || 0), 0);
   const addRow = () => setSocials((r) => (r.length < 12 ? [...r, { platform: "Instagram", handle: "", followers: 0 }] : r));
@@ -51,6 +52,7 @@ export default function PartnerApplyForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Something went wrong — try again."); return; }
+      setDashboardUrl(typeof data.dashboardUrl === "string" ? data.dashboardUrl : null);
       setDone(data.message || "Application received.");
     } catch {
       setError("Network error — please try again.");
@@ -64,6 +66,13 @@ export default function PartnerApplyForm() {
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-6">
         <div className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-400" /><h3 className="font-display text-base font-bold text-white">Application received</h3></div>
         <p className="mt-2 text-sm text-slate-300">{done}</p>
+        {dashboardUrl && (
+          <div className="mt-4 rounded-lg border border-emerald-500/20 bg-ink-900/50 p-3">
+            <p className="text-xs font-semibold text-emerald-200">Your partner dashboard is live — bookmark this private link:</p>
+            <a href={dashboardUrl} className="mt-1 block break-all font-mono text-xs text-emerald-300 underline hover:text-emerald-200">{typeof window !== "undefined" ? window.location.origin : ""}{dashboardUrl}</a>
+            <p className="mt-1 text-[11px] text-slate-500">Track your earnings, links and payouts there. Keep it safe — it&rsquo;s your key in.</p>
+          </div>
+        )}
       </div>
     );
   }
