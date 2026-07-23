@@ -3,7 +3,7 @@
 // M-34 AI Transactional Email Engine — Email Command Center.
 // Spec: docs/ai-os/11-email-engine.md. The hygiene pipeline + sending
 // facade are live in src/backend/email.ts (/api/email); provider pool,
-// webhook feedback loops and warm-up automation coming soon.
+// webhook feedback loops + warm-up automation activate once connected.
 
 import { useEffect, useState } from "react";
 import {

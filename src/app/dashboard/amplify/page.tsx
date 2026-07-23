@@ -3,7 +3,7 @@
 // M-35 Viral Amplification & Retargeting — Reach Amplifier.
 // Spec: docs/ai-os/12-amplification-engine.md. Live viral-coefficient math +
 // frequency-governance explainer wired to the real backend (/api/amplify);
-// full loop automation and channel execution coming soon.
+// full loop automation + channel execution activate once connectors are set.
 
 import { useState } from "react";
 import {

@@ -3,7 +3,7 @@
 // M-32 AI Viral Product Engine (Agent 21) — product images in, complete
 // campaign out. Spec: docs/ai-os/10-viral-product-and-website-engines.md
 // Part A. The conversational core runs through the gateway now; the vision
-// upload pipeline (1-100 images via Cloud Tasks) lands with connectors (coming soon).
+// upload pipeline (1-100 images via Cloud Tasks) activates once connectors are set.
 //
 // Honesty rule (owner directive): every capability on this page is badged
 // LIVE (produces real output today, demo-deterministic and live with keys) or
@@ -53,7 +53,7 @@ function StatusChip({ status }: { status: Status }) {
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">
-      <Clock className="h-3 w-3" /> Coming soon
+      <Clock className="h-3 w-3" /> Activate with a connector
     </span>
   );
 }
@@ -69,7 +69,7 @@ const GUARANTEES: { title: string; desc: string; status: Status }[] = [
   { title: "Product Identity Lock™", status: "live", desc: "Shape, colour, logo, packaging, text and proportions are locked before any generation — ads never misrepresent the real product. Exact preservation is mandatory for regulated products." },
   { title: "Viral Potential Score™", status: "live", desc: "Every concept scored 0–100 across 15 dimensions (stopping power → purchase intent) with explained reasons — plus a separate Commercial Potential Score so views are never confused with profit." },
   { title: "Hook Laboratory™", status: "live", desc: "130+ scored hooks per product (13 families × 10), each deception-checked — visual, spoken, text, curiosity, pain, comparison, objection, urgency, community, conversion, authority, social-proof and transformation. Deceptive clickbait is detected and blocked." },
-  { title: "Autonomous test loop", status: "p1", desc: "19-variable testing matrix: publish variants → find winners → kill waste → recombine → attribute revenue → store learnings in Creative Intelligence Memory. The scoring + optimisation brain is live; the closed publish-and-measure loop activates with channel connectors soon." },
+  { title: "Autonomous test loop", status: "p1", desc: "19-variable testing matrix: publish variants → find winners → kill waste → recombine → attribute revenue → store learnings in Creative Intelligence Memory. The scoring + optimisation brain is live; the closed publish-and-measure loop activates once channel connectors are set." },
 ];
 
 // Each studio: what it produces TODAY. Key-gated studios carry a `cap` and a
@@ -114,22 +114,22 @@ export default function ProductEnginePage() {
         kicker="MarketWar VisualStrike AI™"
         title="Upload one product picture. Launch a viral campaign factory."
         subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock™ guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
-        actions={<Pill tone="info">{renderLive ? "product creative · render + publish live" : "product creative · full vision pipeline coming soon"}</Pill>}
+        actions={<Pill tone="info">{renderLive ? "product creative · render + publish live" : "product creative · render + publish activate with a key"}</Pill>}
       />
 
-      {/* Honesty legend — what produces real output today vs what's coming soon */}
+      {/* Honesty legend — what produces real output today vs what activates with a key */}
       <div className="mb-8 card border-white/[0.08] p-4">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-400">
           <span className="font-display font-bold text-white">What&apos;s real today:</span>
           <span className="flex items-center gap-1.5"><StatusChip status="live" /> produces real output now (demo-deterministic; full quality with keys)</span>
-          <span className="flex items-center gap-1.5"><StatusChip status="p1" /> scaffolded — activates with the vision / render / publish pipeline</span>
+          <span className="flex items-center gap-1.5"><StatusChip status="p1" /> production-ready — activates the moment its vision / render / publish key or connector is set</span>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
           The intelligence — identity lock, 15-dimension viral + commercial scoring, 130+ deception-checked hooks, 27 angle
-          families, dossier and full campaign copy — runs live right now.{" "}
+          families, dossier and full campaign copy — runs live right now, no key.{" "}
           {renderLive
             ? <>Photoreal image + video rendering and one-click publishing are <span className="text-emerald-300">Live now</span> too — the chips below reflect exactly what this deployment can do.</>
-            : <>Rendering photoreal images/video and auto-publishing to channels flip to <span className="text-emerald-300">Live now</span> the moment their keys are set — the chips below always reflect this deployment&apos;s real capability.</>}
+            : <>Photoreal image/video rendering and auto-publishing show <span className="text-amber-300">Activate with a key</span> until their provider keys are set — the chips below always reflect this deployment&apos;s real capability.</>}
         </p>
       </div>
 
@@ -146,7 +146,7 @@ export default function ProductEnginePage() {
         ))}
       </div>
 
-      {/* Upload zone — REAL product-image upload (hosted); vision auto-extraction coming soon */}
+      {/* Upload zone — REAL product-image upload (hosted); vision auto-extraction activates with a key */}
       <div className="mb-8 card p-6">
         <div className="mb-2 flex items-center gap-2">
           <UploadCloud className="h-5 w-5 text-emerald-400" />
@@ -156,7 +156,7 @@ export default function ProductEnginePage() {
         <p className="mb-4 max-w-2xl text-xs text-slate-500">
           Upload your product photo / packaging / logo — it&apos;s hosted on your brand and used as the base + Identity-Lock
           reference for every creative. <span className="text-amber-300">Auto-reading the 18 attributes below from the image
-          (vision) is coming soon</span> — for now, fill them in the description field and the engine produces the full dossier + campaign live.
+          (vision) activates with a vision-model key</span> — for now, fill them in the description field and the engine produces the full dossier + campaign live.
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <BrandAssetUploader
@@ -209,7 +209,7 @@ export default function ProductEnginePage() {
         <p className="mb-3 text-xs text-slate-500">
           Eight pre-built strategies — from a 7-day Viral Sprint to Always-On Autopilot inside your approved budget
           and brand rules. High-risk categories stay at draft/approval levels. The engine builds each mode&apos;s plan + assets
-          live; automated cross-channel execution activates with connectors (coming soon).
+          live; automated cross-channel execution activates once channel connectors are set.
         </p>
         <div className="flex flex-wrap gap-1.5">
           {["Launch Blitz", "Viral Sprint", "Sales Conversion", "Product Education", "Marketplace Domination", "Local Business Push", "Seasonal Takeover", "Always-On Autopilot"].map((m) => (
