@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2, Shield } from "lucide-react";
@@ -44,6 +44,7 @@ const EMPTY: Intake = {
 };
 
 const STEPS = ["The business", "The market", "Past spend", "Your assets"] as const;
+const DRAFT_KEY = "mw.onboarding.draft.v1";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -51,8 +52,27 @@ export default function OnboardingPage() {
   const [intake, setIntake] = useState<Intake>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
 
   const set = (patch: Partial<Intake>) => setIntake((i) => ({ ...i, ...patch }));
+
+  // Autosave: hydrate any in-progress draft on mount so navigating back or
+  // refreshing never loses the answers.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as { intake?: Intake; step?: number };
+        if (d.intake) { setIntake({ ...EMPTY, ...d.intake }); if (Object.values(d.intake).some(Boolean)) setRestored(true); }
+        if (typeof d.step === "number") setStep(Math.min(Math.max(0, d.step), STEPS.length - 1));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Autosave: persist on every change (draft is cleared on successful submit).
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ intake, step })); } catch { /* quota */ }
+  }, [intake, step]);
 
   async function submit() {
     setLoading(true);
@@ -89,6 +109,7 @@ export default function OnboardingPage() {
         } catch { /* storage blocked — dashboard still works, brand can be added manually */ }
       }
 
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       router.push("/dashboard/audit?from=onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -112,6 +133,12 @@ export default function OnboardingPage() {
         <p className="mb-8 text-slate-400">
           Ten answers. The OS diagnoses why marketing failed and issues your first battle plan.
         </p>
+
+        {restored && (
+          <div className="mb-6 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-4 py-2.5 text-xs text-emerald-200">
+            Draft restored — your answers were saved automatically. Pick up where you left off.
+          </div>
+        )}
 
         {/* Stepper */}
         <div className="mb-8 flex items-center gap-2">
