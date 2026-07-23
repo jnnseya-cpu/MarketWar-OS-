@@ -32,7 +32,7 @@ type Result = {
   ninetyDayPlan: { phase: string; focus: string; actions: string[] }[]; note: string;
 };
 type NavSection = { n: number; label: string; status: "foundation" | "live" | "connect"; route?: string; note: string };
-type DataSource = { key: string; label: string; category: string; connected: boolean; unlocks: string };
+type DataSource = { key: string; label: string; category: string; connected: boolean; unlocks: string; connectType?: "admin" | "oauth"; how?: string };
 type Meta = { navigation: NavSection[]; dataSources: DataSource[] };
 
 // One-click actions → real destinations that already exist in the OS.
@@ -234,13 +234,29 @@ export default function OrganicDominancePage() {
       {meta && (
         <div className="mb-6 card p-6">
           <div className="mb-3 flex items-center gap-2"><Plug className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Data sources</h3><Pill tone={connectedSources > 0 ? "good" : "neutral"}>{connectedSources}/{meta.dataSources.length} connected</Pill></div>
-          <p className="mb-3 text-xs text-slate-500">Live listening, search volumes and AI-answer citations activate when their source is connected. Until then those metrics stay honestly blank — never invented.</p>
+          <p className="mb-3 text-xs text-slate-500">Live listening, search volumes and AI-answer citations activate when their source is connected. Until then those metrics stay honestly blank — never invented. <span className="text-slate-400">Admin sources are set once by the owner (an environment key); per-brand sources each user connects for their own brand.</span></p>
           <div className="grid gap-2 sm:grid-cols-2">
             {meta.dataSources.map((s) => (
-              <div key={s.key} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-2.5 text-sm">
-                <div><p className="font-semibold text-white">{s.label}</p><p className="text-xs text-slate-500">{s.unlocks}</p></div>
-                {s.connected ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />connected</Pill> : <Pill tone="neutral">connect</Pill>}
-              </div>
+              <details key={s.key} className="group rounded-lg border border-white/[0.07] bg-ink-900/50 p-2.5 text-sm [&_summary]:list-none">
+                <summary className="flex cursor-pointer items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-white">{s.label}</p>
+                    <p className="text-xs text-slate-500">{s.unlocks}</p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {s.connectType && !s.connected && <span className="rounded-full bg-ink-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">{s.connectType === "admin" ? "Admin" : "Per-brand"}</span>}
+                    {s.connected ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />connected</Pill> : <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300 group-open:bg-emerald-500/25">How to connect ▾</span>}
+                  </span>
+                </summary>
+                {!s.connected && s.how && (
+                  <div className="mt-2 rounded-lg border border-white/[0.06] bg-ink-950/50 p-2.5 text-xs text-slate-400">
+                    {s.how}
+                    {s.connectType === "admin"
+                      ? <p className="mt-1 text-slate-500">Owner action — see <span className="font-mono text-slate-400">docs/EXTERNAL-ENGINES.md</span>. Once set, this shows &ldquo;connected&rdquo; and the blank metrics fill in.</p>
+                      : <p className="mt-1 text-slate-500">Per-brand OAuth connect flow is being wired; until then the owner can supply the token in the environment.</p>}
+                  </div>
+                )}
+              </details>
             ))}
           </div>
         </div>

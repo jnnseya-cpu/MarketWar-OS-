@@ -59,21 +59,29 @@ export const NAV_SECTIONS: NavSection[] = [
 // §6/§10/§34 — Data-source registry. Honest connection status (env-gated). A
 // source that is not connected NEVER produces numbers — the surface says so.
 // ---------------------------------------------------------------------------
-export type DataSource = { key: string; label: string; category: "search" | "listening" | "ai_answers" | "analytics" | "cms" | "authority"; envKey: string; connected: boolean; unlocks: string };
+// connectType — WHO connects it and HOW:
+//   "admin" = a platform-wide licensed data feed; the owner sets one env key and
+//             it is connected for everyone (no per-user action).
+//   "oauth" = a per-brand account each user authorises for their own brand.
+export type DataSource = {
+  key: string; label: string; category: "search" | "listening" | "ai_answers" | "analytics" | "cms" | "authority";
+  envKey: string; connected: boolean; unlocks: string;
+  connectType: "admin" | "oauth"; how: string;
+};
 
 function connected(envKey: string): boolean { return Boolean(envKey && process.env[envKey]); }
 
 export function dataSources(): DataSource[] {
-  const S = (key: string, label: string, category: DataSource["category"], envKey: string, unlocks: string): DataSource =>
-    ({ key, label, category, envKey, connected: connected(envKey), unlocks });
+  const S = (key: string, label: string, category: DataSource["category"], envKey: string, unlocks: string, connectType: "admin" | "oauth", how: string): DataSource =>
+    ({ key, label, category, envKey, connected: connected(envKey), unlocks, connectType, how });
   return [
-    S("search_console", "Google Search Console", "search", "GOOGLE_SEARCH_CONSOLE_TOKEN", "Real search volumes, rankings, impressions + click data"),
-    S("analytics", "Google Analytics", "analytics", "GOOGLE_ANALYTICS_TOKEN", "Traffic, conversions + organic-influenced revenue"),
-    S("serp", "SERP data provider", "search", "SERPER_API_KEY", "Live SERP features, People-Also-Ask + competitor rankings"),
-    S("listening", "Social listening provider", "listening", "LISTENING_API_KEY", "Live mentions across social, forums, news + reviews"),
-    S("ai_answers", "AI-answer monitor", "ai_answers", "AI_ANSWER_MONITOR_KEY", "Brand visibility + citations in ChatGPT / Perplexity / Gemini"),
-    S("backlinks", "Backlink index", "authority", "BACKLINK_API_KEY", "Backlink gaps, unlinked mentions + toxic-link detection"),
-    S("cms", "CMS (WordPress / Webflow / Shopify)", "cms", "CMS_PUBLISH_TOKEN", "One-click publishing of approved content"),
+    S("search_console", "Google Search Console", "search", "GOOGLE_SEARCH_CONSOLE_TOKEN", "Real search volumes, rankings, impressions + click data", "oauth", "Per-brand: connect this brand's Search Console property (owner registers the Google OAuth app, then each user authorises their own site)."),
+    S("analytics", "Google Analytics", "analytics", "GOOGLE_ANALYTICS_TOKEN", "Traffic, conversions + organic-influenced revenue", "oauth", "Per-brand: connect this brand's GA4 property via Google OAuth."),
+    S("serp", "SERP data provider", "search", "SERPER_API_KEY", "Live SERP features, People-Also-Ask + competitor rankings", "admin", "Admin: set SERPER_API_KEY in the environment — connects live SERP data for every brand."),
+    S("listening", "Social listening provider", "listening", "LISTENING_API_KEY", "Live mentions across social, forums, news + reviews", "admin", "Admin: set LISTENING_API_KEY in the environment."),
+    S("ai_answers", "AI-answer monitor", "ai_answers", "AI_ANSWER_MONITOR_KEY", "Brand visibility + citations in ChatGPT / Perplexity / Gemini", "admin", "Admin: set AI_ANSWER_MONITOR_KEY in the environment."),
+    S("backlinks", "Backlink index", "authority", "BACKLINK_API_KEY", "Backlink gaps, unlinked mentions + toxic-link detection", "admin", "Admin: set BACKLINK_API_KEY in the environment."),
+    S("cms", "CMS (WordPress / Webflow / Shopify)", "cms", "CMS_PUBLISH_TOKEN", "One-click publishing of approved content", "oauth", "Per-brand: connect this brand's CMS account (WordPress/Webflow/Shopify) to publish approved content."),
   ];
 }
 
