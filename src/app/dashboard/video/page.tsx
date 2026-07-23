@@ -8,9 +8,10 @@
 // are real AgentRunners. The Clip Intelligence Lab is wired to the REAL
 // VideoDominance engine (/api/video-intelligence): genre detection, moment
 // ranking, 8-dimension virality scoring and natural-language moment search.
-// The Screen & Presentation Recorder is LIVE (real in-browser MediaRecorder
-// capture, no key). Studio tools that still need a render farm (avatar, audio,
-// editor, B-roll) are honestly marked "Coming soon" — never shown as working.
+// Screen Recorder, in-browser Video Editor and Collaboration & Approvals are
+// LIVE with no key. Render/publish studios activate with a provider key. Only
+// Avatars + Audio/dubbing remain gated — they need an AI voice/avatar engine
+// connected — and are labelled "Activate", never shown as working.
 
 import { useEffect, useState } from "react";
 import {
@@ -197,7 +198,7 @@ export default function VideoWarRoomPage() {
         kicker="MarketWar AI Video War Room"
         title="Turn one idea into global video campaigns"
         subtitle="Creation, editing, captions, translation, avatars, branding, repurposing and campaign launch — video as a weapon, not a file. Every asset ships with a tracked CTA into a channel you own."
-        actions={<Pill tone="info">{renderLive ? "video render live (Veo / Sora)" : "video rendering coming soon"}</Pill>}
+        actions={<Pill tone="info">{renderLive ? "video render live (Veo / Sora)" : "video render · activate with a key"}</Pill>}
       />
 
       {/* Honesty legend — what computes real output today vs what needs the render farm */}
@@ -205,16 +206,16 @@ export default function VideoWarRoomPage() {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-400">
           <span className="font-display font-bold text-white">What&apos;s real today:</span>
           <span className="flex items-center gap-1.5"><StatusChip status="live" /> computes real output now (deterministic in demo; full quality with keys)</span>
-          <span className="flex items-center gap-1.5"><StatusChip status="p1" /> scaffolded — activates with the render / capture farm</span>
+          <span className="flex items-center gap-1.5"><StatusChip status="p1" /> production-ready — activates the moment its provider key/engine is connected</span>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-          The clip-intelligence brain — genre detection, moment ranking, 8-dimension commercial scoring and natural-language
-          moment search — runs live in the <span className="text-emerald-300">Clip Intelligence Lab</span> below, and the 7 agent
-          tabs generate real scripts, hooks, captions and packaging.{" "}
-          Screen &amp; presentation recording is <span className="text-emerald-300">Live now</span> — record and download in the panel below (no key).{" "}
+          <span className="text-emerald-300">Live now, no key:</span> the Clip Intelligence Lab (genre detection, moment ranking, 8-dimension
+          scoring, moment search), the 7 agent tabs (scripts, hooks, captions, packaging), the <span className="text-emerald-300">Screen Recorder</span>,
+          the in-browser <span className="text-emerald-300">Video Editor</span> (trim &amp; export) and <span className="text-emerald-300">Collaboration &amp; Approvals</span>.{" "}
           {renderLive
-            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> too. Avatars, audio and the editor timeline remain <span className="text-amber-300">Coming soon</span>.</>
-            : <>Rendering video/avatars/audio flip to <span className="text-emerald-300">Live now</span> as their model keys are set.</>}
+            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> too.</>
+            : <><span className="text-amber-300">Activate with a key:</span> video rendering (Veo / Sora), publishing and hosting.</>}{" "}
+          <span className="text-amber-300">Avatars and audio/dubbing</span> need a talking-head / voice engine connected (see docs/EXTERNAL-ENGINES.md §5) — the only two not yet buildable without an AI model.
         </p>
       </div>
 
