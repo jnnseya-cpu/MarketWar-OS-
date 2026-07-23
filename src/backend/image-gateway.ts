@@ -324,25 +324,56 @@ function openaiSize(w: number, h: number): "1024x1024" | "1024x1536" | "1536x102
   return r > 1.2 ? "1536x1024" : r < 0.83 ? "1024x1536" : "1024x1024";
 }
 
-// Rasterize the brand-safe creative to a HOSTED PNG (so it can attach to a post).
-// With an AI background, composite the exact copy/logo over it; otherwise
-// rasterize the full brand composer. Returns the hosted URL, or null.
-async function renderAndUpload(req: ImageGenerationRequest, theme: BrandTheme, i: number, aiBg: Buffer | null): Promise<string | null> {
+// Rasterize the brand-safe creative to a real PNG. With an AI background,
+// composite the exact copy/logo over it; otherwise rasterize the full brand
+// composer. Returns the PNG bytes, or null if rasterization itself fails.
+async function rasterizeCreative(req: ImageGenerationRequest, theme: BrandTheme, i: number, aiBg: Buffer | null): Promise<Buffer | null> {
   try {
     const dim = FORMAT_DIMENSIONS[req.options.platformFormat];
-    let png: Buffer;
+    // The overlay embeds the ORIGINAL uploaded logo by URL. librsvg (inside
+    // sharp) will not fetch remote hrefs, so a remote logo would silently drop
+    // out of the raster — inline it as a data URI first so it always composites.
     if (aiBg) {
-      const overlay = Buffer.from(brandSafeSvgString(req, theme, i, true));
-      png = await sharp(aiBg).resize(dim.w, dim.h, { fit: "cover" }).composite([{ input: overlay }]).png().toBuffer();
-    } else {
-      png = await sharp(Buffer.from(brandSafeSvgString(req, theme, i, false))).png().toBuffer();
+      const overlay = Buffer.from(await inlineLogoInSvg(brandSafeSvgString(req, theme, i, true)));
+      return await sharp(aiBg).resize(dim.w, dim.h, { fit: "cover" }).composite([{ input: overlay }]).png().toBuffer();
     }
+    const svg = await inlineLogoInSvg(brandSafeSvgString(req, theme, i, false));
+    return await sharp(Buffer.from(svg)).png().toBuffer();
+  } catch { return null; }
+}
+
+// Fetch a remote logo referenced in the SVG and inline it as a data URI so the
+// rasterizer composites the REAL logo (librsvg won't load remote hrefs). Best-
+// effort: on any failure the original SVG (reserved logo box) is returned.
+async function inlineLogoInSvg(svg: string): Promise<string> {
+  const m = svg.match(/href="(https?:\/\/[^"]+)"/);
+  if (!m) return svg;
+  const url = m[1].replace(/&amp;/g, "&");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return svg;
+    const ct = res.headers.get("content-type") || "image/png";
+    const b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+    const dataUri = `data:${ct};base64,${b64}`;
+    return svg.split(m[1]).join(dataUri);
+  } catch { return svg; }
+}
+
+// Host the PNG if Storage is configured (postable URL); otherwise return it as
+// an inline base64 data URI so the render is ALWAYS visible (just not postable).
+async function hostOrInline(png: Buffer, req: ImageGenerationRequest, i: number, aiBg: boolean): Promise<{ url: string; hosted: boolean }> {
+  if (storageConfigured()) {
     const slug = (req.business || "brand").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32);
-    return await uploadPublicMedia(png, {
+    const url = await uploadPublicMedia(png, {
       contentType: "image/png", ext: "png", keyPrefix: `creatives/${slug}`,
       nameSeed: `${req.business}|${req.headline}|${req.offerText}|${req.options.platformFormat}|${i}|${aiBg ? "ai" : "svg"}`,
     });
-  } catch { return null; }
+    if (url) return { url, hosted: true };
+  }
+  return { url: `data:image/png;base64,${png.toString("base64")}`, hosted: false };
 }
 
 export async function generateImage(req: ImageGenerationRequest): Promise<ImageResult[]> {
@@ -355,17 +386,13 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
   const variants = Math.max(1, Math.min(req.variants || 3, 6));
   const dimForSize = FORMAT_DIMENSIONS[req.options.platformFormat];
   const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
-  const hasStorage = storageConfigured();
 
   const results: ImageResult[] = [];
   for (let i = 0; i < variants; i++) {
     const attempts: { provider: ImageProviderId; error: string }[] = [];
-    // Preview fallback — an inline data: URI (NOT postable to socials).
-    let imageUrl = composeBrandSafeSVG(req, theme, i);
     let mode: "live" | "demo" = "demo";
     let providerId: ImageProviderId = "demo";
     let model = "svg-brand-composer";
-    let hosted = false;
 
     // Live photoreal: OpenAI generates a text/logo-free scene; we composite the
     // exact copy/logo on top (brand-safe). Failure falls back to the composer.
@@ -376,11 +403,21 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
       else attempts.push({ provider: "gpt-image-2", error: "live image call failed — used the brand composer" });
     }
 
-    // Hosted, postable PNG when Storage is configured (with or without an AI bg).
-    if (hasStorage) {
-      const url = await renderAndUpload(req, theme, i, aiBg);
-      if (url) { imageUrl = url; hosted = true; }
-      else attempts.push({ provider: "demo", error: "storage upload failed — served inline preview" });
+    // Rasterize to a REAL PNG (AI bg composite when present, else the brand
+    // composer). Host it if Storage is configured, otherwise inline it as a
+    // base64 data URI — so a creative is ALWAYS visible, never a broken image.
+    const png = await rasterizeCreative(req, theme, i, aiBg);
+    let imageUrl: string;
+    let hosted = false;
+    if (png) {
+      const out = await hostOrInline(png, req, i, Boolean(aiBg));
+      imageUrl = out.url; hosted = out.hosted;
+      if (!hosted && storageConfigured()) attempts.push({ provider: "demo", error: "storage upload failed — served inline PNG preview" });
+    } else {
+      // Rasterization itself failed — fall back to the inline SVG data URI
+      // (still renders in the browser, just not postable). Never blank.
+      imageUrl = composeBrandSafeSVG(req, theme, i);
+      attempts.push({ provider: "demo", error: "raster failed — served inline SVG preview" });
     }
 
     const meta = IMAGE_PROVIDERS.find((p) => p.id === providerId) ?? IMAGE_PROVIDERS.find((p) => p.id === "demo")!;
@@ -394,7 +431,7 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
       notes: [
         hosted
           ? (mode === "live" ? `Hosted PNG via ${meta.label} + brand composite — attachable to posts.` : "Hosted brand-safe PNG — attachable to posts.")
-          : "Inline preview (brand-safe SVG) — attaches to posts once Firebase Storage / live rendering is configured.",
+          : (mode === "live" ? "Live brand render (inline preview) — attaches to posts once Firebase Storage is configured." : "Inline brand-safe preview — attaches to posts once Firebase Storage is configured."),
         `Logo ${req.options.useLogo ? `overlaid (${req.options.logoPosition}) — original asset, never redrawn` : "off"}; text rendered exactly.`,
         `Theme ${theme.source === "logo" ? "extracted from logo" : "derived from brand identity"}.`,
       ],

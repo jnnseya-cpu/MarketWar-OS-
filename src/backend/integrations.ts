@@ -166,6 +166,26 @@ export function provisioningOf(provider: IntegrationProvider): ProvisioningMeta 
   return PROVISIONING[provider];
 }
 
+// Honesty gate — which one-click connect flows are ACTUALLY wired today.
+// The Integration Hub must never show a live-looking "Connect" button for an
+// OAuth flow that isn't built: that reads as a demo. Only providers listed here
+// have a real, working connect path RIGHT NOW; every other user_connect provider
+// is honestly labelled "Roadmap — use manual mode" so the tenant is never misled.
+//
+// • Social publishing runs through the Zernio white-label connector in the
+//   Publish Center (a genuine per-brand OAuth) — that connect is live there.
+// • No ad-account / payments / store / calendar / CRM-import OAuth is wired yet,
+//   so none of those are listed. They stay fully usable via manual mode.
+const LIVE_CONNECT = new Set<IntegrationProvider>([
+  // (empty for user_connect today — ad/payment/store/calendar/import OAuth is
+  //  on the roadmap; social publishing is handled by the platform Zernio key,
+  //  which is a `platform` provider and already reports its own live state.)
+]);
+
+export function connectIsLive(provider: IntegrationProvider): boolean {
+  return LIVE_CONNECT.has(provider);
+}
+
 // Interchangeable provider pools — the anti-dependency mechanism. Every
 // platform-managed connector belongs to a pool; within a pool the platform
 // routes across providers with automatic failover, so NO single vendor is a
@@ -212,10 +232,11 @@ export type IntegrationStatus = {
   userDoesNothing: boolean;   // true = no keys AND no per-use action for the tenant
   adminConfigured: boolean;   // admin-only signal: is the platform key in place?
   userStatus: "ready" | "connect" | "manual"; // what the tenant sees
+  connectLive: boolean;       // is the one-click connect flow ACTUALLY wired today?
   pool?: string;              // interchangeable provider pool (anti-dependency)
 };
 
-export function integrationStatus(): { integrations: IntegrationStatus[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; note: string } {
+export function integrationStatus(): { integrations: IntegrationStatus[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; liveConnectCount: number; roadmapConnectCount: number; note: string } {
   const integrations: IntegrationStatus[] = INTEGRATIONS.map((m) => {
     const p = PROVISIONING[m.provider];
     const platformManaged = p.provisioning === "platform";
@@ -236,15 +257,18 @@ export function integrationStatus(): { integrations: IntegrationStatus[]; connec
       manualFallback: m.manualFallback,
       provisioning: p.provisioning, billing: p.billing, userAction: p.userAction, reason: p.reason,
       platformManaged, userDoesNothing: platformManaged, adminConfigured, userStatus,
+      connectLive: connectIsLive(m.provider),
       pool: poolOf(m.provider),
     };
   });
   const connectedCount = integrations.filter((i) => i.status === "connected").length;
   const platformManagedCount = integrations.filter((i) => i.platformManaged).length;
   const userConnectCount = integrations.filter((i) => i.provisioning === "user_connect").length;
+  const liveConnectCount = integrations.filter((i) => i.connectLive).length;
+  const roadmapConnectCount = userConnectCount - liveConnectCount;
   return {
-    integrations, connectedCount, platformManagedCount, userConnectCount,
-    note: `${platformManagedCount} connectors are fully managed for you — no keys, no setup, billed through your plan at the protected margin. ${userConnectCount} connect your own account in one click (their spend/data stays yours). Every external action still has a manual-mode fallback — the OS works with everything disconnected.`,
+    integrations, connectedCount, platformManagedCount, userConnectCount, liveConnectCount, roadmapConnectCount,
+    note: `${platformManagedCount} connectors run on MarketWar's own pooled infrastructure — they go live the moment the platform key is enabled, no keys or setup from you. One-click OAuth connect for your own ad/payment/store/calendar/import accounts is on the roadmap; until it ships those connectors work today through manual mode (nothing is faked). Every external action has a manual-mode fallback — the OS works with everything disconnected.`,
   };
 }
 

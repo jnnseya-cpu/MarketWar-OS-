@@ -12,10 +12,10 @@ import { PageHeader, Pill } from "@/components/ui";
 type Integration = {
   provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: "connected" | "disconnected"; manualFallback: string[];
   provisioning: "platform" | "user_connect" | "manual_only"; billing: "included" | "acu_metered" | "user_billed_direct";
-  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; adminConfigured: boolean; userStatus: "ready" | "connect" | "manual"; pool?: string;
+  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; adminConfigured: boolean; userStatus: "ready" | "connect" | "manual"; connectLive: boolean; pool?: string;
 };
 type Data = {
-  integrations: Integration[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; note: string;
+  integrations: Integration[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; liveConnectCount: number; roadmapConnectCount: number; note: string;
   dependencyClassification: { mustOwnInternally: string[]; optionalExternal: string[]; neverFullyDependOn: string[]; rule: string };
   ownedChannels: { name: string; pattern: string }[];
 };
@@ -62,8 +62,8 @@ export default function IntegrationsPage() {
               <p className="text-xs text-slate-400"><span className="font-bold text-emerald-300">{data.platformManagedCount}</span> connectors run on MarketWar&apos;s own pooled infrastructure. No keys, no setup — billed from your plan at the protected margin, and interchangeable so no vendor is a dependency.</p>
             </div>
             <div className="card p-4">
-              <div className="mb-1.5 flex items-center gap-2"><MousePointerClick className="h-4 w-4 text-sky-400" /><h3 className="text-sm font-display font-bold text-white">One-click connect</h3></div>
-              <p className="text-xs text-slate-400"><span className="font-bold text-sky-300">{data.userConnectCount}</span> connect your own account (ad spend, store, social) in one click. Never an API key to find — and your spend and data stay yours.</p>
+              <div className="mb-1.5 flex items-center gap-2"><MousePointerClick className="h-4 w-4 text-sky-400" /><h3 className="text-sm font-display font-bold text-white">Connect your own account</h3></div>
+              <p className="text-xs text-slate-400"><span className="font-bold text-sky-300">{data.userConnectCount}</span> connectors run on your own account (ad spend, store, social) so your spend and data stay yours. One-click OAuth is on the roadmap{data.roadmapConnectCount > 0 ? "" : ""} — until it ships each works today through manual mode, never a key to find.</p>
             </div>
             <div className="card p-4">
               <div className="mb-1.5 flex items-center gap-2"><Hand className="h-4 w-4 text-amber-400" /><h3 className="text-sm font-display font-bold text-white">Manual fallback</h3></div>
@@ -126,10 +126,15 @@ export default function IntegrationsPage() {
                             ) : i.userStatus === "connect" ? (
                               i.status === "connected" ? (
                                 <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Connected</Pill>
-                              ) : (
+                              ) : i.connectLive ? (
                                 <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
                                   <MousePointerClick className="h-3 w-3" /> Connect
                                 </button>
+                              ) : (
+                                // Honest: one-click OAuth for this connector isn't wired yet.
+                                // Never show a live-looking "Connect" that does nothing — say so,
+                                // and point to the manual mode that genuinely works today.
+                                <Pill tone="info">One-click connect on the roadmap · manual mode works now</Pill>
                               )
                             ) : (
                               // manual_only — no connect tile; the Manual fallback below is the path.

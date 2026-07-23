@@ -36,14 +36,26 @@ export async function uploadPublicMedia(
     const bucket = adminStorage.bucket(BUCKET);
     const path = `${opts.keyPrefix || "creatives"}/${hash(opts.nameSeed)}.${opts.ext}`;
     const file = bucket.file(path);
+    // A Firebase download token (deterministic → the same content re-uploads to
+    // the same public URL, so links stay stable and dedupe). This is the ROBUST
+    // way to get a permanent public URL: unlike ACL-based makePublic(), the
+    // download-token URL works under UNIFORM bucket-level access — which is the
+    // DEFAULT on modern Firebase buckets, and where makePublic() throws (its
+    // error was previously swallowed, leaving a googleapis URL that 403s → the
+    // creative rendered blank). The token URL needs no per-object ACL at all.
+    const token = `${hash(opts.nameSeed)}${hash(opts.nameSeed + "·mw-token")}`;
     await file.save(buffer, {
       contentType: opts.contentType,
       resumable: false,
-      metadata: { cacheControl: "public, max-age=31536000" },
+      metadata: {
+        cacheControl: "public, max-age=31536000",
+        metadata: { firebaseStorageDownloadTokens: token },
+      },
     });
-    // Public read so social platforms can fetch the media by URL.
+    // Best-effort ACL public-read too (helps on legacy fine-grained buckets);
+    // never depend on it — the token URL below is what we return.
     await file.makePublic().catch(() => {});
-    return `https://storage.googleapis.com/${bucket.name}/${path}`;
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
   } catch {
     return null; // never break generation on an upload failure — fall back to preview
   }
