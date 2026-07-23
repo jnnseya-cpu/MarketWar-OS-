@@ -17,7 +17,7 @@ if (typeof window !== "undefined") {
 // runs end to end; we never claim money moved that didn't. Every figure is
 // computed, never fabricated.
 
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { computeCreatorSplit, programmeFor, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
 
@@ -39,6 +39,7 @@ export type CreatorAccount = {
   tier: "promoter" | "creator" | "affiliate" | "agency";
   followers: number; followersVerified: boolean; payoutEligible: boolean;
   adminOverride?: boolean; // admin admitted them without the 10K gate
+  accessToken?: string;    // opaque token the partner uses to reach their own dashboard
   scoutScore?: number; scoutFlags?: string[];
   createdAt: string;
 };
@@ -104,8 +105,12 @@ export async function upsertCreator(input: { name: string; email: string; tier: 
   const id = creatorId(input.email);
   const followers = Number.isFinite(input.followers) ? Math.max(0, Math.round(input.followers)) : 0;
   const gateMet = followers >= MIN_PAYOUT_FOLLOWERS && Boolean(input.followersVerified);
+  // Stable per-partner access token (kept across re-applications) — the key to
+  // their own self-serve dashboard. Random (not derivable from email).
+  const prior = await getCreator(id);
+  const accessToken = prior?.accessToken || randomUUID().replace(/-/g, "");
   const c: CreatorAccount = {
-    id, name: input.name, email: input.email, tier: input.tier,
+    id, name: input.name, email: input.email, tier: input.tier, accessToken,
     followers,
     followersVerified: Boolean(input.followersVerified),
     // Admin can admit a partner WITHOUT the 10K gate (spec §9 exception + owner

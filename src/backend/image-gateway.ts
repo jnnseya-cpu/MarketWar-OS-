@@ -364,16 +364,22 @@ async function inlineLogoInSvg(svg: string): Promise<string> {
 
 // Host the PNG if Storage is configured (postable URL); otherwise return it as
 // an inline base64 data URI so the render is ALWAYS visible (just not postable).
-async function hostOrInline(png: Buffer, req: ImageGenerationRequest, i: number, aiBg: boolean): Promise<{ url: string; hosted: boolean }> {
+// The creative is ALWAYS returned as an inline base64 data URL so the variant
+// ALWAYS renders in the browser — zero dependency on Firebase Storage being
+// publicly reachable (the cause of blank/broken creatives). When Storage IS
+// configured we ADDITIONALLY host a postable copy and return its URL separately
+// for publishing; viewing never depends on it.
+async function hostOrInline(png: Buffer, req: ImageGenerationRequest, i: number, aiBg: boolean): Promise<{ url: string; hosted: boolean; hostedUrl: string | null }> {
+  const inline = `data:image/png;base64,${png.toString("base64")}`;
+  let hostedUrl: string | null = null;
   if (storageConfigured()) {
     const slug = (req.business || "brand").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32);
-    const url = await uploadPublicMedia(png, {
+    hostedUrl = await uploadPublicMedia(png, {
       contentType: "image/png", ext: "png", keyPrefix: `creatives/${slug}`,
       nameSeed: `${req.business}|${req.headline}|${req.offerText}|${req.options.platformFormat}|${i}|${aiBg ? "ai" : "svg"}`,
     });
-    if (url) return { url, hosted: true };
   }
-  return { url: `data:image/png;base64,${png.toString("base64")}`, hosted: false };
+  return { url: inline, hosted: Boolean(hostedUrl), hostedUrl };
 }
 
 export async function generateImage(req: ImageGenerationRequest): Promise<ImageResult[]> {
@@ -409,9 +415,10 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
     const png = await rasterizeCreative(req, theme, i, aiBg);
     let imageUrl: string;
     let hosted = false;
+    let hostedUrl: string | null = null;
     if (png) {
       const out = await hostOrInline(png, req, i, Boolean(aiBg));
-      imageUrl = out.url; hosted = out.hosted;
+      imageUrl = out.url; hosted = out.hosted; hostedUrl = out.hostedUrl;
       if (!hosted && storageConfigured()) attempts.push({ provider: "demo", error: "storage upload failed — served inline PNG preview" });
     } else {
       // Rasterization itself failed — fall back to the inline SVG data URI
@@ -422,7 +429,7 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
 
     const meta = IMAGE_PROVIDERS.find((p) => p.id === providerId) ?? IMAGE_PROVIDERS.find((p) => p.id === "demo")!;
     results.push({
-      imageUrl, provider: providerId, model, mode,
+      imageUrl, hostedUrl: hostedUrl ?? undefined, provider: providerId, model, mode,
       width: dim.w, height: dim.h, format: req.options.platformFormat,
       brandTheme: theme,
       brandSafe: true,

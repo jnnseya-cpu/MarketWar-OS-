@@ -21,7 +21,7 @@ import {
 } from "@/shared/creative";
 
 type Variant = {
-  imageUrl: string; provider: string; model: string; mode: string;
+  imageUrl: string; hostedUrl?: string; provider: string; model: string; mode: string;
   width: number; height: number; format: string; brandTheme: BrandTheme;
   brandSafe: boolean; variantIndex: number;
   notes: string[];
@@ -214,10 +214,11 @@ export default function StudioPage() {
             ))}
           </div>
 
-          {/* Attach the selected creative to a post and publish */}
+          {/* Attach the selected creative to a post and publish. Publishing needs
+              a hosted (postable) URL — the inline preview can't attach to socials. */}
           <PublishToChannels
             defaultText={[headline, offerText, cta].filter(Boolean).join("\n")}
-            defaultMediaUrls={variants[publishIdx] ? [variants[publishIdx].imageUrl] : []}
+            defaultMediaUrls={variants[publishIdx]?.hostedUrl ? [variants[publishIdx].hostedUrl!] : []}
             sourceLabel="creative"
           />
         </div>

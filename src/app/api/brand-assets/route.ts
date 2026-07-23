@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 import { rateLimit, clientKey } from "@/backend/guard";
@@ -49,23 +50,38 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-  if (!storageConfigured()) {
-    return NextResponse.json({ error: "Media hosting isn't configured yet (Firebase Storage). Set FIREBASE_STORAGE_BUCKET + Admin secrets to enable uploads." }, { status: 503 });
-  }
-
   const parsed = parseDataUrl(dataUrl);
   if (!parsed) return NextResponse.json({ error: "Send the file as a base64 data: URL" }, { status: 400 });
   if (!ALLOWED.test(parsed.mime)) return NextResponse.json({ error: `Unsupported file type (${parsed.mime}). Use PNG/JPG/WEBP/SVG/GIF or MP4/WEBM.` }, { status: 415 });
   if (parsed.buffer.length > MAX_BYTES) return NextResponse.json({ error: "File too large — max 8 MB per asset." }, { status: 413 });
 
+  const isImage = parsed.mime.startsWith("image/") && parsed.mime !== "image/svg+xml" && parsed.mime !== "image/gif";
   const ext = EXT[parsed.mime] || "bin";
-  const url = await uploadPublicMedia(parsed.buffer, {
-    contentType: parsed.mime,
-    ext,
-    keyPrefix: `brand-assets/${brandId}/${assetType}`,
-    nameSeed: `${brandId}:${assetType}:${fileName}:${parsed.buffer.length}`,
-  });
 
-  if (!url) return NextResponse.json({ error: "Upload failed — try again." }, { status: 502 });
-  return NextResponse.json({ url, assetType, mime: parsed.mime, bytes: parsed.buffer.length });
+  // The asset is returned INLINE (a compact resized data URL) so it ALWAYS
+  // renders — thumbnails, and compositing into creatives — with zero dependency
+  // on external hosting being publicly reachable. We ALSO best-effort host the
+  // original (for social publishing, which needs a real URL); if hosting works
+  // we return that too, but viewing never depends on it.
+  let inlineUrl = dataUrl;
+  if (isImage) {
+    try {
+      const maxDim = assetType === "logo" ? 640 : 1280;
+      const png = await sharp(parsed.buffer).resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+      inlineUrl = `data:image/webp;base64,${png.toString("base64")}`;
+    } catch { /* keep the original data URL if resize fails */ }
+  }
+
+  let hostedUrl: string | null = null;
+  if (storageConfigured()) {
+    hostedUrl = await uploadPublicMedia(parsed.buffer, {
+      contentType: parsed.mime, ext,
+      keyPrefix: `brand-assets/${brandId}/${assetType}`,
+      nameSeed: `${brandId}:${assetType}:${fileName}:${parsed.buffer.length}`,
+    });
+  }
+
+  // `url` (what the client stores + renders) is the inline data URL — guaranteed
+  // to display. `hostedUrl` is the postable URL for publishing when available.
+  return NextResponse.json({ url: inlineUrl, hostedUrl, assetType, mime: parsed.mime, bytes: parsed.buffer.length });
 }

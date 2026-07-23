@@ -211,7 +211,8 @@ export type ImageCostEstimate = {
 };
 
 export type ImageResult = {
-  imageUrl: string; // data URI in demo mode; provider/storage URL when live
+  imageUrl: string; // ALWAYS an inline data URI — guaranteed to render in the browser
+  hostedUrl?: string; // a postable hosted URL when Storage is configured (for publishing)
   provider: ImageProviderId;
   model: string;
   mode: "live" | "demo";
