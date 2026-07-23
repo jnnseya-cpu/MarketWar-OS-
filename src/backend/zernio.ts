@@ -18,9 +18,68 @@ if (typeof window !== "undefined") {
 // Follows the same one-door-per-vendor pattern as gateway.ts / image-gateway.ts.
 
 import { quoteAcu } from "@/backend/acu";
+import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 
+// Zernio API base — the docs' base is https://zernio.com/api/v1, so paths here
+// start with "/v1/…". Auth is `Authorization: Bearer sk_…` (set below).
 const ZERNIO_BASE = "https://zernio.com/api";
 const USD_TO_GBP = 0.79;
+
+// Our platform ids → Zernio's platform slug (X is "twitter" in Zernio's API).
+const ZERNIO_SLUG: Partial<Record<ZernioPlatform, string>> = { x: "twitter" };
+function toZernioSlug(p: string): string { return ZERNIO_SLUG[p as ZernioPlatform] || p; }
+
+// Per-brand Zernio profile id (Zernio groups connected accounts under a profile;
+// we keep one profile per brand). Cached in Firestore so we don't re-create it.
+async function getStoredProfileId(brandId: string): Promise<string | null> {
+  if (!adminConfigured || !adminDb) return null;
+  try {
+    const snap = await adminDb.collection("zernio_profiles").doc(brandId).get();
+    const id = snap.exists ? (snap.data() as { profileId?: string }).profileId : null;
+    return id || null;
+  } catch { return null; }
+}
+async function storeProfileId(brandId: string, profileId: string): Promise<void> {
+  if (!adminConfigured || !adminDb) return;
+  try { await adminDb.collection("zernio_profiles").doc(brandId).set({ brandId, profileId, updatedAt: new Date().toISOString() }, { merge: true }); } catch { /* best-effort */ }
+}
+
+// Ensure a Zernio profile exists for this brand; returns its _id (or an error).
+async function ensureProfile(brandId: string, brandName?: string): Promise<{ profileId: string | null; error?: string }> {
+  const existing = await getStoredProfileId(brandId);
+  if (existing) return { profileId: existing };
+  try {
+    const res = await zernioFetch("/v1/profiles", {
+      method: "POST",
+      body: JSON.stringify({ name: brandName || brandId, description: `MarketWar OS brand ${brandId}` }),
+    });
+    const raw = await res.text().catch(() => "");
+    if (!res.ok) return { profileId: null, error: `Zernio POST /v1/profiles → HTTP ${res.status}. ${raw.slice(0, 180)}` };
+    let data: unknown = {}; try { data = JSON.parse(raw); } catch { /* non-JSON */ }
+    // Response shape: { profile: { _id } }
+    const profile = (data as { profile?: { _id?: string } }).profile;
+    const profileId = profile?._id || pick(data, ["_id", "id"]) || null;
+    if (!profileId) return { profileId: null, error: `Zernio created no profile id. Body: ${raw.slice(0, 180)}` };
+    await storeProfileId(brandId, profileId);
+    return { profileId };
+  } catch (e) {
+    return { profileId: null, error: `Could not reach Zernio: ${(e as Error).message}` };
+  }
+}
+
+// List the accounts connected under a profile → [{ platform, accountId }].
+async function listAccounts(profileId: string): Promise<{ platform: string; accountId: string }[]> {
+  try {
+    const res = await zernioFetch(`/v1/accounts?profileId=${encodeURIComponent(profileId)}`, { method: "GET" });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray((data as { accounts?: unknown[] }).accounts) ? (data as { accounts: unknown[] }).accounts : [];
+    return list.map((a) => {
+      const o = a as Record<string, unknown>;
+      return { platform: String(o.platform || "").toLowerCase(), accountId: String(o._id || o.id || "") };
+    }).filter((a) => a.platform && a.accountId);
+  } catch { return []; }
+}
 
 export type ZernioPlatform =
   | "instagram" | "tiktok" | "x" | "facebook" | "linkedin" | "youtube"
@@ -90,47 +149,61 @@ function pick(obj: unknown, keys: string[]): string | undefined {
 // Connect link — mint a white-label "connect your socials" URL for a brand.
 // Live: POST /v1/profiles. Demo: deterministic connect URL in the real shape.
 // ---------------------------------------------------------------------------
-export type ConnectLink = { mode: "live" | "demo" | "live-error"; brandId: string; profileId: string | null; connectUrl: string; note: string; diagnostic?: string };
+export type PlatformConnect = { platform: string; label: string; url: string };
+export type ConnectLink = {
+  mode: "live" | "demo" | "live-error";
+  brandId: string;
+  profileId: string | null;
+  connectUrl: string;                 // first platform link (back-compat)
+  platformLinks?: PlatformConnect[];  // per-platform OAuth links (the real flow)
+  note: string;
+  diagnostic?: string;
+};
+
+// The platforms we offer a one-click connect for by default (the brand opens
+// each to authorise that account; Zernio hosts the OAuth).
+const CONNECT_DEFAULTS: { platform: ZernioPlatform; label: string }[] = [
+  { platform: "instagram", label: "Instagram" }, { platform: "facebook", label: "Facebook" },
+  { platform: "tiktok", label: "TikTok" }, { platform: "youtube", label: "YouTube" },
+  { platform: "linkedin", label: "LinkedIn" }, { platform: "x", label: "X" },
+];
+
+// Get a single platform's OAuth connect URL for a profile.
+async function connectUrlFor(profileId: string, platform: string): Promise<string | null> {
+  try {
+    const res = await zernioFetch(`/v1/connect/${encodeURIComponent(toZernioSlug(platform))}?profileId=${encodeURIComponent(profileId)}`, { method: "GET" });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return pick(data, ["authUrl", "auth_url", "url", "connectUrl"]) ?? null;
+  } catch { return null; }
+}
 
 export async function createConnectLink(input: { brandId: string; brandName?: string }): Promise<ConnectLink> {
   const brandId = input.brandId?.trim() || "brand";
   if (zernioConfigured()) {
-    // When the key IS set but the live call fails, we no longer fall back
-    // silently to a demo link — we surface the REAL Zernio response (status +
-    // body) so the exact API-contract mismatch is visible and fixable.
-    let diagnostic = "";
-    try {
-      const res = await zernioFetch("/v1/profiles", {
-        method: "POST",
-        body: JSON.stringify({ title: input.brandName || brandId, name: input.brandName || brandId, reference: brandId }),
-      });
-      const raw = await res.text().catch(() => "");
-      if (res.ok) {
-        let data: unknown = {};
-        try { data = JSON.parse(raw); } catch { /* non-JSON body */ }
-        const profileId = pick(data, ["id", "profileId", "profile_id", "key", "profileKey"]) ?? null;
-        const token = pick(data, ["token", "inviteToken", "invite_token", "connectToken"]);
-        const connectUrl =
-          pick(data, ["connectUrl", "connect_url", "linkUrl", "link_url", "url"]) ??
-          (token ? `${ZERNIO_BASE}/v1/platform-invites/${token}/connect` : "");
-        if (connectUrl) {
-          return { mode: "live", brandId, profileId, connectUrl, note: "Share this link with the brand — they connect their own socials (Zernio hosts the OAuth). Posting then runs through the platform account." };
-        }
-        diagnostic = `Zernio ${res.status} OK but no connect URL/token in the response. Body: ${raw.slice(0, 220)}`;
-      } else {
-        diagnostic = `Zernio POST /v1/profiles → HTTP ${res.status}. Body: ${raw.slice(0, 220)}`;
-      }
-    } catch (e) {
-      diagnostic = `Could not reach Zernio: ${(e as Error).message}`;
+    const { profileId, error } = await ensureProfile(brandId, input.brandName);
+    if (!profileId) {
+      return { mode: "live-error", brandId, profileId: null, connectUrl: "", note: "Publishing key is set, but Zernio couldn't create the brand profile — see the diagnostic.", diagnostic: error };
     }
-    // Key is set but live failed — report it honestly (not a green demo link).
+    // Mint a per-platform OAuth link for each default channel.
+    const linkResults = await Promise.all(
+      CONNECT_DEFAULTS.map(async ({ platform, label }) => {
+        const url = await connectUrlFor(profileId, platform);
+        return url ? { platform: platform as string, label, url } : null;
+      }),
+    );
+    const links: PlatformConnect[] = linkResults.filter((l): l is PlatformConnect => l !== null);
+
+    if (links.length === 0) {
+      return { mode: "live-error", brandId, profileId, connectUrl: "", note: "Profile created, but Zernio returned no OAuth connect URLs. Check the API key's scopes / platform availability.", diagnostic: "GET /v1/connect/{platform}?profileId=… returned no authUrl for any default platform." };
+    }
     return {
-      mode: "live-error",
+      mode: "live",
       brandId,
-      profileId: null,
-      connectUrl: "",
-      note: "Publishing key is set, but Zernio didn't return a connect link. This usually means the API endpoint or field names don't match Zernio's current contract — see the diagnostic below.",
-      diagnostic,
+      profileId,
+      connectUrl: links[0].url,
+      platformLinks: links,
+      note: "One click per network authorises that account (Zernio hosts the OAuth — no app review on our side). Once connected, publish from this brand to those channels.",
     };
   }
   // No key — deterministic demo connect URL in the real shape.
@@ -138,8 +211,8 @@ export async function createConnectLink(input: { brandId: string; brandName?: st
     mode: "demo",
     brandId,
     profileId: null,
-    connectUrl: `${ZERNIO_BASE}/v1/platform-invites/${demoToken(brandId)}/connect`,
-    note: "Demo link (deterministic). With ZERNIO_API_KEY set this mints a real white-label connect link the brand opens to link their TikTok/Instagram/Facebook/YouTube/LinkedIn accounts — no app review on our side.",
+    connectUrl: `${ZERNIO_BASE}/v1/connect/instagram?profileId=${demoToken(brandId)}`,
+    note: "Demo link (deterministic). With ZERNIO_API_KEY set this mints real per-platform white-label connect links the brand opens to link their TikTok/Instagram/Facebook/YouTube/LinkedIn/X accounts — no app review on our side.",
   };
 }
 
@@ -233,33 +306,53 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
 
   if (zernioConfigured()) {
     try {
+      // Resolve the brand's Zernio profile + its connected accounts, then map
+      // each requested platform to a real { platform, accountId } — the shape
+      // Zernio's POST /v1/posts requires (bare platform strings are rejected).
+      const { profileId, error: profErr } = await ensureProfile(input.brandId, undefined);
+      if (!profileId) {
+        return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Couldn't reach the brand's publishing profile. ${profErr ?? ""}`.trim() };
+      }
+      const accounts = await listAccounts(profileId);
+      const targets = platforms
+        .map((p) => {
+          const slug = toZernioSlug(p);
+          const acct = accounts.find((a) => a.platform === slug || a.platform === p);
+          return acct ? { platform: acct.platform, accountId: acct.accountId } : null;
+        })
+        .filter((t): t is { platform: string; accountId: string } => Boolean(t));
+
+      if (targets.length === 0) {
+        const want = platforms.join(", ");
+        const have = accounts.map((a) => a.platform).join(", ") || "none";
+        return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `No connected account for ${want} on this brand yet (connected: ${have}). Open “Connect socials”, authorise the account, then publish.` };
+      }
+
       const res = await zernioFetch("/v1/posts", {
         method: "POST",
         body: JSON.stringify({
-          text: bodyText,
-          platforms,
-          ...(input.profileId ? { profile: input.profileId, profileKey: input.profileId } : {}),
-          ...(media.length ? { mediaUrls: media, media } : {}),
-          ...(scheduledFor ? { schedule: scheduledFor, scheduleDate: scheduledFor } : {}),
+          content: bodyText,
+          platforms: targets,
+          ...(scheduledFor ? { scheduledFor, timezone: "Europe/London" } : { publishNow: true }),
+          ...(media.length ? { media } : {}),
         }),
       });
+      const raw = await res.text().catch(() => "");
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const postId = pick(data, ["id", "postId", "post_id"]) ?? null;
-        return { mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Sent to Zernio for ${platforms.length} platform(s).${mediaNote}` };
+        let data: unknown = {}; try { data = JSON.parse(raw); } catch { /* non-JSON */ }
+        const post = (data as { post?: { _id?: string; status?: string } }).post;
+        const postId = post?._id || pick(data, ["_id", "id", "postId"]) || null;
+        const sentPlatforms = targets.map((t) => t.platform);
+        return { mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms: sentPlatforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Sent to Zernio for ${sentPlatforms.join(", ")}.${mediaNote}` };
       }
-      // Non-2xx from Zernio — degrade honestly rather than throw a 500.
-      const errText = await res.text().catch(() => "");
-      // A platform-field validation error (e.g. "platforms.0 is invalid") means
-      // the brand has no CONNECTED account for that channel — surface the real,
-      // actionable cause instead of a raw API error that looks like a bug.
-      const isPlatformErr = /platforms?\.\d|platform.*invalid|invalid.*platform/i.test(errText);
+      // Non-2xx — surface the real cause.
+      const isPlatformErr = /platforms?\.\d|platform.*invalid|invalid.*platform|account/i.test(raw);
       const note = isPlatformErr
-        ? `Can't publish yet: no connected social account for ${platforms.length === 1 ? "this channel" : "one of these channels"} on this brand. Open “Connect socials”, link the brand's ${platforms.join(", ")} account(s), then publish. (Zernio: ${res.status})`
-        : `Zernio rejected the post (HTTP ${res.status}). ${errText.slice(0, 160)}`;
+        ? `Zernio rejected the target account (HTTP ${res.status}). Reconnect the brand's socials and try again. ${raw.slice(0, 140)}`
+        : `Zernio rejected the post (HTTP ${res.status}). ${raw.slice(0, 160)}`;
       return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note };
-    } catch {
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: "Could not reach Zernio — the post was not sent. Try again shortly." };
+    } catch (e) {
+      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Could not reach Zernio — the post was not sent (${(e as Error).message}). Try again shortly.` };
     }
   }
 

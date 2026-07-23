@@ -14,7 +14,8 @@ import { authedFetch } from "@/frontend/api-client";
 
 type Platform = { id: string; label: string };
 type Status = { configured: boolean; whiteLabel: boolean; platforms: Platform[]; billing: string; userAction: string; note: string };
-type ConnectLink = { mode: "live" | "demo"; connectUrl: string; note: string };
+type PlatformConnect = { platform: string; label: string; url: string };
+type ConnectLink = { mode: "live" | "demo" | "live-error"; connectUrl: string; platformLinks?: PlatformConnect[]; note: string; diagnostic?: string };
 type PublishResult = {
   mode: "live" | "demo";
   status: "published" | "scheduled" | "blocked";
@@ -95,15 +96,33 @@ export default function PublishCenterPage() {
       {/* Connect socials */}
       <div className="mb-8 card p-5">
         <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Connect {activeBrand.name}&apos;s socials</h2></div>
-        <p className="mb-3 text-xs text-slate-400">One click mints a white-label link the brand opens to authorise their own accounts. Zernio hosts the OAuth — MarketWar never asks them for a key or does app review.</p>
-        <button className="btn-primary" onClick={connect} disabled={linkBusy}>{linkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Generate connect link</button>
-        {link && (
+        <p className="mb-3 text-xs text-slate-400">One click per network opens Zernio&apos;s hosted OAuth — the brand authorises their own account, no app review on our side. Once connected, publish below.</p>
+        <button className="btn-primary" onClick={connect} disabled={linkBusy}>{linkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} {link ? "Refresh connect links" : "Generate connect links"}</button>
+        {link && link.mode === "live-error" && (
+          <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/[0.06] p-3">
+            <p className="text-sm font-semibold text-rose-300">Couldn&apos;t create the connect links</p>
+            <p className="mt-1 text-[11px] text-slate-400">{link.note}</p>
+            {link.diagnostic && <p className="mt-1 break-all text-[11px] text-slate-500">{link.diagnostic}</p>}
+          </div>
+        )}
+        {link && link.mode !== "live-error" && (
           <div className="mt-3 rounded-lg border border-white/[0.07] bg-ink-900/60 p-3">
-            <div className="flex items-center gap-2">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${link.mode === "live" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{link.mode === "live" ? "Live link" : "Demo link"}</span>
-              <code className="min-w-0 flex-1 truncate text-xs text-sky-300">{link.connectUrl}</code>
-              <button onClick={() => { navigator.clipboard?.writeText(link.connectUrl); setCopied(true); }} className="shrink-0 text-slate-400 hover:text-white" title="Copy">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}</button>
-            </div>
+            {link.platformLinks && link.platformLinks.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {link.platformLinks.map((pl) => (
+                  <a key={pl.platform} href={pl.url} target="_blank" rel="noopener noreferrer"
+                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/20">
+                    <Link2 className="h-3.5 w-3.5" /> Connect {pl.label}
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${link.mode === "live" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{link.mode === "live" ? "Live link" : "Demo link"}</span>
+                <code className="min-w-0 flex-1 truncate text-xs text-sky-300">{link.connectUrl}</code>
+                <button onClick={() => { navigator.clipboard?.writeText(link.connectUrl); setCopied(true); }} className="shrink-0 text-slate-400 hover:text-white" title="Copy">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}</button>
+              </div>
+            )}
             <p className="mt-2 text-[11px] text-slate-500">{link.note}</p>
           </div>
         )}

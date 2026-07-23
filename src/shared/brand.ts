@@ -17,6 +17,12 @@ export type Brand = {
   website: string;
   goal: string;        // current objective
   color: string;       // avatar accent (from the validated palette)
+  // Brand identity — captured at onboarding / brand edit, hosted on Firebase
+  // Storage, and reused across every creative so "use my logo / my brand
+  // colours / my product photo" are real, not placeholders.
+  logoUrl?: string;          // hosted logo (public URL)
+  brandColours?: string[];   // brand colour palette (hex), user-set or logo-extracted
+  productImageUrl?: string;  // a hosted product/hero photo to build creatives on
   bvi?: number;        // Business Vitality Index (display only)
   acuBurnMonth?: number;
 };
