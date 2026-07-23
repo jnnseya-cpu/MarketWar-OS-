@@ -10,6 +10,7 @@
 // P1 (scaffolded, activates with the vision/render/publish pipeline). Nothing
 // is presented as working when it is not — that protects the brand with testers.
 
+import { useEffect, useState } from "react";
 import {
   BadgePercent,
   Camera,
@@ -30,6 +31,17 @@ import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import { PageHeader, Pill } from "@/components/ui";
 
 type Status = "live" | "p1";
+// A capability gated on a real provider key — its chip flips to "Live now" the
+// moment the key is present (read from the no-spend /api/health/live probe), so
+// the label always tells the truth about what this deployment can actually do.
+type Cap = "image" | "video" | "publish";
+
+// Map the health-probe capability names → our gate keys.
+const CAP_LABELS: Record<Cap, string> = {
+  image: "Photoreal image backgrounds",
+  video: "Video render (Veo/Sora)",
+  publish: "Social publishing (Zernio, 15 channels)",
+};
 
 // Small honest status chip used across every capability on the page.
 function StatusChip({ status }: { status: Status }) {
@@ -58,26 +70,48 @@ const GUARANTEES: { title: string; desc: string; status: Status }[] = [
   { title: "Autonomous test loop", status: "p1", desc: "19-variable testing matrix: publish variants → find winners → kill waste → recombine → attribute revenue → store learnings in Creative Intelligence Memory. The scoring + optimisation brain is live; the closed publish-and-measure loop activates with channel connectors at P1." },
 ];
 
-// Each studio: what it produces TODAY vs what needs the P1 render/publish pipe.
-const STUDIOS: { icon: typeof Megaphone; title: string; desc: string; status: Status; note: string }[] = [
+// Each studio: what it produces TODAY. Key-gated studios carry a `cap` and a
+// `liveNote`; their chip + note flip to Live the moment the provider key is set.
+type Studio = { icon: typeof Megaphone; title: string; desc: string; status: Status; note: string; cap?: Cap; liveNote?: string };
+const STUDIOS: Studio[] = [
   { icon: Megaphone, title: "Viral Social Posts", status: "live", note: "Copy generated live by the engine.", desc: "Platform-optimised posts for Facebook, Instagram, TikTok, X, LinkedIn, Pinterest, Threads, Snapchat and Reddit — captions, hooks, CTAs, hashtags, emojis, native formatting." },
   { icon: PenLine, title: "AI Copy Studio", status: "live", note: "Full copy generated live.", desc: "Product descriptions, Amazon/Shopify listings, SEO copy, landing pages, blogs, email/SMS/WhatsApp campaigns, push notifications, press releases, influencer briefs." },
   { icon: BadgePercent, title: "AI Sales Booster", status: "live", note: "Offers & mechanics generated live.", desc: "Upsells, cross-sells, bundles, scarcity, countdowns, flash sales, loyalty, referral, influencer and giveaway campaigns." },
   { icon: LineChart, title: "AI Market Intelligence", status: "live", note: "Analysis generated live.", desc: "Competitor positioning, pricing recommendations, viral trend predictions, audiences, platforms, posting times, budget, predicted ROAS, purchase-intent score." },
-  { icon: ImageIcon, title: "AI Ad Creator", status: "live", note: "Ad concepts + brand-safe creatives live via Brand Studio; photoreal AI renders at P1.", desc: "Image, carousel, story, Reels, Shorts, display, Google, YouTube, LinkedIn and TikTok ads — built from the product dossier." },
-  { icon: Camera, title: "AI Image Studio", status: "p1", note: "Brand-safe SVG creatives render today in Brand Studio; photoreal generation activates with an image-model key.", desc: "Lifestyle images, studio renders, seasonal creatives, luxury mockups, before/after, bundles, banners, infographics, cut-outs, AI backgrounds, billboard mockups." },
-  { icon: Clapperboard, title: "AI Video Creator", status: "p1", note: "Clip intelligence + scripts live; rendered video needs a video-model + render queue.", desc: "Product, UGC-style, testimonial, explainer, cinematic and luxury-commercial videos in vertical + landscape — rendered via the Video War Room." },
-  { icon: Send, title: "One-Click Publish", status: "p1", note: "Needs channel connectors (platform approval or an aggregator key).", desc: "Publish directly to connected channels or export — every asset passes the compliance gate and carries the AI-content watermark." },
+  { icon: ImageIcon, title: "AI Ad Creator", status: "live", cap: "image", note: "Ad concepts + brand-safe creatives live via Brand Studio; photoreal AI renders activate with an image-model key.", liveNote: "Ad concepts + brand-safe creatives + photoreal AI renders — all live.", desc: "Image, carousel, story, Reels, Shorts, display, Google, YouTube, LinkedIn and TikTok ads — built from the product dossier." },
+  { icon: Camera, title: "AI Image Studio", status: "p1", cap: "image", note: "Brand-safe SVG creatives render today in Brand Studio; photoreal generation activates with an image-model key.", liveNote: "Photoreal generation is live (gpt-image-1) — renders host to Firebase Storage, ready to attach.", desc: "Lifestyle images, studio renders, seasonal creatives, luxury mockups, before/after, bundles, banners, infographics, cut-outs, AI backgrounds, billboard mockups." },
+  { icon: Clapperboard, title: "AI Video Creator", status: "p1", cap: "video", note: "Clip intelligence + scripts live; rendered video needs a video-model + render queue.", liveNote: "Rendered video is live (Veo / Sora) — MP4s render and attach to a post below.", desc: "Product, UGC-style, testimonial, explainer, cinematic and luxury-commercial videos in vertical + landscape — rendered via the Video War Room." },
+  { icon: Send, title: "One-Click Publish", status: "p1", cap: "publish", note: "Needs channel connectors (platform approval or an aggregator key).", liveNote: "Publishing is live (Zernio, 15 channels) — connect a brand's socials, then publish. Every post passes the compliance gate + watermark.", desc: "Publish directly to connected channels or export — every asset passes the compliance gate and carries the AI-content watermark." },
 ];
 
 export default function ProductEnginePage() {
+  // Live capability probe — flips key-gated chips (image / video / publish) to
+  // "Live now" when the provider key is actually present in this deployment.
+  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false });
+  useEffect(() => {
+    let on = true;
+    fetch("/api/health/live")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!on || !Array.isArray(d?.capabilities)) return;
+        const ready = (label: string) => Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === label)?.ready);
+        setCaps({ image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video), publish: ready(CAP_LABELS.publish) });
+      })
+      .catch(() => {});
+    return () => { on = false; };
+  }, []);
+
+  const effStatus = (s: Studio): Status => (s.cap ? (caps[s.cap] ? "live" : "p1") : s.status);
+  const effNote = (s: Studio): string => (s.cap && caps[s.cap] && s.liveNote ? s.liveNote : s.note);
+  const renderLive = caps.image && caps.video;
+
   return (
     <div>
       <PageHeader
         kicker="MarketWar VisualStrike AI™"
         title="Upload one product picture. Launch a viral campaign factory."
         subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock™ guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
-        actions={<Pill tone="info">Module M-32 · Agent 21 · vision + video pipeline lands at P1</Pill>}
+        actions={<Pill tone="info">{renderLive ? "Module M-32 · Agent 21 · render + publish live" : "Module M-32 · Agent 21 · vision pipeline lands at P1"}</Pill>}
       />
 
       {/* Honesty legend — what produces real output today vs what's coming at P1 */}
@@ -89,8 +123,10 @@ export default function ProductEnginePage() {
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
           The intelligence — identity lock, 15-dimension viral + commercial scoring, 130+ deception-checked hooks, 27 angle
-          families, dossier and full campaign copy — runs live right now. Rendering photoreal images/video and auto-publishing to
-          channels are marked <span className="text-amber-300">Coming at P1</span> so you always know exactly what to expect.
+          families, dossier and full campaign copy — runs live right now.{" "}
+          {renderLive
+            ? <>Photoreal image + video rendering and one-click publishing are <span className="text-emerald-300">Live now</span> too — the chips below reflect exactly what this deployment can do.</>
+            : <>Rendering photoreal images/video and auto-publishing to channels flip to <span className="text-emerald-300">Live now</span> the moment their keys are set — the chips below always reflect this deployment&apos;s real capability.</>}
         </p>
       </div>
 
@@ -136,17 +172,20 @@ export default function ProductEnginePage() {
 
       {/* Studios grid — each honestly badged */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {STUDIOS.map((s) => (
+        {STUDIOS.map((s) => {
+          const st = effStatus(s);
+          return (
           <div key={s.title} className="card p-4 transition hover:border-emerald-500/40">
             <div className="mb-2.5 flex items-center justify-between">
               <s.icon className="h-5 w-5 text-emerald-400" />
-              <StatusChip status={s.status} />
+              <StatusChip status={st} />
             </div>
             <h3 className="font-display text-sm font-bold text-white">{s.title}</h3>
             <p className="mt-1 text-xs leading-relaxed text-slate-400">{s.desc}</p>
-            <p className={`mt-2 text-[11px] font-medium ${s.status === "live" ? "text-emerald-300/80" : "text-amber-300/80"}`}>{s.note}</p>
+            <p className={`mt-2 text-[11px] font-medium ${st === "live" ? "text-emerald-300/80" : "text-amber-300/80"}`}>{effNote(s)}</p>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* One-click campaign modes */}

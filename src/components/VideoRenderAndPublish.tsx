@@ -21,10 +21,20 @@ export default function VideoRenderAndPublish() {
   const [prompt, setPrompt] = useState("");
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [videoLive, setVideoLive] = useState<boolean | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   useEffect(() => { setJob(null); }, [activeBrand?.id]);
+  // Reflect real capability: is a Veo/Sora key actually present in this deploy?
+  useEffect(() => {
+    let on = true;
+    fetch("/api/health/live").then((r) => r.json()).then((d) => {
+      if (!on || !Array.isArray(d?.capabilities)) return;
+      setVideoLive(Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === "Video render (Veo/Sora)")?.ready));
+    }).catch(() => {});
+    return () => { on = false; };
+  }, []);
 
   async function start() {
     if (!activeBrand || !prompt.trim()) return;
@@ -50,8 +60,19 @@ export default function VideoRenderAndPublish() {
 
   return (
     <div className="mb-8 card border-emerald-500/20 p-5">
-      <div className="mb-1 flex items-center gap-2"><Clapperboard className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">AI Video Creator — render &amp; publish</h2></div>
-      <p className="mb-3 text-xs text-slate-400">Describe the video; the render pipeline produces an MP4 and attaches it to a post. Live rendering activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key.</p>
+      <div className="mb-1 flex items-center gap-2">
+        <Clapperboard className="h-4 w-4 text-emerald-400" />
+        <h2 className="font-display font-bold text-white">AI Video Creator — render &amp; publish</h2>
+        {videoLive === true && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Live now</span>}
+      </div>
+      <p className="mb-3 text-xs text-slate-400">
+        Describe the video; the render pipeline produces an MP4 and attaches it to a post.{" "}
+        {videoLive === true
+          ? "Rendering is live (Veo / Sora) — press Render and the MP4 renders, hosts and is ready to publish."
+          : videoLive === false
+            ? "Live rendering activates the moment a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key is set."
+            : "The pipeline, job polling and post-attach are fully wired."}
+      </p>
 
       <textarea className="input min-h-[70px]" placeholder="e.g. 8-second vertical clip of the flame-grilled platter, steam rising, hands reaching in, warm cinematic lighting" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} Render video</button>

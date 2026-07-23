@@ -90,18 +90,24 @@ function pick(obj: unknown, keys: string[]): string | undefined {
 // Connect link — mint a white-label "connect your socials" URL for a brand.
 // Live: POST /v1/profiles. Demo: deterministic connect URL in the real shape.
 // ---------------------------------------------------------------------------
-export type ConnectLink = { mode: "live" | "demo"; brandId: string; profileId: string | null; connectUrl: string; note: string };
+export type ConnectLink = { mode: "live" | "demo" | "live-error"; brandId: string; profileId: string | null; connectUrl: string; note: string; diagnostic?: string };
 
 export async function createConnectLink(input: { brandId: string; brandName?: string }): Promise<ConnectLink> {
   const brandId = input.brandId?.trim() || "brand";
   if (zernioConfigured()) {
+    // When the key IS set but the live call fails, we no longer fall back
+    // silently to a demo link — we surface the REAL Zernio response (status +
+    // body) so the exact API-contract mismatch is visible and fixable.
+    let diagnostic = "";
     try {
       const res = await zernioFetch("/v1/profiles", {
         method: "POST",
         body: JSON.stringify({ title: input.brandName || brandId, name: input.brandName || brandId, reference: brandId }),
       });
+      const raw = await res.text().catch(() => "");
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
+        let data: unknown = {};
+        try { data = JSON.parse(raw); } catch { /* non-JSON body */ }
         const profileId = pick(data, ["id", "profileId", "profile_id", "key", "profileKey"]) ?? null;
         const token = pick(data, ["token", "inviteToken", "invite_token", "connectToken"]);
         const connectUrl =
@@ -110,10 +116,24 @@ export async function createConnectLink(input: { brandId: string; brandName?: st
         if (connectUrl) {
           return { mode: "live", brandId, profileId, connectUrl, note: "Share this link with the brand — they connect their own socials (Zernio hosts the OAuth). Posting then runs through the platform account." };
         }
+        diagnostic = `Zernio ${res.status} OK but no connect URL/token in the response. Body: ${raw.slice(0, 220)}`;
+      } else {
+        diagnostic = `Zernio POST /v1/profiles → HTTP ${res.status}. Body: ${raw.slice(0, 220)}`;
       }
-    } catch { /* fall through to demo */ }
+    } catch (e) {
+      diagnostic = `Could not reach Zernio: ${(e as Error).message}`;
+    }
+    // Key is set but live failed — report it honestly (not a green demo link).
+    return {
+      mode: "live-error",
+      brandId,
+      profileId: null,
+      connectUrl: "",
+      note: "Publishing key is set, but Zernio didn't return a connect link. This usually means the API endpoint or field names don't match Zernio's current contract — see the diagnostic below.",
+      diagnostic,
+    };
   }
-  // Demo / graceful fallback — deterministic connect URL in the real shape.
+  // No key — deterministic demo connect URL in the real shape.
   return {
     mode: "demo",
     brandId,
@@ -230,7 +250,14 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
       }
       // Non-2xx from Zernio — degrade honestly rather than throw a 500.
       const errText = await res.text().catch(() => "");
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Zernio rejected the post (HTTP ${res.status}). ${errText.slice(0, 160)}` };
+      // A platform-field validation error (e.g. "platforms.0 is invalid") means
+      // the brand has no CONNECTED account for that channel — surface the real,
+      // actionable cause instead of a raw API error that looks like a bug.
+      const isPlatformErr = /platforms?\.\d|platform.*invalid|invalid.*platform/i.test(errText);
+      const note = isPlatformErr
+        ? `Can't publish yet: no connected social account for ${platforms.length === 1 ? "this channel" : "one of these channels"} on this brand. Open “Connect socials”, link the brand's ${platforms.join(", ")} account(s), then publish. (Zernio: ${res.status})`
+        : `Zernio rejected the post (HTTP ${res.status}). ${errText.slice(0, 160)}`;
+      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note };
     } catch {
       return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: "Could not reach Zernio — the post was not sent. Try again shortly." };
     }
