@@ -12,7 +12,7 @@
 // (/api/siteraid): authorisation gate, 6-part audit with sub-scores, Business
 // DNA, Competitive Attack Map and the Website Truth Layer — all computed live.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Blocks,
   CheckCircle2,
@@ -61,14 +61,18 @@ const GUARANTEES: { title: string; desc: string; status: Status }[] = [
   { title: "Authorised & monitored", status: "live", desc: "Ownership or permission is confirmed before extraction (live gate below); competitor URLs get public analysis only. Continuous rescans that auto-detect site changes activate with the crawler at P1 — nothing auto-publishes without approved autopilot rules." },
 ];
 
-// Each suite: what it produces TODAY vs what needs the crawl / render pipe (P1).
-const SUITES: { icon: typeof Blocks; title: string; desc: string; status: Status; note: string }[] = [
+// Each suite: what it produces TODAY. Key-gated suites carry a `cap` + `liveNote`
+// and flip to Live when the provider key is present (health-driven).
+type Cap = "image" | "video";
+const CAP_LABELS: Record<Cap, string> = { image: "Photoreal image backgrounds", video: "Video render (Veo/Sora)" };
+type Suite = { icon: typeof Blocks; title: string; desc: string; status: Status; note: string; cap?: Cap; liveNote?: string };
+const SUITES: Suite[] = [
   { icon: Blocks, title: "AI Campaign Factory", status: "live", note: "Plans, calendars & sequences generated live by the strategy agent below.", desc: "Social calendars, 30-day content plans, 90-day growth strategies, seasonal campaigns, launches, promotional calendars, email/SMS/WhatsApp/push sequences, nurture funnels." },
-  { icon: Palette, title: "AI Creative Generator", status: "p1", note: "On-brand SVG creatives render today in Brand Studio; photoreal graphics/video need an image/video-model key.", desc: "On-brand social graphics, video ads, display banners, blog graphics, infographics, mockups, hero and website banners, story templates, presentation decks." },
+  { icon: Palette, title: "AI Creative Generator", status: "p1", cap: "image", note: "On-brand SVG creatives render today in Brand Studio; photoreal graphics/video need an image/video-model key.", liveNote: "On-brand creatives + photoreal graphics (gpt-image-1) and video (Veo/Sora) render live — build them in Brand Studio / Video War Room.", desc: "On-brand social graphics, video ads, display banners, blog graphics, infographics, mockups, hero and website banners, story templates, presentation decks." },
   { icon: Filter, title: "AI Funnel Builder", status: "p1", note: "Funnel copy & structure generate live; hosted page building + checkout wiring land with connectors.", desc: "Landing pages, lead magnets, sales/webinar/appointment/course/e-commerce funnels, abandoned-cart flows, checkout optimisation, upsell journeys." },
   { icon: Radar, title: "AI Competitor Intelligence", status: "live", note: "Powered by the Competitive Attack Map engine — run it live below.", desc: "Benchmarks products, pricing, SEO, keywords, advertising, social presence, messaging and sentiment — highlights market gaps and differentiation plays." },
   { icon: Sprout, title: "AI Growth Opportunities", status: "live", note: "Ranked opportunities (revenue impact × effort) come from the live attack map + strategy agent.", desc: "New products, subscriptions, memberships, bundles, geographic expansion, partnerships, affiliate/influencer/marketplace plays — each with revenue impact, effort and ROI." },
-  { icon: Gauge, title: "AI Brand Consistency Engine", status: "p1", note: "Enforced at generation time — activates with the creative render pipeline.", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
+  { icon: Gauge, title: "AI Brand Consistency Engine", status: "p1", cap: "image", note: "Enforced at generation time — activates with the creative render pipeline.", liveNote: "Your logo + brand colours (Brand Studio) lock onto every creative at generation time — live.", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
   { icon: Globe, title: "Site-to-Story Engine™", status: "live", note: "Founder / customer / origin stories generated live by the strategy agent from verified facts.", desc: "Turns website facts into founder journeys, customer transformations, origin and mission stories — every story traceable to verified business information." },
   { icon: Radar, title: "Trend Hijack with Brand Relevance™", status: "p1", note: "The 8-factor relevance gate is defined; live trend monitoring needs the trends feed (P1).", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
   { icon: Rocket, title: "Website-to-Influencer Campaign", status: "p1", note: "Briefs generate live; creator marketplace matching lands at P2.", desc: "Creator briefs with talking points, prohibited claims, mandatory disclosure, shot lists, tracking links and performance scorecards — marketplace matching at P2." },
@@ -117,6 +121,21 @@ export default function WebsiteIntelPage() {
   const [report, setReport] = useState<AuditReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Live capability probe — flips creative/consistency suites to Live when the
+  // image/video keys are present (health-driven, no hardcoded "P1").
+  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false });
+  useEffect(() => {
+    let on = true;
+    fetch("/api/health/live").then((r) => r.json()).then((d) => {
+      if (!on || !Array.isArray(d?.capabilities)) return;
+      const ready = (label: string) => Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === label)?.ready);
+      setCaps({ image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video) });
+    }).catch(() => {});
+    return () => { on = false; };
+  }, []);
+  const effStatus = (s: Suite): Status => (s.cap ? (caps[s.cap] ? "live" : "p1") : s.status);
+  const effNote = (s: Suite): string => (s.cap && caps[s.cap] && s.liveNote ? s.liveNote : s.note);
 
   async function runAudit() {
     setBusy(true);
@@ -378,17 +397,17 @@ export default function WebsiteIntelPage() {
 
       {/* Suites grid — each honestly badged live vs P1 */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {SUITES.map((s) => (
+        {SUITES.map((s) => { const st = effStatus(s); return (
           <div key={s.title} className="card p-4 transition hover:border-emerald-500/40">
             <div className="mb-2.5 flex items-center justify-between">
               <s.icon className="h-5 w-5 text-emerald-400" />
-              <StatusChip status={s.status} />
+              <StatusChip status={st} />
             </div>
             <h3 className="font-display text-sm font-bold text-white">{s.title}</h3>
             <p className="mt-1 text-xs leading-relaxed text-slate-400">{s.desc}</p>
-            <p className={`mt-2 text-[11px] font-medium ${s.status === "live" ? "text-emerald-300/80" : "text-amber-300/80"}`}>{s.note}</p>
+            <p className={`mt-2 text-[11px] font-medium ${st === "live" ? "text-emerald-300/80" : "text-amber-300/80"}`}>{effNote(s)}</p>
           </div>
-        ))}
+        ); })}
       </div>
 
       <div className="mb-4 flex items-center gap-2">
