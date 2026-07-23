@@ -3,7 +3,7 @@
 // M-35 Viral Amplification & Retargeting — Reach Amplifier.
 // Spec: docs/ai-os/12-amplification-engine.md. Live viral-coefficient math +
 // frequency-governance explainer wired to the real backend (/api/amplify);
-// full loop automation and channel execution land at P1.
+// full loop automation and channel execution coming soon.
 
 import { useState } from "react";
 import {
@@ -65,7 +65,7 @@ export default function AmplifyPage() {
         kicker="Reach Amplifier"
         title="Maximum reach, relentless follow-up — the legal way"
         subtitle="Earned virality that compounds through people who choose to share, plus consent-based retargeting that pursues every lead until they convert or opt out. Built inside frequency caps and PECR — so it keeps working instead of getting you banned."
-        actions={<Pill tone="info">Module M-35 · Agent 24 · loop automation at P1</Pill>}
+        actions={<Pill tone="info">viral loop · K-factor modelling</Pill>}
       />
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

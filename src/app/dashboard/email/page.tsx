@@ -3,7 +3,7 @@
 // M-34 AI Transactional Email Engine — Email Command Center.
 // Spec: docs/ai-os/11-email-engine.md. The hygiene pipeline + sending
 // facade are live in src/backend/email.ts (/api/email); provider pool,
-// webhook feedback loops and warm-up automation land at P1.
+// webhook feedback loops and warm-up automation coming soon.
 
 import { useEffect, useState } from "react";
 import {
@@ -54,7 +54,7 @@ const PIPELINE = [
 
 const CAPABILITIES = [
   { icon: Inbox, title: "Inbox placement, earned", desc: "SPF + DKIM + DMARC (+ BIMI) on an isolated sending subdomain, engagement-first warm-up, RFC 8058 one-click unsubscribe — the mechanics that actually beat the spam folder." },
-  { icon: Flame, title: "Massive scale, governed ramp", desc: "Horizontally scalable multi-provider pool (Resend → SendGrid failover shipped; SES/SMTP at P1). Infrastructure is unlimited — the AI governs the ramp so reputation never breaks." },
+  { icon: Flame, title: "Massive scale, governed ramp", desc: "Horizontally scalable multi-provider pool (Resend → SendGrid failover shipped; SES/SMTP soon). Infrastructure is unlimited — the AI governs the ramp so reputation never breaks." },
   { icon: MailCheck, title: "Zero-bounce doctrine", desc: "Bounces are prevented before send (hygiene pipeline) and never repeated (suppression ledger). Target bounce rate < 0.5% — 6× inside the Gmail/Yahoo bulk-sender threshold." },
 ];
 
@@ -124,7 +124,7 @@ export default function EmailPage() {
               <Building2 className="h-3.5 w-3.5" style={{ color: activeBrand.color }} /> {activeBrand.name}
             </span>
           ) : (
-            <Pill tone="info">Module M-34 · Agent 23 · provider pool live via env keys</Pill>
+            <Pill tone="info">multi-provider sending pool</Pill>
           )
         }
       />

@@ -61,7 +61,7 @@ export default function OrganicPage() {
         kicker="Organic Dominance · Strike phase"
         title="Get recommended by the AI everyone asks"
         subtitle="AI assistants are the new results page. This is the acquisition front door: the free GEO audit ('Does ChatGPT recommend your business?'), the Citation Radar that tracks your share of AI answers, and the fixes that get you cited — earned, measured honestly, never faked."
-        actions={<Pill tone="info">MW-02 · MW-04 · MW-09 · live GEO firing at go-live</Pill>}
+        actions={<Pill tone="info">GEO audit · Citation Radar · self-growth</Pill>}
       />
 
       {/* Free GEO audit — the flagship magnet */}
@@ -139,7 +139,7 @@ export default function OrganicPage() {
         <div className="mb-1 flex items-center gap-2">
           <Wrench className="h-4 w-4 text-emerald-400" />
           <h2 className="font-display font-bold text-white">Magnet Foundry — the free-tool cluster</h2>
-          <Pill tone="info">MW-09 · self-growth engine</Pill>
+          <Pill tone="info">self-growth engine</Pill>
         </div>
         <p className="mb-3 text-xs text-slate-500">
           Each tool is a ranked page + email capture + one-click upgrade — the acquisition machine that grows MarketWar
@@ -159,7 +159,7 @@ export default function OrganicPage() {
         <h2 className="font-display text-lg font-bold text-white">Strike-phase agents</h2>
       </div>
       <div className="mb-6 flex items-center gap-2 text-xs text-slate-500">
-        <Search className="h-3.5 w-3.5" /> GEO Recon (MW-04) and Citation Radar (MW-02) — run either against your business.
+        <Search className="h-3.5 w-3.5" /> GEO Recon and Citation Radar — run either against your business.
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <AgentRunner

@@ -9,7 +9,7 @@
 // VideoDominance engine (/api/video-intelligence): genre detection, moment
 // ranking, 8-dimension virality scoring and natural-language moment search.
 // Studio tools that need a render/capture farm (avatar, audio, screen recorder,
-// editor, B-roll) are honestly marked "Coming at P1" — never shown as working.
+// editor, B-roll) are honestly marked "Coming soon" — never shown as working.
 
 import { useEffect, useState } from "react";
 import {
@@ -54,7 +54,7 @@ function StatusChip({ status }: { status: Status }) {
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">
-      <Clock className="h-3 w-3" /> Coming at P1
+      <Clock className="h-3 w-3" /> Coming soon
     </span>
   );
 }
@@ -194,7 +194,7 @@ export default function VideoWarRoomPage() {
         kicker="MarketWar AI Video War Room"
         title="Turn one idea into global video campaigns"
         subtitle="Creation, editing, captions, translation, avatars, branding, repurposing and campaign launch — video as a weapon, not a file. Every asset ships with a tracked CTA into a channel you own."
-        actions={<Pill tone="info">{renderLive ? "Module M-31 · video render live (Veo / Sora)" : "Module M-31 · rendering farm lands on Cloud Run (P2)"}</Pill>}
+        actions={<Pill tone="info">{renderLive ? "video render live (Veo / Sora)" : "video rendering coming soon"}</Pill>}
       />
 
       {/* Honesty legend — what computes real output today vs what needs the render farm */}
@@ -209,7 +209,7 @@ export default function VideoWarRoomPage() {
           moment search — runs live in the <span className="text-emerald-300">Clip Intelligence Lab</span> below, and the 7 agent
           tabs generate real scripts, hooks, captions and packaging.{" "}
           {renderLive
-            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> — render + publish in the panel below. Avatars, audio, screen capture and the editor timeline remain <span className="text-amber-300">Coming at P1</span>.</>
+            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> — render + publish in the panel below. Avatars, audio, screen capture and the editor timeline remain <span className="text-amber-300">Coming soon</span>.</>
             : <>Rendering video/avatars/audio and screen capture flip to <span className="text-emerald-300">Live now</span> as their model keys are set.</>}
         </p>
       </div>

@@ -3,7 +3,7 @@
 // M-33 AI Website Marketing Intelligence Engine (Agent 22) — URL in, unified
 // marketing strategy out. Spec: docs/ai-os/10-viral-product-and-website-
 // engines.md Part B. Conversational core live via the gateway; the deep-crawl
-// service (Cloud Run, robots-respecting) lands with the connector phase (P1).
+// service (Cloud Run, robots-respecting) coming soon.
 //
 // Honesty rule (owner directive): every capability on this page is badged LIVE
 // (produces real, computed output today — demo-deterministic, live with keys) or
@@ -42,7 +42,7 @@ function StatusChip({ status }: { status: Status }) {
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">
-      <Clock className="h-3 w-3" /> Coming at P1
+      <Clock className="h-3 w-3" /> Coming soon
     </span>
   );
 }
@@ -58,7 +58,7 @@ const GUARANTEES: { title: string; desc: string; status: Status }[] = [
   { title: "Website Truth Layer™", status: "live", desc: "Every claim links to its source and carries a classification — verified, user-confirmed, inferred-awaiting-confirmation or prohibited. 'Best in the UK' is blocked unless substantiated. No hallucinated advertising, ever." },
   { title: "Business DNA Builder™", status: "live", desc: "A continuously updated 24-field profile — model, offers, segments, value proposition, objections and every gap (trust, content, conversion, SEO, GEO, social) — that all campaigns draw from." },
   { title: "Competitive Attack Map", status: "live", desc: "Where to win without copying: competitor weaknesses, saturated angles, unclaimed topics — prioritised from quick revenue wins to long-term defensibility." },
-  { title: "Authorised & monitored", status: "live", desc: "Ownership or permission is confirmed before extraction (live gate below); competitor URLs get public analysis only. Continuous rescans that auto-detect site changes activate with the crawler at P1 — nothing auto-publishes without approved autopilot rules." },
+  { title: "Authorised & monitored", status: "live", desc: "Ownership or permission is confirmed before extraction (live gate below); competitor URLs get public analysis only. Continuous rescans that auto-detect site changes activate with the crawler soon — nothing auto-publishes without approved autopilot rules." },
 ];
 
 // Each suite: what it produces TODAY. Key-gated suites carry a `cap` + `liveNote`
@@ -74,7 +74,7 @@ const SUITES: Suite[] = [
   { icon: Sprout, title: "AI Growth Opportunities", status: "live", note: "Ranked opportunities (revenue impact × effort) come from the live attack map + strategy agent.", desc: "New products, subscriptions, memberships, bundles, geographic expansion, partnerships, affiliate/influencer/marketplace plays — each with revenue impact, effort and ROI." },
   { icon: Gauge, title: "AI Brand Consistency Engine", status: "p1", cap: "image", note: "Enforced at generation time — activates with the creative render pipeline.", liveNote: "Your logo + brand colours (Brand Studio) lock onto every creative at generation time — live.", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
   { icon: Globe, title: "Site-to-Story Engine™", status: "live", note: "Founder / customer / origin stories generated live by the strategy agent from verified facts.", desc: "Turns website facts into founder journeys, customer transformations, origin and mission stories — every story traceable to verified business information." },
-  { icon: Radar, title: "Trend Hijack with Brand Relevance™", status: "p1", note: "The 8-factor relevance gate is defined; live trend monitoring needs the trends feed (P1).", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
+  { icon: Radar, title: "Trend Hijack with Brand Relevance™", status: "p1", note: "The 8-factor relevance gate is defined; live trend monitoring needs the trends feed (coming soon).", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
   { icon: Rocket, title: "Website-to-Influencer Campaign", status: "p1", note: "Briefs generate live; creator marketplace matching lands at P2.", desc: "Creator briefs with talking points, prohibited claims, mandatory disclosure, shot lists, tracking links and performance scorecards — marketplace matching at P2." },
 ];
 
@@ -179,7 +179,7 @@ export default function WebsiteIntelPage() {
         kicker="MarketWar SiteRaid AI™"
         title="Paste an authorised URL. Launch a growth operation."
         subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA™, a Website Truth Layer™ that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
-        actions={<Pill tone="info">Module M-33 · Agent 22 · deep crawler + monitoring lands at P1</Pill>}
+        actions={<Pill tone="info">website intelligence · deep crawler coming soon</Pill>}
       />
 
       {/* Honesty legend — what computes real output today vs what needs the crawler */}
@@ -192,7 +192,7 @@ export default function WebsiteIntelPage() {
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
           The intelligence — authorisation gate, Business DNA, the 6-part marketing audit with sub-scores, the Competitive Attack
           Map and the Website Truth Layer — runs live in the <span className="text-emerald-300">Instant Marketing Audit</span> below.
-          Auto-crawling a live URL and continuous change-monitoring are marked <span className="text-amber-300">Coming at P1</span>.
+          Auto-crawling a live URL and continuous change-monitoring are marked <span className="text-amber-300">Coming soon</span>.
         </p>
       </div>
 
@@ -209,7 +209,7 @@ export default function WebsiteIntelPage() {
         ))}
       </div>
 
-      {/* Deep crawl extracts — honestly badged: the crawler that auto-extracts these lands at P1 */}
+      {/* Deep crawl extracts — honestly badged: the crawler that auto-extracts these coming soon */}
       <div className="mb-8 card p-6">
         <div className="mb-3 flex items-center gap-2">
           <Globe className="h-5 w-5 text-emerald-400" />
@@ -224,7 +224,7 @@ export default function WebsiteIntelPage() {
           <StatusChip status="p1" />
         </div>
         <p className="mb-2 text-[11px] text-slate-500">
-          Auto-extraction from a live URL activates with the robots-respecting crawler at P1. Today, describe the business in the
+          Auto-extraction from a live URL activates with the robots-respecting crawler soon. Today, describe the business in the
           <span className="text-emerald-300"> Instant Marketing Audit</span> below and the engine computes the full audit, DNA and attack map now.
         </p>
         <div className="flex flex-wrap gap-1.5">
