@@ -21,12 +21,28 @@ function nowISO(req: NextRequest): string {
   return h && /^\d{4}-\d{2}-\d{2}T/.test(h) ? h : "1970-01-01T00:00:00.000Z";
 }
 
+type ScoredRow = {
+  id: string; name: string; segment: string; segmentLabel: string;
+  spendGbp: number; orders: number; ltvGbp: number; churnRisk: number;
+  purchaseIntent: number; lastOrderDaysAgo: number | null; consent: boolean;
+};
+
 // Build the SAME VaultReport shape the Customer Vault page renders (mirrors
 // /api/segments action:"customers"), but from the brand's REAL stored contacts.
 async function scoredVault(brandId: string, business: string) {
   const biz = business || "your brand";
   const contacts = await listContacts(brandId);
   const records = toCustomerRecords(contacts);
+  // Empty vault → honest empty report. Never call the scorer with [] (its sample
+  // fallback would fabricate 40 "Customer NNN" rows for a brand with no data).
+  if (records.length === 0) {
+    return {
+      business: biz, live: false, contactCount: 0, totalContacts: 0, totalLtvGbp: 0,
+      hot: 0, atRisk: 0, consentedShare: 0, statusCounts: {} as Record<string, number>,
+      customers: [] as ScoredRow[],
+      note: "No contacts yet. Import a CSV to populate and score your real vault.",
+    };
+  }
   const rows = scoredCustomerList(biz, records).map((c) => ({
     id: c.id, name: c.name ?? c.id, segment: c.segment, segmentLabel: segmentLabel(c.segment),
     spendGbp: Math.round(c.totalSpendGbp ?? 0), orders: c.orderCount ?? 0, ltvGbp: c.ltvGbp,

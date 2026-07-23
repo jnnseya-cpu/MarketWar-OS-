@@ -4,11 +4,10 @@ import { brandSummary } from "@/backend/ledger";
 import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Campaign War Room Engine API.
-// POST { business?, brandId? } → the live campaign board: active campaigns each
-//   with channel, status, spend, results, ROAS and a Stop/Fix/Scale verdict,
-//   plus roll-up metrics. When brandId is supplied, real attributed revenue is
-//   pulled from the results ledger and folded onto matching campaigns (mode →
-//   "live"); otherwise it is deterministic demo intelligence, badged.
+// POST { business?, brandId? } → the live campaign board built from the brand's
+//   REAL results ledger: one card per logged source (attributed revenue, orders,
+//   leads) with a Stop/Fix/Scale verdict, plus roll-up metrics. No ledger data →
+//   an honest empty board. No fabricated campaigns are ever served here.
 // GET → engine doctrine.
 
 export const runtime = "nodejs";

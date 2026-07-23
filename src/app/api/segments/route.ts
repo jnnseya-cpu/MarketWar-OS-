@@ -1,19 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { segmentAudience, scoredCustomerList, segmentLabel, type CustomerRecord } from "@/backend/segments";
+import { resolveBrandAccess } from "@/backend/brand-access";
+import { listContacts, toCustomerRecords } from "@/backend/contacts";
 
 // AI Audience Segmentation Engine API (Brevo pack Module 19).
-// POST { business?, customers?, action? } →
+// POST { brand?:{id,name}, business?, customers?, action? } →
+//   When brand.id is supplied, segments are built from that brand's REAL Customer
+//   Vault (imported contacts); an empty vault returns an honest empty report —
+//   never a synthetic sample base.
 //   default / action:"segments" → ranked profitable segments with recommended
 //     offer / channel / follow-up + campaign priority (consent-gated).
-//   action:"customers" → individual scored contact rows for the Customer Vault
-//     (name, ltv, churn, intent, segment, spend, orders) + vault roll-up stats.
+//   action:"customers" → individual scored contact rows for the Customer Vault.
 // GET → engine doctrine.
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
-  const business = typeof body.business === "string" ? body.business : "Brixton Grill House";
-  const customers = Array.isArray(body.customers) ? (body.customers as CustomerRecord[]) : [];
+
+  const brand = (body.brand ?? {}) as Record<string, unknown>;
+  const brandId = typeof brand.id === "string" ? brand.id.trim()
+    : typeof body.brandId === "string" ? (body.brandId as string).trim() : "";
+  const business = typeof brand.name === "string" && brand.name.trim() ? brand.name.trim()
+    : typeof body.business === "string" && body.business.trim() ? body.business : "your business";
+
+  // Real-vault mode: build segments ONLY from the brand's own imported contacts.
+  let customers = Array.isArray(body.customers) ? (body.customers as CustomerRecord[]) : [];
+  if (brandId) {
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    customers = toCustomerRecords(await listContacts(brandId));
+    if (customers.length === 0) {
+      // Honest empty report — no fabricated sample base.
+      if (body.action === "customers") {
+        return NextResponse.json({
+          business, live: true, totalContacts: 0, totalLtvGbp: 0, hot: 0, atRisk: 0,
+          consentedShare: 0, statusCounts: {}, customers: [],
+          note: "No contacts in this brand's Customer Vault yet. Import CSV / CRM / Stripe / WhatsApp to score your real contacts.",
+        });
+      }
+      return NextResponse.json({
+        business, totalCustomers: 0, consentedShare: 0, segments: [],
+        note: "No contacts in this brand's Customer Vault yet. Import your contacts and segments build automatically — from your real database, never a sample.",
+      });
+    }
+  }
 
   if (body.action === "customers") {
     const live = customers.length > 0;

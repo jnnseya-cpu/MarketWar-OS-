@@ -23,7 +23,7 @@ if (typeof window !== "undefined") {
 
 import { designCampaign } from "@/backend/warfare";
 import type { CampaignVerdict } from "@/shared/types";
-import type { ResultsSummary } from "@/shared/results";
+import type { ResultsSummary, SourceRollup } from "@/shared/results";
 
 const clamp = (n: number, lo = 0, hi = 1e9) => Math.max(lo, Math.min(hi, Math.round(n)));
 // FNV-1a — deterministic seed, shared style across engines.
@@ -64,7 +64,7 @@ export type WarBoardMetrics = {
 
 export type WarBoard = {
   business: string;
-  mode: "demo-intelligence" | "live";
+  mode: "empty" | "demo-intelligence" | "live";
   badge: string;
   campaigns: CampaignCard[];
   metrics: WarBoardMetrics;
@@ -143,83 +143,128 @@ function demoCampaign(business: string, channel: string, i: number, aov: number)
   };
 }
 
-// Case-insensitive match between a ledger source and a campaign (name or channel).
-function sourceMatchesCampaign(source: string, c: CampaignCard): boolean {
-  const src = source.toLowerCase();
-  return src.includes(c.channel.toLowerCase()) || c.name.toLowerCase().includes(src) || src.includes(c.name.toLowerCase());
+// Infer the channel a ledger source belongs to (e.g. "IG Reels promo" → Instagram).
+function inferChannel(source: string): string {
+  const s = source.toLowerCase();
+  const hit = CHANNELS.find((c) => s.includes(c.toLowerCase()));
+  if (hit) return hit;
+  if (/\b(ig|insta)\b/.test(s)) return "Instagram";
+  if (/\b(fb|facebook)\b/.test(s)) return "Meta";
+  if (/\b(wa|whatsapp)\b/.test(s)) return "WhatsApp";
+  if (/\b(g|ads|adwords|search)\b/.test(s)) return "Google";
+  if (/\b(li|linkedin)\b/.test(s)) return "LinkedIn";
+  return "Direct";
 }
 
-export function buildWarBoard(business: string, ledger?: ResultsSummary | null): WarBoard {
+// A REAL campaign card built purely from a ledger source rollup — real revenue,
+// orders and leads. Ad spend is untracked (£0) until the ad account connects, so
+// ROAS/cost-per-order are shown as such and the verdict says so. Never fabricated.
+function ledgerCard(source: SourceRollup, i: number): CampaignCard {
+  const channel = inferChannel(source.source);
+  const revenue = Math.round(source.revenueGbp);
+  const orders = source.orders;
+  const leads = source.leads || orders;
+  const spend = 0; // no ad account connected → no tracked spend
+  const roas = orders > 0 ? Infinity : 0;
+  const { verdict, reason } = orders > 0
+    ? { verdict: "SCALE" as CampaignVerdict, reason: `£${revenue.toLocaleString()} from ${orders} order${orders === 1 ? "" : "s"} with no tracked ad spend — pure attributed revenue. Connect the ${channel} ad account to see true ROAS, then scale what pays.` }
+    : { verdict: "FIX" as CampaignVerdict, reason: `${leads} lead${leads === 1 ? "" : "s"} logged, no orders yet. Follow up on WhatsApp/email to convert before spending on ads.` };
+  const base = Math.max(1, Math.round(leads / 7));
+  const spark = Array.from({ length: 7 }, (_, d) => Math.max(0, base + ((i + d) % 2)));
+  return {
+    id: `wr-real-${i}`,
+    name: source.source,
+    channel,
+    goal: orders > 0 ? "Attributed revenue" : "Convert logged leads",
+    hook: `Real results logged to your ledger for “${source.source}”.`,
+    status: orders > 0 ? "active" : "testing",
+    spend, leads, messages: leads, orders, revenue,
+    roas: roas === Infinity ? Infinity : round2(roas),
+    costPerLead: 0, costPerOrder: 0,
+    verdict, verdictReason: reason, spark, startedDaysAgo: 0,
+    dataMode: "live",
+  };
+}
+
+export function buildWarBoard(business: string, ledger?: ResultsSummary | null, opts?: { allowDemo?: boolean }): WarBoard {
   const name = (business || "").trim() || "your business";
 
-  // Reuse the warfare engine for structure: vertical + highest-probability
-  // primary channel shape the demo board so it matches what the OS would run.
+  const realRollups: SourceRollup[] = (ledger && !ledger.isEmpty)
+    ? ledger.bySource.filter((r) => r.revenueGbp > 0 || r.leads > 0)
+    : [];
+  const hasReal = realRollups.length > 0;
+
+  // REAL board: one card per logged source (real revenue/orders/leads). This is
+  // the only path a signed-in brand ever sees — no fabricated campaigns.
+  if (hasReal) {
+    const campaigns = realRollups
+      .map((roll, i) => ledgerCard(roll, i))
+      .sort((a, b) => verdictRank(a.verdict) - verdictRank(b.verdict));
+    const spend = campaigns.reduce((a, c) => a + c.spend, 0);
+    const leads = campaigns.reduce((a, c) => a + c.leads, 0);
+    const orders = campaigns.reduce((a, c) => a + c.orders, 0);
+    const revenue = campaigns.reduce((a, c) => a + c.revenue, 0);
+    return {
+      business: name,
+      mode: "live",
+      badge: "Live revenue attributed",
+      campaigns,
+      metrics: {
+        spend, leads, orders, revenue,
+        roas: spend > 0 ? round2(revenue / spend) : 0,
+        costPerLead: leads > 0 ? round2(spend / leads) : 0,
+        costPerOrder: orders > 0 ? round2(spend / orders) : 0,
+        activeCount: campaigns.filter((c) => c.status !== "paused").length,
+      },
+      realRevenueGbp: revenue,
+      realOrders: orders,
+      note: "Every card is built from YOUR results ledger — real attributed revenue, orders and leads by source. Ad spend is untracked (£0) until you connect the ad account; connect it to see true ROAS. No fabricated figures.",
+    };
+  }
+
+  // No real data. Default (a signed-in brand) → honest empty state, never demo.
+  if (!opts?.allowDemo) {
+    return {
+      business: name,
+      mode: "empty",
+      badge: "No campaigns yet",
+      campaigns: [],
+      metrics: { spend: 0, leads: 0, orders: 0, revenue: 0, roas: 0, costPerLead: 0, costPerOrder: 0, activeCount: 0 },
+      realRevenueGbp: 0,
+      realOrders: 0,
+      note: "No campaigns logged yet. Log a lead or sale against a source in Revenue Intel (or connect an ad account) and each source appears here as a live campaign with a Stop/Fix/Scale verdict.",
+    };
+  }
+
+  // Opt-in deterministic demo board (internal demos / public marketing only —
+  // never the signed-in real-brand path). Preserves the original demo capability.
   const eco = designCampaign({ product: name, audience: "", result: "", budget: 600, location: "" });
   const primaryChannel = eco.objective.primaryChannel.split(/[ +/]/)[0] || "Meta";
   const s = seed(name);
-  const aov = 18 + (s % 55); // £18–£72 average order, same basis as the other engines
-
-  // Lead the roster with the objective's primary channel (warfare reuse), then
-  // the rest, de-duplicated — so the board opens on the channel the OS would run.
+  const aov = 18 + (s % 55);
   const roster = [primaryChannel, ...CHANNELS].filter((c, i, a) => CHANNELS.includes(c) && a.indexOf(c) === i);
-
-  // Four to five active campaigns across the roster.
   const count = 4 + (s % 2);
   const campaigns: CampaignCard[] = Array.from({ length: count }, (_, i) => demoCampaign(name, roster[i % roster.length], i, aov))
     .sort((a, b) => verdictRank(a.verdict) - verdictRank(b.verdict));
-
-  const hasRealRevenue = !!ledger && !ledger.isEmpty && ledger.revenueGbp > 0;
-  const realRevenueGbp = hasRealRevenue ? ledger!.revenueGbp : 0;
-  const realOrders = hasRealRevenue ? ledger!.orders : 0;
-
-  // Fold REAL attributed revenue onto matching campaigns (mode → live).
-  if (hasRealRevenue) {
-    for (const roll of ledger!.bySource) {
-      if (roll.revenueGbp <= 0) continue;
-      const match = campaigns.find((c) => sourceMatchesCampaign(roll.source, c) && c.dataMode === "demo");
-      const target = match ?? campaigns.find((c) => c.dataMode === "demo");
-      if (!target) break;
-      target.revenue = roll.revenueGbp;
-      target.orders = roll.orders || target.orders;
-      target.roas = target.spend > 0 ? round2(roll.revenueGbp / target.spend) : target.orders > 0 ? Infinity : 0;
-      target.costPerOrder = target.orders > 0 ? round2(target.spend / target.orders) : 0;
-      const { verdict, reason } = decideVerdict({ spend: target.spend, orders: target.orders, roas: target.roas === Infinity ? 999 : target.roas, startedDaysAgo: target.startedDaysAgo, leads: target.leads });
-      target.verdict = verdict;
-      target.verdictReason = `Real attributed revenue (£${roll.revenueGbp.toLocaleString()}) from “${roll.source}”. ${reason}`;
-      target.dataMode = "live";
-      target.status = verdict === "STOP" ? "paused" : verdict === "TESTING" ? "testing" : "active";
-      target.name = roll.source;
-    }
-    campaigns.sort((a, b) => verdictRank(a.verdict) - verdictRank(b.verdict));
-  }
-
   const spend = campaigns.reduce((a, c) => a + c.spend, 0);
   const leads = campaigns.reduce((a, c) => a + c.leads, 0);
   const orders = campaigns.reduce((a, c) => a + c.orders, 0);
   const revenue = campaigns.reduce((a, c) => a + c.revenue, 0);
-
-  const metrics: WarBoardMetrics = {
-    spend,
-    leads,
-    orders,
-    revenue,
-    roas: spend > 0 ? round2(revenue / spend) : 0,
-    costPerLead: leads > 0 ? round2(spend / leads) : 0,
-    costPerOrder: orders > 0 ? round2(spend / orders) : 0,
-    activeCount: campaigns.filter((c) => c.status !== "paused").length,
-  };
-
   return {
     business: name,
-    mode: hasRealRevenue ? "live" : "demo-intelligence",
-    badge: hasRealRevenue ? "Live revenue attributed" : "Demo intelligence",
+    mode: "demo-intelligence",
+    badge: "Demo intelligence",
     campaigns,
-    metrics,
-    realRevenueGbp,
-    realOrders,
-    note: hasRealRevenue
-      ? "Real attributed revenue from the results ledger is folded onto matching campaigns (marked Live). Ad spend and lead counts remain demo intelligence until the ad accounts are connected — no fabricated figures."
-      : "Deterministic demo intelligence: campaigns, spend and results are computed from the brand, not live ad-account data. Connect an ad account and log results (Revenue) to see real spend and attributed revenue here. Every verdict follows the same Stop/Fix/Scale doctrine the OS runs live.",
+    metrics: {
+      spend, leads, orders, revenue,
+      roas: spend > 0 ? round2(revenue / spend) : 0,
+      costPerLead: leads > 0 ? round2(spend / leads) : 0,
+      costPerOrder: orders > 0 ? round2(spend / orders) : 0,
+      activeCount: campaigns.filter((c) => c.status !== "paused").length,
+    },
+    realRevenueGbp: 0,
+    realOrders: 0,
+    note: "Deterministic demo intelligence: campaigns, spend and results are computed from the brand, not live ad-account data. Connect an ad account and log results (Revenue) to see real spend and attributed revenue. Every verdict follows the same Stop/Fix/Scale doctrine the OS runs live.",
   };
 }
 

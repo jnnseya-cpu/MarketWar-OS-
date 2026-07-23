@@ -35,7 +35,7 @@ type CampaignCard = {
 };
 type Metrics = { spend: number; leads: number; orders: number; revenue: number; roas: number; costPerLead: number; costPerOrder: number; activeCount: number };
 type Board = {
-  business: string; mode: "demo-intelligence" | "live"; badge: string;
+  business: string; mode: "empty" | "demo-intelligence" | "live"; badge: string;
   campaigns: CampaignCard[]; metrics: Metrics; realRevenueGbp: number; realOrders: number; note: string;
 };
 
@@ -71,7 +71,7 @@ export default function WarRoomPage() {
       <PageHeader
         kicker="Campaign War Room"
         title="Live campaign grid"
-        subtitle="Every campaign carries a verdict. Losers die in 48 hours; winners get scale orders. Real attributed revenue folds in from the results ledger; the rest is demo intelligence until your ad accounts connect."
+        subtitle="Every campaign carries a verdict. Losers die in 48 hours; winners get scale orders. Each card is built from your real results ledger — attributed revenue, orders and leads by source. Connect an ad account to add tracked spend and true ROAS."
         actions={
           <Link href="/dashboard/campaigns" className="btn-primary">
             <Plus className="h-4 w-4" /> New campaign
@@ -98,7 +98,19 @@ export default function WarRoomPage() {
         </div>
       )}
 
-      {board && (
+      {board && board.campaigns.length === 0 && (
+        <div className="card flex flex-col items-center justify-center gap-3 p-10 text-center">
+          <Swords className="h-8 w-8 text-emerald-500/60" />
+          <h2 className="font-display text-lg font-bold text-white">No campaigns logged yet</h2>
+          <p className="max-w-md text-sm text-slate-400">{board.note}</p>
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/dashboard/revenue" className="btn-primary"><Plus className="h-4 w-4" /> Log a result in Revenue Intel</Link>
+            <Link href="/dashboard/campaigns" className="text-sm text-emerald-400 hover:underline">or launch a campaign</Link>
+          </div>
+        </div>
+      )}
+
+      {board && board.campaigns.length > 0 && (
         <div>
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Pill tone={board.mode === "live" ? "good" : "warn"}>{board.badge}</Pill>
