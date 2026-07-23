@@ -46,7 +46,7 @@ export default function AdminInvites() {
       });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Could not create invite"); return; }
-      setNotice(d.emailed ? `Invite created and emailed to ${form.email}.` : `Invite created — copy the link below to share (email not sent).`);
+      setNotice(d.emailed ? `Invite created and emailed to ${form.email}.` : `Invite created — copy the link below to share. Email not sent${d.emailDetail ? ` (${d.emailDetail})` : ""}.`);
       setForm((f) => ({ ...f, companyName: "", email: "", note: "" }));
       await load();
     } finally { setBusy(false); }

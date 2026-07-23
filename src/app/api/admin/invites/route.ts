@@ -49,17 +49,26 @@ export async function POST(req: NextRequest) {
   const base = (process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.marketwaros.com").replace(/\/$/, "");
   const link = `${base}/signup?invite=${invite.token}`;
   let emailed = false;
+  let emailDetail = "";
   if (email && email.includes("@")) {
     try {
       const res = await sendEmail({
         to: email,
         subject: `You're invited to MarketWar OS — ${companyName}`,
         html: inviteHtml(companyName, link),
+        transactional: true,
       });
-      emailed = (res as { mode?: string })?.mode === "live";
-    } catch { /* best-effort — link is still returned */ }
+      // Only a real live acceptance counts as emailed (mode "live" alone is not
+      // enough — the SMTP send can fail and fall through). Surface the reason.
+      emailed = res.ok && res.mode === "live";
+      emailDetail = res.detail || res.provider;
+    } catch (e) {
+      emailDetail = e instanceof Error ? e.message : "send failed";
+    }
+  } else {
+    emailDetail = "no contact email provided";
   }
-  return NextResponse.json({ ok: true, invite, link, emailed });
+  return NextResponse.json({ ok: true, invite, link, emailed, emailDetail });
 }
 
 export async function DELETE(req: NextRequest) {
