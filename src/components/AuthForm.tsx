@@ -68,7 +68,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     // After sign-up the user picks a plan; login goes straight to the dashboard.
-    const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
+    const dest = mode === "signup" ? (invite ? "/onboarding" : "/choose-plan") : "/dashboard";
     // Demo mode (no Firebase): the form is real but accounts aren't persisted —
     // continue the flow so it's testable end to end.
     if (!firebaseAuth) { await acceptInviteIfAny(); router.push(dest); return; }
@@ -119,7 +119,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   }
 
   async function google() {
-    const dest = mode === "signup" ? "/choose-plan" : "/dashboard";
+    const dest = mode === "signup" ? (invite ? "/onboarding" : "/choose-plan") : "/dashboard";
     if (!firebaseAuth) { await acceptInviteIfAny(); router.push(dest); return; }
     setBusy(true);
     setError(null);
