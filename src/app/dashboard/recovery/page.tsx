@@ -9,10 +9,13 @@
 // recoverable total. On a clean slate (no brand) it shows an honest empty-state.
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Loader2, RefreshCcw, Upload } from "lucide-react";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
+import { type Brand } from "@/shared/brand";
 
 type Touch = { wave: number; channel: string; timing: string; message: string };
 type Contact = { name: string; ltvGbp: number; recoveryGbp: number; lastOrderDaysAgo: number | null; churnRisk: number; orders: number };
@@ -42,13 +45,13 @@ export default function RecoveryPage() {
   const [report, setReport] = useState<RecoveryReport | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const run = useCallback(async (business: string) => {
+  const run = useCallback(async (brand: Brand) => {
     setBusy(true);
     try {
-      const res = await fetch("/api/recovery", {
+      const res = await authedFetch("/api/recovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ business }),
+        body: JSON.stringify({ brand: { id: brand.id, name: brand.name } }),
       });
       setReport(await res.json());
     } finally {
@@ -58,7 +61,7 @@ export default function RecoveryPage() {
 
   useEffect(() => {
     if (!ready) return;
-    if (activeBrand) run(activeBrand.name);
+    if (activeBrand) run(activeBrand);
     else setReport(null);
   }, [ready, activeBrand, run]);
 
@@ -70,7 +73,7 @@ export default function RecoveryPage() {
         subtitle="Recover money from the database you already own before spending a penny on cold ads. Every recoverable £ is computed from the contact's scored lifetime value × the cohort's win-back probability — consented contacts only."
         actions={
           report ? (
-            <Pill tone={report.live ? "good" : "info"}>{report.live ? "Live records" : "Demo intelligence"}</Pill>
+            <Pill tone="good">Live records</Pill>
           ) : (
             <Pill tone="neutral">No workspace</Pill>
           )
@@ -87,7 +90,25 @@ export default function RecoveryPage() {
             Import CSV / CRM / Stripe / WhatsApp to populate the vault. The recovery engine sorts your contacts into
             win-back cohorts and computes recoverable revenue the moment data lands.
           </p>
-          <p className="mt-3 text-xs text-slate-600">Add a brand from the switcher to see the engine work a sample base.</p>
+          <p className="mt-3 text-xs text-slate-600">Add a brand from the switcher, then import its contacts to see real recoverable revenue.</p>
+        </div>
+      )}
+
+      {activeBrand && report && report.cohorts.length === 0 && !busy && (
+        <div className="card border-emerald-500/20 p-10 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+            <Upload className="h-5 w-5" />
+          </span>
+          <h2 className="mt-4 font-display text-lg font-bold text-white">Nothing to recover yet — your vault is empty</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
+            {report.note || "Import this brand's contacts and the engine computes recoverable revenue from your real database, never a sample."}
+          </p>
+          <Link
+            href="/dashboard/customers"
+            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-emerald-400"
+          >
+            <Upload className="h-4 w-4" /> Import contacts to Customer Vault
+          </Link>
         </div>
       )}
 
@@ -98,7 +119,7 @@ export default function RecoveryPage() {
         </div>
       )}
 
-      {activeBrand && report && (
+      {activeBrand && report && report.cohorts.length > 0 && (
         <>
           <div className="mb-8 card border-emerald-500/40 bg-emerald-500/5 p-6">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">AI Revenue Recovery Score™</p>

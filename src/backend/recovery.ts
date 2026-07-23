@@ -120,6 +120,19 @@ export type RecoveryReport = {
   note: string;
 };
 
+// Honest empty report for a real brand whose Customer Vault has no contacts yet.
+// No fabricated cohorts, no sample base — the surface tells the truth: import first.
+export function emptyRecovery(business: string): RecoveryReport {
+  return {
+    business,
+    live: true,
+    totalRecoverableGbp: 0,
+    totalRecoverableContacts: 0,
+    cohorts: [],
+    note: "No contacts in this brand's Customer Vault yet. Import CSV / CRM / Stripe / WhatsApp and the engine sorts them into win-back cohorts and computes recoverable revenue instantly — from your real database, never a sample.",
+  };
+}
+
 export function recoverRevenue(business: string, customers: CustomerRecord[]): RecoveryReport {
   const live = customers.length > 0;
   const scored = scoredCustomerList(business, customers);
