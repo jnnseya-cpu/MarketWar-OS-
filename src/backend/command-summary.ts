@@ -32,6 +32,11 @@ export type CommandBriefing = {
   business: string;
   isEmpty: boolean;
   headline: string;
+  // Rule 4 of the Money-Making Doctrine: the SINGLE next best money-making
+  // action — the top-ranked item across risks + opportunities, so the user never
+  // opens the dashboard wondering what to do. Null only when there is genuinely
+  // nothing to recommend.
+  nextBestAction: BriefItem | null;
   momentum: {
     revenueGbp: number;
     orders: number;
@@ -82,6 +87,7 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
       business: name,
       isEmpty: true,
       headline: "Your command centre fills as you act — log a result, launch a campaign, capture a lead.",
+      nextBestAction: { title: "Run your first Commercial Growth Scan", detail: "Point MarketWar at your website + socials so it can find where money is leaking and what to launch first — before you spend a penny.", priority: 95, href: "/dashboard/first-customer", cta: "Find my first revenue" },
       momentum: {
         revenueGbp: 0, orders: 0, leads: 0, avgOrderGbp: 0,
         sourceCount: 0, topSource: null, topSourceSharePct: 0, conversionRatePct: 0,
@@ -221,10 +227,14 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
     ? `£${round(revenue)} attributed across ${revenueSources.length} source${revenueSources.length === 1 ? "" : "s"}${topSource ? ` — ${topSource.source} leading` : ""}. ${orders} order${orders === 1 ? "" : "s"}, ${leads} open lead${leads === 1 ? "" : "s"}.`
     : `${leads} lead${leads === 1 ? "" : "s"} captured, no orders yet — the next move is the first conversion.`;
 
+  // Rule 4: the single sharpest move right now — the top of the ranked pool.
+  const nextBestAction = nextActions[0] ?? null;
+
   return {
     business: name,
     isEmpty: false,
     headline,
+    nextBestAction,
     momentum: { revenueGbp: revenue, orders, leads, avgOrderGbp, sourceCount, topSource: topSource?.source ?? null, topSourceSharePct, conversionRatePct },
     opportunities: rank(opportunities),
     risks: rank(risks),

@@ -21,6 +21,7 @@ type CommandBriefing = {
   business: string;
   isEmpty: boolean;
   headline: string;
+  nextBestAction: BriefItem | null;
   opportunities: BriefItem[];
   risks: BriefItem[];
   nextActions: BriefItem[];
@@ -77,29 +78,37 @@ export default function CommandCenterPage() {
         actions={<Link href="/dashboard/briefing" className="btn-primary"><Zap className="h-4 w-4" /> Today&apos;s briefing</Link>}
       />
 
-      {/* The day-one money move — impossible to miss, first thing after sign-in */}
-      <Link
-        href="/dashboard/first-customer"
-        className="mb-6 block card border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.14] to-emerald-500/[0.02] p-5 transition hover:border-emerald-500/70"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-ink-950">
-              <Banknote className="h-6 w-6" />
-            </span>
-            <div>
-              <h2 className="font-display text-lg font-bold text-white">
-                {summary.isEmpty ? "Land your first customer" : "Land another customer"}
-              </h2>
-              <p className="mt-0.5 max-w-2xl text-sm text-slate-300">
-                One screen, no ads: engineer the offer, find who to reach, write the outreach, and mint a payment link.
-                Owned channels only — zero to a real paying customer in a single sitting.
-              </p>
+      {/* RULE 4 — "Your next best money-making action". Dynamic: the top-ranked
+          move computed from THIS brand's real ledger. Falls back to the
+          first-customer sprint until the engine has a sharper call. */}
+      {(() => {
+        const nba = briefing?.nextBestAction;
+        const href = nba?.href || "/dashboard/first-customer";
+        const title = nba?.title || (summary.isEmpty ? "Land your first customer" : "Land another customer");
+        const detail = nba?.detail || "One screen, no ads: engineer the offer, find who to reach, write the outreach, and mint a payment link. Owned channels only — zero to a real paying customer in a single sitting.";
+        const cta = nba?.cta || "Start the sprint";
+        return (
+          <Link
+            href={href}
+            className="mb-6 block card border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.14] to-emerald-500/[0.02] p-5 transition hover:border-emerald-500/70"
+          >
+            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400"><Zap className="h-3.5 w-3.5" /> Your next best money-making action</p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-ink-950">
+                  <Banknote className="h-6 w-6" />
+                </span>
+                <div>
+                  <h2 className="font-display text-lg font-bold text-white">{title}</h2>
+                  <p className="mt-0.5 max-w-2xl text-sm text-slate-300">{detail}</p>
+                  {nba?.metric && <p className="mt-1 text-xs font-semibold text-emerald-300">{nba.metric}</p>}
+                </div>
+              </div>
+              <span className="btn-primary shrink-0">{cta} <ArrowRight className="h-4 w-4" /></span>
             </div>
-          </div>
-          <span className="btn-primary shrink-0">Start the sprint <ArrowRight className="h-4 w-4" /></span>
-        </div>
-      </Link>
+          </Link>
+        );
+      })()}
 
       {/* Real per-brand money — zeros, never fake figures, when empty */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

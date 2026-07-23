@@ -1264,3 +1264,37 @@ Usage after setting production secrets: `npm run smoke:live -- https://marketwar
 | Local/dev/tests stay demo-safe | ✅ | `REQUIRE_LIVE` unset → deterministic demo fallback preserved (smoke 347/0) |
 | **"Land your first customer" CTA on Command Center home** | ✅ | prominent gradient hero card at top of `/dashboard` → `/dashboard/first-customer` (first thing after sign-in) |
 | Verified | ✅ | typecheck + layers + build; REQUIRE_LIVE=1 → agent 502 honest error (no demo); dashboard root 200; smoke 347/0 |
+
+## 47. The Money-Making Operating System doctrine (2026-07-23)
+
+Source: `docs/reference/money-making-os-doctrine.md` (verbatim, immutable). This
+is the owner's commercial constitution — every clause mapped to shipped code,
+blueprint or backlog. Nothing dropped.
+
+| Doctrine element | Status | Where / gap |
+|---|---|---|
+| Core objective — every action ties to revenue/customers/margin/retention/advantage | ✅ | Enforced across Command Center, engines, agents; codified here as the priority test |
+| Rule 1 Revenue before activity | ✅ | Command Center leads with attributed revenue/orders/leads, not post/impression counts |
+| Rule 2 Every action has a commercial objective | ✅ 📘 | Campaign/offer builders capture objective+offer+target; a hard "no unmeasured launch" gate across ALL asset creation is 📘 backlog |
+| Rule 3 See value quickly (day-one) | ✅ | `/dashboard/first-customer` sprint + empty-state Next-Best-Action → Commercial Growth Scan |
+| **Rule 4 Next best money-making action** | ✅ | **`nextBestAction` in `command-summary.ts` → hero card on `/dashboard`** — top-ranked move computed from the real ledger |
+| Rule 5 Learn what produces money | ✅ 📘 | Per-source attribution + rankings live; a persistent cross-session learning model is 📘 |
+| Rule 6 Stay for results, not lock-in | ✅ | Per-brand export/download everywhere; honest attribution; no cancellation traps |
+| Rule 7 Protect profit | ✅ 📘 | Budget Protection + owner pricing floor (≥2× cost) live; full margin-guard across every recommendation is 📘 |
+| §3 Revenue operating loop | ✅ 📘 | Each stage exists as a module; a single always-on orchestrated loop is 📘 |
+| §4 Day-one Commercial Growth Scan (ingest→leakage→ranking→first campaign→value) | ✅ 📘 | First-customer sprint + website-intel cover ingest+first campaign; a unified 5-step scan report is 📘 |
+| §5 Money Map (new/existing/recovered/new-creation) | ✅ 📘 | Revenue Recovery + revenue ledger cover parts; a single live Money Map view is 📦 backlog |
+| §6 Revenue Command Centre (primary metrics + commercial alerts) | ✅ | Command Center metrics + computed opportunities/risks; alerts computed from ledger |
+| §7 Opportunity Engine + Opportunity Score formula | ✅ 📘 | Opportunities computed + ranked; the exact multiplicative Opportunity Score is 📘 (to formalise as the ranking function) |
+| §8 Competitor War Room + weakness + response | ✅ | `competitor-warroom` engine + `/dashboard/competitors` |
+| §9 Offer Intelligence (builder + evaluation) | ✅ | `offer-builder` agent + Offer Forge |
+| §10 Customer Intake (capture + qualify + action) | ✅ | Landing capture → results ledger; lead scoring in segments |
+| §11 Sales Conversion (tools + deal rescue) | ✅ 📘 | Outreach/proposal/follow-up agents live; a unified deal-rescue detector is 📘 |
+| §12 Revenue Recovery | ✅ | Lead Recovery engine + `/dashboard` recovery surfaces |
+| §13 Customer Value Expansion (upsell/cross-sell/CLV) | ✅ 📘 | AOV-lift opportunity + segments live; dedicated upsell/cross-sell engines 📘 |
+| §14 Retention & Anti-Churn | 📘 | Churn-signal engine specified, not yet a dedicated module |
+| §15 Referral & Advocacy | ✅ 📘 | Creator/partner programme live; customer-referral automation 📘 |
+| §16 Content-to-Revenue (every asset has objective+CTA+attribution) | ✅ 📘 | Content agents + attribution live; enforced per-asset commercial metadata 📘 |
+| §17 Campaign Profitability (live profit model + scale/pause/stop) | ✅ 📘 | Budget Protection + campaign board; the full per-campaign profit equation is 📘 |
+| §18 50-agent AI Revenue Workforce | ✅ 📘 | 19+ agents shipped and mapped to these roles; the full 50-role roster with shared memory/KPIs is 📘 (additive expansion) |
+| Verified | ✅ | typecheck + check:layers + build; Next-Best-Action renders from the live ledger; doctrine preserved verbatim |
