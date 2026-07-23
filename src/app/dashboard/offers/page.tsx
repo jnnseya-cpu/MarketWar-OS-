@@ -40,7 +40,7 @@ export default function OffersPage() {
           buttonLabel="Engineer my offers"
           publishSourceLabel="offer"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
             { key: "product", label: "Product / service", defaultValue: "Flame-grilled meals, family platters, office catering", textarea: true },
             { key: "price", label: "Current price", defaultValue: "£9.50 average order" },
             { key: "margin", label: "Rough gross margin (%)", defaultValue: "58" },
@@ -52,8 +52,8 @@ export default function OffersPage() {
           agentId="customer-pain"
           buttonLabel="Extract pains & triggers"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Location", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Location", defaultValue: "Your location" },
             { key: "product", label: "Product / service", defaultValue: "Flame-grilled family meals and office catering", textarea: true },
             { key: "targetCustomer", label: "Target customer", defaultValue: "Local families and young professionals" },
           ]}

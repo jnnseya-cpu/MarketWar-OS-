@@ -169,8 +169,8 @@ export default function LocalDominationPage() {
         agentId="local-growth"
         buttonLabel="Build my domination plan"
         fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London (SW9)" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
           { key: "serviceAreas", label: "Service areas", defaultValue: "SW9, SW2, SW4, SE24" },
           { key: "product", label: "Product / service", defaultValue: "Flame-grilled meals, family platters, office catering", textarea: true },
         ]}

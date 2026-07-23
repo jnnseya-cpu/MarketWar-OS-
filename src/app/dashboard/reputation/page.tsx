@@ -103,7 +103,7 @@ export default function ReputationPage() {
       )}
 
       <AgentRunner agentId="reputation-guardian" buttonLabel="Run reputation analysis" fields={[
-        { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+        { key: "business", label: "Business", defaultValue: "Your business" },
         { key: "industry", label: "Industry", defaultValue: "restaurant / food delivery" },
       ]} />
     </div>

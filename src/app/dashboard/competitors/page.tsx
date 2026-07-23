@@ -223,8 +223,8 @@ export default function CompetitorsPage() {
         agentId="competitor-spy"
         buttonLabel="Analyse the battlefield"
         fields={[
-          { key: "business", label: "Your business", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Market", defaultValue: "Brixton, London" },
+          { key: "business", label: "Your business", defaultValue: "Your business" },
+          { key: "location", label: "Market", defaultValue: "Your location" },
           { key: "competitors", label: "Known competitors", defaultValue: DEFAULT_RIVALS, textarea: true },
         ]}
       />

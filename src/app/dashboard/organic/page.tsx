@@ -166,17 +166,17 @@ export default function OrganicPage() {
           agentId="geo-recon"
           buttonLabel="Run GEO Recon"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Market", defaultValue: "Brixton, London" },
-            { key: "website", label: "Website", defaultValue: "brixtongrillhouse.co.uk" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Market", defaultValue: "Your location" },
+            { key: "website", label: "Website", defaultValue: "yourbusiness.co.uk" },
           ]}
         />
         <AgentRunner
           agentId="citation-radar"
           buttonLabel="Scan citation share"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Market", defaultValue: "Your location" },
             { key: "competitors", label: "Main competitor", defaultValue: "Flame Republic" },
           ]}
         />

@@ -118,7 +118,7 @@ export default function AutomationPage() {
       )}
 
       <AgentRunner agentId="automation-architect" buttonLabel="Design a journey" fields={[
-        { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+        { key: "business", label: "Business", defaultValue: "Your business" },
         { key: "goal", label: "What journey do you need?", defaultValue: "recover abandoned orders" },
       ]} />
     </div>

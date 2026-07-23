@@ -21,7 +21,7 @@ type Dimension = {
   status: DimensionStatus;
 };
 
-// Weights are binding (doc 03 §2.1); demo scores tell the Brixton Grill House story.
+// Weights are binding (doc 03 §2.1); demo scores tell the Your business story.
 const DIMENSIONS: Dimension[] = [
   { name: "Campaign ROAS health", weight: 15, score: 88, measured: "4.5× vs 2.0× industry benchmark", status: "healthy" },
   { name: "Revenue trend", weight: 15, score: 84, measured: "7-day revenue at 118% of prior week", status: "healthy" },

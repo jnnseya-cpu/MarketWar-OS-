@@ -75,8 +75,8 @@ export default function CampaignBuilderPage() {
           buttonLabel="Design the campaign"
           fields={[
             { key: "goal", label: "Goal", defaultValue: goal },
-            { key: "business", label: "Business", placeholder: "Brixton Grill House", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Target location", placeholder: "Brixton, London", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", placeholder: "Your business", defaultValue: "Your business" },
+            { key: "location", label: "Target location", placeholder: "Your location", defaultValue: "Your location" },
             { key: "offer", label: "Offer to promote", placeholder: "Feed 4 for £25, Fridays only", defaultValue: "Feed 4 for £25, Fridays only" },
             { key: "budget", label: "Test budget (£)", placeholder: "100", defaultValue: "100" },
           ]}
@@ -89,8 +89,8 @@ export default function CampaignBuilderPage() {
           publishSourceLabel="ad creative"
           fields={[
             { key: "goal", label: "Goal", defaultValue: goal },
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Target location", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Target location", defaultValue: "Your location" },
             { key: "offer", label: "Offer", defaultValue: "Feed 4 for £25, Fridays only" },
             { key: "audience", label: "Audience", defaultValue: "Families 25–44 within 2 miles", textarea: true },
           ]}

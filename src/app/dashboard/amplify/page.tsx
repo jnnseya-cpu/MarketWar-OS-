@@ -127,8 +127,8 @@ export default function AmplifyPage() {
         agentId="amplification-strategist"
         buttonLabel="Design the viral loop + retargeting sequence"
         fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Market", defaultValue: "Brixton, London" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
+          { key: "location", label: "Market", defaultValue: "Your location" },
           {
             key: "offer",
             label: "Offer to amplify & the audience you already have",

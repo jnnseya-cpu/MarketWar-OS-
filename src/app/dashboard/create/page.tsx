@@ -95,7 +95,7 @@ export default function CreatePage() {
         </div>
         <textarea
           className="input min-h-[96px] resize-y"
-          placeholder="e.g. Make a brand-consistent Instagram ad for my Brixton grill house with a Friday-platter offer"
+          placeholder="e.g. Make a brand-consistent Instagram ad for my business with this week's offer"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); }}

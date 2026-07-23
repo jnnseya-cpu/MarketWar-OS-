@@ -256,7 +256,7 @@ export default function WarfarePage() {
             { key: "product", label: "What do you sell?", defaultValue: "Restaurant takeaway & catering" },
             { key: "audience", label: "Who do you want?", defaultValue: "Hungry locals within 3 miles" },
             { key: "result", label: "What result?", defaultValue: "Get WhatsApp orders" },
-            { key: "location", label: "Location", defaultValue: "Brixton, London" },
+            { key: "location", label: "Location", defaultValue: "Your location" },
             { key: "offer", label: "Promotion / offer (optional)", defaultValue: "Friday platter — 40 only" },
           ]}
         />

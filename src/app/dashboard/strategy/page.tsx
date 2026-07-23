@@ -139,12 +139,12 @@ export default function StrategyPage() {
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <AgentRunner agentId="customer-avatar" buttonLabel="Build the avatar" fields={[
           { key: "audience", label: "Audience", defaultValue: "hungry locals within 3 miles" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
         ]} />
         <AgentRunner agentId="marketing-battle-plan" buttonLabel="Write the battle plan" fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
           { key: "industry", label: "Industry", defaultValue: "food delivery" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
         ]} />
       </div>
     </div>

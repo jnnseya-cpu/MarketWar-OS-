@@ -14,8 +14,8 @@ export default function ContentFactoryPage() {
         buttonLabel="Generate my strike plan"
         publishSourceLabel="content"
         fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
           { key: "product", label: "Product / service", defaultValue: "Flame-grilled meals and family platters", textarea: true },
           { key: "offer", label: "Offer to push", defaultValue: "Feed 4 for £25, Fridays only" },
           { key: "platforms", label: "Platforms", defaultValue: "Instagram, TikTok, Facebook, WhatsApp" },

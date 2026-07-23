@@ -122,7 +122,7 @@ export default function RoiPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <AgentRunner agentId="growth-roi-strategist" buttonLabel="Allocate for ROI" fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
           { key: "goal", label: "Objective", defaultValue: "get orders" },
           { key: "budget", label: "Budget", defaultValue: "£600" },
         ]} />

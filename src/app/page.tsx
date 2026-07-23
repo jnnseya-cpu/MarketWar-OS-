@@ -16,7 +16,6 @@ import {
   RefreshCcw,
   Rocket,
   Sparkles,
-  Star,
   TrendingUp,
   Users,
   Workflow,
@@ -80,27 +79,31 @@ const PILLARS = [
   },
 ];
 
-const TESTIMONIALS = [
+// Illustrative scenarios — NOT customer endorsements. The platform is new and
+// we do not publish invented testimonials or fabricated results. Each card
+// describes a situation the OS is built to handle and the engine that handles
+// it, so the value is concrete without pretending a specific customer said it.
+const SCENARIOS = [
   {
-    quote:
-      "I spent £2,400 on boosted posts and got 3 orders. MarketWar OS found the leak in a week — now WhatsApp brings 40+ orders every Friday at £3.82 each.",
-    name: "Justine Mensah",
-    role: "Owner, Brixton Grill House",
-    metric: "7.3x ROAS",
+    situation:
+      "£2,400 on boosted posts, a handful of orders, no idea where the money leaked.",
+    mechanism:
+      "The Marketing Failure Audit finds the leak; the WhatsApp funnel turns ad clicks into qualified, tracked orders instead of vanity reach.",
+    engine: "Failure Audit → WhatsApp funnel",
   },
   {
-    quote:
-      "The Budget Protection agent killed a campaign I was emotionally attached to. It was right. That single 'STOP' verdict paid for a year of the platform.",
-    name: "Sofia Reyes",
-    role: "Founder, Luna Beauty Studio",
-    metric: "£4,100 waste stopped",
+    situation:
+      "A campaign you're emotionally attached to that's quietly losing money.",
+    mechanism:
+      "Budget Protection scores real spend against real return and gives a plain STOP / FIX / SCALE verdict — before the loss compounds.",
+    engine: "Budget Protection engine",
   },
   {
-    quote:
-      "We recovered £11,300 from our own customer database before spending anything on cold ads. Nobody else even told us that money existed.",
-    name: "David Okonkwo",
-    role: "Director, ProFit Gyms (3 sites)",
-    metric: "£11.3k recovered",
+    situation:
+      "Money already sitting in your own customer list, before you spend a penny on cold ads.",
+    mechanism:
+      "The Recovery engine scores your imported vault and drafts win-back offers to the contacts most likely to buy again — owned channels first.",
+    engine: "Customer Recovery engine",
   },
 ];
 
@@ -470,25 +473,19 @@ export default function LandingPage() {
 
       {/* ========================= TESTIMONIALS ========================== */}
       <section className="mx-auto max-w-6xl px-5 py-24">
-        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">From the front line</p>
-        <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">Operators, not spectators</h2>
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">Illustrative scenarios · not customer endorsements</p>
+        <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">What the system is built to do</h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-slate-400">We&rsquo;re new, so we don&rsquo;t publish invented reviews or made-up numbers. These are real situations the OS is designed to handle — and the engine that handles each one.</p>
         <div className="mt-14 grid gap-5 lg:grid-cols-3">
-          {TESTIMONIALS.map((t) => (
-            <figure key={t.name} className="flex flex-col rounded-2xl border border-white/10 bg-ink-900/70 p-6">
+          {SCENARIOS.map((s) => (
+            <figure key={s.engine} className="flex flex-col rounded-2xl border border-white/10 bg-ink-900/70 p-6">
               <Quote className="mb-4 h-6 w-6 text-emerald-500/50" />
-              <blockquote className="flex-1 text-sm leading-relaxed text-slate-300">&ldquo;{t.quote}&rdquo;</blockquote>
+              <blockquote className="flex-1 text-sm leading-relaxed text-slate-300">&ldquo;{s.situation}&rdquo;</blockquote>
+              <p className="mt-4 text-sm leading-relaxed text-slate-400">{s.mechanism}</p>
               <figcaption className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
-                <div>
-                  <p className="text-sm font-bold text-white">{t.name}</p>
-                  <p className="text-xs text-slate-500">{t.role}</p>
-                </div>
-                <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-300">{t.metric}</span>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Illustrative</p>
+                <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-300">{s.engine}</span>
               </figcaption>
-              <div className="mt-3 flex gap-0.5">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
             </figure>
           ))}
         </div>

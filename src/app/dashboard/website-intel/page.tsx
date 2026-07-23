@@ -108,7 +108,7 @@ const AUTHS: { value: string; label: string }[] = [
 
 export default function WebsiteIntelPage() {
   const { activeBrand } = useActiveBrand();
-  const [website, setWebsite] = useState(activeBrand?.website || "brixtongrillhouse.co.uk");
+  const [website, setWebsite] = useState(activeBrand?.website || "yourbusiness.co.uk");
   const [business, setBusiness] = useState(activeBrand?.name || "");
   const [category, setCategory] = useState(activeBrand?.industry || "Restaurant");
   const [offers, setOffers] = useState(activeBrand?.offer || "Dine-in, Table booking, Private hire");
@@ -419,9 +419,9 @@ export default function WebsiteIntelPage() {
         agentId="website-intelligence"
         buttonLabel="Crawl + generate the strategy"
         fields={[
-          { key: "website", label: "Website URL", defaultValue: "brixtongrillhouse.co.uk" },
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Market", defaultValue: "Brixton, London" },
+          { key: "website", label: "Website URL", defaultValue: "yourbusiness.co.uk" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
+          { key: "location", label: "Market", defaultValue: "Your location" },
           {
             key: "goal",
             label: "What should the strategy optimise for?",

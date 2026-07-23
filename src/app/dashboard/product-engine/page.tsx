@@ -236,8 +236,8 @@ export default function ProductEnginePage() {
         buttonLabel="Build dossier + full campaign"
         publishSourceLabel="campaign copy"
         fields={[
-          { key: "business", label: "Business / brand", defaultValue: "Brixton Grill House" },
-          { key: "location", label: "Target market", defaultValue: "Brixton, London" },
+          { key: "business", label: "Business / brand", defaultValue: "Your business" },
+          { key: "location", label: "Target market", defaultValue: "Your location" },
           {
             key: "product",
             label: "Product (describe the image you'd upload)",

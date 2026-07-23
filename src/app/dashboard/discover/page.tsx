@@ -106,11 +106,11 @@ export default function DiscoverPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <AgentRunner agentId="opportunity-scout" buttonLabel="Scout opportunities" fields={[
           { key: "industry", label: "Niche / industry", defaultValue: "food delivery" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
         ]} />
         <AgentRunner agentId="lead-hunter" buttonLabel="Hunt leads" fields={[
           { key: "industry", label: "Business category", defaultValue: "grill house" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
+          { key: "location", label: "Location", defaultValue: "Your location" },
         ]} />
       </div>
     </div>

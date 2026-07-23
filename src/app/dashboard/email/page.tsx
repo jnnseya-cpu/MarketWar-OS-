@@ -260,8 +260,8 @@ export default function EmailPage() {
         agentId="email-commander"
         buttonLabel="Audit posture + build the send plan"
         fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "website", label: "Sending domain", defaultValue: "brixtongrillhouse.co.uk" },
+          { key: "business", label: "Business", defaultValue: "Your business" },
+          { key: "website", label: "Sending domain", defaultValue: "yourbusiness.co.uk" },
           {
             key: "list",
             label: "Describe your list & goal",

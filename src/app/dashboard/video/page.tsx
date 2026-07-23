@@ -365,9 +365,9 @@ export default function VideoWarRoomPage() {
           agentId="video-commander"
           buttonLabel="Generate campaign video package"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
             { key: "product", label: "Product / offer", defaultValue: "Family platter — feed 4 for £25, Fridays only" },
-            { key: "location", label: "Target location", defaultValue: "Brixton, London" },
+            { key: "location", label: "Target location", defaultValue: "Your location" },
             { key: "audience", label: "Target audience", defaultValue: "Local families and young professionals, evening scrollers", textarea: true },
             { key: "goal", label: "Campaign goal", defaultValue: "WhatsApp orders" },
           ]}
@@ -378,8 +378,8 @@ export default function VideoWarRoomPage() {
           agentId="viral-hook"
           buttonLabel="Generate & rank hooks"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Market", defaultValue: "Your location" },
             { key: "concept", label: "Video concept", defaultValue: "Friday family platter — £25 feeds 4, kitchen caps at 40, hot in 20 minutes or free", textarea: true },
             { key: "audience", label: "Audience", defaultValue: "Local families, evening scrollers on TikTok/Reels" },
           ]}
@@ -390,8 +390,8 @@ export default function VideoWarRoomPage() {
           agentId="funnel-video-builder"
           buttonLabel="Build the 8-video funnel"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Market", defaultValue: "Your location" },
             { key: "product", label: "Product / offer", defaultValue: "Family platter — feed 4 for £25, Fridays only" },
             { key: "goal", label: "Funnel goal", defaultValue: "WhatsApp orders" },
           ]}
@@ -402,7 +402,7 @@ export default function VideoWarRoomPage() {
           agentId="video-compliance"
           buttonLabel="Run compliance scan"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
             { key: "platforms", label: "Where it will run", defaultValue: "Meta ads, TikTok ads, organic TikTok" },
             { key: "script", label: "Script / creative description", defaultValue: "Hot in 20 minutes or it's free. The best grill in South London. Uses trending TikTok audio. Shows a customer testimonial at the door.", textarea: true },
           ]}
@@ -413,8 +413,8 @@ export default function VideoWarRoomPage() {
           agentId="thumbnail-title"
           buttonLabel="Generate packaging kit"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Market", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Market", defaultValue: "Your location" },
             { key: "video", label: "Video summary", defaultValue: "20s ad: Friday family platter £25 feeds 4, live 40-platter counter, WhatsApp ordering", textarea: true },
           ]}
         />
@@ -424,7 +424,7 @@ export default function VideoWarRoomPage() {
           agentId="caption-engine"
           buttonLabel="Generate captions"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
             { key: "mode", label: "Caption mode (Sales / Education / Viral / Brand)", defaultValue: "Viral" },
             { key: "script", label: "Video script or transcript", defaultValue: "It's Friday. Feed 4 for £25. Hot at your door in 20 minutes or it's free. Kitchen caps at 40 platters. Tap to order on WhatsApp.", textarea: true },
           ]}
@@ -435,8 +435,8 @@ export default function VideoWarRoomPage() {
           agentId="global-reach"
           buttonLabel="Build localisation plan"
           fields={[
-            { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-            { key: "location", label: "Home market", defaultValue: "Brixton, London" },
+            { key: "business", label: "Business", defaultValue: "Your business" },
+            { key: "location", label: "Home market", defaultValue: "Your location" },
             { key: "languages", label: "Target languages", defaultValue: "English, French, Lingala, Portuguese, Arabic" },
             { key: "script", label: "Master script (short)", defaultValue: "It's Friday. Feed 4 for £25. Hot in 20 minutes or it's free. Order on WhatsApp before 7pm.", textarea: true },
           ]}
