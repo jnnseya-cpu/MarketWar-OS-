@@ -157,3 +157,48 @@ Agents share data, objectives, memory, permissions and commercial KPIs — not i
 - **Competitive Intelligence:** 36 Competitor Monitoring, 37 Competitor Weakness, 38 Market Gap, 39 Competitive Response, 40 Market Share.
 - **Content and Creative:** 41 Content Strategy, 42 Viral Opportunity, 43 Video Creative, 44 Image Creative, 45 Social Media, 46 Email Revenue, 47 SEO Content, 48 AI Visibility.
 - **Customer Intelligence:** 49 Customer Voice, 50 Sentiment.
+
+---
+
+## 18 (cont.). AI Revenue Workforce — agents 51–68
+
+**Customer Intelligence (cont.):** 51 Review Growth (generates + protects reviews), 52 Support Intelligence (turns support issues into commercial insight), 53 Customer Journey (identifies funnel friction).
+
+**Profit and Governance:** 54 Profit Protection (prevents unprofitable growth), 55 Marketing Cost (controls acquisition cost), 56 AI Cost Governance (controls ACU consumption + model cost), 57 Attribution (connects actions to revenue), 58 Fraud Prevention (fake leads/clicks/commissions), 59 Compliance (legal + advertising compliance), 60 Brand Safety (protects reputation), 61 Rights Management (creative + creator rights).
+
+**Intelligence and Optimisation:** 62 Experimentation (runs tests), 63 Performance Forecast (predicts outcomes), 64 Budget Allocation (moves budget to profitable channels), 65 Next Best Action (recommends highest-value action), 66 Executive Briefing (what happened, why, what to do), 67 Commercial Risk (threats to revenue), 68 Growth Memory (stores what has worked).
+
+## 19. Agent Coordination Model — the shared Growth Brain
+
+All agents work through ONE shared Growth Brain:
+
+Business Data + Customer Data + Campaign Data + Competitor Data + Revenue Data → **MarketWar Growth Brain** → Agent Teams → Recommended Actions → User Approval or Automation → Execution → Revenue and Profit Measurement → Learning.
+
+Agents must NOT optimise isolated metrics:
+- The Content Agent cannot maximise views while harming conversion.
+- The Paid Media Agent cannot increase leads while destroying margin.
+- The Creator Agent cannot recruit creators who generate fake traffic.
+- The Pricing Agent cannot increase revenue while causing excessive churn.
+
+All agents optimise for **profitable customer growth**.
+
+## 20. Dependency Through Value
+
+MarketWar becomes embedded because it continuously manages demand, leads, campaigns, content, competitors, customers, revenue, recovery, retention and growth decisions. Users should think: "Without MarketWar, we would lose visibility, speed, customer opportunities and revenue." It produces recurring proof of value:
+- **Daily proof:** opportunities found, leads generated, revenue recovered, campaigns improved, costs avoided.
+- **Weekly proof:** revenue influenced, competitor moves, best-performing channels, new opportunities, recommended actions.
+- **Monthly proof:** total revenue generated, profit created, customers acquired, customer value increased, market position improved.
+
+## 21. Value-to-Spend Expansion Engine
+
+Users spend more only when additional investment produces measurable additional value. Recommend expansion only when justified — e.g. add ACUs to launch the recommended campaign; upgrade to unlock multi-brand attribution; add creator credits to scale winning content; add agents to automate lost-lead recovery; upgrade storage; add seats; activate a channel; expand to a new country; add white-label agency capabilities. Each upgrade recommendation must show: additional cost, expected value, expected return, required period, confidence level.
+
+## 22. The MarketWar Commercial Score (Money Score 0–100)
+
+Every account receives a **Money Score** from 0 to 100. Components: Demand Capture, Conversion, Retention, Revenue Recovery, Offer Strength, Customer Value, Competitor Advantage, Marketing Efficiency, Profitability, Growth Readiness. The platform shows: current score, revenue impact, highest-priority weaknesses, actions required to improve, expected financial outcome.
+
+## 23. Success KPIs
+
+**User success:** time to first commercial insight / first campaign / first lead / first sale; revenue generated per user; revenue recovered per user; CAC reduction; conversion improvement; retention improvement; profit improvement.
+
+**Platform success:** % of users seeing value on day one; % launching a campaign in 24h; % generating first lead in 7 days; % generating measurable revenue in 30 days; monthly ACU expansion; subscription upgrade rate; net revenue retention; user retention; user-generated GMV; platform-attributed revenue.

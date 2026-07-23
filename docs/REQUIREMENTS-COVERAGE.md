@@ -1298,3 +1298,20 @@ blueprint or backlog. Nothing dropped.
 | §17 Campaign Profitability (live profit model + scale/pause/stop) | ✅ 📘 | Budget Protection + campaign board; the full per-campaign profit equation is 📘 |
 | §18 50-agent AI Revenue Workforce | ✅ 📘 | 19+ agents shipped and mapped to these roles; the full 50-role roster with shared memory/KPIs is 📘 (additive expansion) |
 | Verified | ✅ | typecheck + check:layers + build; Next-Best-Action renders from the live ledger; doctrine preserved verbatim |
+
+## 48. Money-Making Doctrine Part 2 — agents 51–68, Growth Brain, Money Score (2026-07-23)
+
+Source: `docs/reference/money-making-os-doctrine.md` §18(cont.)–§23 (verbatim).
+
+| Doctrine element | Status | Where / gap |
+|---|---|---|
+| Agents 51–53 (Review Growth, Support Intelligence, Customer Journey) | 📘 | Specified; reputation + WhatsApp/email surfaces cover parts; dedicated agents backlog |
+| Agents 54–61 (Profit Protection, Marketing Cost, AI Cost Governance, Attribution, Fraud Prevention, Compliance, Brand Safety, Rights) | ✅ 📘 | Attribution (results ledger) + Fraud (creator fraudScore) + AI-cost floor (ACU/pricing) + honesty/compliance gates live; standalone Profit/Marketing-Cost/Brand-Safety/Rights agents 📘 |
+| Agents 62–68 (Experimentation, Forecast, Budget Allocation, Next Best Action, Executive Briefing, Commercial Risk, Growth Memory) | ✅ 📘 | **Next Best Action** ✅ (command-summary) + **Executive Briefing** ✅ + **Commercial Risk** ✅ (briefing risks); Experimentation/Forecast/Budget-Allocation/Growth-Memory 📘 |
+| §19 Shared Growth Brain (one brain → agent teams → actions → approval/automation → measure → learn) | 📘 | Coordination model specified; agents currently invoked per-surface — unifying orchestrator is 📘 |
+| §19 No isolated-metric optimisation (content≠views-over-conversion, paid≠leads-over-margin, etc.) | ✅ 📘 | Command Center already ranks by revenue not vanity; a hard cross-agent guardrail is 📘 |
+| §20 Dependency through value (daily/weekly/monthly proof) | ✅ 📘 | Daily briefing + command briefing live; scheduled weekly/monthly proof digests 📘 |
+| §21 Value-to-Spend Expansion Engine (justified upgrades w/ cost+value+return+period+confidence) | 📘 | ACU/plan model live; the justified-upgrade recommender is 📘 |
+| **§22 MarketWar Money Score (0–100)** | ✅ | **`moneyScore()` in command-summary.ts → card on `/dashboard`** — measured components scored from the real ledger; unmeasured shown as "connect a source" (never guessed); top weakness surfaced |
+| §23 Success KPIs (user + platform) | 📘 | Time-to-first-X + per-user revenue metrics specified; a KPI instrumentation dashboard is 📘 |
+| Verified | ✅ | typecheck + check:layers + build; Money Score renders from live ledger; doctrine Part 2 preserved verbatim |

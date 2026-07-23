@@ -37,6 +37,8 @@ export type CommandBriefing = {
   // opens the dashboard wondering what to do. Null only when there is genuinely
   // nothing to recommend.
   nextBestAction: BriefItem | null;
+  // Doctrine §22: the 0–100 Money Score (honest — only measured components count).
+  moneyScore: MoneyScore;
   momentum: {
     revenueGbp: number;
     orders: number;
@@ -52,6 +54,51 @@ export type CommandBriefing = {
   nextActions: BriefItem[];
   note: string;
 };
+
+// ---- MarketWar Money Score (doctrine §22) ----------------------------------
+// A 0–100 commercial score. HONEST by construction: each component is scored
+// ONLY from data we actually hold (the results ledger); components that need a
+// source we haven't connected (spend, costs, competitor, retention) are returned
+// as null with a "connect X" note and are EXCLUDED from the overall score, which
+// is the mean of measured components. No fabricated confidence.
+export type ScoreComponent = { name: string; score: number | null; note: string };
+export type MoneyScore = {
+  score: number | null;          // mean of measured components, or null if none
+  measured: number; total: number;
+  components: ScoreComponent[];
+  topWeakness: ScoreComponent | null;
+  note: string;
+};
+
+export function moneyScore(rawSummary: ResultsSummary): MoneyScore {
+  const s = normalizeSummary(rawSummary);
+  const revenueSources = s.bySource.filter((x) => x.revenueGbp > 0);
+  const conv = s.orders + s.leads > 0 ? (s.orders / (s.orders + s.leads)) * 100 : null;
+
+  const components: ScoreComponent[] = [
+    // Measured from the ledger:
+    { name: "Demand Capture", score: s.events === 0 ? 0 : clampPriority(Math.min(100, (s.leads + s.orders) * 8 + s.bySource.length * 6)), note: "Leads + orders captured and how many sources feed them." },
+    { name: "Conversion", score: conv === null ? null : clampPriority(Math.min(100, conv * 2)), note: conv === null ? "No leads/orders yet." : `${round(conv)}% of leads+orders are orders.` },
+    { name: "Customer Value", score: s.orders === 0 ? null : clampPriority(Math.min(100, s.avgOrderGbp / 2)), note: s.orders === 0 ? "No orders yet." : `£${round(s.avgOrderGbp)} average order value.` },
+    { name: "Growth Readiness", score: s.events === 0 ? 0 : clampPriority(Math.min(100, revenueSources.length * 30 + (s.bySource.length - revenueSources.length) * 10)), note: "Channel diversity — how many proven revenue sources exist." },
+    // Need a connected source — honestly null, not guessed:
+    { name: "Retention", score: null, note: "Connect repeat-purchase / subscription data to score retention." },
+    { name: "Revenue Recovery", score: null, note: "Connect cart/payment/dormant data (Recovery engine) to score recovery." },
+    { name: "Offer Strength", score: null, note: "Run offer evaluation to score offer clarity/urgency/differentiation." },
+    { name: "Competitor Advantage", score: null, note: "Connect competitor tracking to score category position." },
+    { name: "Marketing Efficiency", score: null, note: "Connect ad spend to score CAC / efficiency." },
+    { name: "Profitability", score: null, note: "Connect costs (spend, fees, COGS) to score margin." },
+  ];
+
+  const measured = components.filter((c) => c.score !== null);
+  const score = measured.length ? clampPriority(measured.reduce((a, c) => a + (c.score as number), 0) / measured.length) : null;
+  const topWeakness = measured.length ? [...measured].sort((a, b) => (a.score as number) - (b.score as number))[0] : null;
+
+  return {
+    score, measured: measured.length, total: components.length, components, topWeakness,
+    note: `Scored from ${measured.length}/${components.length} components — the rest need a connected source and are honestly left unscored (never guessed).`,
+  };
+}
 
 const round = (n: number, dp = 0) => Math.round(n * 10 ** dp) / 10 ** dp;
 const clampPriority = (n: number) => Math.max(1, Math.min(100, Math.round(n)));
@@ -88,6 +135,7 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
       isEmpty: true,
       headline: "Your command centre fills as you act — log a result, launch a campaign, capture a lead.",
       nextBestAction: { title: "Run your first Commercial Growth Scan", detail: "Point MarketWar at your website + socials so it can find where money is leaking and what to launch first — before you spend a penny.", priority: 95, href: "/dashboard/first-customer", cta: "Find my first revenue" },
+      moneyScore: moneyScore(summary),
       momentum: {
         revenueGbp: 0, orders: 0, leads: 0, avgOrderGbp: 0,
         sourceCount: 0, topSource: null, topSourceSharePct: 0, conversionRatePct: 0,
@@ -235,6 +283,7 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
     isEmpty: false,
     headline,
     nextBestAction,
+    moneyScore: moneyScore(summary),
     momentum: { revenueGbp: revenue, orders, leads, avgOrderGbp, sourceCount, topSource: topSource?.source ?? null, topSourceSharePct, conversionRatePct },
     opportunities: rank(opportunities),
     risks: rank(risks),

@@ -17,11 +17,14 @@ import { authedFetch } from "@/frontend/api-client";
 // Local mirror of the backend CommandBriefing shape (the engine is server-only,
 // layer-guarded) — the page consumes it via /api/command-summary.
 type BriefItem = { title: string; detail: string; priority: number; metric?: string; href?: string; cta?: string };
+type ScoreComponent = { name: string; score: number | null; note: string };
+type MoneyScore = { score: number | null; measured: number; total: number; components: ScoreComponent[]; topWeakness: ScoreComponent | null; note: string };
 type CommandBriefing = {
   business: string;
   isEmpty: boolean;
   headline: string;
   nextBestAction: BriefItem | null;
+  moneyScore: MoneyScore;
   opportunities: BriefItem[];
   risks: BriefItem[];
   nextActions: BriefItem[];
@@ -107,6 +110,45 @@ export default function CommandCenterPage() {
               <span className="btn-primary shrink-0">{cta} <ArrowRight className="h-4 w-4" /></span>
             </div>
           </Link>
+        );
+      })()}
+
+      {/* MarketWar Money Score (doctrine §22) — computed from the real ledger;
+          unmeasured components are shown as "connect a source", never guessed. */}
+      {briefing?.moneyScore && (() => {
+        const ms = briefing.moneyScore;
+        const tone = ms.score == null ? "text-slate-400" : ms.score >= 67 ? "text-emerald-400" : ms.score >= 34 ? "text-amber-400" : "text-rose-400";
+        return (
+          <div className="mb-6 card p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="text-center">
+                  <p className={`font-display text-4xl font-bold ${tone}`}>{ms.score == null ? "—" : ms.score}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Money Score</p>
+                </div>
+                <div>
+                  <h2 className="font-display text-base font-bold text-white">MarketWar Money Score</h2>
+                  <p className="mt-0.5 max-w-xl text-xs text-slate-400">{ms.note}</p>
+                  {ms.topWeakness && <p className="mt-1 text-xs text-amber-300">Biggest lever: <span className="font-semibold">{ms.topWeakness.name}</span> — {ms.topWeakness.note}</p>}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {ms.components.map((c) => (
+                <div key={c.name} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-2.5" title={c.note}>
+                  <p className="text-[11px] text-slate-400">{c.name}</p>
+                  {c.score == null ? (
+                    <p className="text-xs font-semibold text-slate-600">Connect a source</p>
+                  ) : (
+                    <>
+                      <p className={`font-display text-lg font-bold ${c.score >= 67 ? "text-emerald-300" : c.score >= 34 ? "text-amber-300" : "text-rose-300"}`}>{c.score}</p>
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-ink-700/60"><div className={`h-full rounded-full ${c.score >= 67 ? "bg-emerald-500" : c.score >= 34 ? "bg-amber-500" : "bg-rose-500"}`} style={{ width: `${c.score}%` }} /></div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         );
       })()}
 
