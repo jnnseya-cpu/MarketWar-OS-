@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2, Shield } from "lucide-react";
 import type { AuditReport } from "@/shared/types";
 import { newBrand } from "@/shared/brand";
+import BrandAssetUploader from "@/components/BrandAssetUploader";
 
 interface Intake {
   business: string;
@@ -23,6 +24,7 @@ interface Intake {
   hasFollowUp: boolean;
   hasReviews: boolean;
   hasTracking: boolean;
+  logoUrl?: string;
 }
 
 const EMPTY: Intake = {
@@ -55,6 +57,10 @@ export default function OnboardingPage() {
   const [restored, setRestored] = useState(false);
 
   const set = (patch: Partial<Intake>) => setIntake((i) => ({ ...i, ...patch }));
+
+  // Deterministic brand id from the business name — lets the logo upload target
+  // the SAME brand the dashboard will create, so branding exists from step one.
+  const brandId = intake.business.trim() ? newBrand({ name: intake.business.trim() }).id : null;
 
   // Autosave: hydrate any in-progress draft on mount so navigating back or
   // refreshing never loses the answers.
@@ -94,14 +100,17 @@ export default function OnboardingPage() {
       // dashboard hydrates from (mw.brands.v2 / mw.activeBrand.v2).
       if (intake.business.trim()) {
         try {
-          const brand = newBrand({
-            name: intake.business.trim(),
-            industry: intake.industry,
-            location: intake.location,
-            product: intake.product,
-            offer: intake.offer,
-            audience: intake.targetCustomer,
-          });
+          const brand = {
+            ...newBrand({
+              name: intake.business.trim(),
+              industry: intake.industry,
+              location: intake.location,
+              product: intake.product,
+              offer: intake.offer,
+              audience: intake.targetCustomer,
+            }),
+            ...(intake.logoUrl ? { logoUrl: intake.logoUrl } : {}),
+          };
           const existing = JSON.parse(localStorage.getItem("mw.brands.v2") || "[]") as { id: string; name: string }[];
           const merged = [brand, ...existing.filter((b) => b.name !== brand.name)];
           localStorage.setItem("mw.brands.v2", JSON.stringify(merged));
@@ -177,7 +186,20 @@ export default function OnboardingPage() {
           )}
           {step === 3 && (
             <div className="space-y-3">
-              <p className="text-sm text-slate-400">Tick everything you already have:</p>
+              <div>
+                <p className="mb-2 text-sm font-semibold text-slate-200">Your logo <span className="font-normal text-slate-500">— so every ad is on-brand from day one</span></p>
+                {brandId ? (
+                  <BrandAssetUploader
+                    brandId={brandId} assetType="logo" label="Logo" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    currentUrl={intake.logoUrl}
+                    onUploaded={(url) => set({ logoUrl: url })}
+                    onClear={() => set({ logoUrl: undefined })}
+                  />
+                ) : (
+                  <p className="rounded-lg border border-white/[0.08] bg-ink-900/50 p-3 text-xs text-slate-500">Add your business name in step 1 to upload a logo. You can also add it later in Brand Studio.</p>
+                )}
+              </div>
+              <p className="pt-1 text-sm text-slate-400">Tick everything you already have:</p>
               <Toggle label="A working website or order page" checked={intake.hasWebsite} onChange={(v) => set({ hasWebsite: v })} />
               <Toggle label="WhatsApp Business (or willing to set it up)" checked={intake.hasWhatsApp} onChange={(v) => set({ hasWhatsApp: v })} />
               <Toggle label="A follow-up system for leads (messages/emails)" checked={intake.hasFollowUp} onChange={(v) => set({ hasFollowUp: v })} />
