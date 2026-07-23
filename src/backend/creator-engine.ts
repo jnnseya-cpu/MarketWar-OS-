@@ -17,6 +17,7 @@ if (typeof window !== "undefined") {
 // runs end to end; we never claim money moved that didn't. Every figure is
 // computed, never fabricated.
 
+import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { computeCreatorSplit, programmeFor, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
 
@@ -30,6 +31,7 @@ export type Programme = {
   id: string; brandId: string; brandName: string; name: string;
   scope: ProgrammeScope; target: string; campaign?: string;
   product: string; description: string; qualifyingRevenueNote: string;
+  destinationUrl?: string; // the BRAND's own CTA/landing/company link the code sends traffic to
   active: boolean; createdAt: string;
 };
 export type CreatorAccount = {
@@ -42,9 +44,12 @@ export type CreatorAccount = {
 };
 export type Subscription = { id: string; creatorId: string; programmeId: string; code: string; link: string; createdAt: string };
 export type LedgerEvent = {
-  id: string; creatorId: string; programmeId: string; referredRef: string;
+  id: string; creatorId: string; programmeId: string; referredRef: string; idempotencyKey: string;
   grossGbp: number; netGbp: number; fraudScore: number; status: "counted" | "flagged"; createdAt: string;
 };
+// A recorded payout release — the ledger that makes payouts idempotent (a
+// second call can only release the delta, never the whole lifetime balance).
+export type PayoutRecord = { id: string; creatorId: string; amountGbp: number; rail: string; region: string; createdAt: string };
 
 // ---------------------------------------------------------------------------
 // Persistence (Firestore + in-memory), mirroring landing-store.
@@ -53,16 +58,20 @@ const memProg = new Map<string, Programme>();
 const memCreator = new Map<string, CreatorAccount>();
 const memSub = new Map<string, Subscription>();
 const memLedger = new Map<string, LedgerEvent>();
+const memPayout = new Map<string, PayoutRecord>();
 const useDb = () => Boolean(adminConfigured && adminDb);
 
-function fnv(s: string): string { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, "0"); }
+// SHA-256 (128-bit hex) for financial identifiers — 32-bit FNV collided at ~65k
+// entities, which for money-keyed IDs would merge two accounts/ledgers.
+function hid(s: string): string { return createHash("sha256").update(s).digest("hex").slice(0, 32); }
 
 // ---- Programmes ---- (scope: whole brand / a product / both / custom; a brand
 // can run MANY at once — different campaigns.)
-export async function createProgramme(input: { brandId: string; brandName: string; name: string; scope?: ProgrammeScope; target?: string; campaign?: string; product: string; description: string; nowISO: string }): Promise<Programme> {
+export async function createProgramme(input: { brandId: string; brandName: string; name: string; scope?: ProgrammeScope; target?: string; campaign?: string; destinationUrl?: string; product: string; description: string; nowISO: string }): Promise<Programme> {
   const scope: ProgrammeScope = input.scope && ["brand", "product", "both", "custom"].includes(input.scope) ? input.scope : "brand";
   // id is unique per brand + name + campaign so multiple campaigns coexist.
-  const id = `pg_${fnv(input.brandId + "::" + input.name + "::" + (input.campaign || ""))}`;
+  const id = `pg_${hid(input.brandId + "::" + input.name + "::" + (input.campaign || ""))}`;
+  const dest = (input.destinationUrl || "").trim();
   const p: Programme = {
     id, brandId: input.brandId, brandName: input.brandName, name: input.name,
     scope, target: input.target || (scope === "brand" ? input.brandName : input.product) || "",
@@ -70,6 +79,9 @@ export async function createProgramme(input: { brandId: string; brandName: strin
     qualifyingRevenueNote: "Commission is computed on ELIGIBLE NET REVENUE (collected − VAT − refunds − chargebacks − fees − promo credits − pass-through costs).",
     active: true, createdAt: input.nowISO,
   };
+  // Every code/link sends traffic to the BRAND's own destination — the company/
+  // bank CTA — never back to MarketWar. Only http(s) URLs are accepted.
+  if (/^https?:\/\//i.test(dest)) p.destinationUrl = dest;
   if (input.campaign) p.campaign = input.campaign;
   if (useDb()) await adminDb!.collection("creator_programmes").doc(id).set(p, { merge: true }); else memProg.set(id, p);
   return p;
@@ -87,13 +99,14 @@ export async function getProgramme(id: string): Promise<Programme | null> {
 }
 
 // ---- Creators ----
-export function creatorId(email: string): string { return `cr_${fnv(email.toLowerCase())}`; }
+export function creatorId(email: string): string { return `cr_${hid(email.toLowerCase().trim())}`; }
 export async function upsertCreator(input: { name: string; email: string; tier: CreatorAccount["tier"]; followers: number; followersVerified?: boolean; adminOverride?: boolean; nowISO: string; scoutScore?: number; scoutFlags?: string[] }): Promise<CreatorAccount> {
   const id = creatorId(input.email);
-  const gateMet = Math.max(0, input.followers) >= MIN_PAYOUT_FOLLOWERS && Boolean(input.followersVerified);
+  const followers = Number.isFinite(input.followers) ? Math.max(0, Math.round(input.followers)) : 0;
+  const gateMet = followers >= MIN_PAYOUT_FOLLOWERS && Boolean(input.followersVerified);
   const c: CreatorAccount = {
     id, name: input.name, email: input.email, tier: input.tier,
-    followers: Math.max(0, Math.round(input.followers)),
+    followers,
     followersVerified: Boolean(input.followersVerified),
     // Admin can admit a partner WITHOUT the 10K gate (spec §9 exception + owner
     // ruling). Override makes them payable regardless of follower count.
@@ -135,8 +148,18 @@ export async function subscribe(creatorId: string, programmeId: string, nowISO: 
   if (existing.length >= MAX_PROGRAMMES) return { error: `Programme limit reached (${MAX_PROGRAMMES}).` };
   const prog = await getProgramme(programmeId);
   if (!prog || !prog.active) return { error: "Programme not found or inactive." };
-  const code = `MW-${fnv(creatorId + programmeId).slice(0, 6).toUpperCase()}`;
-  const id = `sub_${fnv(creatorId + "::" + programmeId)}`;
+  const id = `sub_${hid(creatorId + "::" + programmeId)}`;
+  // A referral code must be globally unique — a collision would attribute one
+  // creator's conversions (and money) to another. Derive a wide code and, on the
+  // vanishingly rare collision with a DIFFERENT subscription, re-salt until free.
+  let code = "";
+  const base = hid(creatorId + "::" + programmeId);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const candidate = `MW-${hid(base + ":" + attempt).slice(0, 10).toUpperCase()}`;
+    const clash = await subscriptionByCode(candidate);
+    if (!clash || clash.id === id) { code = candidate; break; }
+  }
+  if (!code) return { error: "Could not allocate a unique code — try again." };
   const sub: Subscription = { id, creatorId, programmeId, code, link: `/r/${code}`, createdAt: nowISO };
   if (useDb()) await adminDb!.collection("creator_subscriptions").doc(id).set(sub, { merge: true }); else memSub.set(id, sub);
   return { subscription: sub };
@@ -154,21 +177,34 @@ export async function subscriptionByCode(code: string): Promise<Subscription | n
 export function fraudScore(input: { grossGbp: number; velocity?: number }): { score: number; flags: string[] } {
   const flags: string[] = [];
   let score = 8; // 0–100, lower = safer
-  if (input.grossGbp <= 0) { score += 40; flags.push("zero/negative revenue"); }
+  // Zero/negative revenue must be FLAGGED (>=50): otherwise 5 fake £0 conversions
+  // would satisfy the proven-conversion exception and bypass the 10K gate.
+  if (input.grossGbp <= 0) { score += 60; flags.push("zero/negative revenue"); }
   if ((input.velocity ?? 0) > 20) { score += 30; flags.push("high conversion velocity"); }
   if (input.grossGbp > 100000) { score += 15; flags.push("unusually large single conversion"); }
   return { score: Math.min(100, score), flags };
 }
 
-export async function recordConversion(input: { code: string; grossGbp: number; refundsGbp?: number; feesGbp?: number; referredRef?: string; velocity?: number; nowISO: string }): Promise<{ event?: LedgerEvent; error?: string }> {
+// A conversion MUST carry a real customer ref and an idempotency key (the source
+// system's order/transaction id) — the key is the doc id, so the same sale can
+// never be double-counted, and a missing customer ref can never collapse many
+// customers into one bucket (which would wrongly trip the per-customer cap).
+export async function recordConversion(input: { code: string; grossGbp: number; refundsGbp?: number; feesGbp?: number; referredRef?: string; idempotencyKey?: string; velocity?: number; nowISO: string }): Promise<{ event?: LedgerEvent; error?: string; duplicate?: boolean }> {
   const sub = await subscriptionByCode(input.code);
   if (!sub) return { error: "Unknown referral code." };
+  const referredRef = (input.referredRef || "").trim();
+  if (!referredRef) return { error: "referredRef (the referred customer id) is required." };
+  const idem = (input.idempotencyKey || "").trim();
+  if (!idem) return { error: "idempotencyKey (the source order/transaction id) is required." };
+  const id = `led_${hid(sub.programmeId + "::" + idem)}`;
+  // Idempotent: if this order was already recorded, return it — never re-count.
+  const existing = await getLedgerEvent(id);
+  if (existing) return { event: existing, duplicate: true };
   const gross = Math.max(0, input.grossGbp);
   const net = Math.max(0, gross - (input.refundsGbp || 0) - (input.feesGbp || 0)); // qualifying = NET (refinement 9.1)
   const fs = fraudScore({ grossGbp: gross, velocity: input.velocity });
-  const id = `led_${fnv(sub.code + (input.referredRef || "") + input.nowISO)}`;
   const ev: LedgerEvent = {
-    id, creatorId: sub.creatorId, programmeId: sub.programmeId, referredRef: input.referredRef || "user",
+    id, creatorId: sub.creatorId, programmeId: sub.programmeId, referredRef, idempotencyKey: idem,
     grossGbp: gross, netGbp: net, fraudScore: fs.score, status: fs.score >= 50 ? "flagged" : "counted", createdAt: input.nowISO,
   };
   if (useDb()) await adminDb!.collection("creator_ledger").doc(id).set(ev, { merge: true }); else memLedger.set(id, ev);
@@ -178,6 +214,17 @@ export async function listLedger(creatorId: string): Promise<LedgerEvent[]> {
   if (useDb()) return (await adminDb!.collection("creator_ledger").where("creatorId", "==", creatorId).limit(1000).get()).docs.map((d) => d.data() as LedgerEvent);
   return [...memLedger.values()].filter((e) => e.creatorId === creatorId);
 }
+export async function getLedgerEvent(id: string): Promise<LedgerEvent | null> {
+  if (useDb()) { const s = await adminDb!.collection("creator_ledger").doc(id).get(); return s.exists ? (s.data() as LedgerEvent) : null; }
+  return memLedger.get(id) ?? null;
+}
+// Total already paid out to a creator (the payout ledger) — makes payout idempotent.
+export async function paidToDate(creatorId: string): Promise<number> {
+  let records: PayoutRecord[];
+  if (useDb()) records = (await adminDb!.collection("creator_payouts").where("creatorId", "==", creatorId).limit(1000).get()).docs.map((d) => d.data() as PayoutRecord);
+  else records = [...memPayout.values()].filter((p) => p.creatorId === creatorId);
+  return Math.round(records.reduce((s, p) => s + p.amountGbp, 0) * 100) / 100;
+}
 
 // ---- Wallet: PER-CUSTOMER split (spec §14) → payable vs pending ----
 // The £20K cap is per referred customer, so we group counted revenue by
@@ -186,7 +233,7 @@ export async function listLedger(creatorId: string): Promise<LedgerEvent[]> {
 export type Wallet = {
   creatorId: string; payoutEligible: boolean; followers: number; followersVerified: boolean;
   cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number;
-  lifetimeCreatorGbp: number; lifetimePlatformGbp: number;
+  lifetimeCreatorGbp: number; lifetimePlatformGbp: number; paidGbp: number;
   payableGbp: number; pendingGbp: number;
   programme: ProgrammeAssignment;   // "main" (cash) or "acu_referral" (sub-10K)
   acusEarned: number;               // 250 ACUs per referral on the sub-10K programme
@@ -221,20 +268,24 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
     return { ref, netGbp: Math.round(net * 100) / 100, creatorGbp: sp.creatorGbp, platformGbp: sp.platformGbp, state: sp.state, progressPct: sp.creatorProgressPct };
   }).sort((a, b) => b.creatorGbp - a.creatorGbp);
 
-  const lifetimeCreator = perCustomer.reduce((s, c) => s + c.creatorGbp, 0);
-  const lifetimePlatform = perCustomer.reduce((s, c) => s + c.platformGbp, 0);
   const r2 = (n: number) => Math.round(n * 100) / 100;
+  // Round once at the boundary (avoid per-customer double-rounding drift).
+  const lifetimeCreator = r2(perCustomer.reduce((s, c) => s + c.creatorGbp, 0));
+  const lifetimePlatform = r2(perCustomer.reduce((s, c) => s + c.platformGbp, 0));
+  const paid = await paidToDate(creatorId);
   // Programme assignment: main (cash) when eligible, else the sub-10K ACU
   // referral programme (250 ACUs per referral). Auto-switches to main the moment
   // eligibility flips (e.g. followers verified at 10K) — it's recomputed here.
   const programme = programmeFor({ followers: creator.followers, verified: creator.followersVerified, adminOverride: creator.adminOverride, provenConversions });
   const acusEarned = programme === "acu_referral" ? distinctCustomers * SUB10K_ACU_PER_REFERRAL : 0;
+  // Payable = lifetime earned − already paid (never re-releases paid funds).
+  const owed = Math.max(0, r2(lifetimeCreator - paid));
   return {
     creatorId, payoutEligible: eligible, followers: creator.followers, followersVerified: creator.followersVerified,
     cumulativeNetGbp: r2(cumulativeNet), countedEvents: counted.length, flaggedEvents: ledger.length - counted.length,
-    lifetimeCreatorGbp: r2(lifetimeCreator), lifetimePlatformGbp: r2(lifetimePlatform),
-    payableGbp: programme === "main" ? r2(lifetimeCreator) : 0,
-    pendingGbp: programme === "main" ? 0 : r2(lifetimeCreator),
+    lifetimeCreatorGbp: lifetimeCreator, lifetimePlatformGbp: lifetimePlatform, paidGbp: paid,
+    payableGbp: programme === "main" ? owed : 0,
+    pendingGbp: programme === "main" ? 0 : owed,
     programme, acusEarned, referralCount: distinctCustomers,
     perCustomer,
     perProgramme: [...byProg.entries()].map(([programmeId, v]) => ({ programmeId, netGbp: r2(v.net), events: v.events })),
@@ -258,19 +309,28 @@ export function payoutRailFor(region: PayoutRegion): { rail: "bitripay" | "strip
   return { rail: "stripe", live: Boolean(process.env.STRIPE_SECRET_KEY), envKey: "STRIPE_SECRET_KEY" };
 }
 
-export async function requestPayout(creatorId: string, region: PayoutRegion = "other"): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion }> {
+export async function requestPayout(creatorId: string, region: PayoutRegion = "other", nowISO?: string): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion }> {
   const w = await creatorWallet(creatorId);
   if (!w) return { ok: false, reason: "No creator account.", rail: "none", region };
   if (!w.payoutEligible) return { ok: false, reason: w.gateNote, rail: "held", region };
-  if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance yet.", rail: "none", region };
+  if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance — everything earned so far has already been paid.", rail: "none", region };
   const { rail, live, envKey } = payoutRailFor(region);
   const railName = rail === "bitripay" ? "BitriPay (Africa mobile-money)" : "Stripe";
+  const amount = w.payableGbp;
+  // Only record a release (decrementing future payable) when the rail actually
+  // moved money. Idempotent: the record makes the next wallet read show £0 owed,
+  // so a retry/double-click can never re-release the same funds.
+  if (live) {
+    const iso = nowISO || new Date().toISOString();
+    const rec: PayoutRecord = { id: `pay_${hid(creatorId + "::" + iso + "::" + amount)}`, creatorId, amountGbp: amount, rail, region, createdAt: iso };
+    if (useDb()) await adminDb!.collection("creator_payouts").doc(rec.id).set(rec, { merge: true }); else memPayout.set(rec.id, rec);
+  }
   return {
     ok: live,
-    releasedGbp: live ? w.payableGbp : undefined,
+    releasedGbp: live ? amount : undefined,
     reason: live
-      ? `£${w.payableGbp.toLocaleString()} released via ${railName} (fraud-scored).`
-      : `£${w.payableGbp.toLocaleString()} approved for release via ${railName} — connect the rail (${envKey}) to move funds. No money is claimed as moved until the rail is live.`,
+      ? `£${amount.toLocaleString()} released via ${railName} (fraud-scored). Your payable balance is now £0.`
+      : `£${amount.toLocaleString()} approved for release via ${railName} — connect the rail (${envKey}) to move funds. No money is claimed as moved, and nothing is deducted, until the rail is live.`,
     rail, region,
   };
 }

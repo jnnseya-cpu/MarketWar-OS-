@@ -11,13 +11,15 @@ import { useEffect, useState, useCallback } from "react";
 import { Loader2, Plus, Users, LinkIcon, Wallet, Radar, ShieldCheck, Copy } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 import { EARNING_TIERS } from "@/shared/creator-program";
 
 type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string };
 type Wallet = { payoutEligible: boolean; followers: number; cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number; lifetimeCreatorGbp: number; lifetimePlatformGbp: number; payableGbp: number; pendingGbp: number; gateNote: string; perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[] };
 
 async function api(action: string, body: Record<string, unknown>) {
-  const res = await fetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, nowISO: new Date().toISOString(), ...body }) });
+  const res = await authedFetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, nowISO: new Date().toISOString(), ...body }) });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Request failed (${res.status})`); }
   return res.json();
 }
 const money = (n: number) => `£${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -25,7 +27,7 @@ const money = (n: number) => `£${(n || 0).toLocaleString(undefined, { maximumFr
 export default function PartnerNetworkPage() {
   const { activeBrand } = useActiveBrand();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [pName, setPName] = useState(""); const [pScope, setPScope] = useState("brand"); const [pTarget, setPTarget] = useState(""); const [pCampaign, setPCampaign] = useState(""); const [pDesc, setPDesc] = useState("");
+  const [pName, setPName] = useState(""); const [pScope, setPScope] = useState("brand"); const [pTarget, setPTarget] = useState(""); const [pCampaign, setPCampaign] = useState(""); const [pDesc, setPDesc] = useState(""); const [pDest, setPDest] = useState("");
   // Partner admit + subscribe + convert
   const [cName, setCName] = useState(""); const [cEmail, setCEmail] = useState(""); const [cFollowers, setCFollowers] = useState(0); const [cOverride, setCOverride] = useState(false);
   const [creatorId, setCreatorId] = useState<string | null>(null);
@@ -35,39 +37,49 @@ export default function PartnerNetworkPage() {
   const [payout, setPayout] = useState<string | null>(null);
   const [region, setRegion] = useState("other");
   const [busy, setBusy] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const loadProgrammes = useCallback(async () => {
     if (!activeBrand) return;
-    const d = await api("list_programmes", { brandId: activeBrand.id });
-    setProgrammes(d.programmes || []);
+    try { const d = await api("list_programmes", { brandId: activeBrand.id }); setProgrammes(d.programmes || []); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load programmes"); }
   }, [activeBrand]);
   useEffect(() => { loadProgrammes(); }, [loadProgrammes]);
 
   async function createProgramme() {
     if (!activeBrand || !pName) return;
-    setBusy("prog");
-    try { await api("create_programme", { brandId: activeBrand.id, brandName: activeBrand.name, name: pName, scope: pScope, target: pTarget, campaign: pCampaign, product: pTarget || activeBrand.product, description: pDesc }); setPName(""); setPTarget(""); setPCampaign(""); setPDesc(""); await loadProgrammes(); }
+    setBusy("prog"); setError(null);
+    try { await api("create_programme", { brandId: activeBrand.id, brandName: activeBrand.name, name: pName, scope: pScope, target: pTarget, campaign: pCampaign, destinationUrl: pDest, product: pTarget || activeBrand.product, description: pDesc }); setPName(""); setPTarget(""); setPCampaign(""); setPDesc(""); setPDest(""); await loadProgrammes(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not create programme"); }
     finally { setBusy(""); }
   }
   async function admitPartner() {
     if (!cName || !cEmail) return;
-    setBusy("partner");
+    setBusy("partner"); setError(null);
     try { const d = await api("register_creator", { name: cName, email: cEmail, followers: cFollowers, followersVerified: true, adminOverride: cOverride, platforms: 3 }); setCreatorId(d.creator.id); setSubs([]); setWallet(null); setPayout(null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not admit partner"); }
     finally { setBusy(""); }
   }
   async function subscribe(programmeId: string) {
     if (!creatorId) return;
-    setBusy("sub" + programmeId);
+    setBusy("sub" + programmeId); setError(null);
     try { const d = await api("subscribe", { creatorId, programmeId }); if (d.subscription) { setSubs((s) => [...s.filter((x) => x.programmeId !== programmeId), { programmeId, code: d.subscription.code, link: d.subscription.link }]); if (!convCode) setConvCode(d.subscription.code); } }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not subscribe partner"); }
     finally { setBusy(""); }
   }
   async function recordConversion() {
-    setBusy("conv");
-    try { await api("record_conversion", { code: convCode, grossGbp: convGross, feesGbp: convFees, referredRef: convRef }); await refreshWallet(); }
+    setBusy("conv"); setError(null);
+    try {
+      // Idempotency key = the source order id. Here (ops/testing) we synthesise a
+      // stable-per-input key so re-clicks don't double-count.
+      const idempotencyKey = `${convCode}-${convRef}-${convGross}-${convFees}`;
+      const d = await api("record_conversion", { code: convCode, grossGbp: convGross, feesGbp: convFees, referredRef: convRef, idempotencyKey });
+      if (d.error) setError(d.error); else await refreshWallet();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not record conversion"); }
     finally { setBusy(""); }
   }
-  const refreshWallet = useCallback(async () => { if (!creatorId) return; setWallet(await api("wallet", { creatorId })); }, [creatorId]);
-  async function requestPayout() { if (!creatorId) return; setBusy("payout"); try { const d = await api("payout", { creatorId, region }); setPayout(d.reason); } finally { setBusy(""); } }
+  const refreshWallet = useCallback(async () => { if (!creatorId) return; try { setWallet(await api("wallet", { creatorId })); } catch (e) { setError(e instanceof Error ? e.message : "Could not load wallet"); } }, [creatorId]);
+  async function requestPayout() { if (!creatorId) return; setBusy("payout"); setError(null); try { const d = await api("payout", { creatorId, region }); setPayout(d.reason); } catch (e) { setError(e instanceof Error ? e.message : "Payout failed"); } finally { setBusy(""); } }
 
   const input = "w-full rounded-lg border border-ink-700 bg-ink-900/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/60";
 
@@ -81,6 +93,8 @@ export default function PartnerNetworkPage() {
       />
 
       {!activeBrand && <div className="card border-emerald-500/20 p-10 text-center"><Users className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" /><h2 className="font-display text-lg font-bold text-white">Add a brand to run a partner programme</h2></div>}
+
+      {error && <div className="mb-4 rounded-lg border border-rose-500/30 bg-rose-500/[0.08] p-3 text-sm text-rose-300">{error}</div>}
 
       {activeBrand && (
         <div className="space-y-6">
@@ -103,7 +117,8 @@ export default function PartnerNetworkPage() {
               </label>
               <label className="block"><span className="mb-1 block text-xs text-slate-400">Target (product / custom)</span><input className={input} value={pTarget} onChange={(e) => setPTarget(e.target.value)} placeholder={pScope === "brand" ? activeBrand.name : "product / target"} /></label>
               <label className="block"><span className="mb-1 block text-xs text-slate-400">Campaign (optional — run many)</span><input className={input} value={pCampaign} onChange={(e) => setPCampaign(e.target.value)} placeholder="e.g. Q3 push" /></label>
-              <label className="sm:col-span-2 block"><span className="mb-1 block text-xs text-slate-400">Description</span><input className={input} value={pDesc} onChange={(e) => setPDesc(e.target.value)} placeholder="What partners promote + the offer" /></label>
+              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Destination URL — YOUR brand&rsquo;s CTA / landing / bank link (every code sends traffic here, with the ref attached)</span><input className={input} value={pDest} onChange={(e) => setPDest(e.target.value)} placeholder="https://your-brand.com/offer" /></label>
+              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Description</span><input className={input} value={pDesc} onChange={(e) => setPDesc(e.target.value)} placeholder="What partners promote + the offer" /></label>
             </div>
             <button className="btn-primary mt-4" onClick={createProgramme} disabled={busy === "prog" || !pName}>{busy === "prog" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create programme</button>
           </div>

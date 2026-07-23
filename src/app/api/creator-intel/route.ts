@@ -9,6 +9,7 @@ import {
   type CreatorInput,
   type CampaignBriefInput,
 } from "@/backend/creator-intel";
+import { rateLimit, clientKey } from "@/backend/guard";
 
 // Influencer & Creator Intelligence API (Organic Dominance §22).
 // POST { action: "score",     input: { handle, followers, engagementRate?, topic?, geography?, brandSafe? } }
@@ -17,6 +18,8 @@ import {
 // GET  → doctrine + discovery signals + demo creator intelligence.
 
 export async function POST(req: NextRequest) {
+  const rl = rateLimit(clientKey(req, "creator-intel"), 30, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   let body: Record<string, unknown> = {};
   try {
     body = (await req.json()) as Record<string, unknown>;

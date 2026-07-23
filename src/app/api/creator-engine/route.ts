@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
   createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, listCreators, subscribe, listSubscriptions,
@@ -13,8 +14,18 @@ import { EARNING_TIERS, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/cr
 // GET → catalogue + tiers + constants.
 // POST { action, ... } → programmes, creators, subscriptions, ledger, wallet,
 //   payout, and the Scout / Match / Brief agents.
+//
+// AUTH (production): every action is protected. Brand-scoped actions verify
+// brand ownership; PII/agent reads require a signed-in user; money + admin
+// actions (record_conversion, payout, admin_verify) require an admin scope or a
+// server ledger secret. Demo/zero-config (no Firebase Admin) passes through.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Which actions require what. Read-but-PII and agent actions need a signed-in
+// user; money/admin actions need platform_admin (or the ledger secret).
+const ADMIN_ACTIONS = new Set(["record_conversion", "payout", "admin_verify"]);
+const AUTHED_ACTIONS = new Set(["list_creators", "creator", "wallet", "subscriptions", "subscribe", "register_creator", "scout", "match", "brief", "verify_followers"]);
 
 export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "creator-engine"), 40, 60_000, Date.now());
@@ -27,11 +38,28 @@ export async function POST(req: NextRequest) {
   const num = (k: string) => (typeof b[k] === "number" ? (b[k] as number) : Number(b[k]) || 0);
   const nowISO = typeof b.nowISO === "string" ? b.nowISO : new Date().toISOString();
 
+  // ---- Authorisation gate ----
+  if (action === "create_programme" || action === "list_programmes") {
+    const access = await resolveBrandAccess(req, s("brandId"));
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  } else if (ADMIN_ACTIONS.has(action)) {
+    // record_conversion also accepts a server ledger secret (billing webhook).
+    const secret = req.headers.get("x-ledger-secret") || "";
+    const secretOk = action === "record_conversion" && process.env.CREATOR_LEDGER_SECRET && secret === process.env.CREATOR_LEDGER_SECRET;
+    if (!secretOk) {
+      const auth = await requireAuth(req, { scope: "platform_admin" });
+      if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+  } else if (AUTHED_ACTIONS.has(action)) {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   switch (action) {
     case "create_programme": {
       if (!s("brandId") || !s("name")) return NextResponse.json({ error: "brandId and name are required" }, { status: 400 });
       const scope = (["brand", "product", "both", "custom"].includes(s("scope")) ? s("scope") : "brand") as "brand" | "product" | "both" | "custom";
-      return NextResponse.json(await createProgramme({ brandId: s("brandId"), brandName: s("brandName") || s("brandId"), name: s("name"), scope, target: s("target"), campaign: s("campaign"), product: s("product"), description: s("description"), nowISO }));
+      return NextResponse.json(await createProgramme({ brandId: s("brandId"), brandName: s("brandName") || s("brandId"), name: s("name"), scope, target: s("target"), campaign: s("campaign"), destinationUrl: s("destinationUrl"), product: s("product"), description: s("description"), nowISO }));
     }
     case "list_programmes":
       return NextResponse.json({ programmes: await listProgrammes(s("brandId") || undefined) });
@@ -52,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     case "record_conversion": {
       if (!s("code")) return NextResponse.json({ error: "code is required" }, { status: 400 });
-      return NextResponse.json(await recordConversion({ code: s("code"), grossGbp: num("grossGbp"), refundsGbp: num("refundsGbp"), feesGbp: num("feesGbp"), referredRef: s("referredRef"), velocity: num("velocity"), nowISO }));
+      return NextResponse.json(await recordConversion({ code: s("code"), grossGbp: num("grossGbp"), refundsGbp: num("refundsGbp"), feesGbp: num("feesGbp"), referredRef: s("referredRef"), idempotencyKey: s("idempotencyKey"), velocity: num("velocity"), nowISO }));
     }
     case "wallet": {
       const w = await creatorWallet(s("creatorId"));
@@ -60,7 +88,7 @@ export async function POST(req: NextRequest) {
     }
     case "payout": {
       const region: PayoutRegion = s("region") === "africa" ? "africa" : "other";
-      return NextResponse.json(await requestPayout(s("creatorId"), region));
+      return NextResponse.json(await requestPayout(s("creatorId"), region, nowISO));
     }
     case "verify_followers": {
       const socials = Array.isArray(b.socials) ? (b.socials as { platform?: string; url: string }[]) : [];
@@ -87,7 +115,8 @@ export async function POST(req: NextRequest) {
     case "creator":
       return NextResponse.json({ creator: await getCreator(s("creatorId")) });
     case "list_creators": {
-      const creators = await listCreators();
+      // Strip PII (email) — the network panel only needs display fields.
+      const creators = (await listCreators()).map((c) => ({ id: c.id, name: c.name, followers: c.followers, tier: c.tier, scoutScore: c.scoutScore, payoutEligible: c.payoutEligible, followersVerified: c.followersVerified }));
       return NextResponse.json({ creators, count: creators.length });
     }
     default:

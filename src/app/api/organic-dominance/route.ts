@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
   runOnboarding, commandMetrics, dataSources, NAV_SECTIONS, opportunityScore, onboardingAcuQuote,
@@ -22,6 +22,12 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "onboard";
+
+  // The onboard workup calls the paid AI gateway — require a signed-in user.
+  if (action === "onboard") {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
 
   if (action === "score") {
     const f = (body.factors || {}) as OppFactors;

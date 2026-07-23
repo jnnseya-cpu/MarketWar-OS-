@@ -65,8 +65,19 @@ function parseCount(s: string): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
+// SSRF guard — only fetch known public social hosts, never internal/metadata
+// addresses. Anything else falls to human verification.
+const ALLOWED_HOSTS = ["youtube.com", "youtu.be", "tiktok.com", "instagram.com", "facebook.com", "fb.com", "linkedin.com", "twitter.com", "x.com", "threads.net", "pinterest.com", "substack.com"];
+function hostAllowed(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return ALLOWED_HOSTS.some((a) => h === a || h.endsWith("." + a));
+  } catch { return false; }
+}
+
 export async function verifyFollowersFromProfile(url: string, platform?: string): Promise<FollowerVerification> {
   if (!/^https?:\/\//i.test(url)) return { url, platform, count: null, method: "human_required", confidence: 0, note: "Not a valid public URL — needs human verification." };
+  if (!hostAllowed(url)) return { url, platform, count: null, method: "human_required", confidence: 0, note: "Only public social-platform profiles can be auto-verified — a human should verify this one." };
   let html = "";
   try {
     const ctrl = new AbortController();

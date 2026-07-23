@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Loader2, Users, Sparkles, Copy, Calculator, Share2, CheckCircle2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
 import { COMMISSION_MODEL, computeCreatorSplit, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
 
@@ -27,14 +28,14 @@ export default function InfluencersPage() {
   const [partners, setPartners] = useState<{ id: string; name: string; followers: number; tier: string; scoutScore?: number; payoutEligible: boolean }[]>([]);
 
   useEffect(() => {
-    fetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_creators" }) })
-      .then((r) => r.json()).then((d) => setPartners(d.creators || [])).catch(() => {});
+    authedFetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_creators" }) })
+      .then((r) => (r.ok ? r.json() : { creators: [] })).then((d) => setPartners(d.creators || [])).catch(() => {});
   }, []);
 
   async function run() {
     setBusy(true);
     try {
-      const res = await fetch("/api/creator-recruitment", {
+      const res = await authedFetch("/api/creator-recruitment", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           business: activeBrand?.name || "your business",

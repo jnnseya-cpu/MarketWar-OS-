@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
 
 type Factors = { demand: number; commercialIntent: number; relevance: number; timing: number; authorityProbability: number; conversionProbability: number; competition: number };
@@ -59,6 +60,7 @@ export default function OrganicDominancePage() {
   const [competitors, setCompetitors] = useState("");
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
@@ -73,9 +75,9 @@ export default function OrganicDominancePage() {
   }, [activeBrand]);
 
   async function runWorkup() {
-    setBusy(true);
+    setBusy(true); setError(null);
     try {
-      const res = await fetch("/api/organic-dominance", {
+      const res = await authedFetch("/api/organic-dominance", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "onboard",
@@ -85,8 +87,9 @@ export default function OrganicDominancePage() {
           location,
         }),
       });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); setError(e.error || `Request failed (${res.status})`); return; }
       setResult(await res.json());
-    } finally { setBusy(false); }
+    } catch { setError("Network error — please try again."); } finally { setBusy(false); }
   }
 
   const connectedSources = meta?.dataSources.filter((s) => s.connected).length ?? 0;
@@ -112,6 +115,7 @@ export default function OrganicDominancePage() {
         <button className="btn-primary mt-4" onClick={runWorkup} disabled={busy}>
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building your growth engine…</> : <><Sparkles className="h-4 w-4" /> Run the intelligence workup</>}
         </button>
+        {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
       </div>
 
       {result && (

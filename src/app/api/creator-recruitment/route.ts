@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { gatewayLangFrom } from "@/backend/gateway";
 import { recommendCreators, type RecruitInput } from "@/backend/creator-recruitment";
 
@@ -12,6 +12,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "creator-recruitment"), 20, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  // Paid AI — require a signed-in user (denial-of-wallet protection).
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }

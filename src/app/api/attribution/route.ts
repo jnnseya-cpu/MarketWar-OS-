@@ -9,6 +9,7 @@ import {
   type Touchpoint,
   type ViralFunnelInput,
 } from "@/backend/attribution";
+import { rateLimit, clientKey } from "@/backend/guard";
 
 // Revenue Attribution + Viral-to-Revenue API.
 // POST { action: "funnel",   input: ViralFunnelInput }  → 8-stage funnel + biggest leak + revenue estimate
@@ -17,6 +18,8 @@ import {
 // GET                                                   → doctrine + FUNNEL_STAGES + demo
 
 export async function POST(req: NextRequest) {
+  const rl = rateLimit(clientKey(req, "attribution"), 30, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
