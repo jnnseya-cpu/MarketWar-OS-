@@ -15,6 +15,7 @@ import {
   Bell,
   Clapperboard,
   ClipboardCheck,
+  Receipt,
   Coins,
   Cpu,
   Crosshair,
@@ -57,6 +58,7 @@ export const NAV = [
     items: [
       { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+      { href: "/dashboard/money-ledger", label: "Money Ledger", icon: Receipt },
       { href: "/dashboard/first-customer", label: "First Customer", icon: Banknote },
       { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },

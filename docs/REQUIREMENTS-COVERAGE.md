@@ -1338,3 +1338,35 @@ upheld, so any gap is visible rather than assumed.
 | No feature that creates complexity without commercial value | ✅ | The doctrine's priority test is the standing filter; every shipped surface ties to revenue |
 | §25 Final positioning (master/punchy/aggressive/competitive/promise) | ✅ | Landing hero aligned: "More customers. More revenue. Less waste." + the user-promise subhead |
 | Verified | ✅ | typecheck + check:layers + build; landing hero updated; doctrine §24–25 preserved verbatim |
+
+## 50. Prime Objective — Money Machine Doctrine v1.0 (2026-07-23)
+
+Source: `docs/reference/prime-objective-money-machine-directive.md` (verbatim,
+immutable). Master Product Directive; the canonical Prime Objective.
+
+**Conflict/upgrade note (Additive-Only Law).** This directive names a **26-agent
+army** (WARLORD, LEDGER, PROFILER, SPYGLASS … QUARTERMASTER). The earlier
+`money-making-os-doctrine.md` lists a **68-agent** taxonomy. Resolution — keep
+both: the 26-agent army is the **canonical revenue roster** to build/brand
+against; the 68-agent list is the **superset taxonomy** those 26 draw from (e.g.
+LEDGER≡Attribution, SPYGLASS≡Competitor Monitoring+Weakness, NECROMANCER≡
+Reactivation, PRICELORD≡Pricing Optimisation). No agent dropped.
+
+| Directive element | Status | Where / gap |
+|---|---|---|
+| §1 Prime Objective (every surface ties to money) | ✅ | Standing priority filter; Command Center + Money Ledger lead on money |
+| Law 1 Day-1 Money | ✅ 📘 | First-customer sprint + Next-Best-Action fire day-one; a single automated Day-1 "First Blood" sequence is 📘 |
+| **Law 2 Attribution (live Money Ledger + ROI)** | ✅ | **`/dashboard/money-ledger`** — real attributed revenue ÷ user's MarketWar cost = ROI multiple, receipts, per-source rollup, north-star row |
+| Law 3 Full-funnel ownership | ✅ 📘 | Capture→convert surfaces live; a lead-never-dies pursuit-until-disqualified state machine is 📘 |
+| Law 4 Compounding | 📘 | Growth Memory / per-brand learning model specified, not yet persistent |
+| Law 5 Niche Domination | ✅ 📘 | Competitor War Room + Local Dominance live; auto strike-package drafting is 📘 |
+| Law 6 Speed-of-Money prioritisation | ✅ 📘 | Next-Best-Action ranks by impact; an explicit speed-to-revenue queue (reactivate→upsell→recover→acquire) is 📘 |
+| Law 7 Expansion | 📘 | PATHFINDER monthly expansion proposals specified |
+| §3 Five-stage loop (HUNT/CAPTURE/CLOSE/MULTIPLY/FORTIFY) | ✅ 📘 | Each stage exists as modules; one always-on orchestrated loop is 📘 |
+| §4 Dependency curve (Day1→Day90) | ✅ 📘 | Day-1 + Money Ledger proof live; scheduled War Reports (week/month) 📘 |
+| §5 Competition-Kill (War Room dossiers + strike packages) | ✅ 📘 | `competitor-warroom` dossiers live; auto strike-package generator 📘 |
+| §6 26-agent army | ✅ 📘 | 19+ agents shipped map to the roster (WARLORD≈command-summary, LEDGER≈Money Ledger, SPYGLASS≈competitor-warroom, BEACON≈local, RESCUER≈lead-recovery, WORDSMITH≈offer/copy, PRICELORD≈offer-forge economics); full 26 w/ LangGraph orchestration + self-throttling is 📘 |
+| §7 Monetisation (BitriPay + ACU 3× + tiers) | ✅ 📘 | ACU model + BitriPay rail live; the "your last 5,000 ACUs generated £Y — reload?" ROI-framed upgrade screen is 📘 |
+| §8 North-star metrics | ✅ | Money Ledger shows Attributed Revenue, ROI Multiple, New Customers, Revenue/Customer; Territory Share marked "connect competitor tracking" |
+| §9 Roadmap / §10 one-sentence doctrine | 📘 | Recorded as the guiding build order |
+| Verified | ✅ | typecheck + check:layers + build; Money Ledger renders real revenue + ROI; directive preserved verbatim |
