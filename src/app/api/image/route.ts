@@ -28,6 +28,22 @@ export async function POST(req: NextRequest) {
 
   const options: CreativeOptions = { ...DEFAULT_CREATIVE_OPTIONS, ...(typeof body.options === "object" && body.options ? (body.options as Partial<CreativeOptions>) : {}) };
   const quality = (["draft", "standard", "premium", "edit", "bulk"].includes(String(body.quality)) ? body.quality : "standard") as ImageQuality;
+
+  // The brand's REAL identity (captured at onboarding / Brand Studio): a hosted
+  // logo, a hosted product photo and the brand's colour palette. These make
+  // "use my logo / my brand colours / my product photo" real, not placeholders.
+  const logoUrl = str("logoUrl");
+  const productImageUrl = str("productImageUrl");
+  const brandColours = Array.isArray(body.brandColours) ? body.brandColours.map(String).filter(Boolean) : [];
+  const nowISO = str("nowISO") || "1970-01-01T00:00:00.000Z";
+  const referenceAssets: ImageGenerationRequest["referenceAssets"] = [];
+  if (logoUrl) referenceAssets.push({ id: "logo", businessId: str("business") || "", uploadedBy: "", assetType: "logo", fileUrl: logoUrl, fileName: "logo", mimeType: "image/*", fileSize: 0, aiDetectedColours: brandColours.length ? brandColours : undefined, usageRightsConfirmed: true, createdAt: nowISO });
+  if (productImageUrl) referenceAssets.push({ id: "product", businessId: str("business") || "", uploadedBy: "", assetType: "product_image", fileUrl: productImageUrl, fileName: "product", mimeType: "image/*", fileSize: 0, usageRightsConfirmed: true, createdAt: nowISO });
+
+  const brandTheme = brandColours.length
+    ? extractBrandTheme({ business: str("business"), detectedColours: brandColours })
+    : undefined;
+
   const genReq: ImageGenerationRequest = {
     business: str("business"),
     prompt: str("prompt") || "Brand-consistent advertising creative",
@@ -38,6 +54,8 @@ export async function POST(req: NextRequest) {
     quality,
     variants: typeof body.variants === "number" ? body.variants : 3,
     locale: str("locale"),
+    referenceAssets: referenceAssets.length ? referenceAssets : undefined,
+    brandTheme,
   };
 
   if (action === "estimate") {

@@ -213,7 +213,7 @@ export function brandSafeSvgString(
   const lb = o.useLogo ? logoBox(o.logoPosition, w, h) : null;
   const fontH = Math.round(w * 0.075);
   const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`);
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`);
   parts.push(`<defs>${bg}</defs>`);
   if (!overlayOnly) {
     parts.push(`<rect width="${w}" height="${h}" fill="url(#bg)"/>`);
@@ -240,10 +240,18 @@ export function brandSafeSvgString(
     parts.push(`<text x="${cx + cw / 2}" y="${cy + ch * 0.66}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.round(fontH * 0.55)}" font-weight="800" fill="${theme.backgroundSafe}">${xml(cta)}</text>`);
   }
   // logo-safe area — reserved box; the ORIGINAL uploaded logo is overlaid here
-  // programmatically (never redrawn by a model). Demo shows the reserved zone.
+  // programmatically (never redrawn by a model). When the brand has uploaded a
+  // real logo we render THAT image in the box; otherwise we show the reserved
+  // zone with the business name (honest placeholder until a logo is uploaded).
   if (lb) {
+    const logoUrl = req.referenceAssets?.find((a) => a.assetType === "logo")?.fileUrl;
     parts.push(`<rect x="${lb.x}" y="${lb.y}" width="${lb.bw}" height="${lb.bh}" rx="8" fill="#ffffff" opacity="${o.logoPosition === "watermark" ? 0.14 : 0.92}"/>`);
-    parts.push(`<text x="${lb.x + lb.bw / 2}" y="${lb.y + lb.bh * 0.62}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.round(lb.bh * 0.32)}" font-weight="800" fill="${theme.primary}">${xml((req.business || "LOGO").slice(0, 14))}</text>`);
+    if (logoUrl) {
+      const pad = Math.round(lb.bh * 0.14);
+      parts.push(`<image href="${xml(logoUrl)}" xlink:href="${xml(logoUrl)}" x="${lb.x + pad}" y="${lb.y + pad}" width="${lb.bw - pad * 2}" height="${lb.bh - pad * 2}" preserveAspectRatio="xMidYMid meet"/>`);
+    } else {
+      parts.push(`<text x="${lb.x + lb.bw / 2}" y="${lb.y + lb.bh * 0.62}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.round(lb.bh * 0.32)}" font-weight="800" fill="${theme.primary}">${xml((req.business || "LOGO").slice(0, 14))}</text>`);
+    }
   }
   parts.push(`</svg>`);
   return parts.join("");

@@ -1,64 +1,68 @@
 "use client";
 
 // AI Visual Creation Engine — the Brand Studio command surface.
-// Generates brand-safe ad creatives through the multi-provider image gateway
-// (/api/image). Zero-config: the Demo Composer renders real SVG creatives; live
-// providers (Gemini Nano Banana 2/Pro, GPT Image 2, FLUX.2) activate with keys.
-// Every creative uses the logo colour theme — never generic / off-brand.
+// Generates brand-safe ad creatives through the image gateway (/api/image),
+// using the ACTIVE brand's REAL logo + colour palette + product photo (captured
+// here or at onboarding, hosted on Firebase Storage). Every creative is on-brand
+// — never generic. Zero-config still renders real SVG creatives.
 
-import { useEffect, useState } from "react";
-import { Loader2, Image as ImageIcon, Palette, Layers, ShieldCheck, Upload } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Image as ImageIcon, Palette, ShieldCheck } from "lucide-react";
 import GenerateAndPublish from "@/components/GenerateAndPublish";
 import PublishToChannels from "@/components/PublishToChannels";
-import { PageHeader, Pill, StatCard } from "@/components/ui";
+import BrandAssetUploader from "@/components/BrandAssetUploader";
+import { PageHeader, Pill } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
+import { brandDefaults } from "@/shared/brand";
 import {
   DEFAULT_CREATIVE_OPTIONS, type CreativeOptions, type PlatformFormat, type LogoPosition,
-  type ImageQuality, type BrandTheme, type AssetType,
+  type ImageQuality, type BrandTheme,
 } from "@/shared/creative";
 
 type Variant = {
   imageUrl: string; provider: string; model: string; mode: string;
   width: number; height: number; format: string; brandTheme: BrandTheme;
   brandSafe: boolean; variantIndex: number;
-  cost: { providerUsd: number; retailGbp: number; acus: number; marginMultiplier: number; breakdown: string[] };
   notes: string[];
 };
-type ProviderStatus = { id: string; label: string; model: string; tier: string; vendor: string; configured: boolean; openWeight: boolean };
 
 const FORMATS: PlatformFormat[] = ["facebook", "instagram", "tiktok", "linkedin", "whatsapp", "story", "reel", "banner"];
 const POSITIONS: LogoPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right", "centre", "watermark"];
-const QUALITIES: ImageQuality[] = ["draft", "standard", "premium", "edit", "bulk"];
-const ASSET_TYPES: AssetType[] = [
-  "logo", "product_image", "service_image", "team_image", "customer_image", "venue_image",
-  "before_after_image", "testimonial_video", "promo_video", "event_video", "existing_ad", "background_image", "brand_pattern",
-];
+const QUALITIES: ImageQuality[] = ["draft", "standard", "premium"];
 
 export default function StudioPage() {
-  const [business, setBusiness] = useState("");
-  const [headline, setHeadline] = useState("Hungry tonight? Order direct.");
-  const [offerText, setOfferText] = useState("20% OFF your first order — today only");
-  const [cta, setCta] = useState("Order on WhatsApp");
+  const { activeBrand, updateBrand } = useActiveBrand();
+  const business = activeBrand?.name ?? "";
+  const [headline, setHeadline] = useState("Your headline, rendered exactly");
+  const [offerText, setOfferText] = useState("");
+  const [cta, setCta] = useState("Order now");
   const [quality, setQuality] = useState<ImageQuality>("standard");
   const [variantCount, setVariantCount] = useState(3);
   const [options, setOptions] = useState<CreativeOptions>(DEFAULT_CREATIVE_OPTIONS);
   const [variants, setVariants] = useState<Variant[]>([]);
-  const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [busy, setBusy] = useState(false);
   const [publishIdx, setPublishIdx] = useState(0);
 
-  useEffect(() => {
-    fetch("/api/image").then((r) => r.json()).then((d) => setProviders(d.providers || [])).catch(() => {});
-  }, []);
+  const hasLogo = Boolean(activeBrand?.logoUrl);
+  const hasProduct = Boolean(activeBrand?.productImageUrl);
 
   const opt = <K extends keyof CreativeOptions>(k: K, v: CreativeOptions[K]) => setOptions((o) => ({ ...o, [k]: v }));
 
   async function generate() {
+    if (!activeBrand) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/image", {
+      const res = await authedFetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate", business, headline, offerText, cta, quality, variants: variantCount, options }),
+        body: JSON.stringify({
+          action: "generate", business, headline, offerText, cta, quality, variants: variantCount, options,
+          brandId: activeBrand.id,
+          logoUrl: activeBrand.logoUrl,
+          productImageUrl: activeBrand.productImageUrl,
+          brandColours: activeBrand.brandColours,
+        }),
       });
       const data = await res.json();
       setVariants(data.variants || []);
@@ -69,44 +73,63 @@ export default function StudioPage() {
   }
 
   const theme = variants[0]?.brandTheme;
-  const totalAcus = variants.reduce((a, v) => a + (v.cost?.acus || 0), 0);
 
   return (
     <div>
       <PageHeader
         kicker="AI Visual Creation Engine · Brand Studio"
         title="Brand-safe ad creative — never generic, always on-brand"
-        subtitle="Upload your logo and assets once; the OS extracts your colour theme and generates logo-aware, platform-specific ad variants through a multi-provider image gateway. The original logo is overlaid without distortion and all text is rendered exactly — no model spelling errors."
-        actions={<Pill tone="info">Gemini Nano Banana · GPT Image 2 · FLUX.2 · demo-safe</Pill>}
+        subtitle="Upload your logo, brand colours and a product photo once — they're reused across every creative. The original logo is overlaid without distortion and all text is rendered exactly, so ads always show the real brand."
+        actions={<Pill tone="info">On-brand · logo-aware · exact text</Pill>}
       />
 
-      {/* Brand Asset Library */}
+      {!activeBrand && (
+        <div className="mb-8 card border-emerald-500/20 p-10 text-center">
+          <h2 className="font-display text-lg font-bold text-white">Add a brand to start</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">Add a brand from the switcher, upload its logo + colours, and every creative is generated on-brand.</p>
+        </div>
+      )}
+
+      {/* Brand Asset Library — real uploads, hosted on Firebase Storage */}
+      {activeBrand && (
       <div className="mb-8 card p-6">
         <div className="mb-3 flex items-center gap-2">
-          <Upload className="h-5 w-5 text-emerald-400" />
-          <h2 className="font-display text-lg font-bold text-white">Brand Asset Library</h2>
+          <ImageIcon className="h-5 w-5 text-emerald-400" />
+          <h2 className="font-display text-lg font-bold text-white">Brand assets for {activeBrand.name}</h2>
           <Pill tone="neutral">reused across every campaign</Pill>
         </div>
-        <p className="mb-4 text-sm text-slate-400">Upload once, reuse everywhere. Customer/team/testimonial media needs usage-rights confirmation before paid distribution. Live upload + Firebase storage activate at go-live; the schema (`brand_assets`) is wired.</p>
-        <div className="flex flex-wrap gap-2">
-          {ASSET_TYPES.map((t) => (
-            <span key={t} className="inline-flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-900/50 px-2.5 py-1.5 text-xs text-slate-300">
-              {t.replace(/_/g, " ")}
-            </span>
-          ))}
+        <p className="mb-4 text-sm text-slate-400">Upload once, reuse everywhere. Your logo is overlaid on every creative; your colours theme it; your product photo can be the base. Saved to your brand — available from the start.</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <BrandAssetUploader
+            brandId={activeBrand.id} assetType="logo" label="Logo" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            currentUrl={activeBrand.logoUrl}
+            onUploaded={(url) => updateBrand(activeBrand.id, { logoUrl: url })}
+            onClear={() => updateBrand(activeBrand.id, { logoUrl: undefined })}
+          />
+          <BrandAssetUploader
+            brandId={activeBrand.id} assetType="product_image" label="Product photo" accept="image/png,image/jpeg,image/webp"
+            currentUrl={activeBrand.productImageUrl}
+            onUploaded={(url) => updateBrand(activeBrand.id, { productImageUrl: url })}
+            onClear={() => updateBrand(activeBrand.id, { productImageUrl: undefined })}
+          />
+          <BrandColoursEditor
+            value={activeBrand.brandColours ?? []}
+            onChange={(cols) => updateBrand(activeBrand.id, { brandColours: cols })}
+          />
         </div>
       </div>
+      )}
 
       {/* Creative options */}
+      {activeBrand && (
       <div className="mb-8 card border-emerald-500/30 p-6">
         <div className="mb-4 flex items-center gap-2">
           <ImageIcon className="h-5 w-5 text-emerald-400" />
           <h2 className="font-display text-lg font-bold text-white">Create a creative</h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div><label className="label">Business</label><input className="input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Your business name" /></div>
           <div><label className="label">Headline (rendered exactly)</label><input className="input" value={headline} onChange={(e) => setHeadline(e.target.value)} /></div>
-          <div><label className="label">Offer text</label><input className="input" value={offerText} onChange={(e) => setOfferText(e.target.value)} /></div>
+          <div><label className="label">Offer text</label><input className="input" value={offerText} onChange={(e) => setOfferText(e.target.value)} placeholder="Optional" /></div>
           <div><label className="label">CTA</label><input className="input" value={cta} onChange={(e) => setCta(e.target.value)} /></div>
           <div>
             <label className="label">Platform format</label>
@@ -132,47 +155,41 @@ export default function StudioPage() {
           </div>
         </div>
 
-        {/* toggles */}
+        {/* toggles — options that need an uploaded asset are disabled until it exists */}
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {([
-            ["useLogo", "Use my logo"], ["useBrandColours", "Use my brand colours"], ["useProductPhoto", "Use uploaded product photo"],
-            ["useUploadedBase", "Use uploaded photo/video as base"], ["generateNewBackground", "Generate new AI background"],
-            ["addCtaButton", "Add CTA button"], ["addOfferText", "Add offer text"],
-          ] as [keyof CreativeOptions, string][]).map(([k, label]) => (
-            <label key={k} className="flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" checked={Boolean(options[k])} onChange={(e) => opt(k, e.target.checked as never)} className="accent-emerald-500" />
-              {label}
+            ["useLogo", "Use my logo", !hasLogo, "Upload a logo above"],
+            ["useBrandColours", "Use my brand colours", (activeBrand.brandColours?.length ?? 0) === 0, "Add brand colours above"],
+            ["useProductPhoto", "Use uploaded product photo", !hasProduct, "Upload a product photo above"],
+            ["useUploadedBase", "Use uploaded photo/video as base", !hasProduct, "Upload a product photo above"],
+            ["generateNewBackground", "Generate new AI background", false, ""],
+            ["addCtaButton", "Add CTA button", false, ""],
+            ["addOfferText", "Add offer text", false, ""],
+          ] as [keyof CreativeOptions, string, boolean, string][]).map(([k, label, disabled, hint]) => (
+            <label key={k} className={`flex items-center gap-2 text-sm ${disabled ? "text-slate-600" : "text-slate-300"}`} title={disabled ? hint : ""}>
+              <input type="checkbox" disabled={disabled} checked={!disabled && Boolean(options[k])} onChange={(e) => opt(k, e.target.checked as never)} className="accent-emerald-500" />
+              {label}{disabled && <span className="text-[10px] text-amber-400/80">· {hint}</span>}
             </label>
           ))}
         </div>
 
         <button className="btn-primary mt-5" onClick={generate} disabled={busy}>
-          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating brand-safe variants…</> : <><ImageIcon className="h-4 w-4" /> Generate creatives</>}
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating on-brand variants…</> : <><ImageIcon className="h-4 w-4" /> Generate creatives</>}
         </button>
       </div>
+      )}
 
-      {/* Brand theme + cost */}
+      {/* Brand theme */}
       {theme && (
-        <div className="mb-8 grid gap-6 lg:grid-cols-2">
-          <div className="card p-6">
-            <div className="mb-3 flex items-center gap-2"><Palette className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">Brand theme</h3><Pill tone={theme.source === "logo" ? "good" : "neutral"}>{theme.source === "logo" ? "extracted from logo" : "derived"}</Pill></div>
-            <div className="flex flex-wrap gap-3">
-              {([["primary", theme.primary], ["secondary", theme.secondary], ["accent", theme.accent], ["background", theme.backgroundSafe], ["text", theme.textSafe], ["CTA", theme.cta]] as const).map(([name, hex]) => (
-                <div key={name} className="text-center">
-                  <div className="h-12 w-12 rounded-lg border border-white/10" style={{ background: hex }} />
-                  <p className="mt-1 text-[10px] text-slate-400">{name}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="card p-6">
-            <div className="mb-3 flex items-center gap-2"><Layers className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">Cost & ACUs</h3></div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <StatCard label="Variants" value={`${variants.length}`} />
-              <StatCard label="Total ACUs" value={`${totalAcus}`} tone="warn" sub={`≈ £${(totalAcus / 100).toFixed(2)}`} />
-              <StatCard label="Margin" value={`${variants[0]?.cost.marginMultiplier}×`} tone="good" sub="≥ 2× floor" />
-            </div>
-            <p className="mt-3 text-xs text-slate-500">{variants[0]?.cost.breakdown.join(" · ")}</p>
+        <div className="mb-8 card p-6">
+          <div className="mb-3 flex items-center gap-2"><Palette className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">Brand theme</h3><Pill tone={theme.source === "logo" ? "good" : "neutral"}>{theme.source === "logo" ? "from your brand colours" : "derived"}</Pill></div>
+          <div className="flex flex-wrap gap-3">
+            {([["primary", theme.primary], ["secondary", theme.secondary], ["accent", theme.accent], ["background", theme.backgroundSafe], ["text", theme.textSafe], ["CTA", theme.cta]] as const).map(([name, hex]) => (
+              <div key={name} className="text-center">
+                <div className="h-12 w-12 rounded-lg border border-white/10" style={{ background: hex }} />
+                <p className="mt-1 text-[10px] text-slate-400">{name}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -188,7 +205,7 @@ export default function StudioPage() {
                 <img src={v.imageUrl} alt={`Variant ${v.variantIndex + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
                 <div className="p-3">
                   <div className="flex items-center justify-between">
-                    <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? v.model : "demo composer"}</Pill>
+                    <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? "Live render" : "Brand composer"}</Pill>
                     <span className="inline-flex items-center gap-1 text-xs text-emerald-300">{publishIdx === v.variantIndex ? "✓ selected" : <><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</>}</span>
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500">{v.notes[1]}</p>
@@ -206,35 +223,53 @@ export default function StudioPage() {
         </div>
       )}
 
-      {/* Provider hierarchy */}
-      <div className="mb-8 card p-6">
-        <h3 className="mb-3 font-display font-bold text-white">Provider hierarchy</h3>
-        <div className="space-y-2 text-sm">
-          {providers.map((p) => (
-            <div key={p.id} className="flex items-center justify-between border-b border-white/[0.05] py-1.5 last:border-0">
-              <span className="text-slate-300">{p.label} <span className="text-slate-500">· {p.model} · {p.tier}</span></span>
-              <span className="flex items-center gap-2">
-                {p.openWeight && <Pill tone="info">open-weight</Pill>}
-                <Pill tone={p.configured ? "good" : "neutral"}>{p.configured ? "live" : "add key"}</Pill>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* The agent */}
+      {activeBrand && (
       <GenerateAndPublish
         agentId="brand-visual-creation"
         buttonLabel="Direct the brand creative"
         publishSourceLabel="creative direction"
         fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "product", label: "Product / service", defaultValue: "Restaurant takeaway" },
-          { key: "offer", label: "Offer", defaultValue: "20% off first order" },
-          { key: "audience", label: "Audience", defaultValue: "Hungry locals within 3 miles" },
+          { key: "business", label: "Business", defaultValue: brandDefaults(activeBrand).business ?? "" },
+          { key: "product", label: "Product / service", defaultValue: brandDefaults(activeBrand).product ?? "" },
+          { key: "offer", label: "Offer", defaultValue: brandDefaults(activeBrand).offer ?? "" },
+          { key: "audience", label: "Audience", defaultValue: brandDefaults(activeBrand).audience ?? "" },
           { key: "platform", label: "Platform format", defaultValue: "Instagram 4:5" },
         ]}
       />
+      )}
+    </div>
+  );
+}
+
+// Brand colours editor — up to 6 hex swatches the creative theme uses.
+function BrandColoursEditor({ value, onChange }: { value: string[]; onChange: (cols: string[]) => void }) {
+  const [draft, setDraft] = useState("#");
+  const add = () => {
+    const hex = draft.trim();
+    if (/^#?[0-9a-fA-F]{6}$/.test(hex)) {
+      const norm = hex.startsWith("#") ? hex : `#${hex}`;
+      if (!value.includes(norm) && value.length < 6) onChange([...value, norm]);
+      setDraft("#");
+    }
+  };
+  return (
+    <div className="rounded-lg border border-white/[0.08] bg-ink-900/50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-slate-300">Brand colours</span>
+        {value.length > 0 && <span className="text-[10px] font-bold uppercase text-emerald-400">{value.length} saved</span>}
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {value.map((c) => (
+          <button key={c} type="button" onClick={() => onChange(value.filter((x) => x !== c))} title={`${c} — click to remove`} className="h-7 w-7 rounded-md border border-white/15" style={{ background: c }} />
+        ))}
+        {value.length === 0 && <span className="text-[11px] text-slate-500">Add your brand hex colours (e.g. #1F6FEB).</span>}
+      </div>
+      <div className="flex gap-2">
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="#1F6FEB" className="input h-8 flex-1 text-xs" />
+        <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(draft) ? draft : "#1f6feb"} onChange={(e) => setDraft(e.target.value)} className="h-8 w-8 cursor-pointer rounded border border-white/15 bg-transparent" title="Pick a colour" />
+        <button type="button" onClick={add} className="rounded-md bg-emerald-500/15 px-3 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25">Add</button>
+      </div>
     </div>
   );
 }
