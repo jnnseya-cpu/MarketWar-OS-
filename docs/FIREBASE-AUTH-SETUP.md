@@ -14,10 +14,37 @@ Two separate things cause "Google button doesn't work" and
 
 ---
 
+## ⚠️ Providers already enabled? Then it's ONE of these (in order of likelihood)
+
+If Email/Password + Google are already ON and you still get `auth/internal-error`,
+the cause is no longer the provider toggle. The app now **prints the real reason**
+— open the browser console (DevTools) on the sign-up attempt and read the
+`[auth] internal-error raw:` log, and the on-screen message will name the cause.
+The usual culprits:
+
+1. **API key is HTTP-referrer restricted** (the #1 cause when providers are on).
+   Google Cloud Console → **APIs & Services → Credentials** → your **Browser
+   key** → **Application restrictions**. If "HTTP referrers" is selected, it must
+   list your live domain (`https://marketwaros.com/*`, `https://www.marketwaros.com/*`,
+   and the exact Vercel URL you test on). For a quick test set it to **None**.
+   Also under **API restrictions**, the key must allow **Identity Toolkit API**
+   (and Token Service API) — if it's restricted to a list that excludes them,
+   every auth call internal-errors.
+2. **Identity Toolkit API disabled.** Google Cloud Console → **APIs & Services →
+   Enabled APIs** → ensure **Identity Toolkit API** is *Enabled* for project
+   `studio-1718252475-c6017`.
+3. **App Check enforced without a token.** Firebase → App Check → if
+   **Authentication** shows *Enforced* and you haven't wired a reCAPTCHA/App
+   provider, turn enforcement **off** while testing (or register a provider).
+4. **`NEXT_PUBLIC_FIREBASE_API_KEY` wrong/blank in the deployed env** (Vercel) —
+   a wrong key can surface as internal-error too. Confirm §B.
+
+---
+
 ## A. Firebase Console (project: `studio-1718252475-c6017`)
 
 1. **Enable Email/Password.** Authentication → **Sign-in method** → **Email/
-   Password** → Enable → Save. *(Disabled = the `internal-error` you're seeing.)*
+   Password** → Enable → Save.
 2. **Enable Google.** Same screen → **Google** → Enable → pick a **support
    email** → Save.
 3. **Authorise your domains.** Authentication → Settings → **Authorized

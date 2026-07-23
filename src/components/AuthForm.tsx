@@ -19,12 +19,42 @@ type Mode = "login" | "signup";
 // Mobile browsers block/lose auth pop-ups — use the redirect flow there.
 const isMobileBrowser = () => typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+// Firebase wraps the REAL server reason for auth/internal-error inside the
+// message (often a JSON blob). Dig it out so config problems name themselves
+// instead of hiding behind a generic "internal-error".
+function extractServerReason(err: unknown): string {
+  const anyErr = err as { message?: string; customData?: { serverResponse?: unknown } };
+  const parts: string[] = [];
+  const serverResp = anyErr?.customData?.serverResponse;
+  if (serverResp) {
+    try { parts.push(typeof serverResp === "string" ? serverResp : JSON.stringify(serverResp)); } catch { /* noop */ }
+  }
+  const msg = anyErr?.message || "";
+  // Pull a nested `"message": "..."` out of an embedded JSON error body.
+  const m = msg.match(/"message"\s*:\s*"([^"]+)"/);
+  if (m) parts.push(m[1]);
+  const blob = parts.join(" ").toUpperCase();
+  if (blob.includes("REFERER") || blob.includes("REFERRER")) return "the site's API key is restricted and is blocking this domain (Google Cloud → Credentials → your Browser key → allow this domain, or set restrictions to None).";
+  if (blob.includes("API KEY") || blob.includes("API_KEY") || blob.includes("API-KEY")) return "the Firebase Web API key is missing or invalid for this site.";
+  if (blob.includes("IDENTITY TOOLKIT") || blob.includes("IDENTITYTOOLKIT") || blob.includes("SERVICE_DISABLED") || blob.includes("PERMISSION_DENIED")) return "the Identity Toolkit API is disabled for this project (enable it in Google Cloud → APIs & Services).";
+  if (blob.includes("APP CHECK") || blob.includes("APP-CHECK") || blob.includes("APPCHECK")) return "App Check is enforced but no token was sent — register an App Check provider or turn Auth enforcement off while testing.";
+  if (blob.includes("CONFIGURATION_NOT_FOUND") || blob.includes("OPERATION_NOT_ALLOWED")) return "this sign-in method isn't switched on for the project.";
+  // Nothing recognised — return the raw nested reason if we found one, else "".
+  return parts.length ? parts.join(" · ") : "";
+}
+
 // Turn raw Firebase error codes into plain, honest, actionable messages.
 function friendlyAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code || "";
   const raw = err instanceof Error ? err.message.replace("Firebase: ", "") : "Authentication failed.";
+  if (code === "auth/internal-error") {
+    // Log the full raw error so the exact server response is visible in DevTools.
+    if (typeof console !== "undefined") console.error("[auth] internal-error raw:", err);
+    const reason = extractServerReason(err);
+    return reason ? `Sign-in failed: ${reason}` : "Sign-in failed with an internal error. Most often this is the site's API key being restricted away from this domain, the Identity Toolkit API being disabled, or App Check being enforced — see docs/FIREBASE-AUTH-SETUP.md.";
+  }
   const map: Record<string, string> = {
-    "auth/internal-error": "Sign-in is temporarily unavailable for this site. If it persists, the sign-in providers may still need enabling for this domain.",
+    "auth/internal-error": "Sign-in is temporarily unavailable for this site.",
     "auth/operation-not-allowed": "This sign-in method isn't switched on yet. Try the other option or contact support.",
     "auth/email-already-in-use": "That email already has an account — log in instead.",
     "auth/invalid-email": "That email address doesn't look right.",
