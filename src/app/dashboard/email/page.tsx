@@ -22,6 +22,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 // Headline deliverability posture is COMPUTED per brand by the Email
 // Deliverability Posture Engine (/api/email-metrics) — every figure is a
@@ -71,29 +72,30 @@ export default function EmailPage() {
   } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Compute the deliverability posture for the active brand (estimates only).
+  // Deliverability posture keyed off the brand's REAL Customer Vault size — no
+  // fabricated 1,240-contact list. Empty vault → honest empty state.
   useEffect(() => {
-    if (!activeBrand) {
-      setPosture(null);
-      return;
-    }
+    if (!activeBrand) { setPosture(null); return; }
     let cancelled = false;
     setPosture(null);
-    fetch("/api/email-metrics", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ business: activeBrand.name, days: 14 }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setPosture(d as Posture);
-      })
-      .catch(() => {
-        if (!cancelled) setPosture(null);
-      });
-    return () => {
-      cancelled = true;
-    };
+    (async () => {
+      let listSize = 0;
+      try {
+        const vr = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(activeBrand.id)}&business=${encodeURIComponent(activeBrand.name)}`);
+        const vd = await vr.json();
+        listSize = typeof vd?.contactCount === "number" ? vd.contactCount : 0;
+      } catch { /* treat as empty */ }
+      if (cancelled) return;
+      if (listSize === 0) { setPosture(null); return; }
+      try {
+        const r = await fetch("/api/email-metrics", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ business: activeBrand.name, listSize, days: 14 }),
+        });
+        if (!cancelled) setPosture(await r.json() as Posture);
+      } catch { if (!cancelled) setPosture(null); }
+    })();
+    return () => { cancelled = true; };
   }, [activeBrand]);
 
   async function runFilter() {
@@ -133,9 +135,9 @@ export default function EmailPage() {
           <>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-sm font-bold text-slate-300">
-                Projected deliverability posture · {posture.listSize.toLocaleString()} modelled contacts
+                Deliverability posture · {posture.listSize.toLocaleString()} contacts in your vault
               </h2>
-              <Pill tone="warn">estimate — not booked send history</Pill>
+              <Pill tone="warn">hygiene split estimated on your real list · not booked send history</Pill>
             </div>
             <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="Projected inbox rate" value={`${posture.projectedInboxRatePct}%`} sub="estimate — earned via hygiene + auth" tone="good" />
@@ -145,13 +147,12 @@ export default function EmailPage() {
             </div>
           </>
         ) : (
-          <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="card p-4">
-                <div className="h-3 w-24 animate-pulse rounded bg-ink-700" />
-                <div className="mt-2 h-7 w-16 animate-pulse rounded bg-ink-700" />
-              </div>
-            ))}
+          <div className="mb-8 card border-emerald-500/20 p-6 text-center">
+            <Building2 className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" />
+            <h3 className="font-display font-bold text-white">No contacts yet — nothing to model</h3>
+            <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
+              Deliverability posture is keyed off your real Customer Vault — no fabricated list. Import contacts and the inbox/bounce/list-health figures compute from your actual list. You can still run the live hygiene filter below right now.
+            </p>
           </div>
         )
       ) : (
