@@ -24,18 +24,34 @@ const PAGE_ANATOMY = [
   "Tracking pixels + A/B variant slot",
 ];
 
+type SavedPage = { slug: string; headline: string; pageType: string; publishedAt?: string; url: string; absoluteUrl: string; conversionScore?: number };
+
 export default function LandingPagesPage() {
   const { activeBrand } = useActiveBrand();
   const [form, setForm] = useState({ business: "", location: "", campaign: "", offer: "", goal: "" });
   const [publishing, setPublishing] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pages, setPages] = useState<SavedPage[]>([]);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Load this brand's published pages so they're always findable (retrieved from
+  // the store — surviving reloads and navigation).
+  async function loadPages() {
+    if (!activeBrand) { setPages([]); return; }
+    try {
+      const res = await authedFetch("/api/landing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list", brandId: activeBrand.id }) });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(d.pages)) setPages(d.pages);
+    } catch { /* non-fatal */ }
+  }
 
   useEffect(() => {
     if (!activeBrand) return;
     const d = brandDefaults(activeBrand);
     setForm((f) => ({ ...f, business: f.business || d.business || "", location: f.location || d.location || "", offer: f.offer || d.offer || "" }));
+    loadPages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrand]);
 
   async function publish() {
@@ -55,7 +71,7 @@ export default function LandingPagesPage() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data?.absoluteUrl) setLiveUrl(data.absoluteUrl);
+      if (res.ok && data?.absoluteUrl) { setLiveUrl(data.absoluteUrl); loadPages(); }
     } finally { setPublishing(false); }
   }
 
@@ -92,6 +108,33 @@ export default function LandingPagesPage() {
               <button onClick={() => { navigator.clipboard?.writeText(liveUrl); setCopied(true); }} className="text-slate-400 hover:text-white" title="Copy">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}</button>
             </div>
             <p className="mt-1.5 text-[11px] text-slate-400">Share it or run ads to it. Submissions become consented leads in your Customer Vault. Edit the full design in <span className="text-emerald-300">Conversion Architect</span>.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Your published pages — always findable; survives reloads (from the store) */}
+      <div className="mb-6 card p-5">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="font-display font-bold text-white">Your published pages</h2>
+          <Pill tone={pages.length > 0 ? "good" : "neutral"}>{pages.length} live</Pill>
+        </div>
+        {pages.length === 0 ? (
+          <p className="text-sm text-slate-400">No published pages yet for {activeBrand?.name || "this brand"}. Publish one above and it appears here — every page you publish stays listed, so you can always reopen or share it.</p>
+        ) : (
+          <div className="space-y-2">
+            {pages.map((p) => (
+              <div key={p.slug} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{p.headline || p.slug}</p>
+                  <a href={p.absoluteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-emerald-300 hover:underline">{p.absoluteUrl.replace(/^https?:\/\//, "")} <ExternalLink className="h-3 w-3 shrink-0" /></a>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {typeof p.conversionScore === "number" && <span className="text-xs text-slate-400">Conv {p.conversionScore}</span>}
+                  <button onClick={() => navigator.clipboard?.writeText(p.absoluteUrl)} className="text-xs font-semibold text-emerald-300 hover:text-emerald-200">Copy link</button>
+                  <a href={p.absoluteUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-300 hover:text-emerald-200">Open</a>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

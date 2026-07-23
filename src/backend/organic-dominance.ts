@@ -159,9 +159,20 @@ Return STRICT JSON only (no markdown fence, no prose) matching:
 Provide 12-20 keywords, 10-16 prompts, 3-8 competitor gaps, 6-12 opportunities, 4-6 content pillars, 3 plan phases (Days 1-30, 31-60, 61-90). Keywords/prompts must reflect real buyer language for this business, including local + AI-assistant phrasing.`;
 
 function safeJson(text: string): Record<string, unknown> | null {
-  const m = text.match(/\{[\s\S]*\}/);
+  let t = (text || "").trim();
+  // Strip ```json … ``` fences the model sometimes adds.
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const m = t.match(/\{[\s\S]*\}/);
   if (!m) return null;
-  try { return JSON.parse(m[0]) as Record<string, unknown>; } catch { return null; }
+  try { return JSON.parse(m[0]) as Record<string, unknown>; } catch { /* maybe truncated */ }
+  // Recover a truncated object: walk back to the last balanced brace.
+  const s = m[0];
+  for (let end = s.length - 1; end > 100; end--) {
+    if (s[end] !== "}") continue;
+    try { return JSON.parse(s.slice(0, end + 1)) as Record<string, unknown>; } catch { /* keep walking */ }
+  }
+  return null;
 }
 
 export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
@@ -176,17 +187,24 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     input.languages?.length ? `Languages/markets (support code-switching + local slang): ${input.languages.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
+  let fallbackReason: string | null = null;
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 3200, lang: input.lang });
+    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 4096, lang: input.lang });
     const parsed = safeJson(res.text);
     if (parsed) return shapeResult(parsed, business, "live");
+    // Key IS configured (the call returned) but the JSON didn't parse — do NOT
+    // claim "no AI provider": say what actually happened.
+    fallbackReason = "The AI responded but its answer couldn't be parsed as complete JSON (usually an over-long response). Showing the structural scaffold — press Run again to retry.";
+    console.error("[organic-dominance] AI response not parseable JSON; head:", (res.text || "").slice(0, 160));
   } catch (e) {
-    if (!(e instanceof GatewayUnconfiguredError)) {
-      // A provider error (not "unconfigured") — fall through to the scaffold so
-      // the surface still works, honestly badged.
+    if (e instanceof GatewayUnconfiguredError) {
+      fallbackReason = null; // genuinely no key set
+    } else {
+      fallbackReason = `AI provider error: ${(e as Error).message}. Showing the structural scaffold — this is a provider/config issue, not a missing key.`;
+      console.error("[organic-dominance] gateway error:", e);
     }
   }
-  return scaffold(input, business);
+  return scaffold(input, business, fallbackReason);
 }
 
 // Coerce the model's JSON into typed, score-recomputed results.
@@ -245,7 +263,9 @@ function normFactors(f: Record<string, unknown>): OppFactors {
 }
 
 // Deterministic scaffold from the user's own inputs — honest, no invented data.
-function scaffold(input: OnboardingInput, business: string): OnboardingResult {
+// `noteOverride` carries the REAL reason when a key IS present but the AI call
+// failed, so we never mislead the user with "no AI provider connected".
+function scaffold(input: OnboardingInput, business: string, noteOverride?: string | null): OnboardingResult {
   const words = (input.description || business).toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3);
   const uniq = Array.from(new Set(words)).slice(0, 8);
   const loc = input.location || input.country || "your area";
@@ -278,7 +298,7 @@ function scaffold(input: OnboardingInput, business: string): OnboardingResult {
       { phase: "Days 31–60", focus: "Authority + prompts", actions: ["Build content pillars", "Answer the top buyer prompts", "Start AI-visibility tracking"] },
       { phase: "Days 61–90", focus: "Convert + amplify", actions: ["Launch offers from top opportunities", "Capture + route leads", "Amplify winners"] },
     ],
-    note: "Structural scaffold generated deterministically from your inputs (no AI provider connected). Connect an AI provider for full analysis and data sources for live figures. Nothing here is fabricated market data.",
+    note: noteOverride || "Structural scaffold generated deterministically from your inputs (no AI provider connected). Connect an AI provider for full analysis and data sources for live figures. Nothing here is fabricated market data.",
   };
 }
 

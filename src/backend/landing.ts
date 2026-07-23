@@ -194,6 +194,8 @@ export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
     scores,
     abVariants: abVariants(input, headline),
     optimisationRecommendations: optimisationRecommendations(scores, fields.length),
-    publishUrl: `marketwar.co/b/${slugify(business)}/${slug}`,
+    // Preview slug only — the REAL served URL is /b/{brandId}/{slug}, set on
+    // publish (api/landing). Shown relative so no wrong domain is implied.
+    publishUrl: `/b/${slugify(business)}/${slug}`,
   };
 }

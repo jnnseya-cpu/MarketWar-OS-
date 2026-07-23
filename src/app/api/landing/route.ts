@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateLandingPage, selectPageType, type LandingInput } from "@/backend/landing";
-import { savePage, type StoredLandingPage } from "@/backend/landing-store";
+import { savePage, listPages, deletePage, type StoredLandingPage } from "@/backend/landing-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -27,6 +27,25 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "generate";
+  const origin = req.nextUrl.origin || "https://www.marketwaros.com";
+
+  // List a brand's published pages — so the user can always find/reopen them.
+  if (action === "list" || action === "delete") {
+    const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+    if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    if (action === "delete") {
+      const slug = typeof body.slug === "string" ? body.slug : "";
+      if (slug) await deletePage(brandId, slug);
+    }
+    const pages = (await listPages(brandId)).map((p) => ({
+      slug: p.slug, headline: p.headline, pageType: p.pageType, publishedAt: p.publishedAt,
+      url: `/b/${brandId}/${p.slug}`, absoluteUrl: `${origin}/b/${brandId}/${p.slug}`,
+      conversionScore: p.scores?.conversionScore,
+    }));
+    return NextResponse.json({ pages, count: pages.length });
+  }
 
   if (action === "publish") {
     const rl = rateLimit(clientKey(req, "landing-publish"), 30, 60_000, Date.now());
