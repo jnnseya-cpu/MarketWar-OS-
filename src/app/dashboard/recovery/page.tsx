@@ -14,6 +14,7 @@ import { Loader2, RefreshCcw, Upload } from "lucide-react";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import ExportButton from "@/components/ExportButton";
 import { authedFetch } from "@/frontend/api-client";
 import { type Brand } from "@/shared/brand";
 
@@ -72,11 +73,20 @@ export default function RecoveryPage() {
         title="Lead Recovery Center"
         subtitle="Recover money from the database you already own before spending a penny on cold ads. Every recoverable £ is computed from the contact's scored lifetime value × the cohort's win-back probability — consented contacts only."
         actions={
-          report ? (
-            <Pill tone="good">Live records</Pill>
-          ) : (
-            <Pill tone="neutral">No workspace</Pill>
-          )
+          <div className="flex items-center gap-2">
+            {report ? <Pill tone="good">Live records</Pill> : <Pill tone="neutral">No workspace</Pill>}
+            {report && report.cohorts.length > 0 && (
+              <ExportButton
+                dataset="lead-recovery"
+                label="Export recovery"
+                columns={["label", "size", "consentedSize", "recoverableGbp", "recoveryProbability", "avgLtvGbp"]}
+                rows={report.cohorts.map((c) => ({
+                  label: c.label, size: c.size, consentedSize: c.consentedSize,
+                  recoverableGbp: c.recoverableGbp, recoveryProbability: c.recoveryProbability, avgLtvGbp: c.avgLtvGbp,
+                }))}
+              />
+            )}
+          </div>
         }
       />
 

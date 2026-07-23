@@ -11,6 +11,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { LEAD_TEMPLATES, type LeadTemplate } from "@/shared/lead-templates";
+import ExportButton from "@/components/ExportButton";
 
 type ICP = { persona: string; bestJobTitles: string[]; bestIndustries: string[]; bestCompanySize: string; bestRegions: string[]; exclusionRules: string[]; scoringFormula: string; outreachAngle: string };
 type DealScore = { dealProbability: number; expectedDealValueGbp: number; whyNow: string; band: string; fit: number; intent: number; authority: number };
@@ -247,7 +248,18 @@ export default function ProspectingPage() {
 
       {prospects.length > 0 && (
         <div className="mb-6 card p-6">
-          <div className="mb-3 flex items-center gap-2"><Building2 className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Prospects</h3><Pill tone={mode === "live" ? "good" : "warn"}>{mode === "live" ? "live" : "sample data"}</Pill></div>
+          <div className="mb-3 flex items-center gap-2"><Building2 className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Prospects</h3><Pill tone={mode === "live" ? "good" : "warn"}>{mode === "live" ? "live" : "sample data"}</Pill>
+            <div className="ml-auto"><ExportButton
+              dataset={mode === "live" ? "prospects" : "prospects-sample"}
+              label="Export"
+              columns={["companyName", "industry", "employeeCount", "contactTitle", "contactEmail", "dealProbability", "band", "expectedDealValueGbp"]}
+              rows={prospects.map((p) => ({
+                companyName: p.companyName, industry: p.industry, employeeCount: p.employeeCount,
+                contactTitle: p.contactTitle, contactEmail: mode === "live" ? p.contactEmail : "redacted (sample)",
+                dealProbability: p.dealScore.dealProbability, band: p.dealScore.band, expectedDealValueGbp: p.dealScore.expectedDealValueGbp,
+              }))}
+            /></div>
+          </div>
           {mode !== "live" && (
             <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs text-amber-200/90">
               {note || "Sample data — illustrative companies with redacted, non-contactable details. Connect a data provider (Apollo/Serper) for real, contactable prospects."}

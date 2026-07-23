@@ -7,6 +7,20 @@ import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
+import ExportButton from "@/components/ExportButton";
+
+// Light, safe markdown → HTML for the branded export report. Escapes first
+// (no HTML injection from agent output), then applies a small subset: ##/###
+// headings, **bold**, and •/- bullets. The report body is white-space:pre-wrap,
+// so remaining line breaks render as-is.
+function mdToHtml(md: string): string {
+  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
+  return esc(md || "")
+    .replace(/^###\s+(.+)$/gm, "<h2>$1</h2>")
+    .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^\s*[-•]\s+(.+)$/gm, "• $1");
+}
 
 export interface AgentField {
   key: string;
@@ -120,11 +134,19 @@ export default function AgentRunner({
       <div className="card p-5 lg:col-span-3">
         {result ? (
           <div>
-            <div className="mb-4 flex items-center justify-between border-b border-ink-700 pb-3">
+            <div className="mb-4 flex items-center justify-between gap-2 border-b border-ink-700 pb-3">
               <p className="font-display text-sm font-bold text-white">{result.agentName}</p>
-              <Pill tone={result.mode === "live" ? "good" : "info"}>
-                {result.mode === "live" ? "Live intelligence" : "Demo intelligence"}
-              </Pill>
+              <div className="flex items-center gap-2">
+                <Pill tone={result.mode === "live" ? "good" : "info"}>
+                  {result.mode === "live" ? "Live intelligence" : "Demo intelligence"}
+                </Pill>
+                <ExportButton
+                  dataset={agentId}
+                  label="Export"
+                  report={{ title: result.agentName, bodyHtml: mdToHtml(result.output) }}
+                  json={{ agent: result.agentName, mode: result.mode, output: result.output }}
+                />
+              </div>
             </div>
             <AgentMarkdown text={result.output} />
           </div>

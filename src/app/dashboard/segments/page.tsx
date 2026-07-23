@@ -12,6 +12,7 @@ import { Loader2, Users, Layers, Upload } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import ExportButton from "@/components/ExportButton";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults, type Brand } from "@/shared/brand";
 
@@ -49,7 +50,19 @@ export default function SegmentsPage() {
         kicker="AI Audience Segmentation · CDP"
         title="Turn the customer base into profitable segments"
         subtitle="RFM + LTV + churn + intent scoring auto-builds the segments worth acting on — hot leads, VIPs, high-LTV, repeat, churn-risk, referral-ready — each with a recommended offer, channel and follow-up, ranked by campaign priority. Built from your real Customer Vault; only consented contacts are marketing-eligible."
-        actions={<Pill tone="info">RFM · LTV · churn · consent-gated</Pill>}
+        actions={
+          <div className="flex items-center gap-2">
+            <Pill tone="info">RFM · LTV · churn · consent-gated</Pill>
+            {report && report.segments.length > 0 && (
+              <ExportButton
+                dataset="audience-segments"
+                label="Export segments"
+                columns={["label", "size", "consentedSize", "revenuePotentialGbp", "recommendedOffer", "recommendedChannel", "recommendedFollowUp", "campaignPriority"]}
+                rows={report.segments as unknown as Record<string, unknown>[]}
+              />
+            )}
+          </div>
+        }
       />
 
       {ready && !activeBrand && (

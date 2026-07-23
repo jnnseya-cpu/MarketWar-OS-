@@ -13,6 +13,7 @@ import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import ExportButton from "@/components/ExportButton";
 
 type Row = {
   id: string; name: string; segment: string; segmentLabel: string; spendGbp: number;
@@ -191,7 +192,23 @@ export default function CustomerVaultPage() {
         kicker="Customer Intelligence Vault"
         title="Your database is a marketing asset"
         subtitle="Import a CSV of your contacts — every one is scored for engagement, intent, churn risk and lifetime value the moment it lands. Consented contacts become a sendable, trackable segment for email, WhatsApp and Autopilot."
-        actions={<Pill tone={hasContacts ? "good" : "info"}>{hasContacts ? `${report?.contactCount} live contacts` : "No contacts yet"}</Pill>}
+        actions={
+          <div className="flex items-center gap-2">
+            <Pill tone={hasContacts ? "good" : "info"}>{hasContacts ? `${report?.contactCount} live contacts` : "No contacts yet"}</Pill>
+            {hasContacts && (
+              <ExportButton
+                dataset="customer-vault"
+                label="Export vault"
+                columns={["name", "segmentLabel", "spendGbp", "orders", "ltvGbp", "churnRisk", "purchaseIntent", "lastOrderDaysAgo", "consent"]}
+                rows={(report?.customers ?? []).map((c) => ({
+                  name: c.name, segmentLabel: c.segmentLabel, spendGbp: c.spendGbp, orders: c.orders,
+                  ltvGbp: c.ltvGbp, churnRisk: c.churnRisk, purchaseIntent: c.purchaseIntent,
+                  lastOrderDaysAgo: c.lastOrderDaysAgo ?? "", consent: c.consent ? "yes" : "no",
+                }))}
+              />
+            )}
+          </div>
+        }
       />
 
       {ready && !activeBrand && (
