@@ -69,6 +69,7 @@ const NAV = [
   {
     group: "Acquisition",
     items: [
+      { href: "/dashboard/organic-dominance", label: "Organic Dominance OS", icon: Radar },
       { href: "/dashboard/warfare", label: "Campaign Warfare", icon: Swords },
       { href: "/dashboard/war-room", label: "Campaign War Room", icon: Crosshair },
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
