@@ -6,26 +6,52 @@
 // consent-gated + frequency-capped; opt-out and conversion end the journey.
 
 import { useEffect, useState } from "react";
-import { Loader2, Workflow as WorkflowIcon, ShieldCheck, Play, AlertTriangle } from "lucide-react";
+import { Loader2, Workflow as WorkflowIcon, ShieldCheck, Play, AlertTriangle, Power, Trash2 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Step = { kind: string; delayHours?: number; label?: string; action?: string; channel?: string; detail?: string; check?: string };
 type Wf = { id: string; name: string; trigger: string; goal: string; description: string; steps: Step[] };
 type Validation = { valid: boolean; touchesIn7d: number; warnings: string[]; guarantees: string[] };
 type SimEvent = { when: string; kind: string; detail: string; sent: boolean; reason?: string };
+// An activated journey, persisted per-brand. It's live in the sense that it's
+// saved and armed; actual sends fire on the channel send-path as triggers
+// occur (once that channel is connected) — never fabricated here.
+type ActiveJourney = { id: string; name: string; trigger: string; goal: string; steps: number; touchesIn7d: number };
 
 export default function AutomationPage() {
+  const { activeBrand } = useActiveBrand();
   const [templates, setTemplates] = useState<{ id: string; name: string; trigger: string; goal: string }[]>([]);
   const [wf, setWf] = useState<Wf | null>(null);
   const [validation, setValidation] = useState<Validation | null>(null);
   const [sim, setSim] = useState<SimEvent[] | null>(null);
   const [consented, setConsented] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [active, setActive] = useState<ActiveJourney[]>([]);
+
+  const storeKey = `mw.journeys.${activeBrand?.id || "demo"}`;
 
   useEffect(() => {
     fetch("/api/automation").then((r) => r.json()).then((d) => setTemplates(d.templates || [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try { const raw = localStorage.getItem(storeKey); setActive(raw ? (JSON.parse(raw) as ActiveJourney[]) : []); }
+    catch { setActive([]); }
+  }, [storeKey]);
+
+  function persistActive(next: ActiveJourney[]) {
+    setActive(next);
+    try { localStorage.setItem(storeKey, JSON.stringify(next)); } catch { /* private mode */ }
+  }
+  function activateJourney() {
+    if (!wf || !validation) return;
+    const entry: ActiveJourney = { id: wf.id, name: wf.name, trigger: wf.trigger, goal: wf.goal, steps: wf.steps.length, touchesIn7d: validation.touchesIn7d };
+    persistActive([entry, ...active.filter((j) => j.id !== wf.id)]);
+  }
+  function removeJourney(id: string) { persistActive(active.filter((j) => j.id !== id)); }
+  const isActive = (id?: string) => Boolean(id && active.some((j) => j.id === id));
 
   async function load(id: string) {
     setBusy(true); setSim(null);
@@ -50,7 +76,7 @@ export default function AutomationPage() {
       <PageHeader
         kicker="Automation Lab · No-Code Builder"
         title="Autonomous customer journeys — that can't spam"
-        subtitle="Wire the owned engines (WhatsApp / SMS / email / offers / segments) into revenue journeys: welcome, abandoned-cart recovery, win-back, booking reminders, review requests. Every marketing step is consent-gated and capped at 5 touches / 7 days; opt-out and conversion end the journey. Transactional confirmations are exempt."
+        subtitle="Wire the owned engines (WhatsApp / SMS / email / offers / segments) into revenue journeys: welcome, abandoned-cart recovery, win-back, booking reminders, review requests. Build it, dry-run the timeline, then activate it for this brand. Every marketing step is consent-gated and capped at 5 touches / 7 days; opt-out and conversion end the journey. Transactional confirmations are exempt."
         actions={<Pill tone="info">trigger → condition → action → delay → branch</Pill>}
       />
 
@@ -98,6 +124,27 @@ export default function AutomationPage() {
             <button className="btn-primary" onClick={simulate} disabled={busy}>
               {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Simulating…</> : <><Play className="h-4 w-4" /> Dry-run timeline</>}
             </button>
+            <button className="btn-ghost" onClick={activateJourney} disabled={!validation?.valid} title={validation?.valid ? "Save + arm this journey for this brand" : "Fix the frequency-cap warning first"}>
+              <Power className="h-4 w-4" /> {isActive(wf.id) ? "Update active journey" : "Activate journey"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div className="mb-6 card border-emerald-500/25 p-6">
+          <div className="mb-1 flex items-center gap-2"><Power className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Active journeys{activeBrand ? ` · ${activeBrand.name}` : ""}</h3><Pill tone="good">{active.length} armed</Pill></div>
+          <p className="mb-3 text-xs text-slate-500">Saved + armed for this brand. Each fires on the channel send-path when its trigger occurs and the contact is consented — capped and opt-out-aware. Sends activate once that channel (email/WhatsApp/SMS) is connected; nothing is sent from this screen.</p>
+          <div className="space-y-2">
+            {active.map((j) => (
+              <div key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">{j.name}</p>
+                  <p className="text-xs text-slate-500">Trigger: {j.trigger} · {j.steps} steps · {j.touchesIn7d} touches/7d · Goal: {j.goal}</p>
+                </div>
+                <button className="btn-ghost !py-1.5 !text-xs" onClick={() => removeJourney(j.id)}><Trash2 className="h-3.5 w-3.5" /> Deactivate</button>
+              </div>
+            ))}
           </div>
         </div>
       )}
