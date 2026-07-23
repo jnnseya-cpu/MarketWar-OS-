@@ -30,7 +30,17 @@ export default function AccountCard() {
     if (!u) return;
     try {
       const { sendEmailVerification } = await import("firebase/auth");
-      await sendEmailVerification(u, { url: `${window.location.origin}/dashboard` });
+      try {
+        await sendEmailVerification(u, { url: `${window.location.origin}/dashboard` });
+      } catch (err) {
+        // If the return URL's domain isn't allowlisted in Firebase, send without a
+        // continue URL — the verification link still works (Firebase's default page).
+        if (err instanceof Error && /unauthorized-continue-uri|invalid-continue-uri/i.test(err.message)) {
+          await sendEmailVerification(u);
+        } else {
+          throw err;
+        }
+      }
       setVerifyMsg("Verification email sent — check your inbox (and spam).");
     } catch (e) {
       setVerifyMsg(e instanceof Error ? e.message.replace("Firebase: ", "") : "Could not send verification email.");

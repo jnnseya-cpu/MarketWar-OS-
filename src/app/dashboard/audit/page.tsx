@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Loader2, Stethoscope } from "lucide-react";
-import { PageHeader, Pill, ScoreBar } from "@/components/ui";
+import { ArrowRight, Loader2, Stethoscope, Rocket } from "lucide-react";
+import { PageHeader, Pill, ScoreBar, AgentMarkdown } from "@/components/ui";
 import type { AuditReport } from "@/shared/types";
 
 const DEMO_INPUT = {
@@ -27,6 +27,30 @@ export default function AuditPage() {
   const [report, setReport] = useState<AuditReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState<"onboarding" | "demo" | null>(null);
+  const [plan, setPlan] = useState<{ text: string; mode: string } | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+
+  async function buildPlan() {
+    setPlanBusy(true);
+    try {
+      // Pull the real intake captured at onboarding; fall back to the demo input.
+      let intake: Record<string, unknown> = {};
+      try { intake = JSON.parse(sessionStorage.getItem("mwos.intake") || "{}"); } catch { /* ignore */ }
+      const business = (intake.business as string) || DEMO_INPUT.business;
+      const auditSummary = report?.topReasons?.length ? `Top reasons for 0 customers:\n- ${report.topReasons.join("\n- ")}` : undefined;
+      const res = await fetch("/api/growth-plan", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          business,
+          industry: intake.industry, location: intake.location, product: intake.product,
+          audience: intake.targetCustomer, offer: intake.offer, price: intake.price,
+          pain: intake.pastResult, auditSummary,
+        }),
+      });
+      const d = await res.json();
+      if (res.ok) setPlan({ text: d.plan, mode: d.mode });
+    } finally { setPlanBusy(false); }
+  }
 
   useEffect(() => {
     const stored = sessionStorage.getItem("mwos.audit");
@@ -166,6 +190,30 @@ export default function AuditPage() {
                 Build the first campaign
               </Link>
             </div>
+          </div>
+
+          {/* 30-Day Growth Plan — generated from this audit + the brand's intake */}
+          <div className="card border-emerald-500/25 p-6 lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Rocket className="h-5 w-5 text-emerald-400" />
+                <h2 className="font-display font-bold text-white">Your 30-day growth plan</h2>
+                {plan?.mode === "demo" && <Pill tone="warn">preview</Pill>}
+              </div>
+              <button className="btn-primary" onClick={buildPlan} disabled={planBusy}>
+                {planBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} {plan ? "Regenerate plan" : "Build my 30-day plan"}
+              </button>
+            </div>
+            {plan ? (
+              <div className="mt-4 rounded-lg border border-ink-700 bg-ink-950/40 p-4">
+                <AgentMarkdown text={plan.text} />
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-400">
+                Turn this diagnosis into a concrete Day-1-to-30 action plan — the offer, your 3 owned
+                channels, the first 48-hour campaign, a daily rhythm and the KPIs — built from your audit.
+              </p>
+            )}
           </div>
         </div>
       )}
