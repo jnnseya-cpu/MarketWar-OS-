@@ -72,18 +72,27 @@ function rng(seed: number) {
   return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return ((x >>> 0) % 100000) / 100000; };
 }
 
+// Keep any interpolated brand field to a SHORT, single-line phrase. A brand may
+// have pasted a long document (or "none") into product/audience/offer — never
+// render more than a clean phrase in a move title/rationale.
+function short(v: string | undefined, fallback: string, max = 44): string {
+  const t = (v || "").replace(/[#*_>`~|]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || /^(none|n\/?a|na|-|null|undefined)$/i.test(t)) return fallback;
+  return t.length > max ? t.slice(0, max).replace(/\s+\S*$/, "").trim() + "…" : t;
+}
+
 const ACTION_TEMPLATES: Array<Omit<AutopilotAction, "id" | "decision" | "projectedValueGbp" | "title" | "rationale"> & { title: (b: BrandLite, n: number) => string; rationale: (b: BrandLite) => string; base: number }> = [
   { kind: "find_leads", channel: "Owned SEO + marketplace", riskCategory: "low", requiredLevel: 2, base: 120,
-    title: (b, n) => `Prospect ${n} new ${b.audience || "target"} leads`,
-    rationale: (b) => `Publish owned local pages + marketplace listing for ${b.location || "your area"} to capture inbound demand — no ad spend.` },
+    title: (b, n) => `Prospect ${n} new leads for ${short(b.name, "your brand", 32)}`,
+    rationale: (b) => `Publish owned local pages + marketplace listing for ${short(b.location, "your area", 32)} to capture inbound demand — no ad spend.` },
   { kind: "reactivate", channel: "WhatsApp + email", riskCategory: "low", requiredLevel: 2, base: 180,
     title: (b, n) => `Reactivate ${n} dormant contacts with a comeback offer`,
-    rationale: (b) => `Zero-cost re-engagement of past customers with "${b.offer || "a comeback offer"}" — highest ROI channel.` },
+    rationale: (b) => `Zero-cost re-engagement of past customers with ${short(b.offer, "a comeback offer")} — highest ROI channel.` },
   { kind: "launch_campaign", channel: "Meta / TikTok", riskCategory: "medium", requiredLevel: 3, base: 340,
-    title: (b) => `Launch a "${b.offer || "signature offer"}" acquisition campaign`,
-    rationale: (b) => `Design + publish a channel-native campaign to ${b.audience || "your audience"} within the budget cap and kill-criteria.` },
+    title: (b) => `Launch an acquisition campaign for ${short(b.name, "your brand", 32)}`,
+    rationale: (b) => `Design + publish a channel-native campaign to ${short(b.audience, "your audience")} within the budget cap and kill-criteria.` },
   { kind: "amplify", channel: "Referral loop", riskCategory: "low", requiredLevel: 2, base: 90,
-    title: (b) => `Spin up a referral loop for ${b.product || "your product"}`,
+    title: (b) => `Spin up a referral loop for ${short(b.name, "your brand", 32)}`,
     rationale: () => `Turn each new customer into 1–2 more with a two-sided reward — compounding, owned.` },
   { kind: "optimise", channel: "Budget reallocation", riskCategory: "medium", requiredLevel: 4, base: 60,
     title: () => `Reallocate budget toward the most profitable campaign`,
