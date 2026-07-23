@@ -140,6 +140,11 @@ service cloud.firestore {
     match /creator_payouts/{doc} { allow read, write: if false; }
     match /partner_applications/{doc} { allow read, write: if false; }
 
+    // Collaboration & Approvals (src/backend/approvals.ts): brand-scoped review
+    // items + immutable history. Read/write only via the ownership-checked
+    // /api/approvals route (Admin SDK). No direct client access.
+    match /approval_items/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;
