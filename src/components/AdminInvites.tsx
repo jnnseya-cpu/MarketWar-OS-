@@ -21,6 +21,7 @@ export default function AdminInvites() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const link = (t: string) => `${origin}/signup?invite=${t}`;
@@ -45,6 +46,7 @@ export default function AdminInvites() {
       });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Could not create invite"); return; }
+      setNotice(d.emailed ? `Invite created and emailed to ${form.email}.` : `Invite created — copy the link below to share (email not sent).`);
       setForm((f) => ({ ...f, companyName: "", email: "", note: "" }));
       await load();
     } finally { setBusy(false); }
@@ -69,6 +71,7 @@ export default function AdminInvites() {
         <div className="flex items-end"><button className="btn-primary w-full" onClick={create} disabled={busy || !form.companyName.trim()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Create invite</button></div>
       </div>
       {err && <p className="mt-2 text-xs text-amber-300">{err}</p>}
+      {notice && <p className="mt-2 text-xs text-emerald-300">{notice}</p>}
 
       <div className="mt-5">
         {invites === null ? (
