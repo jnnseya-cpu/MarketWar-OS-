@@ -14,7 +14,9 @@ if (typeof window !== "undefined") {
 // returns a simulated link plus the exact metadata that WILL attribute.
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
-const APP_URL = process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// Never fall back to localhost in a hosted build — a checkout/return URL of
+// localhost is broken for real customers. Default to the production domain.
+const APP_URL = (process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.marketwaros.com").replace(/\/$/, "");
 
 export const checkoutConfigured = Boolean(STRIPE_SECRET_KEY);
 
