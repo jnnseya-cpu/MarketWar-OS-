@@ -28,11 +28,13 @@ const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
 
-const SMTP_HOST = process.env.SMTP_HOST || "";
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.SMTP_PASS || "";
-const SMTP_SECURE = process.env.SMTP_SECURE === "true" || SMTP_PORT === 465; // implicit TLS
+// .trim() every SMTP value: a trailing space/newline pasted into an env var is a
+// classic cause of "getaddrinfo ENOTFOUND" (host) or auth failures (user/pass).
+const SMTP_HOST = (process.env.SMTP_HOST || "").trim();
+const SMTP_PORT = Number((process.env.SMTP_PORT || "587").trim());
+const SMTP_USER = (process.env.SMTP_USER || "").trim();
+const SMTP_PASS = (process.env.SMTP_PASS || "").trim();
+const SMTP_SECURE = (process.env.SMTP_SECURE || "").trim() === "true" || SMTP_PORT === 465; // implicit TLS
 
 export const smtpConfigured = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
 export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
