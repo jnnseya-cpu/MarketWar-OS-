@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowRight, Loader2, Stethoscope, Rocket } from "lucide-react";
 import { PageHeader, Pill, ScoreBar, AgentMarkdown } from "@/components/ui";
 import type { AuditReport } from "@/shared/types";
+import { pushVersion } from "@/frontend/use-autosave";
+import VersionHistory from "@/components/VersionHistory";
 
 const DEMO_INPUT = {
   business: "Sample Business",
@@ -29,6 +31,17 @@ export default function AuditPage() {
   const [source, setSource] = useState<"onboarding" | "demo" | null>(null);
   const [plan, setPlan] = useState<{ text: string; mode: string } | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
+  const [planKey, setPlanKey] = useState("growth-plan");
+  const [historyToken, setHistoryToken] = useState(0);
+
+  // Key version history by the brand/business so plans don't collide between brands.
+  useEffect(() => {
+    try {
+      const intake = JSON.parse(sessionStorage.getItem("mwos.intake") || "{}");
+      const biz = (intake.business as string) || "";
+      if (biz) setPlanKey(`growth-plan:${biz.toLowerCase().slice(0, 40)}`);
+    } catch { /* ignore */ }
+  }, []);
 
   async function buildPlan() {
     setPlanBusy(true);
@@ -48,7 +61,14 @@ export default function AuditPage() {
         }),
       });
       const d = await res.json();
-      if (res.ok) setPlan({ text: d.plan, mode: d.mode });
+      if (res.ok) {
+        const v = { text: d.plan as string, mode: d.mode as string };
+        setPlan(v);
+        // Snapshot every generated plan so a regenerate never loses the previous one.
+        const at = new Date().toISOString();
+        pushVersion(planKey, `Plan · ${new Date(at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`, v, at);
+        setHistoryToken((t) => t + 1);
+      }
     } finally { setPlanBusy(false); }
   }
 
@@ -200,9 +220,12 @@ export default function AuditPage() {
                 <h2 className="font-display font-bold text-white">Your 30-day growth plan</h2>
                 {plan?.mode === "demo" && <Pill tone="warn">preview</Pill>}
               </div>
-              <button className="btn-primary" onClick={buildPlan} disabled={planBusy}>
-                {planBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} {plan ? "Regenerate plan" : "Build my 30-day plan"}
-              </button>
+              <div className="flex items-center gap-2">
+                <VersionHistory<{ text: string; mode: string }> storeKey={planKey} refreshToken={historyToken} onRestore={(d) => setPlan(d)} />
+                <button className="btn-primary" onClick={buildPlan} disabled={planBusy}>
+                  {planBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} {plan ? "Regenerate plan" : "Build my 30-day plan"}
+                </button>
+              </div>
             </div>
             {plan ? (
               <div className="mt-4 rounded-lg border border-ink-700 bg-ink-950/40 p-4">
