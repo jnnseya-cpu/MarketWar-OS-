@@ -67,15 +67,33 @@ export async function GET() {
   ];
   const readyCount = caps.filter((c) => c.ready).length;
 
+  // RAW env presence — the definitive truth about what THIS running deployment
+  // actually holds in process.env (booleans only, never values). If you set a
+  // key in Vercel but it reads false here, the running deployment does not have
+  // it: usually set on the wrong Environment (Preview vs Production), or set but
+  // NOT redeployed since, or a different project/domain is serving this URL.
+  const KEYS = [
+    "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "GEMINI_API_KEY", "AI_GATEWAY_ORDER",
+    "NEXT_PUBLIC_FIREBASE_API_KEY", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY", "FIREBASE_STORAGE_BUCKET",
+    "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "ZERNIO_API_KEY", "SERPER_API_KEY", "PLATFORM_ADMIN_EMAILS",
+  ];
+  const envPresent: Record<string, boolean> = {};
+  for (const k of KEYS) envPresent[k] = env(k);
+
   return NextResponse.json({
     service: "MarketWar OS",
+    deploymentTimeUTC: process.env.VERCEL_DEPLOYMENT_ID ? undefined : undefined, // (informational placeholder)
+    vercelEnv: process.env.VERCEL_ENV || "unknown", // "production" | "preview" | "development"
     liveReady: readyCount,
     total: caps.length,
     allDemo: readyCount === 0,
+    aiConnected: ai,
     capabilities: caps,
+    // The raw truth about what this running build actually has:
+    envPresent,
     // Present ONLY if a backend module failed to import/probe — names the module
     // and the exact error so a 500's root cause is visible without server logs.
     moduleErrors: Object.keys(errors).length ? errors : undefined,
-    note: "Safe pre-flight — no provider calls, no spend. Each 'ready:false' shows exactly what to set. If 'moduleErrors' is present, a backend module is crashing on import — that's the root cause of any 500.",
+    note: "envPresent is the source of truth: it lists what THIS deployment holds in process.env (booleans, never values). If a key you set in Vercel shows false: (1) it was set on a different Environment than 'vercelEnv' above, (2) you didn't redeploy after saving it, or (3) a different Vercel project/branch serves this domain. GitHub repo secrets do NOT reach the app — only Vercel Project env vars do.",
   });
 }
