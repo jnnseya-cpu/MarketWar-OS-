@@ -152,7 +152,7 @@ export default function ScreenRecorder() {
         <h3 className="font-display text-base font-bold text-white">Screen &amp; Presentation Recorder</h3>
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Live now</span>
       </div>
-      <p className="mb-4 text-[13px] text-slate-400">Record your screen (and voice) right in the browser — for demos, training, help videos and social clips. It stays on your device; download it when you&rsquo;re done. Nothing is uploaded.</p>
+      <p className="mb-4 text-[13px] text-slate-400">Record your screen (and voice) right in the browser — for demos, training, help videos and social clips. It stays on your device; download it when you&rsquo;re done. Nothing is uploaded. <span className="text-slate-500">Desktop browser (Chrome/Edge/Firefox) — phones can&rsquo;t capture the screen.</span></p>
 
       {/* Options */}
       <div className="mb-4 flex flex-wrap gap-2">
