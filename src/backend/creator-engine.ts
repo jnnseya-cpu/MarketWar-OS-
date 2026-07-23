@@ -110,6 +110,11 @@ export async function getCreator(id: string): Promise<CreatorAccount | null> {
   if (useDb()) { const s = await adminDb!.collection("creator_accounts").doc(id).get(); return s.exists ? (s.data() as CreatorAccount) : null; }
   return memCreator.get(id) ?? null;
 }
+// The real partner pool — every registered creator in the network.
+export async function listCreators(): Promise<CreatorAccount[]> {
+  if (useDb()) return (await adminDb!.collection("creator_accounts").limit(500).get()).docs.map((d) => d.data() as CreatorAccount);
+  return [...memCreator.values()];
+}
 
 // Set the verified follower count (from the AI verification agent or a human).
 // Verifying + crossing 10K auto-flips the partner onto the main cash programme.

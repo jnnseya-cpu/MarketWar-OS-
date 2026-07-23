@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey } from "@/backend/guard";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
-  createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, subscribe, listSubscriptions,
+  createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, listCreators, subscribe, listSubscriptions,
   recordConversion, creatorWallet, requestPayout, setFollowerVerification, creatorId as makeCreatorId,
   type CreatorAccount, type PayoutRegion,
 } from "@/backend/creator-engine";
@@ -86,6 +86,10 @@ export async function POST(req: NextRequest) {
     }
     case "creator":
       return NextResponse.json({ creator: await getCreator(s("creatorId")) });
+    case "list_creators": {
+      const creators = await listCreators();
+      return NextResponse.json({ creators, count: creators.length });
+    }
     default:
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

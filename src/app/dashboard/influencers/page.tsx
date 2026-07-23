@@ -6,9 +6,9 @@
 // application page (/growth) is where creators apply; here the brand plans who
 // to bring in and shares its programme.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Loader2, Users, Sparkles, Copy, Calculator, Share2 } from "lucide-react";
+import { Loader2, Users, Sparkles, Copy, Calculator, Share2, CheckCircle2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import ExportButton from "@/components/ExportButton";
@@ -24,6 +24,12 @@ export default function InfluencersPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [revenue, setRevenue] = useState(5000);
+  const [partners, setPartners] = useState<{ id: string; name: string; followers: number; tier: string; scoutScore?: number; payoutEligible: boolean }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list_creators" }) })
+      .then((r) => r.json()).then((d) => setPartners(d.creators || [])).catch(() => {});
+  }, []);
 
   async function run() {
     setBusy(true);
@@ -125,9 +131,27 @@ export default function InfluencersPage() {
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] p-3"><p className="text-xs text-slate-400">Creator earns</p><p className="font-display text-xl font-bold text-emerald-300">£{split.creatorGbp.toLocaleString()}</p></div>
             <div className="rounded-lg border border-white/[0.08] bg-ink-900/50 p-3"><p className="text-xs text-slate-400">Platform earns</p><p className="font-display text-xl font-bold text-white">£{split.platformGbp.toLocaleString()}</p></div>
           </div>
-          <p className="mt-2 text-xs text-slate-500">{split.state.replace(/_/g, " ").toLowerCase()} — {split.note}</p>
+          <p className="mt-2 text-xs text-slate-500">{split.note}</p>
           <p className="mt-1 text-[11px] text-slate-600">Payout requires the creator to have {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ total followers.</p>
         </div>
+      </div>
+
+      {/* Live partner pool from the real network */}
+      <div className="mb-6 card p-6">
+        <div className="mb-3 flex items-center gap-2"><Users className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Partners in your network</h3><Pill tone={partners.length ? "good" : "neutral"}>{partners.length}</Pill></div>
+        {partners.length === 0 ? (
+          <p className="text-sm text-slate-400">No partners registered yet. Share your application page below — approved partners appear here, and you subscribe them to programmes in the Partner Network.</p>
+        ) : (
+          <div className="space-y-2">
+            {partners.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-3 text-sm">
+                <div><p className="font-semibold text-white">{p.name}</p><p className="text-xs text-slate-500">{p.followers.toLocaleString()} followers · {p.tier}{p.scoutScore != null ? ` · Scout ${p.scoutScore}` : ""}</p></div>
+                {p.payoutEligible ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />payable</Pill> : <Pill tone="warn">accruing (sub-10K)</Pill>}
+              </div>
+            ))}
+          </div>
+        )}
+        <Link href="/dashboard/partner-network" className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-300 hover:text-emerald-200">Manage programmes + partners in the Partner Network →</Link>
       </div>
 
       <div className="card p-6">

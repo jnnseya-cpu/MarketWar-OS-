@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function GrowthPage() {
   return (
     <MarketingShell
-      kicker="Growth & Influencers · Early access"
+      kicker="Growth & Influencers"
       title="Get paid to grow the portfolio"
       subtitle="We reward trusted niche creators — educators, operators, reviewers and problem-solvers — who create real demand. Performance-based deals, long-term partnerships, fraud-protected tracking, paid on verified revenue, never empty reach."
     >

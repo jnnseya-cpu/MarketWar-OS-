@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { savePartnerApplication, type PartnerTier } from "@/backend/partner-applications";
+import { upsertCreator, type CreatorAccount } from "@/backend/creator-engine";
+import { scoutScore } from "@/backend/creator-agents";
 import { rateLimit, clientKey } from "@/backend/guard";
 
 // PUBLIC partner-application capture — the real submission behind the Growth &
@@ -40,11 +42,18 @@ export async function POST(req: NextRequest) {
   const nowISO = typeof body.nowISO === "string" ? body.nowISO : new Date().toISOString();
   const record = await savePartnerApplication({ tier, name, email, audience, website, programmes, followers, notes, nowISO });
 
+  // Applying JOINS the live network: score the applicant and create a real
+  // partner account (followers unverified until the AI/human verifier confirms).
+  const socials = Array.isArray(body.socials) ? (body.socials as { followers?: number }[]) : [];
+  const scout = scoutScore({ followers, platforms: Math.max(1, socials.length), niche: audience });
+  await upsertCreator({ name, email, tier: tier as CreatorAccount["tier"], followers, followersVerified: false, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
+
   return NextResponse.json({
     ok: true,
     applicationId: record.id,
+    scoutScore: scout.score,
     message: followers >= 10_000
-      ? `Application received — ${followers.toLocaleString()} combined followers puts you on the MAIN programme: recurring cash commission (0.75%) on verified sales. We'll match you to brands and issue a tracked code/link for each of your ${programmes} programme(s).`
-      : `Application received. With ${followers.toLocaleString()} combined followers you can promote and accrue now — your commission accumulates until you reach 10,000, then pays out. You also earn 250 ACUs per referral (use them to create a brand + advertise), and auto-upgrade to full cash payout the moment you reach 10,000. We'll issue a tracked code/link per programme.`,
+      ? `You're in the network (Scout score ${scout.score}/100). ${followers.toLocaleString()} combined followers puts you on the MAIN programme: recurring cash commission (0.75%) on verified sales, once your follower count is verified. We match you to brands and issue a tracked code/link for each of your ${programmes} programme(s).`
+      : `You're in the network (Scout score ${scout.score}/100). With ${followers.toLocaleString()} combined followers you can promote and accrue now — your commission accumulates until you reach 10,000, then pays out. You also earn 250 ACUs per referral (use them to create a brand + advertise), and auto-upgrade to full cash payout the moment you reach 10,000. We issue a tracked code/link per programme.`,
   });
 }
