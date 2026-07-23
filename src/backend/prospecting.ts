@@ -90,39 +90,47 @@ export type Prospect = {
   contactTitle: string; seniority: string; linkedinCompany: string;
   technologies: string[]; hiringSignal: boolean; fundingSignal: boolean; companyDescription: string;
   lawfulBasis: string; consentStatus: string; complianceFlags: string[];
+  isSample?: boolean; // true = illustrative, NOT a real contactable company
 };
 
 export function searchProspects(icp: ICP, opts: { count?: number; industry?: string; location?: string } = {}): { mode: "live" | "demo"; prospects: Prospect[]; note: string } {
   const count = Math.min(opts.count ?? 8, 25);
   const industry = opts.industry || icp.bestIndustries[0];
   const location = opts.location || icp.bestRegions[0] || "United Kingdom";
+  const live = Boolean(process.env.APOLLO_API_KEY || process.env.SERPER_API_KEY);
   const s = seed(industry + location + icp.persona);
   const prospects: Prospect[] = Array.from({ length: count }, (_, i) => {
     const k = s + i * 2654435761;
-    const name = `${pick(["Apex", "Northgate", "Meridian", "Brixton", "Vanguard", "Oakwell", "Copperfield", "Halcyon"], k)} ${pick(["Group", "Ltd", "Partners", "Services", "Holdings", "& Co"], k >> 3)}`;
-    const domain = `${name.split(" ")[0].toLowerCase()}${(k % 90) + 10}.co.uk`;
+    // Illustrative sample companies. Deliberately NON-CONTACTABLE: reserved
+    // example.com domains (RFC 2606) and REDACTED email/phone, so nobody can
+    // mistake a demo row for a real lead or email a fabricated address. The
+    // deal-scoring engine still runs on these so the surface is explorable.
+    const name = `Sample ${pick(["Apex", "Northgate", "Meridian", "Vanguard", "Oakwell", "Copperfield", "Halcyon", "Bridgeway"], k)} ${pick(["Group", "Ltd", "Partners", "Services", "Holdings", "& Co"], k >> 3)}`;
+    const domain = `${name.split(" ")[1].toLowerCase()}.example.com`;
     const emp = 5 + (k % 300);
-    const generic = (k % 3) !== 0; // ~2/3 generic corporate email (preferred)
-    const email = generic ? `${pick(["info", "sales", "hello", "enquiries", "contact"], k)}@${domain}` : `${pick(["j.smith", "a.jones", "m.patel", "s.khan"], k)}@${domain}`;
+    const generic = (k % 3) !== 0;
     return {
       companyName: name, website: `https://${domain}`, domain, industry, employeeCount: emp,
       revenueEstimateGbp: emp * (40000 + (k % 60000)), location,
-      contactEmail: email, emailType: generic ? "generic" : "personal",
-      phone: `+44 20 7${String(k % 1000).padStart(3, "0")} ${String((k >> 4) % 10000).padStart(4, "0")}`,
+      contactEmail: "—", emailType: generic ? "generic" : "personal",
+      phone: "—",
       contactTitle: pick(icp.bestJobTitles, k), seniority: k % 2 ? "C-suite / Director" : "Head / Manager",
-      linkedinCompany: `https://www.linkedin.com/company/${domain.split(".")[0]}`,
+      linkedinCompany: "",
       technologies: [pick(["HubSpot", "Salesforce", "Shopify", "WordPress", "Mailchimp"], k), pick(["Meta Ads", "Google Ads", "Stripe", "Xero"], k >> 5)],
       hiringSignal: (k % 4) === 0, fundingSignal: (k % 7) === 0,
-      companyDescription: `${industry} business in ${location}, ~${emp} staff.`,
-      lawfulBasis: generic ? "Legitimate interest (corporate subscriber — ICO B2B)" : "Legitimate interest — PERSONAL DATA: LIA + opt-out required before contact",
+      companyDescription: `Illustrative ${industry} company in ${location}, ~${emp} staff — sample data.`,
+      lawfulBasis: "Sample record — not a real company; no contact permitted.",
       consentStatus: "not_contacted",
-      complianceFlags: generic ? ["corporate-generic"] : ["personal-email", "requires-LIA", "opt-out-mandatory"],
+      complianceFlags: generic ? ["sample-only", "not-contactable"] : ["sample-only", "not-contactable"],
+      isSample: true,
     };
   });
   return {
-    mode: process.env.APOLLO_API_KEY || process.env.SERPER_API_KEY ? "live" : "demo",
+    mode: live ? "live" : "demo",
     prospects,
-    note: "Corporate/generic emails prioritised; personal business emails flagged as personal data (legitimate-interest + opt-out required). No private individuals, no invented contacts. Live provider activates with a data-source key.",
+    note: live
+      ? "Live prospects from your connected data source. Corporate/generic emails prioritised; personal business emails flagged as personal data (legitimate-interest + opt-out required)."
+      : "SAMPLE DATA — these are illustrative companies with redacted, non-contactable details (example.com, no real emails). They demonstrate the ICP + Deal Probability engine only. Connect a data provider (Apollo/Serper) for real, contactable prospects. We never invent real contact addresses.",
   };
 }
 

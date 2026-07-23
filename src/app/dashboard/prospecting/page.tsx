@@ -44,6 +44,7 @@ export default function ProspectingPage() {
   const [icp, setIcp] = useState<ICP | null>(null);
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [mode, setMode] = useState("");
+  const [note, setNote] = useState("");
   const [seq, setSeq] = useState<{ name: string; plan: Record<string, unknown> } | null>(null);
   const [busy, setBusy] = useState<"" | "icp" | "search" | string>("");
   const [saved, setSaved] = useState<SavedSearch[]>([]);
@@ -131,7 +132,7 @@ export default function ProspectingPage() {
     try {
       const res = await fetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search", icp, industry, dealSizeGbp: dealSize }) });
       const data = await res.json();
-      setProspects(data.prospects || []); setMode(data.mode);
+      setProspects(data.prospects || []); setMode(data.mode); setNote(data.note || "");
     } finally { setBusy(""); }
   }
   async function sequence(p: Prospect) {
@@ -246,19 +247,24 @@ export default function ProspectingPage() {
 
       {prospects.length > 0 && (
         <div className="mb-6 card p-6">
-          <div className="mb-3 flex items-center gap-2"><Building2 className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Prospects</h3><Pill tone={mode === "live" ? "good" : "neutral"}>{mode}</Pill></div>
+          <div className="mb-3 flex items-center gap-2"><Building2 className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Prospects</h3><Pill tone={mode === "live" ? "good" : "warn"}>{mode === "live" ? "live" : "sample data"}</Pill></div>
+          {mode !== "live" && (
+            <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs text-amber-200/90">
+              {note || "Sample data — illustrative companies with redacted, non-contactable details. Connect a data provider (Apollo/Serper) for real, contactable prospects."}
+            </div>
+          )}
           <div className="space-y-2">
             {prospects.map((p) => (
               <div key={p.companyName} className="rounded-lg border border-white/[0.07] bg-ink-900/50 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-white">{p.companyName} <span className="text-xs text-slate-500">· {p.contactTitle} · {p.employeeCount} staff</span></p>
-                    <p className="text-xs text-slate-500">{p.contactEmail} <Pill tone={p.emailType === "generic" ? "good" : "warn"}>{p.emailType}</Pill></p>
+                    <p className="text-xs text-slate-500">{mode === "live" ? p.contactEmail : "contact redacted (sample)"} <Pill tone={p.emailType === "generic" ? "good" : "warn"}>{p.emailType}</Pill></p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Pill tone={bandTone(p.dealScore.band)}>Deal {p.dealScore.dealProbability} · {p.dealScore.band}</Pill>
                     <span className="text-xs text-emerald-300">~£{p.dealScore.expectedDealValueGbp}</span>
-                    <button className="btn-ghost !py-1.5 !text-xs" onClick={() => sequence(p)} disabled={busy === p.companyName}>
+                    <button className="btn-ghost !py-1.5 !text-xs" onClick={() => sequence(p)} disabled={busy === p.companyName} title={mode !== "live" ? "Draft an outreach sequence (sample — not sent)" : "Draft an outreach sequence"}>
                       {busy === p.companyName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Send className="h-3.5 w-3.5" /> Sequence</>}
                     </button>
                   </div>
