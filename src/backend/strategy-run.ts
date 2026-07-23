@@ -9,6 +9,7 @@ if (typeof window !== "undefined") {
 // under REQUIRE_LIVE).
 
 import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { withConciseStyle } from "@/backend/agent-style";
 import { STRATEGY_BY_ID } from "@/shared/strategy-agents";
 
 export type StrategyResult = { agentId: string; agentName: string; mode: "live" | "demo"; output: string };
@@ -32,7 +33,7 @@ export async function runStrategyAgent(
   ].join("\n");
 
   try {
-    const res = await gatewayComplete({ system: agent.systemPrompt, prompt: userPrompt, lang });
+    const res = await gatewayComplete({ system: withConciseStyle(agent.systemPrompt), prompt: userPrompt, lang });
     return { agentId: agent.id, agentName: agent.name, mode: "live", output: res.text };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {

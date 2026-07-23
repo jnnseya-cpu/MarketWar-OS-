@@ -5,6 +5,7 @@ if (typeof window !== "undefined") {
 
 import { AGENTS } from "@/shared/agents";
 import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { withConciseStyle } from "@/backend/agent-style";
 import type { AgentResult } from "@/shared/types";
 
 // Runs an agent through the AI Gateway (Claude → OpenAI → Gemini with
@@ -33,7 +34,7 @@ export async function runAgent(
 
   try {
     const result = await gatewayComplete({
-      system: agent.systemPrompt,
+      system: withConciseStyle(agent.systemPrompt),
       prompt: userPrompt,
       lang,
     });
