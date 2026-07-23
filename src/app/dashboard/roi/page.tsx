@@ -29,6 +29,13 @@ export default function RoiPage() {
   const [report, setReport] = useState<RoiReport | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [busy, setBusy] = useState<"" | "channels" | "readiness">("");
+  // Real readiness inputs — the Guarantee Score reflects YOUR answers, not a
+  // canned demo. Each maps to a scored dimension in the engine.
+  const [ready, setReady] = useState({
+    hasOffer: true, hasWebsite: true, hasCreatives: false,
+    hasTargeting: false, hasTracking: false, hasFollowUp: true,
+  });
+  const toggleReady = (k: keyof typeof ready) => setReady((r) => ({ ...r, [k]: !r[k] }));
 
   async function runChannels() {
     setBusy("channels");
@@ -40,7 +47,7 @@ export default function RoiPage() {
   async function runReadiness() {
     setBusy("readiness");
     try {
-      const res = await fetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "readiness", hasOffer: true, offerStrength: 90, hasWebsite: true, hasCreatives: true, hasTargeting: false, hasTracking: false, hasFollowUp: true }) });
+      const res = await fetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "readiness", ...ready }) });
       setReadiness(await res.json());
     } finally { setBusy(""); }
   }
@@ -60,6 +67,24 @@ export default function RoiPage() {
           <div><label className="label">Objective</label><input className="input" value={objective} onChange={(e) => setObjective(e.target.value)} /></div>
           <div><label className="label">Budget (£)</label><input className="input" type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></div>
           <div><label className="label">Avg order value (£)</label><input className="input" type="number" value={aov} onChange={(e) => setAov(Number(e.target.value))} /></div>
+        </div>
+        <div className="mt-5 border-t border-white/[0.06] pt-4">
+          <p className="label mb-2">Campaign readiness — tick what&rsquo;s true for you (the Guarantee Score reflects your real answers)</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {([
+              ["hasOffer", "I have a clear offer"],
+              ["hasWebsite", "I have a website / landing page"],
+              ["hasCreatives", "I have ad creatives ready"],
+              ["hasTargeting", "I know who to target"],
+              ["hasTracking", "I have conversion tracking"],
+              ["hasFollowUp", "I have a follow-up sequence"],
+            ] as [keyof typeof ready, string][]).map(([k, label]) => (
+              <label key={k} className="flex items-center gap-2 text-sm text-slate-300">
+                <input type="checkbox" checked={ready[k]} onChange={() => toggleReady(k)} className="accent-emerald-500" />
+                {label}
+              </label>
+            ))}
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={runChannels} disabled={busy === "channels"}>

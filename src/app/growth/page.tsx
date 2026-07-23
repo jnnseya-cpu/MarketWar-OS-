@@ -17,12 +17,17 @@ const TIERS = [
 export default function GrowthPage() {
   return (
     <MarketingShell
-      kicker="Growth & Influencers"
+      kicker="Growth & Influencers · Early access"
       title="Get paid to grow the network"
       subtitle="MarketWar rewards the people who create demand — creators, promoters, affiliates and agencies. Transparent tiers, fraud-protected tracking, and payment for real results, not empty reach."
     >
       <Prose>
-        <H2>Ways to earn</H2>
+        <div className="mb-8 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
+          <p className="text-sm font-semibold text-amber-200">This network is in formation — register your interest now.</p>
+          <p className="mt-1 text-[13px] text-slate-400">The creator, affiliate and partner programme opens in phases. Applying today puts you on the early-access list; we onboard partners tier by tier as tracking, payouts and the partner dashboard go live. Nothing here is a live self-serve signup yet — no fabricated numbers, no fake network.</p>
+        </div>
+
+        <H2>Ways to earn (as tiers open)</H2>
         <div className="grid gap-4 sm:grid-cols-2">
           {TIERS.map(([name, what, pay]) => (
             <div key={name} className="card p-5">
@@ -35,7 +40,7 @@ export default function GrowthPage() {
           ))}
         </div>
 
-        <H2>How the creator programme works</H2>
+        <H2>How the creator programme will work</H2>
         <ol className="space-y-2">
           {[
             "Apply and get scored — audience fit, engagement quality and brand safety (micro & local creators welcome).",
@@ -59,7 +64,7 @@ export default function GrowthPage() {
         </p>
 
         <div className="mt-10 flex flex-wrap gap-3">
-          <Link href="/contact" className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">Apply to the network</Link>
+          <Link href="/contact" className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">Register your interest</Link>
           <Link href="/get-started" className="rounded-lg border border-ink-700 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-emerald-500">Start a brand account</Link>
         </div>
       </Prose>
