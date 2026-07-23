@@ -77,7 +77,7 @@ export type BudgetReport = {
   standingOrders: StandingOrder[];
   weeklyReceipt: WeeklyReceipt;
   note: string;
-  isEstimate: true;
+  isEstimate: boolean; // true = modelled estimate; false = real/empty (no modelled figures)
 };
 
 // Weeks per month (365.25 / 12 / 7) — a constant, keeps the receipt deterministic.
@@ -109,12 +109,42 @@ function verdictFor(spend: number, revenue: number): { verdict: BudgetVerdict; r
   return { verdict: "FIX", roas };
 }
 
+// Honest empty board — a real brand with no connected ad spend / no entered
+// campaigns. No modelled figures: the shield only protects REAL money.
+export function emptyBudgetReport(business: string, monthlyBudgetGbp: number): BudgetReport {
+  const budget = Math.max(0, round(monthlyBudgetGbp || 0));
+  return {
+    business: business || "your brand",
+    monthlyBudgetGbp: budget,
+    totalSpendGbp: 0,
+    campaigns: [],
+    killedCount: 0,
+    protectedGbp: 0,
+    rerouteReturnGbp: 0,
+    projectedRoas: 0,
+    standingOrders: [
+      { rule: "Auto-pause zero-capture spend", detail: "The moment your ad accounts connect (or you log campaign spend), any campaign that spends without producing revenue is flagged and paused." },
+      { rule: "Cap FIX campaigns at break-even", detail: "Campaigns above break-even but under the 3× scale floor are capped, not scaled, until the funnel is fixed." },
+      { rule: "Reroute saved budget to winners", detail: "Protected budget flows to the highest-ROAS campaign once a winner clears 3×." },
+    ],
+    weeklyReceipt: { weekProtectedGbp: 0, weekRerouteReturnGbp: 0, campaignsPaused: 0, headline: "No spend to protect yet — connect ad accounts or log your live campaign figures to activate the shield.", cadence: "weekly" },
+    note: "No ad spend connected yet. Enter your live campaign spend + return (or connect an ad account) and the shield computes REAL protection — nothing here is modelled.",
+    isEstimate: false,
+  };
+}
+
 export function protectBudget(
   business: string,
   monthlyBudgetGbp: number,
-  campaigns?: BudgetCampaignInput[]
+  campaigns?: BudgetCampaignInput[],
+  opts?: { allowModel?: boolean }
 ): BudgetReport {
   const budget = Math.max(0, round(monthlyBudgetGbp || 600));
+  // Real money only: with no entered/connected campaigns and no explicit demo
+  // opt-in, return an honest empty board instead of fabricating a modelled one.
+  if ((!campaigns || !campaigns.length) && !opts?.allowModel) {
+    return emptyBudgetReport(business, monthlyBudgetGbp);
+  }
   const base = campaigns && campaigns.length ? campaigns : modelCampaigns(business, budget);
 
   const scored: ProtectedCampaign[] = base.map((c) => {

@@ -38,41 +38,47 @@ type BudgetReport = {
   standingOrders: StandingOrder[];
   weeklyReceipt: WeeklyReceipt;
   note: string;
-  isEstimate: true;
+  isEstimate: boolean;
 };
+
+// Parse "Name: 84 → 610" / "Name £84 -> £610 rev" lines into real campaigns.
+function parseCampaigns(text: string): { name: string; spendGbp: number; revenueGbp: number }[] {
+  return text.split(/[\n·]+/).map((l) => l.trim()).filter(Boolean).map((line) => {
+    const [namePart, rest] = line.split(/[:—-]|→|->/).length > 1 ? [line.slice(0, line.search(/[:→]|->/)), line.slice(line.search(/[:→]|->/))] : [line, ""];
+    const nums = (line.match(/\d[\d,.]*/g) || []).map((x) => Number(x.replace(/,/g, "")));
+    const name = (namePart || line).replace(/[:£].*$/, "").trim() || "Campaign";
+    return { name, spendGbp: nums[0] || 0, revenueGbp: nums[1] || 0 };
+  }).filter((c) => c.spendGbp > 0 || c.revenueGbp > 0);
+}
 
 export default function BudgetProtectionPage() {
   const { activeBrand } = useActiveBrand();
   const [report, setReport] = useState<BudgetReport | null>(null);
   const [busy, setBusy] = useState(false);
+  const [entry, setEntry] = useState("");
 
-  useEffect(() => {
-    if (!activeBrand) {
-      setReport(null);
-      return;
-    }
-    let cancelled = false;
+  const runBoard = (campaigns?: { name: string; spendGbp: number; revenueGbp: number }[]) => {
+    if (!activeBrand) return;
     setBusy(true);
     fetch("/api/budget", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ business: activeBrand.name, monthlyBudget: 600 }),
+      body: JSON.stringify({ business: activeBrand.name, monthlyBudget: 600, campaigns }),
     })
       .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setReport(d as BudgetReport);
-      })
-      .catch(() => {
-        if (!cancelled) setReport(null);
-      })
-      .finally(() => {
-        if (!cancelled) setBusy(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then((d) => setReport(d as BudgetReport))
+      .catch(() => setReport(null))
+      .finally(() => setBusy(false));
+  };
+
+  useEffect(() => {
+    if (!activeBrand) { setReport(null); return; }
+    runBoard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrand]);
 
+  const hasCampaigns = Boolean(report && report.campaigns.length > 0);
+  const est = Boolean(report?.isEstimate);
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
   return (
@@ -80,7 +86,7 @@ export default function BudgetProtectionPage() {
       <PageHeader
         kicker="Budget Protection Engine"
         title="The Financial Shield"
-        subtitle="Campaigns that spend without producing revenue are flagged to pause — and auto-pause the moment your ad accounts connect. Budget flows to proven winners, with a weekly money-saved receipt. Figures below are modelled estimates per brand until live ad spend connects."
+        subtitle="Campaigns that spend without producing revenue are flagged to pause — and auto-pause the moment your ad accounts connect. Budget flows to proven winners, with a weekly money-saved receipt. The shield protects REAL money — enter your live campaign spend/return or connect an ad account."
         actions={
           activeBrand ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-ink-900/60 px-3 py-1.5 text-xs text-slate-300">
@@ -100,23 +106,50 @@ export default function BudgetProtectionPage() {
             accounts to protect real spend.
           </p>
         </div>
-      ) : !report ? (
+      ) : busy && !report ? (
         <div className="card flex items-center justify-center gap-3 p-10 text-slate-400">
-          <Loader2 className="h-5 w-5 animate-spin" /> Modelling the protection board for {activeBrand.name}…
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading the shield for {activeBrand.name}…
+        </div>
+      ) : !report || !hasCampaigns ? (
+        <div className="card border-emerald-500/20 p-8">
+          <div className="mx-auto max-w-lg text-center">
+            <ShieldCheck className="mx-auto h-8 w-8 text-emerald-500/70" />
+            <h3 className="mt-3 font-display text-lg font-bold text-white">Arm the shield with your real spend</h3>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">{report?.note || "No ad spend connected yet. Enter your live campaigns and the shield computes real Stop/Fix/Scale protection — nothing modelled."}</p>
+            <textarea
+              className="input mt-4 min-h-[90px] text-left"
+              placeholder={"One campaign per line:\nFamily Platter: 84 → 610\nAwareness: 96 → 0\nRetargeting: 168 → 773"}
+              value={entry}
+              onChange={(e) => setEntry(e.target.value)}
+            />
+            <button
+              className="btn-primary mt-3"
+              disabled={busy || parseCampaigns(entry).length === 0}
+              onClick={() => runBoard(parseCampaigns(entry))}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Compute real protection
+            </button>
+            <div className="mt-4 space-y-2 text-left">
+              {report?.standingOrders.map((o) => (
+                <div key={o.rule} className="rounded-lg border border-ink-600 p-3 text-xs text-slate-400"><span className="font-bold text-slate-200">{o.rule}:</span> {o.detail}</div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
         <>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-display text-sm font-bold text-slate-300">
-              Modelled against a {money(report.monthlyBudgetGbp)}/mo budget
+              {est ? "Modelled against" : "Your live campaigns vs"} a {money(report.monthlyBudgetGbp)}/mo budget
             </h2>
-            <Pill tone="warn">estimate — modelled, not booked spend</Pill>
+            {est ? <Pill tone="warn">estimate — modelled, not booked spend</Pill> : <Pill tone="good">your entered spend</Pill>}
+            <button className="text-xs text-slate-400 hover:text-white" onClick={() => { setReport(null); runBoard(); }}>↺ Reset / enter different campaigns</button>
           </div>
           <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Protected this cycle" value={money(report.protectedGbp)} sub="waste stopped + rerouted (est.)" tone="good" />
+            <StatCard label="Protected this cycle" value={money(report.protectedGbp)} sub={`waste stopped + rerouted${est ? " (est.)" : ""}`} tone="good" />
             <StatCard label="Campaigns flagged" value={`${report.killedCount}`} sub="zero-capture spend, flagged to pause" tone={report.killedCount > 0 ? "bad" : "neutral"} />
-            <StatCard label="Reroute return" value={`+${money(report.rerouteReturnGbp)}`} sub="projected from scale winner (est.)" tone="good" />
-            <StatCard label="Blended ROAS" value={`${report.projectedRoas}×`} sub={`£${report.totalSpendGbp.toLocaleString()} modelled spend`} tone={report.projectedRoas >= 2 ? "good" : "warn"} />
+            <StatCard label="Reroute return" value={`+${money(report.rerouteReturnGbp)}`} sub={`projected from scale winner${est ? " (est.)" : ""}`} tone="good" />
+            <StatCard label="Blended ROAS" value={`${report.projectedRoas}×`} sub={`£${report.totalSpendGbp.toLocaleString()} ${est ? "modelled" : "entered"} spend`} tone={report.projectedRoas >= 2 ? "good" : "warn"} />
           </div>
 
           {/* Weekly money-saved receipt — the artifact the shield emails each week. */}
