@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
+import PartnerApplyForm from "@/components/PartnerApplyForm";
 
 export const metadata: Metadata = {
   title: "Growth & Influencers · MarketWar OS",
@@ -22,9 +23,9 @@ export default function GrowthPage() {
       subtitle="MarketWar rewards the people who create demand — creators, promoters, affiliates and agencies. Transparent tiers, fraud-protected tracking, and payment for real results, not empty reach."
     >
       <Prose>
-        <div className="mb-8 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
-          <p className="text-sm font-semibold text-amber-200">This network is in formation — register your interest now.</p>
-          <p className="mt-1 text-[13px] text-slate-400">The creator, affiliate and partner programme opens in phases. Applying today puts you on the early-access list; we onboard partners tier by tier as tracking, payouts and the partner dashboard go live. Nothing here is a live self-serve signup yet — no fabricated numbers, no fake network.</p>
+        <div className="mb-8 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4">
+          <p className="text-sm font-semibold text-emerald-200">Applications are open — apply below and we&rsquo;ll onboard you as your tier goes live.</p>
+          <p className="mt-1 text-[13px] text-slate-400">The form below is a real application: your details are captured and reviewed. The programme opens in phases — we onboard partners tier by tier as tracking, payouts and the partner dashboard go live, and email you when yours is ready. Honest by design: no fabricated numbers, no fake dashboard shown as working.</p>
         </div>
 
         <H2>Ways to earn (as tiers open)</H2>
@@ -63,8 +64,10 @@ export default function GrowthPage() {
           conversion.
         </p>
 
+        <H2>Apply now — it&rsquo;s a real application</H2>
+        <PartnerApplyForm />
+
         <div className="mt-10 flex flex-wrap gap-3">
-          <Link href="/contact" className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">Register your interest</Link>
           <Link href="/get-started" className="rounded-lg border border-ink-700 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-emerald-500">Start a brand account</Link>
         </div>
       </Prose>

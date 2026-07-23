@@ -54,6 +54,7 @@ const NAV = [
   {
     group: "Command",
     items: [
+      { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
       { href: "/dashboard/first-customer", label: "First Customer", icon: Banknote },
       { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
@@ -74,7 +75,6 @@ const NAV = [
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
       { href: "/dashboard/publish", label: "Publish Center", icon: Send },
-      { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
       { href: "/dashboard/discover", label: "Market Intel", icon: Search },
       { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
