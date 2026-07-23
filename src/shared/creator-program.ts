@@ -21,14 +21,60 @@ export const CREATOR_TIERS: CreatorTier[] = [
   { key: "local_viral", label: "Local viral creators", audience: "Food, sports, lifestyle and event creators", bestFor: "Instant local demand — best for food delivery, ticketing and travel." },
 ];
 
-// The commission / partnership model.
+// ---------------------------------------------------------------------------
+// Commission model (owner ruling) — precise, implemented in code below.
+// ---------------------------------------------------------------------------
+// • A creator can subscribe to between 1 and 100 programmes (one per product/
+//   brand campaign they want to promote), and gets a unique code/link PER
+//   subscribed programme.
+// • Payout gate: a creator is only PAID once they have at least 10,000 followers
+//   totalled across all their social platforms + YouTube. Below that they can
+//   still promote and accrue, but nothing is paid out.
+// • Per referred user: the creator earns 0.75% of that user's verified revenue
+//   and the platform takes 0.25% (1% total) — UNTIL the creator has earned
+//   £20,000 from that user. After that the split flips: the platform takes the
+//   full 1% for the next £20,000, then commission on that user stops.
+export const MIN_PAYOUT_FOLLOWERS = 10_000;
+export const MIN_PROGRAMMES = 1;
+export const MAX_PROGRAMMES = 100;
+export const RATE_TOTAL = 0.01;        // 1% total
+export const RATE_CREATOR = 0.0075;    // 0.75% to the creator
+export const RATE_PLATFORM = 0.0025;   // 0.25% to the platform
+export const EARNINGS_CAP_GBP = 20_000; // the £20k cycle threshold
+
 export const COMMISSION_MODEL: string[] = [
-  "Every creator gets a unique tracked link + coupon code — attribution is transparent, you see exactly which content drove which conversion.",
-  "Pay on VERIFIED revenue only — milestones, not vibes; no payment for empty reach.",
-  "Monthly leaderboards reward the top performers and keep the programme competitive.",
-  "Consumer products: recruit many micro-creators and let performance decide. B2B products: fewer creators, higher-quality long-term partnerships.",
-  "Built-in trust: every payout is fraud-scored, every endorsement carries AI-content disclosure, and we never fabricate testimonials or clone a creator without consent.",
+  "Subscribe to as many programmes as you can — from 1 up to 100 — and get a unique tracked link + coupon code for each one.",
+  `You're paid only once you have at least ${MIN_PAYOUT_FOLLOWERS.toLocaleString()} followers totalled across all your social platforms and YouTube. Below that you can still promote and accrue — payout unlocks when you cross the threshold.`,
+  "Per referred user you earn 0.75% of their verified revenue; the platform takes 0.25% (1% total). Attribution is transparent — you see exactly which code/link drove which conversion.",
+  `Once a single referred user has earned you £${EARNINGS_CAP_GBP.toLocaleString()}, the split flips: the platform takes the full 1% for the next £${EARNINGS_CAP_GBP.toLocaleString()}, then commission on that user stops.`,
+  "Paid on VERIFIED revenue only — no payment for empty reach. Every payout is fraud-scored, every endorsement carries AI-content disclosure, and we never clone a creator without consent.",
 ];
+
+// Pure, faithful implementation of the split for a single referred user, given
+// that user's cumulative verified revenue attributed to the creator. Phase 1:
+// creator 0.75% + platform 0.25% until the creator has earned the £20k cap.
+// Phase 2: platform takes the full 1% for the next £20k. Phase 3: stop.
+export function computeCreatorSplit(userRevenueGbp: number): { creatorGbp: number; platformGbp: number; phase: 1 | 2 | 3; note: string } {
+  const rev = Math.max(0, userRevenueGbp || 0);
+  const r1 = EARNINGS_CAP_GBP / RATE_CREATOR;          // revenue at which creator hits the £20k cap
+  const r2span = EARNINGS_CAP_GBP / RATE_TOTAL;        // revenue over which platform recoups £20k at 1%
+  const p1 = Math.min(rev, r1);
+  let creatorGbp = p1 * RATE_CREATOR;
+  let platformGbp = p1 * RATE_PLATFORM;
+  let phase: 1 | 2 | 3 = 1;
+  if (rev > r1) {
+    phase = 2;
+    const p2 = Math.min(rev - r1, r2span);
+    platformGbp += p2 * RATE_TOTAL;                    // creator earns nothing in phase 2
+    if (rev - r1 >= r2span) phase = 3;                 // recoup complete → stopped
+  }
+  const note = phase === 1
+    ? "Active — creator earns 0.75%, platform 0.25%."
+    : phase === 2
+      ? "Cap reached — platform takes the full 1% until it recoups £20k."
+      : "Cycle complete — commission on this user has stopped.";
+  return { creatorGbp: Math.round(creatorGbp * 100) / 100, platformGbp: Math.round(platformGbp * 100) / 100, phase, note };
+}
 
 // How the creator programme works, end to end.
 export const PROGRAMME_STEPS: string[] = [

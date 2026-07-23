@@ -2,14 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import PartnerApplyForm from "@/components/PartnerApplyForm";
-import { CREATOR_TIERS, COMMISSION_MODEL, PROGRAMME_STEPS, PORTFOLIO, PRIORITY_ORDER, STRATEGY_NOTE } from "@/shared/creator-program";
+import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
 
 export const metadata: Metadata = {
   title: "Growth & Influencers · MarketWar OS",
   description: "Earn by growing the MarketWar OS portfolio — a creator, affiliate and partner programme for trusted niche educators, operators and reviewers. Performance-based, fraud-protected, paid on verified revenue.",
 };
-
-const TIER_PAY: Record<string, string> = { micro: "Performance commission", authority: "High-value partnership", local_viral: "Local performance deal" };
 
 export default function GrowthPage() {
   return (
@@ -28,49 +26,11 @@ export default function GrowthPage() {
           <p className="text-[13px] leading-relaxed text-slate-300"><span className="font-semibold text-white">Our approach:</span> {STRATEGY_NOTE}</p>
         </div>
 
-        <H2>Three creator tiers</H2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {CREATOR_TIERS.map((t) => (
-            <div key={t.key} className="card p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="font-display text-base font-bold text-white">{t.label}</h3>
-                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">{TIER_PAY[t.key]}</span>
-              </div>
-              <p className="mt-1 text-xs font-semibold text-emerald-300/80">{t.audience}</p>
-              <p className="mt-2 text-sm text-slate-400">{t.bestFor}</p>
-            </div>
-          ))}
+        <div className="not-prose mb-8 grid gap-3 sm:grid-cols-3">
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">1–{MAX_PROGRAMMES}</p><p className="mt-1 text-xs text-slate-400">programmes you can subscribe to — a unique code/link for each product you promote.</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">{MIN_PAYOUT_FOLLOWERS.toLocaleString()}+</p><p className="mt-1 text-xs text-slate-400">followers across all your socials + YouTube to unlock payout (you can still promote + accrue below it).</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">0.75%</p><p className="mt-1 text-xs text-slate-400">of each referred user&rsquo;s verified revenue is yours (platform takes 0.25%).</p></div>
         </div>
-
-        <H2>Products &amp; the creators who fit</H2>
-        <p className="text-slate-400">Each product in the portfolio recruits a specific creator profile — trust travels within a niche. Pick the product you already speak to when you apply.</p>
-        <div className="not-prose mt-4 grid gap-3 sm:grid-cols-2">
-          {PORTFOLIO.map((p) => (
-            <div key={p.key} className="rounded-xl border border-white/[0.08] bg-ink-900/50 p-4">
-              <div className="flex items-center gap-2">
-                <h3 className="font-display text-sm font-bold text-white">{p.name}</h3>
-                {p.priority && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">Recruiting first</span>}
-                <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide text-slate-500">{p.category}</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {p.targetProfiles.map((prof) => (
-                  <span key={prof} className="rounded-md border border-white/[0.07] bg-ink-950/60 px-2 py-0.5 text-[11px] text-slate-300">{prof}</span>
-                ))}
-              </div>
-              <p className="mt-2 text-xs text-slate-500">{p.why}</p>
-            </div>
-          ))}
-        </div>
-
-        <H2>Where we&rsquo;re recruiting first</H2>
-        <ol className="space-y-1.5">
-          {PRIORITY_ORDER.map((p) => (
-            <li key={p.key} className="flex items-start gap-3 text-[14px] text-slate-300">
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-xs font-bold text-emerald-300">{p.priority}</span>
-              <span><span className="font-semibold text-white">{p.name}</span> — {p.category.toLowerCase()} creators can build trust and demand fastest here.</span>
-            </li>
-          ))}
-        </ol>
 
         <H2>How you get paid</H2>
         <ul className="space-y-1.5">

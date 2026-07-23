@@ -46,7 +46,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { n: 11, key: "lead_capture", label: "Lead Capture", status: "live", route: "/dashboard/customers", note: "Wired to the Customer Vault + landing lead capture." },
   { n: 12, key: "conversion", label: "Conversion Intelligence", status: "live", route: "/dashboard/landing-builder", note: "Wired to the Conversion Architect + landing pages." },
   { n: 13, key: "customer_voice", label: "Customer Voice", status: "live", route: "/dashboard/segments", note: "First-party voice from the vault; ticket/call ingestion connects as a data source." },
-  { n: 14, key: "influencer", label: "Influencer Intelligence", status: "live", route: "/growth", note: "Wired to the creator programme; live discovery needs a creator data source." },
+  { n: 14, key: "influencer", label: "Influencer Intelligence", status: "live", route: "/dashboard/influencers", note: "Per-brand AI recruitment advisor + commission model; live discovery needs a creator data source." },
   { n: 15, key: "local", label: "Local Market Intelligence", status: "live", route: "/dashboard/local", note: "Wired to Local Domination; live GBP data connects as a source." },
   { n: 16, key: "reports", label: "Reports & Attribution", status: "live", route: "/dashboard/revenue", note: "Wired to Revenue Intel; full attribution chain builds as sources connect." },
   { n: 17, key: "automations", label: "Automations", status: "live", route: "/dashboard/automation", note: "Wired to the Automation Lab." },

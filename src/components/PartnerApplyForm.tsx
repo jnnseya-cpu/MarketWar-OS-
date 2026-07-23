@@ -1,27 +1,28 @@
 "use client";
 
-// Real partner/creator/affiliate application form — the working capture behind
-// the Growth & Influencers page. Submits to /api/growth/apply, which stores the
-// application. Honest: on success it confirms the application was received (it
-// does NOT pretend the network is live). Replaces the old dead "/contact" link.
+// Real creator/affiliate application form — the working capture behind the
+// Growth & Influencers page. Submits to /api/growth/apply, which stores the
+// application. Honest: on success it confirms the application was received.
+//
+// New commission model: subscribe to 1–100 programmes, get a code/link per
+// programme, paid 0.75% per referred user (platform 0.25%) — but payout only
+// unlocks at 10k+ total followers across all socials + YouTube.
 
 import { useState } from "react";
 import { Loader2, CheckCircle2, Send } from "lucide-react";
-import { PORTFOLIO, CREATOR_TIERS } from "@/shared/creator-program";
+import { MIN_PAYOUT_FOLLOWERS, MIN_PROGRAMMES, MAX_PROGRAMMES } from "@/shared/creator-program";
 
 const TIERS = [
-  { value: "promoter", label: "Promoter — share a link, earn on referrals" },
-  { value: "creator", label: "Creator — make content for a product" },
+  { value: "promoter", label: "Promoter — share codes/links, earn on referrals" },
+  { value: "creator", label: "Creator — make content for the products you promote" },
   { value: "affiliate", label: "Affiliate Partner — drive signups at scale" },
   { value: "agency", label: "Agency Partner — bring clients (white-label)" },
 ];
 
-const TIER_LABEL: Record<string, string> = Object.fromEntries(CREATOR_TIERS.map((t) => [t.key, t.label]));
-
 export default function PartnerApplyForm() {
   const [tier, setTier] = useState("promoter");
-  const [product, setProduct] = useState("");
-  const [creatorTier, setCreatorTier] = useState("");
+  const [programmes, setProgrammes] = useState(5);
+  const [followers, setFollowers] = useState(0);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [audience, setAudience] = useState("");
@@ -38,7 +39,7 @@ export default function PartnerApplyForm() {
       const res = await fetch("/api/growth/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier, product, creatorTier, name, email, audience, website, notes, nowISO: new Date().toISOString() }),
+        body: JSON.stringify({ tier, programmes, followers, name, email, audience, website, notes, nowISO: new Date().toISOString() }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Something went wrong — try again."); return; }
@@ -59,11 +60,12 @@ export default function PartnerApplyForm() {
     );
   }
 
+  const belowGate = followers > 0 && followers < MIN_PAYOUT_FOLLOWERS;
   const input = "w-full rounded-lg border border-ink-700 bg-ink-900/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60";
   return (
     <form onSubmit={submit} className="rounded-xl border border-white/10 bg-ink-900/60 p-6">
-      <h3 className="font-display text-base font-bold text-white">Apply to the early-access programme</h3>
-      <p className="mt-1 mb-4 text-[13px] text-slate-400">Real application — we store it and onboard your tier as it opens. No fake network, no self-serve dashboard yet.</p>
+      <h3 className="font-display text-base font-bold text-white">Apply to the creator programme</h3>
+      <p className="mt-1 mb-4 text-[13px] text-slate-400">Real application — we store it and match you to brands to promote. You earn 0.75% per referred user; payout unlocks at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ total followers.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-slate-400">How do you want to earn?</span>
@@ -72,22 +74,19 @@ export default function PartnerApplyForm() {
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-slate-400">Which product do you create for?</span>
-          <select value={product} onChange={(e) => setProduct(e.target.value)} className={input}>
-            <option value="">Not sure yet / general</option>
-            {PORTFOLIO.map((p) => <option key={p.key} value={p.key}>{p.name} · {p.category}</option>)}
-          </select>
+          <span className="mb-1 block text-xs font-semibold text-slate-400">Programmes to subscribe to ({MIN_PROGRAMMES}–{MAX_PROGRAMMES})</span>
+          <input type="number" min={MIN_PROGRAMMES} max={MAX_PROGRAMMES} value={programmes} onChange={(e) => setProgrammes(Math.max(MIN_PROGRAMMES, Math.min(MAX_PROGRAMMES, Number(e.target.value))))} className={input} />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-slate-400">Which creator tier fits you?</span>
-          <select value={creatorTier} onChange={(e) => setCreatorTier(e.target.value)} className={input}>
-            <option value="">Let us decide from my audience</option>
-            {CREATOR_TIERS.map((t) => <option key={t.key} value={t.key}>{TIER_LABEL[t.key]} · {t.audience}</option>)}
-          </select>
+        <label className="sm:col-span-2 block">
+          <span className="mb-1 block text-xs font-semibold text-slate-400">Total followers across ALL your socials + YouTube</span>
+          <input type="number" min={0} value={followers} onChange={(e) => setFollowers(Math.max(0, Number(e.target.value)))} className={input} placeholder="e.g. 32000" />
+          {belowGate
+            ? <p className="mt-1 text-[11px] text-amber-400">Below {MIN_PAYOUT_FOLLOWERS.toLocaleString()} — you can still apply and promote, but payout unlocks once you cross the threshold.</p>
+            : followers >= MIN_PAYOUT_FOLLOWERS ? <p className="mt-1 text-[11px] text-emerald-400">Above the payout threshold — eligible to be paid on verified referrals.</p> : null}
         </label>
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-400">Your name</span><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Full name" /></label>
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-400">Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} placeholder="you@example.com" /></label>
-        <label className="sm:col-span-2 block"><span className="mb-1 block text-xs font-semibold text-slate-400">Where do you have reach? (channels + rough audience size)</span><input value={audience} onChange={(e) => setAudience(e.target.value)} className={input} placeholder="e.g. TikTok 22k, Instagram 8k, local WhatsApp groups" /></label>
+        <label className="sm:col-span-2 block"><span className="mb-1 block text-xs font-semibold text-slate-400">Your social handles + audience (platform · handle · followers)</span><input value={audience} onChange={(e) => setAudience(e.target.value)} className={input} placeholder="e.g. TikTok @me 22k, YouTube @me 12k, Instagram @me 8k" /></label>
         <label className="sm:col-span-2 block"><span className="mb-1 block text-xs font-semibold text-slate-400">Website / main profile (optional)</span><input value={website} onChange={(e) => setWebsite(e.target.value)} className={input} placeholder="https://…" /></label>
         <label className="sm:col-span-2 block"><span className="mb-1 block text-xs font-semibold text-slate-400">Anything else (optional)</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={`${input} min-h-[72px]`} placeholder="Niche, audience, why you're a fit…" /></label>
       </div>

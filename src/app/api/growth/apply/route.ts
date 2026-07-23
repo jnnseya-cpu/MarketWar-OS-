@@ -22,13 +22,14 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid submission" }, { status: 400 }); }
 
   const s = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : "");
+  const n = (k: string) => (typeof body[k] === "number" ? (body[k] as number) : Number(body[k]) || 0);
   const tier = (s("tier") || "promoter") as PartnerTier;
   const name = s("name");
   const email = s("email");
   const audience = s("audience");
   const website = s("website");
-  const product = s("product").slice(0, 60);
-  const creatorTier = s("creatorTier").slice(0, 20);
+  const programmes = Math.max(1, Math.min(100, Math.round(n("programmes")) || 1));
+  const followers = Math.max(0, Math.round(n("followers")));
   const notes = s("notes").slice(0, 800);
 
   if (!TIERS.includes(tier)) return NextResponse.json({ error: "Pick a valid tier." }, { status: 400 });
@@ -37,11 +38,13 @@ export async function POST(req: NextRequest) {
   if (!audience) return NextResponse.json({ error: "Tell us where you have reach (channels + rough audience size)." }, { status: 400 });
 
   const nowISO = typeof body.nowISO === "string" ? body.nowISO : new Date().toISOString();
-  const record = await savePartnerApplication({ tier, name, email, audience, website, product, creatorTier, notes, nowISO });
+  const record = await savePartnerApplication({ tier, name, email, audience, website, programmes, followers, notes, nowISO });
 
   return NextResponse.json({
     ok: true,
     applicationId: record.id,
-    message: "You're on the early-access list — application received. We'll onboard your tier as it opens and email you at the address you gave.",
+    message: followers >= 10_000
+      ? `Application received — you're above the 10k-follower payout threshold. We'll match you to brands and issue a code/link for each of your ${programmes} programme(s).`
+      : `Application received. You can promote and accrue now; payout unlocks once you reach 10,000 total followers. We'll match you to brands and issue a code/link per programme.`,
   });
 }
