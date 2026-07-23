@@ -55,7 +55,15 @@ export default function ReputationPage() {
         </div>
       </div>
 
-      {trust && (
+      {trust && trust.reviewCount === 0 && (
+        <div className="mb-6 card border-amber-500/25 bg-amber-500/[0.05] p-6">
+          <div className="flex items-center gap-2"><Star className="h-5 w-5 text-amber-400" /><h3 className="font-display text-lg font-bold text-white">TrustScore is UNVERIFIED — no reviews connected</h3></div>
+          <p className="mt-1.5 text-sm text-slate-400">{trust.verdict}</p>
+          <p className="mt-2 text-xs text-slate-500">Doctrine: reviews are earned, never fabricated — so nothing here is invented. Paste your real reviews (or connect Google / Trustpilot / G2) and the TrustScore, sentiment, response drafts and social-proof assets all compute from your actual feedback.</p>
+        </div>
+      )}
+
+      {trust && trust.reviewCount > 0 && (
         <div className="mb-6 card p-6">
           <div className="mb-3 flex items-center gap-2"><Star className="h-5 w-5 text-amber-400" /><h3 className="font-display text-lg font-bold text-white">{trust.business}</h3><Pill tone={tone(trust.trustScore)}>TrustScore {trust.trustScore}</Pill></div>
           <div className="grid gap-3 sm:grid-cols-4">

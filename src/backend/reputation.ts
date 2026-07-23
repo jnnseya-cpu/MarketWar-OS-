@@ -68,6 +68,27 @@ export type TrustReport = {
   verdict: string;
 };
 
+// Honest UNVERIFIED state — no real reviews supplied. Doctrine: reviews are
+// earned, never fabricated, so we invent NO score/rating/count.
+export function emptyTrust(business: string): TrustReport {
+  return {
+    business: business || "your brand",
+    trustScore: 0, averageRating: 0, reviewCount: 0,
+    starDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    verifiedShare: 0, positiveShare: 0, negativeShare: 0, aiVisibilityReadiness: 0,
+    verdict: "UNVERIFIED — connect a real review source (Google, Trustpilot, G2…) and paste your reviews to compute a real TrustScore. No score is invented.",
+  };
+}
+export function emptySentiment(business: string): SentimentReport {
+  return {
+    business: business || "your brand",
+    topicSentiment: [], painPoints: [], featureRequests: [], complaintClusters: [],
+    customerHappiness: 0,
+    churnRiskSignals: ["No reviews connected yet — nothing to analyse."],
+    operationalPlan: ["Connect a review source or paste real reviews; sentiment, pain points and the CX plan compute from your actual feedback — never a sample."],
+  };
+}
+
 export function computeTrust(business: string, reviews: Review[]): TrustReport {
   const rs = reviews.length ? reviews : sampleReviews(business);
   const n = rs.length;

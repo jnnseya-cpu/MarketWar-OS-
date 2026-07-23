@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   computeTrust, analyseSentiment, draftResponse, fakeReviewRisk, reviewToAssets, competitorTrust, sampleReviews,
+  emptyTrust, emptySentiment,
   type Review,
 } from "@/backend/reputation";
 
@@ -22,8 +23,9 @@ export async function POST(req: NextRequest) {
   const business = typeof body.business === "string" ? body.business : "Brixton Grill House";
   const reviews = parseReviews(body);
 
-  if (action === "trust") return NextResponse.json(computeTrust(business, reviews));
-  if (action === "sentiment") return NextResponse.json(analyseSentiment(business, reviews));
+  // No real reviews supplied → honest UNVERIFIED state, never a fabricated score.
+  if (action === "trust") return NextResponse.json(reviews.length ? computeTrust(business, reviews) : emptyTrust(business));
+  if (action === "sentiment") return NextResponse.json(reviews.length ? analyseSentiment(business, reviews) : emptySentiment(business));
   if (action === "fakecheck") return NextResponse.json(fakeReviewRisk(reviews.length ? reviews : sampleReviews(business)));
   if (action === "respond") {
     const review = (body.review as Review) || sampleReviews(business).find((r) => r.rating <= 2)!;
