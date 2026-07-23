@@ -231,16 +231,19 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ======================== SOCIAL PROOF STRIP ===================== */}
+      {/* ======================== INFRASTRUCTURE STRIP ===================== */}
+      {/* Honest: we're invitation-only and new, so no invented customer logos.
+          Instead we show the real production stack the OS runs on — every name
+          here is a service we genuinely build on. */}
       <section className="relative mt-20 border-y border-white/5 bg-ink-900/40 py-8">
         <p className="mb-5 text-center text-xs font-semibold uppercase tracking-[0.25em] text-slate-600">
-          Trusted by founders &amp; teams
+          Built on production-grade infrastructure
         </p>
         <div className="relative overflow-hidden">
           <div className="animate-marquee flex w-max gap-14 px-7">
             {[...Array(3)].flatMap((_, half) =>
               [
-                "ELEVATE DIGITAL", "NEXORA LABS", "VERTEX COMMERCE", "QUANTUM BRANDS", "ZENITH GROWTH",
+                "VERCEL", "CLOUDFLARE", "FIREBASE", "STRIPE", "ANTHROPIC CLAUDE",
               ].map((name) => (
                 <span key={`${half}-${name}`} className="whitespace-nowrap font-display text-lg font-bold text-slate-600">
                   {name}
@@ -454,14 +457,23 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ========================== METRICS BAND ========================= */}
+      {/* ========================== TARGETS BAND ========================= */}
+      {/* Honest: we're new and invitation-only, so these are the operating
+          targets the OS is engineered to hit — the thresholds its automation
+          rules enforce — NOT averaged customer results. Labelled as such. */}
       <section id="results" className="border-y border-white/5 bg-gradient-to-b from-ink-900/60 to-ink-950">
-        <div className="mx-auto grid max-w-6xl gap-8 px-5 py-16 text-center sm:grid-cols-4">
+        <p className="mx-auto max-w-6xl px-5 pt-16 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">
+          What the OS is engineered to enforce
+        </p>
+        <p className="mx-auto max-w-2xl px-5 pt-2 text-center text-sm text-slate-500">
+          Operating targets built into the automation rules — not averaged customer results. We&rsquo;re new; we don&rsquo;t publish numbers we haven&rsquo;t earned.
+        </p>
+        <div className="mx-auto grid max-w-6xl gap-8 px-5 pb-16 pt-8 text-center sm:grid-cols-4">
           {[
-            { value: "4.5x", label: "average blended ROAS", color: SERIES[1] },
-            { value: "48h", label: "max lifetime of a losing ad", color: SERIES[5] },
-            { value: "£1,240", label: "avg. dormant revenue found per vault", color: SERIES[2] },
-            { value: "3x", label: "conversion lift from 10-min replies", color: SERIES[4] },
+            { value: "4.0x+", label: "blended ROAS the budget agent targets before scaling", color: SERIES[1] },
+            { value: "48h", label: "kill-window the ad rules give a losing creative", color: SERIES[5] },
+            { value: "10 min", label: "reply SLA the sales agents are tuned to", color: SERIES[2] },
+            { value: "100%", label: "of AI actions priced at ≥2× provider cost", color: SERIES[4] },
           ].map((m) => (
             <div key={m.label}>
               <p className="font-display text-4xl font-bold sm:text-5xl" style={{ color: m.color }}>{m.value}</p>

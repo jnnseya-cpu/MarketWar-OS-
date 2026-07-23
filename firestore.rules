@@ -124,6 +124,22 @@ service cloud.firestore {
     match /securityEvents/{doc} { allow read, write: if false; }
     match /auditLogs/{doc} { allow read, write: if false; }
 
+    // ── Creator & Partner Monetisation Engine (src/backend/creator-engine.ts) ──
+    // Money-bearing collections: partner accounts, subscriptions, the append-only
+    // conversion ledger, payout records, and the raw applications (PII). ALL are
+    // written AND read only through the Admin SDK. A partner reads their own data
+    // through the token-gated /api/creator-engine `partner_portal` action (their
+    // access token is the credential) — never by direct client Firestore access.
+    // Brands manage programmes through the ownership-checked API. So every one of
+    // these is deny-all at the database layer: no client can read another
+    // partner's earnings/PII or forge a conversion, cap release, or payout.
+    match /creator_accounts/{doc} { allow read, write: if false; }
+    match /creator_programmes/{doc} { allow read, write: if false; }
+    match /creator_subscriptions/{doc} { allow read, write: if false; }
+    match /creator_ledger/{doc} { allow read, write: if false; }
+    match /creator_payouts/{doc} { allow read, write: if false; }
+    match /partner_applications/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;

@@ -49,16 +49,15 @@ export default function StatusPage() {
           ))}
         </div>
 
-        <H2>Uptime (last 90 days)</H2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[["API", "99.98%"], ["Gateway", "99.97%"], ["Dashboard", "99.99%"], ["Webhooks", "100%"]].map(([k, v]) => (
-            <div key={k} className="card p-4 text-center"><p className="font-display text-2xl font-bold text-emerald-400">{v}</p><p className="mt-1 text-[12px] text-slate-500">{k}</p></div>
-          ))}
+        <H2>Uptime history</H2>
+        <div className="rounded-xl border border-ink-800 bg-ink-900/40 p-4">
+          <p className="text-sm text-slate-300">Uptime tracking begins at public launch.</p>
+          <p className="mt-1 text-[13px] text-slate-500">We&rsquo;re invitation-only and new — so we don&rsquo;t publish uptime percentages we haven&rsquo;t measured yet. Once the live status feed (external monitor) is connected, verified 90-day figures appear here. The component list above shows each service&rsquo;s configured baseline, not a live health probe.</p>
         </div>
 
         <H2>Recent incidents</H2>
-        <p className="text-slate-400">No incidents in the last 90 days.</p>
-        <p className="text-[13px] text-slate-500">Figures shown are representative until the live status feed is connected. Subscribe to updates via the <a href="/contact" className="text-emerald-400 hover:text-emerald-300">contact page</a>.</p>
+        <p className="text-slate-400">None recorded since this page went live.</p>
+        <p className="text-[13px] text-slate-500">Subscribe to status updates via the <a href="/contact" className="text-emerald-400 hover:text-emerald-300">contact page</a>.</p>
       </Prose>
     </MarketingShell>
   );
