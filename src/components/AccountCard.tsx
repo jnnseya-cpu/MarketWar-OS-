@@ -16,11 +16,25 @@ export default function AccountCard() {
   const router = useRouter();
   const { user, loading, configured, signOutNow } = useAuthUser();
   const [busy, setBusy] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const verified = firebaseAuth?.currentUser?.emailVerified ?? false;
 
   async function handleSignOut() {
     setBusy(true);
     try { await signOutNow(); router.replace("/login"); } finally { setBusy(false); }
+  }
+
+  async function resendVerification() {
+    setVerifyMsg(null);
+    const u = firebaseAuth?.currentUser;
+    if (!u) return;
+    try {
+      const { sendEmailVerification } = await import("firebase/auth");
+      await sendEmailVerification(u, { url: `${window.location.origin}/dashboard` });
+      setVerifyMsg("Verification email sent — check your inbox (and spam).");
+    } catch (e) {
+      setVerifyMsg(e instanceof Error ? e.message.replace("Firebase: ", "") : "Could not send verification email.");
+    }
   }
 
   return (
@@ -49,7 +63,11 @@ export default function AccountCard() {
               {verified ? (
                 <p className="flex items-center gap-1.5 text-sm text-emerald-300"><BadgeCheck className="h-4 w-4" /> Verified</p>
               ) : (
-                <p className="flex items-center gap-1.5 text-sm text-amber-300"><ShieldAlert className="h-4 w-4" /> Unverified</p>
+                <div>
+                  <p className="flex items-center gap-1.5 text-sm text-amber-300"><ShieldAlert className="h-4 w-4" /> Unverified</p>
+                  <button onClick={resendVerification} className="mt-1 text-xs font-medium text-emerald-300 hover:underline">Resend verification email</button>
+                  {verifyMsg && <p className="mt-1 text-[11px] text-slate-400">{verifyMsg}</p>}
+                </div>
               )}
             </div>
             <Detail label="User ID" value={user.uid} mono />
