@@ -74,9 +74,12 @@ export const NAV = [
   {
     group: "Acquisition",
     items: [
-      { href: "/dashboard/organic-dominance", label: "Organic Dominance OS", icon: Radar },
-      { href: "/dashboard/warfare", label: "Campaign Warfare", icon: Swords },
-      { href: "/dashboard/war-room", label: "Campaign War Room", icon: Crosshair },
+      // Organic Dominance: ONE menu entry → the OS command centre. The Strike-phase
+      // surface (/dashboard/organic, GEO audit + Citation Radar + Magnet Foundry)
+      // is reachable from a cross-link on the OS page — merged, nothing lost.
+      { href: "/dashboard/organic-dominance", label: "Organic Dominance", icon: Radar },
+      { href: "/dashboard/warfare", label: "Campaign Warfare (Autopilot)", icon: Swords },
+      { href: "/dashboard/war-room", label: "Live Campaign Board", icon: Crosshair },
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
@@ -84,7 +87,6 @@ export const NAV = [
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
       { href: "/dashboard/discover", label: "Market Intel", icon: Search },
       { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
-      { href: "/dashboard/organic", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
       { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },

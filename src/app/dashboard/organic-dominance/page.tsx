@@ -100,7 +100,7 @@ export default function OrganicDominancePage() {
         kicker="MarketWar Organic Dominance OS"
         title="Listen → Predict → Decide → Create → Publish → Capture → Convert → Attribute → Optimise"
         subtitle="The autonomous demand-intelligence engine. Turn a website into a growth engine: it builds your keyword + AI-prompt universes, finds competitor gaps, scores every opportunity by real commercial value, and turns each into a one-click action into the engines you already run. Metrics are computed from real signals or honestly marked 'connect a source' — never fabricated."
-        actions={<Pill tone="info">demand intelligence · execution loop</Pill>}
+        actions={<div className="flex items-center gap-2"><Link href="/dashboard/organic" className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20">Strike phase (GEO &amp; Citations) <ArrowRight className="h-3.5 w-3.5" /></Link><Pill tone="info">demand intelligence · execution loop</Pill></div>}
       />
 
       {/* Turn this website into a growth engine */}
