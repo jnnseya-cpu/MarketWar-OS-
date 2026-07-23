@@ -54,7 +54,13 @@ async function ensureProfile(brandId: string, brandName?: string): Promise<{ pro
       body: JSON.stringify({ name: brandName || brandId, description: `MarketWar OS brand ${brandId}` }),
     });
     const raw = await res.text().catch(() => "");
-    if (!res.ok) return { profileId: null, error: `Zernio POST /v1/profiles → HTTP ${res.status}. ${raw.slice(0, 180)}` };
+    if (!res.ok) {
+      // Billing limit is a Zernio-account action, not a code bug — say so plainly.
+      if (res.status === 402 || /payment_required|free_tier_exceeded|payment method/i.test(raw)) {
+        return { profileId: null, error: "Zernio free tier reached (2 connected accounts). Add a payment method on the MarketWar Zernio account to connect more brands' socials — see https://docs.zernio.com/billing/payments. No code change needed." };
+      }
+      return { profileId: null, error: `Zernio POST /v1/profiles → HTTP ${res.status}. ${raw.slice(0, 180)}` };
+    }
     let data: unknown = {}; try { data = JSON.parse(raw); } catch { /* non-JSON */ }
     // Response shape: { profile: { _id } }
     const profile = (data as { profile?: { _id?: string } }).profile;

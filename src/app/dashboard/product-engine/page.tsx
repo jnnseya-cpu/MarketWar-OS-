@@ -28,7 +28,9 @@ import {
 import GenerateAndPublish from "@/components/GenerateAndPublish";
 import VisualStrikeHooks from "@/components/VisualStrikeHooks";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
+import BrandAssetUploader from "@/components/BrandAssetUploader";
 import { PageHeader, Pill } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Status = "live" | "p1";
 // A capability gated on a real provider key — its chip flips to "Live now" the
@@ -85,6 +87,7 @@ const STUDIOS: Studio[] = [
 ];
 
 export default function ProductEnginePage() {
+  const { activeBrand, updateBrand } = useActiveBrand();
   // Live capability probe — flips key-gated chips (image / video / publish) to
   // "Live now" when the provider key is actually present in this deployment.
   const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false });
@@ -143,29 +146,38 @@ export default function ProductEnginePage() {
         ))}
       </div>
 
-      {/* Upload zone (P1) — honest about what runs today */}
-      <div className="mb-8 card flex flex-col items-center justify-center border-dashed p-8 text-center">
+      {/* Upload zone — REAL product-image upload (hosted); vision auto-extraction still P1 */}
+      <div className="mb-8 card p-6">
         <div className="mb-2 flex items-center gap-2">
-          <UploadCloud className="h-8 w-8 text-amber-400" />
-          <StatusChip status="p1" />
+          <UploadCloud className="h-5 w-5 text-emerald-400" />
+          <p className="font-display font-bold text-white">Your product image</p>
+          <StatusChip status="live" />
         </div>
-        <p className="font-display font-bold text-white">Drop 1–100 product images</p>
-        <p className="mt-1 max-w-xl text-xs text-slate-500">
-          Product photos · lifestyle shots · packaging · logos · screenshots · Amazon, Etsy, Shopify and marketplace
-          listings. <span className="text-amber-300">Vision upload + auto-extraction activates at P1.</span> Today, the engine
-          runs live on your written product description below — <span className="text-emerald-300">describe your product and it
-          produces the full dossier + campaign now.</span>
+        <p className="mb-4 max-w-2xl text-xs text-slate-500">
+          Upload your product photo / packaging / logo — it&apos;s hosted on your brand and used as the base + Identity-Lock
+          reference for every creative. <span className="text-amber-300">Auto-reading the 18 attributes below from the image
+          (vision) is still P1</span> — for now, fill them in the description field and the engine produces the full dossier + campaign live.
         </p>
-        <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <BrandAssetUploader
+            brandId={activeBrand?.id} assetType="product_image" label="Product image" accept="image/png,image/jpeg,image/webp"
+            currentUrl={activeBrand?.productImageUrl}
+            onUploaded={(url) => activeBrand && updateBrand(activeBrand.id, { productImageUrl: url })}
+            onClear={() => activeBrand && updateBrand(activeBrand.id, { productImageUrl: undefined })}
+          />
+          <BrandAssetUploader
+            brandId={activeBrand?.id} assetType="logo" label="Logo" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            currentUrl={activeBrand?.logoUrl}
+            onUploaded={(url) => activeBrand && updateBrand(activeBrand.id, { logoUrl: url })}
+            onClear={() => activeBrand && updateBrand(activeBrand.id, { logoUrl: undefined })}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-1.5">
           {ANALYSIS_ATTRS.map((a) => (
-            <span key={a} className="rounded-full bg-ink-850 px-2.5 py-1 text-[10px] font-semibold text-slate-400">
-              {a}
-            </span>
+            <span key={a} className="rounded-full bg-ink-850 px-2.5 py-1 text-[10px] font-semibold text-slate-400">{a}</span>
           ))}
           {["Visual Quality /100", "Conversion /100", "Trust /100"].map((s) => (
-            <span key={s} className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-400">
-              {s}
-            </span>
+            <span key={s} className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-400">{s}</span>
           ))}
         </div>
       </div>
