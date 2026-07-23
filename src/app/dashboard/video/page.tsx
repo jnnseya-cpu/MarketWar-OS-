@@ -35,6 +35,7 @@ import {
 import AgentRunner from "@/components/AgentRunner";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import ScreenRecorder from "@/components/ScreenRecorder";
+import VideoEditor from "@/components/VideoEditor";
 import { PageHeader, Pill, ScoreBar, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -56,7 +57,7 @@ function StatusChip({ status }: { status: Status }) {
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">
-      <Clock className="h-3 w-3" /> Coming soon
+      <Clock className="h-3 w-3" /> Activate with a key
     </span>
   );
 }
@@ -66,11 +67,11 @@ function StatusChip({ status }: { status: Status }) {
 type Studio = { icon: typeof Clapperboard; title: string; desc: string; status: Status; note: string; cap?: Cap; liveNote?: string };
 const STUDIO: Studio[] = [
   { icon: Clapperboard, title: "AI Video Generator", status: "p1", cap: "video", note: "Scripts, shot lists & platform versions generate live in the Campaign Video tab; rendered video needs a video-model + render queue.", liveNote: "Rendered video is live (Veo / Sora) — render an MP4 in the panel below.", desc: "Prompt/script/product-demo/explainer/testimonial/ad/avatar/image/PPT-to-video — one-click campaign videos with platform versions." },
-  { icon: Scissors, title: "Online Video Editor", status: "p1", note: "The in-browser editor timeline lands with the render pipeline.", desc: "Cut, trim, split, crop, resize, merge, text, logos, overlays, transitions, effects, speed, blur/censor, multi-format export." },
+  { icon: Scissors, title: "Online Video Editor", status: "live", note: "Live now — trim & export clips in the browser in the panel below. No key needed.", desc: "Trim, clip and export video in the browser — turn long recordings into social-ready cuts." },
   { icon: Captions, title: "Subtitle & Caption Engine", status: "live", note: "Caption specs generated live — run the Captions tab below.", desc: "Auto-subtitles, karaoke captions, word highlights, SRT/VTT, burned-in, multi-language — in Sales/Education/Viral/Brand modes." },
   { icon: Globe2, title: "Translation & Dubbing", status: "p1", note: "The localisation plan generates live in the Global Reach tab; voice cloning + dubbed render need an audio-model.", desc: "Subtitle + voice translation, AI dubbing, voice cloning — one video in 10–50 languages with localised CTAs." },
-  { icon: UserSquare2, title: "AI Avatar Studio", status: "p1", note: "Talking-head avatar rendering activates with an avatar-model key.", desc: "Talking-head presenters: business, teacher, professional and influencer avatars — a branded company spokesperson in any language." },
-  { icon: Mic, title: "Audio Studio", status: "p1", note: "TTS / voice-clone / enhancement rendering needs an audio-model.", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
+  { icon: UserSquare2, title: "AI Avatar Studio", status: "p1", note: "Activates when an avatar-render engine is connected (needs a talking-head model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "Talking-head presenters: business, teacher, professional and influencer avatars — a branded company spokesperson in any language." },
+  { icon: Mic, title: "Audio Studio", status: "p1", note: "Activates when a voice/TTS engine is connected (needs an audio model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
   { icon: MonitorPlay, title: "Screen & Presentation Recorder", status: "live", note: "Live now — record your screen + voice in the panel below and download it. No key needed.", desc: "Screen/webcam/slides recording — turn demos into training modules, social clips and help-centre videos." },
   { icon: Layers, title: "Repurposing Engine", status: "live", note: "Powered by the live clip-intelligence engine — rank & find moments in the lab below.", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
   { icon: Palette, title: "Brand Kit", status: "p1", cap: "video", note: "Logo colour auto-detection + intro/outro render land with the creative pipeline.", liveNote: "Your logo + brand colours (Brand Studio) theme every creative; intro/outro render is live via the video model.", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
@@ -238,6 +239,11 @@ export default function VideoWarRoomPage() {
       {/* LIVE Screen & Presentation Recorder — real browser capture, no key */}
       <div className="mb-8">
         <ScreenRecorder />
+      </div>
+
+      {/* LIVE in-browser Video Editor — real trim/export, no key */}
+      <div className="mb-8">
+        <VideoEditor />
       </div>
 
       {/* LIVE video render + publish — render an MP4 and attach it to a post */}
