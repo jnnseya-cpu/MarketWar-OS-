@@ -1315,3 +1315,26 @@ Source: `docs/reference/money-making-os-doctrine.md` §18(cont.)–§23 (verbati
 | **§22 MarketWar Money Score (0–100)** | ✅ | **`moneyScore()` in command-summary.ts → card on `/dashboard`** — measured components scored from the real ledger; unmeasured shown as "connect a source" (never guessed); top weakness surfaced |
 | §23 Success KPIs (user + platform) | 📘 | Time-to-first-X + per-user revenue metrics specified; a KPI instrumentation dashboard is 📘 |
 | Verified | ✅ | typecheck + check:layers + build; Money Score renders from live ledger; doctrine Part 2 preserved verbatim |
+
+## 49. Non-Negotiable Product Rules + Final Positioning (doctrine §24–25, 2026-07-23)
+
+Source: `docs/reference/money-making-os-doctrine.md` §24–25 (verbatim). §24 is
+tracked here as an **enforcement register** — each rule mapped to where it is
+upheld, so any gap is visible rather than assumed.
+
+| Non-negotiable rule (§24) | Status | Enforced where / gap |
+|---|---|---|
+| No vanity dashboard without actions | ✅ | Command Center leads with Next-Best-Action + ranked opportunities/risks/next-actions; every metric card links to an action surface |
+| No content without a commercial purpose | ✅ 📘 | Content agents carry offer/CTA/funnel intent; a hard per-asset "objective required" gate is 📘 |
+| No campaign without attribution | ✅ | Results ledger attributes every capture/order to its source; `/r/CODE` + checkout links self-attribute |
+| No recommendation without expected value | ✅ | Briefing items carry a computed metric/expected value; Money Score weaknesses carry the lever |
+| No automation without control | ✅ 📘 | Approvals workflow gates publish; autonomy dial caps high-risk agent actions; a global automation kill-switch is 📘 |
+| No growth at the expense of profit | ✅ 📘 | Budget Protection + owner pricing floor (≥2× cost); a cross-recommendation margin guard is 📘 (Profit Protection agent) |
+| No false performance claims | ✅ | Landing reframed to engineering targets + "Illustrative" scenarios; status page no invented uptime |
+| No fabricated customers or testimonials | ✅ | Fake logo strip → real stack; testimonials labelled Illustrative; no invented reviews |
+| No dark patterns | ✅ | Per-brand export/download everywhere; no cancellation friction; honest empty states |
+| No unapproved competitive misconduct | ✅ | Competitor War Room is legal/ethical intel only (public signals) |
+| No hidden AI cost | ✅ 📘 | ACU model + owner pricing law transparent; a per-action cost meter in-UI is 📘 (AI Cost Governance agent) |
+| No feature that creates complexity without commercial value | ✅ | The doctrine's priority test is the standing filter; every shipped surface ties to revenue |
+| §25 Final positioning (master/punchy/aggressive/competitive/promise) | ✅ | Landing hero aligned: "More customers. More revenue. Less waste." + the user-promise subhead |
+| Verified | ✅ | typecheck + check:layers + build; landing hero updated; doctrine §24–25 preserved verbatim |

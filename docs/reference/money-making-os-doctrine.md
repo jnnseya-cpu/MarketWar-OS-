@@ -202,3 +202,34 @@ Every account receives a **Money Score** from 0 to 100. Components: Demand Captu
 **User success:** time to first commercial insight / first campaign / first lead / first sale; revenue generated per user; revenue recovered per user; CAC reduction; conversion improvement; retention improvement; profit improvement.
 
 **Platform success:** % of users seeing value on day one; % launching a campaign in 24h; % generating first lead in 7 days; % generating measurable revenue in 30 days; monthly ACU expansion; subscription upgrade rate; net revenue retention; user retention; user-generated GMV; platform-attributed revenue.
+
+## 24. Non-Negotiable Product Rules
+
+- No vanity dashboard without actions.
+- No content without a commercial purpose.
+- No campaign without attribution.
+- No recommendation without expected value.
+- No automation without control.
+- No growth at the expense of profit.
+- No false performance claims.
+- No fabricated customers or testimonials.
+- No dark patterns.
+- No unapproved competitive misconduct.
+- No hidden AI cost.
+- No feature that creates complexity without commercial value.
+
+## 25. Final MarketWar Positioning
+
+**Master positioning:** MarketWar is the AI operating system that finds demand, creates opportunities, acquires customers, converts sales, recovers lost revenue and helps businesses outperform their competitors.
+
+**Punchy:** More customers. More sales. More revenue. Less waste.
+
+**Aggressive commercial:** MarketWar does not help businesses look busy. It helps them make money.
+
+**Competitive:** While other tools generate content, reports and dashboards, MarketWar builds and operates the complete revenue machine.
+
+**User promise:** From day one, MarketWar shows you where the money is, what is blocking it and what action will unlock it.
+
+**Final strategic objective — MarketWar must become:** the user's growth command centre; customer-acquisition engine; revenue intelligence layer; AI commercial workforce; competitive advantage; the operating system behind every marketing, sales and growth decision.
+
+**The final standard:** Every click inside MarketWar must move the user closer to more customers, more revenue, stronger profit or greater market control.

@@ -184,23 +184,24 @@ export default function LandingPage() {
         <div className="relative mx-auto max-w-6xl px-5 text-center">
           <div className="animate-fade-up mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300">
             <Sparkles className="h-3.5 w-3.5" />
-            The AI-powered growth &amp; commerce operating system
+            The AI customer-acquisition &amp; revenue-growth operating system
             <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">v1.0</span>
           </div>
 
           <h1 className="animate-fade-up mx-auto max-w-4xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-7xl" style={{ animationDelay: "0.08s" }}>
-            One Operating System.{" "}
-            <span className="text-gradient">Every Growth Weapon.</span>
+            More customers. More revenue.{" "}
+            <span className="text-gradient">Less waste.</span>
           </h1>
 
           <p className="animate-fade-up mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl" style={{ animationDelay: "0.16s" }}>
-            MarketWar OS is the AI-powered growth and commerce command centre that helps you
-            discover opportunities, build products, market them, acquire customers, automate
-            operations, optimise revenue, and scale — from one unified platform.
+            MarketWar doesn&rsquo;t help you look busy — it helps you make money. From day one it
+            shows you where the money is, what&rsquo;s blocking it, and the exact action that
+            unlocks it: find demand, acquire customers, convert sales, recover lost revenue and
+            outperform competitors — from one operating system.
           </p>
 
           <div className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "0.2s" }}>
-            {["AI-Powered", "All-in-One Platform", "Built for Scale"].map((b) => (
+            {["More customers", "More revenue", "Less waste"].map((b) => (
               <span key={b} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-slate-300">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> {b}
               </span>
