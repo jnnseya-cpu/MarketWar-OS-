@@ -89,6 +89,15 @@ export async function countContacts(brandId: string): Promise<number> {
   return (await listContacts(brandId)).length;
 }
 
+// Real vault counts for Autopilot: total, marketing-consented, and dormant/
+// re-engageable (cold leads with no order history, or lapsed customers ≥ 45 days).
+export async function vaultCountsFor(brandId: string): Promise<{ total: number; consented: number; dormant: number }> {
+  const contacts = await listContacts(brandId);
+  const consented = contacts.filter((c) => c.consent !== false);
+  const dormant = consented.filter((c) => c.lastOrderDaysAgo == null || (c.lastOrderDaysAgo ?? 0) >= 45);
+  return { total: contacts.length, consented: consented.length, dormant: dormant.length };
+}
+
 export async function clearContacts(brandId: string): Promise<void> {
   if (adminConfigured && adminDb) {
     const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).limit(5000).get();

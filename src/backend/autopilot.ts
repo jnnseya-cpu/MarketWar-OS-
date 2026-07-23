@@ -41,7 +41,11 @@ export type AutopilotAction = {
   requiredLevel: number;      // autonomy level needed to auto-execute
   projectedValueGbp: number;  // ESTIMATE — not real money
   decision: "auto_executed" | "queued_for_approval";
+  basis: "real" | "estimate"; // "real" = count comes from the live vault
 };
+
+// Real counts from the brand's Customer Vault, when contacts have been imported.
+export type VaultCounts = { total: number; dormant: number; consented: number };
 
 export type AutopilotRun = {
   brandId: string;
@@ -59,6 +63,8 @@ export type AutopilotRun = {
   projectedRevenueGbp: number; // sum of estimates — labelled a projection everywhere
   digest: string;
   guardrails: string[];
+  vaultContacts: number;       // real contacts in the brand's vault (0 = none imported)
+  vaultDormant: number;        // real dormant/re-engageable contacts
 };
 
 // FNV-1a — deterministic seed from brand + date (no Date.now/Math.random here).
@@ -81,7 +87,7 @@ function short(v: string | undefined, fallback: string, max = 44): string {
   return t.length > max ? t.slice(0, max).replace(/\s+\S*$/, "").trim() + "…" : t;
 }
 
-const ACTION_TEMPLATES: Array<Omit<AutopilotAction, "id" | "decision" | "projectedValueGbp" | "title" | "rationale"> & { title: (b: BrandLite, n: number) => string; rationale: (b: BrandLite) => string; base: number }> = [
+const ACTION_TEMPLATES: Array<Omit<AutopilotAction, "id" | "decision" | "projectedValueGbp" | "title" | "rationale" | "basis"> & { title: (b: BrandLite, n: number) => string; rationale: (b: BrandLite) => string; base: number }> = [
   { kind: "find_leads", channel: "Owned SEO + marketplace", riskCategory: "low", requiredLevel: 2, base: 120,
     title: (b, n) => `Prospect ${n} new leads for ${short(b.name, "your brand", 32)}`,
     rationale: (b) => `Publish owned local pages + marketplace listing for ${short(b.location, "your area", 32)} to capture inbound demand — no ad spend.` },
@@ -99,10 +105,11 @@ const ACTION_TEMPLATES: Array<Omit<AutopilotAction, "id" | "decision" | "project
     rationale: () => `Move spend from the lowest-ROAS ad set to the proven winner (Revenue Autopilot / L4 only).` },
 ];
 
-export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: number; budgetGbp?: number; nowISO: string }): AutopilotRun {
-  const { brand, nowISO } = input;
+export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: number; budgetGbp?: number; nowISO: string; vault?: VaultCounts }): AutopilotRun {
+  const { brand, nowISO, vault } = input;
   const requestedLevel = Math.max(0, Math.min(4, Math.round(input.requestedLevel ?? 3)));
   const budgetGbp = Math.max(0, input.budgetGbp ?? 0);
+  const hasVault = Boolean(vault && vault.total > 0);
 
   // Governance: high-risk industry categories (children, health, regulated…) are
   // capped by the canonical autonomy gate — so e.g. a children's brand can only
@@ -115,8 +122,21 @@ export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: nu
   const rand = rng(seed);
 
   const actions: AutopilotAction[] = ACTION_TEMPLATES.map((t, i) => {
-    const n = 20 + Math.floor(rand() * 80);
-    const projectedValueGbp = Math.round(t.base * (0.6 + rand() * 1.2));
+    const estN = 20 + Math.floor(rand() * 80);
+    // REAL counts from the vault where we have them: reactivate uses the actual
+    // dormant-contact count; prospecting uses consented size as its base. Other
+    // moves stay projections. basis flags which is which — honesty over guesswork.
+    let n = estN;
+    let basis: "real" | "estimate" = "estimate";
+    if (hasVault && t.kind === "reactivate") { n = vault!.dormant; basis = "real"; }
+    else if (hasVault && t.kind === "find_leads") { n = Math.max(estN, vault!.consented); basis = "estimate"; }
+
+    // Projected value: ground the reactivate estimate in the real dormant count
+    // (conservative owned-channel re-engagement value per contact); others keep
+    // the deterministic base estimate. Still a PROJECTION, never booked money.
+    let projectedValueGbp = Math.round(t.base * (0.6 + rand() * 1.2));
+    if (hasVault && t.kind === "reactivate") projectedValueGbp = Math.round(vault!.dormant * 2.2);
+
     // High-risk category forces every action to be treated as high-risk.
     const riskCategory = gate.maxLevel <= 1 ? "high" : t.riskCategory;
     const decision: AutopilotAction["decision"] = grantedLevel >= t.requiredLevel && riskCategory !== "high" ? "auto_executed" : "queued_for_approval";
@@ -130,6 +150,7 @@ export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: nu
       requiredLevel: t.requiredLevel,
       projectedValueGbp,
       decision,
+      basis,
     };
   }).sort((a, b) => b.projectedValueGbp - a.projectedValueGbp);
 
@@ -144,15 +165,20 @@ export function runAutopilotCycle(input: { brand: BrandLite; requestedLevel?: nu
     "High-risk categories (children, health, regulated…) never auto-publish — always queued for approval.",
   ];
 
+  const vaultNote = hasVault
+    ? ` Counts drawn from your live vault (${vault!.total} contacts, ${vault!.dormant} dormant).`
+    : ` Import contacts in the Customer Vault to turn the reactivate/prospect counts into real people.`;
   const digest = autoExecuted > 0
-    ? `While you were away, Autopilot scanned ${actions.length} acquisition moves for ${brand.name}, auto-executed ${autoExecuted} (owned/low-risk) and queued ${queued} for your approval — projected £${projectedRevenueGbp} of pipeline. Real revenue lands in Revenue as customers convert.`
-    : `Autopilot lined up ${actions.length} acquisition moves for ${brand.name} and queued all ${queued} for your approval (autonomy L${grantedLevel}${gate.capped ? " — capped for a high-risk category" : ""}). Approve to let it run while you sleep.`;
+    ? `While you were away, Autopilot scanned ${actions.length} acquisition moves for ${brand.name}, auto-executed ${autoExecuted} (owned/low-risk) and queued ${queued} for your approval — projected £${projectedRevenueGbp} of pipeline.${vaultNote} Real revenue lands in Revenue as customers convert.`
+    : `Autopilot lined up ${actions.length} acquisition moves for ${brand.name} and queued all ${queued} for your approval (autonomy L${grantedLevel}${gate.capped ? " — capped for a high-risk category" : ""}).${vaultNote}`;
 
   return {
     brandId: brand.id, brandName: brand.name, at: nowISO,
     requestedLevel, grantedLevel, autonomyCapped: gate.capped, autonomyReason: gate.reason,
     budgetGbp, opportunitiesScanned: actions.length,
     actions, autoExecuted, queued, projectedRevenueGbp, digest, guardrails,
+    vaultContacts: hasVault ? vault!.total : 0,
+    vaultDormant: hasVault ? vault!.dormant : 0,
   };
 }
 

@@ -10,9 +10,10 @@ import Link from "next/link";
 import { Loader2, Moon, ShieldCheck, Zap, CheckCircle2, Clock, Building2, Wallet, ArrowRight, Mail } from "lucide-react";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
-type Action = { id: string; kind: string; title: string; rationale: string; channel: string; riskCategory: string; requiredLevel: number; projectedValueGbp: number; decision: "auto_executed" | "queued_for_approval" };
-type Run = { brandName: string; grantedLevel: number; requestedLevel: number; autonomyCapped: boolean; autonomyReason: string; budgetGbp: number; opportunitiesScanned: number; actions: Action[]; autoExecuted: number; queued: number; projectedRevenueGbp: number; digest: string; guardrails: string[] };
+type Action = { id: string; kind: string; title: string; rationale: string; channel: string; riskCategory: string; requiredLevel: number; projectedValueGbp: number; decision: "auto_executed" | "queued_for_approval"; basis?: "real" | "estimate" };
+type Run = { brandName: string; grantedLevel: number; requestedLevel: number; autonomyCapped: boolean; autonomyReason: string; budgetGbp: number; opportunitiesScanned: number; actions: Action[]; autoExecuted: number; queued: number; projectedRevenueGbp: number; digest: string; guardrails: string[]; vaultContacts?: number; vaultDormant?: number };
 
 const LEVELS = ["L0 · Draft", "L1 · Approve each", "L2 · Campaign approval", "L3 · Guarded autopilot", "L4 · Revenue autopilot"];
 
@@ -31,7 +32,7 @@ export default function AutopilotPage() {
     if (!activeBrand) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/autopilot", {
+      const res = await authedFetch("/api/autopilot", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand: activeBrand, requestedLevel: level, budgetGbp: Number(budget) || 0 }),
       });
@@ -133,6 +134,7 @@ export default function AutopilotPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-white">{a.title}</p>
                     <Pill tone={a.decision === "auto_executed" ? "good" : "warn"}>{a.decision === "auto_executed" ? "auto-executed" : "queued — approve"}</Pill>
+                    {a.basis === "real" && <Pill tone="info">live count</Pill>}
                     {a.riskCategory === "high" && <Pill tone="bad">high-risk · gated</Pill>}
                   </div>
                   <p className="mt-0.5 text-sm text-slate-400">{a.rationale}</p>

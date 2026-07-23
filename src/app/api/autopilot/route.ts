@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAutopilotCycle, type BrandLite } from "@/backend/autopilot";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { resolveBrandAccess } from "@/backend/brand-access";
+import { vaultCountsFor } from "@/backend/contacts";
 
 // Revenue Autopilot — runs one acquisition cycle for a brand while the operator
 // is away. POST the brand + desired autonomy + budget; a scheduler (nightly cron)
@@ -32,6 +34,13 @@ export async function POST(req: NextRequest) {
   };
   if (!brand.id || !brand.name) return NextResponse.json({ error: "brand.id and brand.name are required" }, { status: 400 });
 
+  // Only the brand's owner can run its autopilot / read its vault (demo passes through).
+  const access = await resolveBrandAccess(req, brand.id);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  // Real counts from this brand's Customer Vault — makes reactivate/prospect real.
+  const vault = await vaultCountsFor(brand.id);
+
   // Deterministic: the caller supplies the timestamp (engines never call Date).
   const nowISO = typeof body.nowISO === "string" && body.nowISO ? body.nowISO : new Date().toISOString();
   const run = runAutopilotCycle({
@@ -39,6 +48,7 @@ export async function POST(req: NextRequest) {
     requestedLevel: typeof body.requestedLevel === "number" ? body.requestedLevel : Number(body.requestedLevel) || 3,
     budgetGbp: typeof body.budgetGbp === "number" ? body.budgetGbp : Number(body.budgetGbp) || 0,
     nowISO,
+    vault,
   });
   return NextResponse.json(run);
 }
