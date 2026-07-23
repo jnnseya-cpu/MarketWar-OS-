@@ -50,7 +50,7 @@ import {
   Workflow,
 } from "lucide-react";
 
-const NAV = [
+export const NAV = [
   {
     group: "Command",
     items: [

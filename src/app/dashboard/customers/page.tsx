@@ -132,12 +132,30 @@ export default function CustomerVaultPage() {
   const [showPaste, setShowPaste] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Client-side cache of the last scored vault per brand. Makes import → display
+  // reliable even when server persistence is flaky (serverless in-memory doesn't
+  // survive between requests, and Firestore may be unconfigured on a deploy). The
+  // server remains the source of truth when it returns data; the cache only fills
+  // in when the server round-trip comes back empty.
+  const cacheKey = (brandId: string) => `mw.vault.${brandId}`;
+  const readCache = (brandId: string): VaultReport | null => {
+    try { const raw = localStorage.getItem(cacheKey(brandId)); return raw ? (JSON.parse(raw) as VaultReport) : null; } catch { return null; }
+  };
+  const writeCache = (brandId: string, r: VaultReport) => { try { localStorage.setItem(cacheKey(brandId), JSON.stringify(r)); } catch { /* quota/private */ } };
+
   const load = useCallback(async (brandId: string, business: string) => {
     setBusy(true);
     try {
       const res = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(brandId)}&business=${encodeURIComponent(business)}`);
-      setReport(await res.json());
-    } catch { setReport(null); } finally { setBusy(false); }
+      const server = res.ok ? (await res.json()) as VaultReport : null;
+      if (server && server.contactCount > 0) { setReport(server); writeCache(brandId, server); return; }
+      // Server empty (or unavailable) → fall back to the local cache if present.
+      let cached: VaultReport | null = null;
+      try { const raw = localStorage.getItem(`mw.vault.${brandId}`); cached = raw ? JSON.parse(raw) : null; } catch { cached = null; }
+      setReport(cached && cached.contactCount > 0 ? cached : server);
+    } catch {
+      try { const raw = localStorage.getItem(`mw.vault.${brandId}`); setReport(raw ? JSON.parse(raw) : null); } catch { setReport(null); }
+    } finally { setBusy(false); }
   }, []);
 
   useEffect(() => {

@@ -23,6 +23,7 @@ const tierLabel: Record<string, string> = { micro: "Micro", authority: "Authorit
 export default function InfluencersPage() {
   const { activeBrand } = useActiveBrand();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [revenue, setRevenue] = useState(5000);
   const [partners, setPartners] = useState<{ id: string; name: string; followers: number; tier: string; scoutScore?: number; payoutEligible: boolean }[]>([]);
@@ -33,7 +34,7 @@ export default function InfluencersPage() {
   }, []);
 
   async function run() {
-    setBusy(true);
+    setBusy(true); setError(null);
     try {
       const res = await authedFetch("/api/creator-recruitment", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -43,7 +44,15 @@ export default function InfluencersPage() {
           audience: activeBrand?.audience, location: activeBrand?.location,
         }),
       });
-      setResult(await res.json());
+      const data = await res.json().catch(() => ({}));
+      // Only accept a well-formed result — never render a partial/error object.
+      if (!res.ok || !Array.isArray(data.profiles)) {
+        setError(data.error || "Couldn't build the recruitment list — please try again.");
+        return;
+      }
+      setResult(data as Result);
+    } catch {
+      setError("Network error — please try again.");
     } finally { setBusy(false); }
   }
 
@@ -73,6 +82,7 @@ export default function InfluencersPage() {
           <button className="btn-primary" onClick={run} disabled={busy}>
             {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building your target list…</> : <><Users className="h-4 w-4" /> Recommend creators to recruit</>}
           </button>
+          {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
         </div>
       )}
 
