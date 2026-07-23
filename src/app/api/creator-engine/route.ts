@@ -3,9 +3,10 @@ import { rateLimit, clientKey } from "@/backend/guard";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
   createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, subscribe, listSubscriptions,
-  recordConversion, creatorWallet, requestPayout, creatorId as makeCreatorId, type CreatorAccount,
+  recordConversion, creatorWallet, requestPayout, setFollowerVerification, creatorId as makeCreatorId,
+  type CreatorAccount, type PayoutRegion,
 } from "@/backend/creator-engine";
-import { scoutScore, matchProgrammes, generateBrief } from "@/backend/creator-agents";
+import { scoutScore, matchProgrammes, generateBrief, verifyFollowersBatch } from "@/backend/creator-agents";
 import { EARNING_TIERS, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
 
 // Creator & Partner Monetisation Engine API — the whole loop.
@@ -57,8 +58,20 @@ export async function POST(req: NextRequest) {
       const w = await creatorWallet(s("creatorId"));
       return w ? NextResponse.json(w) : NextResponse.json({ error: "No creator account" }, { status: 404 });
     }
-    case "payout":
-      return NextResponse.json(await requestPayout(s("creatorId")));
+    case "payout": {
+      const region: PayoutRegion = s("region") === "africa" ? "africa" : "other";
+      return NextResponse.json(await requestPayout(s("creatorId"), region));
+    }
+    case "verify_followers": {
+      const socials = Array.isArray(b.socials) ? (b.socials as { platform?: string; url: string }[]) : [];
+      const v = await verifyFollowersBatch(socials);
+      if (s("creatorId") && v.verifiedTotal > 0 && v.humanRequired === 0) await setFollowerVerification(s("creatorId"), v.verifiedTotal, "ai");
+      return NextResponse.json(v);
+    }
+    case "admin_verify": {
+      const c = await setFollowerVerification(s("creatorId"), num("followers"), "human");
+      return c ? NextResponse.json({ creator: c }) : NextResponse.json({ error: "No creator account" }, { status: 404 });
+    }
 
     case "scout":
       return NextResponse.json(scoutScore({ followers: num("followers"), platforms: num("platforms") || 1, engagementPct: typeof b.engagementPct === "number" ? (b.engagementPct as number) : undefined, niche: s("niche"), brandNiche: s("brandNiche") }));

@@ -50,6 +50,52 @@ const BRIEF_SYSTEM = `You are the MarketWar Brief Agent. Produce a creator campa
 { "talkingPoints": string[], "prohibitedClaims": string[], "disclosure": string, "deliverables": string[] }
 talkingPoints: 4-6 honest selling angles. prohibitedClaims: 3-5 things the creator must NOT say (no guaranteed-income/health/financial-return claims). disclosure: the exact mandatory ad-disclosure wording. deliverables: 3-5 concrete deliverables.`;
 
+// ---- Follower Verification Agent: read the PUBLIC profile view, extract the
+// printed follower/subscriber count. If it can't (JS-rendered, blocked, or no
+// number found), it honestly returns human_required — never a made-up number.
+export type FollowerVerification = { url: string; platform?: string; count: number | null; method: "ai" | "human_required"; confidence: number; note: string };
+
+const NUM = /([0-9][0-9.,]*\s?[KMB]?)\s*(followers|subscribers|abonnés|abonnes)/i;
+function parseCount(s: string): number | null {
+  const m = s.match(NUM);
+  if (!m) return null;
+  let n = parseFloat(m[1].replace(/,/g, ""));
+  const suffix = m[1].trim().slice(-1).toUpperCase();
+  if (suffix === "K") n *= 1e3; else if (suffix === "M") n *= 1e6; else if (suffix === "B") n *= 1e9;
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+export async function verifyFollowersFromProfile(url: string, platform?: string): Promise<FollowerVerification> {
+  if (!/^https?:\/\//i.test(url)) return { url, platform, count: null, method: "human_required", confidence: 0, note: "Not a valid public URL — needs human verification." };
+  let html = "";
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10_000);
+    const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)" } });
+    clearTimeout(t);
+    if (res.ok) html = (await res.text()).slice(0, 200_000);
+  } catch { /* fall through to human_required */ }
+  if (!html) return { url, platform, count: null, method: "human_required", confidence: 0, note: "Public page could not be read (blocked or JS-only) — a human should verify the printed count." };
+  // Cheap deterministic pass on visible text first.
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const direct = parseCount(text);
+  if (direct != null) return { url, platform, count: direct, method: "ai", confidence: 0.7, note: "Read from the public profile view." };
+  // AI extraction pass — ask the model to find the printed follower number.
+  try {
+    const res = await gatewayComplete({ system: "Extract ONLY the public follower/subscriber count shown on this page. Reply with a single integer (no commas, no words). If none is clearly shown, reply exactly: NONE.", prompt: text.slice(0, 12_000), maxTokens: 12 });
+    const n = parseInt((res.text.match(/\d[\d,]*/)?.[0] || "").replace(/,/g, ""), 10);
+    if (Number.isFinite(n) && n > 0) return { url, platform, count: n, method: "ai", confidence: 0.6, note: "Extracted by the verification agent from the public view." };
+  } catch { /* human */ }
+  return { url, platform, count: null, method: "human_required", confidence: 0, note: "No follower count found on the public view — a human should verify." };
+}
+
+export async function verifyFollowersBatch(socials: { platform?: string; url: string }[]): Promise<{ results: FollowerVerification[]; verifiedTotal: number; humanRequired: number }> {
+  const results = await Promise.all(socials.filter((s) => s.url).map((s) => verifyFollowersFromProfile(s.url, s.platform)));
+  const verifiedTotal = results.reduce((sum, r) => sum + (r.count || 0), 0);
+  const humanRequired = results.filter((r) => r.method === "human_required").length;
+  return { results, verifiedTotal, humanRequired };
+}
+
 export async function generateBrief(programme: { name: string; product: string; description: string }, lang?: string): Promise<Brief> {
   const prompt = `Product/programme: ${programme.name}\nWhat it is: ${programme.product}\nDetails: ${programme.description}`;
   try {

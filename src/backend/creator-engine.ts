@@ -111,6 +111,18 @@ export async function getCreator(id: string): Promise<CreatorAccount | null> {
   return memCreator.get(id) ?? null;
 }
 
+// Set the verified follower count (from the AI verification agent or a human).
+// Verifying + crossing 10K auto-flips the partner onto the main cash programme.
+export async function setFollowerVerification(id: string, verifiedFollowers: number, verifiedBy: "ai" | "human"): Promise<CreatorAccount | null> {
+  const c = await getCreator(id);
+  if (!c) return null;
+  c.followers = Math.max(0, Math.round(verifiedFollowers));
+  c.followersVerified = true;
+  c.payoutEligible = c.followers >= MIN_PAYOUT_FOLLOWERS || Boolean(c.adminOverride);
+  if (useDb()) await adminDb!.collection("creator_accounts").doc(id).set(c, { merge: true }); else memCreator.set(id, c);
+  return c;
+}
+
 // ---- Subscriptions (1–100 per creator; unique code+link each) ----
 export async function subscribe(creatorId: string, programmeId: string, nowISO: string): Promise<{ subscription?: Subscription; error?: string }> {
   const existing = await listSubscriptions(creatorId);
@@ -231,20 +243,30 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
   };
 }
 
-// ---- Payout Agent: gate + release (BitriPay rail is external; honest state) ----
-export async function requestPayout(creatorId: string): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string }> {
+// ---- Payout Agent: gate + region-routed release ----
+// Rail routing: AFRICA → BitriPay (mobile money: M-Pesa/Orange/Airtel/Africell),
+// EVERYWHERE ELSE → Stripe. Each rail is gated by its own key; until the key is
+// present we approve the release but never claim money moved (honest state).
+export type PayoutRegion = "africa" | "other";
+export function payoutRailFor(region: PayoutRegion): { rail: "bitripay" | "stripe"; live: boolean; envKey: string } {
+  if (region === "africa") return { rail: "bitripay", live: Boolean(process.env.BITRIPAY_API_KEY), envKey: "BITRIPAY_API_KEY" };
+  return { rail: "stripe", live: Boolean(process.env.STRIPE_SECRET_KEY), envKey: "STRIPE_SECRET_KEY" };
+}
+
+export async function requestPayout(creatorId: string, region: PayoutRegion = "other"): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion }> {
   const w = await creatorWallet(creatorId);
-  if (!w) return { ok: false, reason: "No creator account.", rail: "none" };
-  if (!w.payoutEligible) return { ok: false, reason: w.gateNote, rail: "held" };
-  if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance yet.", rail: "none" };
-  const rail = process.env.BITRIPAY_API_KEY ? "bitripay" : "manual";
+  if (!w) return { ok: false, reason: "No creator account.", rail: "none", region };
+  if (!w.payoutEligible) return { ok: false, reason: w.gateNote, rail: "held", region };
+  if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance yet.", rail: "none", region };
+  const { rail, live, envKey } = payoutRailFor(region);
+  const railName = rail === "bitripay" ? "BitriPay (Africa mobile-money)" : "Stripe";
   return {
-    ok: rail === "bitripay",
-    releasedGbp: rail === "bitripay" ? w.payableGbp : undefined,
-    reason: rail === "bitripay"
-      ? `£${w.payableGbp.toLocaleString()} released via BitriPay (fraud-scored).`
-      : `£${w.payableGbp.toLocaleString()} approved for release — connect the BitriPay payout rail (BITRIPAY_API_KEY) to move funds. No money is claimed as moved until the rail is live.`,
-    rail,
+    ok: live,
+    releasedGbp: live ? w.payableGbp : undefined,
+    reason: live
+      ? `£${w.payableGbp.toLocaleString()} released via ${railName} (fraud-scored).`
+      : `£${w.payableGbp.toLocaleString()} approved for release via ${railName} — connect the rail (${envKey}) to move funds. No money is claimed as moved until the rail is live.`,
+    rail, region,
   };
 }
 

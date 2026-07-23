@@ -33,6 +33,7 @@ export default function PartnerNetworkPage() {
   const [convCode, setConvCode] = useState(""); const [convRef, setConvRef] = useState("customer-1"); const [convGross, setConvGross] = useState(1000); const [convFees, setConvFees] = useState(0);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [payout, setPayout] = useState<string | null>(null);
+  const [region, setRegion] = useState("other");
   const [busy, setBusy] = useState("");
 
   const loadProgrammes = useCallback(async () => {
@@ -66,7 +67,7 @@ export default function PartnerNetworkPage() {
     finally { setBusy(""); }
   }
   const refreshWallet = useCallback(async () => { if (!creatorId) return; setWallet(await api("wallet", { creatorId })); }, [creatorId]);
-  async function requestPayout() { if (!creatorId) return; setBusy("payout"); try { const d = await api("payout", { creatorId }); setPayout(d.reason); } finally { setBusy(""); } }
+  async function requestPayout() { if (!creatorId) return; setBusy("payout"); try { const d = await api("payout", { creatorId, region }); setPayout(d.reason); } finally { setBusy(""); } }
 
   const input = "w-full rounded-lg border border-ink-700 bg-ink-900/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/60";
 
@@ -195,7 +196,11 @@ export default function PartnerNetworkPage() {
                       ))}
                     </div>
                   )}
-                  <div className="mt-4 flex items-center gap-3">
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <select value={region} onChange={(e) => setRegion(e.target.value)} className="rounded-lg border border-ink-700 bg-ink-900/70 px-3 py-2 text-sm text-white">
+                      <option value="africa">Africa → BitriPay (mobile money)</option>
+                      <option value="other">Rest of world → Stripe</option>
+                    </select>
                     <button className="btn-primary" onClick={requestPayout} disabled={busy === "payout"}>{busy === "payout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Request payout</button>
                     {payout && <p className="text-xs text-slate-400">{payout}</p>}
                   </div>

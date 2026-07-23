@@ -61,6 +61,7 @@ export const COMMISSION_MODEL: string[] = [
   "Per referred user you earn 0.75% of their eligible net revenue; the platform takes 0.25% (1% total). The 1% is charged to the promoted brand as their acquisition cost — never to you or the customer. Attribution is transparent — you see exactly which code/link drove which conversion.",
   `Once a single referred user has earned you £${EARNINGS_CAP_GBP.toLocaleString()}, the split flips: the platform takes the full 1% for the next £${EARNINGS_CAP_GBP.toLocaleString()}, then commission on that user stops.`,
   "Paid on VERIFIED revenue only — no payment for empty reach. Every payout is fraud-scored, every endorsement carries AI-content disclosure, and we never clone a creator without consent.",
+  "Payouts settle via BitriPay mobile money in Africa (M-Pesa / Orange / Airtel / Africell) and via Stripe everywhere else. Follower counts are verified by an AI agent reading your public profile, or by a human reviewer.",
 ];
 
 // The £20K cap rule (spec §14), computed PER REFERRED CUSTOMER on Eligible Net
