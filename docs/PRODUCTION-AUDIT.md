@@ -164,3 +164,54 @@ All fixes verified: `typecheck` + `check:layers` + `build` (exit 0) + `smoke` **
 
 **This release is NOT approved for unrestricted public launch.**
 It is approvable for a **restricted, invite-only beta** once the "Before any launch" and "Before limited beta" items in §15 are closed and retested — specifically live-Firebase auth enforcement, `STRIPE_WEBHOOK_SECRET`, error monitoring, and a proven backup restore. The application and financial-control layers are strong; the gaps are operational (observability, DR, load evidence), and those are the reason for the hold.
+
+---
+
+## 18. Re-audit — Partner/Creator monetisation + honesty hardening pass (`32869d4`)
+
+This pass extended the audit to the **Creator & Partner Monetisation Engine**
+(the money loop the earlier audit predated) and closed the remaining
+honest-content findings. Same evidence rule: commands run against the real
+codebase and a clean production build, not documentation trust.
+
+### 18.1 What changed since §17
+
+| Area | Finding (before) | Correction | Status |
+|------|------------------|-----------|--------|
+| Partner engine AuthZ | `/api/creator-engine` served money + PII **unauthenticated** | Action-classed gate: brand actions → `resolveBrandAccess`; money/admin (`record_conversion`/`payout`/`admin_verify`) → `platform_admin` scope **or** `CREATOR_LEDGER_SECRET`; PII/agent reads → `requireAuth`; `partner_portal` token-gated; `list_creators` strips email | **FIXED** |
+| Payout correctness | Payout re-released the **full lifetime balance** each call | Payout ledger (`creator_payouts`) + `paidToDate` subtraction; only the unpaid delta is released, and only when a rail key is live | **FIXED** |
+| Conversion integrity | Conversions could **double-count** on webhook redelivery | Mandatory `idempotencyKey` → deterministic doc id; re-post is a no-op | **FIXED** |
+| Referral-code safety | 24-bit codes could collide; `referredRef` defaulted (cross-customer cap collapse) | SHA-256 128-bit ids + uniqueness check; `referredRef` mandatory; per-customer £20k cap isolated | **FIXED** |
+| Fraud/abuse | Zero/negative conversions accepted silently | Flagged (`fraudScore` +60) and excluded from payable | **FIXED** |
+| DB backstop | New money collections had no rule | `firestore.rules`: deny-all direct client access to `creator_accounts`, `creator_programmes`, `creator_subscriptions`, `creator_ledger`, `creator_payouts`, `partner_applications` (Admin-SDK only; partners read via token-gated API) | **FIXED** |
+| Honest content | Landing "Trusted by" fake logos; invented metrics band (4.5x ROAS, £1,240/vault); status page invented 90-day uptime | Logos → real production stack; metrics → labelled engineering targets; status → "tracking begins at launch", configured-baseline components | **FIXED** |
+| Operability | 15+ wired env vars undocumented; no external-engines index | `.env.example` completed (every wired var); `docs/EXTERNAL-ENGINES.md` — what each key unlocks + minimum invite-only set | **FIXED** |
+| Image rendering | Logos/creatives showed broken-icon on deploy (Storage URLs not publicly reachable) | Brand assets + creatives render **inline** (base64); hosting only needed for social publishing | **FIXED** |
+| Mobile UX | No mobile navigation | `MobileNav` hamburger drawer | **FIXED** |
+
+All verified this pass: `npm run typecheck` (exit 0) + `node scripts/check-layers.mjs` (pass) + `npm run build` (exit 0).
+
+### 18.2 Gate deltas
+
+- **Gate 5 Financial integrity** — strengthened: the partner ledger now matches the Stripe webhook's idempotency + server-authoritative discipline (no double-credit, no over-release, cap enforced server-side). Still **code-proven only** — live rail reconciliation (Stripe/BitriPay) NOT exercised (no live keys in scope).
+- **Gate 3 Security** — partner engine no longer a hole (was the single largest post-§17 exposure). Live-Firebase enforcement test + live pen-test still owed.
+- **Gates 6 (Performance) and 8 (Observability)** — **UNCHANGED / still FAIL**. No load harness and no production monitoring were in scope this pass; nothing here converts them to PASS.
+
+### 18.3 Honest status of what could NOT be tested here
+
+These remain **NOT TESTED / BLOCKED** — they need live infra/console access this environment does not have, and are deliberately **not** upgraded to PASS:
+
+- Load / stress / soak to SLOs (no traffic harness).
+- Live penetration test of the deployed environment.
+- Backup + restore drill; disaster-recovery game-day; RTO/RPO proof.
+- Production observability (error monitoring, alerting, tracing, cost anomaly alerts).
+- End-to-end live payment + payout reconciliation (Stripe + BitriPay).
+- Real email inbox-placement (SPF/DKIM/DMARC) and Zernio live publishing (account/billing step).
+- Multi-instance rate-limit store (current store is per-instance).
+
+### 18.4 Refreshed verdict
+
+- **Unrestricted public launch: NO-GO** (unchanged — Gates 6 & 8 still fail; those are operational, not code, gaps).
+- **Invitation-only limited beta: CONDITIONAL GO** — the application, financial-control, **and now partner-monetisation** layers are code-complete, honest, and hardened. The conditions are the same operational closes as §15 "Before limited beta" (observability + tested backups + `STRIPE_WEBHOOK_SECRET` + live-Firebase auth verification), plus, before any real partner money moves: set a payout rail key (`STRIPE_SECRET_KEY` / `BITRIPAY_API_KEY`) and `CREATOR_LEDGER_SECRET`, and run one end-to-end conversion→cap→payout reconciliation on live rails.
+- **Launch confidence score: 64 / 100** (up from 58 — the partner-engine authz/correctness holes and the honesty findings are closed; the ceiling is still held down by the unchanged operational gates, which no code change can lift from inside this environment).
+- **Bottom line for the owner:** a business can be invited to use this and spend money on it **once the four operational items are switched on** — they are infra/console toggles (monitoring, backups, webhook secret, live-Firebase check), not missing product. The code that touches money is now idempotent, capped, ownership-checked, and DB-backstopped. What this environment cannot prove for you — behaviour under real traffic, a real restore, a live pen-test — is honestly marked NOT TESTED above; do not treat those as done until they are run on live infra.
