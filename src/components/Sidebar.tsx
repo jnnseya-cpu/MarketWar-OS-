@@ -96,6 +96,7 @@ const NAV = [
       { href: "/dashboard/segments", label: "Audience Segments", icon: Layers },
       { href: "/dashboard/recovery", label: "Lead Recovery", icon: RefreshCcw },
       { href: "/dashboard/influencers", label: "Influencer Recruitment", icon: Share2 },
+      { href: "/dashboard/partner-network", label: "Partner Network", icon: Users },
       { href: "/dashboard/automation", label: "Automation Lab", icon: Workflow },
       { href: "/dashboard/amplify", label: "Reach Amplifier", icon: Share2 },
     ],

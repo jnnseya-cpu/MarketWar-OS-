@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     applicationId: record.id,
     message: followers >= 10_000
-      ? `Application received — you're above the 10k-follower payout threshold. We'll match you to brands and issue a code/link for each of your ${programmes} programme(s).`
-      : `Application received. You can promote and accrue now; payout unlocks once you reach 10,000 total followers. We'll match you to brands and issue a code/link per programme.`,
+      ? `Application received — ${followers.toLocaleString()} combined followers puts you on the MAIN programme: recurring cash commission (0.75%) on verified sales. We'll match you to brands and issue a tracked code/link for each of your ${programmes} programme(s).`
+      : `Application received. With ${followers.toLocaleString()} combined followers you can promote and accrue now — your commission accumulates until you reach 10,000, then pays out. You also earn 250 ACUs per referral (use them to create a brand + advertise), and auto-upgrade to full cash payout the moment you reach 10,000. We'll issue a tracked code/link per programme.`,
   });
 }

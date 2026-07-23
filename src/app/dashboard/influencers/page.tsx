@@ -125,7 +125,7 @@ export default function InfluencersPage() {
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] p-3"><p className="text-xs text-slate-400">Creator earns</p><p className="font-display text-xl font-bold text-emerald-300">£{split.creatorGbp.toLocaleString()}</p></div>
             <div className="rounded-lg border border-white/[0.08] bg-ink-900/50 p-3"><p className="text-xs text-slate-400">Platform earns</p><p className="font-display text-xl font-bold text-white">£{split.platformGbp.toLocaleString()}</p></div>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Phase {split.phase} — {split.note}</p>
+          <p className="mt-2 text-xs text-slate-500">{split.state.replace(/_/g, " ").toLowerCase()} — {split.note}</p>
           <p className="mt-1 text-[11px] text-slate-600">Payout requires the creator to have {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ total followers.</p>
         </div>
       </div>

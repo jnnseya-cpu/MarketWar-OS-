@@ -37,6 +37,19 @@ export const CREATOR_TIERS: CreatorTier[] = [
 export const MIN_PAYOUT_FOLLOWERS = 10_000;
 export const MIN_PROGRAMMES = 1;
 export const MAX_PROGRAMMES = 100;
+// Sub-10K referral programme: partners below the gate earn ACUs per referral
+// (usable to create a brand + advertise), and AUTO-SWITCH to the main cash
+// programme once they reach 10K verified followers.
+export const SUB10K_ACU_PER_REFERRAL = 250;
+
+export type ProgrammeAssignment = "main" | "acu_referral";
+// Which programme a partner belongs to right now. Main (cash 0.75%) when the
+// 10K gate is met, an admin admitted them, or they've proven 5+ conversions;
+// otherwise the ACU referral programme.
+export function programmeFor(input: { followers: number; verified: boolean; adminOverride?: boolean; provenConversions?: boolean }): ProgrammeAssignment {
+  const gate = input.followers >= MIN_PAYOUT_FOLLOWERS && input.verified;
+  return gate || input.adminOverride || input.provenConversions ? "main" : "acu_referral";
+}
 export const RATE_TOTAL = 0.01;        // 1% total
 export const RATE_CREATOR = 0.0075;    // 0.75% to the creator
 export const RATE_PLATFORM = 0.0025;   // 0.25% to the platform
@@ -45,36 +58,63 @@ export const EARNINGS_CAP_GBP = 20_000; // the £20k cycle threshold
 export const COMMISSION_MODEL: string[] = [
   "Subscribe to as many programmes as you can — from 1 up to 100 — and get a unique tracked link + coupon code for each one.",
   `You're paid only once you have at least ${MIN_PAYOUT_FOLLOWERS.toLocaleString()} followers totalled across all your social platforms and YouTube. Below that you can still promote and accrue — payout unlocks when you cross the threshold.`,
-  "Per referred user you earn 0.75% of their verified revenue; the platform takes 0.25% (1% total). Attribution is transparent — you see exactly which code/link drove which conversion.",
+  "Per referred user you earn 0.75% of their eligible net revenue; the platform takes 0.25% (1% total). The 1% is charged to the promoted brand as their acquisition cost — never to you or the customer. Attribution is transparent — you see exactly which code/link drove which conversion.",
   `Once a single referred user has earned you £${EARNINGS_CAP_GBP.toLocaleString()}, the split flips: the platform takes the full 1% for the next £${EARNINGS_CAP_GBP.toLocaleString()}, then commission on that user stops.`,
   "Paid on VERIFIED revenue only — no payment for empty reach. Every payout is fraud-scored, every endorsement carries AI-content disclosure, and we never clone a creator without consent.",
 ];
 
-// Pure, faithful implementation of the split for a single referred user, given
-// that user's cumulative verified revenue attributed to the creator. Phase 1:
-// creator 0.75% + platform 0.25% until the creator has earned the £20k cap.
-// Phase 2: platform takes the full 1% for the next £20k. Phase 3: stop.
-export function computeCreatorSplit(userRevenueGbp: number): { creatorGbp: number; platformGbp: number; phase: 1 | 2 | 3; note: string } {
-  const rev = Math.max(0, userRevenueGbp || 0);
-  const r1 = EARNINGS_CAP_GBP / RATE_CREATOR;          // revenue at which creator hits the £20k cap
-  const r2span = EARNINGS_CAP_GBP / RATE_TOTAL;        // revenue over which platform recoups £20k at 1%
+// The £20K cap rule (spec §14), computed PER REFERRED CUSTOMER on Eligible Net
+// Revenue, as a 3-state machine that COMPLETES permanently:
+//   • State 1 PARTNER_EARNING: partner 0.75%, platform 0.25% — until the partner
+//     has earned £20,000 from THIS customer.
+//   • State 2 MARKETWAR_EARNING: partner 0%, platform full 1% — until the
+//     platform has collected an additional £20,000 from this customer.
+//   • State 3 COMPLETED: referral obligation for this customer ends permanently.
+export const MARKETWAR_POST_CAP_GBP = 20_000;
+export type ReferralState = "PARTNER_EARNING" | "MARKETWAR_EARNING" | "COMPLETED";
+export type CustomerSplit = {
+  creatorGbp: number; platformGbp: number; state: ReferralState;
+  cap: number; creatorProgressPct: number; note: string;
+};
+
+// Per-customer split given that customer's cumulative Eligible Net Revenue.
+export function computeCreatorSplit(customerNetRevenueGbp: number): CustomerSplit {
+  const rev = Math.max(0, customerNetRevenueGbp || 0);
+  const r1 = EARNINGS_CAP_GBP / RATE_CREATOR;          // net revenue for partner to earn £20k @0.75%
+  const r2 = MARKETWAR_POST_CAP_GBP / RATE_TOTAL;      // net revenue for platform to collect £20k @1.0%
   const p1 = Math.min(rev, r1);
-  let creatorGbp = p1 * RATE_CREATOR;
-  let platformGbp = p1 * RATE_PLATFORM;
-  let phase: 1 | 2 | 3 = 1;
+  let creator = p1 * RATE_CREATOR;
+  let platform = p1 * RATE_PLATFORM;
+  let state: ReferralState = "PARTNER_EARNING";
+  let creatorEarned = creator;
   if (rev > r1) {
-    phase = 2;
-    const p2 = Math.min(rev - r1, r2span);
-    platformGbp += p2 * RATE_TOTAL;                    // creator earns nothing in phase 2
-    if (rev - r1 >= r2span) phase = 3;                 // recoup complete → stopped
+    state = "MARKETWAR_EARNING";
+    creatorEarned = EARNINGS_CAP_GBP;
+    const p2 = Math.min(rev - r1, r2);
+    platform += p2 * RATE_TOTAL;                       // partner earns nothing in state 2
+    if (rev - r1 >= r2) state = "COMPLETED";
   }
-  const note = phase === 1
-    ? "Active — creator earns 0.75%, platform 0.25%."
-    : phase === 2
-      ? "Cap reached — platform takes the full 1% until it recoups £20k."
-      : "Cycle complete — commission on this user has stopped.";
-  return { creatorGbp: Math.round(creatorGbp * 100) / 100, platformGbp: Math.round(platformGbp * 100) / 100, phase, note };
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return {
+    creatorGbp: round(creator), platformGbp: round(platform), state, cap: EARNINGS_CAP_GBP,
+    creatorProgressPct: Math.round((Math.min(creatorEarned, EARNINGS_CAP_GBP) / EARNINGS_CAP_GBP) * 100),
+    note: state === "PARTNER_EARNING"
+      ? `Partner earning — 0.75% to you, 0.25% to the platform. £${round(creatorEarned).toLocaleString()} of £${EARNINGS_CAP_GBP.toLocaleString()} from this customer.`
+      : state === "MARKETWAR_EARNING"
+        ? `Cap reached — the platform collects the full 1% until it matches £${MARKETWAR_POST_CAP_GBP.toLocaleString()} from this customer.`
+        : "Completed — the referral obligation for this customer has ended.",
+  };
 }
+
+// The four earning tiers (2) — with unlock conditions. Everyone starts a
+// Promoter; performance in one tier is the passport to the next.
+export type EarningTier = { key: "promoter" | "creator" | "affiliate" | "agency"; label: string; model: string; forWhom: string; unlock: string };
+export const EARNING_TIERS: EarningTier[] = [
+  { key: "promoter", label: "Promoter", model: "Referral commission", forWhom: "Anyone with an audience — share your link, earn on referrals that convert.", unlock: "Open at launch" },
+  { key: "creator", label: "Creator", model: "Per-campaign + performance", forWhom: "Content makers briefed, approved and paid on milestones.", unlock: "Application + Scout scoring" },
+  { key: "affiliate", label: "Affiliate Partner", model: "Recurring revenue share", forWhom: "Volume drivers with tracked links, coupon codes and a dashboard.", unlock: "Proven Promoter performance" },
+  { key: "agency", label: "Agency Partner", model: "Margin by client", forWhom: "Agencies onboarding clients under a white-label workspace.", unlock: "Vetted commercial agreement" },
+];
 
 // How the creator programme works, end to end.
 export const PROGRAMME_STEPS: string[] = [

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import PartnerApplyForm from "@/components/PartnerApplyForm";
-import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
+import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, EARNING_TIERS } from "@/shared/creator-program";
 
 export const metadata: Metadata = {
   title: "Growth & Influencers · MarketWar OS",
@@ -18,8 +18,8 @@ export default function GrowthPage() {
     >
       <Prose>
         <div className="mb-8 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4">
-          <p className="text-sm font-semibold text-emerald-200">Applications are open — apply below and we&rsquo;ll onboard you as your tier goes live.</p>
-          <p className="mt-1 text-[13px] text-slate-400">The form below is a real application: your details are captured and reviewed. The programme opens in phases — we onboard partners tier by tier as tracking, payouts and the partner dashboard go live, and email you when yours is ready. Honest by design: no fabricated numbers, no fake dashboard shown as working.</p>
+          <p className="text-sm font-semibold text-emerald-200">Apply now. Get your tracked code. Start earning on verified sales.</p>
+          <p className="mt-1 text-[13px] text-slate-400">One profile, up to {MAX_PROGRAMMES} programmes, one wallet. You earn 0.75% of every referred customer&rsquo;s eligible net revenue — tracked to the line, paid on real outcomes, never vanity metrics. {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ combined followers unlocks recurring cash commission; under that you earn ACUs per referral and auto-upgrade the moment you cross the line.</p>
         </div>
 
         <div className="mb-8 rounded-xl border border-white/10 bg-ink-900/50 p-4">
@@ -28,8 +28,19 @@ export default function GrowthPage() {
 
         <div className="not-prose mb-8 grid gap-3 sm:grid-cols-3">
           <div className="card p-5"><p className="font-display text-2xl font-bold text-white">1–{MAX_PROGRAMMES}</p><p className="mt-1 text-xs text-slate-400">programmes you can subscribe to — a unique code/link for each product you promote.</p></div>
-          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">{MIN_PAYOUT_FOLLOWERS.toLocaleString()}+</p><p className="mt-1 text-xs text-slate-400">followers across all your socials + YouTube to unlock payout (you can still promote + accrue below it).</p></div>
-          <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">0.75%</p><p className="mt-1 text-xs text-slate-400">of each referred user&rsquo;s verified revenue is yours (platform takes 0.25%).</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">{MIN_PAYOUT_FOLLOWERS.toLocaleString()}+</p><p className="mt-1 text-xs text-slate-400">followers across all your socials + YouTube to unlock payout — you can still promote + accrue below it. Your funds accumulate until you reach 10K, then pay out.</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">0.75%</p><p className="mt-1 text-xs text-slate-400">of each referred customer&rsquo;s eligible net revenue is yours (platform takes 0.25%). The 1% is charged to the promoted brand as their acquisition cost — never to you or the customer.</p></div>
+        </div>
+
+        <H2>Four ways to earn</H2>
+        <div className="not-prose grid gap-4 sm:grid-cols-2">
+          {EARNING_TIERS.map((t) => (
+            <div key={t.key} className="card p-5">
+              <div className="flex items-center justify-between gap-2"><h3 className="font-display text-base font-bold text-white">{t.label}</h3><span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">{t.model}</span></div>
+              <p className="mt-2 text-sm text-slate-400">{t.forWhom}</p>
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Unlock: {t.unlock}</p>
+            </div>
+          ))}
         </div>
 
         <H2>How you get paid</H2>
