@@ -142,10 +142,15 @@ const PROVISIONING: Record<IntegrationProvider, ProvisioningMeta> = {
   shopify: { provisioning: "user_connect", billing: "user_billed_direct", userAction: "One-click connect to import products/customers/orders.", reason: "Your store lives in YOUR Shopify account (billed on your Shopify plan)." },
   woocommerce: { provisioning: "user_connect", billing: "included", userAction: "One-click connect to import products/customers/orders.", reason: "Your store lives on YOUR WooCommerce site; included, no per-use charge." },
   // Social publishing — posting AS the tenant's brand needs their authorisation.
-  google_business_profile: { provisioning: "user_connect", billing: "included", userAction: "One-click connect to auto-post offers and sync reviews.", reason: "Posting to YOUR Google Business Profile needs your one-click authorisation; included." },
-  facebook_pages: { provisioning: "user_connect", billing: "included", userAction: "One-click connect to publish organic posts.", reason: "Posting to YOUR Facebook Page needs your one-click authorisation; included." },
-  instagram_business: { provisioning: "user_connect", billing: "included", userAction: "One-click connect to publish feed/stories.", reason: "Posting to YOUR Instagram needs your one-click authorisation; included." },
-  linkedin_pages: { provisioning: "user_connect", billing: "included", userAction: "One-click connect to publish company posts.", reason: "Posting to YOUR LinkedIn Page needs your one-click authorisation; included." },
+  // Social publishing is consolidated under the Social Publishing (Zernio)
+  // connector — one per-brand OAuth covers Facebook/Instagram/LinkedIn/Google
+  // and 11 more. These individual channels are kept ONLY as a manual fallback
+  // (copy + post by hand), so they never show a duplicate "connect" tile or a
+  // platform-level "connected" state that wouldn't be the tenant's own account.
+  google_business_profile: { provisioning: "manual_only", billing: "included", userAction: "Publish via the Social Publishing (Zernio) connector — or post to your Google Business Profile by hand.", reason: "Covered by the 15-channel publisher (connect once there). Kept as a manual fallback." },
+  facebook_pages: { provisioning: "manual_only", billing: "included", userAction: "Publish via the Social Publishing (Zernio) connector — or post to your Facebook Page by hand.", reason: "Covered by the 15-channel publisher (connect once there). Kept as a manual fallback." },
+  instagram_business: { provisioning: "manual_only", billing: "included", userAction: "Publish via the Social Publishing (Zernio) connector — or post to Instagram by hand.", reason: "Covered by the 15-channel publisher (connect once there). Kept as a manual fallback." },
+  linkedin_pages: { provisioning: "manual_only", billing: "included", userAction: "Publish via the Social Publishing (Zernio) connector — or post to your LinkedIn Page by hand.", reason: "Covered by the 15-channel publisher (connect once there). Kept as a manual fallback." },
   // One-time imports — the tenant's existing data in their own account.
   brevo_import: { provisioning: "user_connect", billing: "included", userAction: "One-click connect for a one-time contact import — nothing ongoing.", reason: "Reads YOUR existing Brevo account once; included." },
   mailchimp_import: { provisioning: "user_connect", billing: "included", userAction: "One-click connect for a one-time audience import — nothing ongoing.", reason: "Reads YOUR existing Mailchimp account once; included." },
@@ -223,7 +228,11 @@ export function integrationStatus(): { integrations: IntegrationStatus[]; connec
     return {
       provider: m.provider, label: m.label, category: m.category, dependencyLevel: m.dependencyLevel,
       costMode: m.costMode, accelerates: m.accelerates,
-      status: (configured(m.envKey) ? "connected" : "disconnected") as "connected" | "disconnected",
+      // "connected" reflects ONLY a platform-managed connector whose admin key is
+      // set. A user_connect/manual connector is connected per-brand (via its own
+      // OAuth), never at platform level — so it never shows a platform "connected"
+      // state (that would be the platform's account, not the tenant's).
+      status: ((platformManaged && adminConfigured) ? "connected" : "disconnected") as "connected" | "disconnected",
       manualFallback: m.manualFallback,
       provisioning: p.provisioning, billing: p.billing, userAction: p.userAction, reason: p.reason,
       platformManaged, userDoesNothing: platformManaged, adminConfigured, userStatus,

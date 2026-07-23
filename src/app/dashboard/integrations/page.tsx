@@ -123,12 +123,17 @@ export default function IntegrationsPage() {
                                 // pool is not live in THIS environment yet — never show it as connected.
                                 <Pill tone="info"><Sparkles className="mr-1 inline h-3 w-3" />Managed · activates when enabled</Pill>
                               )
-                            ) : i.status === "connected" ? (
-                              <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Connected</Pill>
+                            ) : i.userStatus === "connect" ? (
+                              i.status === "connected" ? (
+                                <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Connected</Pill>
+                              ) : (
+                                <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
+                                  <MousePointerClick className="h-3 w-3" /> Connect
+                                </button>
+                              )
                             ) : (
-                              <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
-                                <MousePointerClick className="h-3 w-3" /> Connect
-                              </button>
+                              // manual_only — no connect tile; the Manual fallback below is the path.
+                              <Pill tone="neutral">Manual fallback</Pill>
                             )}
                             <button className="btn-ghost !py-1.5 !text-xs" onClick={() => setOpen(open === i.provider ? null : i.provider)}><Hand className="h-3.5 w-3.5" /> Manual</button>
                           </div>
