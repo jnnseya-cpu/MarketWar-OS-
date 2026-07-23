@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
   const email = s("email");
   const audience = s("audience");
   const website = s("website");
+  const product = s("product").slice(0, 60);
+  const creatorTier = s("creatorTier").slice(0, 20);
   const notes = s("notes").slice(0, 800);
 
   if (!TIERS.includes(tier)) return NextResponse.json({ error: "Pick a valid tier." }, { status: 400 });
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (!audience) return NextResponse.json({ error: "Tell us where you have reach (channels + rough audience size)." }, { status: 400 });
 
   const nowISO = typeof body.nowISO === "string" ? body.nowISO : new Date().toISOString();
-  const record = await savePartnerApplication({ tier, name, email, audience, website, notes, nowISO });
+  const record = await savePartnerApplication({ tier, name, email, audience, website, product, creatorTier, notes, nowISO });
 
   return NextResponse.json({
     ok: true,

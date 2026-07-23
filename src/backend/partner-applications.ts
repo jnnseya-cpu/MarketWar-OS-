@@ -17,6 +17,8 @@ export type PartnerTier = "promoter" | "creator" | "affiliate" | "agency";
 export type PartnerApplication = {
   id: string;
   tier: PartnerTier;
+  product?: string;      // portfolio product key the creator fits (routing)
+  creatorTier?: string;  // micro | authority | local_viral (self-selected)
   name: string;
   email: string;
   audience: string;   // where they have reach (channels + size)
@@ -38,7 +40,7 @@ function appId(email: string, tier: string): string {
 }
 
 export async function savePartnerApplication(
-  input: { tier: PartnerTier; name: string; email: string; audience: string; website?: string; notes?: string; nowISO: string },
+  input: { tier: PartnerTier; product?: string; creatorTier?: string; name: string; email: string; audience: string; website?: string; notes?: string; nowISO: string },
 ): Promise<PartnerApplication> {
   const record: PartnerApplication = {
     id: appId(input.email, input.tier),
@@ -46,11 +48,14 @@ export async function savePartnerApplication(
     name: input.name,
     email: input.email,
     audience: input.audience,
-    website: input.website,
-    notes: input.notes,
     status: "received",
     createdAt: input.nowISO,
   };
+  // Only attach optional fields when present — Firestore rejects `undefined`.
+  if (input.product) record.product = input.product;
+  if (input.creatorTier) record.creatorTier = input.creatorTier;
+  if (input.website) record.website = input.website;
+  if (input.notes) record.notes = input.notes;
   if (adminConfigured && adminDb) {
     await adminDb.collection("partner_applications").doc(record.id).set(record, { merge: true });
   } else {

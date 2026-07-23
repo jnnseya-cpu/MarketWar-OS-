@@ -7,16 +7,21 @@
 
 import { useState } from "react";
 import { Loader2, CheckCircle2, Send } from "lucide-react";
+import { PORTFOLIO, CREATOR_TIERS } from "@/shared/creator-program";
 
 const TIERS = [
   { value: "promoter", label: "Promoter — share a link, earn on referrals" },
-  { value: "creator", label: "Creator — make content for brands" },
+  { value: "creator", label: "Creator — make content for a product" },
   { value: "affiliate", label: "Affiliate Partner — drive signups at scale" },
   { value: "agency", label: "Agency Partner — bring clients (white-label)" },
 ];
 
+const TIER_LABEL: Record<string, string> = Object.fromEntries(CREATOR_TIERS.map((t) => [t.key, t.label]));
+
 export default function PartnerApplyForm() {
   const [tier, setTier] = useState("promoter");
+  const [product, setProduct] = useState("");
+  const [creatorTier, setCreatorTier] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [audience, setAudience] = useState("");
@@ -33,7 +38,7 @@ export default function PartnerApplyForm() {
       const res = await fetch("/api/growth/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier, name, email, audience, website, notes, nowISO: new Date().toISOString() }),
+        body: JSON.stringify({ tier, product, creatorTier, name, email, audience, website, notes, nowISO: new Date().toISOString() }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Something went wrong — try again."); return; }
@@ -60,10 +65,24 @@ export default function PartnerApplyForm() {
       <h3 className="font-display text-base font-bold text-white">Apply to the early-access programme</h3>
       <p className="mt-1 mb-4 text-[13px] text-slate-400">Real application — we store it and onboard your tier as it opens. No fake network, no self-serve dashboard yet.</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="sm:col-span-2 block">
+        <label className="block">
           <span className="mb-1 block text-xs font-semibold text-slate-400">How do you want to earn?</span>
           <select value={tier} onChange={(e) => setTier(e.target.value)} className={input}>
             {TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-slate-400">Which product do you create for?</span>
+          <select value={product} onChange={(e) => setProduct(e.target.value)} className={input}>
+            <option value="">Not sure yet / general</option>
+            {PORTFOLIO.map((p) => <option key={p.key} value={p.key}>{p.name} · {p.category}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-slate-400">Which creator tier fits you?</span>
+          <select value={creatorTier} onChange={(e) => setCreatorTier(e.target.value)} className={input}>
+            <option value="">Let us decide from my audience</option>
+            {CREATOR_TIERS.map((t) => <option key={t.key} value={t.key}>{TIER_LABEL[t.key]} · {t.audience}</option>)}
           </select>
         </label>
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-400">Your name</span><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Full name" /></label>
