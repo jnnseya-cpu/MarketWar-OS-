@@ -4,9 +4,10 @@
 // email · in-app · SMS · push · WhatsApp. Live from /api/comms-events.
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Mail, Bell, MessageSquare, Smartphone, MessageCircle, ShieldAlert, Send, Eye } from "lucide-react";
+import { Loader2, Mail, Bell, MessageSquare, Smartphone, MessageCircle, ShieldAlert, Send, Eye, Lock } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { useIsAdmin } from "@/frontend/use-is-admin";
 
 type Channel = "email" | "inapp" | "sms" | "push" | "whatsapp";
 type Sev = "info" | "success" | "warning" | "critical";
@@ -19,6 +20,7 @@ const SEV_TONE: Record<Sev, string> = { info: "text-sky-300", success: "text-eme
 
 export default function CommsPage() {
   const { activeBrand } = useActiveBrand();
+  const { isAdmin, ready: adminReady } = useIsAdmin();
   const [data, setData] = useState<Resp | null>(null);
   const [sel, setSel] = useState<string>("account.registration.requested");
   const [preview, setPreview] = useState<{ subject: string; brand: string; brandColour: string; from: string } | null>(null);
@@ -40,6 +42,21 @@ export default function CommsPage() {
     const r = await fetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test", eventId: sel }) }).then((x) => x.json());
     setTestResult(`${r.mode === "sandbox" ? "Sandbox" : "Live"} — ${r.delivered?.length ?? 0} channel(s): ${(r.delivered ?? []).map((d: { channel: string }) => d.channel).join(", ")}`);
     setBusy(false);
+  }
+
+  // Operator-only surface — a business user never sees the platform event
+  // architecture (provider names, mandatory-notice taxonomy, margin events).
+  if (adminReady && !isAdmin) {
+    return (
+      <div>
+        <PageHeader kicker="Comms Events" title="Communication Event Architecture" subtitle="Platform-operator view." />
+        <div className="card flex flex-col items-center justify-center gap-3 p-10 text-center">
+          <Lock className="h-8 w-8 text-slate-500" />
+          <h2 className="font-display text-lg font-bold text-white">Admin only</h2>
+          <p className="max-w-md text-sm text-slate-400">The platform event architecture (137 events across every channel) is a platform-operator surface. Your own notification preferences live in Settings &amp; Security.</p>
+        </div>
+      </div>
+    );
   }
 
   if (!data) return <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading event catalogue…</div>;

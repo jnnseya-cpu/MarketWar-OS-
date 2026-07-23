@@ -43,7 +43,13 @@ export default function AccountCard() {
       }
       setVerifyMsg("Verification email sent — check your inbox (and spam).");
     } catch (e) {
-      setVerifyMsg(e instanceof Error ? e.message.replace("Firebase: ", "") : "Could not send verification email.");
+      const msg = e instanceof Error ? e.message : "";
+      // Friendly, actionable messages for the common Firebase auth errors.
+      if (/too-many-requests/i.test(msg)) {
+        setVerifyMsg("Too many attempts — Firebase paused verification emails for a few minutes. Wait ~15 min and try once, or check your inbox/spam for an earlier email (the link still works).");
+      } else {
+        setVerifyMsg(msg ? msg.replace("Firebase: ", "").replace(/\(auth\/[^)]+\)\.?/, "").trim() || "Could not send verification email." : "Could not send verification email.");
+      }
     }
   }
 

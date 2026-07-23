@@ -7,6 +7,7 @@ import BrandSwitcher from "@/components/BrandSwitcher";
 import { BrandLockup } from "@/components/Logo";
 import UserMenu from "@/components/UserMenu";
 import LanguageSelector from "@/components/LanguageSelector";
+import { useIsAdmin } from "@/frontend/use-is-admin";
 import {
   Activity,
   BadgePercent,
@@ -112,16 +113,17 @@ const NAV = [
     group: "Account",
     items: [
       { href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet },
-      { href: "/dashboard/comms", label: "Comms Events", icon: Bell },
+      { href: "/dashboard/comms", label: "Comms Events", icon: Bell, adminOnly: true },
       { href: "/dashboard/integrations", label: "Integration Hub", icon: Plug },
       { href: "/dashboard/settings", label: "Settings & Security", icon: Settings },
-      { href: "/dashboard/admin", label: "Admin Centre", icon: Gauge },
+      { href: "/dashboard/admin", label: "Admin Centre", icon: Gauge, adminOnly: true },
     ],
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { isAdmin } = useIsAdmin();
   // Honest live-status indicator — never shows the word "demo" to a customer.
   const [liveReady, setLiveReady] = useState<number | null>(null);
   useEffect(() => {
@@ -139,13 +141,17 @@ export default function Sidebar() {
       </Link>
       <BrandSwitcher />
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
-        {NAV.map((group) => (
+        {NAV.map((group) => {
+          // Hide operator-only items (Admin Centre, Comms Events) from tenants.
+          const items = group.items.filter((item) => !(item as { adminOnly?: boolean }).adminOnly || isAdmin);
+          if (items.length === 0) return null;
+          return (
           <div key={group.group}>
             <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">
               {group.group}
             </p>
             <div className="space-y-0.5">
-              {group.items.map((item) => {
+              {items.map((item) => {
                 const active = pathname === item.href;
                 return (
                   <Link
@@ -164,7 +170,8 @@ export default function Sidebar() {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
       <div className="border-t border-ink-700/60 px-5 py-3">
         <UserMenu />

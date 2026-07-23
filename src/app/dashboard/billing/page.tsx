@@ -69,11 +69,12 @@ export default function BillingPage() {
     } finally { setBuying(null); }
   }
 
-  // Demo wallet keyed off the Growth plan's monthly allocation (deterministic).
+  // Wallet keyed off the plan's monthly allocation. Real per-account metering
+  // activates with billing (Stripe) — until then spend is 0 (never fabricated).
   const currentPlan = data?.plans.find((p) => p.id === "growth");
   const allocation = currentPlan?.monthlyAcus ?? 980;
-  const spent = 612; // Demo Intelligence
-  const topUpAcus = 400;
+  const spent = 0;
+  const topUpAcus = 0;
   const balance = allocation + topUpAcus - spent;
 
   return (
@@ -90,31 +91,26 @@ export default function BillingPage() {
         }
       />
 
-      {/* ACU wallet */}
+      {/* ACU wallet — real allocation; live metering activates with billing */}
       <div className="mb-8 grid gap-4 lg:grid-cols-4">
         <div className="card p-5 lg:col-span-2">
-          <div className="mb-3 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">ACU Wallet</h2><Pill tone="info">Demo</Pill></div>
+          <div className="mb-3 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">ACU Wallet</h2></div>
           <div className="flex items-end justify-between">
             <div>
               <p className="font-display text-3xl font-bold text-white">{balance.toLocaleString("en-GB")}<span className="ml-1 text-sm font-normal text-slate-400">ACUs</span></p>
-              <p className="mt-1 text-xs text-slate-400">≈ {fmtGbp(balance / 100)} of AI usage remaining</p>
+              <p className="mt-1 text-xs text-slate-400">≈ {fmtGbp(balance / 100)} of AI usage available</p>
             </div>
             <button className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-ink-950 hover:bg-emerald-400"><Zap className="h-4 w-4" /> Top up</button>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-ink-800">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(spent / (allocation + topUpAcus) * 100)}%` }} />
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: "100%" }} />
           </div>
-          <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>{spent} spent this month</span><span>{allocation + topUpAcus} available</span></div>
+          <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>0 spent this cycle</span><span>Live per-use metering activates with billing</span></div>
         </div>
-        <div className="card p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">This month's allocation</p>
+        <div className="card p-5 lg:col-span-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">This month&apos;s allocation</p>
           <p className="mt-1 font-display text-2xl font-bold text-emerald-400">{allocation.toLocaleString("en-GB")}</p>
-          <p className="text-xs text-slate-400">20% of your plan price, auto-credited</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing rule</p>
-          <p className="mt-1 font-display text-2xl font-bold text-white">{data ? `${data.markupCorrection.markupMultiplier}× markup` : "4× markup"}</p>
-          <p className="text-xs text-slate-400">{data ? `${data.markupCorrection.markupPct}% markup = ${data.markupCorrection.grossMarginPct}% gross margin` : "300% markup = 75% gross margin"}</p>
+          <p className="text-xs text-slate-400">Your plan&apos;s automatic AI credit — auto-credited each cycle. Add ACUs any time without changing your plan.</p>
         </div>
       </div>
 
