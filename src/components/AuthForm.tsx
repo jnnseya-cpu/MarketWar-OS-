@@ -16,6 +16,33 @@ type PublicInvite = { token: string; companyName: string; planId: string; brands
 
 type Mode = "login" | "signup";
 
+// Mobile browsers block/lose auth pop-ups — use the redirect flow there.
+const isMobileBrowser = () => typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+// Turn raw Firebase error codes into plain, honest, actionable messages.
+function friendlyAuthError(err: unknown): string {
+  const code = (err as { code?: string })?.code || "";
+  const raw = err instanceof Error ? err.message.replace("Firebase: ", "") : "Authentication failed.";
+  const map: Record<string, string> = {
+    "auth/internal-error": "Sign-in is temporarily unavailable for this site. If it persists, the sign-in providers may still need enabling for this domain.",
+    "auth/operation-not-allowed": "This sign-in method isn't switched on yet. Try the other option or contact support.",
+    "auth/email-already-in-use": "That email already has an account — log in instead.",
+    "auth/invalid-email": "That email address doesn't look right.",
+    "auth/weak-password": "Choose a stronger password — at least 8 characters.",
+    "auth/missing-password": "Enter a password.",
+    "auth/wrong-password": "Incorrect email or password.",
+    "auth/invalid-credential": "Incorrect email or password.",
+    "auth/user-not-found": "No account with that email — create one first.",
+    "auth/too-many-requests": "Too many attempts — wait a moment and try again.",
+    "auth/popup-blocked": "Your browser blocked the Google window — redirecting you instead…",
+    "auth/popup-closed-by-user": "The Google window closed before finishing — try again.",
+    "auth/cancelled-popup-request": "Google sign-in was interrupted — try again.",
+    "auth/unauthorized-domain": "This site isn't authorised for Google sign-in yet.",
+    "auth/network-request-failed": "Network problem — check your connection and try again.",
+  };
+  return map[code] || raw;
+}
+
 const COPY: Record<Mode, { title: string; cta: string; alt: string; altHref: string; altCta: string }> = {
   login: {
     title: "Welcome back, Commander",
@@ -55,6 +82,28 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       .then((d) => { if (d.valid && d.invite) { setInvite(d.invite); if (d.invite.companyName) setName(d.invite.companyName); } })
       .catch(() => {});
   }, [mode]);
+
+  // Complete a Google REDIRECT sign-in (mobile / popup-blocked path): when the
+  // user lands back on this page after the Google redirect, finish the flow.
+  useEffect(() => {
+    if (!firebaseAuth) return;
+    (async () => {
+      try {
+        const { getRedirectResult } = await import("firebase/auth");
+        const res = await getRedirectResult(firebaseAuth);
+        if (res?.user) {
+          setBusy(true);
+          await acceptInviteIfAny(res.user.uid);
+          const stored = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("mw_auth_dest") : null;
+          if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("mw_auth_dest");
+          router.push(stored || (mode === "signup" ? "/choose-plan" : "/dashboard"));
+        }
+      } catch (err) {
+        setError(friendlyAuthError(err));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function acceptInviteIfAny(uid?: string) {
     if (!invite) return;
@@ -96,7 +145,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
       router.push(dest);
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Authentication failed.");
+      setError(friendlyAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -112,7 +161,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       await sendPasswordResetEmail(firebaseAuth, email, { url: `${window.location.origin}/login` });
       setNotice(`Password-reset email sent to ${email}. Check your inbox.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Could not send reset email.");
+      setError(friendlyAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -125,13 +174,34 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setError(null);
     setNotice(null);
     try {
-      const { GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } = await import("firebase/auth");
+      const { GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence } = await import("firebase/auth");
       await setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
-      await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      // Remember where to land — the redirect flow leaves and re-enters the page.
+      if (typeof sessionStorage !== "undefined") sessionStorage.setItem("mw_auth_dest", dest);
+
+      // Mobile browsers routinely block or drop auth pop-ups → go straight to
+      // the redirect flow (the page navigates to Google and back).
+      if (isMobileBrowser()) {
+        await signInWithRedirect(firebaseAuth, provider);
+        return; // navigation happens; getRedirectResult (above) finishes it
+      }
+      // Desktop: try the pop-up; if the browser blocks/closes it, fall back to
+      // redirect instead of dead-ending.
+      try {
+        await signInWithPopup(firebaseAuth, provider);
+      } catch (e) {
+        const code = (e as { code?: string })?.code || "";
+        if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/operation-not-supported-in-this-environment"].includes(code)) {
+          await signInWithRedirect(firebaseAuth, provider);
+          return;
+        }
+        throw e;
+      }
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
       router.push(dest);
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace("Firebase: ", "") : "Google sign-in failed.");
+      setError(friendlyAuthError(err));
     } finally {
       setBusy(false);
     }

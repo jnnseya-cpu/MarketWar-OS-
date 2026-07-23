@@ -8,7 +8,8 @@
 // are real AgentRunners. The Clip Intelligence Lab is wired to the REAL
 // VideoDominance engine (/api/video-intelligence): genre detection, moment
 // ranking, 8-dimension virality scoring and natural-language moment search.
-// Studio tools that need a render/capture farm (avatar, audio, screen recorder,
+// The Screen & Presentation Recorder is LIVE (real in-browser MediaRecorder
+// capture, no key). Studio tools that still need a render farm (avatar, audio,
 // editor, B-roll) are honestly marked "Coming soon" — never shown as working.
 
 import { useEffect, useState } from "react";
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
+import ScreenRecorder from "@/components/ScreenRecorder";
 import { PageHeader, Pill, ScoreBar, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -69,7 +71,7 @@ const STUDIO: Studio[] = [
   { icon: Globe2, title: "Translation & Dubbing", status: "p1", note: "The localisation plan generates live in the Global Reach tab; voice cloning + dubbed render need an audio-model.", desc: "Subtitle + voice translation, AI dubbing, voice cloning — one video in 10–50 languages with localised CTAs." },
   { icon: UserSquare2, title: "AI Avatar Studio", status: "p1", note: "Talking-head avatar rendering activates with an avatar-model key.", desc: "Talking-head presenters: business, teacher, professional and influencer avatars — a branded company spokesperson in any language." },
   { icon: Mic, title: "Audio Studio", status: "p1", note: "TTS / voice-clone / enhancement rendering needs an audio-model.", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
-  { icon: MonitorPlay, title: "Screen & Presentation Recorder", status: "p1", note: "Browser capture + teleprompter land with the capture client.", desc: "Screen/webcam/slides with teleprompter — auto-turned into demos, training modules, social clips and help-centre videos." },
+  { icon: MonitorPlay, title: "Screen & Presentation Recorder", status: "live", note: "Live now — record your screen + voice in the panel below and download it. No key needed.", desc: "Screen/webcam/slides recording — turn demos into training modules, social clips and help-centre videos." },
   { icon: Layers, title: "Repurposing Engine", status: "live", note: "Powered by the live clip-intelligence engine — rank & find moments in the lab below.", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
   { icon: Palette, title: "Brand Kit", status: "p1", cap: "video", note: "Logo colour auto-detection + intro/outro render land with the creative pipeline.", liveNote: "Your logo + brand colours (Brand Studio) theme every creative; intro/outro render is live via the video model.", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
   { icon: Users2, title: "Collaboration & Approvals", status: "p1", note: "The team workspace + approval portal land with the connector phase.", desc: "Team workspace, versions, client approval portal (Approve/Reject/Request Change), creator→editor→manager→client→publish." },
@@ -208,9 +210,10 @@ export default function VideoWarRoomPage() {
           The clip-intelligence brain — genre detection, moment ranking, 8-dimension commercial scoring and natural-language
           moment search — runs live in the <span className="text-emerald-300">Clip Intelligence Lab</span> below, and the 7 agent
           tabs generate real scripts, hooks, captions and packaging.{" "}
+          Screen &amp; presentation recording is <span className="text-emerald-300">Live now</span> — record and download in the panel below (no key).{" "}
           {renderLive
-            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> — render + publish in the panel below. Avatars, audio, screen capture and the editor timeline remain <span className="text-amber-300">Coming soon</span>.</>
-            : <>Rendering video/avatars/audio and screen capture flip to <span className="text-emerald-300">Live now</span> as their model keys are set.</>}
+            ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> too. Avatars, audio and the editor timeline remain <span className="text-amber-300">Coming soon</span>.</>
+            : <>Rendering video/avatars/audio flip to <span className="text-emerald-300">Live now</span> as their model keys are set.</>}
         </p>
       </div>
 
@@ -230,6 +233,11 @@ export default function VideoWarRoomPage() {
           </div>
           );
         })}
+      </div>
+
+      {/* LIVE Screen & Presentation Recorder — real browser capture, no key */}
+      <div className="mb-8">
+        <ScreenRecorder />
       </div>
 
       {/* LIVE video render + publish — render an MP4 and attach it to a post */}
