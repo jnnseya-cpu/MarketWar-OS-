@@ -5,10 +5,13 @@
 // objective-driven form, A/B variants A–D and the 8-score matrix. Wired to
 // /api/landing. Renders the structured JSON the frontend would build from.
 
-import { useState } from "react";
-import { Loader2, LayoutTemplate, Star, FlaskConical, ListChecks } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, LayoutTemplate, Star, FlaskConical, ListChecks, Rocket, ExternalLink, Copy, Check } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
+import { brandDefaults } from "@/shared/brand";
 
 type Scores = Record<string, number>;
 type Section = { type: string; heading: string; body: string; items?: string[] };
@@ -25,17 +28,53 @@ const tone = (n: number): "good" | "warn" | "bad" => (n >= 75 ? "good" : n >= 60
 const SCORE_LABELS: Record<string, string> = { conversionScore: "Conversion", clarityScore: "Clarity", trustScore: "Trust", urgencyScore: "Urgency", mobileScore: "Mobile", emotionalScore: "Emotional", frictionScore: "Friction", leadQualityScore: "Lead quality" };
 
 export default function LandingBuilderPage() {
+  const { activeBrand } = useActiveBrand();
   const [form, setForm] = useState({ business: "", objective: "", offer: "", audience: "", location: "", product: "", painPoint: "" });
   const [page, setPage] = useState<Page | null>(null);
   const [busy, setBusy] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [liveUrl, setLiveUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // Prefill from the active brand so the page is built from real brand context.
+  useEffect(() => {
+    if (!activeBrand) return;
+    const d = brandDefaults(activeBrand);
+    setForm((f) => ({
+      ...f,
+      business: f.business || d.business || "",
+      offer: f.offer || d.offer || "",
+      audience: f.audience || d.audience || "",
+      location: f.location || d.location || "",
+      product: f.product || d.product || "",
+    }));
+  }, [activeBrand]);
+
   async function generate() {
-    setBusy(true);
+    setBusy(true); setLiveUrl(null);
     try {
-      const res = await fetch("/api/landing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const res = await authedFetch("/api/landing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       setPage(await res.json());
     } finally { setBusy(false); }
+  }
+
+  async function publish() {
+    if (!activeBrand) return;
+    setPublishing(true);
+    try {
+      const res = await authedFetch("/api/landing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form, action: "publish",
+          brandId: activeBrand.id, brandName: activeBrand.name,
+          logoUrl: activeBrand.logoUrl, brandColours: activeBrand.brandColours,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data?.absoluteUrl) { setLiveUrl(data.absoluteUrl); if (data.page) setPage(data.page); }
+    } finally { setPublishing(false); }
   }
 
   return (
@@ -56,10 +95,34 @@ export default function LandingBuilderPage() {
           <div><label className="label">Location</label><input className="input" value={form.location} onChange={set("location")} /></div>
           <div><label className="label">Pain point</label><input className="input" value={form.painPoint} onChange={set("painPoint")} /></div>
         </div>
-        <button className="btn-primary mt-4" onClick={generate} disabled={busy}>
-          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Architecting…</> : <><LayoutTemplate className="h-4 w-4" /> Generate landing page</>}
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button className="btn-primary" onClick={generate} disabled={busy}>
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Architecting…</> : <><LayoutTemplate className="h-4 w-4" /> Generate landing page</>}
+          </button>
+          {page && activeBrand && (
+            <button className="btn-primary !bg-emerald-500 hover:!bg-emerald-400" onClick={publish} disabled={publishing}>
+              {publishing ? <><Loader2 className="h-4 w-4 animate-spin" /> Publishing…</> : <><Rocket className="h-4 w-4" /> Publish live page</>}
+            </button>
+          )}
+          {page && !activeBrand && <span className="text-xs text-amber-400">Add a brand to publish a live page.</span>}
+        </div>
       </div>
+
+      {liveUrl && (
+        <div className="mb-6 card border-emerald-500/40 bg-emerald-500/[0.06] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300">Live</span>
+            <span className="text-sm font-semibold text-white">Your landing page is live:</span>
+            <a href={liveUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate text-sm text-emerald-300 hover:underline">
+              {liveUrl.replace(/^https?:\/\//, "")} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+            </a>
+            <button onClick={() => { navigator.clipboard?.writeText(liveUrl); setCopied(true); }} className="text-slate-400 hover:text-white" title="Copy">
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-400">Share it or run ads to it. Every form submission lands in this brand&apos;s Customer Vault as a consented lead — ready to score, segment and follow up.</p>
+        </div>
+      )}
 
       {page && (
         <div className="space-y-6">
@@ -130,10 +193,10 @@ export default function LandingBuilderPage() {
 
       <div className="mt-6">
         <AgentRunner agentId="landing-page-architect" buttonLabel="Architect the page" fields={[
-          { key: "business", label: "Business", defaultValue: "Brixton Grill House" },
-          { key: "industry", label: "Industry", defaultValue: "food delivery" },
-          { key: "location", label: "Location", defaultValue: "Brixton, London" },
-          { key: "offer", label: "Offer", defaultValue: "20% off first order" },
+          { key: "business", label: "Business", defaultValue: brandDefaults(activeBrand).business ?? "" },
+          { key: "industry", label: "Industry", defaultValue: brandDefaults(activeBrand).industry ?? "" },
+          { key: "location", label: "Location", defaultValue: brandDefaults(activeBrand).location ?? "" },
+          { key: "offer", label: "Offer", defaultValue: brandDefaults(activeBrand).offer ?? "" },
         ]} />
       </div>
     </div>
