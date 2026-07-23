@@ -7,6 +7,7 @@ import { PageHeader, Pill, ScoreBar, AgentMarkdown } from "@/components/ui";
 import type { AuditReport } from "@/shared/types";
 import { pushVersion } from "@/frontend/use-autosave";
 import VersionHistory from "@/components/VersionHistory";
+import { authedFetch } from "@/frontend/api-client";
 
 const DEMO_INPUT = {
   business: "Sample Business",
@@ -51,7 +52,7 @@ export default function AuditPage() {
       try { intake = JSON.parse(sessionStorage.getItem("mwos.intake") || "{}"); } catch { /* ignore */ }
       const business = (intake.business as string) || DEMO_INPUT.business;
       const auditSummary = report?.topReasons?.length ? `Top reasons for 0 customers:\n- ${report.topReasons.join("\n- ")}` : undefined;
-      const res = await fetch("/api/growth-plan", {
+      const res = await authedFetch("/api/growth-plan", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           business,

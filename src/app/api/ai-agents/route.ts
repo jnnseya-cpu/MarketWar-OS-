@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runStrategyAgent } from "@/backend/strategy-run";
 import { STRATEGY_AGENTS } from "@/shared/strategy-agents";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { gatewayLangFrom } from "@/backend/gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!agentId) return NextResponse.json({ error: "agentId required" }, { status: 400 });
 
   try {
-    return NextResponse.json(await runStrategyAgent(agentId, input, priorContext));
+    return NextResponse.json(await runStrategyAgent(agentId, input, priorContext, gatewayLangFrom(req)));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Agent error" }, { status: 502 });
   }

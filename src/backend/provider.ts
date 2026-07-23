@@ -13,7 +13,8 @@ import type { AgentResult } from "@/shared/types";
 // so every module works with zero config.
 export async function runAgent(
   agentId: string,
-  input: Record<string, string>
+  input: Record<string, string>,
+  lang?: string
 ): Promise<AgentResult> {
   const agent = AGENTS[agentId];
   if (!agent) {
@@ -34,6 +35,7 @@ export async function runAgent(
     const result = await gatewayComplete({
       system: agent.systemPrompt,
       prompt: userPrompt,
+      lang,
     });
     return {
       agentId: agent.id,

@@ -22,6 +22,7 @@ export type GrowthPlanInput = {
   pain?: string;
   goalGbp?: number;      // 30-day revenue target, optional
   auditSummary?: string; // top reasons / scores from the Failure Audit, optional
+  lang?: string;         // target output language (English name); English = no-op
 };
 
 export type GrowthPlan = { mode: "live" | "demo"; plan: string; business: string };
@@ -60,7 +61,7 @@ export async function generateGrowthPlan(input: GrowthPlanInput): Promise<Growth
   ].join("\n");
 
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt });
+    const res = await gatewayComplete({ system: SYSTEM, prompt, lang: input.lang });
     return { mode: "live", plan: res.text, business: biz };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {

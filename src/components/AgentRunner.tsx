@@ -5,6 +5,7 @@ import { Loader2, Sparkles, Zap } from "lucide-react";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
 
 export interface AgentField {
@@ -59,7 +60,7 @@ export default function AgentRunner({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/agents/${agentId}`, {
+      const res = await authedFetch(`/api/agents/${agentId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(values),

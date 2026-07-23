@@ -24,5 +24,10 @@ export async function authedFetch(input: RequestInfo | URL, init: RequestInit = 
   } catch {
     // Token unavailable → proceed unauthenticated (server decides whether to allow).
   }
+  // Attach the user's language so AI engines can respond in it (gateway reads it).
+  try {
+    const loc = typeof localStorage !== "undefined" ? localStorage.getItem("mw.locale.v1") : null;
+    if (loc && !headers.has("x-mw-lang")) headers.set("x-mw-lang", loc);
+  } catch { /* ignore */ }
   return fetch(input, { ...init, headers });
 }

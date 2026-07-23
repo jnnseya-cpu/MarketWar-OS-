@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateGrowthPlan, type GrowthPlanInput } from "@/backend/growth-plan";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { gatewayLangFrom } from "@/backend/gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
     audience: s("audience"), offer: s("offer"), price: s("price"), pain: s("pain"),
     goalGbp: typeof body.goalGbp === "number" ? body.goalGbp : undefined,
     auditSummary: s("auditSummary"),
+    lang: gatewayLangFrom(req),
   };
 
   try {

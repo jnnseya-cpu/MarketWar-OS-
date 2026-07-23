@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AGENTS } from "@/shared/agents";
 import { runAgent } from "@/backend/provider";
+import { gatewayLangFrom } from "@/backend/gateway";
 import { logAgentRun } from "@/backend/db";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -40,7 +41,7 @@ export async function POST(
   }
 
   try {
-    const result = await runAgent(agentId, input);
+    const result = await runAgent(agentId, input, gatewayLangFrom(req));
     // Persist the run when Firebase is configured; never block the response.
     logAgentRun(result, input).catch(() => {});
     return NextResponse.json(result);

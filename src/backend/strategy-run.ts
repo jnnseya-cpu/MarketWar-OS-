@@ -16,7 +16,8 @@ export type StrategyResult = { agentId: string; agentName: string; mode: "live" 
 export async function runStrategyAgent(
   agentId: string,
   input: Record<string, string>,
-  priorContext?: string
+  priorContext?: string,
+  lang?: string
 ): Promise<StrategyResult> {
   const agent = STRATEGY_BY_ID[agentId];
   if (!agent) throw new Error(`Unknown strategy agent: ${agentId}`);
@@ -31,7 +32,7 @@ export async function runStrategyAgent(
   ].join("\n");
 
   try {
-    const res = await gatewayComplete({ system: agent.systemPrompt, prompt: userPrompt });
+    const res = await gatewayComplete({ system: agent.systemPrompt, prompt: userPrompt, lang });
     return { agentId: agent.id, agentName: agent.name, mode: "live", output: res.text };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {

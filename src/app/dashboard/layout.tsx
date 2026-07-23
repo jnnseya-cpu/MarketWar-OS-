@@ -6,10 +6,12 @@ import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
+import { LocaleProvider } from "@/frontend/locale-context";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
+    <LocaleProvider>
     <BrandProvider>
     <ResultsProvider>
     <div className="min-h-screen">
@@ -26,6 +28,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </div>
     </ResultsProvider>
     </BrandProvider>
+    </LocaleProvider>
     </RequireAuth>
   );
 }

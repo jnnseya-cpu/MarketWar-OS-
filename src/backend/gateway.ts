@@ -21,6 +21,22 @@ export interface GatewayRequest {
   system: string;
   prompt: string;
   maxTokens?: number;
+  lang?: string; // target output language (English display name, e.g. "French"); English = no-op
+}
+
+// Read the caller's target language from the request (x-mw-lang header carries a
+// BCP-47 code like "fr" or "fr-FR"). Returns the English language NAME for the
+// gateway's lang hook, or undefined for English/unknown (a no-op). Every route
+// can pass `lang: gatewayLangFrom(req)` into gatewayComplete to localise output.
+export function gatewayLangFrom(req: { headers: { get(name: string): string | null } }): string | undefined {
+  const code = (req.headers.get("x-mw-lang") || "").trim();
+  if (!code || /^en/i.test(code)) return undefined;
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code.split("-")[0]);
+    return name && !/^en/i.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface GatewayResponse {
@@ -190,7 +206,15 @@ export class GatewayUnconfiguredError extends Error {
   }
 }
 
-export async function gatewayComplete(req: GatewayRequest): Promise<GatewayResponse> {
+export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayResponse> {
+  // Language: one central injection point — if a non-English target language is
+  // set, instruct the model to answer entirely in it. Every engine that routes
+  // through the gateway inherits this automatically.
+  const lang = (reqIn.lang || "").trim();
+  const req: GatewayRequest = lang && !/^(en|english)/i.test(lang)
+    ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
+    : reqIn;
+
   const candidates = routingOrder().filter((a) => a.configured());
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 

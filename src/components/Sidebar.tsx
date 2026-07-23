@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import BrandSwitcher from "@/components/BrandSwitcher";
 import { BrandLockup } from "@/components/Logo";
 import UserMenu from "@/components/UserMenu";
+import LanguageSelector from "@/components/LanguageSelector";
 import {
   Activity,
   BadgePercent,
@@ -167,6 +168,9 @@ export default function Sidebar() {
       </nav>
       <div className="border-t border-ink-700/60 px-5 py-3">
         <UserMenu />
+      </div>
+      <div className="border-t border-ink-700/60 px-5 py-3">
+        <LanguageSelector />
       </div>
       <div className="border-t border-ink-700/60 px-5 py-4">
         {liveReady === null ? (
