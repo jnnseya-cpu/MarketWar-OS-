@@ -27,43 +27,95 @@ type VaultReport = {
 
 type ParsedContact = { email: string; name: string; phone: string; company: string; totalSpendGbp: string; orderCount: string; lastOrderDaysAgo: string; consent?: boolean };
 
-// Minimal, quote-aware CSV parser + fuzzy header mapping. Runs client-side.
+// Robust client-side parser. Handles real-world exports:
+//  • auto-detects the delimiter (tab, comma or semicolon),
+//  • works WITH a header row (fuzzy-mapped) OR WITHOUT one (headerless),
+//  • finds the email in whatever column it lands in (even mid-cell / with junk),
+//  • falls back to phone/name so a row is never silently dropped.
+// Extract the first email-looking token from any text (strips trailing quotes,
+// commas, surrounding whitespace, and multi-email cells like "a@x.com,b@x.com").
+function firstEmail(s: string): string {
+  const m = (s || "").match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/);
+  return m ? m[0].toLowerCase() : "";
+}
+function firstPhone(s: string): string {
+  const t = (s || "").replace(/[^\d+]/g, "");
+  return t.replace(/^\+/, "").length >= 7 ? (s.trim()) : "";
+}
+
 function parseCsv(text: string): ParsedContact[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim().length);
-  if (lines.length < 2) return [];
+  if (!lines.length) return [];
+
+  // Detect delimiter from the sample: tab wins over semicolon wins over comma
+  // when it appears more (handles tab-separated pastes with commas inside cells).
+  const sample = lines.slice(0, 20).join("\n");
+  const n = (re: RegExp) => (sample.match(re) || []).length;
+  const tabs = n(/\t/g), semis = n(/;/g), commas = n(/,/g);
+  const delim = tabs >= commas && tabs >= semis ? "\t" : semis > commas ? ";" : ",";
+
   const parseLine = (line: string): string[] => {
     const out: string[] = []; let cur = ""; let q = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
-      else { if (ch === '"') q = true; else if (ch === ",") { out.push(cur); cur = ""; } else cur += ch; }
+      else { if (ch === '"') q = true; else if (ch === delim) { out.push(cur); cur = ""; } else cur += ch; }
     }
     out.push(cur); return out.map((s) => s.trim());
   };
-  const headers = parseLine(lines[0]).map((h) => h.toLowerCase());
-  const find = (...names: string[]) => headers.findIndex((h) => names.some((n) => h === n || h.includes(n)));
-  const iEmail = find("email", "e-mail");
-  const iName = find("full name", "name", "contact");
-  const iFirst = headers.findIndex((h) => ["first name", "firstname", "first", "given name"].includes(h));
-  const iLast = headers.findIndex((h) => ["last name", "lastname", "surname", "family name"].includes(h));
-  const iPhone = find("phone", "mobile", "tel", "cell");
-  const iCompany = find("company", "organisation", "organization", "account");
-  const iSpend = find("spend", "revenue", "ltv", "total value", "value", "amount");
-  const iOrders = find("orders", "order count", "purchases", "transactions");
-  const iRecency = find("last order days", "days since", "recency", "days ago");
-  const iConsent = find("consent", "opt-in", "optin", "subscribed", "marketing");
-  const g = (cells: string[], i: number) => (i >= 0 && i < cells.length ? cells[i] : "");
-  const truthy = new Set(["yes", "true", "1", "y", "subscribed", "opt-in", "opted in", "opted-in", "consented"]);
+
+  const first = parseLine(lines[0]);
+  const KNOWN = ["email", "e-mail", "name", "phone", "mobile", "tel", "company", "organisation", "organization", "spend", "revenue", "ltv", "orders", "consent", "opt", "first", "last", "contact"];
+  const firstHasEmail = first.some((c) => firstEmail(c));
+  const looksHeader = !firstHasEmail && first.some((c) => KNOWN.some((k) => c.toLowerCase().includes(k)));
+  const truthy = new Set(["yes", "true", "1", "y", "subscribed", "opt-in", "opted in", "opted-in", "consented", "oui"]);
+
+  // ---- Header path: map columns by name (as before, delimiter-aware) ----
+  if (looksHeader) {
+    const headers = first.map((h) => h.toLowerCase());
+    const find = (...names: string[]) => headers.findIndex((h) => names.some((x) => h === x || h.includes(x)));
+    const iEmail = find("email", "e-mail"), iName = find("full name", "name", "contact");
+    const iFirst = headers.findIndex((h) => ["first name", "firstname", "first", "given name"].includes(h));
+    const iLast = headers.findIndex((h) => ["last name", "lastname", "surname", "family name"].includes(h));
+    const iPhone = find("phone", "mobile", "tel", "cell"), iCompany = find("company", "organisation", "organization", "account");
+    const iSpend = find("spend", "revenue", "ltv", "total value", "value", "amount"), iOrders = find("orders", "order count", "purchases", "transactions");
+    const iRecency = find("last order days", "days since", "recency", "days ago"), iConsent = find("consent", "opt-in", "optin", "subscribed", "marketing");
+    const g = (c: string[], i: number) => (i >= 0 && i < c.length ? c[i] : "");
+    const rows: ParsedContact[] = [];
+    for (let r = 1; r < lines.length; r++) {
+      const c = parseLine(lines[r]);
+      let name = g(c, iName);
+      if (!name && (iFirst >= 0 || iLast >= 0)) name = [g(c, iFirst), g(c, iLast)].filter(Boolean).join(" ");
+      rows.push({
+        email: firstEmail(g(c, iEmail)) || (iEmail < 0 ? firstEmail(c.join(" ")) : ""),
+        name, phone: g(c, iPhone), company: g(c, iCompany),
+        totalSpendGbp: g(c, iSpend), orderCount: g(c, iOrders), lastOrderDaysAgo: g(c, iRecency),
+        consent: iConsent >= 0 ? truthy.has(g(c, iConsent).toLowerCase()) : undefined,
+      });
+    }
+    return rows.filter((r) => r.email || r.phone || r.name);
+  }
+
+  // ---- Headerless path: detect the email column by content ----
+  const parsed = lines.map(parseLine);
+  const colCount = Math.max(...parsed.map((c) => c.length));
+  let emailCol = -1, best = 0;
+  for (let ci = 0; ci < colCount; ci++) {
+    let hits = 0;
+    for (const c of parsed) if (c[ci] && firstEmail(c[ci])) hits++;
+    if (hits > best) { best = hits; emailCol = ci; }
+  }
   const rows: ParsedContact[] = [];
-  for (let r = 1; r < lines.length; r++) {
-    const c = parseLine(lines[r]);
-    let name = g(c, iName);
-    if (!name && (iFirst >= 0 || iLast >= 0)) name = [g(c, iFirst), g(c, iLast)].filter(Boolean).join(" ");
-    const consentRaw = g(c, iConsent).toLowerCase();
+  for (const c of parsed) {
+    const email = emailCol >= 0 && firstEmail(c[emailCol] || "") ? firstEmail(c[emailCol]) : firstEmail(c.join(" "));
+    // Remaining non-email text cells → name (first) + company (second), skipping
+    // the detected email cell and any obvious phone cell.
+    const others = c.map((s) => s.trim()).filter((s, i) => s && i !== emailCol && !firstEmail(s));
+    const phone = c.map((s) => firstPhone(s)).find(Boolean) || "";
+    const textOthers = others.filter((s) => !firstPhone(s));
     rows.push({
-      email: g(c, iEmail), name, phone: g(c, iPhone), company: g(c, iCompany),
-      totalSpendGbp: g(c, iSpend), orderCount: g(c, iOrders), lastOrderDaysAgo: g(c, iRecency),
-      consent: iConsent >= 0 ? truthy.has(consentRaw) : undefined,
+      email, name: textOthers[0] || "", phone, company: textOthers[1] || "",
+      totalSpendGbp: "", orderCount: "", lastOrderDaysAgo: "", consent: undefined,
     });
   }
   return rows.filter((r) => r.email || r.phone || r.name);
