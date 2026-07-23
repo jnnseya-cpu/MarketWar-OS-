@@ -430,13 +430,14 @@ export default function LandingPage() {
       {/* ========================== AGENT CORPS ========================== */}
       <section id="agents" className="relative mx-auto max-w-6xl px-5 py-24">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_50%_40%_at_50%_0%,rgba(144,133,233,0.08),transparent_70%)]" />
-        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The agent corps</p>
+        <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The revenue army</p>
         <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
-          {AGENT_LIST.length} AI specialists. Zero generic advice.
+          A 26-agent revenue army. Zero generic advice.
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
-          Every agent operates under the Master Directive: money first, blunt verdicts, local
-          fidelity — never &ldquo;best practices&rdquo; fluff.
+          Six divisions under one commander (WARLORD), each agent carrying a revenue KPI — money
+          first, blunt verdicts, local fidelity. Every pound it makes you is stamped in a live
+          Money Ledger with your ROI. No agent exists for &ldquo;activity.&rdquo;
         </p>
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {AGENT_LIST.map((a, i) => (

@@ -249,7 +249,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           <p className="mb-6 text-center text-sm text-slate-400">
             {mode === "login"
               ? "Your command centre is waiting."
-              : "23 AI agents, one operating system — live in minutes."}
+              : "A 26-agent revenue army in one operating system — built to make you money from day one."}
           </p>
 
               {invite && mode === "signup" && (
