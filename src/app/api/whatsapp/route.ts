@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { whatsappOverview } from "@/backend/whatsapp";
+import { whatsappOverview, emptyWhatsappOverview } from "@/backend/whatsapp";
 
 // WhatsApp Center Engine API.
 // POST { business? } → messaging overview: conversation funnel
@@ -12,7 +12,11 @@ export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const business = typeof body.business === "string" ? body.business : "";
-  return NextResponse.json(whatsappOverview(business));
+  // No live WhatsApp traffic source is wired yet → honest empty (real funnel
+  // fills from actual conversations once WHATSAPP_TOKEN + inbound are live).
+  // The deterministic demo overview stays available for internal/marketing use.
+  const allowDemo = body.demo === true && !process.env.WHATSAPP_TOKEN;
+  return NextResponse.json(allowDemo ? whatsappOverview(business) : emptyWhatsappOverview(business));
 }
 
 export async function GET() {

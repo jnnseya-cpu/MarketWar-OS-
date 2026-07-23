@@ -50,7 +50,7 @@ export type WhatsAppMetrics = {
 
 export type WhatsAppOverview = {
   business: string;
-  mode: "demo-intelligence"; // live sending activates via the platform WhatsApp pool (WHATSAPP_TOKEN)
+  mode: "demo-intelligence" | "not-connected"; // live via the platform WhatsApp pool (WHATSAPP_TOKEN)
   badge: string;
   funnel: FunnelStage[];
   metrics: WhatsAppMetrics;
@@ -112,6 +112,28 @@ function templates(s: string, aov: number): MessageTemplate[] {
       note: "Reviews compound local trust and feed the reputation + referral engines.",
     },
   ];
+}
+
+// Honest state — WhatsApp not connected, so there IS no funnel/pipeline data.
+// We zero the fabricated metrics but keep the genuinely-useful message templates.
+export function emptyWhatsappOverview(business: string): WhatsAppOverview {
+  const name = (business || "").trim() || "your business";
+  return {
+    business: name,
+    mode: "not-connected",
+    badge: "WhatsApp not connected",
+    funnel: [
+      { key: "new", label: "New threads", value: 0 },
+      { key: "engaged", label: "Engaged", value: 0 },
+      { key: "qualified", label: "Qualified", value: 0 },
+      { key: "booked", label: "Booked / ordered", value: 0 },
+    ],
+    metrics: { newThreadsWeek: 0, avgResponseMins: 0, replyRate: 0, qualificationRate: 0, conversionRate: 0, openPipelineGbp: 0, recoverableThreads: 0, recoverableGbp: 0 },
+    templates: templates(name, 40),
+    daily: { labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], threads: Array(14).fill(0) },
+    liveNote: "Live sending + inbound threads activate through the platform's shared WhatsApp pool once WHATSAPP_TOKEN is provisioned.",
+    note: "No live WhatsApp traffic yet, so there are no funnel figures to show — nothing is fabricated. The message templates below are ready to use now; the funnel and pipeline fill from your real conversations once WhatsApp is connected.",
+  };
 }
 
 export function whatsappOverview(business: string): WhatsAppOverview {
