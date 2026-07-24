@@ -241,4 +241,27 @@ generation, description, chapters, captions, transcript, thumbnail testing, vide
 structured data, embedding recommendations, related article generation, CTA
 tracking, clip repurposing.
 
-> [Source continues beyond §23 — append later sections when supplied.]
+### 24. Social Search Dominance Engine
+Customers increasingly search inside social platforms; build platform-specific
+discovery strategies. **TikTok:** spoken keywords, on-screen text, captions, topic
+relevance, search-led hooks, watch retention, comments, series structure.
+**Instagram:** profile category, name field, captions, alt text, Reels, location,
+saves, shares, topic consistency. **YouTube:** search intent, title, description,
+chapters, captions, thumbnails, engagement, audience retention, connected website
+content. **LinkedIn:** expertise, business topics, executive voices, company
+pages, documents, employee advocacy, relevant engagement. **Reddit & community:**
+identify genuine questions, recommend helpful responses, disclose material
+relationships, avoid spam, follow community rules, build authority through
+contribution.
+
+### 25. Search Reputation Defence Engine
+Trust affects rankings and recommendations. Monitor: reviews, brand searches,
+complaint pages, scam allegations, misinformation, outdated company details,
+negative press, impersonation, fake profiles, counterfeit listings. Response
+workflow: verify claim → assess severity → escalate legal/compliance risk →
+prepare factual response → correct owned channels → request legitimate platform
+corrections → publish transparent clarification → improve customer-service action
+→ track search-result recovery. **The system must never create fake positive
+reviews or suppress legitimate criticism through manipulation.**
+
+> [Source continues beyond §25 — append later sections when supplied.]

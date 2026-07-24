@@ -83,6 +83,8 @@ export const ENGINE_MODULES: EngineModule[] = [
   { n: 21, key: "ecommerce", label: "Ecommerce Search Growth", scope: "Feeds, titles, schema, availability, price consistency → views, add-to-cart, checkout, revenue, margin.", status: "connect" },
   { n: 22, key: "visual", label: "Image & Visual Search", scope: "Original product/lifestyle images, alt text, captions, Google Lens readiness — accurate, never misleading.", status: "live", route: "/dashboard/product-engine" },
   { n: 23, key: "video", label: "Video & YouTube Search", scope: "Topics → videos/Shorts + titles, chapters, captions, schema, thumbnails, CTA tracking, clip repurposing.", status: "live", route: "/dashboard/video" },
+  { n: 24, key: "social", label: "Social Search Dominance", scope: "In-platform discovery for TikTok/Instagram/YouTube/LinkedIn/Reddit — captions, on-screen text, hooks, topic consistency. Reddit: help genuinely, disclose relationships, no spam.", status: "connect", route: "/dashboard/amplify" },
+  { n: 25, key: "reputation", label: "Search Reputation Defence", scope: "Monitor reviews, brand searches, misinformation, impersonation, counterfeit listings; factual response + owned-channel correction + recovery tracking. Never fake reviews or suppress legitimate criticism.", status: "live", route: "/dashboard/reputation" },
 ];
 
 // §19 — the Brand Entity record fields (the consistent brand-truth layer).

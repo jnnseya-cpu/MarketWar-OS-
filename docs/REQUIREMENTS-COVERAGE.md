@@ -1412,3 +1412,12 @@ each mapped to a live OS engine or an honest status:
 | §22 Image & Visual Search | ✅ live | `/dashboard/product-engine` (VisualStrike image gen); alt-text/Lens/image-sitemap SEO wiring 📘. Safeguard: never misleading imagery; exact product/logo. |
 | §23 Video & YouTube Search | ✅ live | `/dashboard/video` (Video War Room); title/chapters/captions/schema/thumbnail/CTA SEO functions 📘. |
 | §10–§18 (technical/schema/internal/backlinks/AI) | 📘/📦 | Defined as modules with honest status; implemented behind Approvals + honest-source gates. |
+
+### §51 addendum 2 — Search Dominance §24–§25
+
+Verbatim source updated with §24 Social Search + §25 Reputation Defence.
+
+| Module | Coverage | Maps to / honesty |
+|---|---|---|
+| §24 Social Search Dominance | 📦 connect | Per-platform in-feed discovery (TikTok/IG/YT/LinkedIn/Reddit). Activates when social accounts connect. Reddit rule captured: help genuinely, DISCLOSE material relationships, no spam, follow community rules. Landing: `/dashboard/amplify`. |
+| §25 Search Reputation Defence | ✅ live / 📦 connect | `/dashboard/reputation` (Reputation Shield). Deep monitoring (reviews/press/impersonation/counterfeit) needs sources. Hard safeguard carried: NEVER create fake positive reviews or suppress legitimate criticism through manipulation. |
