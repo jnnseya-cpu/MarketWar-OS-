@@ -166,6 +166,10 @@ service cloud.firestore {
     // Per-brand warm-up counters (src/backend/email-warmup.ts): daily send tallies
     // that enforce the ramping IP warm-up limit. Admin-SDK only — deny-all here.
     match /email_warmup/{doc} { allow read, write: if false; }
+    // Inbound mail (src/backend/inbound.ts): received replies per brand. Written
+    // by the secret-gated inbound webhook, read via the ownership-checked inbox
+    // route. Admin-SDK only — deny-all here.
+    match /inbound_messages/{doc} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

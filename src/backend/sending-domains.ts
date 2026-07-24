@@ -147,6 +147,19 @@ export async function signingFor(brandId: string, fromDomain: string): Promise<{
   return { domain: d.domain, selector: d.selector, privateKeyPem: d.privateKeyPem };
 }
 
+// Reverse lookup: which brand authenticated this domain? Used by inbound mail to
+// route a reply for hello@<domain> to the owning brand's inbox.
+export async function brandForDomain(domainRaw: string): Promise<string | null> {
+  const domain = norm(domainRaw);
+  if (!domain) return null;
+  if (adminConfigured && adminDb) {
+    const snap = await adminDb.collection("sending_domains").where("domain", "==", domain).limit(1).get();
+    return snap.empty ? null : (snap.docs[0].data() as SendingDomain).brandId;
+  }
+  for (const d of mem.values()) if (d.domain === domain) return d.brandId;
+  return null;
+}
+
 export async function removeDomain(brandId: string, domainRaw: string): Promise<void> {
   const k = key(brandId, domainRaw);
   if (adminConfigured && adminDb) await adminDb.collection("sending_domains").doc(docId(k)).delete();

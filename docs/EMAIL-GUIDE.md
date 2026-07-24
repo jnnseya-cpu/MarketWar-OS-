@@ -72,16 +72,18 @@ changes. If you leave it blank, replies go to the From address.
 Bounce notifications are handled separately (below) and **never reach your
 inbox** — the Return-Path is a bounce address on the platform's domain.
 
-**Full receiving inbox on your own domain (optional, bigger setup).** If you want
-`hello@yourdomain.com` to be a real mailbox hosted on the platform (receive +
-read incoming mail in-app, the way Brevo's inbox works), that needs inbound mail
-handling: point your domain's **MX record** at the sending node and add a mailbox
-or a forward-to-your-inbox rule (the node — docker-mailserver — already supports
-receiving; `setup email add` creates a mailbox, `setup alias add` forwards one).
-Note: changing MX routes ALL mail for that domain to the node, so only do it for a
-domain (or subdomain like `mail.yourdomain.com`) you want us to receive. A unified
-in-app inbox is on the roadmap — for now, **Reply-to → your real inbox** is the
-simplest way to receive replies.
+**Unified in-app inbox (built).** **Dashboard → Inbox (replies)** shows every
+reply per brand — read them and **reply DKIM-signed as your domain**, without
+leaving the OS (just like Brevo's inbox). Bounces/auto-replies are filtered out
+(they feed suppression). To switch it on you point a domain's (or subdomain's)
+**MX** at the sending node and add a small forwarder so received mail is pushed to
+the app — full steps in `infra/sending-node/inbound-setup.md`. Note: pointing MX
+here routes ALL mail for that domain to the node, so use a subdomain (e.g.
+`mail.yourdomain.com`) if the domain already hosts email elsewhere.
+
+Both options coexist: **Reply-to → your real inbox** (zero setup, replies land in
+your Gmail/Outlook) *and* the **in-app Inbox** (read/reply inside the OS). Use
+whichever fits.
 
 ## 4. Bounces & complaints (auto-suppression)
 

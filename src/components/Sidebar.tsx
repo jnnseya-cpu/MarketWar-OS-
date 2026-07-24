@@ -26,6 +26,7 @@ import {
   Flame,
   Gauge,
   Globe,
+  Inbox,
   LayoutDashboard,
   LayoutTemplate,
   Layers,
@@ -102,6 +103,7 @@ export const NAV = [
     items: [
       { href: "/dashboard/whatsapp", label: "WhatsApp Center", icon: MessageCircle },
       { href: "/dashboard/email", label: "Email Center", icon: Mail },
+      { href: "/dashboard/inbox", label: "Inbox (replies)", icon: Inbox },
       { href: "/dashboard/email-templates", label: "Email Templates", icon: FileText },
       { href: "/dashboard/sending-domains", label: "Sending Domains", icon: AtSign },
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
