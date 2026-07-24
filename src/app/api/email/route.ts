@@ -113,7 +113,21 @@ export async function POST(req: NextRequest) {
     // can't torch the sending reputation. Larger lists send in repeated calls.
     const isTest = body.test === true;
     const cap = isTest ? 1 : Math.max(1, Math.min(500, Number(body.limit) || 250));
-    const batch = sendable.slice(0, cap);
+
+    // WARM-UP GOVERNOR: enforce the ramping DAILY limit for this brand so a new
+    // sending IP is never over-sent. Test sends bypass the block (but still count).
+    const { getWarmup, recordWarmupSends } = await import("@/backend/email-warmup");
+    const today = new Date().toISOString().slice(0, 10);
+    const warm = await getWarmup(brandId, today);
+    if (!isTest && warm.remaining <= 0) {
+      return NextResponse.json({
+        error: `Daily warm-up limit reached — ${warm.sentToday}/${warm.dailyCap} sent today (warm-up day ${warm.day}). Sending resumes tomorrow. This protects your new IP's reputation so you keep landing in the inbox.`,
+        sent: 0, attempted: 0, failed: 0, sendable: sendable.length, consented: consented.length, remaining: 0,
+        dailyCap: warm.dailyCap, sentToday: warm.sentToday, day: warm.day, mode: emailConfigured ? "live" : "demo", note: "",
+      }, { status: 429 });
+    }
+    const effectiveCap = isTest ? 1 : Math.min(cap, warm.remaining);
+    const batch = sendable.slice(0, effectiveCap);
     const campaign = (typeof body.campaign === "string" ? body.campaign : subject).slice(0, 80);
 
     // Send AS the brand's own authenticated domain when set up: From + Reply-To on
@@ -146,17 +160,28 @@ export async function POST(req: NextRequest) {
         if (r.ok) {
           sent++;
           try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
-        } else { failed++; if (failures.length < 10) failures.push(to); }
+        } else {
+          failed++; if (failures.length < 10) failures.push(to);
+          // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
+          // so it's never retried. Async bounces arrive via /api/webhooks/email.
+          if (r.provider !== "demo-pool" && (/\b5\d\d\b/.test(r.detail || "") || r.provider === "hygiene-filter")) {
+            try { await recordEvent({ brandId, email: to, type: "bounce", at: new Date().toISOString(), campaign }); } catch { /* best-effort */ }
+          }
+        }
       } catch { failed++; if (failures.length < 10) failures.push(to); }
     }
+    // Count what actually went out against today's warm-up allowance.
+    if (sent > 0) { try { await recordWarmupSends(brandId, today, sent); } catch { /* counter best-effort */ } }
+    const dailyRemaining = Math.max(0, warm.remaining - sent);
     return NextResponse.json({
       mode: emailConfigured ? "live" : "demo",
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
       attempted: batch.length, sent, failed, failures,
       remaining: Math.max(0, sendable.length - batch.length),
+      dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: emailConfigured
-        ? `Sent ${sent} of ${batch.length} via the live provider pool. ${sendable.length - batch.length > 0 ? "Run again to send the next batch. " : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC.`
+        ? `Sent ${sent} of ${batch.length}. ${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : "Demo mode — no sending server configured, so nothing left the machine. Set SMTP_HOST/USER/PASS to send for real.",
     });
   }

@@ -80,7 +80,7 @@ export default function EmailPage() {
   const [fromName, setFromName] = useState("");
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
-  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number } | null>(null);
+  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number } } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; authenticatedAs?: string; error?: string } | null>(null);
   // Live vs demo: does the server actually have an email PROVIDER wired? If not,
@@ -353,6 +353,12 @@ export default function EmailPage() {
           <Pill tone="info">consented vault only</Pill>
         </div>
         <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
+        {stats?.warmup && (
+          <div className="mb-3 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] p-3 text-xs text-sky-200">
+            <span className="font-bold">Warm-up day {stats.warmup.day} · today&rsquo;s safe limit {stats.warmup.dailyCap.toLocaleString()} emails.</span>{" "}
+            {stats.warmup.sentToday.toLocaleString()} sent today, <span className="font-semibold">{stats.warmup.remaining.toLocaleString()} left</span>. The limit rises automatically as your reputation builds — sending within it is what keeps you in the inbox. Big lists send across several days.
+          </div>
+        )}
         {engineMode === "demo" && (
           <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 text-xs text-amber-200">
             <span className="font-bold">Simulation mode — no sending server connected yet.</span> Sends are validated and counted, but <span className="font-semibold">nothing actually leaves the machine</span>, so no email reaches an inbox. To send for real, point the app at your sending server: set <span className="font-mono">SMTP_HOST</span>, <span className="font-mono">SMTP_USER</span> and <span className="font-mono">SMTP_PASS</span> in the server env and redeploy. Then this turns green.

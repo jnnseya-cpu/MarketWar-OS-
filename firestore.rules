@@ -163,6 +163,9 @@ service cloud.firestore {
     // the ownership-checked stats route. All Admin-SDK only — deny-all here.
     match /email_events/{doc} { allow read, write: if false; }
     match /email_suppressions/{doc} { allow read, write: if false; }
+    // Per-brand warm-up counters (src/backend/email-warmup.ts): daily send tallies
+    // that enforce the ramping IP warm-up limit. Admin-SDK only — deny-all here.
+    match /email_warmup/{doc} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

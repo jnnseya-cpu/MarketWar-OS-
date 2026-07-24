@@ -37,6 +37,34 @@ function mergePreview(text: string, values: Record<string, string>): string {
 
 const BLANK = { id: "", name: "", subject: "", html: "" };
 
+// A ready-made, email-client-safe branded template: logo/brand header, a
+// personalised greeting, a body, a big CTA button (its link is auto-tracked on
+// send), and a sign-off. Uses merge variables and an editable CTA URL. Built with
+// tables + inline styles so it renders in Gmail/Outlook/Apple Mail.
+function brandedStarter(brand: string): string {
+  const name = brand || "Your Brand";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 0">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;font-family:Arial,Helvetica,sans-serif">
+      <tr><td style="background:#0b1020;padding:20px 28px;color:#ffffff;font-size:20px;font-weight:bold">${name}</td></tr>
+      <tr><td style="padding:32px 28px 8px;color:#111111;font-size:16px;line-height:1.6">
+        <p style="margin:0 0 16px">Hi {{ firstName | there }},</p>
+        <p style="margin:0 0 16px">Write your message here — tell {{ company | your customer }} what's new, the offer, and why it matters. Keep it short and human.</p>
+      </td></tr>
+      <tr><td align="center" style="padding:16px 28px 28px">
+        <a href="https://your-link.com" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px 28px;border-radius:8px">Claim your offer</a>
+      </td></tr>
+      <tr><td style="padding:0 28px 28px;color:#111111;font-size:16px;line-height:1.6">
+        <p style="margin:0">Thanks,<br/>The ${name} team</p>
+      </td></tr>
+      <tr><td style="padding:16px 28px;background:#f4f6f8;color:#8a94a6;font-size:12px;line-height:1.5">
+        You're receiving this because you're a customer of ${name}.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>`;
+}
+
 export default function EmailTemplatesPage() {
   const { activeBrand, ready } = useActiveBrand();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -148,13 +176,17 @@ export default function EmailTemplatesPage() {
             </div>
 
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 text-xs text-slate-500">Insert:</span>
+              <button onClick={() => setForm((f) => ({ ...f, html: brandedStarter(activeBrand.name), subject: f.subject || `A message from ${activeBrand.name}` }))} className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20" title="Insert a ready-made branded template with a CTA button">
+                ✨ Branded starter + CTA
+              </button>
+              <span className="ml-1 mr-1 text-xs text-slate-500">Insert:</span>
               {VARS.map((v) => (
                 <button key={v.token} onClick={() => insertVar(v.token)} className="rounded-full border border-ink-700 bg-ink-850 px-2 py-0.5 text-[11px] text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300" title={v.label}>
                   {`{{ ${v.token} }}`}
                 </button>
               ))}
             </div>
+            <p className="mb-2 text-[11px] text-slate-500">Tip: the <span className="text-slate-300">CTA button</span> link is <span className="font-mono">https://your-link.com</span> — change it to your real page (offer, booking, product). Every link is auto-tracked for clicks on send.</p>
 
             <div className="mb-2 flex items-center gap-1">
               <button onClick={() => setView("code")} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${view === "code" ? "bg-emerald-500/15 text-emerald-300" : "text-slate-400 hover:text-white"}`}><Code className="h-3.5 w-3.5" /> HTML</button>
