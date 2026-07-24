@@ -85,9 +85,16 @@ export async function POST(req: NextRequest) {
   if (!contacts.length) return NextResponse.json({ error: "No contacts to import" }, { status: 400 });
   if (contacts.length > 20000) return NextResponse.json({ error: "Import capped at 20,000 rows per upload" }, { status: 400 });
 
-  const { imported, total } = await saveContacts(brandId, contacts, nowISO(req));
-  const vault = await scoredVault(brandId, business);
-  return NextResponse.json({ imported, total, ...vault });
+  try {
+    const { imported, total } = await saveContacts(brandId, contacts, nowISO(req));
+    const vault = await scoredVault(brandId, business);
+    return NextResponse.json({ imported, total, ...vault });
+  } catch (e) {
+    // Surface the real reason instead of a bare 500 (e.g. a Firestore write
+    // rejecting a value) so the client can show something actionable.
+    console.error("[contacts] import failed:", (e as Error).message);
+    return NextResponse.json({ error: `Import could not be saved: ${(e as Error).message}` }, { status: 500 });
+  }
 }
 
 export async function GET(req: NextRequest) {

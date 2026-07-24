@@ -87,6 +87,17 @@ function safeInit<T>(make: (a: App) => T, name: string): T | null {
     return null;
   }
 }
-export const adminDb: Firestore | null = safeInit((a) => getFirestore(a), "getFirestore");
+// Firestore REJECTS any field whose value is `undefined` and throws on write —
+// which 500s a route the moment real persistence is on (in demo/in-memory mode
+// the same objects write fine, hiding the bug). Our records carry many optional
+// fields (a contact with no company/spend/consent, a job with no result yet…),
+// so set `ignoreUndefinedProperties` ONCE, globally, at init: every write across
+// the platform then silently drops undefined fields instead of crashing. Must be
+// called before the first Firestore operation — module load is the right place.
+export const adminDb: Firestore | null = safeInit((a) => {
+  const db = getFirestore(a);
+  try { db.settings({ ignoreUndefinedProperties: true }); } catch { /* already set / already used — safe to ignore */ }
+  return db;
+}, "getFirestore");
 export const adminAuth: Auth | null = safeInit((a) => getAuth(a), "getAuth");
 export const adminStorage: Storage | null = safeInit((a) => getStorage(a), "getStorage");
