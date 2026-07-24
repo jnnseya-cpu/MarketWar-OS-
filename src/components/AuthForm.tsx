@@ -313,9 +313,12 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                 )}
 
                 {error && (
-                  <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                    {error}
-                  </p>
+                  <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                    <p>{error}</p>
+                    <a href="/api/health/auth" target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-block font-semibold text-rose-200 underline hover:text-white">
+                      Run the auth diagnostic → (opens the exact cause)
+                    </a>
+                  </div>
                 )}
                 {notice && (
                   <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
