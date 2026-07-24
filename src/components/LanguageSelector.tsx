@@ -19,7 +19,7 @@ export default function LanguageSelector() {
         value={known ? short : "en"}
         onChange={(e) => setLocale(e.target.value)}
         className="min-w-0 flex-1 rounded-md border border-ink-700 bg-ink-850 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500/50"
-        title={`Detected: ${detected}`}
+        title={`Detected: ${detected}. AI replies + generated content come back in this language now; full interface translation is on the roadmap (use your browser's Translate for the menus meanwhile).`}
       >
         {LOCALES.map((l) => (
           <option key={l.code} value={l.code}>{l.label}</option>
