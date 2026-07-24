@@ -32,7 +32,7 @@ function hintFor(message: string, status: string): string {
   return "Unrecognised — read the raw message above; it is Google's verbatim reason.";
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const present = {
     NEXT_PUBLIC_FIREBASE_API_KEY: Boolean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY),
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: Boolean(process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN),
@@ -68,11 +68,45 @@ export async function GET() {
 
   const missing = Object.entries(present).filter(([, v]) => !v).map(([k]) => k);
 
+  // Client and Admin MUST be the same Firebase project or every signed-in
+  // token fails verification (wrong audience) → 401 on all authed data ops.
+  // Project IDs are non-secret (public app config), safe to surface.
+  const projectMatch = {
+    clientProject: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || null,
+    adminProject: process.env.FIREBASE_PROJECT_ID || null,
+    match: Boolean(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && process.env.FIREBASE_PROJECT_ID && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === process.env.FIREBASE_PROJECT_ID),
+  };
+
+  // If the caller attached a token (authedFetch does when signed in), verify it
+  // — the DEFINITIVE test of whether the session actually works end-to-end.
+  const authHeader = req.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  let session: Record<string, unknown> = { signedIn: false, note: "No token on this request — you are NOT signed in (or authedFetch had no current user). Every authed data operation (vault, publish, email, campaigns) will 401 and appear empty until you sign in." };
+  if (token) {
+    try {
+      const { adminAuth, adminConfigured } = await import("@/backend/firebase-admin");
+      if (!adminConfigured || !adminAuth) session = { signedIn: true, tokenValid: false, reason: "Admin SDK not configured server-side — cannot verify the session." };
+      else {
+        const decoded = await adminAuth.verifyIdToken(token);
+        session = { signedIn: true, tokenValid: true, uid: decoded.uid, note: "Session VALID — authenticated data operations will work for this user." };
+      }
+    } catch (e) {
+      session = {
+        signedIn: true, tokenValid: false, reason: (e as Error).message,
+        fix: projectMatch.match
+          ? "Token failed verification. Likely an expired session — sign out and back in."
+          : "Token failed verification AND your client project ≠ admin project (see projectMatch). They MUST be the same Firebase project, or every login token is rejected → everything empty. Fix the mismatched env var and redeploy.",
+      };
+    }
+  }
+
   return NextResponse.json({
     service: "MarketWar OS — auth diagnostic",
     envPresent: present,
     envMissing: missing.length ? missing : undefined,
+    projectMatch,
+    session,
     identityToolkitProbe: probe,
-    howToRead: "envPresent must all be true. identityToolkitProbe.ok=true means the server-side check passed. If ok=false, read 'googleReason' (Google's verbatim error) and 'fix'. If ok=true but the browser still errors, it's a referrer restriction excluding your domain or App Check enforcement (browser-only).",
+    howToRead: "1) envPresent all true. 2) projectMatch.match MUST be true (client & admin same project) or tokens never verify. 3) session.tokenValid=true means your login works end-to-end; false with a token means the session/project is the problem; signedIn=false means you're not logged in. 4) identityToolkitProbe.ok=true means the API key + Identity Toolkit are fine.",
   });
 }

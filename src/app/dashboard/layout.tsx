@@ -5,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
+import AuthStatusBanner from "@/components/AuthStatusBanner";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
 import { LocaleProvider } from "@/frontend/locale-context";
@@ -18,6 +19,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <Sidebar />
       <div className="lg:pl-60">
+        <AuthStatusBanner />
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.07] bg-ink-950/70 px-5 py-3 backdrop-blur-xl lg:hidden">
           <div className="flex items-center gap-2">
             <MobileNav />
