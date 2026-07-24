@@ -47,15 +47,22 @@ For hostname `smtp.marketwaros.com` and node IP `203.0.113.10`:
 
 ## Step 2a — Deploy with Docker (recommended)
 
+`docker-compose.yml` runs **docker-mailserver**: SASL-authenticated submission on
+587 (the app authenticates over the public internet), direct-to-MX delivery (no
+upstream relay), built-in TLS. DKIM is OFF here because the app already signs.
+
 ```bash
+# on the VPS, with Docker installed:
 cd infra/sending-node
-cp .env.example .env         # set MYHOSTNAME, SMTP_USER, SMTP_PASS
 docker compose up -d
+# create the submission account the app logs in as:
+docker exec -it mailserver setup email add appuser@marketwaros.com 'a-long-random-password'
+# TLS cert for the hostname (one-time; docker-mailserver reads ./dms/letsencrypt):
+sudo apt install -y certbot && sudo certbot certonly --standalone -d smtp.marketwaros.com
+sudo cp -rL /etc/letsencrypt/* ./dms/letsencrypt/ && docker compose restart
 ```
 
-`docker-compose.yml` runs Postfix as an **authenticated outbound relay**:
-accepts SASL-authenticated submission on 587, delivers **direct to recipient MX**
-(no upstream relay), TLS on. See the compose file for the knobs.
+That account's address + password become the app's `SMTP_USER` / `SMTP_PASS`.
 
 ## Step 2b — Deploy on a bare Ubuntu 22.04 VPS (no Docker)
 
