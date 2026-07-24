@@ -58,6 +58,30 @@ relay** set in `SMTP_HOST` (including a self-hosted one) — the DKIM signing an
 per-domain From/Reply-To all work regardless of which node relays. Owning the IP
 is what removes the *last* external dependency and unlocks high volume.
 
+## Scaling past one IP — the pool (software: shipped; IPs: add when needed)
+
+The physical ceiling on volume is the sending IP (~50k–100k/day per warmed IP).
+The **pool router** (`src/backend/sending-pool.ts`) makes growth a **config
+change, not a code change**, with **zero cost until you add IPs**:
+
+- **No pool configured** → runs on the single `SMTP_*` node (today's setup,
+  byte-for-byte unchanged).
+- **`MW_SENDING_POOL`** (a JSON array of nodes) → sends spread across the fleet.
+  Routing is **consistent-hash by sending domain**, so each customer domain has a
+  stable home IP (clean per-sender reputation) while domains fan out across nodes;
+  a node at its daily cap overflows to the next. `GET /api/health/smtp` reports
+  the pool.
+
+To grow: stand up another node (same `infra/sending-node/` runbook) on a new
+dedicated IP, add its IP to the SPF include + a matching PTR, append it to
+`MW_SENDING_POOL`, redeploy. Rough capacity: ~50k/day per IP → 1M/day ≈ 15–20
+IPs, 10M/day ≈ 150–200 IPs. Per-domain auth (DKIM/SPF/DMARC) already scales to
+unlimited customers; only IPs are the incremental cost.
+
+Backlog for very large scale: shared per-node counters across app instances
+(Redis/Firestore), reputation-tiered pools, dedicated IPs for top senders, and
+provider feedback-loop intake at fleet scale.
+
 ## Honest status
 
 - ✅ Per-user domain authentication, DKIM signing, DNS verification, send-as-you.

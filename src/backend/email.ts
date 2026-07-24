@@ -33,19 +33,17 @@ function hashStr(s: string): number {
   return h;
 }
 
+import { getPool, pickNode, poolConfigured, recordNodeSend, type SendingNode } from "@/backend/sending-pool";
+
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
 
-// .trim() every SMTP value: a trailing space/newline pasted into an env var is a
-// classic cause of "getaddrinfo ENOTFOUND" (host) or auth failures (user/pass).
-const SMTP_HOST = (process.env.SMTP_HOST || "").trim();
-const SMTP_PORT = Number((process.env.SMTP_PORT || "587").trim());
-const SMTP_USER = (process.env.SMTP_USER || "").trim();
-const SMTP_PASS = (process.env.SMTP_PASS || "").trim();
-const SMTP_SECURE = (process.env.SMTP_SECURE || "").trim() === "true" || SMTP_PORT === 465; // implicit TLS
-
-export const smtpConfigured = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+// SMTP is now served by the sending-node POOL (src/backend/sending-pool.ts). With
+// no pool configured it falls back to the single SMTP_* node — identical to the
+// original single-node behaviour, no extra infrastructure. Adding nodes is a
+// config change (MW_SENDING_POOL), not a code change.
+export const smtpConfigured = poolConfigured();
 export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
 
 // The active sending path, for status surfaces (never exposes credentials).
@@ -152,6 +150,7 @@ function angleAddr(addr: string): string {
 }
 
 async function sendViaSmtp(
+  node: SendingNode,
   from: string,
   to: string,
   subject: string,
@@ -160,6 +159,7 @@ async function sendViaSmtp(
 ): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
+  const SMTP_HOST = node.host, SMTP_PORT = node.port, SMTP_USER = node.user, SMTP_PASS = node.pass, SMTP_SECURE = node.secure;
 
   return new Promise<string>((resolve, reject) => {
     let socket: import("node:net").Socket | import("node:tls").TLSSocket;
@@ -363,17 +363,24 @@ export async function sendEmail(opts: {
 
   let smtpError = "";
   if (smtpConfigured) {
-    try {
-      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe });
-      return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
-    } catch (e) {
-      // Capture the reason (safe — SMTP status lines carry no credentials) so a
-      // failed send is diagnosable instead of a silent "pool-exhausted".
-      smtpError = e instanceof Error ? e.message : String(e);
-      // fall through to the HTTP pool on any SMTP failure
+    // Route through the pool: the sending domain gets a stable home node (its IP),
+    // spreading domains across the fleet. One node → same as the single-node setup.
+    const fromDomain = angleAddr(opts.from || FROM_DEFAULT).split("@")[1] || "";
+    const day = new Date().toISOString().slice(0, 10);
+    const node = pickNode(fromDomain, day);
+    if (node) {
+      try {
+        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe });
+        recordNodeSend(node.label, day, 1);
+        return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
+      } catch (e) {
+        // Capture the reason (safe — SMTP status lines carry no credentials) so a
+        // failed send is diagnosable instead of a silent "pool-exhausted".
+        smtpError = e instanceof Error ? e.message : String(e);
+        // fall through to the HTTP pool on any SMTP failure
+      }
     }
   }
-
   if (RESEND_KEY) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

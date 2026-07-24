@@ -22,11 +22,14 @@ export async function GET() {
   }
 
   const result = await probe();
+  const { poolInfo } = await import("@/backend/sending-pool");
+  const day = new Date().toISOString().slice(0, 10);
   return NextResponse.json({
     configured: true,
     host: HOST,
     port: PORT,
     secure: SECURE,
+    pool: poolInfo(day),
     ...result,
     howToRead:
       "reachable=true + speaksSmtp=true means the node is up and reachable. authAdvertised=true means it will accept the app's login. If reachable=false: the node is down, the firewall blocks the port, or DNS for SMTP_HOST is wrong.",
