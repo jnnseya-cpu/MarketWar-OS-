@@ -62,6 +62,27 @@ own** as you keep sending:
 - These numbers are safe defaults; a single well-warmed IP comfortably does
   ~50k/day. To go higher, add more sending IPs (extra nodes) later.
 
+## 3b. Receiving replies & incoming mail (like Brevo)
+
+**Replies land where you read mail.** In the send form there's a **Reply-to**
+field — set it to an inbox you actually check (your Gmail/Outlook/work email).
+When a recipient replies, it goes straight there. Nothing else to set up, no MX
+changes. If you leave it blank, replies go to the From address.
+
+Bounce notifications are handled separately (below) and **never reach your
+inbox** — the Return-Path is a bounce address on the platform's domain.
+
+**Full receiving inbox on your own domain (optional, bigger setup).** If you want
+`hello@yourdomain.com` to be a real mailbox hosted on the platform (receive +
+read incoming mail in-app, the way Brevo's inbox works), that needs inbound mail
+handling: point your domain's **MX record** at the sending node and add a mailbox
+or a forward-to-your-inbox rule (the node — docker-mailserver — already supports
+receiving; `setup email add` creates a mailbox, `setup alias add` forwards one).
+Note: changing MX routes ALL mail for that domain to the node, so only do it for a
+domain (or subdomain like `mail.yourdomain.com`) you want us to receive. A unified
+in-app inbox is on the roadmap — for now, **Reply-to → your real inbox** is the
+simplest way to receive replies.
+
 ## 4. Bounces & complaints (auto-suppression)
 
 - **Hard failures during a send** (a server rejects the address, 5xx) are

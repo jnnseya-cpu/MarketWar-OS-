@@ -140,7 +140,10 @@ export async function POST(req: NextRequest) {
     const fromDomain = fromEmail.split("@")[1] || "";
     const dkim = fromDomain ? (await signingFor(brandId, fromDomain)) ?? undefined : undefined;
     const fromHeader = fromEmail ? (fromName ? `${fromName} <${fromEmail}>` : fromEmail) : undefined;
-    const replyTo = fromEmail || undefined;
+    // Replies go here. Default to the From address, but let the sender point them
+    // at their REAL inbox (e.g. their Gmail) so replies land where they read mail.
+    const replyToRaw = typeof body.replyTo === "string" && body.replyTo.includes("@") ? body.replyTo.trim() : "";
+    const replyTo = replyToRaw || fromEmail || undefined;
 
     // Per-recipient personalisation: look up each address's contact row and merge
     // {{ variables }} into the subject + body so every email is individual.

@@ -38,6 +38,10 @@ import { getPool, pickNode, poolConfigured, recordNodeSend, type SendingNode } f
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
+// Return-Path for bounces — an address on OUR sending domain so bounce-backs
+// never reach the customer's inbox. Configure a real mailbox/forward there to
+// auto-process bounces (see docs/EMAIL-GUIDE.md).
+const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
 
 // SMTP is now served by the sending-node POOL (src/backend/sending-pool.ts). With
 // no pool configured it falls back to the single SMTP_* node — identical to the
@@ -155,7 +159,7 @@ async function sendViaSmtp(
   to: string,
   subject: string,
   html: string,
-  extra?: { replyTo?: string; listUnsubscribe?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
+  extra?: { replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
 ): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
@@ -167,7 +171,10 @@ async function sendViaSmtp(
     let stage = 0;
     let upgraded = SMTP_SECURE;
     let settled = false;
-    const envelopeFrom = angleAddr(from);
+    // Return-Path (envelope MAIL FROM) = a bounce address on OUR domain, not the
+    // visible From. Bounce notifications go there (for us to process/suppress),
+    // never into the sender's own inbox. DMARC still passes via DKIM alignment.
+    const envelopeFrom = extra?.bounceReturnPath ? angleAddr(extra.bounceReturnPath) : angleAddr(from);
     const envelopeTo = angleAddr(to);
 
     const finish = (err: Error | null, id?: string) => {
@@ -370,7 +377,7 @@ export async function sendEmail(opts: {
     const node = pickNode(fromDomain, day);
     if (node) {
       try {
-        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe });
+        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH });
         recordNodeSend(node.label, day, 1);
         return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
       } catch (e) {

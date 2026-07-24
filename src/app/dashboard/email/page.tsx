@@ -78,6 +78,7 @@ export default function EmailPage() {
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
+  const [replyTo, setReplyTo] = useState(""); // where replies land (your real inbox)
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
   const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number } } | null>(null);
@@ -127,6 +128,7 @@ export default function EmailPage() {
         action: "send_campaign", brandId: activeBrand.id, business: activeBrand.name, test,
         statusFilter: campaignStatus.trim() || undefined,
         fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined,
+        replyTo: replyTo.trim() || undefined,
       };
       if (templateId) {
         payload.templateId = templateId; // server loads + personalises the template
@@ -377,7 +379,11 @@ export default function EmailPage() {
             <input className="input max-w-[180px]" value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="From name (e.g. VeryX)" />
             <input className="input flex-1 min-w-[200px]" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="From address (hello@yourdomain.com)" />
           </div>
-          <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Replies come back to this address. Leave blank to use the platform sender.</p>
+          <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Leave blank to use the platform sender.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="input flex-1 min-w-[200px]" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="Reply-to inbox (where replies land, e.g. you@gmail.com)" />
+          </div>
+          <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave blank to receive replies at the From address above. Bounce notifications never reach you — they&rsquo;re handled by the platform and the address is auto-suppressed.</p>
           {templates.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <select className="input max-w-[280px]" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
