@@ -1370,3 +1370,30 @@ Reactivation, PRICELORD≡Pricing Optimisation). No agent dropped.
 | §8 North-star metrics | ✅ | Money Ledger shows Attributed Revenue, ROI Multiple, New Customers, Revenue/Customer; Territory Share marked "connect competitor tracking" |
 | §9 Roadmap / §10 one-sentence doctrine | 📘 | Recorded as the guiding build order |
 | Verified | ✅ | typecheck + check:layers + build; Money Ledger renders real revenue + ROI; directive preserved verbatim |
+
+## §51 — Dynamic Search Dominance Engine (owner spec; merged onto the OS)
+
+Source (verbatim, immutable): `docs/reference/dynamic-search-dominance-engine.md`.
+Merged with — not replacing — the existing Organic Dominance OS
+(`src/backend/organic-dominance.ts`, `/dashboard/organic-dominance`). Both kept.
+
+| Requirement | Coverage | Notes |
+|---|---|---|
+| Honesty rule: NO guaranteed rankings | ✅ | `HONEST_PROMISE` + on-page honesty banner; codebase swept — zero guaranteed-ranking claims. Promise = continuous optimisation, maximum ELIGIBLE visibility, measurable organic revenue. |
+| Positioning (§2) | ✅ | Surfaced on `/dashboard/search-dominance`. |
+| Dynamic SEO Commander — 5 operating modes (§3) | ✅ 📘 | Modes defined + shown (Observe/Recommend/Assisted/Autonomous/Emergency); actual autonomous website mutation is 📘 (needs CMS/Search Console write integration + approvals — routed through existing Approvals engine). |
+| Operating loop (§4) | ✅ | 13-stage loop rendered as the permanent operation. |
+| Day-one Search Revenue Audit (§5) | ✅ 📘 | Crawl→audit→universe→scored opportunities already runs in Organic Dominance OS onboarding (AI-assisted, honest scaffold w/o key); cross-linked. Live GSC/Analytics/Merchant ingestion is 📘 "connect a source". |
+| Opportunity Score (§6) | ✅ | `opportunityScore()` — transparent bounded 0–100 heuristic (positives ÷ difficulty) + confidence by data completeness; live tool on the page. |
+| Search intent intelligence (§7) | ✅ | `classifyIntent()` — intent + funnel + commercial signals; live tool on the page. |
+| Keyword/topic/prompt universe + clustering (§8) | ✅ 📘 | Universe generated in Organic onboarding; live volumes 📘 (Search Console). |
+| Competitor Search War Room (§9) | ✅ 📘 | Wired to the live competitor engine; AI-citation/backlink monitoring 📘 "connect a source". |
+| Technical SEO engineer (§10) / Sitemap+IndexNow (§11) / Structured data (§12) / On-page agent (§13) / Content superiority (§14) / Content-to-revenue (§15) / Internal authority (§16) / Ethical backlinks (§17) | 📘 | Blueprint — require site write-access + external data; safeguards captured (no fake reviews/ratings/prices; robots vs noindex; sitemaps/IndexNow are signals not guarantees). To be implemented behind the Approvals + honest-source gates. |
+| AI Search & Recommendation + Readiness score (§18) | ✅ 📘 | `aiReadinessScore()` (transparent components, weakest-3 surfaced); live AI-answer monitoring 📘 "connect a source"; distinguishes mentioned vs cited vs recommended vs represented vs revenue. |
+| Brand entity/knowledge engine (§19) | 📘 | Consistent brand-truth layer (source truncated mid-§19; append when supplied). |
+| Verified | ✅ | typecheck + check:layers + build (143 pages); intent + score tools compute live. |
+
+Conflict resolution (Additive-Only Law): the spec's Opportunity Score formula
+supersedes the earlier §13 organic formula as an upgrade; the organic module's
+formula is retained in place and the new transparent bounded score is the one
+surfaced on the Search Dominance page. No capability removed.
