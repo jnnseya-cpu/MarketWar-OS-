@@ -5,7 +5,7 @@
 // facade are live in src/backend/email.ts (/api/email); provider pool,
 // webhook feedback loops + warm-up automation activate once connected.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Building2,
   Filter,
@@ -80,6 +80,7 @@ export default function EmailPage() {
   const [fromName, setFromName] = useState("");
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
+  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; authenticatedAs?: string; error?: string } | null>(null);
   // Live vs demo: does the server actually have an email PROVIDER wired? If not,
@@ -106,6 +107,16 @@ export default function EmailPage() {
     return () => { off = true; };
   }, [activeBrand]);
 
+  // Load real engagement stats (opens/clicks/bounces) from the delivery-event
+  // ledger. Refreshes after a send.
+  const loadStats = useCallback(() => {
+    if (!activeBrand) { setStats(null); return; }
+    authedFetch(`/api/email-events?brandId=${encodeURIComponent(activeBrand.id)}`)
+      .then((r) => r.json()).then((d) => setStats(d && typeof d.sent === "number" ? d : null))
+      .catch(() => setStats(null));
+  }, [activeBrand]);
+  useEffect(() => { loadStats(); }, [loadStats]);
+
   const canSend = Boolean(activeBrand) && (templateId ? true : Boolean(subject.trim() && message.trim()));
 
   async function sendCampaign(test: boolean) {
@@ -128,6 +139,7 @@ export default function EmailPage() {
         body: JSON.stringify(payload),
       });
       setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
+      loadStats();
     } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
     finally { setSending(false); }
   }
@@ -320,6 +332,18 @@ export default function EmailPage() {
           </div>
         )}
       </div>
+
+      {/* Real engagement — from the delivery-event ledger (opens/clicks/bounces) */}
+      {activeBrand && stats && stats.sent > 0 && (
+        <div className="mb-8 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Sent" value={stats.sent.toLocaleString()} sub="tracked messages" />
+          <StatCard label="Open rate" value={`${stats.openRate}%`} tone="good" sub={`${stats.open.toLocaleString()} opened`} />
+          <StatCard label="Click rate" value={`${stats.clickRate}%`} tone="good" sub={`${stats.click.toLocaleString()} clicked`} />
+          <StatCard label="Bounces" value={stats.bounce.toLocaleString()} tone={stats.bounce ? "warn" : "neutral"} sub="auto-suppressed" />
+          <StatCard label="Complaints" value={stats.complaint.toLocaleString()} tone={stats.complaint ? "warn" : "neutral"} sub="auto-suppressed" />
+          <StatCard label="Suppressed" value={stats.suppressed.toLocaleString()} sub="never re-sent" />
+        </div>
+      )}
 
       {/* REAL campaign send — to the brand's consented Customer Vault */}
       <div className="mb-8 card border-emerald-500/30 p-5">

@@ -156,7 +156,7 @@ async function sendViaSmtp(
   to: string,
   subject: string,
   html: string,
-  extra?: { replyTo?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
+  extra?: { replyTo?: string; listUnsubscribe?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
 ): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
@@ -196,6 +196,10 @@ async function sendViaSmtp(
       "Content-Transfer-Encoding": "8bit",
     };
     if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
+    if (extra?.listUnsubscribe) {
+      headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+    }
 
     // Dot-stuffing + bare-LF normalisation so the message body can't break the
     // DATA terminator or trip strict MTAs.
@@ -325,6 +329,7 @@ export async function sendEmail(opts: {
   html: string;
   from?: string;
   replyTo?: string;
+  listUnsubscribe?: string; // RFC 8058 one-click unsubscribe URL
   transactional?: boolean;
   // When the sending domain is authenticated (sending-domains.ts), the caller
   // passes its DKIM key so the message is signed as that domain — the inbox key.
@@ -359,7 +364,7 @@ export async function sendEmail(opts: {
   let smtpError = "";
   if (smtpConfigured) {
     try {
-      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim });
+      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe });
       return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
     } catch (e) {
       // Capture the reason (safe — SMTP status lines carry no credentials) so a

@@ -102,13 +102,19 @@ export async function POST(req: NextRequest) {
           : `All ${haveEmail} contact(s) with an email have opted out (${optedOut} suppressed), so nothing can be sent. Import contacts who haven't unsubscribed.`;
       return NextResponse.json({ error: msg, sent: 0, sendable: 0, matched: pool.length, withEmail: haveEmail }, { status: 400 });
     }
-    // Hygiene pass (removes disposable/role/suppressed/invalid before any send).
-    const sendable = filterList(consented).sendable.map((v) => v.email);
+    // Hygiene pass (removes disposable/role/invalid before any send).
+    const hygienic = filterList(consented).sendable.map((v) => v.email);
+    // Persistent suppression: drop anyone the delivery-event feedback loop has
+    // flagged (real bounces/complaints/unsubscribes), not just the in-memory set.
+    const { suppressedEmails, injectTracking, recordEvent, unsubscribeUrl } = await import("@/backend/email-events");
+    const suppressedSet = await suppressedEmails(brandId);
+    const sendable = hygienic.filter((e) => !suppressedSet.has(e.toLowerCase()));
     // Cap per call: a test send (first 1) or a bounded batch so a runaway blast
     // can't torch the sending reputation. Larger lists send in repeated calls.
     const isTest = body.test === true;
     const cap = isTest ? 1 : Math.max(1, Math.min(500, Number(body.limit) || 250));
     const batch = sendable.slice(0, cap);
+    const campaign = (typeof body.campaign === "string" ? body.campaign : subject).slice(0, 80);
 
     // Send AS the brand's own authenticated domain when set up: From + Reply-To on
     // the brand's address (so replies land in the brand's inbox), DKIM-signed with
@@ -132,9 +138,15 @@ export async function POST(req: NextRequest) {
       try {
         const contact = byEmail.get(to.toLowerCase());
         const personalSubject = mergeTemplate(subject, { contact, brand: brandName });
-        const personalHtml = mergeTemplate(html, { contact, brand: brandName });
-        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, dkim });
-        if (r.ok) sent++; else { failed++; if (failures.length < 10) failures.push(to); }
+        const merged = mergeTemplate(html, { contact, brand: brandName });
+        // Add open pixel + click-wrapping + one-click unsubscribe for THIS recipient.
+        const personalHtml = injectTracking(merged, brandId, to, campaign);
+        const listUnsubscribe = unsubscribeUrl(brandId, to, campaign);
+        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, listUnsubscribe, dkim });
+        if (r.ok) {
+          sent++;
+          try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
+        } else { failed++; if (failures.length < 10) failures.push(to); }
       } catch { failed++; if (failures.length < 10) failures.push(to); }
     }
     return NextResponse.json({

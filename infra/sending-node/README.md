@@ -118,6 +118,25 @@ already prevents re-sending to bounces/complaints.
 
 ---
 
+## Feeding bounces back (auto-suppression)
+
+The app auto-suppresses on bounce/complaint/unsubscribe when those events reach
+`POST /api/webhooks/email` (secret-gated by `EMAIL_WEBHOOK_SECRET`). Open/click/
+unsubscribe already flow in automatically via the tracking pixel/links the app
+injects. To feed **hard bounces** from this node, pipe Postfix bounce
+notifications to the webhook — add a transport that POSTs the failed recipient:
+
+```
+# /etc/postfix/master.cf — a pipe that posts bounces to the app webhook
+bounce-hook unix - n n - - pipe
+  flags=Rq user=nobody argv=/usr/local/bin/mw-bounce.sh ${recipient}
+```
+
+`mw-bounce.sh` sends `{"brandId":"…","email":"$1","type":"bounce"}` with the
+`x-webhook-secret` header. (Attribution to a brand needs the original campaign
+context; the simplest robust path is provider webhooks or VERP return-paths —
+see the backlog in `docs/ESP-SENDING.md`.)
+
 ## Files here
 
 | File | What |

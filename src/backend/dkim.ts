@@ -48,7 +48,7 @@ export type DkimOptions = {
   headerNames?: string[]; // which headers to sign (order preserved)
 };
 
-const DEFAULT_SIGNED = ["from", "to", "subject", "date", "mime-version", "content-type", "message-id"];
+const DEFAULT_SIGNED = ["from", "to", "subject", "date", "mime-version", "content-type", "message-id", "list-unsubscribe"];
 
 // Build the `DKIM-Signature: …` header for a message. `headers` is the exact set
 // present in the message (name → value). Returns the full header line (no CRLF).

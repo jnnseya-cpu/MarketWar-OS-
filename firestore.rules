@@ -157,6 +157,13 @@ service cloud.firestore {
     // /api/email-templates route (Admin SDK). No direct client access.
     match /email_templates/{doc} { allow read, write: if false; }
 
+    // Email delivery events + suppression ledger (src/backend/email-events.ts):
+    // opens/clicks/bounces/complaints/unsubscribes and the do-not-send list.
+    // Written by tracking pixels/redirects + the secret-gated webhook; read via
+    // the ownership-checked stats route. All Admin-SDK only — deny-all here.
+    match /email_events/{doc} { allow read, write: if false; }
+    match /email_suppressions/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;
