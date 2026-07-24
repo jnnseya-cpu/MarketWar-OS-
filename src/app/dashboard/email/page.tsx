@@ -15,6 +15,7 @@ import {
   Loader2,
   MailCheck,
   Rocket,
+  Send,
   ShieldCheck,
   Thermometer,
 } from "lucide-react";
@@ -71,6 +72,25 @@ export default function EmailPage() {
     filtered: { email: string; reason: string | null }[];
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Real campaign send to the brand's consented vault.
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; error?: string } | null>(null);
+
+  async function sendCampaign(test: boolean) {
+    if (!activeBrand || !subject.trim() || !message.trim()) return;
+    setSending(true); setSendResult(null);
+    try {
+      const html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${message.replace(/\n/g, "<br/>")}</div>`;
+      const res = await authedFetch("/api/email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test }),
+      });
+      setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
+    } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
+    finally { setSending(false); }
+  }
 
   // Deliverability posture keyed off the brand's REAL Customer Vault size — no
   // fabricated 1,240-contact list. Empty vault → honest empty state.
@@ -250,6 +270,34 @@ export default function EmailPage() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* REAL campaign send — to the brand's consented Customer Vault */}
+      <div className="mb-8 card border-emerald-500/30 p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Send className="h-5 w-5 text-emerald-400" />
+          <h2 className="font-display text-lg font-bold text-white">Send a real campaign to your vault</h2>
+          <Pill tone="info">consented vault only</Pill>
+        </div>
+        <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
+        <div className="space-y-3">
+          <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
+          <textarea className="input min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Your message… (plain text — line breaks preserved)" />
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={() => sendCampaign(true)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send test (1)</button>
+            <button onClick={() => sendCampaign(false)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to vault</button>
+          </div>
+          {sendResult && (
+            <div className={`rounded-lg border p-3 text-sm ${sendResult.error ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/[0.06] text-slate-200"}`}>
+              {sendResult.error ? sendResult.error : (
+                <>
+                  <p><span className="font-bold text-emerald-300">{sendResult.sent}</span> sent · {sendResult.failed} failed · {sendResult.attempted} attempted (of {sendResult.sendable} sendable / {sendResult.consented} consented). {sendResult.remaining > 0 && <>Run again for the next {Math.min(250, sendResult.remaining)}.</>}</p>
+                  <p className="mt-1 text-xs text-slate-400">{sendResult.note}</p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex items-center gap-2">

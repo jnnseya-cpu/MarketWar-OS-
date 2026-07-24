@@ -158,21 +158,32 @@ Return STRICT JSON only (no markdown fence, no prose) matching:
 }
 Provide 12-20 keywords, 10-16 prompts, 3-8 competitor gaps, 6-12 opportunities, 4-6 content pillars, 3 plan phases (Days 1-30, 31-60, 61-90). Keywords/prompts must reflect real buyer language for this business, including local + AI-assistant phrasing.`;
 
+// Robust extraction: find the FIRST complete top-level JSON object with a
+// string-aware brace scan (ignores braces inside strings), so prose or a
+// markdown fence around the JSON never breaks parsing. Returns null only when
+// the object is genuinely incomplete (truncated) — which now rarely happens
+// because maxTokens is generous.
 function safeJson(text: string): Record<string, unknown> | null {
-  let t = (text || "").trim();
-  // Strip ```json … ``` fences the model sometimes adds.
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) t = fence[1].trim();
-  const m = t.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]) as Record<string, unknown>; } catch { /* maybe truncated */ }
-  // Recover a truncated object: walk back to the last balanced brace.
-  const s = m[0];
-  for (let end = s.length - 1; end > 100; end--) {
-    if (s[end] !== "}") continue;
-    try { return JSON.parse(s.slice(0, end + 1)) as Record<string, unknown>; } catch { /* keep walking */ }
+  const t = (text || "").trim();
+  const start = t.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < t.length; i++) {
+    const ch = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(t.slice(start, i + 1)) as Record<string, unknown>; } catch { return null; }
+      }
+    }
   }
-  return null;
+  return null; // never balanced → truncated
 }
 
 export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
@@ -189,7 +200,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
 
   let fallbackReason: string | null = null;
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 4096, lang: input.lang });
+    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 8000, lang: input.lang });
     const parsed = safeJson(res.text);
     if (parsed) return shapeResult(parsed, business, "live");
     // Key IS configured (the call returned) but the JSON didn't parse — do NOT

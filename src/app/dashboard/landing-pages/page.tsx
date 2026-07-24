@@ -33,6 +33,7 @@ export default function LandingPagesPage() {
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pages, setPages] = useState<SavedPage[]>([]);
+  const [pubError, setPubError] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   // Load this brand's published pages so they're always findable (retrieved from
@@ -56,7 +57,7 @@ export default function LandingPagesPage() {
 
   async function publish() {
     if (!activeBrand) return;
-    setPublishing(true); setLiveUrl(null);
+    setPublishing(true); setLiveUrl(null); setPubError(null);
     try {
       const res = await authedFetch("/api/landing", {
         method: "POST",
@@ -70,9 +71,13 @@ export default function LandingPagesPage() {
           product: form.campaign, audience: brandDefaults(activeBrand).audience,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data?.absoluteUrl) { setLiveUrl(data.absoluteUrl); loadPages(); }
-    } finally { setPublishing(false); }
+      else if (res.status === 401) setPubError("You're not signed in (or your session expired) — sign in again, then publish. That's why nothing appeared.");
+      else if (res.status === 403) setPubError("This brand belongs to another account — switch to a brand you own.");
+      else setPubError(data?.error || `Publish failed (HTTP ${res.status}).`);
+    } catch { setPubError("Network error — the publish request didn't reach the server. Try again."); }
+    finally { setPublishing(false); }
   }
 
   return (
@@ -100,6 +105,7 @@ export default function LandingPagesPage() {
           </button>
           {!activeBrand && <span className="text-xs text-amber-400">Add a brand to publish.</span>}
         </div>
+        {pubError && <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{pubError}</p>}
         {liveUrl && (
           <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/[0.06] p-3">
             <div className="flex flex-wrap items-center gap-2">
