@@ -81,9 +81,14 @@ export default function EmailPage() {
   // Live vs demo: does the server actually have an email PROVIDER wired? If not,
   // sends are simulated and nothing reaches an inbox — say so BEFORE they send.
   const [engineMode, setEngineMode] = useState<"live" | "demo" | null>(null);
+  const [engineInfo, setEngineInfo] = useState<{ provider?: string; from?: string }>({});
   useEffect(() => {
     let off = false;
-    fetch("/api/email").then((r) => r.json()).then((d) => { if (!off) setEngineMode(d?.mode === "live" ? "live" : "demo"); }).catch(() => { if (!off) setEngineMode(null); });
+    fetch("/api/email").then((r) => r.json()).then((d) => {
+      if (off) return;
+      setEngineMode(d?.mode === "live" ? "live" : "demo");
+      setEngineInfo({ provider: d?.provider, from: d?.from });
+    }).catch(() => { if (!off) setEngineMode(null); });
     return () => { off = true; };
   }, []);
 
@@ -305,7 +310,10 @@ export default function EmailPage() {
         )}
         {engineMode === "live" && (
           <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-xs text-emerald-200">
-            <span className="font-bold">Live sending is connected.</span> Emails leave through your provider pool. Send a test to yourself first, confirm it lands, then send to the vault.
+            <span className="font-bold">Live sending is connected{engineInfo.provider ? ` via ${engineInfo.provider.toUpperCase()}` : ""}.</span> Emails leave through your provider pool. Send a test to yourself first, confirm it lands, then send to the vault.
+            {engineInfo.from && (
+              <span className="mt-1 block text-emerald-300/80">Sending as <span className="font-mono">{engineInfo.from}</span>. This exact address must be a <span className="font-semibold">verified sender</span> in your SMTP provider (e.g. Brevo) or mail will be rejected or spam-foldered. Set <span className="font-mono">EMAIL_FROM</span> to change it.</span>
+            )}
           </div>
         )}
         <div className="space-y-3">

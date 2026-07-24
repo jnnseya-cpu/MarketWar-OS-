@@ -122,9 +122,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  const { emailProvider } = await import("@/backend/email");
   return NextResponse.json({
     engine: "M-34 AI Transactional Email Engine",
     mode: emailConfigured ? "live" : "demo",
+    provider: emailProvider, // "smtp" | "resend" | "sendgrid" | "demo" — no credentials
+    from: process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>",
     hygiene: ["syntax", "disposable-domain", "role-address", "suppression-ledger"],
     doctrine: "Inbox placement is earned: authentication + warm-up + consent + hygiene. Bounces are prevented pre-send and never repeated.",
   });
