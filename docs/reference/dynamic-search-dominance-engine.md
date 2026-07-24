@@ -201,4 +201,44 @@ attributable traffic/revenue.
 ### 19. Brand Entity and Knowledge Engine
 One consistent brand truth layer. Entity record: legal name, trading name,
 description, founders, locations, contact info, products, services, categories,
-prices, service areas, social … [source truncated here].
+prices, service areas, social accounts, policies, awards, certifications, trusted
+references. Consistency monitoring: detect conflicting information across website,
+local profiles, social platforms, directories, review sites, merchant feeds,
+knowledge panels, partner sites, press coverage. Recommend corrections where
+information is outdated or inconsistent.
+
+### 20. Local Search Domination Engine
+For location-dependent businesses, manage: location pages, service-area pages,
+local schema, business-profile accuracy, opening hours, photos, product listings,
+service listings, review velocity, review responses, local citations, local
+backlinks, local content, map visibility, direction and call conversions. Local
+opportunity cards, e.g. “High demand for this service within five miles”, “Two
+competitors have weaker review coverage”, “This location page lacks service
+detail”, “Weekend opening hours are inconsistent”, “Create a page for this
+underserved district.”
+
+### 21. Ecommerce Search Growth Engine
+For ecommerce: product-feed optimisation, product titles, descriptions, category
+architecture, variant management, availability, price consistency, product schema,
+merchant listings, image optimisation, review integrity, filter-page control,
+product comparison, out-of-stock handling, related products, cross-sell links,
+seasonal pages. Connect search visibility to product views, add-to-cart rate,
+checkout rate, revenue, margin, stock availability, returns.
+
+### 22. Image and Visual Search Engine
+Connect the image-generation gateway to SEO: create original product images,
+context-rich lifestyle images; compress; responsive dimensions; descriptive alt
+text; captions; image sitemaps where suitable; product metadata; preserve image
+quality; avoid misleading generated imagery; keep exact product and logo
+information. Google Lens readiness — images clearly show product, brand, variants,
+relevant context, accurate colour, packaging, distinguishing details.
+
+### 23. Video and YouTube Search Engine
+Transform high-value topics into YouTube videos, Shorts, tutorials,
+demonstrations, comparisons, FAQs, testimonials (with consent), product
+explainers, local videos. Video SEO functions: topic selection, search-title
+generation, description, chapters, captions, transcript, thumbnail testing, video
+structured data, embedding recommendations, related article generation, CTA
+tracking, clip repurposing.
+
+> [Source continues beyond §23 — append later sections when supplied.]

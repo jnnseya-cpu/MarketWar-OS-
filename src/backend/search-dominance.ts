@@ -64,6 +64,40 @@ export const MONEY_MAP: { key: MoneyMapCategory; label: string; desc: string }[]
   { key: "ai_recommendation", label: "AI Recommendation", desc: "Questions where the brand could become a cited, recommended source." },
 ];
 
+// §10–§23 — the engine's modules, each mapped to a REAL destination or an honest
+// status. `live` = wired to a working OS engine; `foundation` = defined/surfaced
+// here now; `connect` = needs an authorised data source (never fabricated);
+// `blueprint` = designed, implemented behind Approvals + source gates.
+export type ModuleStatus = "live" | "foundation" | "connect" | "blueprint";
+export type EngineModule = { n: number; key: string; label: string; scope: string; status: ModuleStatus; route?: string };
+
+export const ENGINE_MODULES: EngineModule[] = [
+  { n: 10, key: "technical", label: "Technical SEO Engineer", scope: "Crawl/render/index eligibility: status codes, canonicals, redirects, duplicates, sitemaps, Core Web Vitals.", status: "connect", route: "/dashboard/website-intel" },
+  { n: 11, key: "sitemap", label: "Sitemap & Indexing (IndexNow)", scope: "Dynamic canonical-only sitemaps + IndexNow notify on change. Signals, not guarantees.", status: "blueprint" },
+  { n: 12, key: "schema", label: "Structured Data Intelligence", scope: "Recommend/generate/validate JSON-LD (Product, LocalBusiness, Review…). Never fake ratings/prices.", status: "blueprint" },
+  { n: 16, key: "internal", label: "Internal Authority Engine", scope: "Orphans, hubs, contextual links, anchors, crawl depth — link flow to commercial pages.", status: "blueprint" },
+  { n: 17, key: "backlinks", label: "Ethical Authority & Backlinks", scope: "Strongest RELEVANT authority via PR, research, citations. No paid networks/spam/negative SEO.", status: "connect" },
+  { n: 18, key: "ai", label: "AI Search & Recommendation", scope: "Eligibility for AI Overviews/Copilot/Perplexity + readiness score. Live answer monitoring needs a source.", status: "connect" },
+  { n: 19, key: "entity", label: "Brand Entity & Knowledge", scope: "One brand truth layer (name, locations, products, prices, policies, awards); flag conflicts across profiles.", status: "foundation", route: "/dashboard/studio" },
+  { n: 20, key: "local", label: "Local Search Domination", scope: "Location pages, local schema, profile accuracy, reviews, citations, map + call conversions.", status: "live", route: "/dashboard/local" },
+  { n: 21, key: "ecommerce", label: "Ecommerce Search Growth", scope: "Feeds, titles, schema, availability, price consistency → views, add-to-cart, checkout, revenue, margin.", status: "connect" },
+  { n: 22, key: "visual", label: "Image & Visual Search", scope: "Original product/lifestyle images, alt text, captions, Google Lens readiness — accurate, never misleading.", status: "live", route: "/dashboard/product-engine" },
+  { n: 23, key: "video", label: "Video & YouTube Search", scope: "Topics → videos/Shorts + titles, chapters, captions, schema, thumbnails, CTA tracking, clip repurposing.", status: "live", route: "/dashboard/video" },
+];
+
+// §19 — the Brand Entity record fields (the consistent brand-truth layer).
+export const ENTITY_RECORD_FIELDS = [
+  "legalName", "tradingName", "description", "founders", "locations", "contact",
+  "products", "services", "categories", "prices", "serviceAreas", "socialAccounts",
+  "policies", "awards", "certifications", "trustedReferences",
+] as const;
+
+// §19 — external surfaces where brand info must stay consistent (needs sources).
+export const CONSISTENCY_SOURCES = [
+  "Website", "Local profiles", "Social platforms", "Directories", "Review sites",
+  "Merchant feeds", "Knowledge panels", "Partner sites", "Press coverage",
+] as const;
+
 // §7 — Intent classification from commercial signals (deterministic, transparent).
 const SIGNALS: { intent: string; words: string[]; commercial: boolean }[] = [
   { intent: "transactional", words: ["buy", "book", "order", "quote", "demo", "trial", "price", "cost", "cheap", "deal", "discount", "delivery", "installation", "available today", "for sale"], commercial: true },

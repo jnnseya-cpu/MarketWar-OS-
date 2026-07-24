@@ -13,7 +13,11 @@ import { PageHeader, Pill } from "@/components/ui";
 
 type Mode = { key: string; label: string; desc: string; risk: string };
 type Cat = { key: string; label: string; desc: string };
-type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[] };
+type Module = { n: number; key: string; label: string; scope: string; status: "live" | "foundation" | "connect" | "blueprint"; route?: string };
+type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[]; modules: Module[] };
+
+const STATUS_TONE: Record<string, "good" | "info" | "warn" | "neutral"> = { live: "good", foundation: "info", connect: "warn", blueprint: "neutral" };
+const STATUS_LABEL: Record<string, string> = { live: "live", foundation: "ready", connect: "connect a source", blueprint: "blueprint" };
 
 const SCORE_FIELDS: { key: string; label: string; kind: "pos" | "neg" }[] = [
   { key: "demand", label: "Search demand", kind: "pos" },
@@ -123,6 +127,30 @@ export default function SearchDominancePage() {
             {info.moneyMap.map((c) => (
               <div key={c.key} className="card p-4"><p className="font-display text-sm font-bold text-emerald-300">{c.label}</p><p className="mt-1 text-xs text-slate-400">{c.desc}</p></div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Engine modules (§10–§23) — mapped to real OS engines or honest status */}
+      {info?.modules && (
+        <div className="mb-8">
+          <h2 className="mb-3 font-display text-sm font-bold text-white">Engine modules</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {info.modules.map((m) => {
+              const inner = (
+                <>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="font-display text-sm font-bold text-white">{m.label}</span>
+                    <Pill tone={STATUS_TONE[m.status]}>{STATUS_LABEL[m.status]}</Pill>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-400">{m.scope}</p>
+                  {m.route && <p className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300">Open <ArrowRight className="h-3 w-3" /></p>}
+                </>
+              );
+              return m.route
+                ? <Link key={m.key} href={m.route} className="card p-4 transition hover:border-emerald-500/40">{inner}</Link>
+                : <div key={m.key} className="card p-4">{inner}</div>;
+            })}
           </div>
         </div>
       )}

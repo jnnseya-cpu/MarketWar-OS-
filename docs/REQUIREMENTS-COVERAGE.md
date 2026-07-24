@@ -1397,3 +1397,18 @@ Conflict resolution (Additive-Only Law): the spec's Opportunity Score formula
 supersedes the earlier §13 organic formula as an upgrade; the organic module's
 formula is retained in place and the new transparent bounded score is the one
 surfaced on the Search Dominance page. No capability removed.
+
+### §51 addendum — Search Dominance modules §19–§23 (spec continuation)
+
+Verbatim source updated (`docs/reference/dynamic-search-dominance-engine.md`) with
+full §19 + §20–§23. Surfaced via `ENGINE_MODULES` on `/dashboard/search-dominance`,
+each mapped to a live OS engine or an honest status:
+
+| Module | Coverage | Maps to |
+|---|---|---|
+| §19 Brand Entity & Knowledge | ✅ foundation / 📦 connect | Brand identity lives in Brand Studio (`/dashboard/studio`); cross-profile consistency monitoring needs authorised sources (directories/knowledge panels/press) — honest "connect a source", never fabricated. Entity record fields + consistency sources defined (`ENTITY_RECORD_FIELDS`, `CONSISTENCY_SOURCES`). |
+| §20 Local Search Domination | ✅ live | `/dashboard/local` (Local Domination engine). |
+| §21 Ecommerce Search Growth | 📦 connect | Needs store/merchant-feed connection to tie feeds→views→cart→checkout→revenue/margin. |
+| §22 Image & Visual Search | ✅ live | `/dashboard/product-engine` (VisualStrike image gen); alt-text/Lens/image-sitemap SEO wiring 📘. Safeguard: never misleading imagery; exact product/logo. |
+| §23 Video & YouTube Search | ✅ live | `/dashboard/video` (Video War Room); title/chapters/captions/schema/thumbnail/CTA SEO functions 📘. |
+| §10–§18 (technical/schema/internal/backlinks/AI) | 📘/📦 | Defined as modules with honest status; implemented behind Approvals + honest-source gates. |
