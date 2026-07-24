@@ -1,0 +1,8 @@
+# docker-mailserver Postfix override (mounted at /tmp/docker-mailserver/postfix-main.cf).
+#
+# Force IPv4 for outbound delivery. The VPS has IPv6, but we only publish IPv4
+# reverse-DNS (PTR) + SPF for the sending IP. Unauthenticated IPv6 mail (no IPv6
+# rDNS/SPF) is spam-foldered or rejected by Gmail/Outlook, so deliver over IPv4
+# only — matching the records we set for 187.124.117.159 / smtp.marketwaros.com.
+inet_protocols = ipv4
+smtp_address_preference = ipv4
