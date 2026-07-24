@@ -169,34 +169,49 @@ export default function CustomerVaultPage() {
     if (activeBrand) load(activeBrand.id, activeBrand.name); else setReport(null);
   }, [ready, activeBrand, load]);
 
+  // Large lists are imported in automatic batches: the server caps a single
+  // upload (and serverless has a request-size limit), so anything big is split
+  // into CHUNK-row POSTs sent in sequence. The server returns the full scored
+  // vault each time, so the LAST response holds the complete, scored vault.
+  const CHUNK = 2000;
+
   async function importContacts(contacts: ParsedContact[]) {
     if (!activeBrand) { setMsg({ text: "No active brand — pick or add a brand first.", error: true }); return; }
     if (!contacts.length) { setMsg({ text: "No valid rows found — need at least an email, phone, name or company column.", error: true }); return; }
     setImporting(true); setMsg(null);
+    const batches: ParsedContact[][] = [];
+    for (let i = 0; i < contacts.length; i += CHUNK) batches.push(contacts.slice(i, i + CHUNK));
+    let last: VaultReport | null = null;
+    let done = 0;
     try {
-      const res = await authedFetch("/api/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
-        body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, contacts }),
-      });
-      // Defensive parse: an auth redirect / 500 / proxy page may not be JSON.
-      // Never let a parse throw silently swallow the outcome.
-      const raw = await res.text();
-      let d: Record<string, unknown> = {};
-      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
-      // eslint-disable-next-line no-console
-      console.log("[vault] import response", res.status, d);
-      if (!res.ok) {
-        const reason = (typeof d.error === "string" && d.error) || `Import failed (HTTP ${res.status})${raw && !d.error ? ` — ${raw.slice(0, 140)}` : ""}`;
-        setMsg({ text: reason, error: true });
-        return;
+      for (let b = 0; b < batches.length; b++) {
+        if (batches.length > 1) setMsg({ text: `Importing… ${done.toLocaleString()} / ${contacts.length.toLocaleString()} rows`, error: false });
+        const res = await authedFetch("/api/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
+          body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, contacts: batches[b] }),
+        });
+        // Defensive parse: an auth redirect / 500 / proxy page may not be JSON.
+        const raw = await res.text();
+        let d: Record<string, unknown> = {};
+        try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+        // eslint-disable-next-line no-console
+        console.log("[vault] import batch", b + 1, "/", batches.length, res.status, d);
+        if (!res.ok) {
+          const reason = (typeof d.error === "string" && d.error) || `Import failed (HTTP ${res.status})${raw && !d.error ? ` — ${raw.slice(0, 140)}` : ""}`;
+          setMsg({ text: `${reason}${done > 0 ? ` (imported ${done.toLocaleString()} before this)` : ""}`, error: true });
+          return;
+        }
+        last = d as unknown as VaultReport;
+        done += batches[b].length;
       }
-      setReport(d as unknown as VaultReport);
-      writeCache(activeBrand.id, d as unknown as VaultReport);
-      const imported = Number(d.imported) || 0;
-      const total = Number(d.total) || 0;
-      setMsg({ text: `Imported ${imported} contact${imported === 1 ? "" : "s"} — ${total} in the vault, all scored.`, error: false });
-      setPaste(""); setShowPaste(false);
+      if (last) {
+        setReport(last);
+        writeCache(activeBrand.id, last);
+        const total = Number(last.contactCount) || Number((last as unknown as { total?: number }).total) || 0;
+        setMsg({ text: `Imported ${contacts.length.toLocaleString()} row${contacts.length === 1 ? "" : "s"} — ${total.toLocaleString()} contact${total === 1 ? "" : "s"} in the vault, all scored.`, error: false });
+        setPaste(""); setShowPaste(false);
+      }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("[vault] import error", e);
