@@ -41,7 +41,10 @@ function formEncode(params: Record<string, string>): string {
 // discount (the 4× provider-cost recovery must stay protected). Demo-safe.
 export async function createTopupCheckout(input: { amountGbp: number; acus: number; orgId?: string; planId?: string }): Promise<CheckoutResult & { acus: number }> {
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
-  const acus = Math.max(0, Math.round(Number(input.acus) || 0));
+  // SERVER-AUTHORITATIVE ACU quantity: never trust the client's `acus` (it can be
+  // decoupled from the charge → pay £1, claim 1,000,000 ACUs). £1 = 100 ACUs.
+  const ACU_PER_GBP = 100;
+  const acus = Math.max(0, Math.round(amountGbp * ACU_PER_GBP));
   const metadata = { marketwar_brand_id: "", marketwar_source: "ACU top-up" };
   if (amountGbp <= 0 || acus <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, acus, note: "amount and acus must be > 0", error: "amount and acus must be > 0" };
 

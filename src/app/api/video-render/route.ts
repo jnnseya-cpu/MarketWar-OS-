@@ -37,6 +37,14 @@ export async function POST(req: NextRequest) {
       if (!jobId.trim()) return NextResponse.json({ error: "jobId is required" }, { status: 400 });
       const job = await getVideoRender(jobId);
       if ("error" in job) return NextResponse.json(job, { status: 404 });
+      // Ownership check: the job carries its brandId — verify the caller owns it
+      // before returning the prompt + video URL (else cross-tenant leak via a
+      // guessable jobId).
+      const jobBrandId = (job as { brandId?: string }).brandId || "";
+      if (jobBrandId) {
+        const access = await resolveBrandAccess(req, jobBrandId);
+        if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+      }
       return NextResponse.json(job);
     }
     return NextResponse.json({ error: "Unknown action — use start or status" }, { status: 400 });

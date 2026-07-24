@@ -11,6 +11,7 @@ if (typeof window !== "undefined") {
 // demo set — but real. Consent is preserved so only consented contacts are
 // marketing-eligible downstream.
 
+import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { CustomerRecord } from "@/backend/segments";
 
@@ -32,12 +33,16 @@ export type Contact = {
 const mem = new Map<string, Map<string, Contact>>(); // brandId → (contactId → Contact)
 
 const lc = (s: string) => s.trim().toLowerCase();
-const fnv = (s: string): string => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+// SHA-256 (128-bit) — 32-bit FNV collided at ~65k entities, silently MERGING two
+// different customers onto one doc (data loss). A vault can hold far more, so use
+// the same wide hash the money engine uses.
+const hid = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 32);
 
-// Deterministic id: same email (per brand) → same id → merge on re-import.
+// Deterministic id: same email/phone/name (per brand) → same id → merge on
+// re-import. Identifier-less rows are dropped upstream, so name is a stable key.
 export function contactId(brandId: string, c: { email?: string; name?: string; phone?: string }): string {
-  const key = c.email ? lc(c.email) : c.phone ? c.phone.replace(/\D/g, "") : lc(c.name || "") + ":" + Math.random().toString(36).slice(2);
-  return `${brandId}::${fnv(key)}`;
+  const key = c.email ? lc(c.email) : c.phone ? c.phone.replace(/\D/g, "") : "name:" + lc((c.name || "").trim());
+  return `${brandId}::${hid(key)}`;
 }
 
 const docId = (id: string) => id.replace(/\//g, "_");

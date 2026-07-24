@@ -16,7 +16,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB per asset upload
-const ALLOWED = /^(image\/(png|jpe?g|webp|svg\+xml|gif)|video\/(mp4|webm|quicktime))$/i;
+// SVG excluded on purpose: raw SVG can carry <script>, and it's hosted publicly
+// verbatim — a stored-XSS vector. Raster + video only.
+const ALLOWED = /^(image\/(png|jpe?g|webp|gif)|video\/(mp4|webm|quicktime))$/i;
 const EXT: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp",
   "image/svg+xml": "svg", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",

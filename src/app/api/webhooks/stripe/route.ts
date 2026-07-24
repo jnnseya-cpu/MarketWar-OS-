@@ -21,6 +21,13 @@ export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
   const nowSec = Math.floor(Date.now() / 1000);
 
+  // Fail CLOSED in production if the signing secret is missing: without it the
+  // verifier returns demo-valid, and an unauthenticated POST could persist
+  // arbitrary attributed revenue to any brand. Never accept unsigned in prod.
+  if (process.env.NODE_ENV === "production" && !secret) {
+    return NextResponse.json({ error: "Webhook signing secret not configured — refusing unsigned event." }, { status: 500 });
+  }
+
   const verdict = verifyStripeSignature(raw, sig, secret, 300, nowSec);
   if (!verdict.valid) {
     return NextResponse.json({ error: verdict.reason }, { status: 400 });

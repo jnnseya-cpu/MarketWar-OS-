@@ -19,6 +19,18 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "autopilot-nightly"), 30, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
+  // This route sends REAL email to a client-supplied recipient — it must be
+  // gated. It's a scheduler endpoint: require the CRON_SECRET header (set on the
+  // cron job) OR a signed-in user. Without either, refuse — an open email relay
+  // from the platform's authenticated domain is an abuse/reputation risk.
+  const cronSecret = req.headers.get("x-cron-secret") || "";
+  const cronOk = process.env.CRON_SECRET && cronSecret === process.env.CRON_SECRET;
+  if (!cronOk) {
+    const { requireAuth } = await import("@/backend/guard");
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: "Unauthorised — set the x-cron-secret header (scheduler) or sign in." }, { status: auth.status });
+  }
+
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateImage, imageProviderStatus, extractBrandTheme, estimateImageCost } from "@/backend/image-gateway";
 import { DEFAULT_CREATIVE_OPTIONS, IMAGE_PROVIDERS, type CreativeOptions, type ImageGenerationRequest, type ImageQuality } from "@/shared/creative";
+import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 
 // AI Visual Creation Engine API (multi-provider image gateway).
 // POST { action: "generate", ... } → N brand-safe creative variants
@@ -18,6 +19,15 @@ export async function POST(req: NextRequest) {
 
   const action = typeof body.action === "string" ? body.action : "generate";
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : undefined);
+
+  // Generation hits paid providers → must be authenticated + throttled + bounded,
+  // or it is an anonymous denial-of-wallet. (theme/estimate are free + local.)
+  if (action === "generate") {
+    const rl = rateLimit(clientKey(req, "image-generate"), 20, 60_000, Date.now());
+    if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
 
   if (action === "theme") {
     return NextResponse.json(extractBrandTheme({
@@ -52,7 +62,7 @@ export async function POST(req: NextRequest) {
     cta: str("cta"),
     options,
     quality,
-    variants: typeof body.variants === "number" ? body.variants : 3,
+    variants: Math.max(1, Math.min(8, typeof body.variants === "number" ? body.variants : 3)),
     locale: str("locale"),
     referenceAssets: referenceAssets.length ? referenceAssets : undefined,
     brandTheme,
