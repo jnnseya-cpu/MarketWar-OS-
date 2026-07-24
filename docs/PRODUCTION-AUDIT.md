@@ -215,3 +215,41 @@ These remain **NOT TESTED / BLOCKED** — they need live infra/console access th
 - **Invitation-only limited beta: CONDITIONAL GO** — the application, financial-control, **and now partner-monetisation** layers are code-complete, honest, and hardened. The conditions are the same operational closes as §15 "Before limited beta" (observability + tested backups + `STRIPE_WEBHOOK_SECRET` + live-Firebase auth verification), plus, before any real partner money moves: set a payout rail key (`STRIPE_SECRET_KEY` / `BITRIPAY_API_KEY`) and `CREATOR_LEDGER_SECRET`, and run one end-to-end conversion→cap→payout reconciliation on live rails.
 - **Launch confidence score: 64 / 100** (up from 58 — the partner-engine authz/correctness holes and the honesty findings are closed; the ceiling is still held down by the unchanged operational gates, which no code change can lift from inside this environment).
 - **Bottom line for the owner:** a business can be invited to use this and spend money on it **once the four operational items are switched on** — they are infra/console toggles (monitoring, backups, webhook secret, live-Firebase check), not missing product. The code that touches money is now idempotent, capped, ownership-checked, and DB-backstopped. What this environment cannot prove for you — behaviour under real traffic, a real restore, a live pen-test — is honestly marked NOT TESTED above; do not treat those as done until they are run on live infra.
+
+---
+
+## 20. Re-audit pass 3 — adversarial security + financial, live-blocker diagnosis (2026-07-24)
+
+Two parallel adversarial audits (security/authz; correctness/financial) run over
+the full route set + money engines, plus diagnosis of the tester's live
+"everything empty" symptom.
+
+### 20.1 Fixed this pass (evidence: typecheck + layers + build 139/139)
+
+| ID | Sev | Finding | Fix |
+|----|-----|---------|-----|
+| S-1 | P1 | `/api/image` unauthenticated + unbounded variants → anonymous denial-of-wallet on paid providers | requireAuth + rate limit on generate; variants clamped 1–8 |
+| F-1 | P1 | Top-up ACU quantity client-supplied, decoupled from charge (pay £1, claim 1M ACUs) | server-authoritative `acus = amountGbp×100`; client value ignored |
+| F-2 | P1 | Stripe webhook accepts unsigned as demo-valid when `STRIPE_WEBHOOK_SECRET` unset → forged revenue writes | fails CLOSED in production (500) when secret missing |
+| S-2 | P2 | `/api/autopilot/nightly` unauthenticated real-email relay | gated behind `CRON_SECRET` header or requireAuth |
+| S-3 | P3 | `/api/video-render` status IDOR via guessable jobId (leaks prompt + MP4) | resolveBrandAccess on the job's brandId |
+| S-4 | P3 | `brand-assets` accepted `image/svg+xml` (stored XSS) | SVG dropped from allowlist |
+| F-3 | P2 | contacts doc id 32-bit FNV collides (~65k) → distinct customers merged (data loss) | SHA-256/128-bit; name-only rows deterministic |
+
+### 20.2 Remaining P1/P2 (not yet exploitable — gated on payout rail / wallet store)
+
+- **F-4 (P1)** payout release is read-modify-write, no transaction → concurrent double-release. Needs `runTransaction`. *Not exploitable until a payout rail key is live.*
+- **F-5 (P1)** Stripe webhook computes the ACU allocation but never persists it or a processed-event record → paid customers not credited + idempotency claim false. Needs a wallet store + `processed_stripe_events`. *Billing/ACU crediting is not live yet.*
+- **F-6 (P2)** £20k cap + 5-conversion gate keyed on client-supplied `referredRef`/amounts → mintable via the ledger secret. Derive from verified payment identity. *Gated by admin scope / `CREATOR_LEDGER_SECRET`.*
+
+### 20.3 The live blocker (tester-reported "everything empty")
+
+- **Confirmed:** the tester is signed in (`admin@marketwaros.com`, "Live intelligence active"), and AI responds — so it is **not** a sign-out. Brand-scoped writes/reads (vault import, landing publish, email) still return empty.
+- **Root-cause hypothesis (highest likelihood):** server-side **token verification failure** — most likely `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (client) ≠ `FIREBASE_PROJECT_ID` (admin). A token minted for project A is rejected by an Admin SDK verifying against project B → 401 on every authed op → empty everywhere.
+- **Diagnosis shipped:** `/api/health/auth` now returns `projectMatch` (must be true) and `session.tokenValid` (verifies the caller's token); `AuthStatusBanner` surfaces an invalid session in-app. Publish now shows the real 401 reason instead of silent failure.
+
+### 20.4 Refreshed verdict
+
+- **Unrestricted public launch: NO-GO** (unchanged — Gates 6 & 8 operational; F-4/F-5 before real billing).
+- **Invitation-only beta: CONDITIONAL GO — but currently BLOCKED end-to-end** until the token-verification/project-match is resolved: with authed data ops failing, critical journeys (import → segment → send) cannot complete for the tester. Once `projectMatch: true` + `session.tokenValid: true`, the beta path is restored. Confidence held at ~62/100 pending that confirmation and the observability/backup/rail items.
+- **Honest NOT TESTED (needs live infra):** load/stress, live pen-test, backup restore/DR, production monitoring, live payment reconciliation, cross-browser/a11y matrix.
