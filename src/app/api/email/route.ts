@@ -68,10 +68,22 @@ export async function POST(req: NextRequest) {
 
     const { listContacts } = await import("@/backend/contacts");
     const contacts = await listContacts(brandId);
-    // ONLY consented contacts with an email are marketing-eligible.
-    const consented = contacts.filter((c) => c.email && c.consent === true).map((c) => c.email as string);
+    // Optional status filter (prospect lists): "contacted" | "new" | etc.
+    const statusFilter = typeof body.statusFilter === "string" ? body.statusFilter.trim().toLowerCase() : "";
+    const pool = statusFilter ? contacts.filter((c) => (c.status || "").toLowerCase() === statusFilter) : contacts;
+    // Consented customers are always eligible. For a status-targeted B2B prospect
+    // segment, company addresses are eligible under B2B legitimate interest — but
+    // an EMAIL is mandatory (we can't send without one).
+    const eligible = statusFilter
+      ? pool.filter((c) => c.email)
+      : pool.filter((c) => c.email && c.consent === true);
+    const consented = eligible.map((c) => c.email as string);
     if (consented.length === 0) {
-      return NextResponse.json({ error: "No consented contacts with an email in this vault. Import contacts with consent=true first.", sent: 0, sendable: 0 }, { status: 400 });
+      const haveEmail = pool.filter((c) => c.email).length;
+      const msg = statusFilter
+        ? `${pool.length} contact(s) match status "${statusFilter}", but ${haveEmail} have an email address. To email them the list needs an email column (or connect an enrichment provider). Nothing was sent.`
+        : "No consented contacts with an email in this vault. Import contacts with consent=true first.";
+      return NextResponse.json({ error: msg, sent: 0, sendable: 0, matched: pool.length, withEmail: haveEmail }, { status: 400 });
     }
     // Hygiene pass (removes disposable/role/suppressed/invalid before any send).
     const sendable = filterList(consented).sendable.map((v) => v.email);

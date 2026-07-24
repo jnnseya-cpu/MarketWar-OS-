@@ -28,6 +28,13 @@ export type Contact = {
   consent?: boolean;       // marketing consent — governs send-eligibility
   source?: string;         // "csv-import", "crm", …
   importedAt?: string;
+  // Prospect-list fields (B2B lists: Company / Trade / Town / Area / Score /
+  // Status). A row with only a company is a valid prospect.
+  trade?: string;
+  town?: string;
+  area?: string;
+  status?: string;         // e.g. "new" | "contacted" | "contactable"
+  score?: number;
 };
 
 const mem = new Map<string, Map<string, Contact>>(); // brandId → (contactId → Contact)
@@ -40,8 +47,11 @@ const hid = (s: string): string => createHash("sha256").update(s).digest("hex").
 
 // Deterministic id: same email/phone/name (per brand) → same id → merge on
 // re-import. Identifier-less rows are dropped upstream, so name is a stable key.
-export function contactId(brandId: string, c: { email?: string; name?: string; phone?: string }): string {
-  const key = c.email ? lc(c.email) : c.phone ? c.phone.replace(/\D/g, "") : "name:" + lc((c.name || "").trim());
+export function contactId(brandId: string, c: { email?: string; name?: string; phone?: string; company?: string }): string {
+  const key = c.email ? lc(c.email)
+    : c.phone ? c.phone.replace(/\D/g, "")
+    : c.name ? "name:" + lc(c.name.trim())
+    : "company:" + lc((c.company || "").trim());
   return `${brandId}::${hid(key)}`;
 }
 
@@ -53,13 +63,20 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
   for (const r of rows) {
     const email = r.email ? lc(String(r.email)) : undefined;
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue; // drop malformed emails
-    if (!email && !r.phone && !r.name) continue;                     // need at least one identifier
-    const id = contactId(brandId, { email, name: r.name, phone: r.phone });
+    // Need at least one identifier — email, phone, name OR company (prospect lists).
+    if (!email && !r.phone && !r.name && !r.company) continue;
+    const id = contactId(brandId, { email, name: r.name, phone: r.phone, company: r.company });
+    const scoreNum = typeof r.score === "number" ? r.score : Number(r.score) || undefined;
     const c: Contact = {
       id, brandId, email, name: r.name?.trim() || undefined, phone: r.phone?.trim() || undefined,
       company: r.company?.trim() || undefined,
       totalSpendGbp: num(r.totalSpendGbp), orderCount: num(r.orderCount), lastOrderDaysAgo: num(r.lastOrderDaysAgo),
       consent: typeof r.consent === "boolean" ? r.consent : undefined,
+      trade: r.trade?.toString().trim() || undefined,
+      town: r.town?.toString().trim() || undefined,
+      area: r.area?.toString().trim() || undefined,
+      status: r.status?.toString().trim().toLowerCase() || undefined,
+      score: scoreNum,
       source: r.source || "csv-import", importedAt: nowISO,
     };
     byId.set(id, { ...byId.get(id), ...c });

@@ -75,6 +75,7 @@ export default function EmailPage() {
   // Real campaign send to the brand's consented vault.
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; error?: string } | null>(null);
 
@@ -85,7 +86,7 @@ export default function EmailPage() {
       const html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${message.replace(/\n/g, "<br/>")}</div>`;
       const res = await authedFetch("/api/email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test }),
+        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test, statusFilter: campaignStatus.trim() || undefined }),
       });
       setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
     } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
@@ -281,7 +282,11 @@ export default function EmailPage() {
         </div>
         <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
         <div className="space-y-3">
-          <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="input flex-1 min-w-[200px]" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
+            <input className="input max-w-[220px]" value={campaignStatus} onChange={(e) => setCampaignStatus(e.target.value)} placeholder='Target status (optional) e.g. "contacted"' />
+          </div>
+          <p className="text-[11px] text-slate-500">Leave status blank to email consented customers. Enter a prospect status (e.g. <span className="text-slate-300">contacted</span>) to email that imported segment — those rows still need an email address to send.</p>
           <textarea className="input min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Your message… (plain text — line breaks preserved)" />
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => sendCampaign(true)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send test (1)</button>

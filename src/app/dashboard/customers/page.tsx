@@ -26,7 +26,7 @@ type VaultReport = {
   customers: Row[]; note: string;
 };
 
-type ParsedContact = { email: string; name: string; phone: string; company: string; totalSpendGbp: string; orderCount: string; lastOrderDaysAgo: string; consent?: boolean };
+type ParsedContact = { email: string; name: string; phone: string; company: string; totalSpendGbp: string; orderCount: string; lastOrderDaysAgo: string; consent?: boolean; trade?: string; town?: string; area?: string; status?: string; score?: string };
 
 // Robust client-side parser. Handles real-world exports:
 //  • auto-detects the delimiter (tab, comma or semicolon),
@@ -81,6 +81,9 @@ function parseCsv(text: string): ParsedContact[] {
     const iPhone = find("phone", "mobile", "tel", "cell"), iCompany = find("company", "organisation", "organization", "account");
     const iSpend = find("spend", "revenue", "ltv", "total value", "value", "amount"), iOrders = find("orders", "order count", "purchases", "transactions");
     const iRecency = find("last order days", "days since", "recency", "days ago"), iConsent = find("consent", "opt-in", "optin", "subscribed", "marketing");
+    // Prospect-list columns (Company / Trade / Town / Area / Score / Status).
+    const iTrade = find("trade", "sector", "category"), iTown = find("town", "city"), iArea = find("area", "region", "postcode area");
+    const iStatus = find("status", "stage"), iScore = find("score", "rating");
     const g = (c: string[], i: number) => (i >= 0 && i < c.length ? c[i] : "");
     const rows: ParsedContact[] = [];
     for (let r = 1; r < lines.length; r++) {
@@ -92,9 +95,12 @@ function parseCsv(text: string): ParsedContact[] {
         name, phone: g(c, iPhone), company: g(c, iCompany),
         totalSpendGbp: g(c, iSpend), orderCount: g(c, iOrders), lastOrderDaysAgo: g(c, iRecency),
         consent: iConsent >= 0 ? truthy.has(g(c, iConsent).toLowerCase()) : undefined,
+        trade: g(c, iTrade) || undefined, town: g(c, iTown) || undefined, area: g(c, iArea) || undefined,
+        status: g(c, iStatus) || undefined, score: g(c, iScore) || undefined,
       });
     }
-    return rows.filter((r) => r.email || r.phone || r.name);
+    // Keep company-only prospect rows too (not just email/phone/name).
+    return rows.filter((r) => r.email || r.phone || r.name || r.company);
   }
 
   // ---- Headerless path: detect the email column by content ----
