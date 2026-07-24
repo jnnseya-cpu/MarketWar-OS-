@@ -30,7 +30,7 @@ const PHASES = [
     phase: "Phase 5 — Capture & Conversion",
     title: "Every click lands somewhere that converts",
     detail:
-      "Generated landing pages and the WhatsApp Sales Center are built to qualify leads, present offers and take orders — with follow-up sequences timed at 1h, 24h and 48h so no lead dies of silence. Live capture and sending switch on when you connect WhatsApp/email.",
+      "Generated landing pages and the WhatsApp Sales Center are built to qualify leads, present offers and take orders — with follow-up sequences timed at 1h, 24h and 48h so no lead dies of silence. Email runs on the platform's own sending infrastructure: send from your authenticated domain (DKIM/SPF/DMARC), DKIM-signed and tracked (opens, clicks, one-click unsubscribe), with no third-party provider. WhatsApp capture switches on when you connect WhatsApp.",
   },
   {
     phase: "Phase 6 — Budget Protection",

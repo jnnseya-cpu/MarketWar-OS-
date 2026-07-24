@@ -57,7 +57,7 @@ const PILLARS = [
     icon: Workflow,
     color: SERIES[4],
     title: "Customer Acquisition System",
-    desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies.",
+    desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies — including email sent from your own authenticated domain on the platform's own infrastructure, DKIM-signed and tracked, with no third-party provider.",
     cta: "Acquire Customers",
     href: "/signup",
   },
