@@ -81,7 +81,7 @@ export async function GET(req: Request) {
   // — the DEFINITIVE test of whether the session actually works end-to-end.
   const authHeader = req.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  let session: Record<string, unknown> = { signedIn: false, note: "No token on this request — you are NOT signed in (or authedFetch had no current user). Every authed data operation (vault, publish, email, campaigns) will 401 and appear empty until you sign in." };
+  let session: Record<string, unknown> = { signedIn: false, note: "No token on THIS request. Note: opening this URL directly in the address bar ALWAYS lands here — a raw browser visit can't carry your app login token (only in-app JS calls do). So signedIn:false here does NOT mean you're logged out. The real proof of a working session is simply that the dashboard loads your data (vault, pages, etc.) — if that works, you're fine." };
   if (token) {
     try {
       const { adminAuth, adminConfigured } = await import("@/backend/firebase-admin");
