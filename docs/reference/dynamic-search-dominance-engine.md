@@ -264,4 +264,58 @@ corrections → publish transparent clarification → improve customer-service a
 → track search-result recovery. **The system must never create fake positive
 reviews or suppress legitimate criticism through manipulation.**
 
-> [Source continues beyond §25 — append later sections when supplied.]
+### 26. Search Conversion Optimisation
+Ranking without revenue is failure. Per organic landing page track: impressions,
+CTR, engagement, lead conversion, purchase conversion, revenue, margin, assisted
+conversions, repeat purchases. Conversion agent improves above-the-fold message,
+CTA, trust, pricing clarity, product proof, page speed, mobile usability,
+comparison information, objection handling, lead forms, checkout pathways.
+
+### 27. Search Revenue Attribution
+Connect Query → Search Appearance → Click → Landing Page → Lead → Opportunity →
+Sale → Revenue → Margin → Lifetime Value. Revenue views: by query, page, topic,
+location, search engine, AI platform, social-search platform, content type,
+backlink source. Prevents chasing traffic that creates no business value.
+
+### 28. Search Defence and Rank-Loss Response
+On a visibility drop, auto-investigate. Causes: indexation, technical deployment,
+redirect/canonical error, content decay, competitor improvement, intent shift,
+lost authority, internal-link change, product availability, manual action,
+security issue, server outage. Incident process: detect abnormal decline →
+identify pages/queries → check technical changes → compare competitors → estimate
+revenue at risk → recommend repair → implement approved fixes → validate crawl/
+index → track recovery.
+
+### 29. Continuous Content Refresh Engine
+Freshness policy per important page. Triggers: ranking decline, competitor update,
+price/product/regulation change, intent change, broken reference, new question,
+declining CTR, expired statistics, seasonal opportunity. Actions: update facts,
+add evidence/examples/FAQs, replace outdated images, update offers, improve
+internal links, add product details, republish where appropriate, request
+recrawl.
+
+### 30. Dynamic Search Experimentation Engine
+Test controlled changes to titles, descriptions, CTAs, intros, structure,
+internal links, FAQs, product presentation, trust signals, offer positioning.
+Controls: log every change, version history, statistically meaningful periods,
+avoid simultaneous uncontrolled changes, protect high-performers, roll back harm,
+separate ranking effects from conversion effects.
+
+### 31. Search-Dominance AI Workforce (53 specialist agents)
+Executive: 1 Dynamic SEO Commander, 2 Organic Revenue Director, 3 Search Strategy.
+Demand: 4 Keyword Intelligence, 5 Search Intent, 6 AI Prompt Discovery, 7 Social
+Search, 8 Trend Detection, 9 Local Demand. Technical: 10 Crawlability, 11
+Indexation, 12 JavaScript Rendering, 13 Sitemap, 14 Canonicalisation, 15 Redirect,
+16 Site Architecture, 17 Performance, 18 Structured Data. Content: 19 Topic
+Authority, 20 Content Gap, 21 Content Superiority, 22 Commercial Content, 23
+Comparison Content, 24 FAQ, 25 Content Refresh, 26 Expert Evidence. Authority: 27
+Internal Link, 28 Digital PR, 29 Backlink Opportunity, 30 Brand Mention, 31 Local
+Citation, 32 Partnership Authority. AI discovery: 33 AI Visibility, 34 Entity
+Knowledge, 35 Citation Readiness, 36 Answer Formatting, 37 AI Recommendation
+Monitor. Media: 38 Image Search, 39 Video Search, 40 YouTube Growth, 41 Social
+Search, 42 Podcast Discovery. Commercial: 43 Search Conversion, 44 Organic
+Attribution, 45 Search Offer, 46 Revenue Forecast, 47 Search Budget. Defence: 48
+Rank Loss, 49 Reputation Search, 50 Spam Risk, 51 Content Quality, 52 Change
+Control, 53 Competitor Response.
+
+> [Source continues beyond §31 — append later sections when supplied.]

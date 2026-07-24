@@ -85,6 +85,89 @@ export const ENGINE_MODULES: EngineModule[] = [
   { n: 23, key: "video", label: "Video & YouTube Search", scope: "Topics → videos/Shorts + titles, chapters, captions, schema, thumbnails, CTA tracking, clip repurposing.", status: "live", route: "/dashboard/video" },
   { n: 24, key: "social", label: "Social Search Dominance", scope: "In-platform discovery for TikTok/Instagram/YouTube/LinkedIn/Reddit — captions, on-screen text, hooks, topic consistency. Reddit: help genuinely, disclose relationships, no spam.", status: "connect", route: "/dashboard/amplify" },
   { n: 25, key: "reputation", label: "Search Reputation Defence", scope: "Monitor reviews, brand searches, misinformation, impersonation, counterfeit listings; factual response + owned-channel correction + recovery tracking. Never fake reviews or suppress legitimate criticism.", status: "live", route: "/dashboard/reputation" },
+  { n: 26, key: "conversion", label: "Search Conversion Optimisation", scope: "Per organic page: impressions→CTR→engagement→lead→purchase→revenue→margin. Improve above-the-fold, CTA, trust, pricing, proof, speed, forms, checkout.", status: "foundation", route: "/dashboard/landing-builder" },
+  { n: 27, key: "attribution", label: "Search Revenue Attribution", scope: "Query→appearance→click→page→lead→sale→revenue→margin→LTV. Revenue by query/page/topic/location/engine/AI/social/content/backlink. Stop chasing valueless traffic.", status: "connect", route: "/dashboard/roi" },
+  { n: 28, key: "rankloss", label: "Rank-Loss Response", scope: "On a visibility drop: detect→identify pages/queries→check technical→compare competitors→estimate revenue at risk→repair→validate→track recovery.", status: "connect" },
+  { n: 29, key: "refresh", label: "Continuous Content Refresh", scope: "Freshness policy per page; triggers (decline, price/product/intent change, expired stats, seasonal) → update facts/evidence/FAQs/images/offers/links + recrawl.", status: "foundation", route: "/dashboard/content" },
+  { n: 30, key: "experiment", label: "Search Experimentation", scope: "Controlled tests on titles/descriptions/CTAs/intros/structure/links/FAQs with version history, protected high-performers, rollback, and ranking-vs-conversion separation.", status: "blueprint" },
+];
+
+// §31 — the Search-Dominance AI Workforce: 53 named specialist agents in 9
+// divisions. Defined as the roster; each maps to an engine module / capability
+// above and is orchestrated within the operating modes + Approvals controls.
+export type WorkforceAgent = { n: number; name: string; role: string };
+export const SEARCH_WORKFORCE: { division: string; agents: WorkforceAgent[] }[] = [
+  { division: "Executive", agents: [
+    { n: 1, name: "Dynamic SEO Commander", role: "Owns the entire organic growth strategy." },
+    { n: 2, name: "Organic Revenue Director", role: "Connects visibility to leads, revenue and margin." },
+    { n: 3, name: "Search Strategy", role: "Defines market, topic and channel priorities." },
+  ]},
+  { division: "Demand", agents: [
+    { n: 4, name: "Keyword Intelligence", role: "Builds and maintains the keyword universe." },
+    { n: 5, name: "Search Intent", role: "Classifies commercial intent." },
+    { n: 6, name: "AI Prompt Discovery", role: "Maps customer questions asked in AI systems." },
+    { n: 7, name: "Social Search", role: "Maps discovery behaviour on social platforms." },
+    { n: 8, name: "Trend Detection", role: "Finds emerging demand." },
+    { n: 9, name: "Local Demand", role: "Finds geographic opportunities." },
+  ]},
+  { division: "Technical", agents: [
+    { n: 10, name: "Crawlability", role: "Monitors crawler access." },
+    { n: 11, name: "Indexation", role: "Tracks index eligibility and coverage." },
+    { n: 12, name: "JavaScript Rendering", role: "Checks rendered content." },
+    { n: 13, name: "Sitemap", role: "Maintains sitemaps." },
+    { n: 14, name: "Canonicalisation", role: "Controls duplicates." },
+    { n: 15, name: "Redirect", role: "Manages URL changes." },
+    { n: 16, name: "Site Architecture", role: "Improves navigation and crawl depth." },
+    { n: 17, name: "Performance", role: "Monitors speed and user experience." },
+    { n: 18, name: "Structured Data", role: "Creates and validates markup." },
+  ]},
+  { division: "Content", agents: [
+    { n: 19, name: "Topic Authority", role: "Builds topical coverage." },
+    { n: 20, name: "Content Gap", role: "Finds missing opportunities." },
+    { n: 21, name: "Content Superiority", role: "Improves depth, evidence and differentiation." },
+    { n: 22, name: "Commercial Content", role: "Creates transactional pages." },
+    { n: 23, name: "Comparison Content", role: "Creates accurate comparison assets." },
+    { n: 24, name: "FAQ", role: "Captures customer questions." },
+    { n: 25, name: "Content Refresh", role: "Maintains freshness." },
+    { n: 26, name: "Expert Evidence", role: "Adds credible evidence and expert review." },
+  ]},
+  { division: "Authority", agents: [
+    { n: 27, name: "Internal Link", role: "Builds internal authority." },
+    { n: 28, name: "Digital PR", role: "Creates newsworthy opportunities." },
+    { n: 29, name: "Backlink Opportunity", role: "Finds relevant editorial opportunities." },
+    { n: 30, name: "Brand Mention", role: "Finds unlinked mentions." },
+    { n: 31, name: "Local Citation", role: "Improves local consistency." },
+    { n: 32, name: "Partnership Authority", role: "Creates partner-led authority opportunities." },
+  ]},
+  { division: "AI Discovery", agents: [
+    { n: 33, name: "AI Visibility", role: "Measures mentions and citations." },
+    { n: 34, name: "Entity Knowledge", role: "Maintains brand facts." },
+    { n: 35, name: "Citation Readiness", role: "Improves source quality." },
+    { n: 36, name: "Answer Formatting", role: "Creates clear, extractable answers." },
+    { n: 37, name: "AI Recommendation Monitor", role: "Tracks recommendation share." },
+  ]},
+  { division: "Media", agents: [
+    { n: 38, name: "Image Search", role: "Optimises images." },
+    { n: 39, name: "Video Search", role: "Optimises video." },
+    { n: 40, name: "YouTube Growth", role: "Builds YouTube discovery." },
+    { n: 41, name: "Social Search", role: "Optimises platform-native search." },
+    { n: 42, name: "Podcast Discovery", role: "Optimises audio content and transcripts." },
+  ]},
+  { division: "Commercial", agents: [
+    { n: 43, name: "Search Conversion", role: "Improves landing-page conversion." },
+    { n: 44, name: "Organic Attribution", role: "Connects visibility to revenue." },
+    { n: 45, name: "Search Offer", role: "Builds search-specific offers." },
+    { n: 46, name: "Revenue Forecast", role: "Forecasts organic revenue." },
+    { n: 47, name: "Search Budget", role: "Allocates content and authority budgets." },
+  ]},
+  { division: "Defence", agents: [
+    { n: 48, name: "Rank Loss", role: "Investigates ranking declines." },
+    { n: 49, name: "Reputation Search", role: "Protects branded search." },
+    { n: 50, name: "Spam Risk", role: "Prevents manipulative tactics." },
+    { n: 51, name: "Content Quality", role: "Prevents low-value publication." },
+    { n: 52, name: "Change Control", role: "Approves and rolls back changes." },
+    { n: 53, name: "Competitor Response", role: "Builds rapid legitimate counter-strategies." },
+  ]},
 ];
 
 // §19 — the Brand Entity record fields (the consistent brand-truth layer).

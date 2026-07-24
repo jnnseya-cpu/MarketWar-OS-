@@ -1421,3 +1421,16 @@ Verbatim source updated with §24 Social Search + §25 Reputation Defence.
 |---|---|---|
 | §24 Social Search Dominance | 📦 connect | Per-platform in-feed discovery (TikTok/IG/YT/LinkedIn/Reddit). Activates when social accounts connect. Reddit rule captured: help genuinely, DISCLOSE material relationships, no spam, follow community rules. Landing: `/dashboard/amplify`. |
 | §25 Search Reputation Defence | ✅ live / 📦 connect | `/dashboard/reputation` (Reputation Shield). Deep monitoring (reviews/press/impersonation/counterfeit) needs sources. Hard safeguard carried: NEVER create fake positive reviews or suppress legitimate criticism through manipulation. |
+
+### §51 addendum 3 — Search Dominance §26–§31
+
+Verbatim source updated with §26–§31.
+
+| Item | Coverage | Maps to / notes |
+|---|---|---|
+| §26 Search Conversion Optimisation | ✅ foundation | `/dashboard/landing-builder` (Conversion Architect); per-page CTR→revenue tracking fills from GSC/analytics (connect). |
+| §27 Search Revenue Attribution | 📦 connect | Query→…→LTV chain; revenue-by-dimension needs GSC + revenue data. Landing: `/dashboard/roi`. |
+| §28 Rank-Loss Response | 📦 connect | Incident process defined; needs GSC monitoring to detect declines. |
+| §29 Continuous Content Refresh | ✅ foundation | `/dashboard/content` (Content Factory); freshness triggers + actions defined. |
+| §30 Search Experimentation | 📘 blueprint | Controlled A/B on titles/CTAs/structure w/ version history + rollback; behind Change Control. |
+| §31 Search-Dominance AI Workforce (53 agents) | ✅ | Full roster defined (`SEARCH_WORKFORCE`, 9 divisions) and surfaced on `/dashboard/search-dominance`. Each agent maps to an engine module/capability; orchestration under operating modes + Approvals is the running layer (📘 for autonomous execution). |

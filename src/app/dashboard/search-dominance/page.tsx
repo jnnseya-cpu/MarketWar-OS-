@@ -14,7 +14,9 @@ import { PageHeader, Pill } from "@/components/ui";
 type Mode = { key: string; label: string; desc: string; risk: string };
 type Cat = { key: string; label: string; desc: string };
 type Module = { n: number; key: string; label: string; scope: string; status: "live" | "foundation" | "connect" | "blueprint"; route?: string };
-type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[]; modules: Module[] };
+type Agent = { n: number; name: string; role: string };
+type Division = { division: string; agents: Agent[] };
+type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[]; modules: Module[]; workforce: Division[] };
 
 const STATUS_TONE: Record<string, "good" | "info" | "warn" | "neutral"> = { live: "good", foundation: "info", connect: "warn", blueprint: "neutral" };
 const STATUS_LABEL: Record<string, string> = { live: "live", foundation: "ready", connect: "connect a source", blueprint: "blueprint" };
@@ -195,6 +197,29 @@ export default function SearchDominancePage() {
           )}
         </div>
       </div>
+
+      {/* §31 — the 53-agent AI workforce */}
+      {info?.workforce && (
+        <div className="mb-8">
+          <h2 className="mb-1 font-display text-sm font-bold text-white">Search-Dominance AI Workforce</h2>
+          <p className="mb-3 text-xs text-slate-500">{info.workforce.reduce((n, d) => n + d.agents.length, 0)} specialist agents across {info.workforce.length} divisions — coordinated under the operating modes + Approvals controls.</p>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {info.workforce.map((d) => (
+              <div key={d.division} className="card p-4">
+                <p className="mb-2 font-display text-xs font-bold uppercase tracking-wide text-emerald-400">{d.division} <span className="text-slate-600">· {d.agents.length}</span></p>
+                <ul className="space-y-1.5">
+                  {d.agents.map((a) => (
+                    <li key={a.n} className="text-xs">
+                      <span className="font-semibold text-slate-200">{a.n}. {a.name}</span>
+                      <span className="block text-[11px] leading-snug text-slate-500">{a.role}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Cross-link to the autonomous website engine */}
       <div className="card border-emerald-500/25 p-5">

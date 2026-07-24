@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey } from "@/backend/guard";
 import {
-  HONEST_PROMISE, POSITIONING, OPERATING_MODES, OPERATING_LOOP, MONEY_MAP, ENGINE_MODULES,
+  HONEST_PROMISE, POSITIONING, OPERATING_MODES, OPERATING_LOOP, MONEY_MAP, ENGINE_MODULES, SEARCH_WORKFORCE,
   classifyIntent, opportunityScore, aiReadinessScore,
 } from "@/backend/search-dominance";
 
@@ -23,6 +23,7 @@ export async function GET() {
     operatingLoop: OPERATING_LOOP,
     moneyMap: MONEY_MAP,
     modules: ENGINE_MODULES,
+    workforce: SEARCH_WORKFORCE,
     doctrine: "No guaranteed rankings — search engines don't guarantee crawling, indexing or serving. Every score is a transparent, labelled heuristic, never a promise.",
   });
 }
