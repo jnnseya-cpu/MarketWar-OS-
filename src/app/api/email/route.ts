@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: emailConfigured
         ? `Sent ${sent} of ${batch.length} via the live provider pool. ${sendable.length - batch.length > 0 ? "Run again to send the next batch. " : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC.`
-        : "Demo mode — no provider configured, so nothing left the machine. Set SMTP_HOST/USER/PASS or RESEND_API_KEY / SENDGRID_API_KEY to send for real.",
+        : "Demo mode — no sending server configured, so nothing left the machine. Set SMTP_HOST/USER/PASS to send for real.",
     });
   }
 

@@ -205,7 +205,7 @@ export default function SendingDomainsPage() {
           <div className="card border-amber-500/20 bg-amber-500/[0.04] p-4 text-xs text-amber-200/90">
             <p className="mb-1 font-bold">How delivery works</p>
             <p className="text-amber-200/70">
-              Authentication (these DNS records + DKIM) is what makes inboxes trust your mail. The messages are handed to recipient servers by MarketWar&apos;s sending infrastructure — no Brevo, SendGrid or Resend account of yours is used. Your domain reputation is your own, built as you send.
+              Authentication (these DNS records + DKIM) is what makes inboxes trust your mail. The messages are handed to recipient servers by MarketWar&apos;s own sending infrastructure — no third-party email provider is involved. Your domain reputation is your own, built as you send.
             </p>
           </div>
         </>

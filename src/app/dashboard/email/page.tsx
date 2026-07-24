@@ -55,7 +55,7 @@ const PIPELINE = [
 
 const CAPABILITIES = [
   { icon: Inbox, title: "Inbox placement, earned", desc: "SPF + DKIM + DMARC (+ BIMI) on an isolated sending subdomain, engagement-first warm-up, RFC 8058 one-click unsubscribe — the mechanics that actually beat the spam folder." },
-  { icon: Flame, title: "Massive scale, governed ramp", desc: "Horizontally scalable multi-provider pool (Resend → SendGrid failover shipped; SES/SMTP soon). Infrastructure is unlimited — the AI governs the ramp so reputation never breaks." },
+  { icon: Flame, title: "Massive scale, governed ramp", desc: "Your own sending infrastructure with automatic failover — no third-party email provider. Capacity is unlimited; the AI governs the warm-up ramp so reputation never breaks." },
   { icon: MailCheck, title: "Zero-bounce doctrine", desc: "Bounces are prevented before send (hygiene pipeline) and never repeated (suppression ledger). Target bounce rate < 0.5% — 6× inside the Gmail/Yahoo bulk-sender threshold." },
 ];
 
@@ -355,14 +355,14 @@ export default function EmailPage() {
         <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
         {engineMode === "demo" && (
           <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 text-xs text-amber-200">
-            <span className="font-bold">Simulation mode — no email provider connected yet.</span> Sends are validated and counted, but <span className="font-semibold">nothing actually leaves the machine</span>, so no email reaches an inbox. To send for real (Brevo-style), set <span className="font-mono">RESEND_API_KEY</span>, <span className="font-mono">SENDGRID_API_KEY</span>, or <span className="font-mono">SMTP_HOST/USER/PASS</span> in the server env and redeploy. Then this turns green.
+            <span className="font-bold">Simulation mode — no sending server connected yet.</span> Sends are validated and counted, but <span className="font-semibold">nothing actually leaves the machine</span>, so no email reaches an inbox. To send for real, point the app at your sending server: set <span className="font-mono">SMTP_HOST</span>, <span className="font-mono">SMTP_USER</span> and <span className="font-mono">SMTP_PASS</span> in the server env and redeploy. Then this turns green.
           </div>
         )}
         {engineMode === "live" && (
           <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-xs text-emerald-200">
             <span className="font-bold">Live sending is connected{engineInfo.provider ? ` via ${engineInfo.provider.toUpperCase()}` : ""}.</span> Emails leave through your provider pool. Send a test to yourself first, confirm it lands, then send to the vault.
             {engineInfo.from && (
-              <span className="mt-1 block text-emerald-300/80">Sending as <span className="font-mono">{engineInfo.from}</span>. This exact address must be a <span className="font-semibold">verified sender</span> in your SMTP provider (e.g. Brevo) or mail will be rejected or spam-foldered. Set <span className="font-mono">EMAIL_FROM</span> to change it.</span>
+              <span className="mt-1 block text-emerald-300/80">Sending as <span className="font-mono">{engineInfo.from}</span>. This address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM) or mail will be rejected or spam-foldered. Set <span className="font-mono">EMAIL_FROM</span> to change it.</span>
             )}
           </div>
         )}
