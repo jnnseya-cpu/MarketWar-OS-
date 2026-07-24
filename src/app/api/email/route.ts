@@ -71,18 +71,24 @@ export async function POST(req: NextRequest) {
     // Optional status filter (prospect lists): "contacted" | "new" | etc.
     const statusFilter = typeof body.statusFilter === "string" ? body.statusFilter.trim().toLowerCase() : "";
     const pool = statusFilter ? contacts.filter((c) => (c.status || "").toLowerCase() === statusFilter) : contacts;
-    // Consented customers are always eligible. For a status-targeted B2B prospect
-    // segment, company addresses are eligible under B2B legitimate interest — but
-    // an EMAIL is mandatory (we can't send without one).
+    // Eligibility. Consent model matches the Customer Vault DISPLAY (which counts
+    // a contact as consented unless it EXPLICITLY opted out, consent===false) so
+    // "100% consented" in the vault and "sendable" here never disagree. Only an
+    // explicit opt-out is excluded. For a status-targeted B2B prospect segment,
+    // company addresses are eligible under legitimate interest. Either way an
+    // EMAIL is mandatory — we can't send without one.
     const eligible = statusFilter
       ? pool.filter((c) => c.email)
-      : pool.filter((c) => c.email && c.consent === true);
+      : pool.filter((c) => c.email && c.consent !== false);
     const consented = eligible.map((c) => c.email as string);
     if (consented.length === 0) {
       const haveEmail = pool.filter((c) => c.email).length;
+      const optedOut = pool.filter((c) => c.email && c.consent === false).length;
       const msg = statusFilter
         ? `${pool.length} contact(s) match status "${statusFilter}", but ${haveEmail} have an email address. To email them the list needs an email column (or connect an enrichment provider). Nothing was sent.`
-        : "No consented contacts with an email in this vault. Import contacts with consent=true first.";
+        : haveEmail === 0
+          ? `Your vault has ${pool.length} contact(s) but none have an email address, so there's nothing to send to. Import a list that includes an email column.`
+          : `All ${haveEmail} contact(s) with an email have opted out (${optedOut} suppressed), so nothing can be sent. Import contacts who haven't unsubscribed.`;
       return NextResponse.json({ error: msg, sent: 0, sendable: 0, matched: pool.length, withEmail: haveEmail }, { status: 400 });
     }
     // Hygiene pass (removes disposable/role/suppressed/invalid before any send).

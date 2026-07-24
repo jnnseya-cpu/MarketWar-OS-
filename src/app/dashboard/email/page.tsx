@@ -78,6 +78,14 @@ export default function EmailPage() {
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; error?: string } | null>(null);
+  // Live vs demo: does the server actually have an email PROVIDER wired? If not,
+  // sends are simulated and nothing reaches an inbox — say so BEFORE they send.
+  const [engineMode, setEngineMode] = useState<"live" | "demo" | null>(null);
+  useEffect(() => {
+    let off = false;
+    fetch("/api/email").then((r) => r.json()).then((d) => { if (!off) setEngineMode(d?.mode === "live" ? "live" : "demo"); }).catch(() => { if (!off) setEngineMode(null); });
+    return () => { off = true; };
+  }, []);
 
   async function sendCampaign(test: boolean) {
     if (!activeBrand || !subject.trim() || !message.trim()) return;
@@ -99,11 +107,19 @@ export default function EmailPage() {
     if (!activeBrand) { setPosture(null); return; }
     let cancelled = false;
     setPosture(null);
+    // A response is only usable if it has the posture SHAPE. An error object
+    // ({error:…}) or any non-posture JSON must NEVER be set as posture, or the
+    // render (posture.listSize.toLocaleString(), posture.series.map(…)) throws
+    // and the whole page crashes into the error boundary.
+    const isPosture = (x: unknown): x is Posture => {
+      const p = x as Partial<Posture> | null;
+      return !!p && typeof p.listSize === "number" && Array.isArray(p.series) && Array.isArray(p.composition);
+    };
     (async () => {
       let listSize = 0;
       try {
         const vr = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(activeBrand.id)}&business=${encodeURIComponent(activeBrand.name)}`);
-        const vd = await vr.json();
+        const vd = await vr.json().catch(() => null);
         listSize = typeof vd?.contactCount === "number" ? vd.contactCount : 0;
       } catch { /* treat as empty */ }
       if (cancelled) return;
@@ -113,7 +129,8 @@ export default function EmailPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ business: activeBrand.name, listSize, days: 14 }),
         });
-        if (!cancelled) setPosture(await r.json() as Posture);
+        const json = await r.json().catch(() => null);
+        if (!cancelled) setPosture(isPosture(json) ? json : null);
       } catch { if (!cancelled) setPosture(null); }
     })();
     return () => { cancelled = true; };
@@ -281,6 +298,16 @@ export default function EmailPage() {
           <Pill tone="info">consented vault only</Pill>
         </div>
         <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
+        {engineMode === "demo" && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 text-xs text-amber-200">
+            <span className="font-bold">Simulation mode — no email provider connected yet.</span> Sends are validated and counted, but <span className="font-semibold">nothing actually leaves the machine</span>, so no email reaches an inbox. To send for real (Brevo-style), set <span className="font-mono">RESEND_API_KEY</span>, <span className="font-mono">SENDGRID_API_KEY</span>, or <span className="font-mono">SMTP_HOST/USER/PASS</span> in the server env and redeploy. Then this turns green.
+          </div>
+        )}
+        {engineMode === "live" && (
+          <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-xs text-emerald-200">
+            <span className="font-bold">Live sending is connected.</span> Emails leave through your provider pool. Send a test to yourself first, confirm it lands, then send to the vault.
+          </div>
+        )}
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <input className="input flex-1 min-w-[200px]" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
@@ -292,6 +319,16 @@ export default function EmailPage() {
             <button onClick={() => sendCampaign(true)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send test (1)</button>
             <button onClick={() => sendCampaign(false)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to vault</button>
           </div>
+          {/* Tell the user WHY the buttons are inert instead of leaving them dead. */}
+          {(!activeBrand || !subject.trim() || !message.trim()) && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-300/90">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+              {!activeBrand ? "Pick a brand in the sidebar first."
+                : !subject.trim() && !message.trim() ? "Add a subject line and a message to enable sending."
+                : !subject.trim() ? "Add a subject line to enable sending."
+                : "Write your message to enable sending."}
+            </p>
+          )}
           {sendResult && (
             <div className={`rounded-lg border p-3 text-sm ${sendResult.error ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/[0.06] text-slate-200"}`}>
               {sendResult.error ? sendResult.error : (
