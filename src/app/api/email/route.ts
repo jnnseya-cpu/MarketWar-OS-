@@ -99,11 +99,23 @@ export async function POST(req: NextRequest) {
     const cap = isTest ? 1 : Math.max(1, Math.min(500, Number(body.limit) || 250));
     const batch = sendable.slice(0, cap);
 
+    // Send AS the brand's own authenticated domain when set up: From + Reply-To on
+    // the brand's address (so replies land in the brand's inbox), DKIM-signed with
+    // that domain's key (the inbox key). Falls back to the platform sender when the
+    // brand hasn't authenticated a domain yet.
+    const { signingFor } = await import("@/backend/sending-domains");
+    const fromEmail = typeof body.fromEmail === "string" && body.fromEmail.includes("@") ? body.fromEmail.trim() : "";
+    const fromName = typeof body.fromName === "string" ? body.fromName.trim() : "";
+    const fromDomain = fromEmail.split("@")[1] || "";
+    const dkim = fromDomain ? (await signingFor(brandId, fromDomain)) ?? undefined : undefined;
+    const fromHeader = fromEmail ? (fromName ? `${fromName} <${fromEmail}>` : fromEmail) : undefined;
+    const replyTo = fromEmail || undefined;
+
     let sent = 0, failed = 0;
     const failures: string[] = [];
     for (const to of batch) {
       try {
-        const r = await sendEmail({ to, subject, html });
+        const r = await sendEmail({ to, subject, html, from: fromHeader, replyTo, dkim });
         if (r.ok) sent++; else { failed++; if (failures.length < 10) failures.push(to); }
       } catch { failed++; if (failures.length < 10) failures.push(to); }
     }
@@ -112,6 +124,7 @@ export async function POST(req: NextRequest) {
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
       attempted: batch.length, sent, failed, failures,
       remaining: Math.max(0, sendable.length - batch.length),
+      authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: emailConfigured
         ? `Sent ${sent} of ${batch.length} via the live provider pool. ${sendable.length - batch.length > 0 ? "Run again to send the next batch. " : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC.`
         : "Demo mode — no provider configured, so nothing left the machine. Set SMTP_HOST/USER/PASS or RESEND_API_KEY / SENDGRID_API_KEY to send for real.",

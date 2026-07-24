@@ -145,6 +145,13 @@ service cloud.firestore {
     // /api/approvals route (Admin SDK). No direct client access.
     match /approval_items/{doc} { allow read, write: if false; }
 
+    // Sending-domain authentication (src/backend/sending-domains.ts): per-brand
+    // DKIM keypairs + verification state. Holds PRIVATE signing keys, so it is
+    // deny-all at the DB layer — created, read (public half only) and verified
+    // exclusively through the ownership-checked /api/sending-domains route (Admin
+    // SDK). No client ever reads a private key.
+    match /sending_domains/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;

@@ -76,8 +76,10 @@ export default function EmailPage() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
+  const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
+  const [fromName, setFromName] = useState("");
   const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; error?: string } | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; authenticatedAs?: string; error?: string } | null>(null);
   // Live vs demo: does the server actually have an email PROVIDER wired? If not,
   // sends are simulated and nothing reaches an inbox — say so BEFORE they send.
   const [engineMode, setEngineMode] = useState<"live" | "demo" | null>(null);
@@ -99,7 +101,7 @@ export default function EmailPage() {
       const html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${message.replace(/\n/g, "<br/>")}</div>`;
       const res = await authedFetch("/api/email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test, statusFilter: campaignStatus.trim() || undefined }),
+        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test, statusFilter: campaignStatus.trim() || undefined, fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined }),
       });
       setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
     } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
@@ -318,6 +320,11 @@ export default function EmailPage() {
         )}
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
+            <input className="input max-w-[180px]" value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="From name (e.g. VeryX)" />
+            <input className="input flex-1 min-w-[200px]" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="From address (hello@yourdomain.com)" />
+          </div>
+          <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Replies come back to this address. Leave blank to use the platform sender.</p>
+          <div className="flex flex-wrap items-center gap-2">
             <input className="input flex-1 min-w-[200px]" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
             <input className="input max-w-[220px]" value={campaignStatus} onChange={(e) => setCampaignStatus(e.target.value)} placeholder='Target status (optional) e.g. "contacted"' />
           </div>
@@ -342,6 +349,7 @@ export default function EmailPage() {
               {sendResult.error ? sendResult.error : (
                 <>
                   <p><span className="font-bold text-emerald-300">{sendResult.sent}</span> sent · {sendResult.failed} failed · {sendResult.attempted} attempted (of {sendResult.sendable} sendable / {sendResult.consented} consented). {sendResult.remaining > 0 && <>Run again for the next {Math.min(250, sendResult.remaining)}.</>}</p>
+                  {sendResult.authenticatedAs && <p className="mt-1 text-xs text-slate-300">Sent as: {sendResult.authenticatedAs}</p>}
                   <p className="mt-1 text-xs text-slate-400">{sendResult.note}</p>
                 </>
               )}

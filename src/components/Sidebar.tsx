@@ -10,6 +10,7 @@ import LanguageSelector from "@/components/LanguageSelector";
 import { useIsAdmin } from "@/frontend/use-is-admin";
 import {
   Activity,
+  AtSign,
   BadgePercent,
   Banknote,
   Bell,
@@ -100,6 +101,7 @@ export const NAV = [
     items: [
       { href: "/dashboard/whatsapp", label: "WhatsApp Center", icon: MessageCircle },
       { href: "/dashboard/email", label: "Email Center", icon: Mail },
+      { href: "/dashboard/sending-domains", label: "Sending Domains", icon: AtSign },
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
       { href: "/dashboard/segments", label: "Audience Segments", icon: Layers },
       { href: "/dashboard/recovery", label: "Lead Recovery", icon: RefreshCcw },

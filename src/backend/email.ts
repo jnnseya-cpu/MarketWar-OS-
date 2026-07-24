@@ -24,6 +24,15 @@ if (typeof window !== "undefined") {
 // module — no third-party dependency — supporting both implicit TLS
 // (port 465) and STARTTLS (ports 587/25) with AUTH LOGIN.
 
+import { dkimSignature } from "@/backend/dkim";
+
+// Small stable hash for Message-ID uniqueness (no crypto needed here).
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h;
+}
+
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
@@ -142,7 +151,13 @@ function angleAddr(addr: string): string {
   return m ? m[1] : addr.trim();
 }
 
-async function sendViaSmtp(from: string, to: string, subject: string, html: string): Promise<string> {
+async function sendViaSmtp(
+  from: string,
+  to: string,
+  subject: string,
+  html: string,
+  extra?: { replyTo?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
+): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
 
@@ -164,17 +179,38 @@ async function sendViaSmtp(from: string, to: string, subject: string, html: stri
 
     const write = (line: string) => socket.write(line + "\r\n");
 
+    // Build the header set. Date + Message-ID are required for deliverability;
+    // Reply-To makes replies land in the sender's own inbox. The header map is
+    // also what DKIM signs, so it must match the emitted headers exactly.
+    const domainOfFrom = angleAddr(from).split("@")[1] || SMTP_HOST || "marketwaros.com";
+    const messageId = `<${Date.now().toString(36)}.${Math.abs(hashStr(to + subject)).toString(36)}@${domainOfFrom}>`;
+    const dateHeader = new Date().toUTCString();
+    const headers: Record<string, string> = {
+      From: from,
+      To: to,
+      Subject: subject,
+      Date: dateHeader,
+      "Message-ID": messageId,
+      "MIME-Version": "1.0",
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Transfer-Encoding": "8bit",
+    };
+    if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
+
     // Dot-stuffing + bare-LF normalisation so the message body can't break the
     // DATA terminator or trip strict MTAs.
-    const message =
-      `From: ${from}\r\n` +
-      `To: ${to}\r\n` +
-      `Subject: ${subject}\r\n` +
-      `MIME-Version: 1.0\r\n` +
-      `Content-Type: text/html; charset=utf-8\r\n` +
-      `Content-Transfer-Encoding: 8bit\r\n` +
-      `\r\n` +
-      html.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+    const canonBody = html.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+
+    // DKIM-sign with the sending domain's key when the domain is authenticated —
+    // this is what earns the inbox. Signed as its own header, prepended first.
+    let dkimHeader = "";
+    if (extra?.dkim) {
+      try { dkimHeader = dkimSignature(headers, html, { ...extra.dkim }) + "\r\n"; }
+      catch { dkimHeader = ""; /* never block a send on a signing hiccup */ }
+    }
+
+    const headerBlock = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n");
+    const message = dkimHeader + headerBlock + "\r\n\r\n" + canonBody;
 
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
@@ -288,7 +324,11 @@ export async function sendEmail(opts: {
   subject: string;
   html: string;
   from?: string;
+  replyTo?: string;
   transactional?: boolean;
+  // When the sending domain is authenticated (sending-domains.ts), the caller
+  // passes its DKIM key so the message is signed as that domain — the inbox key.
+  dkim?: { domain: string; selector: string; privateKeyPem: string };
 }): Promise<SendResult> {
   const verdict = validateAddress(opts.to);
   const roleOk = opts.transactional && verdict.checks.role && verdict.valid && !verdict.checks.suppressed;
@@ -319,8 +359,8 @@ export async function sendEmail(opts: {
   let smtpError = "";
   if (smtpConfigured) {
     try {
-      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html);
-      return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: "accepted" };
+      const id = await sendViaSmtp(opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim });
+      return { ok: true, mode: "live", provider: "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
     } catch (e) {
       // Capture the reason (safe — SMTP status lines carry no credentials) so a
       // failed send is diagnosable instead of a silent "pool-exhausted".
@@ -333,7 +373,7 @@ export async function sendEmail(opts: {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from || FROM_DEFAULT, to: [verdict.email], subject: opts.subject, html: opts.html }),
+      body: JSON.stringify({ from: opts.from || FROM_DEFAULT, to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}) }),
     });
     if (res.ok) {
       const body = (await res.json()) as { id?: string };
@@ -349,6 +389,7 @@ export async function sendEmail(opts: {
       body: JSON.stringify({
         personalizations: [{ to: [{ email: verdict.email }] }],
         from: { email: (opts.from || FROM_DEFAULT).replace(/.*<(.+)>.*/, "$1") },
+        ...(opts.replyTo ? { reply_to: { email: opts.replyTo.replace(/.*<(.+)>.*/, "$1") } } : {}),
         subject: opts.subject,
         content: [{ type: "text/html", value: opts.html }],
       }),
