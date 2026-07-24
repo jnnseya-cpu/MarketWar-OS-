@@ -65,8 +65,10 @@ export default function BrandSwitcher() {
         onClick={() => { setOpen((v) => !v); if (brands.length === 0) startAdd(); else { setAdding(false); setEditingId(null); } }}
         className="flex w-full items-center gap-2.5 rounded-lg border border-ink-700/60 bg-ink-850 px-2.5 py-2 text-left transition hover:border-emerald-500/40"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white" style={{ background: `${active?.color ?? "#199e70"}26`, color: active?.color ?? "#199e70" }}>
-          {brands.length === 0 ? <Plus className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-white" style={{ background: `${active?.color ?? "#199e70"}26`, color: active?.color ?? "#199e70" }}>
+          {brands.length === 0 ? <Plus className="h-4 w-4" />
+            : active?.logoUrl ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={active.logoUrl} alt={`${active.name} logo`} className="h-full w-full object-contain" />
+            : <Building2 className="h-4 w-4" />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-white">{active?.name ?? "Add your first brand"}</span>
@@ -87,8 +89,8 @@ export default function BrandSwitcher() {
                       onClick={() => { setActive(b.id); setOpen(false); }}
                       className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm ${b.id === active?.id ? "text-white" : "text-slate-300"}`}
                     >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded" style={{ background: `${b.color}26`, color: b.color }}>
-                        <Building2 className="h-3.5 w-3.5" />
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded" style={{ background: `${b.color}26`, color: b.color }}>
+                        {b.logoUrl ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={b.logoUrl} alt={`${b.name} logo`} className="h-full w-full object-contain" /> : <Building2 className="h-3.5 w-3.5" />}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">{b.name}</span>

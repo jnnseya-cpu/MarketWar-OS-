@@ -8,7 +8,7 @@
 // are marketing-eligible downstream (email/WhatsApp/autopilot).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2 } from "lucide-react";
+import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2, AlertTriangle } from "lucide-react";
 import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -133,7 +133,7 @@ export default function CustomerVaultPage() {
   const [report, setReport] = useState<VaultReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -170,8 +170,8 @@ export default function CustomerVaultPage() {
   }, [ready, activeBrand, load]);
 
   async function importContacts(contacts: ParsedContact[]) {
-    if (!activeBrand) return;
-    if (!contacts.length) { setMsg("No valid rows found — need at least an email, phone or name column."); return; }
+    if (!activeBrand) { setMsg({ text: "No active brand — pick or add a brand first.", error: true }); return; }
+    if (!contacts.length) { setMsg({ text: "No valid rows found — need at least an email, phone, name or company column.", error: true }); return; }
     setImporting(true); setMsg(null);
     try {
       const res = await authedFetch("/api/contacts", {
@@ -179,11 +179,28 @@ export default function CustomerVaultPage() {
         headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
         body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, contacts }),
       });
-      const d = await res.json();
-      if (!res.ok) { setMsg(d.error || "Import failed"); return; }
-      setReport(d);
-      setMsg(`Imported ${d.imported} contact${d.imported === 1 ? "" : "s"} — ${d.total} in the vault, all scored.`);
+      // Defensive parse: an auth redirect / 500 / proxy page may not be JSON.
+      // Never let a parse throw silently swallow the outcome.
+      const raw = await res.text();
+      let d: Record<string, unknown> = {};
+      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+      // eslint-disable-next-line no-console
+      console.log("[vault] import response", res.status, d);
+      if (!res.ok) {
+        const reason = (typeof d.error === "string" && d.error) || `Import failed (HTTP ${res.status})${raw && !d.error ? ` — ${raw.slice(0, 140)}` : ""}`;
+        setMsg({ text: reason, error: true });
+        return;
+      }
+      setReport(d as unknown as VaultReport);
+      writeCache(activeBrand.id, d as unknown as VaultReport);
+      const imported = Number(d.imported) || 0;
+      const total = Number(d.total) || 0;
+      setMsg({ text: `Imported ${imported} contact${imported === 1 ? "" : "s"} — ${total} in the vault, all scored.`, error: false });
       setPaste(""); setShowPaste(false);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[vault] import error", e);
+      setMsg({ text: `Import failed: ${(e as Error).message || "network error"}. Check you're signed in, then retry.`, error: true });
     } finally { setImporting(false); }
   }
 
@@ -202,7 +219,8 @@ export default function CustomerVaultPage() {
     try {
       await authedFetch(`/api/contacts?brandId=${encodeURIComponent(activeBrand.id)}`, { method: "DELETE" });
       await load(activeBrand.id, activeBrand.name);
-      setMsg("Vault cleared.");
+      try { localStorage.removeItem(cacheKey(activeBrand.id)); } catch { /* ignore */ }
+      setMsg({ text: "Vault cleared.", error: false });
     } finally { setBusy(false); }
   }
 
@@ -269,12 +287,19 @@ export default function CustomerVaultPage() {
                   placeholder={"email,name,consent\njane@acme.com,Jane Doe,yes\njohn@corp.com,John Smith,yes"}
                   className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 font-mono text-xs text-white placeholder-slate-600 outline-none focus:border-emerald-500/60"
                 />
-                <button className="btn-primary mt-2" onClick={() => importContacts(parseCsv(paste))} disabled={importing || !paste.trim()}>
-                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardPaste className="h-4 w-4" />} Import pasted rows
-                </button>
+                <div className="mt-2 flex items-center gap-3">
+                  <button className="btn-primary" onClick={() => importContacts(parseCsv(paste))} disabled={importing || !paste.trim()}>
+                    {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardPaste className="h-4 w-4" />} Import pasted rows
+                  </button>
+                  {paste.trim() && <span className="text-xs text-slate-500">{parseCsv(paste).length} row{parseCsv(paste).length === 1 ? "" : "s"} detected</span>}
+                </div>
               </div>
             )}
-            {msg && <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" /> {msg}</p>}
+            {msg && (
+              <p className={`mt-3 flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium ${msg.error ? "bg-rose-500/10 text-rose-300" : "bg-emerald-500/10 text-emerald-300"}`}>
+                {msg.error ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />} {msg.text}
+              </p>
+            )}
           </div>
 
           {busy && !report && (
