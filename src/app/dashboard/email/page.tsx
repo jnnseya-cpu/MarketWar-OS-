@@ -78,6 +78,8 @@ export default function EmailPage() {
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
+  const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
+  const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; attempted: number; failed: number; sendable: number; consented: number; remaining: number; mode: string; note: string; authenticatedAs?: string; error?: string } | null>(null);
   // Live vs demo: does the server actually have an email PROVIDER wired? If not,
@@ -94,14 +96,36 @@ export default function EmailPage() {
     return () => { off = true; };
   }, []);
 
+  // Load the brand's saved templates for the picker.
+  useEffect(() => {
+    if (!activeBrand) { setTemplates([]); return; }
+    let off = false;
+    authedFetch(`/api/email-templates?brandId=${encodeURIComponent(activeBrand.id)}`)
+      .then((r) => r.json()).then((d) => { if (!off) setTemplates(Array.isArray(d.templates) ? d.templates : []); })
+      .catch(() => { if (!off) setTemplates([]); });
+    return () => { off = true; };
+  }, [activeBrand]);
+
+  const canSend = Boolean(activeBrand) && (templateId ? true : Boolean(subject.trim() && message.trim()));
+
   async function sendCampaign(test: boolean) {
-    if (!activeBrand || !subject.trim() || !message.trim()) return;
+    if (!activeBrand || !canSend) return;
     setSending(true); setSendResult(null);
     try {
-      const html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${message.replace(/\n/g, "<br/>")}</div>`;
+      const payload: Record<string, unknown> = {
+        action: "send_campaign", brandId: activeBrand.id, business: activeBrand.name, test,
+        statusFilter: campaignStatus.trim() || undefined,
+        fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined,
+      };
+      if (templateId) {
+        payload.templateId = templateId; // server loads + personalises the template
+      } else {
+        payload.subject = subject;
+        payload.html = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${message.replace(/\n/g, "<br/>")}</div>`;
+      }
       const res = await authedFetch("/api/email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send_campaign", brandId: activeBrand.id, subject, html, test, statusFilter: campaignStatus.trim() || undefined, fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined }),
+        body: JSON.stringify(payload),
       });
       setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
     } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
@@ -324,22 +348,36 @@ export default function EmailPage() {
             <input className="input flex-1 min-w-[200px]" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="From address (hello@yourdomain.com)" />
           </div>
           <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Replies come back to this address. Leave blank to use the platform sender.</p>
+          {templates.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select className="input max-w-[280px]" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                <option value="">Write a one-off message…</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>Template: {t.name}</option>)}
+              </select>
+              {templateId && <span className="text-[11px] text-emerald-300/90">Using a saved template — personalised per contact. Manage in Email Templates.</span>}
+            </div>
+          )}
+          {/* Segment target — always applies (template or one-off). */}
           <div className="flex flex-wrap items-center gap-2">
-            <input className="input flex-1 min-w-[200px]" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line" />
-            <input className="input max-w-[220px]" value={campaignStatus} onChange={(e) => setCampaignStatus(e.target.value)} placeholder='Target status (optional) e.g. "contacted"' />
+            <input className="input max-w-[260px]" value={campaignStatus} onChange={(e) => setCampaignStatus(e.target.value)} placeholder='Target status (optional) e.g. "contacted"' />
           </div>
           <p className="text-[11px] text-slate-500">Leave status blank to email consented customers. Enter a prospect status (e.g. <span className="text-slate-300">contacted</span>) to email that imported segment — those rows still need an email address to send.</p>
-          <textarea className="input min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Your message… (plain text — line breaks preserved)" />
+          {!templateId && (
+            <>
+              <input className="input w-full" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line (supports {{ firstName }})" />
+              <textarea className="input min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Your message… (plain text — line breaks preserved; {{ firstName }} etc. are personalised)" />
+            </>
+          )}
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={() => sendCampaign(true)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send test (1)</button>
-            <button onClick={() => sendCampaign(false)} disabled={sending || !activeBrand || !subject.trim() || !message.trim()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to vault</button>
+            <button onClick={() => sendCampaign(true)} disabled={sending || !canSend} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send test (1)</button>
+            <button onClick={() => sendCampaign(false)} disabled={sending || !canSend} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to vault</button>
           </div>
           {/* Tell the user WHY the buttons are inert instead of leaving them dead. */}
-          {(!activeBrand || !subject.trim() || !message.trim()) && (
+          {!canSend && (
             <p className="flex items-center gap-1.5 text-xs text-amber-300/90">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
               {!activeBrand ? "Pick a brand in the sidebar first."
-                : !subject.trim() && !message.trim() ? "Add a subject line and a message to enable sending."
+                : !subject.trim() && !message.trim() ? "Pick a template above, or add a subject line and a message."
                 : !subject.trim() ? "Add a subject line to enable sending."
                 : "Write your message to enable sending."}
             </p>

@@ -62,10 +62,21 @@ export async function POST(req: NextRequest) {
     const access = await resolveBrandAccess(req, brandId);
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-    const subject = typeof body.subject === "string" ? body.subject : "";
-    const html = typeof body.html === "string" ? body.html : "";
-    if (!subject || !html) return NextResponse.json({ error: "subject and html required" }, { status: 400 });
+    // Content comes from a saved template (personalised per contact) OR a raw
+    // subject+html. A templateId wins and supplies both.
+    let subject = typeof body.subject === "string" ? body.subject : "";
+    let html = typeof body.html === "string" ? body.html : "";
+    const templateId = typeof body.templateId === "string" ? body.templateId.trim() : "";
+    if (templateId) {
+      const { getTemplate } = await import("@/backend/email-templates");
+      const tpl = await getTemplate(brandId, templateId);
+      if (!tpl) return NextResponse.json({ error: "Template not found for this brand" }, { status: 404 });
+      subject = tpl.subject; html = tpl.html;
+    }
+    if (!subject || !html) return NextResponse.json({ error: "subject and html required (or a valid templateId)" }, { status: 400 });
 
+    const brandName = typeof body.business === "string" ? body.business : "";
+    const { mergeTemplate } = await import("@/backend/email-templates");
     const { listContacts } = await import("@/backend/contacts");
     const contacts = await listContacts(brandId);
     // Optional status filter (prospect lists): "contacted" | "new" | etc.
@@ -111,11 +122,18 @@ export async function POST(req: NextRequest) {
     const fromHeader = fromEmail ? (fromName ? `${fromName} <${fromEmail}>` : fromEmail) : undefined;
     const replyTo = fromEmail || undefined;
 
+    // Per-recipient personalisation: look up each address's contact row and merge
+    // {{ variables }} into the subject + body so every email is individual.
+    const byEmail = new Map(eligible.map((c) => [(c.email as string).toLowerCase(), c]));
+
     let sent = 0, failed = 0;
     const failures: string[] = [];
     for (const to of batch) {
       try {
-        const r = await sendEmail({ to, subject, html, from: fromHeader, replyTo, dkim });
+        const contact = byEmail.get(to.toLowerCase());
+        const personalSubject = mergeTemplate(subject, { contact, brand: brandName });
+        const personalHtml = mergeTemplate(html, { contact, brand: brandName });
+        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, dkim });
         if (r.ok) sent++; else { failed++; if (failures.length < 10) failures.push(to); }
       } catch { failed++; if (failures.length < 10) failures.push(to); }
     }

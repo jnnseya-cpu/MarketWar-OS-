@@ -22,6 +22,7 @@ import {
   Cpu,
   Crosshair,
   Factory,
+  FileText,
   Flame,
   Gauge,
   Globe,
@@ -101,6 +102,7 @@ export const NAV = [
     items: [
       { href: "/dashboard/whatsapp", label: "WhatsApp Center", icon: MessageCircle },
       { href: "/dashboard/email", label: "Email Center", icon: Mail },
+      { href: "/dashboard/email-templates", label: "Email Templates", icon: FileText },
       { href: "/dashboard/sending-domains", label: "Sending Domains", icon: AtSign },
       { href: "/dashboard/customers", label: "Customer Vault", icon: Users },
       { href: "/dashboard/segments", label: "Audience Segments", icon: Layers },

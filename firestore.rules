@@ -152,6 +152,11 @@ service cloud.firestore {
     // SDK). No client ever reads a private key.
     match /sending_domains/{doc} { allow read, write: if false; }
 
+    // Email templates (src/backend/email-templates.ts): per-brand reusable
+    // templates. Read/written only through the ownership-checked
+    // /api/email-templates route (Admin SDK). No direct client access.
+    match /email_templates/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;
