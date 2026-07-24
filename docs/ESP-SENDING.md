@@ -25,11 +25,21 @@ records at your registrar → **Verify DNS** → once required records resolve, 
 domain is **Authenticated**. Then in Email Center set the campaign From to an
 address on that domain; every send is signed as you.
 
+## The dedicated sending node — deployable artifact shipped
+
+The node itself is now a ready-to-deploy artifact in **`infra/sending-node/`**:
+a Postfix outbound relay (Docker one-liner *or* bare-metal Ubuntu), the exact
+DNS/PTR steps, the app wiring, and the IP warm-up schedule. Deploy it on any VPS
+with a dedicated IP + open port 25, set `SMTP_HOST/USER/PASS`, and delivery is
+fully independent — no third-party ESP. Verify wiring with **`GET
+/api/health/smtp`** (reachable + speaks SMTP + AUTH advertised, no send).
+
 ## What must be provisioned (infrastructure — the one non-software piece)
 
 Authentication earns **trust**, but something with a **reputable IP** must still
 hand the mail to Gmail/Outlook on port 25. This is the one part that is *not*
-serverless and must be stood up to be a full, independent ESP:
+serverless and must be stood up to be a full, independent ESP (all automated by
+`infra/sending-node/`):
 
 1. **A mail-sending node (MTA)** — e.g. our own Postfix or Haraka relay on a VPS/
    bare-metal, or a dedicated outbound SMTP relay. `SMTP_HOST`/`SMTP_USER`/

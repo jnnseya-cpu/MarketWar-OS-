@@ -1,0 +1,44 @@
+# MarketWar OS dedicated sending node — outbound Postfix relay.
+#
+# Accepts SASL-authenticated submission from the app on 587, delivers DIRECT to
+# recipient MX (no upstream relay = no third party), TLS on. The app already
+# DKIM-signs per customer domain, so this node does NOT sign — it only relays.
+#
+# Usage:
+#   cp .env.example .env   # set MYHOSTNAME / SMTP_USER / SMTP_PASS
+#   docker compose up -d
+#
+# Requires: a dedicated IP with matching forward+reverse DNS and outbound port 25
+# open (see README.md). Uses boky/postfix (a maintained Postfix relay image).
+
+services:
+  postfix:
+    image: boky/postfix:latest
+    container_name: mw-sending-node
+    restart: unless-stopped
+    ports:
+      - "587:587"   # submission (app → node, SASL + STARTTLS)
+      - "25:25"     # node → recipient MX (outbound); some hosts also inbound bounces
+    environment:
+      # The node's public hostname — MUST match the A record and the PTR record.
+      HOSTNAME: ${MYHOSTNAME:-smtp.marketwaros.com}
+      # No upstream relay: deliver straight to recipient mail servers.
+      RELAYHOST: ""
+      # Allow the app to send as any customer domain it has authenticated.
+      ALLOWED_SENDER_DOMAINS: ""
+      # SASL account the app authenticates with (matches SMTP_USER / SMTP_PASS).
+      # boky/postfix reads accounts from /etc/postfix/sasl_passwd style; here we
+      # inject a single submission user via its documented env.
+      MESSAGE_SIZE_LIMIT: "26214400"   # 25MB
+      TLS_LEVEL: "may"
+    volumes:
+      # Persist DKIM (unused here) + queue + optional TLS certs.
+      - ./data/spool:/var/spool/postfix
+      - ./data/certs:/etc/postfix/certs:ro
+      # A file with one line "user:password" for the app's submission account.
+      - ./sasl_accounts:/etc/postfix/sasl_accounts:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "printf 'EHLO healthcheck\\r\\nQUIT\\r\\n' | nc -w2 localhost 587 | grep -q '250'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

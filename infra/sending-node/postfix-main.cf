@@ -1,0 +1,39 @@
+# MarketWar OS sending node — /etc/postfix/main.cf additions (bare-metal path).
+# Append these to the default main.cf, editing the hostname. This configures an
+# authenticated OUTBOUND relay that delivers direct to recipient MX. The app
+# DKIM-signs, so no OpenDKIM here — this node only relays.
+
+# --- identity (MUST match the A record and the PTR/reverse DNS) ---
+myhostname = smtp.marketwaros.com
+myorigin = $myhostname
+smtp_helo_name = smtp.marketwaros.com
+
+# --- pure relay-out: accept mail for no local domains, deliver direct to MX ---
+mydestination =
+relayhost =
+inet_interfaces = all
+inet_protocols = ipv4
+
+# --- TLS (get a cert for the hostname; certbot standalone works) ---
+smtpd_tls_security_level = may
+smtpd_tls_cert_file = /etc/letsencrypt/live/smtp.marketwaros.com/fullchain.pem
+smtpd_tls_key_file  = /etc/letsencrypt/live/smtp.marketwaros.com/privkey.pem
+smtp_tls_security_level = may
+smtp_tls_loglevel = 1
+
+# --- SASL auth (Cyrus sasldb2; the app authenticates as this account) ---
+smtpd_sasl_type = cyrus
+smtpd_sasl_path = smtpd
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+broken_sasl_auth_clients = yes
+
+# --- relay policy: ONLY authenticated clients may send outbound ---
+smtpd_relay_restrictions = permit_sasl_authenticated, reject_unauth_destination
+smtpd_client_restrictions = permit_sasl_authenticated, reject
+smtpd_recipient_restrictions = permit_sasl_authenticated, reject_unauth_destination
+
+# --- hardening / limits ---
+message_size_limit = 26214400
+smtpd_helo_required = yes
+disable_vrfy_command = yes

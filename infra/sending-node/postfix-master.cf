@@ -1,0 +1,14 @@
+# MarketWar OS sending node — /etc/postfix/master.cf: the submission service.
+# Add this block so the app can submit authenticated mail on port 587 (STARTTLS).
+# The leading "submission inet ..." line replaces/enables the default 587 entry.
+
+submission inet n       -       y       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_sasl_type=cyrus
+  -o smtpd_sasl_path=smtpd
+  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
