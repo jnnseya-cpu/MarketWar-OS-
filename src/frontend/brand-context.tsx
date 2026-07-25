@@ -8,6 +8,23 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { type Brand, SEED_BRANDS, newBrand } from "@/shared/brand";
+import { authedFetch } from "@/frontend/api-client";
+import { firebaseAuth } from "@/frontend/firebase-client";
+
+// Best-effort write-through to the durable server store (signed-in users only).
+// Never blocks the UI; localStorage remains the instant cache + offline fallback.
+function pushBrandRemote(brand: Brand) {
+  try {
+    if (!firebaseAuth?.currentUser) return;
+    void authedFetch("/api/brands", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brand }) }).catch(() => {});
+  } catch { /* ignore */ }
+}
+function deleteBrandRemote(id: string) {
+  try {
+    if (!firebaseAuth?.currentUser) return;
+    void authedFetch(`/api/brands?brandId=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+  } catch { /* ignore */ }
+}
 
 type BrandContextValue = {
   brands: Brand[];
@@ -60,11 +77,39 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     setReady(true);
   }, []);
 
-  // Persist.
+  // Persist to localStorage (instant cache).
   useEffect(() => {
     if (!ready) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(brands)); } catch { /* quota */ }
   }, [brands, ready]);
+
+  // DURABLE SYNC: when the user is signed in, reconcile with the server store so
+  // brands survive across sessions/devices (fixes the "wiped every morning" bug).
+  // Server is source of truth; any local-only brands are migrated UP (so the
+  // brand you already set up in this browser is saved to your account, once).
+  useEffect(() => {
+    if (!ready || !firebaseAuth) return;
+    const unsub = firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      let server: Brand[] = [];
+      try {
+        const res = await authedFetch("/api/brands");
+        const d = await res.json().catch(() => ({}));
+        server = Array.isArray(d.brands) ? (d.brands as Brand[]) : [];
+      } catch { return; /* offline → keep local */ }
+      let local: Brand[] = [];
+      try { const raw = localStorage.getItem(STORAGE_KEY); local = raw ? (JSON.parse(raw) as Brand[]) : []; } catch { local = []; }
+      const serverIds = new Set(server.map((b) => b.id));
+      const localOnly = local.filter((b) => b && b.id && !serverIds.has(b.id));
+      localOnly.forEach(pushBrandRemote); // migrate this browser's brands into the account
+      const merged = server.length || localOnly.length ? [...server, ...localOnly] : local;
+      if (merged.length) {
+        setBrands(merged);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch { /* quota */ }
+      }
+    });
+    return () => { try { unsub(); } catch { /* ignore */ } };
+  }, [ready]);
   useEffect(() => {
     if (!ready || !activeId) return;
     try { localStorage.setItem(ACTIVE_KEY, activeId); } catch { /* quota */ }
@@ -88,15 +133,23 @@ export function BrandProvider({ children }: { children: ReactNode }) {
           return [...prev, brand];
         });
         setActiveId(brand.id);
+        pushBrandRemote(brand); // persist to the account immediately
         return brand;
       },
-      updateBrand: (id, patch) => setBrands((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b))),
-      removeBrand: (id) =>
+      updateBrand: (id, patch) => setBrands((prev) => {
+        const next = prev.map((b) => (b.id === id ? { ...b, ...patch } : b));
+        const updated = next.find((b) => b.id === id);
+        if (updated) pushBrandRemote(updated); // persist edits (logo, colours, etc.)
+        return next;
+      }),
+      removeBrand: (id) => {
+        deleteBrandRemote(id);
         setBrands((prev) => {
           const next = prev.filter((b) => b.id !== id);
           if (id === activeId) setActiveId(next[0]?.id ?? null);
           return next.length ? next : SEED_BRANDS;
-        }),
+        });
+      },
     };
   }, [brands, activeId, ready]);
 
