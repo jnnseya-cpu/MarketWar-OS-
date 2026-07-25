@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
-import { addDomain, listDomains, verifyDomain, removeDomain } from "@/backend/sending-domains";
+import { addDomain, listDomains, listDomainsForOwner, verifyDomain, removeDomain } from "@/backend/sending-domains";
 
 // ESP sending-domain authentication API.
 // POST { action:"add", brandId, domain }        → generate DKIM key + DNS records
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   try {
-    if (action === "add") return NextResponse.json(await addDomain(brandId, domain));
+    if (action === "add") return NextResponse.json(await addDomain(brandId, domain, access.uid ?? undefined));
     if (action === "verify") {
       const v = await verifyDomain(brandId, domain);
       if (!v) return NextResponse.json({ error: "Domain not found — add it first" }, { status: 404 });
@@ -46,7 +46,14 @@ export async function GET(req: NextRequest) {
   if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
-  return NextResponse.json({ domains: await listDomains(brandId) });
+  // Merge brand-scoped domains with any the same account authenticated under a
+  // different brand id — so a verified domain never silently disappears ("all
+  // gone") after a brand-id change. Same owner only: no cross-account leak.
+  const brandDomains = await listDomains(brandId);
+  const ownerDomains = access.uid ? await listDomainsForOwner(access.uid) : [];
+  const seen = new Set(brandDomains.map((d) => d.domain));
+  const domains = [...brandDomains, ...ownerDomains.filter((d) => !seen.has(d.domain))];
+  return NextResponse.json({ domains });
 }
 
 export async function DELETE(req: NextRequest) {

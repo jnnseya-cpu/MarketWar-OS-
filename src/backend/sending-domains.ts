@@ -44,6 +44,8 @@ export type DnsRecord = {
 
 export type SendingDomain = {
   brandId: string;
+  ownerId?: string;       // the account that authenticated it — lets a domain
+                          // survive a brand-id change (recovery, no "all gone")
   domain: string;         // e.g. "veryx.com"
   selector: string;       // DKIM selector
   publicKey: string;      // base64 SPKI DER (goes in the DKIM TXT record)
@@ -98,12 +100,16 @@ export function recordsFor(d: Pick<SendingDomain, "domain" | "selector" | "publi
   ];
 }
 
-export async function addDomain(brandId: string, domainRaw: string): Promise<SendingDomainView> {
+export async function addDomain(brandId: string, domainRaw: string, ownerId?: string): Promise<SendingDomainView> {
   const domain = norm(domainRaw);
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw new Error("Enter a valid domain, e.g. yourbusiness.com");
 
   const existing = await getDomain(brandId, domain);
-  if (existing) return toView(existing);
+  if (existing) {
+    // Backfill ownerId on a pre-owner record so it becomes recoverable.
+    if (ownerId && !existing.ownerId) { existing.ownerId = ownerId; await save(existing); }
+    return toView(existing);
+  }
 
   const { publicKey, privateKey } = generateKeyPairSync("rsa", {
     modulusLength: 2048,
@@ -112,7 +118,7 @@ export async function addDomain(brandId: string, domainRaw: string): Promise<Sen
   });
 
   const rec: SendingDomain = {
-    brandId, domain, selector: SELECTOR,
+    brandId, ...(ownerId ? { ownerId } : {}), domain, selector: SELECTOR,
     publicKey: pemToTxtPublicKey(publicKey),
     privateKeyPem: privateKey,
     status: "pending",
@@ -120,6 +126,18 @@ export async function addDomain(brandId: string, domainRaw: string): Promise<Sen
   };
   await save(rec);
   return toView(rec);
+}
+
+// Owner-scoped list — every domain the account authenticated, regardless of which
+// brand it was added under. This is the recovery path so a brand-id change can
+// never make a verified domain silently disappear.
+export async function listDomainsForOwner(ownerId: string): Promise<SendingDomainView[]> {
+  if (!ownerId) return [];
+  if (adminConfigured && adminDb) {
+    const snap = await adminDb.collection("sending_domains").where("ownerId", "==", ownerId).limit(100).get();
+    return snap.docs.map((s) => toView(s.data() as SendingDomain));
+  }
+  return [...mem.values()].filter((d) => d.ownerId === ownerId).map(toView);
 }
 
 export async function getDomain(brandId: string, domainRaw: string): Promise<SendingDomain | null> {
@@ -214,7 +232,7 @@ export async function verifyDomain(brandId: string, domainRaw: string): Promise<
 
 function toView(rec: SendingDomain): SendingDomainView {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { privateKeyPem, ...rest } = rec;
+  const { privateKeyPem, ownerId, ...rest } = rec;
   return { ...rest, records: recordsFor(rec) };
 }
 

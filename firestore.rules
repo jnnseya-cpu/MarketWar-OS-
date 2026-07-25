@@ -171,6 +171,12 @@ service cloud.firestore {
     // route. Admin-SDK only — deny-all here.
     match /inbound_messages/{doc} { allow read, write: if false; }
 
+    // Per-brand integration credentials (src/backend/connections.ts): each user's
+    // own WhatsApp/ad-platform tokens, ENCRYPTED at rest. Read/written only via
+    // the ownership-checked API (Admin SDK); secrets never leave the server.
+    // Deny-all at the DB layer.
+    match /brand_connections/{doc} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;

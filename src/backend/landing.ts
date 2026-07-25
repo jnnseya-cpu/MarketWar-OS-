@@ -24,9 +24,23 @@ export type LandingInput = {
   location?: string; product?: string; painPoint?: string; whatsappNumber?: string;
 };
 
+import { resolveIndustry } from "@/shared/industry";
+
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
 const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+
+// Treat "0", blanks and punctuation-only inputs as MISSING so the page never
+// renders junk like "0 — fresh, fast". Returns a cleaned string or "".
+const clean = (s?: string): string => {
+  const t = (s || "").trim();
+  if (!t || t === "0" || !/[a-z]/i.test(t)) return "";
+  return t;
+};
+// Real deadline/scarcity signal in the offer text — we only show urgency when
+// it's TRUE (honesty: no fabricated "only a few spaces left").
+const hasRealDeadline = (offer: string): boolean =>
+  /\b(today|tonight|tomorrow|this week|this weekend|ends|deadline|until|by \w+day|\d+\s*(hours?|days?|left)|limited|only \d+|while stocks last|last \d+)\b/i.test(offer);
 
 // ---------------------------------------------------------------------------
 // Page-type selection from the objective (§4.6)
@@ -74,26 +88,99 @@ function formFields(pageType: PageType): { fields: FormField[]; submitAction: st
   }
 }
 
+// Industry-adaptive primary CTA — the generic service CTA ("Get Your Free Quote")
+// is wrong for a shop or a restaurant, so lead/local pages adapt to the industry.
+type Profile = ReturnType<typeof resolveIndustry>;
+function primaryCtaFor(pageType: PageType, profile: Profile): string {
+  const base = CTA_BY_TYPE[pageType];
+  if (pageType === "lead_capture" || pageType === "local_seo" || pageType === "offer_claim") {
+    if (profile.key === "ecommerce") return "Get The Offer";
+    if (["hospitality", "beauty", "fitness", "health", "automotive", "events"].includes(profile.key)) return "Book Now";
+  }
+  return base;
+}
+
+function processFor(pageType: PageType): string[] {
+  switch (pageType) {
+    case "lead_capture": case "local_seo": case "partner_signup": return ["Send your details", "We reply fast", "Get your quote / plan", "Get started"];
+    case "order": return ["Choose what you want", "Place your order", "We confirm", "Receive it"];
+    case "booking": return ["Pick a time", "Confirm your booking", "We send a reminder", "See you there"];
+    case "offer_claim": return ["Check you're eligible", "Claim the offer", "We confirm", "Enjoy it"];
+    default: return ["Choose", "Confirm", "Receive", "Enjoy"];
+  }
+}
+
+// FAQ with SHORT, honest answers built from what we actually know — never fake
+// numbers or guarantees.
+function faqFor(offer: string, where: string, pageType: PageType): string[] {
+  const out = [
+    `How much does it cost? — ${offer ? "See the offer above, or ask for a quick, no-obligation price." : "Ask for a quick, no-obligation price for exactly what you need."}`,
+    "How fast can you help? — Send your details and we'll come back to you quickly.",
+    `Where do you cover? — ${where ? `${where} and nearby.` : "Ask us about your area — we'll confirm."}`,
+  ];
+  if (pageType === "order" || pageType === "booking") out.push("Can I change or cancel? — Yes — just let us know and we'll sort it.");
+  return out;
+}
+
 // ---------------------------------------------------------------------------
-// 10-section structure generator (§4.7)
+// Section generator (§4.7) — emits REAL, honest content from the brand's data.
+// Nothing is a wireframe label; sections with no real input are omitted rather
+// than shown as placeholders; urgency appears ONLY when the offer is truly
+// time-bound; no fabricated reviews/ratings ever.
 // ---------------------------------------------------------------------------
 function buildSections(input: LandingInput, pageType: PageType): LandingSection[] {
-  const biz = input.business || "our business";
-  const where = input.location || "your area";
-  const pain = input.painPoint || "wasting money on options that disappoint";
-  const offer = input.offer || "a first-time offer";
-  const cta = CTA_BY_TYPE[pageType];
-  const sections: LandingSection[] = [
-    { type: "problem", heading: "Sound familiar?", body: `Tired of ${pain}?` },
-    { type: "offer", heading: "The offer", body: `${offer} — clear eligibility, honest deadline.`, items: ["Offer name", "Discount / value", "Deadline", "Who's eligible", cta] },
-    { type: "benefits", heading: "Why choose us", body: "", items: ["Fast, reliable service", "Trusted locally in " + where, "Easy to order / book", "Honest pricing", "Real people, quick replies"] },
-    { type: "proof", heading: "Trusted by locals", body: "", items: ["Star rating + review count", "Named testimonials", "Customer photos / before-after", "Order/booking numbers"] },
-    { type: "process", heading: "How it works", body: "", items: pageType === "whatsapp_conversion" ? ["Tap WhatsApp", "Tell us what you need", "Confirm", "Done"] : ["Choose", "Confirm", "Receive", "Enjoy"] },
-    { type: "faq", heading: "Questions", body: "", items: ["How much does it cost?", "How fast is it?", "Where do you cover?", "Can I pay later?", "Is there a guarantee?"] },
-    { type: "urgency", heading: "Don't miss it", body: pageType === "offer_claim" || pageType === "order" ? "Limited slots — offer ends soon." : "Only a few spaces left this week." },
-  ];
-  if (pageType.includes("booking") || pageType === "order" || pageType === "app_download") {
-    sections.push({ type: pageType === "app_download" ? "app_store" : pageType === "order" ? "order_capture" : "booking_system", heading: pageType === "app_download" ? "Get the app" : pageType === "order" ? "Place your order" : "Pick a time", body: pageType === "app_download" ? "App Store + Google Play buttons." : pageType === "order" ? "Order/enquiry capture with instant confirmation." : "Calendar slots, confirmation + reminder." });
+  const where = clean(input.location);
+  const pain = clean(input.painPoint);
+  const offer = clean(input.offer);
+  const product = clean(input.product);
+  const who = clean(input.audience);
+  const profile = resolveIndustry(`${product} ${input.business || ""} ${who}`);
+  const sections: LandingSection[] = [];
+
+  // Problem — only when we have a real pain to name (no invented one).
+  if (pain) sections.push({ type: "problem", heading: "Sound familiar?", body: `Tired of ${pain}?` });
+
+  // Offer — the real offer text + real, filled value points (not field labels).
+  if (offer) {
+    sections.push({
+      type: "offer", heading: "The offer", body: offer,
+      items: [
+        product ? `What you get: ${product}` : "Clear, honest value — no surprises",
+        who ? `Made for ${who}` : "Made for people like you",
+        where ? `Available across ${where}` : "Ask us about availability",
+      ],
+    });
+  }
+
+  // Benefits — real value points, tuned to the industry.
+  sections.push({
+    type: "benefits", heading: "Why choose us", body: "",
+    items: [
+      "Fast, reliable service",
+      where ? `Trusted by ${profile.audience} in ${where}` : `Trusted by ${profile.audience}`,
+      "Easy to get started",
+      "Honest, upfront pricing",
+      "Real people, quick replies",
+    ],
+  });
+
+  // Process — real steps for this page's job.
+  sections.push({
+    type: "process", heading: "How it works", body: "",
+    items: pageType === "whatsapp_conversion" ? ["Tap WhatsApp", "Tell us what you need", "We confirm", "Done"] : processFor(pageType),
+  });
+
+  // FAQ — real questions WITH honest short answers.
+  sections.push({ type: "faq", heading: "Questions", body: "", items: faqFor(offer, where, pageType) });
+
+  // Urgency — ONLY when the offer is genuinely time-bound (honesty: no fake scarcity).
+  if (offer && hasRealDeadline(offer)) {
+    sections.push({ type: "urgency", heading: "Don't miss it", body: offer });
+  }
+
+  // Conversion tail (booking/order/app) — describes the real capture step.
+  if (pageType === "booking" || pageType === "order" || pageType === "app_download") {
+    sections.push({ type: pageType === "app_download" ? "app_store" : pageType === "order" ? "order_capture" : "booking_system", heading: pageType === "app_download" ? "Get the app" : pageType === "order" ? "Place your order" : "Pick a time", body: pageType === "app_download" ? "Download links for iOS + Android." : pageType === "order" ? "Order/enquiry capture with instant confirmation." : "Choose a slot — we'll confirm and send a reminder." });
   }
   return sections;
 }
@@ -141,7 +228,7 @@ function optimisationRecommendations(scores: LandingScores, fields: number): str
 export type ABVariant = { variant: "A" | "B" | "C" | "D"; focus: string; headline: string; subheadline: string; hypothesis: string };
 
 function abVariants(input: LandingInput, headline: string): ABVariant[] {
-  const who = input.audience || "locals"; const where = input.location || "your area"; const offer = input.offer || "our offer";
+  const who = clean(input.audience) || "your customers"; const where = clean(input.location) || "your market"; const offer = clean(input.offer) || "our offer";
   return [
     { variant: "A", focus: "Direct offer", headline, subheadline: `${offer} — for ${who} in ${where}.`, hypothesis: "Offer-led wins when intent is already high." },
     { variant: "B", focus: "Pain / problem", headline: `Stop ${input.painPoint || "wasting money on the wrong option"}.`, subheadline: `Here's the fix, made for ${who} in ${where}.`, hypothesis: "Pain-led wins with a cold, problem-aware audience." },
@@ -168,25 +255,36 @@ export type GeneratedLandingPage = {
 };
 
 export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
-  const business = input.business || "Brixton Grill House";
-  const objective = input.objective || "get whatsapp orders";
+  const business = clean(input.business) || "Our business";
+  const objective = clean(input.objective) || "get more enquiries";
   const pageType = selectPageType(objective);
-  const where = input.location || "your area";
-  const who = input.audience || "local customers";
-  const offer = input.offer || "a first-time offer";
-  const headline = pageType === "local_seo"
-    ? `Best ${input.product || "service"} in ${where}`
-    : `${(input.product || "What you need")}, ${pageType === "whatsapp_conversion" ? "on WhatsApp" : "made easy"} in ${where}`;
+  const profile = resolveIndustry(`${clean(input.product)} ${business} ${clean(input.audience)}`);
+  const where = clean(input.location);
+  const who = clean(input.audience) || profile.audience;
+  const product = clean(input.product) || profile.sampleProduct;
+  const offer = clean(input.offer);
+  const locSuffix = where ? ` in ${where}` : "";
+  // Honest headline — no fabricated "Best in…" superlative (the Truth Layer
+  // blocks unsubstantiated bests).
+  const headline = pageType === "whatsapp_conversion"
+    ? `${product}, on WhatsApp${locSuffix}`
+    : `${product}, made easy${locSuffix}`;
+  // Subheadline uses the real offer if given; otherwise an honest, filled line —
+  // never "0 —" or a dangling placeholder.
+  const subheadline = offer
+    ? `${offer} — for ${who}${locSuffix}.`
+    : `${product} for ${who}${locSuffix}. Straight answers, quick replies.`;
+  const primaryCta = primaryCtaFor(pageType, profile);
   const { fields, submitAction } = formFields(pageType);
   const sections = buildSections(input, pageType);
   const scores = scoreLanding(input, pageType, fields.length);
-  const slug = slugify(`${business}-${where}-${input.product || pageType}`);
+  const slug = slugify(`${business}-${where || "site"}-${clean(input.product) || pageType}`);
 
   return {
     pageType, title: `${business} — ${objective}`, slug, status: "draft",
-    objective, targetAudience: who, targetLocation: where,
-    headline, subheadline: `${offer} — fresh, fast and trusted by ${who}.`,
-    offerText: offer, primaryCta: CTA_BY_TYPE[pageType], secondaryCta: pageType === "order" ? "View Menu" : "Learn More",
+    objective, targetAudience: who, targetLocation: where || "your market",
+    headline, subheadline,
+    offerText: offer || `Tell us what you need${locSuffix} and we'll help.`, primaryCta, secondaryCta: pageType === "order" ? "See what's on" : "Learn More",
     sections,
     formConfig: { enabled: pageType !== "whatsapp_conversion", fields, submitAction },
     whatsappConfig: { enabled: pageType === "whatsapp_conversion" || Boolean(input.whatsappNumber), phoneNumber: input.whatsappNumber || "", prefilledMessage: `Hi ${business}, I'd like to ${objective.replace(/^get /, "")}.` },
