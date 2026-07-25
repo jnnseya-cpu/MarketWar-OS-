@@ -139,6 +139,7 @@ export const NAV = [
       { href: "/dashboard/comms", label: "Comms Events", icon: Bell, adminOnly: true },
       { href: "/dashboard/integrations", label: "Integration Hub", icon: Plug },
       { href: "/dashboard/settings", label: "Settings & Security", icon: Settings },
+      { href: "/dashboard/go-live", label: "Go-Live Readiness", icon: Rocket, adminOnly: true },
       { href: "/dashboard/admin", label: "Admin Centre", icon: Gauge, adminOnly: true },
     ],
   },
