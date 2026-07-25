@@ -6,13 +6,17 @@
 // Next's hydration; images/fonts from self + data/blob; XHR/fetch to self + any
 // HTTPS (Firebase, Stripe, AI providers via the server, analytics). A nonce-based
 // script-src is the hardening follow-up. clickjacking closed via frame-ancestors.
+// Google Tag Manager / Analytics hosts — allowed so the site's own analytics
+// actually loads (previously the CSP blocked gtm.js on every page).
+const GA = "https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com";
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${GA}`,
   "font-src 'self' data:",
-  "connect-src 'self' https:",
+  `connect-src 'self' https: ${GA}`,
+  "frame-src 'self' https://www.googletagmanager.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
