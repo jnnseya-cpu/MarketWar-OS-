@@ -8,10 +8,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Send, ShieldCheck } from "lucide-react";
+import { Loader2, Send, ShieldCheck, Copy, Check, Download, ExternalLink } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import { composerUrl } from "@/shared/social";
 
 type PublishResult = {
   mode: "live" | "demo";
@@ -52,6 +53,8 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
   const [selected, setSelected] = useState<Set<string>>(new Set(["instagram", "facebook", "tiktok"]));
   const [result, setResult] = useState<PublishResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [capCopied, setCapCopied] = useState(false);
+  const copyCaption = () => { navigator.clipboard?.writeText(text).then(() => { setCapCopied(true); setTimeout(() => setCapCopied(false), 1400); }).catch(() => {}); };
 
   // Seed the caption when new content is generated upstream.
   useEffect(() => { if (defaultText) { setText(toCaption(defaultText)); setResult(null); } }, [defaultText]);
@@ -128,6 +131,33 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
           {!result.compliance.pass && <ul className="mt-2 list-disc pl-5 text-xs text-rose-300">{result.compliance.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
           <p className="mt-1.5 text-[11px] text-slate-500">{result.note}</p>
         </div>
+      )}
+
+      {/* Always-works manual path: post from your own accounts, no connection, no cost. */}
+      {text.trim() && selected.size > 0 && (
+        <details className="mt-3 rounded-lg border border-white/10 bg-ink-950/40 p-3" open={result?.status === "blocked" || undefined}>
+          <summary className="cursor-pointer list-none text-xs font-bold text-emerald-300">Post it yourself — no connection or key needed ↓</summary>
+          <div className="mt-2 space-y-2.5">
+            <p className="text-[11px] leading-relaxed text-slate-400">Open each network&rsquo;s own composer with your caption ready, then paste any downloaded media. Works from your own accounts with zero setup — even if the publishing service is unavailable.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copyCaption} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300">{capCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />} Copy caption</button>
+              {media.filter(isHosted).map((m, i) => (
+                <a key={i} href={m} download target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300"><Download className="h-3.5 w-3.5" /> Media {i + 1}</a>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[...selected].map((p) => {
+                const label = CHANNELS.find((c) => c[0] === p)?.[1] || p;
+                const url = composerUrl(p, text, activeBrand?.website || "", media.find(isHosted));
+                return url ? (
+                  <a key={p} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/40 hover:bg-emerald-500/25">Open {label} <ExternalLink className="h-3 w-3" /></a>
+                ) : (
+                  <span key={p} className="rounded-full bg-ink-850 px-3 py-1.5 text-xs text-slate-400" title="No web composer — copy the caption, download the media, and post in the app">{label}: copy + app</span>
+                );
+              })}
+            </div>
+          </div>
+        </details>
       )}
     </div>
   );

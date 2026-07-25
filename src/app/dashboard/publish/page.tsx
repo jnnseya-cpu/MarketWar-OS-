@@ -11,6 +11,7 @@ import { Building2, Check, Copy, Link2, Loader2, Send, ShieldCheck, Clock } from
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import { composerUrl } from "@/shared/social";
 
 type Platform = { id: string; label: string };
 type Status = { configured: boolean; whiteLabel: boolean; platforms: Platform[]; billing: string; userAction: string; note: string };
@@ -161,6 +162,28 @@ export default function PublishCenterPage() {
             {!result.compliance.pass && <ul className="mt-2 list-disc pl-5 text-xs text-rose-300">{result.compliance.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
             <p className="mt-2 text-[11px] text-slate-500">{result.note}</p>
           </div>
+        )}
+
+        {/* Always-works manual path — post from your own accounts, no connection needed. */}
+        {text.trim() && selected.size > 0 && (
+          <details className="mt-3 rounded-lg border border-white/10 bg-ink-950/40 p-3" open={result?.status === "blocked" || undefined}>
+            <summary className="cursor-pointer list-none text-xs font-bold text-emerald-300">Post it yourself — no connection or key needed ↓</summary>
+            <div className="mt-2 space-y-2.5">
+              <p className="text-[11px] leading-relaxed text-slate-400">Open each network&rsquo;s own composer with your caption ready. Works from your own accounts with zero setup — even if the managed publisher is unavailable.</p>
+              <button type="button" onClick={() => { navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300">{copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />} Copy caption</button>
+              <div className="flex flex-wrap gap-1.5">
+                {[...selected].map((p) => {
+                  const label = status?.platforms.find((x) => x.id === p)?.label || p;
+                  const url = composerUrl(p, text, activeBrand?.website || "");
+                  return url ? (
+                    <a key={p} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/40 hover:bg-emerald-500/25">Open {label} <Link2 className="h-3 w-3" /></a>
+                  ) : (
+                    <span key={p} className="rounded-full bg-ink-850 px-3 py-1.5 text-xs text-slate-400" title="No web composer — copy the caption and post in the app">{label}: copy + app</span>
+                  );
+                })}
+              </div>
+            </div>
+          </details>
         )}
       </div>
 

@@ -78,22 +78,45 @@ function safeReason(s: string): string {
   return s.replace(/key=[^&\s"]+/gi, "key=***").replace(/\s+/g, " ").trim().slice(0, 200);
 }
 type StartResult = { ref: string } | { error: string };
-async function veoStart(prompt: string): Promise<StartResult> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { error: "No GEMINI_API_KEY set" };
-  const model = process.env.GEMINI_VIDEO_MODEL || "veo-3.0-generate-preview";
+
+// Veo model ids drift (previews get promoted to `-001` GA and the old id 404s).
+// Try the configured model first, then a chain of currently-valid ids, and use
+// the first the key accepts. The last known-good id is remembered so we don't
+// re-probe 404s on every render.
+const VEO_CANDIDATES = [
+  "veo-3.0-generate-001", "veo-3.1-generate-preview", "veo-3.0-fast-generate-001",
+  "veo-2.0-generate-001", "veo-3.0-generate-preview",
+];
+let workingVeoModel: string | null = null;
+
+async function veoTry(model: string, prompt: string, key: string): Promise<{ ref?: string; status: number; reason?: string }> {
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ instances: [{ prompt }] }),
     });
-    if (!res.ok) {
-      const body = safeReason(await res.text().catch(() => ""));
-      return { error: `Veo API ${res.status} (model ${model})${body ? ` — ${body}` : ""}` };
-    }
+    if (!res.ok) return { status: res.status, reason: safeReason(await res.text().catch(() => "")) };
     const data = await res.json().catch(() => null);
-    return typeof data?.name === "string" ? { ref: data.name } : { error: "Veo returned no operation handle" };
-  } catch (e) { return { error: `Veo request failed: ${e instanceof Error ? e.message : "network error"}` }; }
+    return typeof data?.name === "string" ? { ref: data.name, status: 200 } : { status: 200, reason: "no operation handle" };
+  } catch (e) { return { status: 0, reason: e instanceof Error ? e.message : "network error" }; }
+}
+
+async function veoStart(prompt: string): Promise<StartResult> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { error: "No GEMINI_API_KEY set" };
+  const ordered = [process.env.GEMINI_VIDEO_MODEL, workingVeoModel, ...VEO_CANDIDATES]
+    .filter((m): m is string => Boolean(m))
+    .filter((m, i, a) => a.indexOf(m) === i);
+  let lastErr = "";
+  for (const model of ordered) {
+    const r = await veoTry(model, prompt, key);
+    if (r.ref) { workingVeoModel = model; return { ref: r.ref }; }
+    // 404 / 400 = wrong-or-unavailable model → try the next candidate.
+    if (r.status === 404 || r.status === 400) { lastErr = `${model}: ${r.status} ${r.reason || ""}`.trim(); continue; }
+    // 401/403/429/5xx are key/quota/server issues — stop and report (not a model problem).
+    return { error: `Veo API ${r.status} (model ${model})${r.reason ? ` — ${r.reason}` : ""}` };
+  }
+  return { error: `No usable Veo model for your key. Tried ${ordered.join(", ")}. Last: ${lastErr}. Set GEMINI_VIDEO_MODEL to a Veo model your account/region can access.` };
 }
 async function veoPoll(op: string): Promise<{ done: boolean; url?: string; bytes?: Buffer }> {
   const key = process.env.GEMINI_API_KEY;
@@ -146,25 +169,38 @@ export async function startVideoRender(input: { brandId: string; prompt: string 
   const brandId = input.brandId?.trim() || "brand";
   const prompt = input.prompt?.trim() || "Product highlight video";
   const jobId = jobIdFor(brandId, prompt);
-  const provider = chosenProvider();
 
-  if (provider === "demo") {
+  // Provider chain with automatic failover (like the AI gateway): try Veo, then
+  // Sora — so if one provider's model is unavailable (404) or its quota is spent,
+  // the render still goes through on the other. Falls back to demo only when no
+  // key is set at all.
+  const chain: VideoProvider[] = [];
+  if (process.env.GEMINI_API_KEY) chain.push("veo");
+  if (process.env.OPENAI_API_KEY) chain.push("sora");
+
+  if (chain.length === 0) {
     const job: VideoJob = { jobId, brandId, prompt, provider: "demo", status: "demo", mode: "demo", videoUrl: null, providerRef: null,
       note: "Demo — video render activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key. The pipeline, job model and post-attach are wired; only the render engine is gated." };
     await saveJob(job);
     return job;
   }
 
-  const started = provider === "veo" ? await veoStart(prompt) : await soraStart(prompt);
-  if (!("ref" in started)) {
-    const modelEnv = provider === "veo" ? (process.env.GEMINI_VIDEO_MODEL || "veo-3.0-generate-preview") : (process.env.OPENAI_VIDEO_MODEL || "sora-2");
-    const job: VideoJob = { jobId, brandId, prompt, provider, status: "failed", mode: "live", videoUrl: null, providerRef: null,
-      note: `Couldn't start the ${provider} render. ${started.error}. Most likely the model isn't enabled on your key or region — confirm ${provider === "veo" ? "Veo" : "Sora"} access and that "${modelEnv}" is the correct model, or set ${provider === "veo" ? "GEMINI_VIDEO_MODEL" : "OPENAI_VIDEO_MODEL"} to a model your account can use.` };
-    await saveJob(job);
-    return job;
+  const errors: string[] = [];
+  for (const provider of chain) {
+    const started = provider === "veo" ? await veoStart(prompt) : await soraStart(prompt);
+    if ("ref" in started) {
+      const failedOver = errors.length > 0;
+      const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
+        note: `Rendering via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — poll for the hosted MP4 (renders take up to a few minutes).` };
+      await saveJob(job);
+      return job;
+    }
+    errors.push(`${provider}: ${started.error}`);
   }
-  const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
-    note: `Rendering via ${provider} — poll for the hosted MP4 (renders take up to a few minutes).` };
+
+  // Every configured provider failed — report each reason so it's debuggable.
+  const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
+    note: `Couldn't start a render on any configured provider. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
   await saveJob(job);
   return job;
 }
