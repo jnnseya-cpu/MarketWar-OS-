@@ -129,12 +129,14 @@ export default function ProspectingPage() {
   }) {
     setBusy("icp");
     try {
+      // Fall back to industry-derived placeholders so a fresh page (no brand,
+      // nothing typed) still builds a real ICP instead of erroring.
       const res = await fetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         action: "icp",
-        product: o?.productOverride ?? product,
-        targetIndustry: o?.industryOverride ?? industry,
+        product: (o?.productOverride ?? product).trim() || ph.product,
+        targetIndustry: (o?.industryOverride ?? industry).trim() || ph.audience,
         dealSizeGbp: o?.dealSizeOverride ?? dealSize,
-        painPoint: o?.painOverride ?? pain,
+        painPoint: (o?.painOverride ?? pain).trim() || "wasted spend and no reliable pipeline",
         targetCountry: o?.countryOverride ?? country,
         companySize: o?.companySizeOverride ?? companySize,
       }) });
