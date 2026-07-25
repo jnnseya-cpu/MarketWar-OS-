@@ -23,6 +23,18 @@ const BLURB: Record<string, string> = {
   corporate: "Networks + resellers", global: "Custom at any scale",
 };
 
+// Concise "what you can do" bullets per plan (real features + caps only).
+const HIGHLIGHTS: Record<string, string[]> = {
+  free: ["Every module + AI agent to explore", "Business DNA + marketing audit", "1 campaign + 1 landing page", "Real output before you pay"],
+  starter: ["First-Customer sprint to real sales", "Email from your own domain", "WhatsApp funnel + on-brand content", "3 social accounts · 5 campaigns"],
+  growth: ["Full 19-agent AI workforce", "SEO + Search-Dominance workbench", "Competitor intel + lead recovery", "Publish to 10 socials · 20 campaigns", "Optional API package"],
+  scale: ["Approvals + collaboration workflow", "Per-brand wallets + budget control", "White-label option", "Autonomy dial · 30 socials · 100 campaigns"],
+  business: ["White-label included", "Priority support", "ROI + revenue-attribution ledger", "100 socials · 500 campaigns"],
+  enterprise: ["Unlimited campaigns", "Controlled wallets + org hierarchy", "White-label + priority support", "Onboarding, training + integrations"],
+  corporate: ["Enterprise power at group scale", "Full controlled-wallet governance", "Dedicated onboarding", "1,000 socials · unlimited campaigns"],
+  global: ["Dedicated infrastructure", "White-glove implementation", "Embedded specialists + bespoke SLAs", "Custom brands, users + channels"],
+};
+
 export default function ChoosePlanPage() {
   const router = useRouter();
   const [plans, setPlans] = useState<Plan[] | null>(null);
@@ -95,6 +107,9 @@ export default function ChoosePlanPage() {
                     <li className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5 text-emerald-400" />{acus}{cycle === "annual" && !isFree ? " released" : ""}</li>
                     <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" />{p.brands === "custom" ? "Custom" : p.brands} brand{p.brands === 1 ? "" : "s"} · {p.users === "custom" ? "custom" : p.users} user{p.users === 1 ? "" : "s"}</li>
                     <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" />{p.storageGb >= 1024 ? `${p.storageGb / 1024} TB` : `${p.storageGb} GB`} storage</li>
+                    {(HIGHLIGHTS[p.id] ?? []).map((h) => (
+                      <li key={h} className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />{h}</li>
+                    ))}
                   </ul>
                   <button onClick={() => choose(p)} disabled={busy !== null} className={`mt-5 rounded-xl py-2.5 text-center text-sm font-bold transition disabled:opacity-50 ${featured ? "bg-gradient-to-r from-emerald-400 to-emerald-500 text-ink-950" : "border border-white/15 text-white hover:border-emerald-500/50"}`}>
                     {busy === p.id ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : isFree ? "Start free" : p.custom ? "Contact sales" : `Choose ${p.name}`}
