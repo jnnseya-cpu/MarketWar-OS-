@@ -127,6 +127,10 @@ export default function ProductEnginePage() {
         connector="A vision key auto-reads your product’s attributes from the photo; image/video keys render photoreal creatives. The scoring, hooks and copy already run now."
       />
 
+      <details className="mb-8">
+        <summary className="cursor-pointer list-none rounded-xl border border-white/[0.06] bg-ink-900/40 px-4 py-3 font-display text-sm font-bold text-white">What&apos;s live today + the guarantees <span className="text-[11px] font-normal text-slate-500">— tap to expand</span></summary>
+        <div className="mt-3">
+
       {/* Honesty legend — what produces real output today vs what activates with a key */}
       <div className="mb-8 card border-white/[0.08] p-4">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-400">
@@ -155,6 +159,8 @@ export default function ProductEnginePage() {
           </div>
         ))}
       </div>
+        </div>
+      </details>
 
       {/* Upload zone — REAL product-image upload (hosted); vision auto-extraction activates with a key */}
       <div className="mb-8 card p-6">
@@ -191,6 +197,10 @@ export default function ProductEnginePage() {
           ))}
         </div>
       </div>
+
+      <details className="mb-8">
+        <summary className="cursor-pointer list-none rounded-xl border border-white/[0.06] bg-ink-900/40 px-4 py-3 font-display text-sm font-bold text-white">Everything this engine includes <span className="text-[11px] font-normal text-slate-500">— reference, tap to expand</span></summary>
+        <div className="mt-3">
 
       {/* Studios grid — each honestly badged */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -229,6 +239,13 @@ export default function ProductEnginePage() {
           ))}
         </div>
       </div>
+        </div>
+      </details>
+
+      <div className="mb-4 flex items-center gap-2">
+        <Rocket className="h-4 w-4 text-emerald-400" />
+        <h2 className="font-display text-lg font-bold text-white">Do it here — upload above, then build below</h2>
+      </div>
 
       {/* Hook Lab — generate the 130-hook library and publish a chosen hook */}
       <VisualStrikeHooks />
@@ -246,13 +263,13 @@ export default function ProductEnginePage() {
         buttonLabel="Build dossier + full campaign"
         publishSourceLabel="campaign copy"
         fields={[
-          { key: "business", label: "Business / brand", defaultValue: "Your business" },
-          { key: "location", label: "Target market", defaultValue: "Your location" },
+          { key: "business", label: "Business / brand", defaultValue: activeBrand?.name || "Your business" },
+          { key: "location", label: "Target market", defaultValue: activeBrand?.location || "your market" },
           {
             key: "product",
-            label: "Product (describe the image you'd upload)",
-            defaultValue:
-              "Hero photo of the £25 flame-grilled family platter — char-grilled chicken, sides, flatbreads on a dark board, flames visible behind",
+            label: "Product (describe your product / the photo you uploaded)",
+            defaultValue: activeBrand?.product || "",
+            placeholder: "Describe your product in detail — what it is, materials, colours, who it's for",
             textarea: true,
           },
           { key: "channels", label: "Channels you can publish to", defaultValue: "Instagram, TikTok, Facebook, WhatsApp, email list" },
