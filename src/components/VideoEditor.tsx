@@ -170,7 +170,8 @@ export default function VideoEditor() {
             <iframe key={`${ytId}-${ytS}-${ytE}`} className="h-full w-full" src={`https://www.youtube.com/embed/${ytId}?start=${ytS}${ytE > ytS ? `&end=${ytE}` : ""}`} title="YouTube preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
           </div>
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] p-2.5 text-[11px] leading-relaxed text-amber-200/80">
-            YouTube doesn&rsquo;t allow re-downloading its videos in the browser, so this makes a shareable <span className="font-semibold">clip link + embed</span> with your in/out times baked in. To export an MP4/WebM file, upload a file or paste a direct video URL instead.
+            This makes a shareable <span className="font-semibold">clip link + embed</span> with your in/out times baked in. YouTube can&rsquo;t be re-downloaded in the browser (their terms + DRM).{" "}
+            <span className="font-semibold text-amber-100">Want the clip as an MP4/WebM file?</span> If it&rsquo;s <span className="font-semibold">your own</span> video, download the original from <span className="font-semibold">YouTube Studio → Content → Download</span>, then upload that file here to trim &amp; export. For any hosted video you can also paste its direct URL.
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-400">Start (m:ss or seconds)</span><input value={ytStart} onChange={(e) => setYtStart(e.target.value)} className="input" placeholder="0:00" /></label>
