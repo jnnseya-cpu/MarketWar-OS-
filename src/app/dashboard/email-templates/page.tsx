@@ -7,7 +7,7 @@
 // contact at send time.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle } from "lucide-react";
+import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle, Wand2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -37,28 +37,45 @@ function mergePreview(text: string, values: Record<string, string>): string {
 
 const BLANK = { id: "", name: "", subject: "", html: "" };
 
-// A ready-made, email-client-safe branded template: logo/brand header, a
-// personalised greeting, a body, a big CTA button (its link is auto-tracked on
-// send), and a sign-off. Uses merge variables and an editable CTA URL. Built with
-// tables + inline styles so it renders in Gmail/Outlook/Apple Mail.
-function brandedStarter(brand: string): string {
-  const name = brand || "Your Brand";
+type Design = { heading: string; body: string; ctaLabel: string; ctaUrl: string; accent: string };
+const DESIGN_DEFAULT: Design = {
+  heading: "",
+  body: "Write your message here — tell your customer what's new, the offer, and why it matters. Keep it short and human.",
+  ctaLabel: "Claim your offer",
+  ctaUrl: "",
+  accent: "#16a34a",
+};
+const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Build email-client-safe HTML (tables + inline styles) from the simple Design
+// fields, so a non-technical user designs the email and sets the CTA without
+// touching HTML. Merge tokens like {{ firstName }} pass through untouched.
+function buildEmail(brand: string, d: Design): string {
+  const name = esc(brand || "Your Brand");
+  const accent = /^#[0-9a-fA-F]{3,8}$/.test(d.accent) ? d.accent : "#16a34a";
+  const url = esc((d.ctaUrl || "https://your-link.com").trim());
+  const heading = d.heading.trim() ? `<h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#111111">${esc(d.heading)}</h1>` : "";
+  const body = (d.body || "").split(/\n{2,}/).filter(Boolean)
+    .map((par) => `<p style="margin:0 0 16px">${esc(par).replace(/\n/g, "<br/>")}</p>`).join("\n        ") || `<p style="margin:0 0 16px"></p>`;
+  const cta = d.ctaLabel.trim()
+    ? `<tr><td align="center" style="padding:16px 28px 28px">
+        <a href="${url}" style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px 28px;border-radius:8px">${esc(d.ctaLabel)}</a>
+      </td></tr>`
+    : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 0">
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;font-family:Arial,Helvetica,sans-serif">
       <tr><td style="background:#0b1020;padding:20px 28px;color:#ffffff;font-size:20px;font-weight:bold">${name}</td></tr>
       <tr><td style="padding:32px 28px 8px;color:#111111;font-size:16px;line-height:1.6">
         <p style="margin:0 0 16px">Hi {{ firstName | there }},</p>
-        <p style="margin:0 0 16px">Write your message here — tell {{ company | your customer }} what's new, the offer, and why it matters. Keep it short and human.</p>
+        ${heading}${body}
       </td></tr>
-      <tr><td align="center" style="padding:16px 28px 28px">
-        <a href="https://your-link.com" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px 28px;border-radius:8px">Claim your offer</a>
-      </td></tr>
+      ${cta}
       <tr><td style="padding:0 28px 28px;color:#111111;font-size:16px;line-height:1.6">
         <p style="margin:0">Thanks,<br/>The ${name} team</p>
       </td></tr>
       <tr><td style="padding:16px 28px;background:#f4f6f8;color:#8a94a6;font-size:12px;line-height:1.5">
-        You're receiving this because you're a customer of ${name}.
+        You&rsquo;re receiving this because you&rsquo;re a customer of ${name}.
       </td></tr>
     </table>
   </td></tr>
@@ -71,9 +88,20 @@ export default function EmailTemplatesPage() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ ...BLANK });
   const [saving, setSaving] = useState(false);
-  const [view, setView] = useState<"code" | "preview">("code");
+  const [view, setView] = useState<"design" | "code" | "preview">("design");
+  const [design, setDesign] = useState<Design>({ ...DESIGN_DEFAULT });
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const htmlRef = useRef<HTMLTextAreaElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  // Editing any Design field regenerates the HTML (Design mode is a generator).
+  function updateDesign(patch: Partial<Design>) {
+    setDesign((prev) => {
+      const next = { ...prev, ...patch };
+      setForm((f) => ({ ...f, html: buildEmail(activeBrand?.name || "Your Brand", next) }));
+      return next;
+    });
+  }
 
   const load = useCallback(async (brandId: string) => {
     setBusy(true);
@@ -86,6 +114,12 @@ export default function EmailTemplatesPage() {
 
   useEffect(() => { if (ready && activeBrand) load(activeBrand.id); else if (ready) setTemplates([]); }, [ready, activeBrand, load]);
 
+  // Seed a starter email so a new template previews/saves immediately.
+  useEffect(() => {
+    if (activeBrand && !form.id && !form.html) setForm((f) => ({ ...f, html: buildEmail(activeBrand.name, DESIGN_DEFAULT) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id]);
+
   const sample = useMemo<Record<string, string>>(() => ({
     firstname: "Marie", name: "Marie Jolaine", email: "marie@example.com",
     company: "Rawbank", trade: "Banking", town: "Kinshasa", area: "Gombe",
@@ -96,8 +130,19 @@ export default function EmailTemplatesPage() {
   const previewHtml = mergePreview(form.html, sample);
 
   function insertVar(token: string) {
-    const ta = htmlRef.current;
     const snippet = `{{ ${token} }}`;
+    // Design mode → insert into the message body; HTML mode → into the HTML.
+    if (view === "design") {
+      const ta = bodyRef.current;
+      if (!ta) { updateDesign({ body: design.body + snippet }); return; }
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? ta.value.length;
+      const next = design.body.slice(0, start) + snippet + design.body.slice(end);
+      updateDesign({ body: next });
+      requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = start + snippet.length; });
+      return;
+    }
+    const ta = htmlRef.current;
     if (!ta) { setForm((f) => ({ ...f, html: f.html + snippet })); return; }
     const start = ta.selectionStart ?? ta.value.length;
     const end = ta.selectionEnd ?? ta.value.length;
@@ -150,7 +195,7 @@ export default function EmailTemplatesPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           {/* Template list */}
           <div className="card h-max p-3">
-            <button className="btn-primary mb-3 w-full justify-center" onClick={() => { setForm({ ...BLANK }); setMsg(null); }}>
+            <button className="btn-primary mb-3 w-full justify-center" onClick={() => { const d = { ...DESIGN_DEFAULT }; setForm({ ...BLANK, html: buildEmail(activeBrand.name, d) }); setDesign(d); setView("design"); setMsg(null); }}>
               <Plus className="h-4 w-4" /> New template
             </button>
             {busy && !templates.length && <p className="p-2 text-xs text-slate-500"><Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> Loading…</p>}
@@ -158,7 +203,7 @@ export default function EmailTemplatesPage() {
             <div className="space-y-1">
               {templates.map((t) => (
                 <div key={t.id} className={`group flex items-center gap-1 rounded-md pr-1 ${form.id === t.id ? "bg-emerald-500/10" : "hover:bg-ink-850"}`}>
-                  <button className="min-w-0 flex-1 px-2.5 py-2 text-left" onClick={() => { setForm({ id: t.id, name: t.name, subject: t.subject, html: t.html }); setMsg(null); }}>
+                  <button className="min-w-0 flex-1 px-2.5 py-2 text-left" onClick={() => { setForm({ id: t.id, name: t.name, subject: t.subject, html: t.html }); setView("preview"); setMsg(null); }}>
                     <span className="block truncate text-sm font-medium text-white">{t.name}</span>
                     <span className="block truncate text-[10px] text-slate-500">{t.subject || "no subject"}</span>
                   </button>
@@ -176,7 +221,14 @@ export default function EmailTemplatesPage() {
             </div>
 
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <button onClick={() => setForm((f) => ({ ...f, html: brandedStarter(activeBrand.name), subject: f.subject || `A message from ${activeBrand.name}` }))} className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20" title="Insert a ready-made branded template with a CTA button">
+              <button
+                onClick={() => {
+                  const seeded: Design = { ...DESIGN_DEFAULT, accent: activeBrand.brandColours?.[0] || DESIGN_DEFAULT.accent, ctaUrl: activeBrand.website ? (/^https?:\/\//.test(activeBrand.website) ? activeBrand.website : `https://${activeBrand.website}`) : "" };
+                  setDesign(seeded);
+                  setForm((f) => ({ ...f, html: buildEmail(activeBrand.name, seeded), subject: f.subject || `A message from ${activeBrand.name}` }));
+                  setView("design");
+                }}
+                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20" title="Start from a ready-made branded template with a CTA button">
                 ✨ Branded starter + CTA
               </button>
               <span className="ml-1 mr-1 text-xs text-slate-500">Insert:</span>
@@ -189,11 +241,41 @@ export default function EmailTemplatesPage() {
             <p className="mb-2 text-[11px] text-slate-500">Tip: the <span className="text-slate-300">CTA button</span> link is <span className="font-mono">https://your-link.com</span> — change it to your real page (offer, booking, product). Every link is auto-tracked for clicks on send.</p>
 
             <div className="mb-2 flex items-center gap-1">
+              <button onClick={() => setView("design")} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${view === "design" ? "bg-emerald-500/15 text-emerald-300" : "text-slate-400 hover:text-white"}`}><Wand2 className="h-3.5 w-3.5" /> Design</button>
               <button onClick={() => setView("code")} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${view === "code" ? "bg-emerald-500/15 text-emerald-300" : "text-slate-400 hover:text-white"}`}><Code className="h-3.5 w-3.5" /> HTML</button>
               <button onClick={() => setView("preview")} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${view === "preview" ? "bg-emerald-500/15 text-emerald-300" : "text-slate-400 hover:text-white"}`}><Eye className="h-3.5 w-3.5" /> Preview</button>
             </div>
 
-            {view === "code" ? (
+            {view === "design" ? (
+              <div className="space-y-3 rounded-lg border border-ink-700 bg-ink-850/40 p-4">
+                <p className="text-[11px] text-slate-500">Fill these in — the email builds itself. Switch to <span className="text-slate-300">Preview</span> to see exactly what lands, or <span className="text-slate-300">HTML</span> for full control.</p>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-400">Headline <span className="font-normal text-slate-600">(optional)</span></span>
+                  <input className="input" value={design.heading} onChange={(e) => updateDesign({ heading: e.target.value })} placeholder="e.g. 10% off this week only" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-400">Message <span className="font-normal text-slate-600">— use the Insert buttons above for {"{{ variables }}"}</span></span>
+                  <textarea ref={bodyRef} className="input min-h-[130px]" value={design.body} onChange={(e) => updateDesign({ body: e.target.value })} placeholder="Write your message. A blank line starts a new paragraph." />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-400">Button text (CTA)</span>
+                    <input className="input" value={design.ctaLabel} onChange={(e) => updateDesign({ ctaLabel: e.target.value })} placeholder="Claim your offer" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-400">Button link</span>
+                    <input className="input" value={design.ctaUrl} onChange={(e) => updateDesign({ ctaUrl: e.target.value })} placeholder="https://your-offer-page.com" />
+                  </label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                    Button colour
+                    <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(design.accent) ? design.accent : "#16a34a"} onChange={(e) => updateDesign({ accent: e.target.value })} className="h-7 w-10 cursor-pointer rounded border border-ink-700 bg-transparent" />
+                  </label>
+                  <span className="text-[11px] text-slate-500">Leave the button text empty to send an email with no button.</span>
+                </div>
+              </div>
+            ) : view === "code" ? (
               <textarea
                 ref={htmlRef} value={form.html} onChange={(e) => setForm((f) => ({ ...f, html: e.target.value }))} rows={16}
                 placeholder={"<h1>Hi {{ firstName | there }},</h1>\n<p>A special offer for {{ company | you }} from " + (activeBrand.name) + "…</p>"}
