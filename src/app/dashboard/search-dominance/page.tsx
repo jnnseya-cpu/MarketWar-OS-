@@ -8,8 +8,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Radar, Search, Gauge, ArrowRight, ShieldCheck, RefreshCcw } from "lucide-react";
+import { Loader2, Radar, Search, Gauge, ArrowRight, ShieldCheck, RefreshCcw, Wrench, Copy, Check } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
+
+type SeoArtifact = { key: string; label: string; format: string; content: string; note: string };
+
+function CopyBox({ a }: { a: SeoArtifact }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="rounded-lg border border-ink-700 bg-ink-900 p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="font-display text-xs font-bold text-white">{a.label} <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">{a.format}</span></span>
+        <button onClick={async () => { try { await navigator.clipboard.writeText(a.content); setDone(true); setTimeout(() => setDone(false), 1200); } catch { /* blocked */ } }} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-ink-800 hover:text-emerald-300">{done ? <><Check className="h-3 w-3 text-emerald-400" /> copied</> : <><Copy className="h-3 w-3" /> copy</>}</button>
+      </div>
+      <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-950 p-2 font-mono text-[11px] leading-relaxed text-slate-300">{a.content}</pre>
+      <p className="mt-1 text-[10px] text-slate-500">{a.note}</p>
+    </div>
+  );
+}
 
 type Mode = { key: string; label: string; desc: string; risk: string };
 type Cat = { key: string; label: string; desc: string };
@@ -48,6 +66,22 @@ export default function SearchDominancePage() {
   const [dom, setDom] = useState<Record<string, number>>({});
   const [domScore, setDomScore] = useState<{ score: number; weakest: { label: string; value: number; action: string }[] } | null>(null);
   const [busyDom, setBusyDom] = useState(false);
+  const { activeBrand } = useActiveBrand();
+  const [seoTopic, setSeoTopic] = useState("");
+  const [artifacts, setArtifacts] = useState<SeoArtifact[] | null>(null);
+  const [busySeo, setBusySeo] = useState(false);
+  const [seoErr, setSeoErr] = useState("");
+
+  async function generateArtifacts() {
+    if (!activeBrand) { setSeoErr("Pick a brand in the sidebar first."); return; }
+    setBusySeo(true); setSeoErr(""); setArtifacts(null);
+    try {
+      const res = await authedFetch("/api/seo-artifacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandId: activeBrand.id, brand: activeBrand, topic: seoTopic.trim() || undefined }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setSeoErr(d.error || "Generation failed"); return; }
+      setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : []);
+    } finally { setBusySeo(false); }
+  }
 
   useEffect(() => { fetch("/api/search-dominance").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
@@ -92,6 +126,22 @@ export default function SearchDominancePage() {
             {info?.honestPromise || "Continuous competitive optimisation, maximum eligible visibility and measurable organic revenue growth. No one can guarantee a permanent #1 or first-page ranking, so we don't."}
           </p>
         </div>
+      </div>
+
+      {/* LIVE SEO Workbench — real deliverables from your brand, no external data */}
+      <div className="mb-8 card border-emerald-500/30 p-5">
+        <div className="mb-1 flex items-center gap-2"><Wrench className="h-5 w-5 text-emerald-400" /><h2 className="font-display text-lg font-bold text-white">SEO Workbench — generate real assets now</h2><Pill tone="good">live</Pill></div>
+        <p className="mb-3 text-xs text-slate-500">Produces valid, copy-paste-ready <span className="text-slate-300">JSON-LD structured data</span>, an <span className="text-slate-300">llms.txt</span> (for AI answer engines) and <span className="text-slate-300">optimised meta tags</span> from {activeBrand?.name || "your active brand"} — no external tool, no waiting. It never invents ratings or prices; missing facts are omitted, not faked.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input className="input max-w-[320px]" value={seoTopic} onChange={(e) => setSeoTopic(e.target.value)} placeholder="Optional: a page topic for the meta tags (e.g. emergency plumbing)" />
+          <button className="btn-primary" onClick={generateArtifacts} disabled={busySeo || !activeBrand}>{busySeo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />} Generate my SEO assets</button>
+        </div>
+        {seoErr && <p className="mt-2 text-xs text-rose-300">{seoErr}</p>}
+        {artifacts && (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {artifacts.map((a) => <CopyBox key={a.key} a={a} />)}
+          </div>
+        )}
       </div>
 
       {/* §39 — non-negotiable rules */}

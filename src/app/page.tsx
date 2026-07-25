@@ -113,9 +113,9 @@ const SCENARIOS = [
 const PLANS = [
   { name: "Free", price: "£0", period: "", desc: "Diagnose + try the whole OS.", features: ["1 brand · 1 user", "Marketing Failure Audit", "Demo intelligence mode"], cta: "Start free", href: "/signup", featured: false },
   { name: "Starter", price: "£19", period: "/mo", desc: "Your first real campaigns.", features: ["1 brand · 2 users", "5 campaigns", "Live AI + owned channels"], cta: "Start", href: "/signup", featured: false },
-  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users", "20 campaigns", "All agents + Revenue Autopilot"], cta: "Start 14-day trial", href: "/signup", featured: true },
-  { name: "Scale", price: "£149", period: "/mo", desc: "Multi-brand operators.", features: ["10 brands · 15 users", "100 campaigns", "Priority AI throughput"], cta: "Choose Scale", href: "/signup", featured: false },
-  { name: "Business", price: "£399", period: "/mo", desc: "Agencies + franchises.", features: ["30 brands · 40 users", "500 campaigns", "White-label reports"], cta: "Choose Business", href: "/signup", featured: false },
+  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users", "All agents + Revenue Autopilot", "Search Dominance + your own email sending"], cta: "Start 14-day trial", href: "/signup", featured: true },
+  { name: "Scale", price: "£149", period: "/mo", desc: "Multi-brand operators.", features: ["10 brands · 15 users", "Priority AI throughput", "OMNIRANK + dedicated sending domains"], cta: "Choose Scale", href: "/signup", featured: false },
+  { name: "Business", price: "£399", period: "/mo", desc: "Agencies + franchises.", features: ["30 brands · 40 users", "White-label reports", "Full search + answer-engine stack"], cta: "Choose Business", href: "/signup", featured: false },
   { name: "Enterprise", price: "£999", period: "/mo", desc: "Large multi-location.", features: ["100 brands · 100 users", "Unlimited campaigns", "API access + SSO"], cta: "Talk to us", href: "/contact", featured: false },
   { name: "Corporate", price: "£2,499", period: "/mo", desc: "Networks + resellers.", features: ["300 brands · 300 users", "Unlimited campaigns", "Dedicated throughput"], cta: "Talk to us", href: "/contact", featured: false },
   { name: "Global", price: "£7,499", period: "/mo", desc: "Custom at any scale.", features: ["Custom brands + users", "Unlimited campaigns", "Custom AI + SLAs"], cta: "Talk to us", href: "/contact", featured: false },

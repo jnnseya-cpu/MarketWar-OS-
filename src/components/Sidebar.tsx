@@ -77,27 +77,31 @@ export const NAV = [
   {
     group: "Acquisition",
     items: [
-      // Organic Dominance: ONE menu entry → the OS command centre. The Strike-phase
-      // surface (/dashboard/organic, GEO audit + Citation Radar + Magnet Foundry)
-      // is reachable from a cross-link on the OS page — merged, nothing lost.
+      // Search & organic stack (command → strategy → execution/defence).
+      // Organic Dominance is the OS command centre; the Strike-phase surface
+      // (/dashboard/organic) is cross-linked from it — merged, nothing lost.
       { href: "/dashboard/organic-dominance", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/search-dominance", label: "Search Dominance Engine", icon: Search },
       { href: "/dashboard/omnirank", label: "OMNIRANK Dominion", icon: Crosshair },
+      { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
+      // Market intelligence.
+      { href: "/dashboard/discover", label: "Market Intel", icon: Search },
+      { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
+      // Campaigns.
       { href: "/dashboard/warfare", label: "Campaign Warfare (Autopilot)", icon: Swords },
       { href: "/dashboard/war-room", label: "Live Campaign Board", icon: Crosshair },
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
-      { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
-      { href: "/dashboard/publish", label: "Publish Center", icon: Send },
-      { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
-      { href: "/dashboard/discover", label: "Market Intel", icon: Search },
-      { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
+      // Content & creative.
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
       { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText },
+      { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
-      { href: "/dashboard/approvals", label: "Collaboration & Approvals", icon: ClipboardCheck },
+      // Landing & publish.
       { href: "/dashboard/landing-pages", label: "Landing Pages", icon: Flame },
       { href: "/dashboard/landing-builder", label: "Conversion Architect", icon: LayoutTemplate },
+      { href: "/dashboard/publish", label: "Publish Center", icon: Send },
+      { href: "/dashboard/approvals", label: "Collaboration & Approvals", icon: ClipboardCheck },
     ],
   },
   {
