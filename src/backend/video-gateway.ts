@@ -152,11 +152,21 @@ async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer; dia
     // of a video — surface it verbatim so the real cause is visible.
     if (data.error) return { done: true, diag: `Veo operation error: ${safeReason(JSON.stringify(data.error))}` };
     const { uri, b64 } = extractVeoVideo(data.response);
-    if (b64) return { done: true, bytes: Buffer.from(b64, "base64") };
+    if (b64) {
+      const buf = Buffer.from(b64, "base64");
+      return buf.length >= 2048 ? { done: true, bytes: buf } : { done: true, diag: `Inline video was only ${buf.length} bytes.` };
+    }
     if (uri) {
-      const v = await fetch(uri.includes("key=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}key=${key}`);
-      if (v.ok) return { done: true, bytes: Buffer.from(await v.arrayBuffer()) };
-      return { done: true, diag: `Found the video URI but downloading it returned HTTP ${v.status}.` };
+      // Veo returns a Files-API URI; authenticate with BOTH the query key and the
+      // header (Google accepts either), and request the media bytes.
+      const dl = uri.includes("key=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}alt=media&key=${key}`;
+      const v = await fetch(dl, { headers: { "x-goog-api-key": key } });
+      if (v.ok) {
+        const buf = Buffer.from(await v.arrayBuffer());
+        return buf.length >= 2048 ? { done: true, bytes: buf } : { done: true, diag: `Downloaded only ${buf.length} bytes from the video URI (not a full video).` };
+      }
+      const body = safeReason(await v.text().catch(() => ""));
+      return { done: true, diag: `Video URI download failed: HTTP ${v.status}${body ? ` — ${body}` : ""}.` };
     }
     // No video field found — report the actual response shape so it can be mapped.
     const keys = Object.keys((data.response as Record<string, unknown>) || {});
