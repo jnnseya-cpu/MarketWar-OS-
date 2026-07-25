@@ -318,4 +318,118 @@ Attribution, 45 Search Offer, 46 Revenue Forecast, 47 Search Budget. Defence: 48
 Rank Loss, 49 Reputation Search, 50 Spam Risk, 51 Content Quality, 52 Change
 Control, 53 Competitor Response.
 
-> [Source continues beyond §31 — append later sections when supplied.]
+### 32. Agent Decision Hierarchy
+All agents report to the Dynamic SEO Commander. Business Revenue Objective →
+Dynamic SEO Commander → (Demand Intelligence, Technical Search, Content Authority,
+AI Discovery, Social Search, Conversion, Reputation teams) → Prioritised Actions →
+User Approval or Authorised Automation → Measurement and Learning. No agent may
+optimise a vanity metric at the expense of revenue, trust or website safety.
+
+### 33. Permissions and Safety Framework
+**Low-risk (potentially auto-approved):** broken-link alerts, sitemap updates,
+IndexNow notifications, metadata drafts, internal-link suggestions, image
+compression, missing-alt-text recommendations, structured-data validation,
+monitoring alerts. **Medium-risk (campaign/workspace approval):** metadata
+publishing, internal-link insertion, FAQ additions, schema publication, content
+refresh, redirect implementation. **High-risk (explicit approval):** page
+deletion, mass redirects, sitewide canonical changes, large content generation,
+URL restructuring, navigation changes, competitor comparison claims,
+regulated-industry content, reputation responses, major automated publishing.
+
+### 34. Search Dominance Command Centre
+Executive metrics: organic revenue, organic profit, qualified organic leads,
+search conversion rate, non-branded/branded visibility, top-three positions,
+first-page coverage, featured appearances, AI recommendation share, AI citation
+share, social-search visibility, local visibility, authority growth, indexation
+health, search revenue at risk. Daily priority panel always shows the next
+highest-value organic action (e.g. “Improve this page to capture £4,500 estimated
+annual demand”, “Repair this indexation failure”, “Respond to this competitor
+weakness”, “Create this missing product comparison”, “Refresh this declining
+page”, “Correct inconsistent business information”).
+
+### 35. MarketWar Search Dominance Score (0–100)
+Components: Technical Eligibility, Search Demand Coverage, Content Authority,
+Commercial Intent Coverage, Internal Authority, External Authority, Entity
+Strength, AI Recommendation Readiness, Local Visibility, Social Search Visibility,
+Search Conversion, Reputation, Freshness, Competitive Position. Connect every
+weakness to a recommended action, estimated cost, estimated revenue opportunity,
+expected time horizon and confidence.
+
+### 36. Required Integrations
+Search/analytics: Google Search Console API, Google Analytics Data API, Bing
+Webmaster APIs, IndexNow, Google Business Profile APIs, Merchant Centre, YouTube
+Data API. Website platforms: WordPress, Shopify, Webflow, Wix, WooCommerce,
+Next.js, custom sites, headless CMS. MarketWar infra: Firebase auth/data/Storage,
+Cloud Functions/Run, Vercel frontend, queue system, search data warehouse, change
+audit log, provider cost ledger.
+
+### 37. Developer Architecture
+Connected Website → Crawler & Site Graph → Search Data Ingestion → Demand &
+Competitor Intelligence → MarketWar Search Knowledge Graph → Dynamic SEO Commander
+→ Specialist Agent Teams → Recommendation & Approval Layer → CMS Execution Gateway
+→ Validation, Attribution & Learning. Core services: site-crawler-service,
+search-console-ingestion, bing-webmaster-ingestion, keyword-intelligence-service,
+serp-monitoring-service, ai-visibility-monitor, technical-audit-service,
+content-optimisation-service, structured-data-service, internal-link-service,
+authority-opportunity-service, cms-execution-gateway, organic-attribution-service,
+search-change-control, search-alert-service.
+
+### 38. Core Data Model
+`interface SearchOpportunity { id; workspaceId; websiteId; topic; query?; intent:
+INFORMATIONAL|COMMERCIAL|TRANSACTIONAL|LOCAL|NAVIGATIONAL|COMPARISON; currentUrl?;
+currentPosition?; demandScore; commercialIntentScore; feasibilityScore;
+authorityGapScore; conversionProbability; competitorStrength; estimatedTraffic;
+estimatedLeads; estimatedRevenue; estimatedProfit; estimatedCost;
+recommendedAction; confidenceScore; status: DISCOVERED|RECOMMENDED|APPROVED|
+IN_PROGRESS|PUBLISHED|MEASURING|COMPLETED|REJECTED; }`
+
+### 39. Non-Negotiable Rules
+Never guarantee permanent rankings. Never generate fake backlinks. Never create
+fake reviews. Never fabricate expert credentials. Never publish mass low-value
+content. Never attack competitor websites. Never cloak (deceive users vs
+crawlers). Never alter a website without permission. Never optimise traffic
+without measuring conversion. Never chase search volume without commercial
+relevance. Never publish unverified regulated claims. Never allow autonomous
+changes without audit and rollback. Never confuse indexing submission with
+guaranteed indexing. Never confuse visibility with revenue. Never allow
+AI-generated errors to become brand facts.
+
+### 40. Activation Phases
+P1 Search Foundation: website connection, crawl engine, Search Console + Bing
+connection, technical audit, opportunity map, keyword/intent universe, core
+dashboard. P2 Dynamic Optimisation: metadata, internal-link recs, schema engine,
+sitemap automation, IndexNow, content-gap analysis, content refresh, approval
+workflow. P3 Authority & Competition: Competitor War Room, authority engine,
+digital PR, comparison content, local search, reputation monitoring. P4 AI &
+Social Discovery: AI prompt tracking, AI citation monitoring, entity knowledge
+layer, YouTube/TikTok/Instagram discovery, social-search attribution. P5
+Autonomous Search Operations: Dynamic SEO Commander, controlled automatic
+changes, experiments, rank-loss response, organic budget allocation, forecasting,
+cross-channel organic optimisation.
+
+### 41. MVP Acceptance Criteria
+Complete when a user can: connect a website; connect Google Search Console;
+connect Bing Webmaster Tools; receive a technical search audit; see indexation/
+crawl issues; see high-value query opportunities; see competitor content gaps;
+receive prioritised revenue recommendations; generate improved metadata; generate
+structured-data recommendations; receive internal-link suggestions; create an
+optimised commercial page; submit approved updates through the CMS; trigger
+IndexNow where supported; track ranking and traffic changes; track leads and
+revenue from organic traffic; review a complete change audit.
+
+### 42. Final Positioning
+**Master:** MarketWar Dynamic Search Dominance Engine continuously discovers what
+customers want, strengthens every website signal, builds trusted authority,
+improves AI recommendation readiness and converts organic discovery into
+measurable revenue. **Punchy:** Own the search. Win the answer. Capture the
+customer. **Competitor:** SEO tools tell you what happened. MarketWar finds the
+opportunity, builds the answer, strengthens the authority, deploys the improvement
+and measures the money. **AI discovery:** Be the business search engines
+understand, AI systems cite and customers choose. **Objective:** make every user
+more discoverable, authoritative, useful, trusted, recommended, competitive,
+profitable. **Ultimate standard:** every search action must increase the
+probability that the right customer discovers the user, trusts the user, chooses
+the user and produces measurable commercial value. Merged directly into the
+MarketWar Money-Making OS as its permanent organic customer-acquisition division.
+
+--- END OF SUPPLIED SOURCE (§1–§42) ---

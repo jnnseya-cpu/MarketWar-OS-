@@ -16,7 +16,10 @@ type Cat = { key: string; label: string; desc: string };
 type Module = { n: number; key: string; label: string; scope: string; status: "live" | "foundation" | "connect" | "blueprint"; route?: string };
 type Agent = { n: number; name: string; role: string };
 type Division = { division: string; agents: Agent[] };
-type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[]; modules: Module[]; workforce: Division[] };
+type RiskTier = { tier: string; gate: string; examples: string[] };
+type Comp = { key: string; label: string; action: string };
+type Phase = { phase: string; builds: string[] };
+type Info = { honestPromise: string; positioning: { what: string; promise: string; edge: string }; operatingModes: Mode[]; operatingLoop: string[]; moneyMap: Cat[]; modules: Module[]; workforce: Division[]; riskTiers: RiskTier[]; executiveMetrics: string[]; dominanceComponents: Comp[]; guardrails: string[]; activationPhases: Phase[]; mvpCriteria: string[]; finalPositioning: { master: string; punchy: string; competitor: string; aiDiscovery: string; standard: string } };
 
 const STATUS_TONE: Record<string, "good" | "info" | "warn" | "neutral"> = { live: "good", foundation: "info", connect: "warn", blueprint: "neutral" };
 const STATUS_LABEL: Record<string, string> = { live: "live", foundation: "ready", connect: "connect a source", blueprint: "blueprint" };
@@ -42,6 +45,9 @@ export default function SearchDominancePage() {
   const [inputs, setInputs] = useState<Record<string, number>>({});
   const [score, setScore] = useState<{ score: number; confidence: number } | null>(null);
   const [busyScore, setBusyScore] = useState(false);
+  const [dom, setDom] = useState<Record<string, number>>({});
+  const [domScore, setDomScore] = useState<{ score: number; weakest: { label: string; value: number; action: string }[] } | null>(null);
+  const [busyDom, setBusyDom] = useState(false);
 
   useEffect(() => { fetch("/api/search-dominance").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
@@ -59,6 +65,13 @@ export default function SearchDominancePage() {
       const r = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", inputs }) });
       setScore(await r.json());
     } finally { setBusyScore(false); }
+  }
+  async function runDom() {
+    setBusyDom(true);
+    try {
+      const r = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: dom }) });
+      setDomScore(await r.json());
+    } finally { setBusyDom(false); }
   }
 
   return (
@@ -80,6 +93,18 @@ export default function SearchDominancePage() {
           </p>
         </div>
       </div>
+
+      {/* §39 — non-negotiable rules */}
+      {info?.guardrails && (
+        <div className="mb-8 card border-rose-500/20 bg-rose-500/[0.03] p-5">
+          <h2 className="mb-3 font-display text-sm font-bold text-white">Non-negotiable rules — the discipline that protects you</h2>
+          <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {info.guardrails.map((g) => (
+              <p key={g} className="flex items-start gap-1.5 text-[11px] text-slate-400"><span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-400" /> {g}</p>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Positioning */}
       {info && (
@@ -129,6 +154,63 @@ export default function SearchDominancePage() {
             {info.moneyMap.map((c) => (
               <div key={c.key} className="card p-4"><p className="font-display text-sm font-bold text-emerald-300">{c.label}</p><p className="mt-1 text-xs text-slate-400">{c.desc}</p></div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* §35 — Search Dominance Score */}
+      {info?.dominanceComponents && (
+        <div className="mb-8 card p-5">
+          <div className="mb-2 flex items-center gap-2"><Gauge className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">MarketWar Search Dominance Score</h2></div>
+          <p className="mb-3 text-xs text-slate-500">Rate each component 0–100 (leave blank for unmeasured = 0, so gaps show honestly). You get a 0–100 score and the weakest areas, each with the recommended next action. Cost/revenue estimates attach when a real data source (Search Console, analytics) is connected — never invented.</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {info.dominanceComponents.map((c) => (
+              <label key={c.key} className="text-[11px] text-slate-400" title={c.action}>
+                {c.label}
+                <input type="number" min={0} max={100} className="input mt-0.5 w-full" placeholder="0"
+                  onChange={(e) => setDom((s) => { const v = e.target.value; const n = { ...s }; if (v === "") delete n[c.key]; else n[c.key] = Number(v); return n; })} />
+              </label>
+            ))}
+          </div>
+          <button className="btn-primary mt-3" onClick={runDom} disabled={busyDom}>{busyDom ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />} Score my brand</button>
+          {domScore && (
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+              <div className="flex items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+                <p className="font-display text-4xl font-bold text-emerald-300">{domScore.score}</p><p className="text-[10px] text-slate-500">dominance<br/>/100</p>
+              </div>
+              <div className="flex-1 rounded-lg border border-ink-700 bg-ink-850 p-3">
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Fix these first</p>
+                <ul className="space-y-1">
+                  {domScore.weakest.map((w) => (
+                    <li key={w.label} className="text-xs text-slate-300"><span className="font-semibold text-white">{w.label} ({w.value})</span> — <span className="text-slate-400">{w.action}</span></li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* §33 safety + §34 executive metrics */}
+      {info?.riskTiers && (
+        <div className="mb-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+          <div className="card p-5">
+            <div className="mb-3 flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Permissions &amp; safety — you approve what matters</h2></div>
+            <div className="space-y-2">
+              {info.riskTiers.map((t) => (
+                <div key={t.tier} className="rounded-lg border border-ink-700 bg-ink-850/60 p-3">
+                  <div className="mb-1 flex items-center gap-2"><Pill tone={t.tier === "low" ? "good" : t.tier === "medium" ? "warn" : "neutral"}>{t.tier} risk</Pill><span className="text-xs text-slate-400">{t.gate}</span></div>
+                  <p className="text-[11px] text-slate-500">{t.examples.join(" · ")}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5">
+            <h2 className="mb-3 font-display font-bold text-white">Command-centre metrics</h2>
+            <div className="flex flex-wrap gap-1.5">
+              {info.executiveMetrics.map((m) => <span key={m} className="rounded-full border border-ink-700 bg-ink-850 px-2 py-0.5 text-[11px] text-slate-300">{m}</span>)}
+            </div>
+            <p className="mt-3 text-[11px] text-slate-500">The daily priority panel surfaces the single highest-value next action (e.g. &ldquo;improve this page to capture £X estimated annual demand&rdquo;) once your site + Search Console are connected.</p>
           </div>
         </div>
       )}
@@ -218,6 +300,42 @@ export default function SearchDominancePage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* §40 phases + §41 MVP criteria */}
+      {info?.activationPhases && (
+        <div className="mb-8 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
+          <div className="card p-5">
+            <h2 className="mb-3 font-display font-bold text-white">Activation phases</h2>
+            <div className="space-y-2">
+              {info.activationPhases.map((p) => (
+                <div key={p.phase} className="rounded-lg border border-ink-700 bg-ink-850/60 p-3">
+                  <p className="mb-1 font-display text-xs font-bold text-emerald-300">{p.phase}</p>
+                  <p className="text-[11px] text-slate-500">{p.builds.join(" · ")}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5">
+            <h2 className="mb-3 font-display font-bold text-white">MVP definition of done</h2>
+            <ul className="grid gap-1">
+              {info.mvpCriteria.map((c) => (
+                <li key={c} className="flex items-start gap-1.5 text-[11px] text-slate-400"><span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-emerald-400" /> {c}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* §42 — final positioning */}
+      {info?.finalPositioning && (
+        <div className="mb-8 card border-emerald-500/25 bg-gradient-to-br from-emerald-500/[0.06] to-transparent p-6">
+          <p className="font-display text-lg font-bold text-white">{info.finalPositioning.punchy}</p>
+          <p className="mt-2 max-w-3xl text-sm text-slate-300">{info.finalPositioning.master}</p>
+          <p className="mt-3 max-w-3xl text-xs text-slate-400"><span className="font-semibold text-slate-300">vs. SEO tools:</span> {info.finalPositioning.competitor}</p>
+          <p className="mt-1 max-w-3xl text-xs text-slate-400"><span className="font-semibold text-slate-300">AI discovery:</span> {info.finalPositioning.aiDiscovery}</p>
+          <p className="mt-3 border-t border-emerald-500/15 pt-3 text-[11px] italic text-emerald-200/80">{info.finalPositioning.standard}</p>
         </div>
       )}
 

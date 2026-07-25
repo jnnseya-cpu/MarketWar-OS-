@@ -183,6 +183,115 @@ export const CONSISTENCY_SOURCES = [
   "Merchant feeds", "Knowledge panels", "Partner sites", "Press coverage",
 ] as const;
 
+// §38 — Core data model: the canonical opportunity record the engine produces
+// and moves through its lifecycle.
+export type SearchOpportunity = {
+  id: string; workspaceId: string; websiteId: string;
+  topic: string; query?: string;
+  intent: "INFORMATIONAL" | "COMMERCIAL" | "TRANSACTIONAL" | "LOCAL" | "NAVIGATIONAL" | "COMPARISON";
+  currentUrl?: string; currentPosition?: number;
+  demandScore: number; commercialIntentScore: number; feasibilityScore: number;
+  authorityGapScore: number; conversionProbability: number; competitorStrength: number;
+  estimatedTraffic: number; estimatedLeads: number; estimatedRevenue: number;
+  estimatedProfit: number; estimatedCost: number;
+  recommendedAction: string; confidenceScore: number;
+  status: "DISCOVERED" | "RECOMMENDED" | "APPROVED" | "IN_PROGRESS" | "PUBLISHED" | "MEASURING" | "COMPLETED" | "REJECTED";
+};
+
+// §39 — Non-negotiable rules. The engine's hard guardrails; every agent + action
+// is bound by them. Surfaced verbatim so the discipline is visible, not buried.
+export const GUARDRAILS: string[] = [
+  "Never guarantee permanent rankings.",
+  "Never generate fake backlinks.",
+  "Never create fake reviews.",
+  "Never fabricate expert credentials.",
+  "Never publish mass low-value content.",
+  "Never attack competitor websites.",
+  "Never cloak (deceive users vs crawlers).",
+  "Never alter a website without permission.",
+  "Never optimise traffic without measuring conversion.",
+  "Never chase search volume without commercial relevance.",
+  "Never publish unverified regulated claims.",
+  "Never allow autonomous changes without audit and rollback.",
+  "Never confuse indexing submission with guaranteed indexing.",
+  "Never confuse visibility with revenue.",
+  "Never allow AI-generated errors to become brand facts.",
+];
+
+// §40 — Activation phases (build/rollout order).
+export const ACTIVATION_PHASES: { phase: string; builds: string[] }[] = [
+  { phase: "P1 · Search Foundation", builds: ["Website connection", "Crawl engine", "Search Console + Bing", "Technical audit", "Opportunity map", "Keyword/intent universe", "Core dashboard"] },
+  { phase: "P2 · Dynamic Optimisation", builds: ["Metadata", "Internal-link recs", "Schema engine", "Sitemap automation", "IndexNow", "Content-gap analysis", "Content refresh", "Approval workflow"] },
+  { phase: "P3 · Authority & Competition", builds: ["Competitor War Room", "Authority engine", "Digital PR", "Comparison content", "Local search", "Reputation monitoring"] },
+  { phase: "P4 · AI & Social Discovery", builds: ["AI prompt tracking", "AI citation monitoring", "Entity knowledge layer", "YouTube/TikTok/Instagram discovery", "Social-search attribution"] },
+  { phase: "P5 · Autonomous Operations", builds: ["Dynamic SEO Commander", "Controlled automatic changes", "Experiments", "Rank-loss response", "Organic budget allocation", "Forecasting", "Cross-channel optimisation"] },
+];
+
+// §41 — MVP acceptance criteria (the definition of done for the first release).
+export const MVP_CRITERIA: string[] = [
+  "Connect a website", "Connect Google Search Console", "Connect Bing Webmaster Tools",
+  "Receive a technical search audit", "See indexation & crawl issues", "See high-value query opportunities",
+  "See competitor content gaps", "Receive prioritised revenue recommendations", "Generate improved metadata",
+  "Generate structured-data recommendations", "Receive internal-link suggestions", "Create an optimised commercial page",
+  "Submit approved updates through the CMS", "Trigger IndexNow where supported", "Track ranking & traffic changes",
+  "Track leads & revenue from organic traffic", "Review a complete change audit",
+];
+
+// §42 — Final positioning statements.
+export const FINAL_POSITIONING = {
+  master: "Continuously discovers what customers want, strengthens every website signal, builds trusted authority, improves AI recommendation readiness, and converts organic discovery into measurable revenue.",
+  punchy: "Own the search. Win the answer. Capture the customer.",
+  competitor: "SEO tools tell you what happened. MarketWar finds the opportunity, builds the answer, strengthens the authority, deploys the improvement and measures the money.",
+  aiDiscovery: "Be the business search engines understand, AI systems cite and customers choose.",
+  standard: "Every search action must increase the probability that the right customer discovers the user, trusts the user, chooses the user and produces measurable commercial value.",
+};
+
+// §33 — Permissions & safety framework. Ties directly to the Approvals engine:
+// higher risk → stronger gate. No agent may act above its tier without approval.
+export const RISK_TIERS: { tier: "low" | "medium" | "high"; gate: string; examples: string[] }[] = [
+  { tier: "low", gate: "May be auto-approved (Autonomous mode)", examples: ["Broken-link alerts", "Sitemap updates", "IndexNow notifications", "Metadata drafts", "Internal-link suggestions", "Image compression", "Missing-alt-text recommendations", "Structured-data validation", "Monitoring alerts"] },
+  { tier: "medium", gate: "Requires campaign / workspace approval", examples: ["Metadata publishing", "Internal-link insertion", "FAQ additions", "Schema publication", "Content refresh", "Redirect implementation"] },
+  { tier: "high", gate: "Requires explicit approval (never automatic)", examples: ["Page deletion", "Mass redirects", "Sitewide canonical changes", "Large content generation", "URL restructuring", "Navigation changes", "Competitor comparison claims", "Regulated-industry content", "Reputation responses", "Major automated publishing"] },
+];
+
+// §34 — Command-centre executive metrics + daily priority examples.
+export const EXECUTIVE_METRICS = [
+  "Organic revenue", "Organic profit", "Qualified organic leads", "Search conversion rate",
+  "Non-branded visibility", "Branded visibility", "Top-three positions", "First-page coverage",
+  "Featured appearances", "AI recommendation share", "AI citation share", "Social-search visibility",
+  "Local visibility", "Authority growth", "Indexation health", "Search revenue at risk",
+];
+
+// §35 — MarketWar Search Dominance Score (0–100). Transparent mean of 14
+// components (each 0–100; unmeasured → 0 so gaps are honest, not hidden). Every
+// weakness maps to a recommended action. Cost/revenue/time/confidence estimates
+// attach only when a real data source is connected (never fabricated here).
+export const DOMINANCE_COMPONENTS: { key: string; label: string; action: string }[] = [
+  { key: "technicalEligibility", label: "Technical Eligibility", action: "Fix crawl/index/render blockers (canonicals, redirects, Core Web Vitals)." },
+  { key: "searchDemandCoverage", label: "Search Demand Coverage", action: "Cover the missing high-intent queries with the right page type." },
+  { key: "contentAuthority", label: "Content Authority", action: "Deepen the strongest topic clusters with original evidence." },
+  { key: "commercialIntentCoverage", label: "Commercial Intent Coverage", action: "Build transactional/comparison pages for buyer queries." },
+  { key: "internalAuthority", label: "Internal Authority", action: "Link hubs to commercial pages; fix orphans and depth." },
+  { key: "externalAuthority", label: "External Authority", action: "Earn relevant editorial links via PR, research, citations." },
+  { key: "entityStrength", label: "Entity Strength", action: "Make brand facts consistent everywhere; add Organisation schema." },
+  { key: "aiRecommendationReadiness", label: "AI Recommendation Readiness", action: "Add concise, extractable answers + corroborating evidence." },
+  { key: "localVisibility", label: "Local Visibility", action: "Complete profile, reviews, local pages and citations." },
+  { key: "socialSearchVisibility", label: "Social Search Visibility", action: "Optimise in-platform discovery on TikTok/IG/YouTube/LinkedIn." },
+  { key: "searchConversion", label: "Search Conversion", action: "Improve above-the-fold, CTA, proof, speed and checkout." },
+  { key: "reputation", label: "Reputation", action: "Correct owned channels; respond factually to reviews/press." },
+  { key: "freshness", label: "Freshness", action: "Refresh declining/expired pages; update facts and offers." },
+  { key: "competitivePosition", label: "Competitive Position", action: "Displace weak competitor pages with a stronger answer." },
+];
+export type DominanceInput = Partial<Record<string, number>>;
+
+export function dominanceScore(inp: DominanceInput): { score: number; weakest: { key: string; label: string; value: number; action: string }[]; measured: number } {
+  const vals = DOMINANCE_COMPONENTS.map((c) => ({ ...c, value: clamp01to100(inp[c.key] ?? 0) }));
+  const score = Math.round(vals.reduce((a, b) => a + b.value, 0) / vals.length);
+  const weakest = [...vals].sort((a, b) => a.value - b.value).slice(0, 5).map(({ key, label, value, action }) => ({ key, label, value, action }));
+  const measured = Object.keys(inp).filter((k) => typeof inp[k] === "number").length;
+  return { score, weakest, measured };
+}
+
 // §7 — Intent classification from commercial signals (deterministic, transparent).
 const SIGNALS: { intent: string; words: string[]; commercial: boolean }[] = [
   { intent: "transactional", words: ["buy", "book", "order", "quote", "demo", "trial", "price", "cost", "cheap", "deal", "discount", "delivery", "installation", "available today", "for sale"], commercial: true },

@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey } from "@/backend/guard";
 import {
   HONEST_PROMISE, POSITIONING, OPERATING_MODES, OPERATING_LOOP, MONEY_MAP, ENGINE_MODULES, SEARCH_WORKFORCE,
-  classifyIntent, opportunityScore, aiReadinessScore,
+  RISK_TIERS, EXECUTIVE_METRICS, DOMINANCE_COMPONENTS,
+  GUARDRAILS, ACTIVATION_PHASES, MVP_CRITERIA, FINAL_POSITIONING,
+  classifyIntent, opportunityScore, aiReadinessScore, dominanceScore,
 } from "@/backend/search-dominance";
 
 // Dynamic Search Dominance Engine — command + transparent scoring API.
@@ -24,6 +26,13 @@ export async function GET() {
     moneyMap: MONEY_MAP,
     modules: ENGINE_MODULES,
     workforce: SEARCH_WORKFORCE,
+    riskTiers: RISK_TIERS,
+    executiveMetrics: EXECUTIVE_METRICS,
+    dominanceComponents: DOMINANCE_COMPONENTS,
+    guardrails: GUARDRAILS,
+    activationPhases: ACTIVATION_PHASES,
+    mvpCriteria: MVP_CRITERIA,
+    finalPositioning: FINAL_POSITIONING,
     doctrine: "No guaranteed rankings — search engines don't guarantee crawling, indexing or serving. Every score is a transparent, labelled heuristic, never a promise.",
   });
 }
@@ -49,5 +58,9 @@ export async function POST(req: NextRequest) {
     const inputs = (body.inputs && typeof body.inputs === "object" ? body.inputs : {}) as Record<string, number>;
     return NextResponse.json(aiReadinessScore(inputs));
   }
-  return NextResponse.json({ error: "Unknown action — use intent, score or aiReadiness" }, { status: 400 });
+  if (action === "dominanceScore") {
+    const inputs = (body.inputs && typeof body.inputs === "object" ? body.inputs : {}) as Record<string, number>;
+    return NextResponse.json(dominanceScore(inputs));
+  }
+  return NextResponse.json({ error: "Unknown action — use intent, score, aiReadiness or dominanceScore" }, { status: 400 });
 }

@@ -1434,3 +1434,24 @@ Verbatim source updated with §26–§31.
 | §29 Continuous Content Refresh | ✅ foundation | `/dashboard/content` (Content Factory); freshness triggers + actions defined. |
 | §30 Search Experimentation | 📘 blueprint | Controlled A/B on titles/CTAs/structure w/ version history + rollback; behind Change Control. |
 | §31 Search-Dominance AI Workforce (53 agents) | ✅ | Full roster defined (`SEARCH_WORKFORCE`, 9 divisions) and surfaced on `/dashboard/search-dominance`. Each agent maps to an engine module/capability; orchestration under operating modes + Approvals is the running layer (📘 for autonomous execution). |
+
+### §51 addendum 4 — Search Dominance §32–§42 (spec COMPLETE, §1–§42)
+
+Full verbatim source captured. Governance, data model, guardrails, phases, MVP and positioning folded in.
+
+| Item | Coverage | Notes |
+|---|---|---|
+| §32 Agent Decision Hierarchy | ✅ | Commander→teams→prioritised actions→approval/automation→measurement; "no vanity metric over revenue/trust/safety" enforced by guardrails. |
+| §33 Permissions & Safety | ✅ | `RISK_TIERS` (low/medium/high) surfaced; binds to the Approvals engine. |
+| §34 Command Centre | ✅ 📦 | `EXECUTIVE_METRICS` listed + daily-priority concept; live figures fill from GSC/analytics (connect). |
+| §35 Search Dominance Score (0–100) | ✅ | `dominanceScore()` — 14 transparent components, weakest-5 → recommended action; live tool. Cost/revenue estimates attach only with a connected source. |
+| §36 Required Integrations | 📦 | Registry captured (GSC/GA/Bing/IndexNow/GBP/Merchant/YouTube; CMS platforms; MW infra). Each is a "connect a source". |
+| §37 Developer Architecture | 📘 | Service topology recorded (crawler→ingestion→knowledge graph→Commander→agents→approval→CMS gateway→attribution). |
+| §38 Core Data Model | ✅ | `SearchOpportunity` type shipped (intents + full lifecycle statuses). |
+| §39 Non-Negotiable Rules | ✅ | `GUARDRAILS` (15) surfaced verbatim; align with the platform honesty doctrine (no guaranteed rankings / fake links / fake reviews / cloaking / unpermitted changes / visibility≠revenue). |
+| §40 Activation Phases | ✅ | `ACTIVATION_PHASES` (P1–P5) surfaced as the rollout roadmap. |
+| §41 MVP Acceptance Criteria | ✅ 📦 | `MVP_CRITERIA` (17) surfaced as definition-of-done; each item is a build gated on the relevant integration. |
+| §42 Final Positioning | ✅ | `FINAL_POSITIONING` (master/punchy/competitor/AI/standard) surfaced. Module is the OS's permanent organic customer-acquisition division. |
+
+Spec §1–§42 fully imported (`docs/reference/dynamic-search-dominance-engine.md`),
+mapped to code/live/connect/blueprint, honesty enforced throughout, build green.
