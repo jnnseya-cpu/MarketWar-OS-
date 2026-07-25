@@ -118,7 +118,29 @@ async function veoStart(prompt: string): Promise<StartResult> {
   }
   return { error: `No usable Veo model for your key. Tried ${ordered.join(", ")}. Last: ${lastErr}. Set GEMINI_VIDEO_MODEL to a Veo model your account/region can access.` };
 }
-async function veoPoll(op: string): Promise<{ done: boolean; url?: string; bytes?: Buffer }> {
+// Dig the video out of Veo's long-running-operation response. Google has shipped
+// several response shapes across model versions, and the clip may be a fetchable
+// URI OR inline base64 — handle them all so a finished render actually yields bytes.
+function extractVeoVideo(resp: unknown): { uri?: string; b64?: string } {
+  const r = (resp || {}) as Record<string, unknown>;
+  const paths: unknown[] = [
+    (r.generateVideoResponse as Record<string, unknown> | undefined)?.generatedSamples,
+    (r.generateVideoResponse as Record<string, unknown> | undefined)?.videos,
+    r.generatedVideos, r.generatedSamples, r.videos, r.samples,
+  ];
+  for (const arr of paths) {
+    const first = Array.isArray(arr) ? (arr[0] as Record<string, unknown> | undefined) : undefined;
+    if (!first) continue;
+    const video = (first.video as Record<string, unknown> | undefined) ?? first;
+    const uri = video?.uri ?? video?.videoUri ?? first.uri;
+    const b64 = video?.bytesBase64Encoded ?? first.bytesBase64Encoded ?? video?.videoBytes;
+    if (typeof b64 === "string" && b64) return { b64 };
+    if (typeof uri === "string" && uri) return { uri };
+  }
+  return {};
+}
+
+async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { done: false };
   try {
@@ -126,8 +148,12 @@ async function veoPoll(op: string): Promise<{ done: boolean; url?: string; bytes
     if (!res.ok) return { done: false };
     const data = await res.json().catch(() => null);
     if (!data?.done) return { done: false };
-    const uri = data?.response?.generatedVideos?.[0]?.video?.uri || data?.response?.videos?.[0]?.uri;
-    if (typeof uri === "string") { const v = await fetch(uri.includes("key=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}key=${key}`); return { done: true, bytes: Buffer.from(await v.arrayBuffer()) }; }
+    const { uri, b64 } = extractVeoVideo(data.response);
+    if (b64) return { done: true, bytes: Buffer.from(b64, "base64") };
+    if (uri) {
+      const v = await fetch(uri.includes("key=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}key=${key}`);
+      if (v.ok) return { done: true, bytes: Buffer.from(await v.arrayBuffer()) };
+    }
     return { done: true };
   } catch { return { done: false }; }
 }
