@@ -19,6 +19,40 @@ export function storageConfigured(): boolean {
   return Boolean(adminStorage && BUCKET);
 }
 
+// Live self-diagnostic: actually write a tiny object and read it back, surfacing
+// Google's exact error if it fails (permissions, wrong bucket, uniform-access).
+// This catches what storageConfigured() can't — creds present but upload denied.
+export async function probeStorage(): Promise<{
+  configured: boolean; bucket: string; ran: boolean; ok?: boolean; url?: string; readable?: boolean; error?: string; fix?: string;
+}> {
+  if (!adminStorage || !BUCKET) {
+    return { configured: false, bucket: BUCKET || "(none)", ran: false,
+      fix: !BUCKET ? "No storage bucket set — set FIREBASE_STORAGE_BUCKET (or NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) in Vercel." : "Firebase Admin isn't initialised — set FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY." };
+  }
+  try {
+    const bucket = adminStorage.bucket(BUCKET);
+    const path = "health/storage-probe.txt";
+    const file = bucket.file(path);
+    const token = "healthprobe";
+    await file.save(Buffer.from(`ok ${new Date().toISOString()}`), {
+      contentType: "text/plain", resumable: false,
+      metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+    });
+    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+    let readable = false;
+    try { const r = await fetch(url); readable = r.ok; } catch { /* network */ }
+    return { configured: true, bucket: BUCKET, ran: true, ok: true, url, readable };
+  } catch (e) {
+    const msg = (e as Error).message || "unknown error";
+    const m = msg.toLowerCase();
+    let fix = "Read the raw error above — it's Google's verbatim reason.";
+    if (m.includes("does not exist") || m.includes("notfound") || m.includes("no such bucket")) fix = "The bucket name is wrong or the bucket doesn't exist. Confirm it in Firebase → Storage (usually <project>.appspot.com or <project>.firebasestorage.app) and set FIREBASE_STORAGE_BUCKET to match.";
+    else if (m.includes("permission") || m.includes("forbidden") || m.includes("403") || m.includes("iam")) fix = "The service account lacks Storage permission. In Google Cloud → IAM, give the Firebase Admin service account the 'Storage Admin' (or Object Admin) role.";
+    else if (m.includes("billing")) fix = "Storage needs billing enabled (Blaze plan) on the Firebase project.";
+    return { configured: true, bucket: BUCKET, ran: true, ok: false, error: msg, fix };
+  }
+}
+
 // Deterministic FNV-1a hash → stable object name for identical content (so the
 // same creative re-uploads to the same path rather than piling up duplicates).
 function hash(s: string): string {

@@ -140,7 +140,7 @@ function extractVeoVideo(resp: unknown): { uri?: string; b64?: string } {
   return {};
 }
 
-async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer }> {
+async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer; diag?: string }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { done: false };
   try {
@@ -148,14 +148,21 @@ async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer }> {
     if (!res.ok) return { done: false };
     const data = await res.json().catch(() => null);
     if (!data?.done) return { done: false };
+    // A finished operation can carry an error (safety block, quota, etc.) instead
+    // of a video — surface it verbatim so the real cause is visible.
+    if (data.error) return { done: true, diag: `Veo operation error: ${safeReason(JSON.stringify(data.error))}` };
     const { uri, b64 } = extractVeoVideo(data.response);
     if (b64) return { done: true, bytes: Buffer.from(b64, "base64") };
     if (uri) {
       const v = await fetch(uri.includes("key=") ? uri : `${uri}${uri.includes("?") ? "&" : "?"}key=${key}`);
       if (v.ok) return { done: true, bytes: Buffer.from(await v.arrayBuffer()) };
+      return { done: true, diag: `Found the video URI but downloading it returned HTTP ${v.status}.` };
     }
-    return { done: true };
-  } catch { return { done: false }; }
+    // No video field found — report the actual response shape so it can be mapped.
+    const keys = Object.keys((data.response as Record<string, unknown>) || {});
+    const inner = keys.length ? keys.map((k) => { const v = (data.response as Record<string, unknown>)[k]; return `${k}:${Array.isArray(v) ? `[${v.length}]` : typeof v}`; }).join(", ") : "(empty response)";
+    return { done: true, diag: `Veo returned no recognisable video field. Response shape: { ${inner} }.` };
+  } catch (e) { return { done: false, diag: e instanceof Error ? e.message : "poll error" }; }
 }
 async function soraStart(prompt: string): Promise<StartResult> {
   const key = process.env.OPENAI_API_KEY;
@@ -244,11 +251,14 @@ export async function getVideoRender(jobId: string): Promise<VideoJob | { error:
     const url = await uploadPublicMedia(poll.bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}` });
     if (url) { job.status = "ready"; job.videoUrl = url; job.note = "Rendered — hosted MP4 ready to attach to a post."; await saveJob(job); return job; }
   }
-  // Rendered but no Storage to host it (or no bytes) — honest terminal state.
+  // Rendered but no Storage to host it (or no bytes) — honest terminal state,
+  // now with the real diagnostic instead of a vague message.
   job.status = poll.bytes ? "failed" : "ready";
-  job.note = poll.bytes
-    ? "Rendered, but Firebase Storage is not configured to host the MP4 — set the Storage secrets to attach video to posts."
-    : "Render finished. The provider returned no downloadable asset in this environment.";
+  if (poll.bytes) {
+    job.note = "Rendered, but the hosted upload didn't return a URL — check Firebase Storage (bucket + admin creds). Probe /api/health/storage for a green/red readout.";
+  } else {
+    job.note = `Render finished but no video came back. ${(poll as { diag?: string }).diag || "The provider returned no downloadable asset."} Send me this line and I'll map it exactly.`;
+  }
   await saveJob(job);
   return job;
 }
