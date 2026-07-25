@@ -82,6 +82,7 @@ export const NAV = [
       // is reachable from a cross-link on the OS page — merged, nothing lost.
       { href: "/dashboard/organic-dominance", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/search-dominance", label: "Search Dominance Engine", icon: Search },
+      { href: "/dashboard/omnirank", label: "OMNIRANK Dominion", icon: Crosshair },
       { href: "/dashboard/warfare", label: "Campaign Warfare (Autopilot)", icon: Swords },
       { href: "/dashboard/war-room", label: "Live Campaign Board", icon: Crosshair },
       { href: "/dashboard/campaigns", label: "Campaign Builder", icon: Rocket },

@@ -1455,3 +1455,34 @@ Full verbatim source captured. Governance, data model, guardrails, phases, MVP a
 
 Spec §1–§42 fully imported (`docs/reference/dynamic-search-dominance-engine.md`),
 mapped to code/live/connect/blueprint, honesty enforced throughout, build green.
+
+## §52 — OMNIRANK Dominion Stack (ES-05) — merged as the execution + defence layer
+
+Source (verbatim, immutable): `docs/reference/omnirank-dominion-stack-ES-05.md`.
+Extends the Search Dominance Engine (§51). White-hat only; honesty §12 aligns
+with the platform doctrine. Surfaced at `/dashboard/omnirank`.
+
+| Item | Coverage | Notes |
+|---|---|---|
+| §0/§12 Doctrine + Strategic Honesty | ✅ | Both "guarantees" and "nothing can guarantee #1" surfaced side-by-side; zero false ranking promises. |
+| MW-14 OMNIRANK Core | 📦 connect | Crawl mesh/entity graph/rank matrix/share-of-answer need crawl+rank+AI-citation sources. Link: organic-dominance. |
+| MW-15 Authority Warfare | 📦 connect | Five white-hat rails + toxic-link firewall; needs backlink/mention data. |
+| MW-16 Answer Capture (GEO/AEO) | ✅ foundation / 📦 | Ties to Search Dominance AI-readiness; live prompt monitoring = connect. |
+| MW-17 Content Velocity Forge | ✅ live | `/dashboard/content` + blog; human-gate publish. |
+| MW-18 Technical Supremacy | 📦 connect | `/dashboard/website-intel` (SiteRaid); CWV/log/schema need site access. |
+| MW-19 Social Signal Amplification | ✅ live | `/dashboard/amplify` + creator programme. |
+| MW-20 SERP Feature Sniper | 📦 connect | Needs SERP-feature data. |
+| MW-21 Competitor Displacement | ✅ live | `/dashboard/competitors`. |
+| MW-22 Rank Defence / Sentinel | ✅ foundation | Sentinel hard-block classes surfaced + enforced by doctrine/Approvals; algorithm/negative-SEO monitoring = connect. Link: reputation. |
+| §3 APEX Swarm (22 agents A24–A45) | ✅ | Full roster surfaced with module + function; Sentinel flagged. Autonomous execution = 📘 behind Approvals + Sentinel. |
+| §5 Opportunity Score / §9 Dominion Score | ✅ | `omnirankOpportunity()` (bounded Volume×Intent×Feature×Winnability÷Effort) + `dominionScore()` (5-vital composite) — live tool. |
+| §7 ACU economy + tiers | ✅ | Action→ACU table + SCOUT/RAIDER/WARLORD/DOMINION surfaced. |
+| §10 rollout / §11 success criteria | ✅ | 90-day phases + honest 90-day targets surfaced. |
+| §6/§8 architecture + API surface | 📘 | NestJS/Kafka/Neo4j/ClickHouse topology recorded as blueprint (portfolio stack); MarketWar surface is the honest command layer. |
+
+### §Gaps — pricing-law conflict (Additive-Only resolution)
+ES-05 §7 states a **66% gross-margin** target. The MarketWar **OWNER PRICING LAW**
+(CLAUDE.md) requires **margin never below 100%** (price ≥ 2× provider cost). Both
+kept per Additive-Only Law; **resolution: the ≥100% floor governs** — ACU→£ prices
+are set so every action clears the 2× floor, overriding the 66% figure. The ACU
+*consumption* table (action→ACU) is unchanged.
