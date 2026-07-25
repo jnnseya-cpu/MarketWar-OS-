@@ -246,15 +246,19 @@ export async function getVideoRender(jobId: string): Promise<VideoJob | { error:
   const poll = job.provider === "veo" ? await veoPoll(job.providerRef) : await soraPoll(job.providerRef);
   if (!poll.done) return job; // still rendering
 
+  // A real MP4 is never a few bytes — guard against an empty/placeholder blob
+  // being hosted as a "video" (which shows as a blank player).
+  const realVideo = Boolean(poll.bytes && poll.bytes.length >= 2048);
+
   // Completed — upload the MP4 to Storage so it has a hosted, attachable URL.
-  if (poll.bytes && storageConfigured()) {
-    const url = await uploadPublicMedia(poll.bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}` });
-    if (url) { job.status = "ready"; job.videoUrl = url; job.note = "Rendered — hosted MP4 ready to attach to a post."; await saveJob(job); return job; }
+  if (realVideo && storageConfigured()) {
+    const url = await uploadPublicMedia(poll.bytes!, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}` });
+    if (url) { job.status = "ready"; job.videoUrl = url; job.note = `Rendered — hosted MP4 (${Math.round(poll.bytes!.length / 1024)} KB) ready to attach.`; await saveJob(job); return job; }
   }
-  // Rendered but no Storage to host it (or no bytes) — honest terminal state,
-  // now with the real diagnostic instead of a vague message.
-  job.status = poll.bytes ? "failed" : "ready";
-  if (poll.bytes) {
+  // Rendered but no Storage to host it (or no usable bytes) — honest terminal
+  // state, now with the real diagnostic instead of a vague message.
+  job.status = realVideo ? "failed" : "ready";
+  if (realVideo) {
     job.note = "Rendered, but the hosted upload didn't return a URL — check Firebase Storage (bucket + admin creds). Probe /api/health/storage for a green/red readout.";
   } else {
     job.note = `Render finished but no video came back. ${(poll as { diag?: string }).diag || "The provider returned no downloadable asset."} Send me this line and I'll map it exactly.`;

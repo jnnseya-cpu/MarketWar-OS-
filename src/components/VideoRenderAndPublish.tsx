@@ -85,7 +85,8 @@ export default function VideoRenderAndPublish() {
           {job.status === "ready" && job.videoUrl && (
             <div>
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video src={job.videoUrl} controls className="mb-2 w-full max-w-sm rounded-lg border border-white/[0.08]" />
+              <video src={job.videoUrl} controls preload="metadata" className="mb-2 w-full max-w-sm rounded-lg border border-white/[0.08] bg-black" />
+              <p className="mb-2 text-[11px] text-slate-500">{job.note} · <a href={job.videoUrl} target="_blank" rel="noreferrer" className="font-semibold text-emerald-300 hover:text-emerald-200">Open / download the file ↗</a> <span className="text-slate-600">(if the player looks blank, open it directly to check the file)</span></p>
               <PublishToChannels defaultText={prompt} defaultMediaUrls={[job.videoUrl]} sourceLabel="video" />
             </div>
           )}

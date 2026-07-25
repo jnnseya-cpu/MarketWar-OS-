@@ -104,6 +104,7 @@ export default function PublishCenterPage() {
             <p className="text-sm font-semibold text-rose-300">Couldn&apos;t create the connect links</p>
             <p className="mt-1 text-[11px] text-slate-400">{link.note}</p>
             {link.diagnostic && <p className="mt-1 break-all text-[11px] text-slate-500">{link.diagnostic}</p>}
+            <p className="mt-2 border-t border-white/[0.06] pt-2 text-[11px] text-emerald-300">You don&rsquo;t have to connect to publish — compose below and use <span className="font-semibold">&ldquo;Post it yourself&rdquo;</span> to post from your own accounts with zero setup.</p>
           </div>
         )}
         {link && link.mode !== "live-error" && (
