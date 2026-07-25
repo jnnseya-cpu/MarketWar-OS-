@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (action === "search") {
     const icp = (body.icp as ICP) || buildICP({ product: typeof body.product === "string" ? body.product : "AI customer-acquisition OS" });
     const dealSize = typeof body.dealSizeGbp === "number" ? body.dealSizeGbp : 5000;
-    const found = searchProspects(icp, {
+    const found = await searchProspects(icp, {
       count: typeof body.count === "number" ? body.count : 8,
       industry: typeof body.industry === "string" ? body.industry : undefined,
       location: typeof body.location === "string" ? body.location : undefined,

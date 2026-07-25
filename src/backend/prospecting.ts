@@ -12,7 +12,9 @@ if (typeof window !== "undefined") {
 // interest for corporate subscribers, per ICO); personal business emails are
 // flagged as personal data with opt-out; nothing here scrapes private
 // individuals or invents a contact. Demo-safe (deterministic); a real provider
-// plugs in behind the same interface at go-live.
+// (Serper live Google data / Apollo contacts) plugs in behind the same interface.
+
+import { webSearch } from "@/backend/search";
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
 const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
@@ -93,11 +95,48 @@ export type Prospect = {
   isSample?: boolean; // true = illustrative, NOT a real contactable company
 };
 
-export function searchProspects(icp: ICP, opts: { count?: number; industry?: string; location?: string } = {}): { mode: "live" | "demo"; prospects: Prospect[]; note: string } {
+export async function searchProspects(icp: ICP, opts: { count?: number; industry?: string; location?: string } = {}): Promise<{ mode: "live" | "demo"; prospects: Prospect[]; note: string }> {
   const count = Math.min(opts.count ?? 8, 25);
   const industry = opts.industry || icp.bestIndustries[0];
   const location = opts.location || icp.bestRegions[0] || "United Kingdom";
-  const live = Boolean(process.env.APOLLO_API_KEY || process.env.SERPER_API_KEY);
+
+  // REAL companies from live Google data when a Serper key is set. We return real
+  // company names + websites; verified named-contact emails require an Apollo
+  // connection (flagged) — we NEVER invent a contact address. This is honest
+  // "live": it only claims live when a provider actually returned data.
+  if (process.env.SERPER_API_KEY) {
+    try {
+      const res = await webSearch({ query: `${industry} companies ${location}`, type: "search" });
+      const real = res.results.filter((r) => r.title && r.link).slice(0, count);
+      if (res.mode === "live" && real.length) {
+        const prospects: Prospect[] = real.map((r, i) => {
+          let domain = "";
+          try { domain = new URL(r.link as string).hostname.replace(/^www\./, ""); } catch { domain = ""; }
+          const k = seed(domain + i);
+          return {
+            companyName: r.title.replace(/\s*[|\-–—].*$/, "").trim().slice(0, 80) || r.title,
+            website: r.link as string, domain, industry, employeeCount: 0,
+            revenueEstimateGbp: 0, location,
+            contactEmail: "— connect Apollo for verified named contacts",
+            emailType: "generic",
+            phone: (r.extra?.phone as string) || "—",
+            contactTitle: pick(icp.bestJobTitles, k), seniority: "Decision-maker",
+            linkedinCompany: "",
+            technologies: [], hiringSignal: false, fundingSignal: false,
+            companyDescription: r.snippet || `${industry} company in ${location} (from live Google search).`,
+            lawfulBasis: "Real company from live search — approach a named decision-maker under legitimate interest with opt-out; obtain the contact via Apollo/LinkedIn, never invented.",
+            consentStatus: "not_contacted",
+            complianceFlags: ["real-company", "contact-via-apollo-or-linkedin"],
+            isSample: false,
+          };
+        });
+        return { mode: "live", prospects, note: `${prospects.length} REAL companies from live Google data for “${industry}” in ${location}. Names + websites are real; connect Apollo for verified named-contact emails — we never invent an address.` };
+      }
+    } catch { /* fall through to honest sample */ }
+  }
+
+  // No provider (or no usable live results) → clearly-labelled SAMPLE, never
+  // dressed up as "live".
   const s = seed(industry + location + icp.persona);
   const prospects: Prospect[] = Array.from({ length: count }, (_, i) => {
     const k = s + i * 2654435761;
@@ -126,11 +165,9 @@ export function searchProspects(icp: ICP, opts: { count?: number; industry?: str
     };
   });
   return {
-    mode: live ? "live" : "demo",
+    mode: "demo",
     prospects,
-    note: live
-      ? "Live prospects from your connected data source. Corporate/generic emails prioritised; personal business emails flagged as personal data (legitimate-interest + opt-out required)."
-      : "SAMPLE DATA — these are illustrative companies with redacted, non-contactable details (example.com, no real emails). They demonstrate the ICP + Deal Probability engine only. Connect a data provider (Apollo/Serper) for real, contactable prospects. We never invent real contact addresses.",
+    note: "SAMPLE DATA — illustrative companies with redacted, non-contactable details (example.com, no real emails). They demonstrate the ICP + Deal Probability engine only. Set SERPER_API_KEY for REAL companies from live Google data, or APOLLO_API_KEY for verified named contacts. We never invent real contact addresses.",
   };
 }
 

@@ -61,8 +61,25 @@ export default function FirstCustomerPage() {
   async function step2Leads() {
     setBusy("leads");
     try {
-      const out = await runAgent("lead-hunter", { business: form.business, product: form.product, targetCustomer: form.targetCustomer, location: form.location });
-      setLeads(out);
+      // Use the REAL lead engine (live Google Places via Serper) — real
+      // businesses when a data source is connected, honest "connect it" otherwise.
+      const category = form.targetCustomer || form.product || form.business;
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "leads", category, location: form.location }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed");
+      const rows: { name: string; website?: string; phone?: string; rating?: number; leadScore: number; flags: string[] }[] = Array.isArray(d.leads) ? d.leads : [];
+      let md = `## ${d.summary || "Prospects"}\n\n`;
+      if (d.mode === "live" && rows.length) {
+        md += "**REAL businesses from live Google data — highest-opportunity first.**\n\n";
+        md += "| Business | Website | Phone | Rating | Score | Flags |\n|---|---|---|---|---|---|\n";
+        md += rows.slice(0, 25).map((l) => `| ${l.name} | ${l.website || "none"} | ${l.phone || "—"} | ${l.rating ?? "—"} | ${l.leadScore} | ${(l.flags || []).join(", ")} |`).join("\n");
+        md += "\n\n**Score** = 0–100 opportunity (weaker/no web presence = higher). Research each and reach out from your own channels (consented).";
+      } else {
+        md += `_No live data source connected, so no real businesses are shown — inventing them would be fake._\n\n`;
+        md += `## Turn on real data (30 seconds)\nAdd **SERPER_API_KEY** (Serper.dev — cheap Google data) and this fills with REAL local businesses: name, website, phone, rating, opportunity score.\n\n`;
+        md += `## Or find them right now yourself\nGoogle Maps: **"${category} in ${form.location || "your area"}"** — the ones with **no website** or **few reviews** are your best first targets. LinkedIn for B2B by role + industry.`;
+      }
+      setLeads(md);
     } catch (e) { setLeads(`⚠️ ${e instanceof Error ? e.message : "Failed"}`); } finally { setBusy(null); }
   }
   async function step3Outreach() {
