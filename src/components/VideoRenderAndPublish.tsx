@@ -6,7 +6,7 @@
 // pipeline, job polling and post-attach are fully wired.
 
 import { useEffect, useRef, useState } from "react";
-import { Clapperboard, Loader2, Clock, AlertTriangle } from "lucide-react";
+import { Clapperboard, Loader2, Clock, AlertTriangle, Download, ExternalLink } from "lucide-react";
 import PublishToChannels from "@/components/PublishToChannels";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -85,8 +85,15 @@ export default function VideoRenderAndPublish() {
           {job.status === "ready" && job.videoUrl && (
             <div>
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video src={job.videoUrl} controls preload="metadata" className="mb-2 w-full max-w-sm rounded-lg border border-white/[0.08] bg-black" />
-              <p className="mb-2 text-[11px] text-slate-500">{job.note} · <a href={job.videoUrl} target="_blank" rel="noreferrer" className="font-semibold text-emerald-300 hover:text-emerald-200">Open / download the file ↗</a> <span className="text-slate-600">(if the player looks blank, open it directly to check the file)</span></p>
+              <video src={job.videoUrl} controls playsInline preload="metadata" className="mb-2 w-full max-w-md rounded-lg border border-white/[0.08] bg-black" />
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <a href={job.videoUrl} download className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"><Download className="h-3.5 w-3.5" /> Download MP4</a>
+                <a href={job.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white">Open in new tab <ExternalLink className="h-3 w-3" /></a>
+              </div>
+              <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+                {job.note} Clips are up to ~8&thinsp;s (the model&rsquo;s max per render) — stitch a few in the Video Editor for longer.{" "}
+                <span className="text-slate-400">To publish:</span> use the buttons below (the video is already attached), or <span className="text-slate-400">Download MP4</span> and upload it in each app. That storage link is the source file, not a public page — don&rsquo;t share it directly.
+              </p>
               <PublishToChannels defaultText={prompt} defaultMediaUrls={[job.videoUrl]} sourceLabel="video" />
             </div>
           )}

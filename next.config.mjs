@@ -9,14 +9,19 @@
 // Google Tag Manager / Analytics hosts — allowed so the site's own analytics
 // actually loads (previously the CSP blocked gtm.js on every page).
 const GA = "https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com";
+// Firebase Storage / Google user-content hosts — so hosted images AND rendered
+// video actually DISPLAY inline (previously blocked by default-src, so a hosted
+// MP4/image only opened via a direct link, not in the on-page player).
+const MEDIA = "https://firebasestorage.googleapis.com https://storage.googleapis.com https://*.googleusercontent.com";
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${GA}`,
+  `img-src 'self' data: blob: ${GA} ${MEDIA}`,
   "font-src 'self' data:",
+  `media-src 'self' blob: data: ${MEDIA}`,
   `connect-src 'self' https: ${GA}`,
-  "frame-src 'self' https://www.googletagmanager.com",
+  "frame-src 'self' https://www.googletagmanager.com https://www.youtube.com https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
