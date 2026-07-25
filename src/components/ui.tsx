@@ -28,6 +28,34 @@ export function PageHeader({
   );
 }
 
+// "How to use this page" — a consistent action strip. Every engine page carries
+// one so a user never has to hunt for what to do, where to type, or what to
+// upload. `does` = one plain line; `steps` = the numbered do-this-now flow (point
+// at the real controls); `connector` = the one honest line on what a connector adds.
+export function HowToUse({ does, steps, connector }: { does: string; steps: string[]; connector?: string }) {
+  return (
+    <div className="mb-6 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Start here</span>
+        <p className="text-xs font-semibold text-white">{does}</p>
+      </div>
+      <ol className="mt-2.5 grid gap-1.5 sm:grid-cols-3">
+        {steps.map((s, i) => (
+          <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-ink-950">{i + 1}</span>
+            <span>{s}</span>
+          </li>
+        ))}
+      </ol>
+      {connector && (
+        <p className="mt-2.5 border-t border-white/[0.06] pt-2 text-[11px] text-amber-300/80">
+          <span className="font-semibold">Unlocks more with a connector:</span> {connector}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function StatCard({
   label,
   value,

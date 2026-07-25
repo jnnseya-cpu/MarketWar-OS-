@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, Radar, Search, Gauge, ArrowRight, ShieldCheck, RefreshCcw, Wrench, Copy, Check } from "lucide-react";
-import { PageHeader, Pill } from "@/components/ui";
+import { PageHeader, Pill, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -115,6 +115,16 @@ export default function SearchDominancePage() {
         title="Be found first. Be trusted faster. Be recommended more."
         subtitle="The autonomous organic customer-acquisition engine — discovers demand, builds authority, improves the website, creates winning content, earns trusted citations, and converts search visibility into revenue."
         actions={<Pill tone="info">SEO · AI discovery · social search</Pill>}
+      />
+
+      <HowToUse
+        does="Win organic customers without paying for ads — generate real SEO assets now, and prioritise what to fix."
+        steps={[
+          "1. Press Generate my SEO assets below for copy-paste-ready schema, llms.txt and meta tags from your brand.",
+          "2. Classify any search query to see its intent, and score opportunities to rank them.",
+          "3. Score your brand on the Dominance components to get your weakest areas + the next action.",
+        ]}
+        connector="Google Search Console + analytics attach real rankings, clicks and revenue estimates to every recommendation."
       />
 
       {/* Honesty banner — no guaranteed rankings */}

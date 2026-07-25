@@ -1193,32 +1193,62 @@ This is an estimate from live/demo search signals, not a guarantee. Validate wit
       "Scans Google Maps/Places (Serper-style) to find local businesses by category and location, extracts name/website/phone/address/rating, scores each lead by opportunity (weak or missing website, poor rating, inactive presence) and drafts the outreach angle — turning the map into a scored, actionable lead list.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
-You are the AI LEAD HUNTER — the local B2B lead-discovery agent. You use the
-Places/Maps search layer to find businesses, then score each by the size of the
-digital gap you can fix (no website > poor rating > weak follow-up). Doctrine:
-outreach must be consented and lawful (GDPR/PECR) — you draft the angle, the
-consented sending path enforces the rest; never advise scraping personal data
-or spamming. Output:
-## Lead List (name · website/none · phone · rating · lead score · flags)
-## Highest-Opportunity Targets (the weak/no-web presences — the easiest wins)
+You are the AI LEAD HUNTER — the local lead-discovery agent. When a live
+Places/Maps data source is connected you return REAL businesses; when it is NOT,
+you must NOT invent specific company names, phone numbers or ratings — that would
+be fabricated data. Instead you hand the user the exact way to find real
+prospects themselves. Adapt entirely to the user's OWN industry and location —
+never assume restaurants, grills or one trade.
+
+HONESTY RULE (never broken): no made-up business names, phone numbers, addresses
+or star ratings. Any illustrative row must be clearly labelled as a FORMAT
+EXAMPLE, not a real lead.
+
+Explain the columns in one line so the list is readable: Score = 0–100
+opportunity (bigger digital gap you can fix = higher); Flags = the gaps found
+(no-web = no website, weak-social, poor-rating, slow-reply, healthy).
+
+Doctrine: outreach must be consented and lawful (GDPR/PECR) — you draft the
+angle, the consented sending path enforces the rest; never advise scraping
+personal data or spamming. Output:
+## How to read this (one line explaining Score + Flags)
+## Where to find them NOW (concrete, for the user's industry + area: exact Google Maps / directory / LinkedIn searches, communities, registers — the actual queries to run)
+## Lead List (only if a live source is connected — real name · website/none · phone · rating · score · flags; otherwise a single clearly-labelled FORMAT EXAMPLE row)
+## Highest-Opportunity Signals (which gaps mean the easiest wins for THIS business)
 ## Outreach Angles (per common gap: no website / poor rating / healthy)
 ## Compliance Note (consent + lawful-basis before any outreach send)`,
-    demoOutput: (i) => `## Lead List
-1. **Peckham ${(i.industry || "grill")} #2** — *no website* · +44 20 7xxx · ★3.6 — **lead score 92** · flags: no website, low rating.
-2. **Camden ${(i.industry || "grill")} #4** — *no website* · +44 20 7xxx · ★4.1 — **lead score 75** · flags: no website.
-3. **Hackney ${(i.industry || "grill")} #1** — example.co.uk · ★3.8 — **lead score 60** · flags: low rating (3.8).
-4. **Brixton ${(i.industry || "grill")} #3** — example.co.uk · ★4.7 — **lead score 40** · flags: healthy presence.
+    demoOutput: (i) => {
+      const target = i.targetCustomer || i.audience || `${i.industry || "your target"} businesses`;
+      const area = i.location || "your area";
+      return `## How to read this
+**Score** = 0–100 opportunity (the bigger the digital gap you can fix, the higher). **Flags** = what's missing (no-web = no website, weak-social, poor-rating, slow-reply, healthy).
 
-## Highest-Opportunity Targets
-The two *no-website* businesses (scores 92, 75) — they're effectively invisible online; a done-for-you landing page + Google Business fix is an easy, high-value win.
+_No live data source is connected, so no real businesses are shown — inventing names, phone numbers or ratings would be fake. Here is exactly how to pull a real list yourself in minutes, tailored to ${target} in ${area}._
+
+## Where to find them NOW
+- **Google Maps:** search "${i.industry || target} in ${area}", then open each result — the ones with **no website link** or **few reviews** are your highest-opportunity leads.
+- **Directories:** your industry's directories/registers for ${area} (trade bodies, chambers of commerce, marketplace listings).
+- **LinkedIn (for B2B):** filter by role + "${i.industry || target}" + ${area} to reach the decision-maker directly.
+- **Communities:** local Facebook/Reddit groups and forums where ${target} ask for recommendations.
+
+## Lead List
+_FORMAT EXAMPLE ONLY — not a real business. Connect a Places/Maps source (SERPER_API_KEY) to fill this with real, contactable leads:_
+
+| Business | Web | Phone | Rating | Score | Flags |
+|---|---|---|---|---|---|
+| _(a real ${i.industry || "local"} business appears here)_ | none | — | — | 92 | no-web, strong-rep |
+
+## Highest-Opportunity Signals
+For ${target}: **no website** and **no/low reviews** are the easiest, highest-value wins — those businesses are near-invisible in search, so a done-for-you page + Google Business fix moves them fast.
 
 ## Outreach Angles
-- **No website:** "You're invisible when locals search — here's a done-for-you page + Google Business fix."
+- **No website:** "You're invisible when people search — here's a done-for-you page + Google Business fix."
 - **Poor rating:** "Your rating is costing you customers — reputation recovery + review generation."
-- **Healthy:** "Even strong locals leak revenue on follow-up — a quick growth audit."
+- **Healthy:** "Even strong businesses leak revenue on follow-up — a quick growth audit."
 
 ## Compliance Note
-Outreach is consented + lawful-basis-tagged before any send (GDPR/PECR). This list is business-discovery intelligence; the sending path enforces suppression, unsubscribe and sending limits.`,
+Outreach is consented + lawful-basis-tagged before any send (GDPR/PECR). This is business-discovery intelligence; the sending path enforces suppression, unsubscribe and sending limits.`;
+    },
   },
   "reputation-guardian": {
     id: "reputation-guardian",

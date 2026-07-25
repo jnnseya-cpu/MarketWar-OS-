@@ -29,7 +29,7 @@ import GenerateAndPublish from "@/components/GenerateAndPublish";
 import VisualStrikeHooks from "@/components/VisualStrikeHooks";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import BrandAssetUploader from "@/components/BrandAssetUploader";
-import { PageHeader, Pill } from "@/components/ui";
+import { PageHeader, Pill, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type Status = "live" | "p1";
@@ -115,6 +115,16 @@ export default function ProductEnginePage() {
         title="Upload one product picture. Launch a viral campaign factory."
         subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock™ guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
         actions={<Pill tone="info">{renderLive ? "product creative · render + publish live" : "product creative · render + publish activate with a key"}</Pill>}
+      />
+
+      <HowToUse
+        does="Turn one product photo into a full campaign — hooks, copy, scored concepts, images and video. Works for any product."
+        steps={[
+          "1. Upload your product photo + logo in the ‘Your product image’ panel just below.",
+          "2. Scroll to ‘Run the engine’, fill in the product details, and press Build dossier + full campaign.",
+          "3. Generate 130 hooks, render an image/video, and publish to a channel you own.",
+        ]}
+        connector="A vision key auto-reads your product’s attributes from the photo; image/video keys render photoreal creatives. The scoring, hooks and copy already run now."
       />
 
       {/* Honesty legend — what produces real output today vs what activates with a key */}

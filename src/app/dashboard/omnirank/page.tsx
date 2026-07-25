@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, Crosshair, ShieldCheck, ShieldAlert, ArrowRight, Gauge, Swords } from "lucide-react";
-import { PageHeader, Pill } from "@/components/ui";
+import { PageHeader, Pill, HowToUse } from "@/components/ui";
 
 type Mod = { id: string; name: string; tagline: string; capabilities: string[]; status: "live" | "foundation" | "connect" | "blueprint"; route?: string };
 type Agent = { id: string; name: string; module: string; fn: string; sentinel?: boolean };
@@ -52,6 +52,16 @@ export default function OmnirankPage() {
         title="Own the search. Win the answer. Capture the customer."
         subtitle={info?.doctrine || "Manufacture the conditions under which a ranking is inevitable — then defend the position with automated counter-fire. White-hat only."}
         actions={<Pill tone="info">22 modules · 45 agents · 1 graph</Pill>}
+      />
+
+      <HowToUse
+        does="Your search-domination command centre. Some engines run now; others switch on when you connect a data source (each card tells you which)."
+        steps={[
+          "1. Use the live engines now — open Content Velocity, Social Amplification, Competitor Displacement and the SEO Workbench (green 'live' cards).",
+          "2. To turn on rank tracking, AI-citation and backlink modules, connect your site + Google Search Console (the 'connect a source' cards link there).",
+          "3. Score yourself with the Dominion Score below — it auto-fills with real figures once those sources are connected.",
+        ]}
+        connector="Google Search Console + a rank/backlink data source unlock the measurement modules — the strategy, content and defence engines already work."
       />
 
       {/* Strategic honesty */}

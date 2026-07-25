@@ -8,9 +8,11 @@ import Link from "next/link";
 import { Loader2, Sparkles, Trash2, Send, EyeOff, Copy, Check, ExternalLink } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
+import { useIsAdmin } from "@/frontend/use-is-admin";
 import type { BlogPost } from "@/shared/blog";
 
 export default function BlogStudioPage() {
+  const { isAdmin, ready: adminReady } = useIsAdmin();
   const [topic, setTopic] = useState("");
   const [category, setCategory] = useState("Growth");
   const [keywords, setKeywords] = useState("");
@@ -60,6 +62,25 @@ export default function BlogStudioPage() {
 
   const totalViews = posts.reduce((n, p) => n + (p.views || 0), 0);
   const published = posts.filter((p) => p.status === "published").length;
+
+  // Admin-only surface: the blog engine publishes to the PUBLIC marketing site,
+  // so only platform operators may generate/publish. Non-admins see a clear
+  // notice instead of a broken form (the API also enforces platform_admin).
+  if (adminReady && !isAdmin) {
+    return (
+      <div>
+        <PageHeader
+          kicker="SEO Blog Studio"
+          title="AI blog generator"
+          subtitle="This studio publishes to the MarketWar public marketing blog, so it's limited to platform administrators."
+        />
+        <div className="card border-amber-500/25 bg-amber-500/[0.05] p-5 text-sm text-amber-100/90">
+          <p className="font-semibold text-white">Admin-only tool</p>
+          <p className="mt-1 text-slate-300">The SEO Blog Studio writes articles to the company&rsquo;s public website, so it isn&rsquo;t part of your workspace. To generate SEO content for <span className="text-white">your own brand</span>, use the <span className="text-emerald-300">Content Factory</span> and the <span className="text-emerald-300">SEO Workbench</span> in Search Dominance — both produce copy-paste-ready, on-brand assets.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

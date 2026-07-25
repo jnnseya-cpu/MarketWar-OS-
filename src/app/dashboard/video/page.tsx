@@ -37,7 +37,7 @@ import AgentRunner from "@/components/AgentRunner";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import ScreenRecorder from "@/components/ScreenRecorder";
 import VideoEditor from "@/components/VideoEditor";
-import { PageHeader, Pill, ScoreBar, StatCard } from "@/components/ui";
+import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type Status = "live" | "p1";
@@ -199,6 +199,16 @@ export default function VideoWarRoomPage() {
         title="Turn one idea into global video campaigns"
         subtitle="Creation, editing, captions, translation, avatars, branding, repurposing and campaign launch — video as a weapon, not a file. Every asset ships with a tracked CTA into a channel you own."
         actions={<Pill tone="info">{renderLive ? "video render live (Veo / Sora)" : "video render · activate with a key"}</Pill>}
+      />
+
+      <HowToUse
+        does="Make, cut, caption and publish marketing videos. Most of it works in your browser right now — no key."
+        steps={[
+          "1. Record your screen or trim a clip in the panels below — nothing uploads, it stays on your device.",
+          "2. Use the Campaign agents (scripts, hooks, captions) and the Clip Lab to find your strongest moments.",
+          "3. Describe a video in AI Video Creator to render an MP4, then publish it to a channel you own.",
+        ]}
+        connector="AI rendering needs a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) model; avatars & dubbing need a talking-head / voice engine. Everything else is live now."
       />
 
       {/* Honesty legend — what computes real output today vs what needs the render farm */}

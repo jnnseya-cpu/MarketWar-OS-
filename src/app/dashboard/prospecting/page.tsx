@@ -5,12 +5,13 @@
 // Probability Score → outreach sequence. Wired to /api/prospecting. Demo-safe;
 // live data provider plugs in at go-live. Compliant-first (UK/EU B2B).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Crosshair, Building2, Send, ShieldCheck, Bookmark, BellRing, Bell, Play, Trash2 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
-import { PageHeader, Pill } from "@/components/ui";
+import { PageHeader, Pill, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { LEAD_TEMPLATES, type LeadTemplate } from "@/shared/lead-templates";
+import { industryPlaceholders, resolveIndustry } from "@/shared/industry";
 import ExportButton from "@/components/ExportButton";
 
 type ICP = { persona: string; bestJobTitles: string[]; bestIndustries: string[]; bestCompanySize: string; bestRegions: string[]; exclusionRules: string[]; scoringFormula: string; outreachAngle: string };
@@ -35,10 +36,14 @@ type SavedSearch = {
 
 export default function ProspectingPage() {
   const { activeBrand } = useActiveBrand();
-  const [product, setProduct] = useState("AI customer-acquisition OS");
-  const [industry, setIndustry] = useState("marketing services");
+  // Industry-neutral: examples and placeholders derive from the ACTIVE brand, not
+  // a hardcoded vertical. Fields start empty (with brand-aware placeholders) and
+  // prefill from the brand once it's loaded — the user's edits are never clobbered.
+  const ph = industryPlaceholders(activeBrand);
+  const [product, setProduct] = useState("");
+  const [industry, setIndustry] = useState("");
   const [dealSize, setDealSize] = useState(5000);
-  const [pain, setPain] = useState("wasted ad spend and no follow-up");
+  const [pain, setPain] = useState("");
   const [country, setCountry] = useState<string | undefined>(undefined);
   const [companySize, setCompanySize] = useState<string | undefined>(undefined);
   const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
@@ -51,6 +56,15 @@ export default function ProspectingPage() {
   const [saved, setSaved] = useState<SavedSearch[]>([]);
 
   const storeKey = `mw.leadSearches.${activeBrand?.id || "demo"}`;
+
+  // Prefill from the active brand once it's available (don't overwrite edits).
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || !activeBrand) return;
+    prefilled.current = true;
+    setProduct((v) => v || activeBrand.product || "");
+    setIndustry((v) => v || activeBrand.audience || activeBrand.industry || "");
+  }, [activeBrand]);
 
   useEffect(() => {
     try {
@@ -153,12 +167,23 @@ export default function ProspectingPage() {
         actions={<Pill tone="info">ICP · Deal Probability · compliant outreach</Pill>}
       />
 
+      <HowToUse
+        does="Turn what you sell into a scored list of businesses to approach, and a ready outreach sequence — for any industry."
+        steps={[
+          "1. Fill in what you sell, who you target, deal size and their pain (prefilled from your brand — edit freely).",
+          "2. Press Build ICP, then Find prospects to get scored companies + contacts.",
+          "3. Press Sequence on any prospect for a compliant multi-step message plan.",
+        ]}
+        connector="A B2B data provider (Apollo/Serper) turns the sample companies into real, contactable prospects."
+      />
+
       <div className="mb-6 card p-5">
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-1 flex items-center gap-2">
           <Bookmark className="h-4 w-4 text-emerald-400" />
-          <h3 className="font-display text-sm font-bold text-white">Saved search templates</h3>
-          <Pill tone="info">ready-made</Pill>
+          <h3 className="font-display text-sm font-bold text-white">Example searches — pick one, then edit for your industry</h3>
+          <Pill tone="info">examples</Pill>
         </div>
+        <p className="mb-3 text-[11px] text-slate-500">Starting points across different industries. Click one to load it, then change the product, target and titles to match what YOU sell — nothing here is fixed to one vertical.</p>
         <div className="grid gap-2 sm:grid-cols-2">
           {LEAD_TEMPLATES.map((t) => (
             <button
@@ -213,10 +238,10 @@ export default function ProspectingPage() {
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div><label className="label">What you sell</label><input className="input" value={product} onChange={(e) => setProduct(e.target.value)} /></div>
-          <div><label className="label">Target industry</label><input className="input" value={industry} onChange={(e) => setIndustry(e.target.value)} /></div>
+          <div><label className="label">What you sell</label><input className="input" value={product} onChange={(e) => setProduct(e.target.value)} placeholder={ph.product} /></div>
+          <div><label className="label">Target industry / customer</label><input className="input" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder={ph.audience} /></div>
           <div><label className="label">Deal size (£)</label><input className="input" type="number" value={dealSize} onChange={(e) => setDealSize(Number(e.target.value))} /></div>
-          <div><label className="label">Buyer pain point</label><input className="input" value={pain} onChange={(e) => setPain(e.target.value)} /></div>
+          <div><label className="label">Buyer pain point</label><input className="input" value={pain} onChange={(e) => setPain(e.target.value)} placeholder="the costly problem you solve for them" /></div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => { setActiveTemplate(null); void buildIcp(); }} disabled={busy === "icp"}>
@@ -305,12 +330,12 @@ export default function ProspectingPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <AgentRunner agentId="icp-architect" buttonLabel="Architect the ICP" fields={[
-          { key: "industry", label: "Target industry", defaultValue: "marketing services" },
-          { key: "location", label: "Location", defaultValue: "United Kingdom" },
+          { key: "industry", label: "Target industry / customer", defaultValue: activeBrand?.audience || resolveIndustry(activeBrand).audience },
+          { key: "location", label: "Location", defaultValue: activeBrand?.location || "your target market" },
         ]} />
         <AgentRunner agentId="outreach-commander" buttonLabel="Command the outreach" fields={[
-          { key: "industry", label: "Prospect industry", defaultValue: "hospitality" },
-          { key: "location", label: "Location", defaultValue: "London" },
+          { key: "industry", label: "Prospect industry", defaultValue: activeBrand?.audience || resolveIndustry(activeBrand).label },
+          { key: "location", label: "Location", defaultValue: activeBrand?.location || "your target market" },
         ]} />
       </div>
     </div>

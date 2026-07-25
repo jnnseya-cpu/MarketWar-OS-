@@ -94,7 +94,7 @@ export const NAV = [
       { href: "/dashboard/offers", label: "Offer Builder", icon: BadgePercent },
       // Content & creative.
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
-      { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText },
+      { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText, adminOnly: true },
       { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
       // Landing & publish.

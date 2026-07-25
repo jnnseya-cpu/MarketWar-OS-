@@ -73,19 +73,27 @@ async function loadJob(jobId: string): Promise<VideoJob | null> {
 // ---------------------------------------------------------------------------
 // Provider adapters (best-effort REST; defensive parsing; graceful failure).
 // ---------------------------------------------------------------------------
-async function veoStart(prompt: string): Promise<string | null> {
+// Trim + redact a provider error body to a short, safe reason (never leaks the key).
+function safeReason(s: string): string {
+  return s.replace(/key=[^&\s"]+/gi, "key=***").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+type StartResult = { ref: string } | { error: string };
+async function veoStart(prompt: string): Promise<StartResult> {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
+  if (!key) return { error: "No GEMINI_API_KEY set" };
   const model = process.env.GEMINI_VIDEO_MODEL || "veo-3.0-generate-preview";
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ instances: [{ prompt }] }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = safeReason(await res.text().catch(() => ""));
+      return { error: `Veo API ${res.status} (model ${model})${body ? ` — ${body}` : ""}` };
+    }
     const data = await res.json().catch(() => null);
-    return typeof data?.name === "string" ? data.name : null; // operations/....
-  } catch { return null; }
+    return typeof data?.name === "string" ? { ref: data.name } : { error: "Veo returned no operation handle" };
+  } catch (e) { return { error: `Veo request failed: ${e instanceof Error ? e.message : "network error"}` }; }
 }
 async function veoPoll(op: string): Promise<{ done: boolean; url?: string; bytes?: Buffer }> {
   const key = process.env.GEMINI_API_KEY;
@@ -100,19 +108,22 @@ async function veoPoll(op: string): Promise<{ done: boolean; url?: string; bytes
     return { done: true };
   } catch { return { done: false }; }
 }
-async function soraStart(prompt: string): Promise<string | null> {
+async function soraStart(prompt: string): Promise<StartResult> {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
+  if (!key) return { error: "No OPENAI_API_KEY set" };
   const model = process.env.OPENAI_VIDEO_MODEL || "sora-2";
   try {
     const res = await fetch("https://api.openai.com/v1/videos", {
       method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, prompt }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = safeReason(await res.text().catch(() => ""));
+      return { error: `Sora API ${res.status} (model ${model})${body ? ` — ${body}` : ""}` };
+    }
     const data = await res.json().catch(() => null);
-    return typeof data?.id === "string" ? data.id : null;
-  } catch { return null; }
+    return typeof data?.id === "string" ? { ref: data.id } : { error: "Sora returned no video id" };
+  } catch (e) { return { error: `Sora request failed: ${e instanceof Error ? e.message : "network error"}` }; }
 }
 async function soraPoll(id: string): Promise<{ done: boolean; bytes?: Buffer }> {
   const key = process.env.OPENAI_API_KEY;
@@ -144,14 +155,15 @@ export async function startVideoRender(input: { brandId: string; prompt: string 
     return job;
   }
 
-  const ref = provider === "veo" ? await veoStart(prompt) : await soraStart(prompt);
-  if (!ref) {
+  const started = provider === "veo" ? await veoStart(prompt) : await soraStart(prompt);
+  if (!("ref" in started)) {
+    const modelEnv = provider === "veo" ? (process.env.GEMINI_VIDEO_MODEL || "veo-3.0-generate-preview") : (process.env.OPENAI_VIDEO_MODEL || "sora-2");
     const job: VideoJob = { jobId, brandId, prompt, provider, status: "failed", mode: "live", videoUrl: null, providerRef: null,
-      note: `Could not start the ${provider} render — try again shortly.` };
+      note: `Couldn't start the ${provider} render. ${started.error}. Most likely the model isn't enabled on your key or region — confirm ${provider === "veo" ? "Veo" : "Sora"} access and that "${modelEnv}" is the correct model, or set ${provider === "veo" ? "GEMINI_VIDEO_MODEL" : "OPENAI_VIDEO_MODEL"} to a model your account can use.` };
     await saveJob(job);
     return job;
   }
-  const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: ref,
+  const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
     note: `Rendering via ${provider} — poll for the hosted MP4 (renders take up to a few minutes).` };
   await saveJob(job);
   return job;

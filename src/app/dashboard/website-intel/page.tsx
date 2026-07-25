@@ -29,8 +29,9 @@ import {
   Swords,
 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
-import { PageHeader, Pill, ScoreBar, StatCard } from "@/components/ui";
+import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { industryPlaceholders } from "@/shared/industry";
 
 type Status = "live" | "p1";
 
@@ -108,10 +109,13 @@ const AUTHS: { value: string; label: string }[] = [
 
 export default function WebsiteIntelPage() {
   const { activeBrand } = useActiveBrand();
-  const [website, setWebsite] = useState(activeBrand?.website || "yourbusiness.co.uk");
+  // Industry-neutral defaults: derive from the ACTIVE brand / its industry, never
+  // a hardcoded "Restaurant / Dine-in" vertical.
+  const ph = industryPlaceholders(activeBrand);
+  const [website, setWebsite] = useState(activeBrand?.website || "");
   const [business, setBusiness] = useState(activeBrand?.name || "");
-  const [category, setCategory] = useState(activeBrand?.industry || "Restaurant");
-  const [offers, setOffers] = useState(activeBrand?.offer || "Dine-in, Table booking, Private hire");
+  const [category, setCategory] = useState(activeBrand?.industry || ph.industry);
+  const [offers, setOffers] = useState(activeBrand?.offer || ph.offer);
   const [location, setLocation] = useState(activeBrand?.location || "");
   const [price, setPrice] = useState<"budget" | "mass" | "premium">("mass");
   const [authorisation, setAuthorisation] = useState("own");
@@ -180,6 +184,16 @@ export default function WebsiteIntelPage() {
         title="Paste an authorised URL. Launch a growth operation."
         subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA™, a Website Truth Layer™ that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
         actions={<Pill tone="info">website intelligence · deep crawler activates with a connector</Pill>}
+      />
+
+      <HowToUse
+        does="Turn your business into a full marketing audit + attack plan — works for any industry, no crawler needed."
+        steps={[
+          "1. Scroll to the Instant Marketing Audit and fill in your business, category and offers.",
+          "2. Set your authorisation basis and press Run instant audit.",
+          "3. Read your 6-part scores, Business DNA, the ranked Competitive Attack Map and Truth-Layer checks.",
+        ]}
+        connector="A robots-respecting crawler auto-reads a live URL (products, images, SEO) so you don't type it in — the intelligence itself already runs now."
       />
 
       {/* Honesty legend — what computes real output today vs what needs the crawler */}
@@ -251,7 +265,7 @@ export default function WebsiteIntelPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="label">Website URL</label>
-            <input className="input" value={website} onChange={(e) => setWebsite(e.target.value)} />
+            <input className="input" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="yourbusiness.com" />
           </div>
           <div>
             <label className="label">Business</label>
@@ -419,13 +433,13 @@ export default function WebsiteIntelPage() {
         agentId="website-intelligence"
         buttonLabel="Crawl + generate the strategy"
         fields={[
-          { key: "website", label: "Website URL", defaultValue: "yourbusiness.co.uk" },
-          { key: "business", label: "Business", defaultValue: "Your business" },
-          { key: "location", label: "Market", defaultValue: "Your location" },
+          { key: "website", label: "Website URL", defaultValue: activeBrand?.website || "yourbusiness.com" },
+          { key: "business", label: "Business", defaultValue: activeBrand?.name || "Your business" },
+          { key: "location", label: "Market", defaultValue: activeBrand?.location || "your market" },
           {
             key: "goal",
             label: "What should the strategy optimise for?",
-            defaultValue: "More direct WhatsApp orders and office catering leads — off the aggregator apps",
+            defaultValue: activeBrand?.goal || "More direct enquiries and sales from your own channels",
             textarea: true,
           },
         ]}

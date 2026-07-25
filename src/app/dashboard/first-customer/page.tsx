@@ -10,7 +10,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Building2, BadgePercent, Users, MessageCircle, Link2, Loader2, Copy, Check, Rocket, ArrowRight, Send } from "lucide-react";
-import { AgentMarkdown, PageHeader, Pill } from "@/components/ui";
+import { AgentMarkdown, PageHeader, Pill, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults } from "@/shared/brand";
@@ -102,6 +102,15 @@ export default function FirstCustomerPage() {
         title="Zero to your first paying customer — no ads"
         subtitle="One sitting, five moves: engineer the offer, find who to reach, write the outreach, mint a payment link. Owned channels only — no Meta, Google or TikTok spend. Send from your own WhatsApp/email; drop the link when they say yes."
         actions={activeBrand ? <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-ink-900/60 px-3 py-1.5 text-xs text-slate-300"><Building2 className="h-3.5 w-3.5" style={{ color: activeBrand.color }} /> {activeBrand.name}</span> : <Pill tone="info">Add a brand to attribute the sale</Pill>}
+      />
+
+      <HowToUse
+        does="Go from nothing to a paying customer in one sitting — no ad spend, works for any business."
+        steps={[
+          "1. Fill in the basics below (name, what you sell, price).",
+          "2. Run each step in order: offer → prospects → messages → payment link.",
+          "3. Send the messages from your own WhatsApp/email; drop the link when they say yes.",
+        ]}
       />
 
       {/* Setup */}
