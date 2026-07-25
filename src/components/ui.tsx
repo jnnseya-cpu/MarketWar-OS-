@@ -43,7 +43,8 @@ export function HowToUse({ does, steps, connector }: { does: string; steps: stri
         {steps.map((s, i) => (
           <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-ink-950">{i + 1}</span>
-            <span>{s}</span>
+            {/* The badge is the number — strip any leading "1." a caller included. */}
+            <span>{s.replace(/^\s*\d+[.)]\s*/, "")}</span>
           </li>
         ))}
       </ol>
