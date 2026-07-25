@@ -315,9 +315,14 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                 {error && (
                   <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                     <p>{error}</p>
-                    <a href="/api/health/auth" target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-block font-semibold text-rose-200 underline hover:text-white">
-                      Run the auth diagnostic → (opens the exact cause)
-                    </a>
+                    {/* The internal auth diagnostic is an OPERATOR tool — only surface it
+                        for genuine configuration/outage errors, never for a normal wrong
+                        password (a customer must never see internal diagnostics). */}
+                    {/(configuration|internal|api[- ]?key|operation-not-allowed|not enabled|unavailable|temporarily|network)/i.test(error) && (
+                      <a href="/api/health/auth" target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-block font-semibold text-rose-200 underline hover:text-white">
+                        Run the auth diagnostic →
+                      </a>
+                    )}
                   </div>
                 )}
                 {notice && (
