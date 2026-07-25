@@ -57,7 +57,7 @@ async function ensureProfile(brandId: string, brandName?: string): Promise<{ pro
     if (!res.ok) {
       // Billing limit is a Zernio-account action, not a code bug — say so plainly.
       if (res.status === 402 || /payment_required|free_tier_exceeded|payment method/i.test(raw)) {
-        return { profileId: null, error: "Zernio free tier reached (2 connected accounts). Add a payment method on the MarketWar Zernio account to connect more brands' socials — see https://docs.zernio.com/billing/payments. No code change needed." };
+        return { profileId: null, error: "Publishing is set up and working — but the platform's Zernio account is on the free tier (2 connected social accounts total). To connect more brands' socials, the platform owner adds a payment method in the Zernio dashboard (zernio.com → Billing). No code change needed; publishing resumes immediately after." };
       }
       return { profileId: null, error: `Zernio POST /v1/profiles → HTTP ${res.status}. ${raw.slice(0, 180)}` };
     }
