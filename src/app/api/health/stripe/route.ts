@@ -16,7 +16,8 @@ export async function GET() {
     STRIPE_WEBHOOK_SECRET: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY),
   };
-  const keyMode = secret.startsWith("sk_live") ? "live" : secret.startsWith("sk_test") ? "test" : secret ? "unknown" : "none";
+  // Recognise both standard (sk_) and restricted (rk_) keys, live vs test.
+  const keyMode = /^(sk|rk)_live/.test(secret) ? "live" : /^(sk|rk)_test/.test(secret) ? "test" : secret ? "unknown" : "none";
 
   let probe: Record<string, unknown> = { ran: false, note: "No STRIPE_SECRET_KEY — payments run in demo mode (no real charges)." };
   if (secret) {
@@ -30,13 +31,18 @@ export async function GET() {
     } catch (e) { probe = { ran: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach Stripe — a network/egress issue on the host." }; }
   }
 
+  const webhook = present.STRIPE_WEBHOOK_SECRET;
   const verdict = !secret
     ? "RED — no Stripe key; cannot take payment (demo mode)."
     : !(probe as { ok?: boolean }).ok
       ? "RED — Stripe key present but rejected (see fix)."
       : keyMode === "live"
-        ? (present.STRIPE_WEBHOOK_SECRET ? "GREEN — live key + webhook secret set. You can take real payments and revenue auto-attributes." : "AMBER — live key works, but STRIPE_WEBHOOK_SECRET is missing: payments will charge, but subscriptions/credits won't auto-activate until the webhook is configured (Stripe → Developers → Webhooks → add /api/webhooks/stripe).")
-        : "AMBER — key works but is in TEST mode. Set a LIVE key to take real money.";
+        ? (webhook
+            ? "GREEN — live key + webhook secret set. You can take real payments and revenue auto-attributes."
+            : "AMBER — live key charges for real, but STRIPE_WEBHOOK_SECRET is missing, so subscriptions/credits won't auto-activate on payment. Add the webhook: Stripe → Developers → Webhooks → add endpoint /api/webhooks/stripe → copy its signing secret.")
+      : keyMode === "test"
+        ? "AMBER — key works but is a TEST key (no real money). Set a LIVE key to charge."
+        : `AMBER — key valid but its mode couldn't be determined (likely a restricted key). If it's a LIVE key you can charge${webhook ? "" : "; also set STRIPE_WEBHOOK_SECRET so subscriptions/credits auto-activate"}. If it's a TEST key, no real money moves.`;
 
   return NextResponse.json({ service: "stripe", verdict, keyMode, present, probe });
 }
