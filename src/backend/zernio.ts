@@ -19,6 +19,7 @@ if (typeof window !== "undefined") {
 
 import { quoteAcu } from "@/backend/acu";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { publishNativeMeta, type MetaPostResult } from "@/backend/meta-publish";
 
 // Zernio API base — the docs' base is https://zernio.com/api/v1, so paths here
 // start with "/v1/…". Auth is `Authorization: Bearer sk_…` (set below).
@@ -310,6 +311,44 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
 
   const scheduledFor = input.scheduleAt && /\d{4}-\d{2}-\d{2}/.test(input.scheduleAt) ? input.scheduleAt : null;
 
+  // ---- Native-first: publish Facebook/Instagram through our OWN Meta connector
+  // (Graph API) when the brand has connected it — zero vendor cost, best margin.
+  // Only for immediate posts; scheduled posts fall through to Zernio (which owns
+  // scheduling). Whatever Meta handles is removed from the Zernio target list.
+  let nativeResults: MetaPostResult[] = [];
+  let nativeHandled: string[] = [];
+  if (!scheduledFor) {
+    try {
+      const nm = await publishNativeMeta({ brandId: input.brandId, text: bodyText, platforms, mediaUrls: media });
+      if (nm) { nativeResults = nm.results; nativeHandled = nm.handled; }
+    } catch { /* native failure shouldn't break the whole publish */ }
+  }
+  const nativeOk = nativeResults.filter((r) => r.ok).map((r) => r.platform);
+  const nativeNote = nativeResults.length
+    ? ` Native Meta: ${nativeOk.length ? `posted to ${nativeOk.join(", ")}` : "no post"}${nativeResults.filter((r) => !r.ok).map((r) => `; ${r.platform} failed — ${r.error}`).join("")}.`
+    : "";
+  const remaining = platforms.filter((p) => !nativeHandled.includes(p));
+
+  // Everything requested was handled natively — return the Meta-only outcome.
+  if (nativeHandled.length && !remaining.length) {
+    const anyOk = nativeOk.length > 0;
+    return {
+      mode: "live", status: anyOk ? "published" : "blocked",
+      postId: nativeResults.find((r) => r.ok)?.postId || null,
+      platforms: nativeOk, compliance, watermarked: watermark, scheduledFor: null,
+      mediaCount: media.length, droppedMedia,
+      note: `${anyOk ? "Posted natively to Meta (your own connector — no vendor)." : "Native Meta publish failed."}${nativeNote}${mediaNote}`.trim(),
+    };
+  }
+
+  // Merge native results into whatever the Zernio/manual path returns for the rest.
+  const withNative = (base: PublishResult): PublishResult => {
+    if (!nativeHandled.length) return base;
+    const platformsOut = [...nativeOk, ...base.platforms];
+    const status: PublishResult["status"] = base.status === "blocked" && nativeOk.length ? "published" : base.status;
+    return { ...base, platforms: platformsOut, status, mode: nativeOk.length ? "live" : base.mode, note: `${base.note}${nativeNote}`.trim() };
+  };
+
   if (zernioConfigured()) {
     try {
       // Resolve the brand's Zernio profile + its connected accounts, then map
@@ -317,10 +356,10 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
       // Zernio's POST /v1/posts requires (bare platform strings are rejected).
       const { profileId, error: profErr } = await ensureProfile(input.brandId, undefined);
       if (!profileId) {
-        return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Couldn't reach the brand's publishing profile. ${profErr ?? ""}`.trim() };
+        return withNative({ mode: "live", status: "blocked", postId: null, platforms: remaining, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Couldn't reach the brand's publishing profile. ${profErr ?? ""}`.trim() });
       }
       const accounts = await listAccounts(profileId);
-      const targets = platforms
+      const targets = remaining
         .map((p) => {
           const slug = toZernioSlug(p);
           const acct = accounts.find((a) => a.platform === slug || a.platform === p);
@@ -329,9 +368,9 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         .filter((t): t is { platform: string; accountId: string } => Boolean(t));
 
       if (targets.length === 0) {
-        const want = platforms.join(", ");
+        const want = remaining.join(", ");
         const have = accounts.map((a) => a.platform).join(", ") || "none";
-        return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `No connected account for ${want} on this brand yet (connected: ${have}). Open “Connect socials”, authorise the account, then publish.` };
+        return withNative({ mode: "live", status: "blocked", postId: null, platforms: remaining, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `No connected account for ${want} on this brand yet (connected: ${have}). Open “Connect socials”, authorise the account, then publish.` });
       }
 
       const res = await zernioFetch("/v1/posts", {
@@ -349,32 +388,33 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         const post = (data as { post?: { _id?: string; status?: string } }).post;
         const postId = post?._id || pick(data, ["_id", "id", "postId"]) || null;
         const sentPlatforms = targets.map((t) => t.platform);
-        return { mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms: sentPlatforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Sent to Zernio for ${sentPlatforms.join(", ")}.${mediaNote}` };
+        return withNative({ mode: "live", status: scheduledFor ? "scheduled" : "published", postId, platforms: sentPlatforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Sent to Zernio for ${sentPlatforms.join(", ")}.${mediaNote}` });
       }
       // Non-2xx — surface the real cause.
       const isPlatformErr = /platforms?\.\d|platform.*invalid|invalid.*platform|account/i.test(raw);
       const note = isPlatformErr
         ? `Zernio rejected the target account (HTTP ${res.status}). Reconnect the brand's socials and try again. ${raw.slice(0, 140)}`
         : `Zernio rejected the post (HTTP ${res.status}). ${raw.slice(0, 160)}`;
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note };
+      return withNative({ mode: "live", status: "blocked", postId: null, platforms: remaining, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note });
     } catch (e) {
-      return { mode: "live", status: "blocked", postId: null, platforms, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Could not reach Zernio — the post was not sent (${(e as Error).message}). Try again shortly.` };
+      return withNative({ mode: "live", status: "blocked", postId: null, platforms: remaining, compliance, watermarked: watermark, scheduledFor, mediaCount: media.length, droppedMedia, note: `Could not reach Zernio — the post was not sent (${(e as Error).message}). Try again shortly.` });
     }
   }
 
-  // Demo — deterministic simulated accept, so the flow is fully testable offline.
-  return {
+  // Demo — deterministic simulated accept for the platforms Meta didn't handle,
+  // so the flow is fully testable offline. Native Meta results are merged in.
+  return withNative({
     mode: "demo",
     status: scheduledFor ? "scheduled" : "published",
-    postId: `demo_${demoToken(input.brandId + platforms.join(","))}`.slice(0, 20),
-    platforms,
+    postId: `demo_${demoToken(input.brandId + remaining.join(","))}`.slice(0, 20),
+    platforms: remaining,
     compliance,
     watermarked: watermark,
     scheduledFor,
     mediaCount: media.length,
     droppedMedia,
-    note: `Demo publish — passed the compliance gate and carried the AI-content watermark.${mediaNote} With ZERNIO_API_KEY set this posts to the connected channels for real.`,
-  };
+    note: `Demo publish for ${remaining.join(", ") || "no channel"} — passed the compliance gate and carried the AI-content watermark.${mediaNote} With ZERNIO_API_KEY set this posts to the connected channels for real.`,
+  });
 }
 
 // ---------------------------------------------------------------------------

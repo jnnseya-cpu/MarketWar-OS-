@@ -130,6 +130,9 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
           </div>
           {!result.compliance.pass && <ul className="mt-2 list-disc pl-5 text-xs text-rose-300">{result.compliance.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
           <p className="mt-1.5 text-[11px] text-slate-500">{result.note}</p>
+          {result.status === "blocked" && /facebook|instagram|connected|connect/i.test(result.note) && (
+            <Link href="/dashboard/publish" className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#1877F2] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1568d8]">Connect Facebook &amp; Instagram →</Link>
+          )}
         </div>
       )}
 

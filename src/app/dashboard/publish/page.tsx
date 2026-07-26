@@ -6,12 +6,14 @@
 // compliance gate and carries the AI-content watermark. Wired to /api/zernio;
 // demo-safe with zero config, live the moment ZERNIO_API_KEY is set.
 
-import { useEffect, useState } from "react";
-import { Building2, Check, Copy, Link2, Loader2, Send, ShieldCheck, Clock } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Building2, Check, Copy, Link2, Loader2, Send, ShieldCheck, Clock, Facebook, Instagram, CheckCircle2, XCircle, Unlink } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { composerUrl } from "@/shared/social";
+
+type MetaStatus = { connected: boolean; pageName?: string; pageId?: string; igUsername?: string; igConnected: boolean; oauthConfigured?: boolean; tokenSource?: string };
 
 type Platform = { id: string; label: string };
 type Status = { configured: boolean; whiteLabel: boolean; platforms: Platform[]; billing: string; userAction: string; note: string };
@@ -39,12 +41,74 @@ export default function PublishCenterPage() {
   const [copied, setCopied] = useState(false);
   const [result, setResult] = useState<PublishResult | null>(null);
   const [busy, setBusy] = useState(false);
+  // Native Meta (Facebook Pages + Instagram Business) — our own connector.
+  const [meta, setMeta] = useState<MetaStatus | null>(null);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaMsg, setMetaMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [showToken, setShowToken] = useState(false);
+  const [pageId, setPageId] = useState("");
+  const [pageToken, setPageToken] = useState("");
 
   useEffect(() => {
     authedFetch("/api/zernio").then((r) => r.json()).then(setStatus).catch(() => {});
   }, []);
-  // Reset per-brand state when the active brand changes.
-  useEffect(() => { setLink(null); setResult(null); }, [activeBrand?.id]);
+
+  const loadMeta = useCallback(async (brandId: string) => {
+    try {
+      const r = await authedFetch("/api/meta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "status", brandId }) });
+      setMeta(await r.json());
+    } catch { setMeta(null); }
+  }, []);
+
+  // Reset per-brand state when the active brand changes; load Meta status.
+  useEffect(() => {
+    setLink(null); setResult(null); setMetaMsg(null);
+    if (activeBrand) loadMeta(activeBrand.id);
+  }, [activeBrand?.id, activeBrand, loadMeta]);
+
+  // Surface the OAuth callback outcome (?meta=connected|error) after returning
+  // from Facebook, then clean the URL.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const m = p.get("meta");
+    if (!m) return;
+    if (m === "connected") setMetaMsg({ text: `Connected${p.get("page") ? ` — ${p.get("page")}` : ""}. Facebook & Instagram now publish natively.`, error: false });
+    else if (m === "error") setMetaMsg({ text: `Couldn't connect: ${p.get("reason") || "unknown error"}`, error: true });
+    window.history.replaceState({}, "", window.location.pathname);
+    if (activeBrand) loadMeta(activeBrand.id);
+  }, [activeBrand, loadMeta]);
+
+  async function connectFacebook() {
+    if (!activeBrand) return;
+    setMetaBusy(true); setMetaMsg(null);
+    try {
+      const r = await authedFetch("/api/meta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "oauth-url", brandId: activeBrand.id }) });
+      const d = await r.json();
+      if (r.ok && d.url) { window.location.href = d.url; return; }
+      setMetaMsg({ text: d.error || "Connect with Facebook isn't available — use the Page-token option.", error: true });
+      setShowToken(true);
+    } finally { setMetaBusy(false); }
+  }
+
+  async function connectWithToken() {
+    if (!activeBrand || !pageId.trim() || !pageToken.trim()) return;
+    setMetaBusy(true); setMetaMsg(null);
+    try {
+      const r = await authedFetch("/api/meta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect-token", brandId: activeBrand.id, pageId: pageId.trim(), pageAccessToken: pageToken.trim() }) });
+      const d = await r.json();
+      if (r.ok && d.ok) { setMeta(d.connection); setMetaMsg({ text: `Connected ${d.connection?.pageName || "your Page"}${d.connection?.igConnected ? ` + Instagram (@${d.connection.igUsername})` : ""}.`, error: false }); setPageId(""); setPageToken(""); setShowToken(false); }
+      else setMetaMsg({ text: d.error || "Couldn't connect — check the Page ID and token.", error: true });
+    } finally { setMetaBusy(false); }
+  }
+
+  async function disconnectMeta() {
+    if (!activeBrand) return;
+    setMetaBusy(true);
+    try {
+      await authedFetch("/api/meta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "disconnect", brandId: activeBrand.id }) });
+      setMeta({ connected: false, igConnected: false, oauthConfigured: meta?.oauthConfigured }); setMetaMsg({ text: "Disconnected.", error: false });
+    } finally { setMetaBusy(false); }
+  }
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -94,10 +158,60 @@ export default function PublishCenterPage() {
         }
       />
 
-      {/* Connect socials */}
+      {/* Native Meta — Facebook Pages + Instagram Business (our own connector) */}
+      <div className="mb-6 card border-sky-500/25 p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Facebook className="h-4 w-4 text-sky-400" /><Instagram className="h-4 w-4 text-pink-400" />
+          <h2 className="font-display font-bold text-white">Facebook &amp; Instagram — direct connect</h2>
+          <Pill tone="info">native · no vendor</Pill>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">The two channels that matter most publish through MarketWar&apos;s own Meta connector — best margin, no aggregator in the middle. Connect once; then just tick Facebook/Instagram below and publish.</p>
+
+        {meta?.connected ? (
+          <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.05] p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-300"><CheckCircle2 className="h-4 w-4" /> {meta.pageName || "Facebook Page"}</span>
+              {meta.igConnected ? (
+                <span className="inline-flex items-center gap-1 text-xs text-pink-300"><Instagram className="h-3.5 w-3.5" /> @{meta.igUsername}</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs text-amber-300"><XCircle className="h-3.5 w-3.5" /> No Instagram linked to this Page</span>
+              )}
+              <button onClick={disconnectMeta} disabled={metaBusy} className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-rose-300"><Unlink className="h-3.5 w-3.5" /> Disconnect</button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">Facebook posts natively. {meta.igConnected ? "Instagram posts natively when a creative image is attached (Instagram requires media)." : "Link an Instagram Business account to this Page in Meta Business settings, then reconnect, to post to Instagram."}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="btn-primary !bg-[#1877F2] hover:!bg-[#1568d8]" onClick={connectFacebook} disabled={metaBusy}>
+                {metaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Facebook className="h-4 w-4" />} Connect with Facebook
+              </button>
+              <button className="btn-ghost" onClick={() => setShowToken((v) => !v)}>Use a Page token instead</button>
+              {meta && meta.oauthConfigured === false && <span className="text-[11px] text-amber-400">One-click OAuth needs the Meta app keys — the Page-token option works today.</span>}
+            </div>
+            {showToken && (
+              <div className="rounded-lg border border-white/10 bg-ink-950/40 p-3">
+                <p className="mb-2 text-[11px] leading-relaxed text-slate-400">Paste a <span className="text-slate-200">Page access token</span> and its <span className="text-slate-200">Page ID</span> (from Meta Business settings / Graph API Explorer). This connects your own Page — no app review needed. The token is stored server-side and never shown again.</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input className="input" placeholder="Page ID (e.g. 1029384756)" value={pageId} onChange={(e) => setPageId(e.target.value)} />
+                  <input className="input" placeholder="Page access token" value={pageToken} onChange={(e) => setPageToken(e.target.value)} type="password" />
+                </div>
+                <button className="btn-primary mt-2" onClick={connectWithToken} disabled={metaBusy || !pageId.trim() || !pageToken.trim()}>{metaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Connect Page</button>
+              </div>
+            )}
+          </div>
+        )}
+        {metaMsg && (
+          <p className={`mt-3 flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium ${metaMsg.error ? "bg-rose-500/10 text-rose-300" : "bg-emerald-500/10 text-emerald-300"}`}>
+            {metaMsg.error ? <XCircle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />} {metaMsg.text}
+          </p>
+        )}
+      </div>
+
+      {/* Connect socials (Zernio — the long-tail channels + failover) */}
       <div className="mb-8 card p-5">
-        <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Connect {activeBrand.name}&apos;s socials</h2></div>
-        <p className="mb-3 text-xs text-slate-400">One click per network opens Zernio&apos;s hosted OAuth — the brand authorises their own account, no app review on our side. Once connected, publish below.</p>
+        <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Connect {activeBrand.name}&apos;s other channels</h2></div>
+        <p className="mb-3 text-xs text-slate-400">TikTok, YouTube, LinkedIn, X, Pinterest and more — one click per network opens Zernio&apos;s hosted OAuth (no app review on our side). Facebook &amp; Instagram are covered by the direct connector above; Zernio is their failover if the native post can&apos;t go.</p>
         <button className="btn-primary" onClick={connect} disabled={linkBusy}>{linkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} {link ? "Refresh connect links" : "Generate connect links"}</button>
         {link && link.mode === "live-error" && (
           <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/[0.06] p-3">
@@ -162,6 +276,11 @@ export default function PublishCenterPage() {
             </div>
             {!result.compliance.pass && <ul className="mt-2 list-disc pl-5 text-xs text-rose-300">{result.compliance.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
             <p className="mt-2 text-[11px] text-slate-500">{result.note}</p>
+            {result.status === "blocked" && !meta?.connected && /facebook|instagram|connected/i.test(result.note) && (
+              <button onClick={connectFacebook} disabled={metaBusy} className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#1877F2] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1568d8]">
+                <Facebook className="h-3.5 w-3.5" /> Connect Facebook &amp; Instagram now
+              </button>
+            )}
           </div>
         )}
 
