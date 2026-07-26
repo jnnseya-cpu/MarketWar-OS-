@@ -35,6 +35,11 @@ export type Contact = {
   area?: string;
   status?: string;         // e.g. "new" | "contacted" | "contactable"
   score?: number;
+  // Enrichment (discovered from the company's own website via live search).
+  website?: string;
+  emailConfidence?: string; // "high" | "medium" | "low"
+  enrichedAt?: string;
+  enrichNote?: string;
 };
 
 const mem = new Map<string, Map<string, Contact>>(); // brandId → (contactId → Contact)
@@ -97,6 +102,23 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
     mem.set(brandId, m);
   }
   return { imported: list.length, total: await countContacts(brandId) };
+}
+
+// Patch an EXISTING contact by its id (does NOT re-key). Used by enrichment to
+// attach a discovered email/phone/website onto a company-only prospect row while
+// keeping its original company-derived id — re-keying (id is email-derived) would
+// orphan the old doc and lose the imported prospect data.
+export async function patchContact(brandId: string, id: string, patch: Partial<Contact>): Promise<void> {
+  const clean: Partial<Contact> = {};
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined) (clean as Record<string, unknown>)[k] = v;
+  if (!Object.keys(clean).length) return;
+  if (adminConfigured && adminDb) {
+    await adminDb.collection("contacts").doc(docId(id)).set({ brandId, ...clean }, { merge: true });
+  } else {
+    const m = mem.get(brandId) ?? new Map<string, Contact>();
+    const existing = m.get(id);
+    if (existing) { m.set(id, { ...existing, ...clean }); mem.set(brandId, m); }
+  }
 }
 
 export async function listContacts(brandId: string, limit = 5000): Promise<Contact[]> {

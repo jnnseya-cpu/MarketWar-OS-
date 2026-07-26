@@ -8,7 +8,7 @@
 // are marketing-eligible downstream (email/WhatsApp/autopilot).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2, AlertTriangle, Mail, MessageCircle, Search, ExternalLink } from "lucide-react";
 import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -19,6 +19,9 @@ type Row = {
   id: string; name: string; segment: string; segmentLabel: string; spendGbp: number;
   orders: number; ltvGbp: number; churnRisk: number; purchaseIntent: number;
   lastOrderDaysAgo: number | null; consent: boolean;
+  email?: string | null; phone?: string | null; company?: string | null;
+  trade?: string | null; town?: string | null; status?: string | null;
+  website?: string | null; emailConfidence?: string | null;
 };
 type VaultReport = {
   business: string; live: boolean; contactCount: number; totalContacts: number; totalLtvGbp: number;
@@ -128,6 +131,24 @@ function parseCsv(text: string): ParsedContact[] {
   return rows.filter((r) => r.email || r.phone || r.name);
 }
 
+// One-click contact helpers. The email is prefilled but fully editable in the
+// user's own mail client (no send happens here — the user stays in control).
+function mailtoFor(r: Row, fromBrand: string): string {
+  const who = r.company || r.name || "there";
+  const trade = r.trade ? ` ${r.trade.toLowerCase()}` : "";
+  const town = r.town ? ` in ${r.town}` : "";
+  const subject = `Quick question for ${who}`;
+  const body = `Hi ${who},\n\nI came across your${trade} business${town} and wanted to reach out.\n\n[Write your offer here — what you do and why it's relevant to them.]\n\nBest regards,\n${fromBrand}`;
+  return `mailto:${r.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function waLink(phone: string, r: Row, fromBrand: string): string {
+  let d = phone.replace(/\D/g, "");
+  if (d.startsWith("0")) d = "44" + d.slice(1);        // UK national → international
+  const who = r.company || r.name || "there";
+  const text = `Hi ${who}, this is ${fromBrand}. `;
+  return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;
+}
+
 export default function CustomerVaultPage() {
   const { activeBrand, ready } = useActiveBrand();
   const [report, setReport] = useState<VaultReport | null>(null);
@@ -136,6 +157,7 @@ export default function CustomerVaultPage() {
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
+  const [enriching, setEnriching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Client-side cache of the last scored vault per brand. Makes import → display
@@ -227,6 +249,29 @@ export default function CustomerVaultPage() {
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  // Find real emails for prospect rows that don't have one — reads each firm's
+  // own website via live Google and extracts a genuine address (never invents).
+  // Capped server-side per call; re-run to continue through a large list.
+  async function findEmails() {
+    if (!activeBrand) return;
+    setEnriching(true); setMsg({ text: "Finding real emails from each company's website… this can take a minute.", error: false });
+    try {
+      const res = await authedFetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
+        body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, action: "enrich" }),
+      });
+      const raw = await res.text();
+      let d: Record<string, unknown> = {};
+      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+      if (!res.ok) { setMsg({ text: (typeof d.error === "string" && d.error) || `Enrichment failed (HTTP ${res.status})`, error: true }); return; }
+      if (d.contactCount !== undefined) { setReport(d as unknown as VaultReport); writeCache(activeBrand.id, d as unknown as VaultReport); }
+      setMsg({ text: (typeof d.note === "string" && d.note) || "Enrichment complete.", error: (d as { emailsFound?: number }).emailsFound === 0 });
+    } catch (e) {
+      setMsg({ text: `Enrichment failed: ${(e as Error).message || "network error"}.`, error: true });
+    } finally { setEnriching(false); }
+  }
+
   async function clearVault() {
     if (!activeBrand) return;
     if (!confirm("Remove all imported contacts for this brand? This cannot be undone.")) return;
@@ -242,6 +287,8 @@ export default function CustomerVaultPage() {
   const donutData = report ? Object.entries(report.statusCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value) : [];
   const topLtv = report ? report.customers.slice(0, 5) : [];
   const hasContacts = Boolean(report && report.contactCount > 0);
+  const missingEmail = report ? report.customers.filter((c) => !c.email).length : 0;
+  const withEmail = report ? report.customers.filter((c) => c.email).length : 0;
 
   return (
     <div>
@@ -293,8 +340,19 @@ export default function CustomerVaultPage() {
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />} Upload CSV
               </label>
               <button className="btn-ghost" onClick={() => setShowPaste((v) => !v)}><ClipboardPaste className="h-4 w-4" /> Paste rows</button>
+              {missingEmail > 0 && (
+                <button className="btn-primary !bg-sky-500 hover:!bg-sky-400" onClick={findEmails} disabled={enriching}>
+                  {enriching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Find emails ({missingEmail})
+                </button>
+              )}
               {hasContacts && <button className="btn-ghost !text-rose-300" onClick={clearVault}><Trash2 className="h-4 w-4" /> Clear vault</button>}
             </div>
+            {missingEmail > 0 && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                {withEmail > 0 && <span className="text-emerald-300">{withEmail} contactable. </span>}
+                {missingEmail} prospect{missingEmail === 1 ? "" : "s"} without an email — <span className="text-slate-300">Find emails</span> reads each company&apos;s own website (live Google) to get a real address. Done in batches of 25; nothing is invented — a firm with no public email stays blank.
+              </p>
+            )}
             {showPaste && (
               <div className="mt-3">
                 <textarea
@@ -351,10 +409,11 @@ export default function CustomerVaultPage() {
               </div>
 
               <div className="card overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left text-sm">
+                <table className="w-full min-w-[940px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
                       <th className="px-4 py-3 font-semibold">Customer</th>
+                      <th className="px-4 py-3 font-semibold">Contact</th>
                       <th className="px-4 py-3 font-semibold">Segment</th>
                       <th className="px-4 py-3 text-right font-semibold">Spend</th>
                       <th className="px-4 py-3 text-right font-semibold">Orders</th>
@@ -367,7 +426,29 @@ export default function CustomerVaultPage() {
                   <tbody>
                     {report.customers.map((c) => (
                       <tr key={c.id} className="border-b border-ink-800 last:border-0 hover:bg-ink-850/60">
-                        <td className="px-4 py-3"><p className="font-semibold text-white">{c.name}</p><p className="text-xs text-slate-500">{c.consent ? "marketing-eligible" : "no consent"}</p></td>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-white">{c.company || c.name}</p>
+                          <p className="text-xs text-slate-500">{[c.trade, c.town].filter(Boolean).join(" · ") || (c.consent ? "marketing-eligible" : "no consent")}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          {c.email ? (
+                            <div className="flex flex-col gap-1.5">
+                              <span className="truncate text-xs text-slate-300" title={c.email}>{c.email}</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                <a href={mailtoFor(c, report.business)} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 ring-1 ring-emerald-500/40 hover:bg-emerald-500/25"><Mail className="h-3 w-3" /> Email</a>
+                                {c.phone && <a href={waLink(c.phone, c, report.business)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-green-500/15 px-2 py-1 text-[11px] font-semibold text-green-300 ring-1 ring-green-500/40 hover:bg-green-500/25"><MessageCircle className="h-3 w-3" /> WhatsApp</a>}
+                                {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-slate-200"><ExternalLink className="h-3 w-3" /> Site</a>}
+                              </div>
+                            </div>
+                          ) : c.phone ? (
+                            <div className="flex flex-col gap-1.5">
+                              <a href={waLink(c.phone, c, report.business)} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 rounded-md bg-green-500/15 px-2 py-1 text-[11px] font-semibold text-green-300 ring-1 ring-green-500/40 hover:bg-green-500/25"><MessageCircle className="h-3 w-3" /> WhatsApp</a>
+                              <span className="text-[11px] text-slate-600">no email yet</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-600">— <span className="text-slate-500">use Find emails</span></span>
+                          )}
+                        </td>
                         <td className="px-4 py-3"><Pill tone={c.churnRisk >= 60 ? "warn" : c.purchaseIntent >= 75 ? "good" : "neutral"}>{c.segmentLabel}</Pill></td>
                         <td className="px-4 py-3 text-right font-display font-bold text-white">£{c.spendGbp.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right text-slate-300">{c.orders}</td>
