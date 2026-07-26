@@ -5,10 +5,12 @@
 // 22-agent APEX swarm, the Sentinel compliance hard-gate, the ACU economy, the
 // Dominion Score, the 90-day rollout and honest success criteria. White-hat only.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Crosshair, ShieldCheck, ShieldAlert, ArrowRight, Gauge, Swords } from "lucide-react";
+import { Loader2, Crosshair, ShieldCheck, ShieldAlert, ArrowRight, Gauge, Swords, CheckCircle2 } from "lucide-react";
 import { PageHeader, Pill, HowToUse } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Mod = { id: string; name: string; tagline: string; capabilities: string[]; status: "live" | "foundation" | "connect" | "blueprint"; route?: string };
 type Agent = { id: string; name: string; module: string; fn: string; sentinel?: boolean };
@@ -21,8 +23,12 @@ type Info = {
   rollout: { phase: string; days: string; deliver: string }[]; success: { metric: string; target: string }[];
 };
 
-const TONE: Record<string, "good" | "info" | "warn" | "neutral"> = { live: "good", foundation: "info", connect: "warn", blueprint: "neutral" };
-const LABEL: Record<string, string> = { live: "live", foundation: "ready", connect: "connect a source", blueprint: "blueprint" };
+const TONE: Record<string, "good" | "info" | "warn" | "neutral"> = { live: "good", foundation: "info", connect: "warn", blueprint: "neutral", connected: "good" };
+// Modules that a live Search Console connection actually feeds (index status +
+// rank matrix; SERP-feature positions). They flip from "connect a source" →
+// "source connected" the moment Search Console is live.
+const GSC_FED = new Set(["MW-14", "MW-20"]);
+const LABEL: Record<string, string> = { live: "live", foundation: "ready", connect: "connect a source", blueprint: "blueprint", connected: "source connected" };
 const VF: { key: string; label: string }[] = [
   { key: "organicShare", label: "Organic share" }, { key: "featureOwnership", label: "Feature ownership" },
   { key: "answerShare", label: "Answer share" }, { key: "authorityVelocity", label: "Authority velocity" },
@@ -30,19 +36,49 @@ const VF: { key: string; label: string }[] = [
 ];
 
 export default function OmnirankPage() {
+  const { activeBrand } = useActiveBrand();
   const [info, setInfo] = useState<Info | null>(null);
   const [dv, setDv] = useState<Record<string, number>>({});
   const [dom, setDom] = useState<{ score: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Live Search Console → auto-fills the organic vital + flips SC-fed modules.
+  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; site?: string } | null>(null);
 
   useEffect(() => { fetch("/api/omnirank").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
+  const scoreWith = useCallback(async (inputs: Record<string, number>) => {
+    const r = await fetch("/api/omnirank", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominion", inputs }) });
+    setDom(await r.json());
+  }, []);
+
+  // Pull real Search Console figures for the active brand and translate them into
+  // the measurable vital (organic strength from average position). Other vitals
+  // stay 0 until rank/AI-citation/backlink sources connect — never invented.
+  useEffect(() => {
+    if (!activeBrand) return;
+    let on = true;
+    (async () => {
+      try {
+        const r = await authedFetch("/api/seo-insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search-console", brandId: activeBrand.id, website: (activeBrand as { website?: string }).website }) });
+        const d = await r.json();
+        if (!on) return;
+        if (d.connected && d.report?.totals) {
+          const t = d.report.totals as { avgPosition: number; clicks: number; impressions: number };
+          setGsc({ connected: true, avgPosition: t.avgPosition, clicks: t.clicks, impressions: t.impressions, site: d.siteUrl });
+          // Average position → 0-100 organic strength (pos 1 ≈ 100, pos 21 ≈ 0).
+          const organicShare = Math.max(0, Math.min(100, Math.round(105 - (t.avgPosition || 20) * 5)));
+          const inputs = { organicShare };
+          setDv(inputs);
+          scoreWith(inputs);
+        } else setGsc({ connected: false });
+      } catch { if (on) setGsc({ connected: false }); }
+    })();
+    return () => { on = false; };
+  }, [activeBrand, scoreWith]);
+
   async function score() {
     setBusy(true);
-    try {
-      const r = await fetch("/api/omnirank", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominion", inputs: dv }) });
-      setDom(await r.json());
-    } finally { setBusy(false); }
+    try { await scoreWith(dv); } finally { setBusy(false); }
   }
 
   return (
@@ -96,10 +132,19 @@ export default function OmnirankPage() {
         <div className="mb-8 card p-5">
           <div className="mb-2 flex items-center gap-2"><Gauge className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Dominion Score</h2></div>
           <p className="mb-3 text-xs text-slate-500">Composite of the five vitals (0–100 each; unmeasured = 0). Real figures fill when Search Console, rank and AI-citation sources connect — never invented.</p>
+          {gsc?.connected && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-slate-300">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" /> Search Console live</span>
+              <span>Avg position <span className="font-semibold text-white">{gsc.avgPosition}</span></span>
+              <span>Clicks <span className="font-semibold text-white">{gsc.clicks?.toLocaleString()}</span></span>
+              <span>Impressions <span className="font-semibold text-white">{gsc.impressions?.toLocaleString()}</span></span>
+              <span className="text-slate-500">→ Organic share auto-filled from your live average position. Other vitals stay 0 until rank/AI-citation/backlink sources connect.</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {VF.map((f) => (
               <label key={f.key} className="text-[11px] text-slate-400">{f.label}
-                <input type="number" min={0} max={100} className="input mt-0.5 w-full" placeholder="0" onChange={(e) => setDv((s) => { const v = e.target.value; const n = { ...s }; if (v === "") delete n[f.key]; else n[f.key] = Number(v); return n; })} />
+                <input type="number" min={0} max={100} className="input mt-0.5 w-full" placeholder="0" value={dv[f.key] ?? ""} onChange={(e) => setDv((s) => { const v = e.target.value; const n = { ...s }; if (v === "") delete n[f.key]; else n[f.key] = Number(v); return n; })} />
               </label>
             ))}
           </div>
