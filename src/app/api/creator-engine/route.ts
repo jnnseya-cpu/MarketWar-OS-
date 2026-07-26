@@ -67,8 +67,20 @@ export async function POST(req: NextRequest) {
     case "register_creator": {
       if (!s("email") || !s("name")) return NextResponse.json({ error: "name and email are required" }, { status: 400 });
       const scout = scoutScore({ followers: num("followers"), platforms: num("platforms") || 1, engagementPct: typeof b.engagementPct === "number" ? (b.engagementPct as number) : undefined, niche: s("niche"), brandNiche: s("brandNiche") });
+      // SECURITY (ISO1): a partner's accessToken is a secret. Any signed-in user
+      // can call this with someone else's email; if that partner already exists we
+      // must neither overwrite their account nor return their token. Only a truly
+      // NEW registration hands back the token (to the account it just created).
+      const existing = await getCreator(makeCreatorId(s("email")));
+      if (existing) {
+        return NextResponse.json({
+          creator: { id: existing.id, name: existing.name, tier: existing.tier, followers: existing.followers, followersVerified: existing.followersVerified, payoutEligible: existing.payoutEligible, scoutScore: existing.scoutScore },
+          scout, existed: true,
+          note: "This email is already registered — account left unchanged and its dashboard link is not exposed here.",
+        });
+      }
       const c = await upsertCreator({ name: s("name"), email: s("email"), tier: (s("tier") || "promoter") as CreatorAccount["tier"], followers: num("followers"), followersVerified: b.followersVerified === true, adminOverride: b.adminOverride === true, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
-      return NextResponse.json({ creator: c, scout });
+      return NextResponse.json({ creator: c, scout, existed: false });
     }
     case "subscribe": {
       const cid = s("creatorId") || (s("email") ? makeCreatorId(s("email")) : "");

@@ -43,7 +43,15 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
   const auth = await requireAuth(req);
   if (!auth.ok) return auth;
 
-  // Zero-config demo / no Admin: nothing to enforce — pass through unchanged.
+  // ISO2 — fail CLOSED in production if Admin isn't configured. Without it there
+  // are no verified identities, so "pass through" would serve every brand's data
+  // to anyone. A real deployment must configure Firebase Admin; refuse until it
+  // does rather than leak. (Mirror of the webhook route's unsigned-in-prod guard.)
+  if (process.env.NODE_ENV === "production" && (!adminConfigured || !adminDb)) {
+    return { ok: false, status: 503, error: "Isolation unavailable — Firebase Admin is not configured on this deployment. Set the FIREBASE_* admin credentials to enforce per-brand ownership." };
+  }
+
+  // Zero-config demo / no Admin (dev/CI): nothing to enforce — pass through.
   if (!auth.enforced || !adminConfigured || !adminDb) {
     return { ok: true, enforced: false, uid: auth.uid, role: auth.role };
   }

@@ -67,6 +67,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ACU wallet + processed-event idempotency (src/backend/wallet.ts): the org's
+    // real ACU balance — CREDITED by the Stripe webhook, DEBITED by AI use. Both
+    // are written AND read only through the Admin SDK (the client reads its own
+    // balance via the server-side /api/billing/wallet route). Deny-all at the DB
+    // layer so no client can inflate its own balance or replay a payment event.
+    match /org_wallets/{doc} { allow read, write: if false; }
+    match /processed_events/{doc} { allow read, write: if false; }
+
     // ── ModelGate / commercial core (production architecture §20, §22, §35) ──
     // The client may READ authorised business data but must NEVER directly
     // modify balances, costs, subscriptions, model pricing, margins, security

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, discoverOpportunity, findLocalLeads, keywordResearch, type SearchType } from "@/backend/search";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 
 // Real-Time Search & Opportunity Intelligence API (Serper-inspired).
 // POST { action: "search", query, type?, gl?, hl? }        → structured results
@@ -8,11 +10,26 @@ import { webSearch, discoverOpportunity, findLocalLeads, keywordResearch, type S
 // POST { action: "keywords", seed, location? }             → keyword/PAA proxy
 // GET → search types + doctrine + live/demo status
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
+  // Denial-of-wallet defence: Serper spends real budget per query. Rate-limit
+  // always; require auth + meter ACUs once accounts are enforced (demo passes through).
+  const rl = rateLimit(clientKey(req, "search"), 120, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "search";
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : undefined);
+
+  // Meter the actions that hit the external search provider (keywords is local).
+  if (action === "search" || action === "opportunity" || action === "leads") {
+    const meter = await meterAction(auth, "search");
+    if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
+  }
 
   if (action === "search") {
     const query = str("query");

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSubscriptionCheckout } from "@/backend/checkout";
+import { createSubscriptionCheckout, checkoutConfigured } from "@/backend/checkout";
 import { PLANS, planEconomics } from "@/backend/subscription";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -28,8 +28,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, free: true, planId: plan.id, cycle, url: null, note: "Free plan activated — no payment needed." });
   }
 
+  // B4 guard: never grant a PAID plan without a real payment. If Stripe isn't
+  // configured on a PRODUCTION deployment, refuse rather than returning a demo
+  // "continue" path that the client would treat as activation. (Demo/dev without
+  // Stripe stays explorable — there are no real accounts or entitlements there.)
+  if (!checkoutConfigured && process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { ok: false, billingUnavailable: true, error: "Payments aren't enabled on this deployment yet — set STRIPE_SECRET_KEY. No paid plan is granted without a completed payment." },
+      { status: 503 },
+    );
+  }
+
   const eco = planEconomics(plan);
   const amountGbp = cycle === "annual" ? eco.annualGbp : eco.monthlyGbp;
-  const result = await createSubscriptionCheckout({ planId: plan.id, planName: plan.name, cycle, amountGbp });
+  // Thread the authenticated user's uid as the org id so the webhook credits the
+  // right wallet on payment. In demo (no Admin) uid is null — the checkout still
+  // works; the wallet only activates once accounts are enforced.
+  const result = await createSubscriptionCheckout({ planId: plan.id, planName: plan.name, cycle, amountGbp, orgId: auth.uid ?? undefined });
   return NextResponse.json({ ...result, free: false, amountGbp }, { status: result.ok ? 200 : 400 });
 }

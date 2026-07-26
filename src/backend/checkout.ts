@@ -67,7 +67,9 @@ export async function createTopupCheckout(input: { amountGbp: number; acus: numb
     "metadata[marketwar_topup]": "true",
     "metadata[marketwar_acus]": String(acus),
     "metadata[marketwar_org_id]": input.orgId ?? "",
+    "metadata[orgId]": input.orgId ?? "",
     "metadata[marketwar_plan]": input.planId ?? "",
+    ...(input.orgId ? { client_reference_id: input.orgId } : {}),
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -85,10 +87,11 @@ export async function createTopupCheckout(input: { amountGbp: number; acus: numb
 // Checkout Session in `subscription` mode with a recurring price (monthly or
 // annual), stamped with metadata.planId so the webhook activates the plan +
 // allocates ACUs. Annual applies the 30% discount at the amount passed in.
-export async function createSubscriptionCheckout(input: { planId: string; planName: string; cycle: "monthly" | "annual"; amountGbp: number }): Promise<CheckoutResult & { planId: string; cycle: "monthly" | "annual" }> {
+export async function createSubscriptionCheckout(input: { planId: string; planName: string; cycle: "monthly" | "annual"; amountGbp: number; orgId?: string }): Promise<CheckoutResult & { planId: string; cycle: "monthly" | "annual" }> {
   const cycle = input.cycle === "annual" ? "annual" : "monthly";
   const interval = cycle === "annual" ? "year" : "month";
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
+  const orgId = (input.orgId || "").trim();
   const metadata = { marketwar_brand_id: "", marketwar_source: `subscription:${input.planId}` };
   if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "amount must be > 0 (Free plan needs no checkout)", error: "amount must be > 0" };
 
@@ -111,6 +114,15 @@ export async function createSubscriptionCheckout(input: { planId: string; planNa
     "line_items[0][quantity]": "1",
     "metadata[planId]": input.planId,
     "metadata[cycle]": cycle,
+    // Who to credit: stamp the org id on the session AND the subscription so both
+    // checkout.session.completed and every future invoice.paid can find the wallet.
+    ...(orgId ? {
+      client_reference_id: orgId,
+      "metadata[orgId]": orgId,
+      "metadata[marketwar_org_id]": orgId,
+      "subscription_data[metadata][orgId]": orgId,
+      "subscription_data[metadata][marketwar_org_id]": orgId,
+    } : {}),
     "subscription_data[metadata][planId]": input.planId,
     "subscription_data[metadata][cycle]": cycle,
   });

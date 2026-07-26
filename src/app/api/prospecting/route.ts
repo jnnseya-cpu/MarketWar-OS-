@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildICP, searchProspects, scoreDeal, buildSequence, PIPELINE_STAGES, type ICP, type ICPInput, type Prospect } from "@/backend/prospecting";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 
 // B2B Prospecting Engine API (Apollo-inspired LeadWar Room).
 // POST { action: "icp", product, ... }            → ideal customer profile
@@ -7,10 +9,23 @@ import { buildICP, searchProspects, scoreDeal, buildSequence, PIPELINE_STAGES, t
 // POST { action: "sequence", prospect, icp }       → outreach sequence + call script
 // GET → pipeline stages + compliance doctrine
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
+  // Rate-limit always; require auth + meter the prospect SEARCH (it hits Serper).
+  const rl = rateLimit(clientKey(req, "prospecting"), 120, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "icp";
+
+  if (action === "search") {
+    const meter = await meterAction(auth, "search");
+    if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
+  }
 
   if (action === "icp") {
     const input = body as unknown as ICPInput;

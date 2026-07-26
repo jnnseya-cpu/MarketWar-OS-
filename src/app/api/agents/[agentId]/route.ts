@@ -3,7 +3,8 @@ import { AGENTS } from "@/shared/agents";
 import { runAgent } from "@/backend/provider";
 import { gatewayLangFrom } from "@/backend/gateway";
 import { logAgentRun } from "@/backend/db";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 
 // Denial-of-wallet defence: every AI call can spend real provider budget once
 // keys are live, so cap requests per caller. 240/min is generous for genuine
@@ -27,6 +28,12 @@ export async function POST(
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
+
+  // Require auth + meter ACUs (demo passes through; staff are not metered).
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const meter = await meterAction(auth, "llm");
+  if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
 
   let input: Record<string, string> = {};
   try {

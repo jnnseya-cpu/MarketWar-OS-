@@ -49,8 +49,15 @@ export default function BillingPage() {
   const [buying, setBuying] = useState<number | null>(null);
   const [checkout, setCheckout] = useState<{ ok: boolean; mode: string; url: string | null; acus: number; note: string; error?: string } | null>(null);
 
+  const [wallet, setWallet] = useState<{ live: boolean; balanceAcu: number; planId: string; lifetimeCreditedAcu: number; lifetimeDebitedAcu: number } | null>(null);
+
   useEffect(() => {
     fetch("/api/subscription").then((r) => r.json()).then(setData).catch(() => setError(true));
+    // Real ACU wallet (credited by the Stripe webhook, debited by AI use).
+    authedFetch("/api/billing/wallet")
+      .then((r) => r.json())
+      .then((d) => { if (d && d.wallet) setWallet({ live: Boolean(d.live), balanceAcu: d.wallet.balanceAcu, planId: d.wallet.planId, lifetimeCreditedAcu: d.wallet.lifetimeCreditedAcu, lifetimeDebitedAcu: d.wallet.lifetimeDebitedAcu }); })
+      .catch(() => {});
   }, []);
 
   async function buyTopup(gbp: number, acus: number) {
@@ -69,13 +76,16 @@ export default function BillingPage() {
     } finally { setBuying(null); }
   }
 
-  // Wallet keyed off the plan's monthly allocation. Real per-account metering
-  // activates with billing (Stripe) — until then spend is 0 (never fabricated).
-  const currentPlan = data?.plans.find((p) => p.id === "growth");
+  // Wallet: prefer the REAL balance (credited by the Stripe webhook, debited by
+  // AI use) when accounts are enforced; otherwise fall back to the modelled
+  // plan allocation so the page still renders honestly in demo.
+  const walletPlanId = wallet?.planId ?? "growth";
+  const currentPlan = data?.plans.find((p) => p.id === walletPlanId) ?? data?.plans.find((p) => p.id === "growth");
   const allocation = currentPlan?.monthlyAcus ?? 980;
-  const spent = 0;
+  const walletLive = Boolean(wallet?.live);
+  const spent = walletLive ? (wallet?.lifetimeDebitedAcu ?? 0) : 0;
   const topUpAcus = 0;
-  const balance = allocation + topUpAcus - spent;
+  const balance = walletLive ? (wallet?.balanceAcu ?? 0) : allocation + topUpAcus - spent;
 
   return (
     <div>
@@ -94,7 +104,9 @@ export default function BillingPage() {
       {/* ACU wallet — real allocation; live metering activates with billing */}
       <div className="mb-8 grid gap-4 lg:grid-cols-4">
         <div className="card p-5 lg:col-span-2">
-          <div className="mb-3 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">ACU Wallet</h2></div>
+          <div className="mb-3 flex items-center gap-2"><Wallet className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">ACU Wallet</h2>
+            <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${walletLive ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-500/15 text-slate-300"}`}>{walletLive ? "live" : "estimate"}</span>
+          </div>
           <div className="flex items-end justify-between">
             <div>
               <p className="font-display text-3xl font-bold text-white">{balance.toLocaleString("en-GB")}<span className="ml-1 text-sm font-normal text-slate-400">ACUs</span></p>
@@ -103,9 +115,9 @@ export default function BillingPage() {
             <button className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-ink-950 hover:bg-emerald-400"><Zap className="h-4 w-4" /> Top up</button>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-ink-800">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: "100%" }} />
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${allocation > 0 ? Math.max(2, Math.min(100, Math.round((balance / Math.max(balance, allocation)) * 100))) : 100}%` }} />
           </div>
-          <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>0 spent this cycle</span><span>Live per-use metering activates with billing</span></div>
+          <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>{spent.toLocaleString("en-GB")} spent{walletLive ? " (lifetime)" : " this cycle"}</span><span>{walletLive ? "Live per-use metering active" : "Live per-use metering activates with billing"}</span></div>
         </div>
         <div className="card p-5 lg:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">This month&apos;s allocation</p>

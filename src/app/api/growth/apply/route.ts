@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { savePartnerApplication, type PartnerTier } from "@/backend/partner-applications";
-import { upsertCreator, type CreatorAccount } from "@/backend/creator-engine";
+import { upsertCreator, getCreator, creatorId, type CreatorAccount } from "@/backend/creator-engine";
 import { scoutScore } from "@/backend/creator-agents";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -46,15 +46,29 @@ export async function POST(req: NextRequest) {
   // partner account (followers unverified until the AI/human verifier confirms).
   const socials = Array.isArray(body.socials) ? (body.socials as { followers?: number }[]) : [];
   const scout = scoutScore({ followers, platforms: Math.max(1, socials.length), niche: audience });
-  const account = await upsertCreator({ name, email, tier: tier as CreatorAccount["tier"], followers, followersVerified: false, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
-  const dashboardUrl = account.accessToken ? `/partner?t=${account.accessToken}` : undefined;
+
+  // SECURITY (ISO1): this endpoint is PUBLIC and unauthenticated. An existing
+  // partner's access token is a secret credential to their dashboard — never
+  // create-over or return it just because someone submitted their email. Only a
+  // BRAND-NEW account gets a dashboard link inline; if the email already belongs
+  // to a partner we neither overwrite their account nor leak their token — the
+  // existing link is (re)sent to that verified email out of band.
+  const existing = await getCreator(creatorId(email));
+  let dashboardUrl: string | undefined;
+  if (!existing) {
+    const account = await upsertCreator({ name, email, tier: tier as CreatorAccount["tier"], followers, followersVerified: false, nowISO, scoutScore: scout.score, scoutFlags: scout.flags });
+    dashboardUrl = account.accessToken ? `/partner?t=${account.accessToken}` : undefined;
+  }
 
   return NextResponse.json({
     ok: true,
     applicationId: record.id,
     scoutScore: scout.score,
     dashboardUrl,
-    message: followers >= 10_000
+    alreadyRegistered: Boolean(existing),
+    message: existing
+      ? `Thanks — this email is already in the network, so we've logged your application and emailed your existing dashboard link to ${email}. (For your security we never show an existing partner's dashboard link on a public form.)`
+      : followers >= 10_000
       ? `You're in the network (Scout score ${scout.score}/100). ${followers.toLocaleString()} combined followers puts you on the MAIN programme: recurring cash commission (0.75%) on verified sales, once your follower count is verified. We match you to brands and issue a tracked code/link for each of your ${programmes} programme(s).`
       : `You're in the network (Scout score ${scout.score}/100). With ${followers.toLocaleString()} combined followers you can promote and accrue now — your commission accumulates until you reach 10,000, then pays out. You also earn 250 ACUs per referral (use them to create a brand + advertise), and auto-upgrade to full cash payout the moment you reach 10,000. We issue a tracked code/link per programme.`,
   });

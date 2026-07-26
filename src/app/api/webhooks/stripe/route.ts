@@ -4,6 +4,25 @@ import {
   HANDLED_EVENTS, type StripeEventLike,
 } from "@/backend/stripe-billing";
 import { recordEvent } from "@/backend/ledger";
+import { applyWebhookOutcome } from "@/backend/wallet";
+
+// Locate the org whose wallet a payment credits. MarketWar-created checkouts stamp
+// the id three ways (client_reference_id + metadata.orgId + metadata.marketwar_org_id)
+// so both the initial session event and every recurring invoice can find it.
+function orgIdFromEvent(event: StripeEventLike): string {
+  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+  const meta = (obj.metadata as Record<string, unknown> | undefined) ?? {};
+  const candidates = [
+    obj.client_reference_id,
+    meta.orgId,
+    meta.marketwar_org_id,
+    // invoice.paid nests subscription metadata under lines/subscription_details.
+    ((obj.subscription_details as Record<string, unknown> | undefined)?.metadata as Record<string, unknown> | undefined)?.orgId,
+    ((obj.subscription_details as Record<string, unknown> | undefined)?.metadata as Record<string, unknown> | undefined)?.marketwar_org_id,
+  ];
+  for (const c of candidates) { if (typeof c === "string" && c.trim()) return c.trim(); }
+  return "";
+}
 
 // Stripe webhook endpoint — https://marketwaros.com/api/webhooks/stripe
 // Configure this exact URL in the Stripe dashboard and set STRIPE_WEBHOOK_SECRET.
@@ -39,9 +58,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Malformed Stripe event (missing id/type)" }, { status: 400 });
   }
 
-  // In production the caller records event.id first (idempotency) before applying
-  // the ledger credit inside a Firestore transaction. Here we compute the outcome.
+  // Compute the outcome, then PERSIST it: credit the org's ACU wallet + activate
+  // its plan. applyWebhookOutcome is idempotent by event.id (records the id in the
+  // same transaction as the credit), so a redelivered event never double-credits.
   const outcome = handleStripeEvent(event);
+  let walletApplied: { applied: boolean; reason: string; creditedAcu?: number; planId?: string } | null = null;
+  if (outcome.handled) {
+    try {
+      const orgId = orgIdFromEvent(event);
+      const res = await applyWebhookOutcome(orgId, outcome);
+      walletApplied = { applied: res.applied, reason: res.reason, creditedAcu: res.creditedAcu, planId: res.planId };
+    } catch (e) {
+      // Never fail the webhook on a wallet hiccup — Stripe would retry, and the
+      // idempotency key still protects against a double-credit on that retry.
+      walletApplied = { applied: false, reason: e instanceof Error ? e.message : "wallet apply failed" };
+    }
+  }
 
   // Automatic revenue attribution: if this is a payment on a MarketWar-created
   // checkout (metadata.marketwar_brand_id), record it as attributed revenue for
@@ -57,7 +89,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, attributed });
+  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed });
 }
 
 export async function GET() {

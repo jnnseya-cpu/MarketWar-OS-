@@ -58,7 +58,9 @@ export default function ChoosePlanPage() {
       const d = await res.json();
       if (d.free) { router.push("/dashboard?plan=free"); return; }
       if (d.ok && d.url && d.mode === "live") { window.location.href = d.url; return; }
-      // Demo: acknowledge + continue into the OS.
+      // Payments not enabled in a real deployment — never grant paid access for free.
+      if (d.ok === false) { setMsg(d.error || "Payments aren't available right now — please try again shortly."); return; }
+      // Demo/dev (no accounts, no entitlements): acknowledge + continue exploring.
       setMsg(`${p.name} (${cycle}) — ${d.note || "demo checkout"}. Continuing to your dashboard…`);
       setTimeout(() => router.push(`/dashboard?plan=${p.id}`), 1400);
     } catch {

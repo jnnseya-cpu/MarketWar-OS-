@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runStrategyAgent } from "@/backend/strategy-run";
 import { STRATEGY_AGENTS } from "@/shared/strategy-agents";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
 
 export const runtime = "nodejs";
@@ -18,6 +19,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "ai-agents"), 60, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
+  // Require auth + meter ACUs (demo passes through; staff are not metered).
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const meter = await meterAction(auth, "llm");
+  if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
