@@ -31,8 +31,8 @@ export default function GoLivePage() {
     setBusy(true);
     const out: Check[] = [];
     const get = async (u: string) => { try { const r = await authedFetch(u); return await r.json(); } catch { return null; } };
-    const [stripe, storage, auth, live] = await Promise.all([
-      get("/api/health/stripe"), get("/api/health/storage"), get("/api/health/auth"), get("/api/health/live"),
+    const [stripe, storage, auth, live, serper] = await Promise.all([
+      get("/api/health/stripe"), get("/api/health/storage"), get("/api/health/auth"), get("/api/health/live"), get("/api/health/serper"),
     ]);
 
     // Stripe (money)
@@ -51,6 +51,11 @@ export default function GoLivePage() {
     out.push({ key: "storage", title: "Media hosting (Firebase Storage)", group: "Content hosting",
       status: storage?.verdict ? fromVerdict(storage.verdict) : "red",
       detail: storage?.verdict || "Probe failed.", fix: storage?.probe?.fix });
+
+    // Serper — real Google/Places data for leads + prospects
+    out.push({ key: "serper", title: "Real prospect data (Serper / Google)", group: "Premium providers — optional upsells",
+      status: serper?.verdict ? fromVerdict(serper.verdict) : "amber",
+      detail: serper?.verdict || "Not set — lead/prospect engines show sample data.", fix: serper?.probe?.fix });
 
     // Providers (optional upsells)
     if (Array.isArray(live?.capabilities)) {
