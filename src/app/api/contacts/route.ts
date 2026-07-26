@@ -120,6 +120,9 @@ export async function POST(req: NextRequest) {
         email: r.email || undefined,
         phone: c.phone || r.phone || undefined,
         website: r.website || undefined,
+        // Keep the company as the row identity; fill the contact person's name only
+        // when the row had none, so the mailto can greet a real person.
+        name: c.name || r.contactName || undefined,
         emailConfidence: r.email ? r.emailConfidence : undefined,
         status: c.status || (r.email ? "contactable" : c.status),
         enrichedAt: now,

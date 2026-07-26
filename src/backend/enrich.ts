@@ -21,12 +21,16 @@ export type EnrichResult = {
   company: string;
   website: string | null;
   email: string | null;
-  emailConfidence: "high" | "medium" | "low" | "none";
+  emailConfidence: "verified" | "high" | "medium" | "low" | "none";
   phone: string | null;
-  source: "site" | "search" | "none";
+  contactName?: string | null;
+  contactTitle?: string | null;
+  source: "apollo" | "site" | "search" | "none";
   mode: "live" | "demo";
   note: string;
 };
+
+export function apolloConfigured(): boolean { return Boolean(process.env.APOLLO_API_KEY); }
 
 // Domains that are NOT a firm's own site — directories, registries, socials,
 // review sites, job boards. We never treat these as the company website.
@@ -131,8 +135,106 @@ async function findWebsite(input: EnrichInput): Promise<{ website: string | null
   return { website: hit?.link ? new URL(hit.link).origin : null, mode: "live" };
 }
 
-// Enrich ONE company. Live only (needs Serper); demo returns an honest note.
+// ---------------------------------------------------------------------------
+// Provider 1 — Apollo.io (licensed B2B database). High yield: real, verified
+// business emails a scraper can't reach. Two steps: resolve the company's domain
+// (org search), then find a senior contact + reveal their email. Consumes Apollo
+// credits; capped upstream. Returns null on any miss so we fall back to the
+// scraper. HONESTY: only returns an email Apollo actually verified.
+// ---------------------------------------------------------------------------
+const APOLLO_BASE = "https://api.apollo.io/api/v1";
+const SENIOR_TITLES = ["owner", "founder", "co-founder", "director", "managing director", "ceo", "principal", "partner", "manager", "general manager"];
+
+async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs = 12_000): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${APOLLO_BASE}${path}`, {
+      method: "POST", signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": process.env.APOLLO_API_KEY as string },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: res.ok, status: res.status, data };
+  } finally { clearTimeout(t); }
+}
+
+// A usable, revealed email — not Apollo's "email_not_unlocked@domain.com"
+// placeholder or an unverified guess.
+function apolloEmailUsable(email?: string, status?: string): boolean {
+  if (!email || looksJunkEmail(email)) return false;
+  if (/not_unlocked|email_not_unlocked|domain\.com$/i.test(email)) return false;
+  if (status && /^(unavailable|bounced|invalid)$/i.test(status)) return false;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+}
+
+async function apolloEnrich(input: EnrichInput): Promise<EnrichResult | null> {
+  try {
+    // 1) Resolve the company domain (from the given website, or org search by name).
+    let domain = "";
+    if (input.website) { const h = hostOf(input.website); if (h && !isAggregator(input.website)) domain = h; }
+    let orgPhone: string | null = null;
+    if (!domain) {
+      const os = await apolloPost("/mixed_companies/search", { q_organization_name: input.company, page: 1, per_page: 1 });
+      const org = ((os.data.organizations as Array<Record<string, unknown>>) || [])[0];
+      if (org) { domain = String(org.primary_domain || org.website_url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, ""); orgPhone = (org.phone as string) || null; }
+    }
+    // 2) Find a senior contact at that company + reveal their email.
+    const ps = await apolloPost("/mixed_people/search", {
+      ...(domain ? { q_organization_domains: domain } : { q_organization_name: input.company }),
+      person_titles: SENIOR_TITLES, page: 1, per_page: 10,
+    });
+    const people = (ps.data.people as Array<Record<string, unknown>>) || [];
+    let person = people.find((p) => apolloEmailUsable(p.email as string, p.email_status as string)) || people[0];
+    if (!person) {
+      return domain ? { company: input.company, website: `https://${domain}`, email: null, emailConfidence: "none", phone: orgPhone, source: "apollo", mode: "live", note: `Apollo matched the company (${domain}) but no contact with a reachable email.` } : null;
+    }
+    let email = person.email as string | undefined;
+    let status = person.email_status as string | undefined;
+    // 3) Reveal a locked email via people/match (costs a credit, but gets the real one).
+    if (!apolloEmailUsable(email, status) && (person.first_name || person.last_name)) {
+      const m = await apolloPost("/people/match", {
+        first_name: person.first_name, last_name: person.last_name,
+        organization_name: (person.organization as { name?: string })?.name || input.company,
+        domain, reveal_personal_emails: true,
+      });
+      const mp = m.data.person as Record<string, unknown> | undefined;
+      if (mp) { email = (mp.email as string) || email; status = (mp.email_status as string) || status; person = { ...person, ...mp }; }
+    }
+    const website = domain ? `https://${domain}` : null;
+    const phone = (person.phone_numbers as Array<{ raw_number?: string }>)?.[0]?.raw_number || orgPhone;
+    const name = [person.first_name, person.last_name].filter(Boolean).join(" ") || null;
+    if (apolloEmailUsable(email, status)) {
+      return { company: input.company, website, email: (email as string).toLowerCase(), emailConfidence: status === "verified" ? "verified" : "high", phone, contactName: name, contactTitle: (person.title as string) || null, source: "apollo", mode: "live", note: `Apollo: ${name || "contact"}${person.title ? ` (${person.title})` : ""} — ${status === "verified" ? "verified" : "found"} email.` };
+    }
+    // Apollo knew the company but couldn't reveal an email — hand domain+phone to the scraper.
+    return { company: input.company, website, email: null, emailConfidence: "none", phone, contactName: name, source: "apollo", mode: "live", note: `Apollo matched ${domain || input.company} but the email is locked/unavailable.` };
+  } catch { return null; }
+}
+
+// Enrich ONE company. Apollo first (licensed, high-yield) → scraper fallback.
 export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
+  if (apolloConfigured()) {
+    const a = await apolloEnrich(input);
+    if (a?.email) return a;                        // Apollo got a real email — done.
+    if (a && (a.website || a.phone)) {             // Apollo found the company; scrape its site for an email.
+      const scraped = await scrapeEnrich({ ...input, website: a.website || input.website });
+      return {
+        ...scraped,
+        phone: scraped.phone || a.phone,
+        website: scraped.website || a.website,
+        contactName: scraped.contactName ?? a.contactName,
+        note: scraped.email ? scraped.note : `${a.note} ${scraped.note}`.trim(),
+      };
+    }
+    // Apollo returned nothing usable — fall through to the scraper.
+  }
+  return scrapeEnrich(input);
+}
+
+// Scraper (Provider 2) — free fallback. Finds the firm's own site via live Google
+// and reads a genuine email off it. Never fabricates.
+export async function scrapeEnrich(input: EnrichInput): Promise<EnrichResult> {
   const base: EnrichResult = { company: input.company, website: null, email: null, emailConfidence: "none", phone: null, source: "none", mode: "live", note: "" };
   const { website, mode } = await findWebsite(input);
   if (mode === "demo") {
