@@ -6,7 +6,7 @@
 // operational configuration, not customer data.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCcw, Rocket } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCcw, Rocket, Link2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 import { useIsAdmin } from "@/frontend/use-is-admin";
@@ -26,6 +26,8 @@ export default function GoLivePage() {
   const { isAdmin, ready: adminReady } = useIsAdmin();
   const [checks, setChecks] = useState<Check[]>([]);
   const [busy, setBusy] = useState(false);
+  const [googleMsg, setGoogleMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -79,6 +81,27 @@ export default function GoLivePage() {
 
   useEffect(() => { if (adminReady && isAdmin) run(); }, [adminReady, isAdmin, run]);
 
+  // Surface the Google connect result (?google=connected|error) and clean the URL.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const g = p.get("google");
+    if (!g) return;
+    if (g === "connected") setGoogleMsg({ text: "Google connected — Search Console + Business Profile are now authorised for this account.", error: false });
+    else if (g === "error") setGoogleMsg({ text: `Couldn't connect Google: ${p.get("reason") || "unknown error"}`, error: true });
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  async function connectGoogle() {
+    setConnectingGoogle(true); setGoogleMsg(null);
+    try {
+      const r = await authedFetch("/api/google/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const d = await r.json();
+      if (r.ok && d.url) { window.location.href = d.url; return; }
+      setGoogleMsg({ text: d.error || "Couldn't start the Google connect flow.", error: true });
+    } catch { setGoogleMsg({ text: "Couldn't start the Google connect flow.", error: true }); }
+    finally { setConnectingGoogle(false); }
+  }
+
   if (adminReady && !isAdmin) {
     return <div><PageHeader kicker="Go-Live Readiness" title="Operator only" /><div className="card border-amber-500/25 bg-amber-500/[0.05] p-5 text-sm text-slate-300">This board shows platform configuration and is limited to administrators.</div></div>;
   }
@@ -101,6 +124,27 @@ export default function GoLivePage() {
             <p className="text-xs text-slate-400">{money.filter((c) => c.status === "green").length}/{money.length || "…"} money-critical checks green. Premium providers are optional.</p>
           </div>
         </div>
+      </div>
+
+      {/* One-click Google connect — no OAuth Playground, no client-mismatch. */}
+      <div className="mb-6 card border-sky-500/25 p-5">
+        <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-sky-400" /><h2 className="font-display text-sm font-bold text-white">Connect Google (Search Console + Business Profile)</h2></div>
+        <p className="mb-3 text-xs text-slate-400">One click authorises this account for real rankings + local listing data. The OS mints and stores the token itself — no OAuth Playground, and it can never mismatch your client.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn-primary !bg-[#1877F2] hover:!bg-[#1568d8]" onClick={connectGoogle} disabled={connectingGoogle}>
+            {connectingGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Connect Google
+          </button>
+          <span className="text-[11px] text-slate-500">Needs GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET set (you have these).</span>
+        </div>
+        <p className="mt-2 rounded-md bg-ink-900/60 px-3 py-2 text-[11px] text-slate-400">
+          <span className="font-semibold text-slate-300">One-time:</span> in your Google Cloud OAuth client, add this exact Authorized redirect URI, then click Connect:
+          <code className="mt-1 block break-all text-sky-300">https://www.marketwaros.com/api/google/callback</code>
+        </p>
+        {googleMsg && (
+          <p className={`mt-3 flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium ${googleMsg.error ? "bg-rose-500/10 text-rose-300" : "bg-emerald-500/10 text-emerald-300"}`}>
+            {googleMsg.error ? <XCircle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />} {googleMsg.text}
+          </p>
+        )}
       </div>
 
       {groups.map((g) => {

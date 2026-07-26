@@ -10,7 +10,7 @@ if (typeof window !== "undefined") {
 // credential is set. NOTE: Business Profile requires an OAuth USER credential
 // (service accounts generally can't access it) and Google API allowlisting.
 
-import { getGoogleAccessToken, hasOAuthUser, GOOGLE_SCOPES } from "@/backend/google-auth";
+import { getGoogleAccessToken, hasOAuthClient, GOOGLE_SCOPES } from "@/backend/google-auth";
 
 const ACCOUNTS = "https://mybusinessaccountmanagement.googleapis.com/v1";
 const INFO = "https://mybusinessbusinessinformation.googleapis.com/v1";
@@ -18,7 +18,7 @@ const REVIEWS = "https://mybusiness.googleapis.com/v4";
 
 // Business Profile requires an OAuth-user credential specifically (service
 // accounts can't read it), so it's "configured" only when the OAuth vars are set.
-export function businessProfileConfigured(): boolean { return hasOAuthUser(); }
+export function businessProfileConfigured(): boolean { return hasOAuthClient(); }
 
 export type GBPLocation = { name: string; title: string; address?: string; website?: string; phone?: string };
 export type GBPReviewSummary = { averageRating: number; totalReviewCount: number; recent: { rating: number; comment: string; reviewer: string }[] };
@@ -30,7 +30,7 @@ async function gbpGet(url: string, token: string): Promise<{ ok: boolean; status
 }
 
 export async function listAccounts(): Promise<{ mode: "live" | "not_connected"; accounts: { name: string; accountName?: string }[]; note: string }> {
-  if (!businessProfileConfigured()) return { mode: "not_connected", accounts: [], note: "Business Profile needs an OAuth USER credential (service accounts can't access it). Set GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN — minted with your OWN OAuth client." };
+  if (!businessProfileConfigured()) return { mode: "not_connected", accounts: [], note: "Business Profile needs the OAuth client (GOOGLE_OAUTH_CLIENT_ID/SECRET) — then click Connect Google. Service accounts can't access it." };
   const token = await getGoogleAccessToken(GOOGLE_SCOPES.businessProfile);
   if (!token) return { mode: "not_connected", accounts: [], note: "Google token exchange failed — check the OAuth credential." };
   try {
