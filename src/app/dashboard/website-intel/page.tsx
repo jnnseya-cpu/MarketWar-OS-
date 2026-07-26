@@ -126,6 +126,21 @@ export default function WebsiteIntelPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Live crawl — a REAL measured audit of the actual page (no third party).
+  type Finding = { area: string; label: string; severity: "pass" | "warn" | "fail"; detail: string };
+  type Crawl = { ok: boolean; url: string; finalUrl?: string; httpStatus?: number; https: boolean; loadMs?: number; score: number; grade: string; title?: string; metaDescription?: string; h1Count?: number; wordCount?: number; imagesTotal?: number; imagesNoAlt?: number; internalLinks?: number; externalLinks?: number; robotsTxt?: boolean; sitemapXml?: boolean; structuredDataTypes?: string[]; findings: Finding[]; error?: string };
+  const [crawl, setCrawl] = useState<Crawl | null>(null);
+  const [crawling, setCrawling] = useState(false);
+  async function runCrawl() {
+    if (!website.trim()) return;
+    setCrawling(true); setCrawl(null);
+    try {
+      const r = await fetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "crawl", url: website }) });
+      setCrawl(await r.json());
+    } catch { setCrawl({ ok: false, url: website, https: false, score: 0, grade: "F", findings: [], error: "Crawl request failed." }); }
+    finally { setCrawling(false); }
+  }
+
   // Live capability probe — flips creative/consistency suites to Live when the
   // image/video keys are present (health-driven, no hardcoded "P1").
   const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false });
@@ -183,8 +198,50 @@ export default function WebsiteIntelPage() {
         kicker="MarketWar SiteRaid AI™"
         title="Paste an authorised URL. Launch a growth operation."
         subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA™, a Website Truth Layer™ that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
-        actions={<Pill tone="info">website intelligence · deep crawler activates with a connector</Pill>}
+        actions={<Pill tone="good">website intelligence · live crawler</Pill>}
       />
+
+      {/* Live crawl — a REAL measured audit of the actual page (no connector). */}
+      <div className="mb-6 card border-sky-500/25 p-5">
+        <div className="mb-1 flex items-center gap-2"><Radar className="h-4 w-4 text-sky-400" /><h2 className="font-display font-bold text-white">Live site crawl</h2><Pill tone="good">real · measured</Pill></div>
+        <p className="mb-3 text-xs text-slate-400">Enter a URL — we fetch the actual page and measure real SEO, technical, mobile, social and structured-data signals, plus robots.txt and sitemap. No third party, no key.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input className="input min-w-[240px] flex-1" placeholder="yourwebsite.com" value={website} onChange={(e) => setWebsite(e.target.value)} />
+          <button className="btn-primary" onClick={runCrawl} disabled={crawling || !website.trim()}>{crawling ? <><Loader2 className="h-4 w-4 animate-spin" /> Crawling…</> : <><Radar className="h-4 w-4" /> Crawl site</>}</button>
+        </div>
+
+        {crawl && !crawl.ok && <p className="mt-3 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{crawl.error}</p>}
+        {crawl && crawl.ok && (
+          <div className="mt-4">
+            <div className="mb-4 flex flex-wrap items-center gap-4">
+              <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full text-white ${crawl.score >= 75 ? "bg-emerald-500" : crawl.score >= 60 ? "bg-amber-500" : "bg-rose-500"}`}>
+                <span className="font-display text-xl font-bold leading-none">{crawl.grade}</span><span className="text-[10px]">{crawl.score}/100</span>
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+                <span>Status <span className="font-semibold text-white">{crawl.httpStatus}</span></span>
+                <span>HTTPS <span className={`font-semibold ${crawl.https ? "text-emerald-300" : "text-rose-300"}`}>{crawl.https ? "yes" : "no"}</span></span>
+                <span>Load <span className="font-semibold text-white">{crawl.loadMs}ms</span></span>
+                <span>Words <span className="font-semibold text-white">{crawl.wordCount}</span></span>
+                <span>Images <span className="font-semibold text-white">{crawl.imagesTotal}</span>{crawl.imagesNoAlt ? <span className="text-amber-300"> ({crawl.imagesNoAlt} no alt)</span> : null}</span>
+                <span>Links <span className="font-semibold text-white">{crawl.internalLinks}</span> int / <span className="font-semibold text-white">{crawl.externalLinks}</span> ext</span>
+                <span>robots.txt <span className={crawl.robotsTxt ? "text-emerald-300" : "text-slate-500"}>{crawl.robotsTxt ? "✓" : "—"}</span></span>
+                <span>sitemap <span className={crawl.sitemapXml ? "text-emerald-300" : "text-slate-500"}>{crawl.sitemapXml ? "✓" : "—"}</span></span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {crawl.findings.map((f, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-ink-900/40 px-3 py-2">
+                  <span className={`mt-0.5 text-xs font-bold ${f.severity === "pass" ? "text-emerald-400" : f.severity === "warn" ? "text-amber-400" : "text-rose-400"}`}>{f.severity === "pass" ? "✓" : f.severity === "warn" ? "!" : "✕"}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-white">{f.label} <span className="text-[10px] uppercase tracking-wide text-slate-600">{f.area}</span></p>
+                    <p className="text-xs text-slate-400">{f.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       <HowToUse
         does="Turn your business into a full marketing audit + attack plan — works for any industry, no crawler needed."
@@ -193,7 +250,7 @@ export default function WebsiteIntelPage() {
           "2. Set your authorisation basis and press Run instant audit.",
           "3. Read your 6-part scores, Business DNA, the ranked Competitive Attack Map and Truth-Layer checks.",
         ]}
-        connector="A robots-respecting crawler auto-reads a live URL (products, images, SEO) so you don't type it in — the intelligence itself already runs now."
+        connector="The Live site crawl above already fetches your real page and measures SEO/technical/mobile/social signals — no connector needed. The audit below adds the DNA + attack-map layer."
       />
 
       {/* Honesty legend — what computes real output today vs what needs the crawler */}

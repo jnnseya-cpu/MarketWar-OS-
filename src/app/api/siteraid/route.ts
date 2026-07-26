@@ -4,6 +4,8 @@ import {
   INPUT_TYPES, GAP_CLASSES, ATTACK_PRIORITIES,
   type Authorisation, type SiteExtract, type Claim,
 } from "@/backend/siteraid";
+import { crawlSite } from "@/backend/crawler";
+import { rateLimit, clientKey } from "@/backend/guard";
 
 // SiteRaid AI™ API — Website → Autonomous Viral Growth brain (deterministic).
 // Live crawl / competitor fetch route through connectors; this surface is the
@@ -23,6 +25,15 @@ export async function POST(req: NextRequest) {
   const needsSite = ["dna", "audit", "attack"].includes(action);
   if (needsSite && (!site || !site.business || !site.category || !Array.isArray(site.offers))) {
     return NextResponse.json({ error: `${action} requires site.business, site.category and site.offers[]` }, { status: 400 });
+  }
+
+  // Live crawl — a REAL measured audit of the actual page (no third party).
+  if (action === "crawl") {
+    const rl = rateLimit(clientKey(req, "siteraid-crawl"), 20, 60_000, Date.now());
+    if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    const target = typeof body.url === "string" ? body.url : "";
+    if (!target.trim()) return NextResponse.json({ error: "A website URL is required to crawl." }, { status: 400 });
+    return NextResponse.json(await crawlSite(target));
   }
 
   if (action === "authorise") {
