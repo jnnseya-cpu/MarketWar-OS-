@@ -205,10 +205,10 @@ export default function StudioPage() {
                 <img src={v.imageUrl} alt={`Variant ${v.variantIndex + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
                 <div className="p-3">
                   <div className="flex items-center justify-between">
-                    <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? "Live render" : "Brand composer"}</Pill>
+                    <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? "AI render" : "Brand render"}</Pill>
                     <span className="inline-flex items-center gap-1 text-xs text-emerald-300">{publishIdx === v.variantIndex ? "✓ selected" : <><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</>}</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">{v.notes[1]}</p>
+                  <p className="mt-2 text-[11px] text-slate-500">{v.notes[0]}</p>
                 </div>
               </button>
             ))}

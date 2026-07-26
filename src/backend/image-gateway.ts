@@ -23,7 +23,10 @@ if (typeof window !== "undefined") {
 // - Never generic: every creative uses the uploaded assets or the logo colour
 //   theme, so output is always on-brand (spec "Best final rule").
 
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import {
   IMAGE_PROVIDERS, IMAGE_MARGIN_MULTIPLIER, IMAGE_MARGIN_FLOOR, ACU_PER_GBP, USD_TO_GBP,
   FORMAT_DIMENSIONS,
@@ -32,6 +35,85 @@ import {
   type ImageCostEstimate, type BrandTheme, type ImageQuality, type CreativeOptions,
 } from "@/shared/creative";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
+import { FONT_SANS_BOLD_B64 } from "@/backend/font-data";
+
+// ---------------------------------------------------------------------------
+// Real sharp compositor — the keyless creative is built by compositing the
+// brand's ACTUAL assets: product photo as the base, the real logo overlaid, and
+// crisp text rendered from a BUNDLED font (serverless has no system fonts, which
+// is why on-image text used to render as tofu boxes). No AI key required.
+// ---------------------------------------------------------------------------
+let FONT_PATH: string | null = null;
+function fontPath(): string {
+  if (FONT_PATH !== null) return FONT_PATH;
+  try {
+    const p = path.join(os.tmpdir(), "mw-sans-bold.ttf");
+    if (!fs.existsSync(p)) fs.writeFileSync(p, Buffer.from(FONT_SANS_BOLD_B64, "base64"));
+    FONT_PATH = p;
+  } catch { FONT_PATH = ""; }
+  return FONT_PATH;
+}
+async function fetchBytes(url: string, timeoutMs = 8000): Promise<Buffer | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return Buffer.from(await r.arrayBuffer());
+  } catch { return null; }
+}
+const escPango = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Render text to a transparent PNG using the bundled font (crisp, never tofu).
+async function textPng(text: string, opts: { width: number; pt: number; color: string; align?: "left" | "centre" }): Promise<{ buf: Buffer; w: number; h: number } | null> {
+  const fp = fontPath();
+  try {
+    const buf = await sharp({
+      text: {
+        text: `<span foreground="${opts.color}">${escPango(text)}</span>`,
+        font: `Liberation Sans Bold ${opts.pt}`,
+        ...(fp ? { fontfile: fp } : {}),
+        rgba: true, width: Math.max(1, Math.round(opts.width)), align: opts.align || "left",
+      },
+    }).png().toBuffer();
+    const m = await sharp(buf).metadata();
+    return { buf, w: m.width || opts.width, h: m.height || opts.pt };
+  } catch { return null; }
+}
+// A rounded pill (offer badge / CTA) with left-aligned text inside.
+async function pillPng(text: string, o: { fill: string; textColor: string; pt: number }): Promise<{ buf: Buffer; w: number; h: number } | null> {
+  const t = await textPng(text, { width: 4000, pt: o.pt, color: o.textColor });
+  if (!t) return null;
+  const padX = Math.round(o.pt * 0.9), padY = Math.round(o.pt * 0.5);
+  const pw = t.w + padX * 2, ph = t.h + padY * 2;
+  const rect = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}"><rect width="${pw}" height="${ph}" rx="${Math.round(ph / 2)}" fill="${o.fill}"/></svg>`);
+  try {
+    const buf = await sharp(rect).composite([{ input: t.buf, left: padX, top: Math.round((ph - t.h) / 2) }]).png().toBuffer();
+    return { buf, w: pw, h: ph };
+  } catch { return null; }
+}
+// The real logo on a white rounded badge, fit without distortion.
+async function buildLogoBadge(logoUrl: string, lb: { bw: number; bh: number }): Promise<Buffer | null> {
+  const bytes = await fetchBytes(logoUrl);
+  if (!bytes) return null;
+  const pad = Math.round(lb.bh * 0.16);
+  try {
+    const logo = await sharp(bytes).resize(lb.bw - pad * 2, lb.bh - pad * 2, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 0 } }).png().toBuffer();
+    const lm = await sharp(logo).metadata();
+    const bg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${lb.bw}" height="${lb.bh}"><rect width="${lb.bw}" height="${lb.bh}" rx="12" fill="#ffffff"/></svg>`);
+    const lx = Math.max(pad, Math.round((lb.bw - (lm.width || 0)) / 2));
+    const ly = Math.max(pad, Math.round((lb.bh - (lm.height || 0)) / 2));
+    return await sharp(bg).composite([{ input: logo, left: lx, top: ly }]).png().toBuffer();
+  } catch { return null; }
+}
+function gradientSvgBase(theme: BrandTheme, i: number, w: number, h: number): string {
+  const angle = 120 + i * 40;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" gradientTransform="rotate(${angle})"><stop offset="0%" stop-color="${theme.primary}"/><stop offset="100%" stop-color="${theme.secondary}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+}
+function scrimSvg(w: number, h: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000" stop-opacity="0.06"/><stop offset="52%" stop-color="#000" stop-opacity="0.14"/><stop offset="100%" stop-color="#000" stop-opacity="0.58"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#s)"/></svg>`;
+}
 
 // ---------------------------------------------------------------------------
 // Brand colour extraction — the 6-colour theme (spec "Brand Colour Extraction")
@@ -324,42 +406,59 @@ function openaiSize(w: number, h: number): "1024x1024" | "1024x1536" | "1536x102
   return r > 1.2 ? "1536x1024" : r < 0.83 ? "1024x1536" : "1024x1024";
 }
 
-// Rasterize the brand-safe creative to a real PNG. With an AI background,
-// composite the exact copy/logo over it; otherwise rasterize the full brand
-// composer. Returns the PNG bytes, or null if rasterization itself fails.
-async function rasterizeCreative(req: ImageGenerationRequest, theme: BrandTheme, i: number, aiBg: Buffer | null): Promise<Buffer | null> {
+// Rasterize the creative to a real PNG by compositing the brand's ACTUAL assets
+// with sharp (never librsvg text — that's what caused tofu). Base = AI scene, or
+// the uploaded PRODUCT PHOTO, or a brand gradient; then a legibility scrim, the
+// exact headline/offer/CTA text (bundled font), and the real logo badge.
+// Returns { png, baseKind } so the UI can describe honestly what was built.
+type BaseKind = "product" | "ai" | "gradient";
+async function rasterizeCreative(req: ImageGenerationRequest, theme: BrandTheme, i: number, aiBg: Buffer | null): Promise<{ png: Buffer; baseKind: BaseKind } | null> {
   try {
     const dim = FORMAT_DIMENSIONS[req.options.platformFormat];
-    // The overlay embeds the ORIGINAL uploaded logo by URL. librsvg (inside
-    // sharp) will not fetch remote hrefs, so a remote logo would silently drop
-    // out of the raster — inline it as a data URI first so it always composites.
-    if (aiBg) {
-      const overlay = Buffer.from(await inlineLogoInSvg(brandSafeSvgString(req, theme, i, true)));
-      return await sharp(aiBg).resize(dim.w, dim.h, { fit: "cover" }).composite([{ input: overlay }]).png().toBuffer();
-    }
-    const svg = await inlineLogoInSvg(brandSafeSvgString(req, theme, i, false));
-    return await sharp(Buffer.from(svg)).png().toBuffer();
-  } catch { return null; }
-}
+    const { w, h } = dim;
+    const o = req.options;
+    const productUrl = req.referenceAssets?.find((a) => a.assetType === "product_image")?.fileUrl;
+    const logoUrl = req.referenceAssets?.find((a) => a.assetType === "logo")?.fileUrl;
 
-// Fetch a remote logo referenced in the SVG and inline it as a data URI so the
-// rasterizer composites the REAL logo (librsvg won't load remote hrefs). Best-
-// effort: on any failure the original SVG (reserved logo box) is returned.
-async function inlineLogoInSvg(svg: string): Promise<string> {
-  const m = svg.match(/href="(https?:\/\/[^"]+)"/);
-  if (!m) return svg;
-  const url = m[1].replace(/&amp;/g, "&");
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(t);
-    if (!res.ok) return svg;
-    const ct = res.headers.get("content-type") || "image/png";
-    const b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-    const dataUri = `data:${ct};base64,${b64}`;
-    return svg.split(m[1]).join(dataUri);
-  } catch { return svg; }
+    // 1) Base image — prefer a real photo/scene over an abstract gradient.
+    let base: Buffer | null = null;
+    let baseKind: BaseKind = "gradient";
+    if (aiBg) { try { base = await sharp(aiBg).resize(w, h, { fit: "cover" }).png().toBuffer(); baseKind = "ai"; } catch { base = null; } }
+    if (!base && o.useProductPhoto && productUrl) {
+      const pb = await fetchBytes(productUrl);
+      if (pb) { try { base = await sharp(pb).resize(w, h, { fit: "cover" }).png().toBuffer(); baseKind = "product"; } catch { base = null; } }
+    }
+    if (!base) { base = await sharp(Buffer.from(gradientSvgBase(theme, i, w, h))).png().toBuffer(); baseKind = "gradient"; }
+
+    const layers: OverlayOptions[] = [{ input: Buffer.from(scrimSvg(w, h)), left: 0, top: 0 }];
+    const fontH = Math.round(w * 0.075);
+
+    // 2) Headline (exact spelling, bundled font)
+    const headline = req.headline || req.business;
+    if (headline) {
+      const t = await textPng(headline, { width: Math.round(w * 0.88), pt: Math.round(fontH * 0.8), color: theme.textSafe });
+      if (t) layers.push({ input: t.buf, left: Math.round(w * 0.06), top: Math.round(h * 0.30) });
+    }
+    // 3) Offer badge
+    if (o.addOfferText && req.offerText) {
+      const p = await pillPng(req.offerText, { fill: theme.accent, textColor: theme.backgroundSafe, pt: Math.round(fontH * 0.5) });
+      if (p) layers.push({ input: p.buf, left: Math.round(w * 0.06), top: Math.round(h * 0.60) });
+    }
+    // 4) CTA button
+    if (o.addCtaButton) {
+      const p = await pillPng(req.cta || "Learn more", { fill: theme.cta, textColor: theme.backgroundSafe, pt: Math.round(fontH * 0.5) });
+      if (p) layers.push({ input: p.buf, left: Math.round(w * 0.06), top: Math.round(h * 0.82) });
+    }
+    // 5) Real logo badge (never redrawn)
+    if (o.useLogo && logoUrl) {
+      const lb = logoBox(o.logoPosition, w, h);
+      const badge = await buildLogoBadge(logoUrl, lb);
+      if (badge) layers.push({ input: badge, left: lb.x, top: lb.y });
+    }
+
+    const png = await sharp(base).composite(layers).png().toBuffer();
+    return { png, baseKind };
+  } catch { return null; }
 }
 
 // Host the PNG if Storage is configured (postable URL); otherwise return it as
@@ -400,10 +499,14 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
     let providerId: ImageProviderId = "demo";
     let model = "svg-brand-composer";
 
+    // If the brand uploaded a product photo and asked to use it, THAT is the hero
+    // of the creative — don't spend an AI scene that would ignore their product.
+    const willUseProduct = req.options.useProductPhoto && Boolean(req.referenceAssets?.some((a) => a.assetType === "product_image"));
+
     // Live photoreal: OpenAI generates a text/logo-free scene; we composite the
-    // exact copy/logo on top (brand-safe). Failure falls back to the composer.
+    // exact copy/logo on top (brand-safe). Skipped when the product photo is used.
     let aiBg: Buffer | null = null;
-    if (hasOpenAI) {
+    if (hasOpenAI && !willUseProduct) {
       aiBg = await openaiBackground(req, theme, openaiSize(dimForSize.w, dimForSize.h));
       if (aiBg) { mode = "live"; providerId = "gpt-image-2"; model = "gpt-image-1 + brand composite"; }
       else attempts.push({ provider: "gpt-image-2", error: "live image call failed — used the brand composer" });
@@ -412,12 +515,14 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
     // Rasterize to a REAL PNG (AI bg composite when present, else the brand
     // composer). Host it if Storage is configured, otherwise inline it as a
     // base64 data URI — so a creative is ALWAYS visible, never a broken image.
-    const png = await rasterizeCreative(req, theme, i, aiBg);
+    const raster = await rasterizeCreative(req, theme, i, aiBg);
     let imageUrl: string;
     let hosted = false;
     let hostedUrl: string | null = null;
-    if (png) {
-      const out = await hostOrInline(png, req, i, Boolean(aiBg));
+    let baseKind: BaseKind = "gradient";
+    if (raster) {
+      baseKind = raster.baseKind;
+      const out = await hostOrInline(raster.png, req, i, Boolean(aiBg));
       imageUrl = out.url; hosted = out.hosted; hostedUrl = out.hostedUrl;
       if (!hosted && storageConfigured()) attempts.push({ provider: "demo", error: "storage upload failed — served inline PNG preview" });
     } else {
@@ -428,6 +533,12 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
     }
 
     const meta = IMAGE_PROVIDERS.find((p) => p.id === providerId) ?? IMAGE_PROVIDERS.find((p) => p.id === "demo")!;
+    // Honest description of what was actually built.
+    const builtFrom = baseKind === "product"
+      ? "Built from YOUR product photo + logo + exact text."
+      : baseKind === "ai"
+        ? `AI scene (${meta.label}) + your logo + exact text.`
+        : "Brand placeholder — colours + logo + exact text. Add a product photo (or connect an image model) for a photoreal creative from your product.";
     results.push({
       imageUrl, hostedUrl: hostedUrl ?? undefined, provider: providerId, model, mode,
       width: dim.w, height: dim.h, format: req.options.platformFormat,
@@ -436,11 +547,9 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
       variantIndex: i,
       cost: estimateImageCost(meta.id === "demo" ? (IMAGE_PROVIDERS.find((p) => p.id === "gemini-nano-banana-2")!) : meta, req),
       notes: [
-        hosted
-          ? (mode === "live" ? `Hosted PNG via ${meta.label} + brand composite — attachable to posts.` : "Hosted brand-safe PNG — attachable to posts.")
-          : (mode === "live" ? "Live brand render (inline preview) — attaches to posts once Firebase Storage is configured." : "Inline brand-safe preview — attaches to posts once Firebase Storage is configured."),
-        `Logo ${req.options.useLogo ? `overlaid (${req.options.logoPosition}) — original asset, never redrawn` : "off"}; text rendered exactly.`,
-        `Theme ${theme.source === "logo" ? "extracted from logo" : "derived from brand identity"}.`,
+        builtFrom,
+        hosted ? "Hosted PNG — attachable to posts." : "Inline PNG preview — attaches to posts once Firebase Storage is configured.",
+        `Logo ${req.options.useLogo ? "overlaid — original asset, never redrawn" : "off"}; text rendered with a bundled font (always crisp).`,
       ],
       attempts: attempts.length ? attempts.slice() : undefined,
     });
