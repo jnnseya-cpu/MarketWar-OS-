@@ -14,6 +14,7 @@ import { AgentMarkdown, PageHeader, Pill, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults } from "@/shared/brand";
+import { industryPlaceholders } from "@/shared/industry";
 
 type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; note: string; error?: string };
 
@@ -23,6 +24,7 @@ const brief = (md: string, n = 700) => md.replace(/```[\s\S]*?```/g, "").replace
 export default function FirstCustomerPage() {
   const { activeBrand } = useActiveBrand();
   const d = brandDefaults(activeBrand);
+  const ph = industryPlaceholders(activeBrand);
   const [form, setForm] = useState({
     business: d.business || "",
     product: d.product || "",
@@ -130,15 +132,29 @@ export default function FirstCustomerPage() {
         ]}
       />
 
+      {/* The path — how the 4 pieces become a paying customer */}
+      <div className="mb-6 rounded-xl border border-white/[0.06] bg-ink-900/40 p-3">
+        <p className="mb-2 text-[11px] text-slate-400">How this brings a customer: build these 4 pieces, send them to real people from <span className="text-slate-200">your own WhatsApp/email</span> (no ads), and the payment link is where the money lands.</p>
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-xs">
+          {([["Offer", Boolean(offer)], ["Who to reach", Boolean(leads)], ["Message", Boolean(outreach)], ["Payment link", Boolean(checkout?.url)]] as [string, boolean][]).map(([label, done], i) => (
+            <span key={label} className="flex items-center gap-1">
+              <span className={`rounded-full px-2.5 py-1 font-semibold ${done ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" : "bg-ink-850 text-slate-400"}`}>{done ? "✓ " : `${i + 1}. `}{label}</span>
+              <ArrowRight className="h-3 w-3 text-slate-600" />
+            </span>
+          ))}
+          <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 font-bold text-emerald-200">💷 Paying customer</span>
+        </div>
+      </div>
+
       {/* Setup */}
       <div className="mb-6 card p-5">
         <Step n={0} done={ready} icon={Rocket} title="Set the scene" sub="A few basics — the whole sprint runs off these." />
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className="label">Business / brand</label><input className="input" value={form.business} onChange={(e) => set("business", e.target.value)} placeholder="Your business name" /></div>
-          <div><label className="label">Product / service</label><input className="input" value={form.product} onChange={(e) => set("product", e.target.value)} placeholder="Flame-grilled family platters" /></div>
-          <div><label className="label">Who should buy?</label><input className="input" value={form.targetCustomer} onChange={(e) => set("targetCustomer", e.target.value)} placeholder="Local families within 3 miles" /></div>
+          <div><label className="label">Product / service</label><input className="input" value={form.product} onChange={(e) => set("product", e.target.value)} placeholder={ph.product} /></div>
+          <div><label className="label">Who should buy?</label><input className="input" value={form.targetCustomer} onChange={(e) => set("targetCustomer", e.target.value)} placeholder={ph.audience} /></div>
           <div><label className="label">Location / area</label><input className="input" value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="City or area" /></div>
-          <div><label className="label">Usual price</label><input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="£25 platter" /></div>
+          <div><label className="label">Usual price</label><input className="input" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="e.g. £399/mo" /></div>
           <div><label className="label">First-order price (£) — for the link</label><input className="input" type="number" min="1" value={form.amount} onChange={(e) => set("amount", e.target.value)} placeholder="20" /></div>
         </div>
       </div>
