@@ -62,18 +62,42 @@ async function mintServiceAccountToken(sa: ServiceAccount, scope: string): Promi
   return res.ok && d.access_token ? d.access_token : null;
 }
 
+const env = (k: string) => (process.env[k] || "").trim(); // trim: Vercel can add a trailing newline
+
 async function mintOAuthUserToken(): Promise<string | null> {
   const res = await fetch(TOKEN_URL, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID as string,
-      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET as string,
-      refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN as string,
+      client_id: env("GOOGLE_OAUTH_CLIENT_ID"),
+      client_secret: env("GOOGLE_OAUTH_CLIENT_SECRET"),
+      refresh_token: env("GOOGLE_OAUTH_REFRESH_TOKEN"),
     }),
   });
   const d = (await res.json().catch(() => ({}))) as { access_token?: string };
   return res.ok && d.access_token ? d.access_token : null;
+}
+
+// Diagnose the OAuth refresh-token exchange and return Google's ACTUAL error
+// (never the token/secret) so a failed Business Profile connection is debuggable.
+export async function diagnoseGoogleOAuth(): Promise<{ configured: boolean; ok: boolean; status?: number; error?: string; errorDescription?: string; fix?: string }> {
+  if (!hasOAuthUser()) return { configured: false, ok: false, fix: "Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REFRESH_TOKEN." };
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: env("GOOGLE_OAUTH_CLIENT_ID"), client_secret: env("GOOGLE_OAUTH_CLIENT_SECRET"), refresh_token: env("GOOGLE_OAUTH_REFRESH_TOKEN") }),
+    });
+    const d = (await res.json().catch(() => ({}))) as { access_token?: string; error?: string; error_description?: string };
+    if (res.ok && d.access_token) return { configured: true, ok: true };
+    const fix = d.error === "invalid_client"
+      ? "Client ID or secret is wrong, or they belong to a DIFFERENT OAuth client than the refresh token. All three must be from the SAME client."
+      : d.error === "invalid_grant"
+        ? "Refresh token is invalid/expired/revoked, or was minted with a different client. Re-mint it in the OAuth Playground using THIS client's ID+secret (tick 'Use your own OAuth credentials')."
+        : d.error === "unauthorized_client"
+          ? "This OAuth client can't use refresh-token grants — create the client as 'Web application' or 'Desktop app'."
+          : "Check the three GOOGLE_OAUTH_* values are from the same client and have no stray spaces/newlines.";
+    return { configured: true, ok: false, status: res.status, error: d.error, errorDescription: d.error_description, fix };
+  } catch (e) { return { configured: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach Google's token endpoint." }; }
 }
 
 // Get an access token for a Google scope (space-joined if several). Returns null

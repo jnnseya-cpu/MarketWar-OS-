@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { googleAuthMode } from "@/backend/google-auth";
+import { googleAuthMode, hasOAuthUser, diagnoseGoogleOAuth } from "@/backend/google-auth";
 import { listSites } from "@/backend/search-console";
 import { listAccounts } from "@/backend/business-profile";
 
@@ -22,6 +22,10 @@ export async function GET() {
   const [sc, gbp] = await Promise.all([listSites().catch(() => null), listAccounts().catch(() => null)]);
   const scOk = sc?.mode === "live";
   const gbpOk = gbp?.mode === "live";
+  // When Business Profile isn't live but an OAuth credential is set, run the
+  // token-exchange diagnostic so the exact Google error (invalid_grant /
+  // invalid_client …) is visible — that's what pinpoints the fix.
+  const oauthDiagnostic = !gbpOk && hasOAuthUser() ? await diagnoseGoogleOAuth().catch(() => undefined) : undefined;
   const verdict = scOk || gbpOk
     ? `GREEN — Google data live (${[scOk ? "Search Console" : "", gbpOk ? "Business Profile" : ""].filter(Boolean).join(" + ")}).`
     : "RED — Google credential present but no API responded (check property access / API allowlisting).";
@@ -29,5 +33,6 @@ export async function GET() {
     service: "google", verdict, authMode: mode,
     searchConsole: { connected: scOk, sites: sc?.sites?.length ?? 0, note: sc?.note },
     businessProfile: { connected: gbpOk, accounts: gbp?.accounts?.length ?? 0, note: gbp?.note },
+    ...(oauthDiagnostic ? { oauthDiagnostic } : {}),
   });
 }
