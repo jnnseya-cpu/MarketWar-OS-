@@ -31,8 +31,8 @@ export default function GoLivePage() {
     setBusy(true);
     const out: Check[] = [];
     const get = async (u: string) => { try { const r = await authedFetch(u); return await r.json(); } catch { return null; } };
-    const [stripe, storage, auth, live, serper, apollo] = await Promise.all([
-      get("/api/health/stripe"), get("/api/health/storage"), get("/api/health/auth"), get("/api/health/live"), get("/api/health/serper"), get("/api/health/apollo"),
+    const [stripe, storage, auth, live, serper, apollo, google] = await Promise.all([
+      get("/api/health/stripe"), get("/api/health/storage"), get("/api/health/auth"), get("/api/health/live"), get("/api/health/serper"), get("/api/health/apollo"), get("/api/health/google"),
     ]);
 
     // Stripe (money)
@@ -61,6 +61,11 @@ export default function GoLivePage() {
     out.push({ key: "apollo", title: "Verified business emails (Apollo)", group: "Premium providers — optional upsells",
       status: apollo?.verdict ? fromVerdict(apollo.verdict) : "amber",
       detail: apollo?.verdict || "Not set — email-finding uses the free scraper only.", fix: apollo?.probe?.fix });
+
+    // Google — real rankings (Search Console) + local listings (Business Profile)
+    out.push({ key: "google", title: "Real SEO/local data (Google Search Console + Business Profile)", group: "Premium providers — optional upsells",
+      status: google?.verdict ? fromVerdict(google.verdict) : "amber",
+      detail: google?.verdict || "Not set — SEO/local modules show estimates.", fix: google?.fix });
 
     // Providers (optional upsells)
     if (Array.isArray(live?.capabilities)) {

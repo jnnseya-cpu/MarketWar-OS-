@@ -11,6 +11,7 @@ import { Gauge, Loader2, Radar, Rocket, Search, Sparkles, Wrench } from "lucide-
 import AgentRunner from "@/components/AgentRunner";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import GoogleInsightsPanel from "@/components/GoogleInsightsPanel";
 
 type Audit = {
   overall: number;
@@ -64,6 +65,9 @@ export default function OrganicPage() {
         subtitle="AI assistants are the new results page. This is the acquisition front door: the free GEO audit ('Does ChatGPT recommend your business?'), the Citation Radar that tracks your share of AI answers, and the fixes that get you cited — earned, measured honestly, never faked."
         actions={<div className="flex items-center gap-2"><Link href="/dashboard/organic-dominance" className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20">Organic Dominance OS</Link><Pill tone="info">GEO audit · Citation Radar</Pill></div>}
       />
+
+      {/* Real Google Search Console rankings when connected — measured, not modelled */}
+      <GoogleInsightsPanel kind="search-console" />
 
       {/* Free GEO audit — the flagship magnet */}
       <div className="mb-8 card border-emerald-500/30 p-6">

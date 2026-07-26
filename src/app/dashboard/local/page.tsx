@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { Loader2, MapPin, ListChecks, Building2 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill } from "@/components/ui";
+import GoogleInsightsPanel from "@/components/GoogleInsightsPanel";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type ProfileStatus = "present" | "weak" | "missing";
@@ -69,6 +70,9 @@ export default function LocalDominationPage() {
         subtitle="Map-pack rank estimate, Google Business Profile completeness, review velocity and rating trend, local-SEO citation gaps and a prioritized local action list — the channels ad platforms can't rent back to you. Every figure is a directional estimate until live local feeds are connected."
         actions={<Pill tone="info">map-pack · GBP · reviews · citations</Pill>}
       />
+
+      {/* Real Google Business Profile listing + reviews when connected */}
+      <GoogleInsightsPanel kind="business-profile" />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
