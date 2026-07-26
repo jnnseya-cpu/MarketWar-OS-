@@ -6,6 +6,7 @@ import MobileNav from "@/components/MobileNav";
 import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
 import AuthStatusBanner from "@/components/AuthStatusBanner";
+import GuideWizard from "@/components/GuideWizard";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
 import { LocaleProvider } from "@/frontend/locale-context";
@@ -31,6 +32,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </header>
         <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{children}</main>
       </div>
+      <GuideWizard />
     </div>
     </ResultsProvider>
     </BrandProvider>
