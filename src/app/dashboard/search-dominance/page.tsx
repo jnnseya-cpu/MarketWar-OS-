@@ -71,6 +71,38 @@ export default function SearchDominancePage() {
   const [artifacts, setArtifacts] = useState<SeoArtifact[] | null>(null);
   const [busySeo, setBusySeo] = useState(false);
   const [seoErr, setSeoErr] = useState("");
+  // Live Search Console → auto-fills the measurable Dominance components.
+  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; queries?: number } | null>(null);
+
+  // Pull the brand's real Search Console figures and translate them into the two
+  // components SC actually measures — technical eligibility (indexed & serving)
+  // and search-demand coverage (how many queries you appear for). Others stay 0
+  // until rank/authority/AI sources connect — never invented.
+  useEffect(() => {
+    if (!activeBrand) return;
+    let on = true;
+    (async () => {
+      try {
+        const r = await authedFetch("/api/seo-insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search-console", brandId: activeBrand.id, website: (activeBrand as { website?: string }).website }) });
+        const d = await r.json();
+        if (!on) return;
+        if (d.connected && d.report?.totals) {
+          const t = d.report.totals as { avgPosition: number; clicks: number; impressions: number };
+          const queries = Array.isArray(d.report.rows) ? d.report.rows.length : 0;
+          setGsc({ connected: true, avgPosition: t.avgPosition, clicks: t.clicks, impressions: t.impressions, queries });
+          const cl = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+          const derived = {
+            technicalEligibility: t.impressions > 0 ? cl(105 - (t.avgPosition || 20) * 5) : 0,
+            searchDemandCoverage: cl(queries * 4),
+          };
+          setDom(derived);
+          const sr = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: derived }) });
+          setDomScore(await sr.json().catch(() => null));
+        } else setGsc({ connected: false });
+      } catch { if (on) setGsc({ connected: false }); }
+    })();
+    return () => { on = false; };
+  }, [activeBrand]);
 
   async function generateArtifacts() {
     if (!activeBrand) { setSeoErr("Pick a brand in the sidebar first."); return; }
@@ -223,11 +255,20 @@ export default function SearchDominancePage() {
         <div className="mb-8 card p-5">
           <div className="mb-2 flex items-center gap-2"><Gauge className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">MarketWar Search Dominance Score</h2></div>
           <p className="mb-3 text-xs text-slate-500">Rate each component 0–100 (leave blank for unmeasured = 0, so gaps show honestly). You get a 0–100 score and the weakest areas, each with the recommended next action. Cost/revenue estimates attach when a real data source (Search Console, analytics) is connected — never invented.</p>
+          {gsc?.connected && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-slate-300">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-300"><Check className="h-3.5 w-3.5" /> Search Console live</span>
+              <span>Avg position <span className="font-semibold text-white">{gsc.avgPosition}</span></span>
+              <span>Queries <span className="font-semibold text-white">{gsc.queries}</span></span>
+              <span>Impressions <span className="font-semibold text-white">{gsc.impressions?.toLocaleString()}</span></span>
+              <span className="text-slate-500">→ Technical Eligibility + Search Demand Coverage auto-filled from your live data. Other components stay 0 until authority/AI/analytics sources connect.</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {info.dominanceComponents.map((c) => (
               <label key={c.key} className="text-[11px] text-slate-400" title={c.action}>
                 {c.label}
-                <input type="number" min={0} max={100} className="input mt-0.5 w-full" placeholder="0"
+                <input type="number" min={0} max={100} className="input mt-0.5 w-full" placeholder="0" value={dom[c.key] ?? ""}
                   onChange={(e) => setDom((s) => { const v = e.target.value; const n = { ...s }; if (v === "") delete n[c.key]; else n[c.key] = Number(v); return n; })} />
               </label>
             ))}

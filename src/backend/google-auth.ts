@@ -29,7 +29,7 @@ function serviceAccount(): ServiceAccount | null {
   if (path) { try { const j = JSON.parse(readFileSync(path, "utf8")); if (j.client_email && j.private_key) return j; } catch { /* unreadable */ } }
   return null;
 }
-function hasOAuthUser(): boolean {
+export function hasOAuthUser(): boolean {
   return Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
 }
 
@@ -78,12 +78,24 @@ async function mintOAuthUserToken(): Promise<string | null> {
 
 // Get an access token for a Google scope (space-joined if several). Returns null
 // when no credential is configured or the exchange fails.
+//
+// Business Profile (business.manage) can ONLY be accessed by an OAuth USER token —
+// service accounts are rejected — so that scope always uses the OAuth credential,
+// even when a service account is also configured (which is the common setup:
+// service account for Search Console + OAuth for Business Profile). Other scopes
+// prefer the service account and fall back to OAuth.
 export async function getGoogleAccessToken(scope: string): Promise<string | null> {
   const cached = cache.get(scope);
   if (cached && cached.exp > Date.now() + 60_000) return cached.token;
   try {
+    const mustUseOAuth = /business\.manage/.test(scope);
     const sa = serviceAccount();
-    const token = sa ? await mintServiceAccountToken(sa, scope) : hasOAuthUser() ? await mintOAuthUserToken() : null;
+    let token: string | null = null;
+    if (mustUseOAuth) {
+      token = hasOAuthUser() ? await mintOAuthUserToken() : null;
+    } else {
+      token = sa ? await mintServiceAccountToken(sa, scope) : hasOAuthUser() ? await mintOAuthUserToken() : null;
+    }
     if (token) { cache.set(scope, { token, exp: Date.now() + 3_500_000 }); return token; }
     return null;
   } catch { return null; }

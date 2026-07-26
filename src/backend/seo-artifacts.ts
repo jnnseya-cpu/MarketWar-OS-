@@ -20,6 +20,14 @@ const httpsUrl = (u?: string) => {
   if (!s) return "";
   return /^https?:\/\//i.test(s) ? s : `https://${s.replace(/^\/+/, "")}`;
 };
+// Images used in JSON-LD (logo/image) and Open Graph MUST be hosted http(s)
+// URLs — Google Rich Results and social scrapers reject data:/blob: URIs and
+// relative paths. A base64 data-URI logo (common right after upload) is dropped
+// rather than emitted broken; the artifact note tells the user to host it.
+const hostedImg = (u?: string) => {
+  const s = clean(u);
+  return /^https?:\/\//i.test(s) ? s : "";
+};
 
 export type Artifact = { key: string; label: string; format: "json-ld" | "text" | "html"; content: string; note: string };
 
@@ -32,17 +40,19 @@ export function buildStructuredData(brand: Brand): Artifact[] {
 
   // Organization (or LocalBusiness when a location is set).
   const isLocal = Boolean(clean(brand.location));
+  const logo = hostedImg(brand.logoUrl);
   const org: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": isLocal ? "LocalBusiness" : "Organization",
     name,
     ...(desc ? { description: desc } : {}),
     ...(site ? { url: site } : {}),
-    ...(brand.logoUrl ? { logo: brand.logoUrl, image: brand.logoUrl } : {}),
+    ...(logo ? { logo, image: logo } : {}),
     ...(isLocal ? { address: { "@type": "PostalAddress", addressLocality: clean(brand.location) } } : {}),
     ...(clean(brand.industry) ? { knowsAbout: clean(brand.industry) } : {}),
   };
-  out.push({ key: "organization", label: isLocal ? "LocalBusiness" : "Organization", format: "json-ld", content: jsonLd(org), note: "Your brand's identity for search engines + AI. Paste in the <head> of every page." });
+  const logoNote = !logo && clean(brand.logoUrl) ? " Your logo is stored as an inline image, which Google can't read here — host it at a public https:// URL and add it as \"logo\"." : "";
+  out.push({ key: "organization", label: isLocal ? "LocalBusiness" : "Organization", format: "json-ld", content: jsonLd(org), note: `Your brand's identity for search engines + AI. Paste in the <head> of every page.${logoNote}` });
 
   // WebSite.
   if (site) {
@@ -56,7 +66,7 @@ export function buildStructuredData(brand: Brand): Artifact[] {
       "@type": "Product",
       name: clean(brand.product),
       ...(clean(brand.offer) ? { description: clean(brand.offer) } : {}),
-      ...(brand.productImageUrl ? { image: brand.productImageUrl } : {}),
+      ...(hostedImg(brand.productImageUrl) ? { image: hostedImg(brand.productImageUrl) } : {}),
       brand: { "@type": "Brand", name },
     };
     out.push({ key: "product", label: "Product", format: "json-ld", content: jsonLd(product), note: "Add price/availability/AggregateRating ONLY when they're real — the engine never invents them." });
@@ -103,10 +113,11 @@ export function buildMetaTags(brand: Brand, topic?: string): Artifact {
     `<meta property="og:description" content="${esc(description)}" />`,
     `<meta property="og:type" content="website" />`,
     site ? `<meta property="og:url" content="${esc(site)}" />` : "",
-    brand.logoUrl ? `<meta property="og:image" content="${esc(brand.logoUrl)}" />` : "",
+    hostedImg(brand.logoUrl) ? `<meta property="og:image" content="${esc(hostedImg(brand.logoUrl))}" />` : "",
     `<meta name="twitter:card" content="summary_large_image" />`,
   ].filter(Boolean).join("\n");
-  return { key: "meta", label: t ? `Meta tags · ${t}` : "Meta tags", format: "html", content: html, note: `Title ${title.length} chars, description ${description.length} chars — within search-display limits.` };
+  const ogNote = !hostedImg(brand.logoUrl) && clean(brand.logoUrl) ? " (og:image omitted — host your logo at a public https:// URL so link previews show an image.)" : "";
+  return { key: "meta", label: t ? `Meta tags · ${t}` : "Meta tags", format: "html", content: html, note: `Title ${title.length} chars, description ${description.length} chars — within search-display limits.${ogNote}` };
 }
 
 export function buildAllArtifacts(brand: Brand, topic?: string): Artifact[] {
