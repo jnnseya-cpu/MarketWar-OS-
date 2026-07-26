@@ -30,6 +30,12 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
   const waHref = page.whatsappConfig?.enabled && page.whatsappConfig.phoneNumber
     ? `https://wa.me/${page.whatsappConfig.phoneNumber.replace(/\D/g, "")}?text=${encodeURIComponent(page.whatsappConfig.prefilledMessage || "")}`
     : null;
+  // Owner's own product/checkout/booking link. When set, the CTA button sends the
+  // visitor straight there instead of scrolling to the built-in form. Older stored
+  // pages predate this field, so it's read defensively.
+  const ctaUrl = (page as { primaryCtaUrl?: string }).primaryCtaUrl || "";
+  const heroHref = ctaUrl || "#lead";
+  const external = Boolean(ctaUrl);
 
   return (
     <main className="min-h-screen bg-white text-slate-900">
@@ -43,7 +49,7 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
           <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl">{page.headline}</h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-white/90">{page.subheadline}</p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <a href="#lead" className="rounded-lg bg-white px-6 py-3 text-base font-bold" style={{ color: primary }}>{page.primaryCta}</a>
+            <a href={heroHref} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="rounded-lg bg-white px-6 py-3 text-base font-bold" style={{ color: primary }}>{page.primaryCta}</a>
             {waHref && <a href={waHref} className="rounded-lg border border-white/70 px-6 py-3 text-base font-bold text-white">{page.whatsappConfig.enabled ? "Message on WhatsApp" : page.secondaryCta}</a>}
           </div>
         </div>
@@ -77,7 +83,19 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
         <div className="mx-auto max-w-md">
           <h2 className="mb-1 text-center text-2xl font-bold text-slate-900">{page.primaryCta}</h2>
           <p className="mb-6 text-center text-slate-600">{page.offerText}</p>
-          {page.formConfig.enabled && page.formConfig.fields.length > 0 ? (
+          {external ? (
+            <>
+              <a href={ctaUrl} target="_blank" rel="noopener noreferrer" className="block rounded-lg px-4 py-4 text-center text-base font-bold text-white" style={{ background: primary }}>
+                {page.primaryCta}
+              </a>
+              {page.formConfig.enabled && page.formConfig.fields.length > 0 && (
+                <div className="mt-8">
+                  <p className="mb-3 text-center text-sm font-semibold text-slate-500">Prefer we get in touch? Leave your details.</p>
+                  <LandingLeadForm brandId={page.brandId} slug={page.slug} fields={page.formConfig.fields} submitLabel="Send my details" accent={primary} />
+                </div>
+              )}
+            </>
+          ) : page.formConfig.enabled && page.formConfig.fields.length > 0 ? (
             <LandingLeadForm
               brandId={page.brandId}
               slug={page.slug}

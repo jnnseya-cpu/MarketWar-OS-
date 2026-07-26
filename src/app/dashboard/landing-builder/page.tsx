@@ -19,7 +19,7 @@ type ABVariant = { variant: string; focus: string; headline: string; subheadline
 type FormField = { key: string; label: string; type: string; required: boolean };
 type Page = {
   pageType: string; title: string; slug: string; headline: string; subheadline: string; offerText: string;
-  primaryCta: string; secondaryCta: string; sections: Section[]; formConfig: { enabled: boolean; fields: FormField[]; submitAction: string };
+  primaryCta: string; primaryCtaUrl?: string; secondaryCta: string; sections: Section[]; formConfig: { enabled: boolean; fields: FormField[]; submitAction: string };
   whatsappConfig: { enabled: boolean; prefilledMessage: string }; scores: Scores; abVariants: ABVariant[];
   optimisationRecommendations: string[]; publishUrl: string;
 };
@@ -29,13 +29,13 @@ const SCORE_LABELS: Record<string, string> = { conversionScore: "Conversion", cl
 
 export default function LandingBuilderPage() {
   const { activeBrand } = useActiveBrand();
-  const [form, setForm] = useState({ business: "", objective: "", offer: "", audience: "", location: "", product: "", painPoint: "" });
+  const [form, setForm] = useState({ business: "", objective: "", offer: "", audience: "", location: "", product: "", painPoint: "", ctaLabel: "", ctaUrl: "" });
   const [page, setPage] = useState<Page | null>(null);
   const [busy, setBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   // Prefill from the active brand so the page is built from real brand context.
   useEffect(() => {
@@ -89,11 +89,27 @@ export default function LandingBuilderPage() {
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div><label className="label">Business</label><input className="input" value={form.business} onChange={set("business")} /></div>
-          <div><label className="label">Objective</label><input className="input" value={form.objective} onChange={set("objective")} /></div>
-          <div><label className="label">Offer</label><input className="input" value={form.offer} onChange={set("offer")} /></div>
+          <div><label className="label">Objective</label><input className="input" placeholder="e.g. start a free trial, book a call, buy" value={form.objective} onChange={set("objective")} /></div>
           <div><label className="label">Audience</label><input className="input" value={form.audience} onChange={set("audience")} /></div>
           <div><label className="label">Location</label><input className="input" value={form.location} onChange={set("location")} /></div>
+          <div><label className="label">Product / service</label><input className="input" value={form.product} onChange={set("product")} /></div>
           <div><label className="label">Pain point</label><input className="input" value={form.painPoint} onChange={set("painPoint")} /></div>
+        </div>
+        <div className="mt-4">
+          <label className="label">Offer <span className="text-slate-500">— paste your offer here to turn it into the page</span></label>
+          <textarea className="input min-h-[84px]" placeholder={"e.g. Run your next project on VeryX free for 60 days — no card needed."} value={form.offer} onChange={set("offer")} />
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">CTA button text <span className="text-slate-500">— optional</span></label>
+            <input className="input" placeholder="e.g. Start your first project" value={form.ctaLabel} onChange={set("ctaLabel")} />
+            <p className="mt-1 text-[11px] text-slate-500">Leave blank and we pick the right verb for your objective — never a forced &ldquo;get a quote&rdquo;.</p>
+          </div>
+          <div>
+            <label className="label">Product / CTA link <span className="text-slate-500">— optional</span></label>
+            <input className="input" placeholder="e.g. veryx.com/start or your checkout URL" value={form.ctaUrl} onChange={set("ctaUrl")} />
+            <p className="mt-1 text-[11px] text-slate-500">Add your real product, checkout or booking link and the button sends visitors straight there. Blank = built-in lead form.</p>
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button className="btn-primary" onClick={generate} disabled={busy}>
@@ -135,10 +151,14 @@ export default function LandingBuilderPage() {
             </div>
             <h2 className="font-display text-2xl font-bold text-white">{page.headline}</h2>
             <p className="mt-1 text-slate-400">{page.subheadline}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="btn-primary !cursor-default">{page.primaryCta}</span>
               <span className="btn-ghost !cursor-default">{page.secondaryCta}</span>
+              {page.primaryCtaUrl && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-300"><ExternalLink className="h-3.5 w-3.5" /> button links to {page.primaryCtaUrl.replace(/^https?:\/\//, "")}</span>
+              )}
             </div>
+            {!page.primaryCtaUrl && <p className="mt-2 text-[11px] text-slate-500">Button opens the built-in lead form. Add a Product / CTA link above to send visitors to your own product or checkout instead.</p>}
             <div className="mt-4 grid gap-2 sm:grid-cols-4">
               {Object.entries(page.scores).map(([k, v]) => <StatCard key={k} label={SCORE_LABELS[k] || k} value={`${v}`} tone={tone(v)} />)}
             </div>

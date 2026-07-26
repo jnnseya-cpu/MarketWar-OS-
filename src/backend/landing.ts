@@ -22,6 +22,11 @@ export type LandingSection = { type: string; heading: string; body: string; item
 export type LandingInput = {
   business: string; objective?: string; offer?: string; audience?: string;
   location?: string; product?: string; painPoint?: string; whatsappNumber?: string;
+  // Owner controls: exact CTA wording, and a REAL external destination for the
+  // button (product page, checkout, booking, Calendly…). When ctaUrl is set the
+  // page's button links out instead of scrolling to the built-in lead form —
+  // this is what turns a page into "add my own product link", not a placeholder.
+  ctaLabel?: string; ctaUrl?: string;
 };
 
 import { resolveIndustry } from "@/shared/industry";
@@ -37,6 +42,18 @@ const clean = (s?: string): string => {
   if (!t || t === "0" || !/[a-z]/i.test(t)) return "";
   return t;
 };
+// Accept a real external destination for the CTA (product page, checkout,
+// booking, WhatsApp, Calendly…). Adds https:// when the scheme is missing but it
+// looks like a domain, so an owner can paste "veryx.com/start". Returns "" when
+// there's nothing usable — the CTA then falls back to the in-page lead form.
+const normalizeUrl = (s?: string): string => {
+  const t = (s || "").trim();
+  if (!t) return "";
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(t)) return t;
+  if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/|\?|#|$)/i.test(t)) return `https://${t}`;
+  return "";
+};
+
 // Real deadline/scarcity signal in the offer text — we only show urgency when
 // it's TRUE (honesty: no fabricated "only a few spaces left").
 const hasRealDeadline = (offer: string): boolean =>
@@ -91,9 +108,18 @@ function formFields(pageType: PageType): { fields: FormField[]; submitAction: st
 // Industry-adaptive primary CTA — the generic service CTA ("Get Your Free Quote")
 // is wrong for a shop or a restaurant, so lead/local pages adapt to the industry.
 type Profile = ReturnType<typeof resolveIndustry>;
-function primaryCtaFor(pageType: PageType, profile: Profile): string {
+function primaryCtaFor(pageType: PageType, profile: Profile, input?: LandingInput): string {
+  // 1) Owner's exact wording always wins — no forced "quote" on every business.
+  const custom = clean(input?.ctaLabel);
+  if (custom) return custom.slice(0, 40);
+
   const base = CTA_BY_TYPE[pageType];
   if (pageType === "lead_capture" || pageType === "local_seo" || pageType === "offer_claim") {
+    // 2) When the offer/objective is a trial/free/start motion, "Get a quote"
+    //    is the wrong verb — read the real intent and match it.
+    const ctx = `${input?.objective || ""} ${input?.offer || ""}`.toLowerCase();
+    if (/\b(free|trial|try|start|get started|sign ?up|demo|download|install)\b/.test(ctx)) return "Start Now";
+    if (/\b(buy|order|shop|checkout|purchase|deal|discount|% off|save)\b/.test(ctx)) return "Get The Offer";
     if (profile.key === "ecommerce") return "Get The Offer";
     if (["hospitality", "beauty", "fitness", "health", "automotive", "events"].includes(profile.key)) return "Book Now";
   }
@@ -243,7 +269,7 @@ function abVariants(input: LandingInput, headline: string): ABVariant[] {
 export type GeneratedLandingPage = {
   pageType: PageType; title: string; slug: string; status: "draft";
   objective: string; targetAudience: string; targetLocation: string;
-  headline: string; subheadline: string; offerText: string; primaryCta: string; secondaryCta: string;
+  headline: string; subheadline: string; offerText: string; primaryCta: string; primaryCtaUrl: string; secondaryCta: string;
   sections: LandingSection[];
   formConfig: { enabled: boolean; fields: FormField[]; submitAction: string };
   whatsappConfig: { enabled: boolean; phoneNumber: string; prefilledMessage: string };
@@ -274,7 +300,8 @@ export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
   const subheadline = offer
     ? `${offer} — for ${who}${locSuffix}.`
     : `${product} for ${who}${locSuffix}. Straight answers, quick replies.`;
-  const primaryCta = primaryCtaFor(pageType, profile);
+  const primaryCta = primaryCtaFor(pageType, profile, input);
+  const primaryCtaUrl = normalizeUrl(input.ctaUrl);
   const { fields, submitAction } = formFields(pageType);
   const sections = buildSections(input, pageType);
   const scores = scoreLanding(input, pageType, fields.length);
@@ -284,8 +311,11 @@ export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
     pageType, title: `${business} — ${objective}`, slug, status: "draft",
     objective, targetAudience: who, targetLocation: where || "your market",
     headline, subheadline,
-    offerText: offer || `Tell us what you need${locSuffix} and we'll help.`, primaryCta, secondaryCta: pageType === "order" ? "See what's on" : "Learn More",
+    offerText: offer || `Tell us what you need${locSuffix} and we'll help.`, primaryCta, primaryCtaUrl, secondaryCta: pageType === "order" ? "See what's on" : "Learn More",
     sections,
+    // When the CTA points to the owner's own product/checkout link, the built-in
+    // lead form is optional (the button already does the job). We keep it enabled
+    // as a secondary capture unless it's a WhatsApp-first page.
     formConfig: { enabled: pageType !== "whatsapp_conversion", fields, submitAction },
     whatsappConfig: { enabled: pageType === "whatsapp_conversion" || Boolean(input.whatsappNumber), phoneNumber: input.whatsappNumber || "", prefilledMessage: `Hi ${business}, I'd like to ${objective.replace(/^get /, "")}.` },
     tracking: { utmSource: "marketwar", utmMedium: "landing", utmCampaign: slug, metaPixelId: "", googleTagId: "", tiktokPixelId: "" },

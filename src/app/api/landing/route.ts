@@ -20,6 +20,7 @@ function inputFrom(body: Record<string, unknown>): LandingInput {
     objective: str("objective"), offer: str("offer"), audience: str("audience"),
     location: str("location"), product: str("product"), painPoint: str("painPoint"),
     whatsappNumber: str("whatsappNumber"),
+    ctaLabel: str("ctaLabel"), ctaUrl: str("ctaUrl"),
   };
 }
 
