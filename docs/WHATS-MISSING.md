@@ -1,83 +1,79 @@
-# MarketWar OS — What's MISSING to make every part work
+# MarketWar OS — What's Missing (keys, connectors, gaps)
 
-Only the gaps. Nothing already built is listed. Each row is something **not yet
-present** that a part needs to work correctly, and the action to supply it.
-
-Three kinds of missing:
-- **KEY** — an external account/key the owner must obtain + set (code is ready).
-- **BUILD** — code that does not exist yet and must be built (a key alone won't work).
-- **OPS** — an infra/console setup that isn't done.
-
----
-
-## 1. Keys the owner must supply (code ready, key missing)
-
-| Part that needs it | Missing key(s) | Without it |
-|---|---|---|
-| Persistence, accounts, auth, ownership | `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` (+ `FIREBASE_PROJECT_ID`) | Nothing saves; runs demo-only |
-| Real AI (all agents/copy/strategy) | `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` / `GEMINI_API_KEY`) | Agents return scaffolds, not real output |
-| Any admin at all | `PLATFORM_ADMIN_EMAILS` (+ `NEXT_PUBLIC_PLATFORM_ADMIN_EMAILS`) | No admin access |
-| Media hosting for social publishing | `FIREBASE_STORAGE_BUCKET` | Can't publish images/video to channels |
-| Billing (subscriptions/ACU) + safe webhook | `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` | No billing; webhook runs unsafe demo mode |
-| Partner payouts — rest of world | `STRIPE_SECRET_KEY` | Payout computed but no money sent |
-| Partner payouts — Africa (M-Pesa/Orange/Airtel/Africell) | `BITRIPAY_API_KEY` | Payout computed but no money sent |
-| Billing → ledger conversion posting | `CREATOR_LEDGER_SECRET` | Conversions can't be posted server-to-server |
-| Transactional email sending | `SMTP_HOST`+`SMTP_USER`+`SMTP_PASS` (or `RESEND_API_KEY`/`SENDGRID_API_KEY`) | No email leaves the app |
-| At-rest field encryption | `FIELD_ENCRYPTION_MASTER_KEY` | Sensitive fields stored unencrypted |
-| Social publishing (15 channels) | `ZERNIO_API_KEY` **+ a paid Zernio account** (payment method for >2 channels) | Publishing stays demo; "free tier reached" error |
-| Photoreal image backgrounds | `OPENAI_API_KEY` (+ `OPENAI_IMAGE_MODEL`) | Brand Studio uses brand-safe composer only |
-| Video render (Sora/Veo) | `OPENAI_VIDEO_MODEL` / `GEMINI_VIDEO_MODEL` (+ provider key) | No AI video render |
-| WhatsApp Sales Center live | `WHATSAPP_TOKEN` | Funnel is demo, no real send |
-| Search Intelligence + prospect discovery | `SERPER_API_KEY` | Demo search data only |
-| LeadWar Room real prospects | `APOLLO_API_KEY` | Non-contactable samples only |
-
-## 2. Connectors that must be BUILT (a key alone will NOT work)
-
-These modules are "coming soon" because the integration code doesn't exist yet.
-
-| Part | Needs building | Also needs (key) |
-|---|---|---|
-| Organic Dominance — real search + click data | Google Search Console connector | `GOOGLE_SEARCH_CONSOLE_TOKEN` |
-| Revenue attribution — traffic/organic | Google Analytics connector | `GOOGLE_ANALYTICS_TOKEN` |
-| Market Listening — share-of-voice, sentiment, crisis | Social-listening connector | `LISTENING_API_KEY` (licensed data) |
-| AI Visibility — mentions in ChatGPT/Perplexity/Gemini | AI-answer-monitor connector | `AI_ANSWER_MONITOR_KEY` |
-| Authority Engine — backlink gaps / toxic links | Backlink-index connector | `BACKLINK_API_KEY` |
-| Reliable partner follower counts | Social OAuth / licensed social-data connector | (today: AI reads public profile, or human verifies) |
-| Avatar Studio — talking-head render | Avatar-render connector | avatar API key |
-| Audio Studio / Dubbing — voice | TTS / voice-clone connector | audio API key |
-
-## 3. In-house features not built yet (no external key needed)
-
-| Part | Needs building |
-|---|---|
-| Screen & Presentation Recorder | browser `MediaRecorder` capture |
-| Video Editor timeline | in-browser edit engine |
-| Collaboration & Approvals | workflow state machine |
-
-## 4. Operational setup not done (infra/console)
-
-| Part | Missing | Why it matters |
-|---|---|---|
-| Incident detection | Error monitoring + alerting + tracing (e.g. Sentry) | Failures are silent today |
-| Data safety | Firestore backups **enabled + a real test-restore** | No proven recovery; RTO/RPO unknown |
-| Auth proof | Verify the auth guard on a **live Firebase** project (401/403 test) | Auth is demo-open until Firebase is live |
-| Partner money proof | One live **conversion→cap→payout reconciliation** | £20k cap + idempotency only code-proven |
-| Traffic safety | Load / stress / soak test | Behaviour at real traffic unknown |
-| Multi-instance safety | Shared rate-limit store (Firestore/Redis) | Current limiter is per-instance |
-| Security proof | Live penetration test | Live attack surface unproven |
-| Regression safety | Automated unit/integration/e2e tests | Only smoke tests exist |
-| Dependencies | `npm audit fix` to zero-high | Known-CVE exposure |
-| AI quality | Eval set (hallucination / tool-accuracy / unsafe-action) | AI quality unmeasured |
-| Email inbox placement | SPF + DKIM + DMARC on the sending subdomain | Mail may hit spam |
-| Reach | Cross-browser + accessibility (keyboard/screen-reader) pass | Non-Chromium + a11y unverified |
+**Current, honest status of every external dependency** (updated this session).
+✅ = live/confirmed · ⚙️ = set but needs one finishing step · ❌ = not wired yet.
+The platform runs and sells in demo mode without the ⚙️/❌ items; this list is what
+unlocks each layer's *real* effect. Set keys in **Vercel → Project → Settings →
+Environment Variables**, then redeploy and press **Re-check** on the **Go-Live**
+board (`/dashboard/go-live`).
 
 ---
 
-### Shortest path to "all parts work"
+## 1. Money path — required to charge (all ✅)
 
-1. **Set §1 keys** — Firebase Admin, one AI key, `PLATFORM_ADMIN_EMAILS`, Storage, Stripe (+webhook secret), email, encryption. That makes the core + billing + email + media work.
-2. **Add money keys** — a payout rail (`STRIPE_SECRET_KEY`/`BITRIPAY_API_KEY`) + `CREATOR_LEDGER_SECRET`, then do the §4 reconciliation.
-3. **Do §4 ops** — monitoring + tested backups + live-Firebase auth check are the launch-critical three.
-4. **Build §2/§3** only when you want those specific "coming soon" modules live.
+| Capability | Env var(s) | Status |
+|---|---|---|
+| Take payments / subscriptions | `STRIPE_SECRET_KEY` | ✅ live |
+| Auto-activate on payment | `STRIPE_WEBHOOK_SECRET` | ✅ live |
+| Accounts / sign-up | `FIREBASE_*` + `NEXT_PUBLIC_FIREBASE_*` | ✅ live |
+| Admin surfaces | `PLATFORM_ADMIN_EMAILS` + `NEXT_PUBLIC_PLATFORM_ADMIN_EMAILS` | ✅ set |
+| Browser Stripe elements (optional) | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | ⚙️ optional — checkout links work without it |
 
-Verify each key live with `GET /api/health/live` (safe, no-spend; names the exact missing var).
+**Money path is fully live — you can take real payments today.**
+
+## 2. Content & intelligence (live)
+
+| Capability | Env var(s) | Status |
+|---|---|---|
+| AI generation (copy, agents, blog, offers…) | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | ✅ all 3 live |
+| Real prospect/market data (Google/Places) | `SERPER_API_KEY` | ✅ live |
+| Media hosting (creatives/video) | `FIREBASE_*` (Storage) | ✅ live |
+| Email sending (own Brevo/SMTP infra) | `SMTP_*` + `EMAIL_FROM` (or `RESEND_API_KEY`/`SENDGRID_API_KEY`) | ✅ live |
+| Verified business emails ("Find emails") | `APOLLO_API_KEY` | ⚙️ key held — set it in Vercel |
+
+## 3. Search / local data (measured)
+
+| Capability | Env var(s) | Status |
+|---|---|---|
+| Real rankings (OMNIRANK / Search Dominance / Organic) | `GOOGLE_SERVICE_ACCOUNT_JSON` (Search Console) | ✅ live |
+| Local listing + reviews (Local Domination) | `GOOGLE_OAUTH_CLIENT_ID` + `_SECRET` → **Connect Google** | ⚙️ add redirect URI `…/api/google/callback`, click Connect Google on Go-Live |
+| Site audit (Website Intel) | none — built-in crawler | ✅ live |
+
+## 4. Social publishing
+
+| Capability | Env var(s) | Status |
+|---|---|---|
+| Facebook + Instagram (native, best margin) | `FB_APP_ID` + `FB_APP_SECRET` → connect in Publish Center | ⚙️ optional — Page-token connect works with no app review |
+| 15-channel aggregator (TikTok/YouTube/X/Pinterest…) | `ZERNIO_API_KEY` | ⚙️ set — connect each brand's socials in Publish Center |
+| Publish/account event sink | `ZERNIO_WEBHOOK_SECRET` | ⚙️ set — register `…/api/webhooks/zernio` in Zernio |
+| Manual "post it yourself" | none | ✅ always works |
+
+## 5. Not wired yet (❌ — remaining thin modules)
+
+| Module(s) | What it needs | Effort |
+|---|---|---|
+| **WhatsApp Center** | `WHATSAPP_TOKEN` (free from Meta) **+ a send/receive UI to build** | token = you; UI = build |
+| **ROI Planner / Budget Protection** | Meta Ads + Google Ads **read** OAuth (measured CAC) | build (OAuth like the Google connector) |
+| **Comms catalogue** | wire the static catalogue to the live send engines | build |
+| Optional SEO accelerators | `BACKLINK_API_KEY`, `LISTENING_API_KEY`, `AI_ANSWER_MONITOR_KEY`, `GOOGLE_ANALYTICS_TOKEN` | keys optional |
+| Optional premium media | `OPENAI_IMAGE_MODEL`/`BFL_API_KEY` (photoreal), `OPENAI_VIDEO_MODEL`/`GEMINI_VIDEO_MODEL` (Veo/Sora MP4) | keys optional — Studio + editor work without |
+
+## 6. Security env (set before real traffic)
+
+`FIELD_ENCRYPTION_MASTER_KEY`, `CREATOR_LEDGER_SECRET`, `EMAIL_TRACKING_SECRET`,
+`EMAIL_WEBHOOK_SECRET` — protect PII, the partner ledger and email tracking.
+Generate strong random values.
+
+---
+
+## Bottom line
+
+- **Sell today:** money path 100% live (Stripe + Auth), plus AI, Serper, Search
+  Console, email, and the built-in crawler.
+- **Finish next (⚙️, minutes each):** Apollo key · Connect Google (Business
+  Profile) · Zernio social connect · Meta connect.
+- **Build next (❌):** WhatsApp send/receive UI · Meta/Google Ads read for
+  roi/budget.
+
+See `docs/REAL-VS-SCAFFOLD.md` for the module-by-module depth map, and
+`docs/GO-TO-MARKET-CHECKLIST.md` for the launch sequence.
