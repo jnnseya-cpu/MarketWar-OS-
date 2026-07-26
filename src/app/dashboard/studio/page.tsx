@@ -7,7 +7,7 @@
 // — never generic. Zero-config still renders real SVG creatives.
 
 import { useState } from "react";
-import { Loader2, Image as ImageIcon, Palette, ShieldCheck } from "lucide-react";
+import { Loader2, Image as ImageIcon, Palette, ShieldCheck, Download, Check } from "lucide-react";
 import GenerateAndPublish from "@/components/GenerateAndPublish";
 import PublishToChannels from "@/components/PublishToChannels";
 import BrandAssetUploader from "@/components/BrandAssetUploader";
@@ -26,6 +26,24 @@ type Variant = {
   brandSafe: boolean; variantIndex: number;
   notes: string[];
 };
+
+// Save a creative straight to the user's device — fetches the file and triggers
+// a real download so nobody has to open the raw storage URL in a bare tab. Falls
+// back to opening the URL if the fetch is blocked (e.g. CORS on an odd host).
+async function downloadCreative(url: string, filename: string) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = obj; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(obj), 2000);
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
 
 const FORMATS: PlatformFormat[] = ["facebook", "instagram", "tiktok", "linkedin", "whatsapp", "story", "reel", "banner"];
 const POSITIONS: LogoPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right", "centre", "watermark"];
@@ -197,21 +215,37 @@ export default function StudioPage() {
       {/* Variants */}
       {variants.length > 0 && (
         <div className="mb-8">
-          <h3 className="mb-3 font-display font-bold text-white">Creative variants <span className="text-xs font-normal text-slate-500">— click one to attach it to a post</span></h3>
+          <h3 className="mb-3 font-display font-bold text-white">Creative variants <span className="text-xs font-normal text-slate-500">— click a creative to attach it to a post, or download it to post yourself</span></h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {variants.map((v) => (
-              <button key={v.variantIndex} type="button" onClick={() => setPublishIdx(v.variantIndex)} className={`card overflow-hidden p-0 text-left transition ${publishIdx === v.variantIndex ? "ring-2 ring-emerald-500/70" : "hover:ring-1 hover:ring-emerald-500/30"}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={v.imageUrl} alt={`Variant ${v.variantIndex + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
+            {variants.map((v) => {
+              const selected = publishIdx === v.variantIndex;
+              const dlUrl = v.hostedUrl || v.imageUrl;
+              return (
+              <div key={v.variantIndex} className={`card overflow-hidden p-0 transition ${selected ? "ring-2 ring-emerald-500/70" : "hover:ring-1 hover:ring-emerald-500/30"}`}>
+                <button type="button" onClick={() => setPublishIdx(v.variantIndex)} className="block w-full text-left" title="Select this creative to attach to a post">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={v.imageUrl} alt={`Variant ${v.variantIndex + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
+                </button>
                 <div className="p-3">
                   <div className="flex items-center justify-between">
                     <Pill tone={v.mode === "live" ? "good" : "neutral"}>{v.mode === "live" ? "AI render" : "Brand render"}</Pill>
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300">{publishIdx === v.variantIndex ? "✓ selected" : <><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</>}</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300">{selected ? "✓ selected" : <><ShieldCheck className="h-3.5 w-3.5" /> brand-safe</>}</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">{v.notes[0]}</p>
+                  {v.notes[0] && <p className="mt-2 text-[11px] text-slate-500">{v.notes[0]}</p>}
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => setPublishIdx(v.variantIndex)}
+                      className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selected ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40" : "bg-ink-850 text-slate-300 hover:text-white"}`}>
+                      {selected ? <span className="inline-flex items-center justify-center gap-1"><Check className="h-3.5 w-3.5" /> Selected</span> : "Select"}
+                    </button>
+                    <button type="button" onClick={() => downloadCreative(dlUrl, `${(activeBrand?.name || "creative").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${v.format}-${v.variantIndex + 1}.png`)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300" title="Download this image to your device">
+                      <Download className="h-3.5 w-3.5" /> Download
+                    </button>
+                  </div>
                 </div>
-              </button>
-            ))}
+              </div>
+              );
+            })}
           </div>
 
           {/* Attach the selected creative to a post and publish. Publishing needs
