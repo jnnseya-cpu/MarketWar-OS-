@@ -8,7 +8,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const key = process.env.APOLLO_API_KEY || "";
+  // Trim: pasting the key into Vercel commonly leaves a trailing newline/space,
+  // which makes the X-Api-Key header invalid and Apollo returns 401 for a key
+  // that is actually correct. Trimming removes that whole class of false reject.
+  const key = (process.env.APOLLO_API_KEY || "").trim();
   const present = { APOLLO_API_KEY: Boolean(key) };
   let probe: Record<string, unknown> = { ran: false, note: "No APOLLO_API_KEY — email-finding falls back to the free website scraper (low yield). Set it for verified business emails." };
   if (key) {
@@ -25,8 +28,15 @@ export async function GET() {
         const d = (await res.json().catch(() => ({}))) as { organizations?: unknown[]; pagination?: { total_entries?: number } };
         probe = { ran: true, ok: true, note: "Apollo key valid — verified business emails will power Find emails + prospecting.", sample: Array.isArray(d.organizations) ? d.organizations.length : 0 };
       } else {
-        const body = (await res.text().catch(() => "")).slice(0, 160);
-        probe = { ran: true, ok: false, httpStatus: res.status, error: body, fix: res.status === 401 || res.status === 403 ? "Key rejected — check it's correct and active at apollo.io → Settings → API." : "Apollo returned an error — see the status/body above." };
+        const body = (await res.text().catch(() => "")).slice(0, 200);
+        const fix = res.status === 401
+          ? "401 = key not accepted. Almost always a stray newline/space on the value in Vercel — delete APOLLO_API_KEY, re-paste with no trailing whitespace, redeploy. If it persists, regenerate the key at apollo.io → Settings → Integrations → API."
+          : res.status === 403
+          ? "403 = the key is valid but your Apollo PLAN doesn't include API access to this endpoint (the search/enrichment API needs a paid Apollo plan with the API add-on enabled). Confirm API access on your Apollo billing page."
+          : res.status === 422
+          ? "422 = Apollo understood the key but rejected the request shape — usually a temporary Apollo API change; the key itself is fine."
+          : "Apollo returned an error — see the status/body above.";
+        probe = { ran: true, ok: false, httpStatus: res.status, error: body, fix };
       }
     } catch (e) { probe = { ran: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach api.apollo.io — a network/egress issue on the host." }; }
   }

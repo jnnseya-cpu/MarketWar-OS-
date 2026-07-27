@@ -151,7 +151,7 @@ async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs
   try {
     const res = await fetch(`${APOLLO_BASE}${path}`, {
       method: "POST", signal: ctrl.signal,
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": process.env.APOLLO_API_KEY as string },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": (process.env.APOLLO_API_KEY || "").trim() },
       body: JSON.stringify(body),
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;

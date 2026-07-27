@@ -49,12 +49,15 @@ export default function GoLivePage() {
       status: stripe?.verdict ? fromVerdict(stripe.verdict) : "red",
       detail: stripe?.verdict || "Probe failed.", fix: stripe?.probe?.fix });
 
-    // Auth (accounts)
-    const authOk = auth?.probe?.ok === true && auth?.projectMatch?.match !== false;
+    // Auth (accounts). The /api/health/auth endpoint returns the probe as
+    // `identityToolkitProbe` (NOT `probe`) and exposes `projectMatch` — read those
+    // exact keys or the row falls through to a false "Demo mode".
+    const authProbe = auth?.identityToolkitProbe;
+    const authOk = authProbe?.ok === true && auth?.projectMatch?.match !== false;
     out.push({ key: "auth", title: "Sign-up & accounts (Firebase Auth)", group: "Money path — required to charge",
-      status: !auth ? "red" : auth?.probe?.ran ? (authOk ? "green" : "red") : "amber",
-      detail: !auth ? "Probe failed." : auth?.probe?.ran ? (auth?.probe?.verdict || (authOk ? "Auth reachable + project matches." : (auth?.probe?.googleReason || "Auth check failed."))) : "Demo mode — no accounts enforced. Set the Firebase web + admin keys to let customers sign up.",
-      fix: auth?.probe?.fix || (auth?.projectMatch && auth.projectMatch.match === false ? "Client and Admin Firebase projects differ — align FIREBASE_PROJECT_ID with NEXT_PUBLIC_FIREBASE_PROJECT_ID." : undefined) });
+      status: !auth ? "red" : authProbe?.ran ? (authOk ? "green" : "red") : "amber",
+      detail: !auth ? "Probe failed." : authProbe?.ran ? (authOk ? `Auth live — Identity Toolkit reachable, client & admin on the same project (${auth?.projectMatch?.clientProject || "matched"}). Customers can sign up.` : (authProbe?.googleReason || authProbe?.verdict || "Auth check failed.")) : "Demo mode — no NEXT_PUBLIC_FIREBASE_API_KEY in this build. Set the Firebase web keys in Vercel and REDEPLOY.",
+      fix: (authOk ? undefined : authProbe?.fix) || (auth?.projectMatch && auth.projectMatch.match === false ? "Client and Admin Firebase projects differ — align FIREBASE_PROJECT_ID with NEXT_PUBLIC_FIREBASE_PROJECT_ID." : undefined) });
 
     // Storage (hosting creatives/video)
     out.push({ key: "storage", title: "Media hosting (Firebase Storage)", group: "Content hosting",
