@@ -380,7 +380,28 @@ async function openaiBackground(req: ImageGenerationRequest, theme: BrandTheme, 
   if (!key) return null;
   const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
   const subject = req.business || "a premium brand";
-  const prompt = `Professional advertising background scene for "${subject}". Brand palette ${theme.primary} and ${theme.accent}. Photographic, premium, high detail, clean composition with generous negative space. Absolutely NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks — leave clear space for copy that will be overlaid separately.`;
+  // The creative brief IS the scene. Ignoring it (using only the business name)
+  // produced generic stock product photography — red bottles for a B2B software
+  // company. Feed the brief through, trimmed of the parts that aren't scene
+  // description (hex codes, platform specs, provider routing).
+  const brief = (req.prompt || "")
+    .replace(/#[0-9a-fA-F]{3,8}/g, "")
+    .replace(/^\s*(brand theme|platform variants|provider routing|compliance|logo & text placement)\b.*$/gim, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+  const scene = brief
+    ? `Scene brief (follow it closely): ${brief}`
+    : `A scene that visually represents what "${subject}" actually sells.`;
+  const prompt = [
+    `Professional advertising background image for "${subject}".`,
+    scene,
+    `Brand palette ${theme.primary} and ${theme.accent}.`,
+    `Photographic or clean rendered style, premium, high detail, generous negative space for overlaid copy.`,
+    // Guard against the default "advertising" reflex of drawing bottles/boxes.
+    `Do NOT invent unrelated physical products (no bottles, jars, boxes, cosmetics or packaging) unless the brief explicitly asks for them.`,
+    `Absolutely NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks — leave clear space for copy overlaid separately.`,
+  ].join(" ");
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 60_000);

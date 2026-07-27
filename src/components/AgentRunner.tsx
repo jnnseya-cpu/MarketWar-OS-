@@ -123,10 +123,21 @@ export default function AgentRunner({
     setLoading(true);
     setError(null);
     try {
+      // Send the brand's REAL assets alongside the form fields. Without these the
+      // agent can't know a logo/palette exists and defaults to "Assumed: no logo
+      // uploaded — using a generic palette", which is wrong whenever the brand
+      // HAS assets. Every key here lands in the prompt as business context.
+      const assetContext: Record<string, string> = {};
+      if (activeBrand?.logoUrl) assetContext.brandLogo = `UPLOADED — use this exact logo, do not redraw it: ${activeBrand.logoUrl}`;
+      else assetContext.brandLogo = "NOT uploaded — derive a palette, and say one line inviting them to upload the logo.";
+      if (activeBrand?.productImageUrl) assetContext.brandProductImage = `UPLOADED — feature this product photo: ${activeBrand.productImageUrl}`;
+      if (activeBrand?.brandColours?.length) assetContext.brandColours = `USE THESE EXACT brand colours: ${activeBrand.brandColours.join(", ")}`;
+      if (activeBrand?.website) assetContext.brandWebsite = activeBrand.website;
+
       const res = await authedFetch(`/api/agents/${agentId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, ...assetContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -162,6 +173,9 @@ export default function AgentRunner({
           logoUrl: activeBrand.logoUrl,
           productImageUrl: activeBrand.productImageUrl,
           brandColours: activeBrand.brandColours,
+          product: activeBrand.product,
+          industry: activeBrand.industry,
+          audience: activeBrand.audience,
         }),
       });
       const d = await res.json();

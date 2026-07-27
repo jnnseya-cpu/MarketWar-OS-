@@ -54,9 +54,23 @@ export async function POST(req: NextRequest) {
     ? extractBrandTheme({ business: str("business"), detectedColours: brandColours })
     : undefined;
 
+  // Build a MEANINGFUL scene brief. "Brand-consistent advertising creative" told
+  // the image model nothing, so it fell back to generic stock product photography
+  // (bottles/boxes) even for a B2B software brand. Describe what the business
+  // actually sells and to whom, so the scene is relevant to THIS brand.
+  const sceneFromContext = () => {
+    const parts: string[] = [];
+    const product = str("product"); const industry = str("industry"); const audience = str("audience");
+    if (product) parts.push(`what they sell: ${product}`);
+    if (industry) parts.push(`industry: ${industry}`);
+    if (audience) parts.push(`audience: ${audience}`);
+    if (!parts.length) return `An advertising scene that visually represents what ${str("business") || "this brand"} actually sells — infer it from the brand name and keep it abstract and premium rather than inventing an unrelated physical product.`;
+    return `An advertising scene that visually represents this business — ${parts.join("; ")}. Depict the real context in which this is used, not an unrelated product still-life.`;
+  };
+
   const genReq: ImageGenerationRequest = {
     business: str("business"),
-    prompt: str("prompt") || "Brand-consistent advertising creative",
+    prompt: str("prompt") || sceneFromContext(),
     headline: str("headline"),
     offerText: str("offerText"),
     cta: str("cta"),

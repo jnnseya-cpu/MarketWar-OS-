@@ -148,8 +148,11 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button className="btn-primary" onClick={publish} disabled={busy || !activeBrand || !text.trim() || selected.size === 0}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Publish now</button>
-        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Compliance + watermark applied automatically</span>
+        <button className="btn-primary" onClick={publish} disabled={busy || !activeBrand || !text.trim() || selected.size === 0}
+          title={selected.size === 0 ? "Tick at least one channel above to publish" : undefined}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Publish now</button>
+        {selected.size === 0
+          ? <span className="text-[11px] font-semibold text-amber-300">← tick a channel above to enable publishing (or post it yourself below)</span>
+          : <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Compliance + watermark applied automatically</span>}
       </div>
 
       {result && (
@@ -176,9 +179,11 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
         </div>
       )}
 
-      {/* Always-works manual path: post from your own accounts, no connection, no cost. */}
-      {text.trim() && selected.size > 0 && (
-        <details className="mt-3 rounded-lg border border-white/10 bg-ink-950/40 p-3" open={result?.status === "blocked" || undefined}>
+      {/* Always-works manual path: post from your own accounts, no connection, no
+          cost. Shown whenever there IS copy — it must never disappear just because
+          no channel is ticked (Copy caption lives in here). */}
+      {text.trim() && (
+        <details className="mt-3 rounded-lg border border-white/10 bg-ink-950/40 p-3" open={result?.status === "blocked" || selected.size === 0 || undefined}>
           <summary className="cursor-pointer list-none text-xs font-bold text-emerald-300">Post it yourself — no connection or key needed ↓</summary>
           <div className="mt-2 space-y-2.5">
             <p className="text-[11px] leading-relaxed text-slate-400">Open each network&rsquo;s own composer with your caption ready, then paste any downloaded media. Works from your own accounts with zero setup — even if the publishing service is unavailable.</p>
@@ -189,7 +194,9 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
               ))}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {[...selected].map((p) => {
+              {/* With nothing ticked, still offer the common composers so the
+                  manual path always works. */}
+              {(selected.size ? [...selected] : ["facebook", "instagram", "linkedin", "x"]).map((p) => {
                 const label = CHANNELS.find((c) => c[0] === p)?.[1] || p;
                 const url = composerUrl(p, text, activeBrand?.website || "", media.find(isHosted));
                 return url ? (

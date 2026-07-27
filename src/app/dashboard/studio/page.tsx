@@ -92,6 +92,11 @@ export default function StudioPage() {
           logoUrl: activeBrand.logoUrl,
           productImageUrl: activeBrand.productImageUrl,
           brandColours: activeBrand.brandColours,
+          // Real brand context so the scene matches what this business SELLS
+          // (without it the model defaults to generic product photography).
+          product: activeBrand.product,
+          industry: activeBrand.industry,
+          audience: activeBrand.audience,
         }),
       });
       const data = await res.json();
