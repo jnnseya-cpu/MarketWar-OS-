@@ -49,6 +49,7 @@ export const FREE_SIGNUP_ACUS = 100;
 // re-derived when a provider changes price. It is NEVER exposed to a customer.
 // ---------------------------------------------------------------------------
 import { requiredAcus } from "@/backend/subscription";
+import { minimumAcusFor } from "@/backend/unit-economics";
 
 const PROVIDER_COST_GBP = {
   llm: 0.0125,     // one completion (blended across providers)
@@ -59,8 +60,21 @@ const PROVIDER_COST_GBP = {
   post: 0.0625,    // a long-form article (several completions)
 } as const;
 
-// 4x provider cost -> ACUs, via the same engine that governs every other quote.
-const priced = (k: keyof typeof PROVIDER_COST_GBP) => requiredAcus(PROVIDER_COST_GBP[k]).requiredAcus;
+// Actions that persist a large artifact carry extra storage/egress cost.
+const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true };
+
+// The price is the HIGHER of:
+//   (a) 4x the provider bill — the owner's headline markup, and
+//   (b) the minimum that still yields 100% NET profit once Google Cloud/Firebase,
+//       Vercel, Stripe fees, platform overhead and wastage are included.
+// (b) matters because 4x provider alone can silently lose money on a cheap API
+// call: a Serper query costs £0.0025, so 4x is 1 ACU (1p) — but infra, payment
+// and overhead push the loaded cost to ~£0.0055, leaving only 82% net profit.
+// Taking the max keeps the headline markup AND guarantees the owner's floor.
+const priced = (k: keyof typeof PROVIDER_COST_GBP) => Math.max(
+  requiredAcus(PROVIDER_COST_GBP[k]).requiredAcus,
+  minimumAcusFor({ providerCostGbp: PROVIDER_COST_GBP[k], persistsArtifact: PERSISTS[k] }).minAcus,
+);
 
 // Nominal charges for actions with no meaningful marginal cost to us.
 const NOMINAL = 1;      // 1 ACU = 1p

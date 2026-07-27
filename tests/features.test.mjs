@@ -341,3 +341,49 @@ test("pricing: every AI action clears the 2x margin floor", () => {
     assert.ok(w3.ACTION_COST_ACU[kind] >= cost * sub3.MARKUP_FLOOR * 100, `${kind} breaches the 2x floor`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Fully-loaded unit economics — 4x the AI bill is NOT the whole cost. Google
+// Cloud/Firebase, Vercel, Stripe fees, overhead and wastage must all be covered,
+// and the owner's law requires 100% NET profit on top of that total.
+// ---------------------------------------------------------------------------
+const ue = await import("../src/backend/unit-economics.ts");
+const w4 = await import("../src/backend/wallet.ts");
+
+const PROVIDER = { llm: 0.0125, search: 0.0025, image: 0.025, video: 0.10, enrich: 0.005, post: 0.0625 };
+const PERSISTS = { image: true, video: true, post: true };
+
+test("economics: EVERY metered AI action clears 100% net profit fully loaded", () => {
+  for (const [kind, cost] of Object.entries(PROVIDER)) {
+    const v = ue.verdictForPrice({ providerCostGbp: cost, retailAcus: w4.ACTION_COST_ACU[kind], persistsArtifact: !!PERSISTS[kind] });
+    assert.equal(v.meetsFloor, true, `${kind}: only ${v.netProfitPct}% net profit — ${v.note}`);
+  }
+});
+
+test("economics: the loaded cost really includes infra, Stripe and overhead", () => {
+  const l = ue.loadedCost({ providerCostGbp: 0.0125, retailGbp: 0.05, persistsArtifact: false });
+  assert.ok(l.infraGbp > 0, "infrastructure must be costed");
+  assert.ok(l.paymentGbp > 0, "Stripe fees must be costed");
+  assert.ok(l.overheadGbp > 0, "platform overhead must be costed");
+  assert.ok(l.wastageGbp > 0, "failed/retried work must be costed");
+  assert.ok(l.loadedCostGbp > l.providerCostGbp, "loaded cost must exceed the provider bill alone");
+});
+
+test("economics: a cheap API priced at only 4x provider would MISS the floor", () => {
+  // This is the real hole the model found: a Serper query at 4x provider = 1 ACU
+  // loses money once infra/payment/overhead are counted. Guard it forever.
+  const naive = ue.verdictForPrice({ providerCostGbp: 0.0025, retailAcus: 1 });
+  assert.equal(naive.meetsFloor, false, "1 ACU for a search must be recognised as below the floor");
+  assert.ok(w4.ACTION_COST_ACU.search >= 2, "search must be priced above the naive 4x figure");
+});
+
+test("economics: minimumAcusFor solves for the %-of-revenue costs, not cost x2", () => {
+  const m = ue.minimumAcusFor({ providerCostGbp: 0.0025 });
+  assert.equal(m.impossible, false);
+  const at = ue.verdictForPrice({ providerCostGbp: 0.0025, retailAcus: m.minAcus });
+  assert.equal(at.meetsFloor, true, "the computed minimum must itself clear the floor");
+});
+
+test("economics: a smaller top-up costs us proportionally more in Stripe fees", () => {
+  assert.ok(ue.paymentCostPerGbp(5) > ue.paymentCostPerGbp(100), "the 20p fixed fee hurts small top-ups most");
+});
