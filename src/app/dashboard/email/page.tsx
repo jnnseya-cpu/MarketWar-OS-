@@ -75,6 +75,11 @@ export default function EmailPage() {
   // Real campaign send to the brand's consented vault.
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  // Attachments (documents/images). Files are base64'd in the browser and sent
+  // with the campaign; the server re-validates size/type before any send.
+  const [files, setFiles] = useState<{ filename: string; contentBase64: string; contentType: string; size: number }[]>([]);
+  const [fileErr, setFileErr] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
@@ -120,8 +125,60 @@ export default function EmailPage() {
 
   const canSend = Boolean(activeBrand) && (templateId ? true : Boolean(subject.trim() && message.trim()));
 
+
+  // Read a File into raw base64 (strip the data: prefix the FileReader adds).
+  function readAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(new Error("Could not read the file"));
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    setFileErr(null);
+    const next = [...files];
+    for (const f of Array.from(list)) {
+      if (next.length >= 10) { setFileErr("Maximum 10 attachments."); break; }
+      if (/\.(exe|bat|cmd|com|scr|pif|msi|jar|js|vbs|ps1|sh|dll|apk)$/i.test(f.name)) {
+        setFileErr(`"${f.name}" is an executable type and can't be emailed.`); continue;
+      }
+      try { next.push({ filename: f.name, contentBase64: await readAsBase64(f), contentType: f.type, size: f.size }); }
+      catch { setFileErr(`Could not read "${f.name}".`); }
+    }
+    const total = next.reduce((n, a) => n + a.size, 0);
+    if (total > 20 * 1024 * 1024) { setFileErr(`Attachments total ${(total / 1048576).toFixed(1)}MB — the limit is 20MB.`); return; }
+    setFiles(next);
+  }
+
+  // AI draft — writes subject + body from the brand's real details. Always lands
+  // in the editable fields; never sends, never saves.
+  async function draftWithAi(mode: "email" | "template") {
+    if (!activeBrand) return;
+    setDrafting(true); setFileErr(null);
+    try {
+      const r = await authedFetch("/api/email/draft", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode, business: activeBrand.name, product: activeBrand.product,
+          audience: activeBrand.audience, offer: activeBrand.offer,
+          segment: campaignStatus.trim() || undefined, notes: message.trim() || undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setFileErr(d.error || "Drafting failed."); return; }
+      if (d.subject) setSubject(d.subject);
+      if (d.body) setMessage(d.body);
+      setTemplateId("");
+    } catch { setFileErr("Couldn't reach the drafting service."); }
+    finally { setDrafting(false); }
+  }
+
   async function sendCampaign(test: boolean) {
     if (!activeBrand || !canSend) return;
+
     setSending(true); setSendResult(null);
     try {
       const payload: Record<string, unknown> = {
@@ -129,6 +186,7 @@ export default function EmailPage() {
         statusFilter: campaignStatus.trim() || undefined,
         fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined,
         replyTo: replyTo.trim() || undefined,
+        attachments: files.length ? files.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64, contentType: f.contentType })) : undefined,
       };
       if (templateId) {
         payload.templateId = templateId; // server loads + personalises the template
@@ -401,7 +459,45 @@ export default function EmailPage() {
           {!templateId && (
             <>
               <input className="input w-full" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject line (supports {{ firstName }})" />
+              <>
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => draftWithAi("email")} disabled={drafting || !activeBrand}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 ring-1 ring-emerald-500/40 hover:bg-emerald-500/25 disabled:opacity-50">
+                  {drafting ? "Writing…" : "✨ Draft this email with AI"}
+                </button>
+                <button type="button" onClick={() => draftWithAi("template")} disabled={drafting || !activeBrand}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300 disabled:opacity-50">
+                  Draft a reusable template
+                </button>
+                <span className="text-[11px] text-slate-500">Uses your brand details. Always editable — nothing sends automatically.</span>
+              </div>
               <textarea className="input min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Your message… (plain text — line breaks preserved; {{ firstName }} etc. are personalised)" />
+
+              {/* Attachments — documents / images sent with the campaign */}
+              <div className="mt-2">
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-emerald-300">
+                  📎 Attach files
+                  <input type="file" multiple className="hidden"
+                    accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+                    onChange={(e) => { addFiles(e.target.files); e.currentTarget.value = ""; }} />
+                </label>
+                <span className="ml-2 text-[11px] text-slate-500">Documents or pictures · max 10 files · 20MB total</span>
+                {files.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {files.map((f, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 rounded-full bg-ink-850 px-2.5 py-1 text-[11px] text-slate-200">
+                        {f.filename} <span className="text-slate-500">{(f.size / 1024).toFixed(0)}KB</span>
+                        <button type="button" onClick={() => setFiles(files.filter((_, j) => j !== i))} className="text-slate-500 hover:text-rose-400" aria-label={`Remove ${f.filename}`}>×</button>
+                      </span>
+                    ))}
+                    <span className="self-center text-[11px] text-slate-500">
+                      total {(files.reduce((n, f) => n + f.size, 0) / 1048576).toFixed(1)}MB
+                    </span>
+                  </div>
+                )}
+                {fileErr && <p className="mt-1.5 rounded-md bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-300">{fileErr}</p>}
+              </div>
+            </>
             </>
           )}
           <div className="flex flex-wrap items-center gap-3">

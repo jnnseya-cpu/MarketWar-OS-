@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { emailConfigured, filterList, sendEmail } from "@/backend/email";
+import { emailConfigured, filterList, sendEmail, validateAttachments, type EmailAttachment } from "@/backend/email";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 
@@ -42,10 +42,13 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuth(req);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { to, subject, html } = body as { to?: string; subject?: string; html?: string };
+    const single = (Array.isArray(body.attachments) ? body.attachments : []) as EmailAttachment[];
+    const singleCheck = validateAttachments(single);
+    if (!singleCheck.ok) return NextResponse.json({ error: singleCheck.error }, { status: 400 });
     if (!to || !subject || !html) {
       return NextResponse.json({ error: "to, subject and html required" }, { status: 400 });
     }
-    const result = await sendEmail({ to, subject, html, transactional: true });
+    const result = await sendEmail({ to, subject, html, transactional: true, attachments: single.length ? single : undefined });
     return NextResponse.json(result, { status: result.ok ? 200 : 422 });
   }
 
@@ -61,6 +64,12 @@ export async function POST(req: NextRequest) {
     if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
     const access = await resolveBrandAccess(req, brandId);
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+    // Attachments (documents/images) — validated ONCE before the send loop so a
+    // bad file fails fast instead of part-way through a campaign.
+    const attachments = (Array.isArray(body.attachments) ? body.attachments : []) as EmailAttachment[];
+    const attCheck = validateAttachments(attachments);
+    if (!attCheck.ok) return NextResponse.json({ error: attCheck.error }, { status: 400 });
 
     // Content comes from a saved template (personalised per contact) OR a raw
     // subject+html. A templateId wins and supplies both.
@@ -159,7 +168,7 @@ export async function POST(req: NextRequest) {
         // Add open pixel + click-wrapping + one-click unsubscribe for THIS recipient.
         const personalHtml = injectTracking(merged, brandId, to, campaign);
         const listUnsubscribe = unsubscribeUrl(brandId, to, campaign);
-        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, listUnsubscribe, dkim });
+        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, listUnsubscribe, dkim, attachments: attachments.length ? attachments : undefined });
         if (r.ok) {
           sent++;
           try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
