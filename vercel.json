@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/blog/daily", "schedule": "0 7 * * *" },
+    { "path": "/api/autopilot/nightly", "schedule": "0 3 * * *" }
+  ]
+}
