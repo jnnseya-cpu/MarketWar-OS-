@@ -533,10 +533,20 @@ export async function generateImage(req: ImageGenerationRequest): Promise<ImageR
     // of the creative — don't spend an AI scene that would ignore their product.
     const willUseProduct = req.options.useProductPhoto && Boolean(req.referenceAssets?.some((a) => a.assetType === "product_image"));
 
+    // A brief that asks for a SCREEN (dashboard, app UI, software mockup) makes
+    // image models fabricate a garbled fake interface — misspelt labels, invented
+    // menus and a second wordmark — which looks unprofessional and misrepresents
+    // the customer's actual product. No prompt reliably prevents it. For those
+    // briefs we skip the AI scene and use the clean brand composition instead
+    // (the honest option); a real screenshot uploaded as the product image is the
+    // right way to show a UI, and that path already takes priority.
+    const wantsFakeUi = /\b(dashboard|screenshot|app (ui|screen|interface)|software (ui|screen)|mockup of (the )?(app|software|platform|product)|interface|screen recording|saas ui)\b/i
+      .test(req.prompt || "");
+
     // Live photoreal: OpenAI generates a text/logo-free scene; we composite the
     // exact copy/logo on top (brand-safe). Skipped when the product photo is used.
     let aiBg: Buffer | null = null;
-    if (hasOpenAI && !willUseProduct) {
+    if (hasOpenAI && !willUseProduct && !wantsFakeUi) {
       aiBg = await openaiBackground(req, theme, openaiSize(dimForSize.w, dimForSize.h));
       if (aiBg) { mode = "live"; providerId = "gpt-image-2"; model = "gpt-image-1 + brand composite"; }
       else attempts.push({ provider: "gpt-image-2", error: "live image call failed — used the brand composer" });

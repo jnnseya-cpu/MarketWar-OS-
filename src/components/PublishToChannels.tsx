@@ -13,6 +13,7 @@ import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { composerUrl } from "@/shared/social";
+import { extractAdCopy, looksLikeBrief } from "@/shared/ad-copy";
 
 type PublishResult = {
   mode: "live" | "demo";
@@ -41,25 +42,6 @@ const CHANNELS = [
 // post "Primary #0A2540 navy → background" to a customer's feed. So when the text
 // looks like a brief, we extract the actual AD COPY (headline + offer + CTA) and
 // caption with that instead; only genuine copy is passed through verbatim.
-function looksLikeBrief(md: string): boolean {
-  const signals = [/brand theme/i, /creative direction/i, /provider routing/i, /platform variants/i, /#[0-9a-f]{6}/i, /logo & text placement/i];
-  return signals.filter((r) => r.test(md)).length >= 2;
-}
-
-function copyFromBrief(md: string): string {
-  const grab = (labels: string[]) => {
-    for (const l of labels) {
-      const m = new RegExp(`${l}[^:\\n]*:\\s*[""]?([^""\\n]{3,120})[""]?`, "i").exec(md);
-      if (m) return m[1].replace(/[*_\`]/g, "").trim();
-    }
-    return "";
-  };
-  const headline = grab(["Headline", "Primary text", "Hook"]);
-  const offer = grab(["Offer", "Price", "Deal"]);
-  const cta = grab(["CTA button", "CTA", "Call to action"]);
-  return [headline, offer, cta && `${cta} →`].filter(Boolean).join("\n\n");
-}
-
 function toCaption(md: string): string {
   const plain = md
     .replace(/```[\s\S]*?```/g, "")           // code fences
@@ -69,7 +51,8 @@ function toCaption(md: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (looksLikeBrief(md)) {
-    const extracted = copyFromBrief(md);
+    const c = extractAdCopy(md);
+    const extracted = [c.headline, c.offerText, c.cta && `${c.cta} \u2192`].filter(Boolean).join("\n\n");
     if (extracted) return extracted.slice(0, 600);
   }
   return plain.slice(0, 600);

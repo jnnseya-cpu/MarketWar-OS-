@@ -9,6 +9,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
 import ExportButton from "@/components/ExportButton";
+import { extractAdCopy } from "@/shared/ad-copy";
 
 // Agents whose DELIVERABLE is an image, not a description. For these the text
 // output is only the creative direction — we immediately render real creatives
@@ -20,23 +21,9 @@ type RenderedVariant = {
   provider: string; mode: string; variantIndex: number;
 };
 
-// Pull the copy the agent decided on out of its own brief, so the rendered image
-// carries the agent's headline/offer/CTA rather than generic text. Falls back to
-// the form inputs when the brief doesn't spell them out.
-function extractCopy(md: string): { headline?: string; offerText?: string; cta?: string } {
-  const grab = (labels: string[]) => {
-    for (const l of labels) {
-      const m = new RegExp(`${l}[^:\\n]*:\\s*[""]?([^""\\n]{3,90})[""]?`, "i").exec(md);
-      if (m) return m[1].replace(/[*_`]/g, "").trim();
-    }
-    return undefined;
-  };
-  return {
-    headline: grab(["Headline", "Primary text", "Hook"]),
-    offerText: grab(["Offer", "Price", "Deal"]),
-    cta: grab(["CTA button", "CTA", "Call to action"]),
-  };
-}
+// Copy extraction lives in shared/ad-copy — it prefers quoted values and REJECTS
+// style specs, so a colour note like "white on red" can never end up printed on a
+// CTA button (which is exactly what a naive grab did).
 
 // Force a real file save (Firebase Storage blocks a direct cross-origin fetch).
 async function saveImage(url: string, filename: string) {
@@ -157,7 +144,7 @@ export default function AgentRunner({
     if (!activeBrand) return;
     setRendering(true); setVariants([]);
     try {
-      const copy = extractCopy(brief);
+      const copy = extractAdCopy(brief);
       const res = await authedFetch("/api/image", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
