@@ -36,11 +36,24 @@ export const FREE_SIGNUP_ACUS = 100;
 // but for hard-stop metering a fixed estimate per action type is what protects the
 // owner's keys. Tune here — every route reads these constants.
 export const ACTION_COST_ACU = {
+  // AI / provider-cost actions
   llm: 5,        // one AI completion through the gateway
   search: 1,     // one Serper/Google query
   image: 10,     // one generated image
   video: 40,     // one rendered video
   enrich: 2,     // one email/contact enrichment
+  post: 25,      // one SEO blog post (long generation + hosting)
+  // Owner policy: NOTHING IS FREE. A feature that costs us little to run but
+  // delivers real commercial value to the customer is still charged — the ACU is
+  // the unit of value, not merely a passthrough of provider cost. These are
+  // deliberately cheap so they never feel punitive, but they are never zero.
+  publish_page: 15,   // publishing a hosted landing page (real URL + lead capture)
+  publish_social: 5,  // a post pushed to a connected channel
+  email_send: 1,      // per recipient on a campaign
+  crawl: 3,           // a full site crawl / technical audit
+  report: 5,          // an exported report or artifact pack
+  data_export: 2,     // exporting a dataset (vault, prospects, ledger)
+  connector_sync: 2,  // pulling fresh data from a connected provider
 } as const;
 export type ActionKind = keyof typeof ACTION_COST_ACU;
 

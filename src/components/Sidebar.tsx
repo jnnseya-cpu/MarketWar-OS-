@@ -84,6 +84,7 @@ export const NAV = [
       { href: "/dashboard/search-dominance", label: "Search Dominance Engine", icon: Search },
       { href: "/dashboard/omnirank", label: "OMNIRANK Dominion", icon: Crosshair },
       { href: "/dashboard/website-intel", label: "SiteRaid AI", icon: Globe },
+      { href: "/dashboard/seo-autopilot", label: "SEO Autopilot", icon: Globe },
       // Market intelligence.
       { href: "/dashboard/discover", label: "Market Intel", icon: Search },
       { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
