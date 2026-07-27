@@ -511,14 +511,33 @@ export function blockClickbait(text: string, fulfilled: boolean): { deceptive: b
 
 // Generate the full library (13 families × 10 = 130 hooks), each scored and
 // deception-checked. Returns the full set plus per-family grouping and counts.
+// Hook templates need a NAME ("VERYX"), not a description. Users type a full
+// sentence in the product field ("VERYX is a Work-Centric Common Data
+// Environment"), which produced 130 ungrammatical hooks like "Team VERYX is a
+// Work-Centric Common Data Environment — where are you?". Reduce whatever we get
+// to a short, nameable label: cut at the first "is a/are/—/:/,", drop a leading
+// article, and cap at four words.
+export function productLabel(raw: string): string {
+  let s = (raw || "").trim();
+  if (!s) return "this product";
+  // Cut at the first descriptive break.
+  s = s.split(/\s+(?:is|are|was|were)\s+(?:a|an|the)?\s*/i)[0];
+  s = s.split(/[—–:;|]|\.\s|,\s/)[0];
+  s = s.replace(/^(the|a|an)\s+/i, "").trim();
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 4) s = words.slice(0, 4).join(" ");
+  return s.replace(/[.,;:—–-]+$/, "").trim() || "this product";
+}
+
 export function hookLab(
   product: { name: string },
   fulfilledByContent = true,
 ): { hooks: Hook[]; blocked: number; count: number; families: number; byFamily: { family: string; label: string; count: number; top: Hook }[] } {
   const all: Hook[] = [];
+  const label = productLabel(product.name);
   for (const fam of HOOK_FAMILIES) {
     fam.templates.forEach((tpl, i) => {
-      const text = tpl(product.name);
+      const text = tpl(label);
       const check = blockClickbait(text, fulfilledByContent);
       all.push({
         type: fam.id,
