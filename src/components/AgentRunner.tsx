@@ -1,13 +1,59 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, Zap } from "lucide-react";
+import { Loader2, Sparkles, Zap, Download, Image as ImageIcon } from "lucide-react";
+import Link from "next/link";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
 import ExportButton from "@/components/ExportButton";
+
+// Agents whose DELIVERABLE is an image, not a description. For these the text
+// output is only the creative direction — we immediately render real creatives
+// through the image gateway so the user gets a finished, downloadable asset.
+const VISUAL_AGENT_IDS = new Set(["brand-visual-creation", "visualstrike", "ad-creative", "creative-studio"]);
+
+type RenderedVariant = {
+  imageUrl: string; hostedUrl?: string; width: number; height: number;
+  provider: string; mode: string; variantIndex: number;
+};
+
+// Pull the copy the agent decided on out of its own brief, so the rendered image
+// carries the agent's headline/offer/CTA rather than generic text. Falls back to
+// the form inputs when the brief doesn't spell them out.
+function extractCopy(md: string): { headline?: string; offerText?: string; cta?: string } {
+  const grab = (labels: string[]) => {
+    for (const l of labels) {
+      const m = new RegExp(`${l}[^:\\n]*:\\s*[""]?([^""\\n]{3,90})[""]?`, "i").exec(md);
+      if (m) return m[1].replace(/[*_`]/g, "").trim();
+    }
+    return undefined;
+  };
+  return {
+    headline: grab(["Headline", "Primary text", "Hook"]),
+    offerText: grab(["Offer", "Price", "Deal"]),
+    cta: grab(["CTA button", "CTA", "Call to action"]),
+  };
+}
+
+// Force a real file save (Firebase Storage blocks a direct cross-origin fetch).
+async function saveImage(url: string, filename: string) {
+  const proxied = `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(filename)}`;
+  if (url.startsWith("data:")) {
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); return;
+  }
+  try {
+    const res = await fetch(proxied);
+    if (!res.ok) throw new Error(String(res.status));
+    const obj = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a"); a.href = obj; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(obj), 2000);
+  } catch { window.location.href = proxied; }
+}
 
 // Light, safe markdown → HTML for the branded export report. Escapes first
 // (no HTML injection from agent output), then applies a small subset: ##/###
@@ -62,6 +108,9 @@ export default function AgentRunner({
   const [result, setResult] = useState<AgentResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isVisual = VISUAL_AGENT_IDS.has(agentId);
+  const [variants, setVariants] = useState<RenderedVariant[]>([]);
+  const [rendering, setRendering] = useState(false);
 
   // Re-skin the form when the active brand changes.
   useEffect(() => {
@@ -83,11 +132,42 @@ export default function AgentRunner({
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setResult(data as AgentResult);
       onResult?.(data as AgentResult);
+      // A visual agent's deliverable is the IMAGE. Its text is only the creative
+      // direction — so immediately render real, downloadable creatives from it.
+      if (isVisual) renderCreatives((data as AgentResult).output);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent execution failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function renderCreatives(brief: string) {
+    if (!activeBrand) return;
+    setRendering(true); setVariants([]);
+    try {
+      const copy = extractCopy(brief);
+      const res = await authedFetch("/api/image", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate",
+          business: activeBrand.name,
+          brandId: activeBrand.id,
+          prompt: brief.slice(0, 1200),
+          headline: copy.headline || values.headline || values.offer || activeBrand.name,
+          offerText: copy.offerText || values.offer || "",
+          cta: copy.cta || values.cta || "Learn more",
+          quality: "standard",
+          variants: 3,
+          logoUrl: activeBrand.logoUrl,
+          productImageUrl: activeBrand.productImageUrl,
+          brandColours: activeBrand.brandColours,
+        }),
+      });
+      const d = await res.json();
+      if (res.ok && Array.isArray(d.variants)) setVariants(d.variants as RenderedVariant[]);
+    } catch { /* the brief still stands on its own */ }
+    finally { setRendering(false); }
   }
 
   return (
@@ -148,6 +228,46 @@ export default function AgentRunner({
                 />
               </div>
             </div>
+            {/* Visual agents: the FINISHED creatives come first — the brief below
+                is the reasoning, not the deliverable. */}
+            {isVisual && (
+              <div className="mb-4">
+                {rendering && (
+                  <p className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 text-sm text-emerald-300">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Rendering your finished creatives from this direction…
+                  </p>
+                )}
+                {!rendering && variants.length > 0 && (
+                  <>
+                    <div className="mb-2 flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4 text-emerald-400" />
+                      <h3 className="font-display text-sm font-bold text-white">Finished creatives — ready to post</h3>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {variants.map((v, i) => {
+                        const dl = v.hostedUrl || v.imageUrl;
+                        return (
+                          <div key={i} className="overflow-hidden rounded-xl border border-white/10 bg-ink-950">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={v.imageUrl} alt={`Creative ${i + 1}`} className="w-full" style={{ aspectRatio: `${v.width}/${v.height}` }} />
+                            <button onClick={() => saveImage(dl, `${activeBrand?.name || "creative"}-${i + 1}.png`)}
+                              className="flex w-full items-center justify-center gap-1.5 border-t border-white/10 px-2 py-2 text-xs font-semibold text-slate-200 hover:text-emerald-300">
+                              <Download className="h-3.5 w-3.5" /> Download
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Download and post, or <Link href="/dashboard/studio" className="font-semibold text-emerald-400 hover:text-emerald-300">open Studio</Link> to fine-tune size, logo position and publish direct.
+                    </p>
+                  </>
+                )}
+                {!rendering && variants.length === 0 && !activeBrand && (
+                  <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">Add a brand to render finished creatives from this direction.</p>
+                )}
+              </div>
+            )}
             <AgentMarkdown text={result.output} />
           </div>
         ) : (

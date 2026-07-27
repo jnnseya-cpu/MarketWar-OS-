@@ -35,15 +35,44 @@ const CHANNELS = [
 ] as const;
 
 // Turn generated markdown into a plain-text caption seed (users can trim it).
+//
+// IMPORTANT: some agents return a DESIGN BRIEF (brand theme, hex codes, creative
+// direction, provider routing). That is internal reasoning — publishing it would
+// post "Primary #0A2540 navy → background" to a customer's feed. So when the text
+// looks like a brief, we extract the actual AD COPY (headline + offer + CTA) and
+// caption with that instead; only genuine copy is passed through verbatim.
+function looksLikeBrief(md: string): boolean {
+  const signals = [/brand theme/i, /creative direction/i, /provider routing/i, /platform variants/i, /#[0-9a-f]{6}/i, /logo & text placement/i];
+  return signals.filter((r) => r.test(md)).length >= 2;
+}
+
+function copyFromBrief(md: string): string {
+  const grab = (labels: string[]) => {
+    for (const l of labels) {
+      const m = new RegExp(`${l}[^:\\n]*:\\s*[""]?([^""\\n]{3,120})[""]?`, "i").exec(md);
+      if (m) return m[1].replace(/[*_\`]/g, "").trim();
+    }
+    return "";
+  };
+  const headline = grab(["Headline", "Primary text", "Hook"]);
+  const offer = grab(["Offer", "Price", "Deal"]);
+  const cta = grab(["CTA button", "CTA", "Call to action"]);
+  return [headline, offer, cta && `${cta} →`].filter(Boolean).join("\n\n");
+}
+
 function toCaption(md: string): string {
-  return md
+  const plain = md
     .replace(/```[\s\S]*?```/g, "")           // code fences
     .replace(/^#{1,6}\s+/gm, "")               // headings
     .replace(/[*_>`#]/g, "")                    // md punctuation
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")   // links → text
     .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 600);
+    .trim();
+  if (looksLikeBrief(md)) {
+    const extracted = copyFromBrief(md);
+    if (extracted) return extracted.slice(0, 600);
+  }
+  return plain.slice(0, 600);
 }
 
 export default function PublishToChannels({ defaultText = "", defaultMediaUrls, sourceLabel }: { defaultText?: string; defaultMediaUrls?: string[]; sourceLabel?: string }) {
