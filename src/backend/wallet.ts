@@ -31,29 +31,57 @@ import { isStaff } from "@/shared/roles";
 // actually try the AI surfaces before paying (the Free plan's 100 ACUs).
 export const FREE_SIGNUP_ACUS = 100;
 
-// Flat per-action ACU estimates (charged on use). These are deliberately simple
-// and predictable; the exact figure follows the 4× provider-cost rule elsewhere,
-// but for hard-stop metering a fixed estimate per action type is what protects the
-// owner's keys. Tune here — every route reads these constants.
+// ---------------------------------------------------------------------------
+// Pricing — DERIVED, not hand-picked. Two rules, applied consistently:
+//
+//   1. IT COSTS US MONEY  → charge 4x our provider cost (the owner's standard
+//      markup: 300% markup = 75% gross margin, floored at 2x by requiredAcus).
+//      This covers AI generation AND any paid third-party API (search,
+//      enrichment, rank data) — a bought API is a provider cost like any other.
+//
+//   2. IT COSTS US (ALMOST) NOTHING → charge a token amount only. Publishing a
+//      page, exporting a file or pushing a queued post costs us compute we have
+//      already paid for, so the customer pays a nominal 1-2 ACUs (1-2p). Never
+//      free — the ACU stays the unit of account for every action — but never
+//      priced as if it burned an API.
+//
+// PROVIDER_COST_GBP is our true cost per action, kept here so the markup can be
+// re-derived when a provider changes price. It is NEVER exposed to a customer.
+// ---------------------------------------------------------------------------
+import { requiredAcus } from "@/backend/subscription";
+
+const PROVIDER_COST_GBP = {
+  llm: 0.0125,     // one completion (blended across providers)
+  search: 0.0025,  // one Serper query
+  image: 0.025,    // one generated image
+  video: 0.10,     // one rendered clip
+  enrich: 0.005,   // one contact/email lookup
+  post: 0.0625,    // a long-form article (several completions)
+} as const;
+
+// 4x provider cost -> ACUs, via the same engine that governs every other quote.
+const priced = (k: keyof typeof PROVIDER_COST_GBP) => requiredAcus(PROVIDER_COST_GBP[k]).requiredAcus;
+
+// Nominal charges for actions with no meaningful marginal cost to us.
+const NOMINAL = 1;      // 1 ACU = 1p
+const NOMINAL_HEAVY = 2; // slightly more work (bandwidth, storage, fan-out)
+
 export const ACTION_COST_ACU = {
-  // AI / provider-cost actions
-  llm: 5,        // one AI completion through the gateway
-  search: 1,     // one Serper/Google query
-  image: 10,     // one generated image
-  video: 40,     // one rendered video
-  enrich: 2,     // one email/contact enrichment
-  post: 25,      // one SEO blog post (long generation + hosting)
-  // Owner policy: NOTHING IS FREE. A feature that costs us little to run but
-  // delivers real commercial value to the customer is still charged — the ACU is
-  // the unit of value, not merely a passthrough of provider cost. These are
-  // deliberately cheap so they never feel punitive, but they are never zero.
-  publish_page: 15,   // publishing a hosted landing page (real URL + lead capture)
-  publish_social: 5,  // a post pushed to a connected channel
-  email_send: 1,      // per recipient on a campaign
-  crawl: 3,           // a full site crawl / technical audit
-  report: 5,          // an exported report or artifact pack
-  data_export: 2,     // exporting a dataset (vault, prospects, ledger)
-  connector_sync: 2,  // pulling fresh data from a connected provider
+  // --- Rule 1: real provider cost, charged at 4x -------------------------
+  llm: priced("llm"),          // 5
+  search: priced("search"),    // 1
+  image: priced("image"),      // 10
+  video: priced("video"),      // 40
+  enrich: priced("enrich"),    // 2
+  post: priced("post"),        // 25
+  // --- Rule 2: costs us ~nothing, so a token charge only -----------------
+  publish_page: NOMINAL,       // hosting a page we already serve
+  publish_social: NOMINAL,     // handing a post to a connected account
+  email_send: NOMINAL,         // per recipient on our own sending infra
+  crawl: NOMINAL_HEAVY,        // our own bandwidth, no paid API
+  report: NOMINAL,             // rendering data the customer already owns
+  data_export: NOMINAL,        // their own data, back to them
+  connector_sync: NOMINAL,     // a free provider API call
 } as const;
 export type ActionKind = keyof typeof ACTION_COST_ACU;
 

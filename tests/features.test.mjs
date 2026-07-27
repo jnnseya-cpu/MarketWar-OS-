@@ -307,3 +307,37 @@ test("seo: cadence gating stops a daily cron posting for a weekly customer", () 
   const neverRan = { ...justRan, lastRunAt: null };
   assert.equal(seo.isDue(neverRan), true);
 });
+
+// ---------------------------------------------------------------------------
+// Pricing policy — AI/paid-API actions at 4x provider cost; zero-cost actions
+// nominal but NEVER free.
+// ---------------------------------------------------------------------------
+const w3 = await import("../src/backend/wallet.ts");
+const sub3 = await import("../src/backend/subscription.ts");
+
+test("pricing: provider-cost actions are exactly 4x our cost", () => {
+  // 4x markup, £1 = 100 ACUs. These must match the owner's standard markup.
+  assert.equal(w3.ACTION_COST_ACU.llm, sub3.requiredAcus(0.0125).requiredAcus);
+  assert.equal(w3.ACTION_COST_ACU.image, sub3.requiredAcus(0.025).requiredAcus);
+  assert.equal(w3.ACTION_COST_ACU.video, sub3.requiredAcus(0.10).requiredAcus);
+  assert.equal(w3.ACTION_COST_ACU.post, sub3.requiredAcus(0.0625).requiredAcus);
+});
+
+test("pricing: nothing is free — every action costs at least 1 ACU", () => {
+  for (const [k, v] of Object.entries(w3.ACTION_COST_ACU)) {
+    assert.ok(v >= 1, `${k} must never be free (got ${v})`);
+  }
+});
+
+test("pricing: zero-marginal-cost actions stay nominal (<= 2 ACUs)", () => {
+  for (const k of ["publish_page", "publish_social", "email_send", "report", "data_export", "connector_sync", "crawl"]) {
+    assert.ok(w3.ACTION_COST_ACU[k] <= 2, `${k} should be a token charge, got ${w3.ACTION_COST_ACU[k]}`);
+  }
+});
+
+test("pricing: every AI action clears the 2x margin floor", () => {
+  // A 4x charge must always beat the hard 2x floor the pricing engine enforces.
+  for (const [kind, cost] of [["llm", 0.0125], ["image", 0.025], ["video", 0.10], ["enrich", 0.005], ["post", 0.0625]]) {
+    assert.ok(w3.ACTION_COST_ACU[kind] >= cost * sub3.MARKUP_FLOOR * 100, `${kind} breaches the 2x floor`);
+  }
+});
