@@ -65,10 +65,11 @@ export default function GoLivePage() {
     // key shape, a one-way fingerprint, and the precise init error.
     const admin = auth?.adminSdk;
     const d = admin?.diagnostics;
+    const rl = d?.rawLengths;
     const adminDetail = admin
       ? (admin.configured
           ? `Live — server verifies logins (read from ${d?.source || "creds"}). Isolation, wallets + Grant-ACUs active.`
-          : `NOT initialised${d?.initError ? ` — ${d.initError}` : "."}${d ? `  [seen: projectId=${d.hasProjectId} clientEmail=${d.hasClientEmail} privateKey=${d.hasPrivateKey} pemValid=${d.privateKeyLooksValidPem} source=${d.source} fp=${d.keyFingerprint ?? "none"}]` : ""}`)
+          : `NOT initialised${d?.initError ? ` — ${d.initError}` : "."}${rl ? `  [var lengths in build: FIREBASE_PRIVATE_KEY=${rl.FIREBASE_PRIVATE_KEY} FIREBASE_SERVICE_ACCOUNT=${rl.FIREBASE_SERVICE_ACCOUNT} FIREBASE_CLIENT_EMAIL=${rl.FIREBASE_CLIENT_EMAIL} FIREBASE_PROJECT_ID=${rl.FIREBASE_PROJECT_ID}]  0 = the variable is EMPTY/absent in this deployment (Vercel scope/name/project issue, not a paste-content issue).` : ""}`)
       : "Checking…";
     out.push({ key: "admin", title: "Server verification (Firebase Admin SDK)", group: "Money path — required to charge",
       status: admin ? (admin.configured ? "green" : "red") : "amber",

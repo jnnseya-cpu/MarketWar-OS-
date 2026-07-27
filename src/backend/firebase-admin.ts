@@ -144,6 +144,17 @@ export const adminDiagnostics = {
   clientEmailDomain: clientEmail && clientEmail.includes("@") ? clientEmail.split("@")[1] : null,
   keyFingerprint: privateKey ? createHash("sha256").update(privateKey).digest("hex").slice(0, 12) : null,
   initError: adminInitError,
+  // RAW length (chars) of each credential var AS THE DEPLOYED BUILD SEES IT. 0 =
+  // the variable is empty/absent in this deployment (a Vercel scope/name/project
+  // issue — NOT a paste-content issue). Non-zero but still failing = a content
+  // issue the loader reports separately.
+  rawLengths: {
+    FIREBASE_PRIVATE_KEY: (process.env.FIREBASE_PRIVATE_KEY || "").length,
+    FIREBASE_SERVICE_ACCOUNT: (process.env.FIREBASE_SERVICE_ACCOUNT || "").length,
+    FIREBASE_CLIENT_EMAIL: (process.env.FIREBASE_CLIENT_EMAIL || "").length,
+    FIREBASE_PROJECT_ID: (process.env.FIREBASE_PROJECT_ID || "").length,
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "").length,
+  },
 };
 
 // Build the service handles DEFENSIVELY. getFirestore/getAuth/getStorage run at
