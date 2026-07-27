@@ -40,8 +40,13 @@ export async function GET() {
       }
     } catch (e) { probe = { ran: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach api.apollo.io — a network/egress issue on the host." }; }
   }
-  const verdict = !key ? "AMBER — no Apollo key; email-finding uses the free scraper only (low yield)."
+  const probeStatus = (probe as { httpStatus?: number }).httpStatus;
+  const verdict = !key ? "AMBER — no Apollo key; Find emails uses the scraper (add ScraperAPI to boost it)."
     : (probe as { ok?: boolean }).ok ? "GREEN — Apollo verified-email data is live."
+    // 403 = the key is valid, the Apollo PLAN just lacks API access. This is an
+    // OPTIONAL upsell, not a fault — Find emails still works via the scraper — so
+    // it's AMBER (optional), never a scary RED that reads as "broken".
+    : probeStatus === 403 ? "AMBER — Apollo plan has no API access (optional upsell). Find emails runs on the scraper; add SCRAPER_API_URL to boost yield. No paid Apollo plan required."
     : "RED — Apollo key present but rejected (see fix).";
   return NextResponse.json({ service: "apollo", verdict, present, probe });
 }
