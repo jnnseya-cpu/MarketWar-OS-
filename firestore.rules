@@ -73,6 +73,9 @@ service cloud.firestore {
     // balance via the server-side /api/billing/wallet route). Deny-all at the DB
     // layer so no client can inflate its own balance or replay a payment event.
     match /org_wallets/{doc} { allow read, write: if false; }
+    // Per-brand SEO autopilot settings — read/written only through the
+    // ownership-checked /api/seo-autopilot route (Admin SDK).
+    match /seo_autopilot/{doc} { allow read, write: if false; }
     match /processed_events/{doc} { allow read, write: if false; }
 
     // ── ModelGate / commercial core (production architecture §20, §22, §35) ──

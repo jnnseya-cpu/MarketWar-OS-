@@ -4,6 +4,8 @@ export type BlogStatus = "draft" | "published";
 
 export type BlogPost = {
   id: string;
+  // Which brand owns this post. Absent = MarketWar's own platform blog (admin).
+  brandId?: string;
   slug: string;
   title: string;
   excerpt: string;

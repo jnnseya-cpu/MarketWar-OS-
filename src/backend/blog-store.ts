@@ -31,6 +31,11 @@ export async function getPost(slug: string): Promise<BlogPost | null> {
   return mem.get(slug) ?? null;
 }
 
+export async function listPostsForBrand(brandId: string): Promise<BlogPost[]> {
+  const all = await listPosts();
+  return all.filter((p) => (p.brandId || "") === brandId);
+}
+
 export async function listPosts(opts?: { includeDrafts?: boolean }): Promise<BlogPost[]> {
   let posts: BlogPost[];
   if (adminConfigured && adminDb) {

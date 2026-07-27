@@ -265,3 +265,45 @@ test("links: the compliance stance is stated and rules out placement", async () 
   const r = await links.findLinkOpportunities({ brand: "Acme Ltd", website: "https://acme-test.com" });
   assert.match(r.compliance, /never buys?, exchanges?, injects? or auto-places/i);
 });
+
+// ---------------------------------------------------------------------------
+// Customer SEO autopilot — per-brand blog, charged in ACUs whether the customer
+// pushes it manually or the scheduler runs it.
+// ---------------------------------------------------------------------------
+const seo = await import("../src/backend/seo-autopilot.ts");
+const wallet2 = await import("../src/backend/wallet.ts");
+
+test("seo: a brand with no topics is refused (no invented subject)", async () => {
+  const r = await seo.runBrandSeoPost({ brandId: "t-seo-none", brandName: "NoTopics", trigger: "manual", siteBase: "https://x.test" });
+  assert.equal(r.ok, false);
+  assert.equal(r.charged, 0, "a refused run must charge nothing");
+  assert.match(r.error, /topic/i);
+});
+
+test("seo: an empty wallet cannot generate — and is charged nothing", async () => {
+  await seo.setSeoSettings("t-seo-broke", { topics: ["How to choose a supplier"] });
+  // Drain the free allowance first.
+  await wallet2.debitAcus("t-seo-broke", wallet2.FREE_SIGNUP_ACUS);
+  const r = await seo.runBrandSeoPost({ brandId: "t-seo-broke", brandName: "Broke Ltd", trigger: "auto", siteBase: "https://x.test" });
+  assert.equal(r.ok, false);
+  assert.equal(r.charged, 0);
+  assert.match(r.error, /ACUs/);
+});
+
+test("seo: settings persist and default to OFF (never auto-charges silently)", async () => {
+  const fresh = await seo.getSeoSettings("t-seo-fresh");
+  assert.equal(fresh.enabled, false, "autopilot must be opt-in");
+  assert.equal(fresh.autoPublish, false, "auto-publish must be opt-in");
+  const saved = await seo.setSeoSettings("t-seo-fresh", { enabled: true, cadence: "weekly", topics: ["A", "B"] });
+  assert.equal(saved.enabled, true);
+  assert.equal(saved.topics.length, 2);
+});
+
+test("seo: cadence gating stops a daily cron posting for a weekly customer", () => {
+  const justRan = { brandId: "b", enabled: true, cadence: "weekly", topics: ["a"], keywords: "", autoPublish: false, updatedAt: "", lastRunAt: new Date().toISOString() };
+  assert.equal(seo.isDue(justRan), false, "a weekly brand that just ran is not due");
+  const old = { ...justRan, lastRunAt: new Date(Date.now() - 8 * 86400000).toISOString() };
+  assert.equal(seo.isDue(old), true, "a weekly brand from 8 days ago is due");
+  const neverRan = { ...justRan, lastRunAt: null };
+  assert.equal(seo.isDue(neverRan), true);
+});
