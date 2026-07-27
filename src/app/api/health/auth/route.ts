@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { adminConfigured } from "@/backend/firebase-admin";
 
 // Auth self-diagnostic — turns "auth/internal-error" into a definitive reason.
 //
@@ -100,10 +101,34 @@ export async function GET(req: Request) {
     }
   }
 
+  // Server-side Admin SDK — the DEFINITIVE gate for login verification, brand
+  // isolation, ACU wallets and Grant-ACUs. adminConfigured is true ONLY when the
+  // SDK actually initialised (all three creds present AND the private key parsed).
+  // FIREBASE_PROJECT_ID being set alone (which makes projectMatch pass) is NOT
+  // enough — this surfaces exactly which piece is missing.
+  const adminEnvPresent = {
+    FIREBASE_PROJECT_ID: Boolean(process.env.FIREBASE_PROJECT_ID),
+    FIREBASE_CLIENT_EMAIL: Boolean(process.env.FIREBASE_CLIENT_EMAIL),
+    FIREBASE_PRIVATE_KEY: Boolean(process.env.FIREBASE_PRIVATE_KEY),
+    FIREBASE_SERVICE_ACCOUNT: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT),
+  };
+  const adminSdk = {
+    configured: adminConfigured,
+    envPresent: adminEnvPresent,
+    verdict: adminConfigured
+      ? "GREEN — Admin SDK live: logins verify, brand isolation + ACU wallets enforced."
+      : "RED — Admin SDK did NOT initialise. Accounts are not enforced server-side (no isolation, no real wallets, Grant-ACUs can't resolve emails).",
+    fix: adminConfigured ? undefined
+      : (!adminEnvPresent.FIREBASE_CLIENT_EMAIL && !adminEnvPresent.FIREBASE_SERVICE_ACCOUNT && !(adminEnvPresent.FIREBASE_PRIVATE_KEY))
+        ? "Set the server service-account creds. EASIEST: Firebase → Project settings → Service accounts → Generate new private key, then paste the WHOLE downloaded JSON into ONE var FIREBASE_PRIVATE_KEY. Redeploy."
+        : "Creds are present but the SDK still failed — almost always the private key's newlines got mangled when pasted. FIX: paste the WHOLE service-account JSON (the entire file, starting with '{') into FIREBASE_PRIVATE_KEY instead of the bare PEM. Redeploy.",
+  };
+
   return NextResponse.json({
     service: "MarketWar OS — auth diagnostic",
     envPresent: present,
     envMissing: missing.length ? missing : undefined,
+    adminSdk,
     projectMatch,
     session,
     identityToolkitProbe: probe,
