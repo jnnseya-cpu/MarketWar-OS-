@@ -16,7 +16,8 @@
     "smoke:live": "node scripts/smoke-live.mjs",
     "seed:accounts": "node scripts/seed-accounts.mjs",
     "verify": "npm run check:layers && npm run typecheck && npm run build",
-    "check:layers": "node scripts/check-layers.mjs"
+    "check:layers": "node scripts/check-layers.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
@@ -34,6 +35,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.2"
   }
 }
