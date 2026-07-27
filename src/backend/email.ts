@@ -153,13 +153,89 @@ function angleAddr(addr: string): string {
   return m ? m[1] : addr.trim();
 }
 
+
+// ---------------------------------------------------------------------------
+// Attachments — documents/images sent with a campaign or one-off email.
+// Built as MIME multipart/mixed: the HTML body becomes the first part and each
+// attachment follows base64-encoded. DKIM must sign THIS body (not the bare
+// HTML) or the signature fails and the mail lands in spam.
+// ---------------------------------------------------------------------------
+export type EmailAttachment = {
+  filename: string;
+  contentBase64: string;   // raw base64 (no data: prefix)
+  contentType?: string;    // defaults from the extension
+};
+
+// Per-message caps: most inboxes reject over ~25MB total, and base64 inflates by
+// ~4/3. Keep the encoded total under 20MB and refuse anything larger up-front.
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+const EXT_TYPES: Record<string, string> = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", csv: "text/csv",
+  txt: "text/plain", doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  zip: "application/zip",
+};
+
+// Executables are refused outright — sending them destroys sender reputation and
+// is the fastest route to a blocklist.
+const BLOCKED_EXT = /\.(exe|bat|cmd|com|scr|pif|msi|jar|js|vbs|ps1|sh|dll|apk)$/i;
+
+function safeFilename(name: string): string {
+  return (name || "attachment").replace(/[\r\n"\\]/g, "").replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "attachment";
+}
+
+export function validateAttachments(list: EmailAttachment[] | undefined): { ok: boolean; error?: string; total: number } {
+  const items = list ?? [];
+  if (items.length > MAX_ATTACHMENTS) return { ok: false, error: `Too many attachments (max ${MAX_ATTACHMENTS}).`, total: 0 };
+  let total = 0;
+  for (const a of items) {
+    if (!a?.contentBase64) return { ok: false, error: `Attachment "${a?.filename || "?"}" has no content.`, total };
+    if (BLOCKED_EXT.test(a.filename || "")) return { ok: false, error: `"${a.filename}" is an executable type and cannot be emailed.`, total };
+    total += Math.ceil((a.contentBase64.length * 3) / 4);
+  }
+  if (total > MAX_ATTACHMENT_BYTES) return { ok: false, error: `Attachments total ${(total / 1048576).toFixed(1)}MB — the limit is ${MAX_ATTACHMENT_BYTES / 1048576}MB.`, total };
+  return { ok: true, total };
+}
+
+// Returns the multipart body plus the Content-Type header value to use.
+function buildMimeBody(html: string, attachments: EmailAttachment[]): { body: string; contentType: string } {
+  const boundary = `=_mw_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  const parts: string[] = [];
+  parts.push(`--${boundary}`);
+  parts.push("Content-Type: text/html; charset=utf-8");
+  parts.push("Content-Transfer-Encoding: 8bit");
+  parts.push("");
+  parts.push(html);
+  for (const a of attachments) {
+    const name = safeFilename(a.filename);
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    const ctype = a.contentType || EXT_TYPES[ext] || "application/octet-stream";
+    parts.push(`--${boundary}`);
+    parts.push(`Content-Type: ${ctype}; name="${name}"`);
+    parts.push("Content-Transfer-Encoding: base64");
+    parts.push(`Content-Disposition: attachment; filename="${name}"`);
+    parts.push("");
+    // RFC 2045: base64 lines must not exceed 76 chars.
+    parts.push((a.contentBase64.replace(/\s+/g, "").match(/.{1,76}/g) || []).join("\r\n"));
+  }
+  parts.push(`--${boundary}--`);
+  return { body: parts.join("\r\n"), contentType: `multipart/mixed; boundary="${boundary}"` };
+}
+
 async function sendViaSmtp(
   node: SendingNode,
   from: string,
   to: string,
   subject: string,
   html: string,
-  extra?: { replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string; dkim?: { domain: string; selector: string; privateKeyPem: string } },
+  extra?: { replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string; attachments?: EmailAttachment[]; dkim?: { domain: string; selector: string; privateKeyPem: string } },
 ): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
@@ -202,6 +278,15 @@ async function sendViaSmtp(
       "Content-Type": "text/html; charset=utf-8",
       "Content-Transfer-Encoding": "8bit",
     };
+    // With attachments the message becomes multipart/mixed; the HTML is part 1.
+    const atts = extra?.attachments ?? [];
+    let bodySource = html;
+    if (atts.length) {
+      const mime = buildMimeBody(html, atts);
+      bodySource = mime.body;
+      headers["Content-Type"] = mime.contentType;
+      delete headers["Content-Transfer-Encoding"];
+    }
     if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
     if (extra?.listUnsubscribe) {
       headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
@@ -210,13 +295,13 @@ async function sendViaSmtp(
 
     // Dot-stuffing + bare-LF normalisation so the message body can't break the
     // DATA terminator or trip strict MTAs.
-    const canonBody = html.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+    const canonBody = bodySource.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
 
     // DKIM-sign with the sending domain's key when the domain is authenticated —
     // this is what earns the inbox. Signed as its own header, prepended first.
     let dkimHeader = "";
     if (extra?.dkim) {
-      try { dkimHeader = dkimSignature(headers, html, { ...extra.dkim }) + "\r\n"; }
+      try { dkimHeader = dkimSignature(headers, bodySource, { ...extra.dkim }) + "\r\n"; }
       catch { dkimHeader = ""; /* never block a send on a signing hiccup */ }
     }
 
@@ -331,6 +416,7 @@ export type SendResult = {
 };
 
 export async function sendEmail(opts: {
+  attachments?: EmailAttachment[];
   to: string;
   subject: string;
   html: string;
@@ -377,7 +463,7 @@ export async function sendEmail(opts: {
     const node = pickNode(fromDomain, day);
     if (node) {
       try {
-        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH });
+        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH, attachments: opts.attachments });
         recordNodeSend(node.label, day, 1);
         return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
       } catch (e) {
@@ -392,7 +478,7 @@ export async function sendEmail(opts: {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from || FROM_DEFAULT, to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}) }),
+      body: JSON.stringify({ from: opts.from || FROM_DEFAULT, to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
     });
     if (res.ok) {
       const body = (await res.json()) as { id?: string };

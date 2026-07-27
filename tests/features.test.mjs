@@ -193,3 +193,41 @@ test("geo: an empty URL is rejected rather than guessed", async () => {
   const r = await geo.geoReadiness("");
   assert.equal(r.reachable, false);
 });
+
+// ---------------------------------------------------------------------------
+// Email attachments — documents/images on bulk sends. A malformed MIME body or
+// an unsigned-body DKIM mismatch sends the whole campaign to spam.
+// ---------------------------------------------------------------------------
+const email = await import("../src/backend/email.ts");
+
+test("attachments: executables are refused (reputation protection)", () => {
+  const v = email.validateAttachments([{ filename: "payload.exe", contentBase64: "AAAA" }]);
+  assert.equal(v.ok, false);
+  assert.match(v.error, /executable/i);
+});
+
+test("attachments: oversized payloads are refused before sending", () => {
+  const big = "A".repeat(30 * 1024 * 1024); // ~22MB decoded
+  const v = email.validateAttachments([{ filename: "big.pdf", contentBase64: big }]);
+  assert.equal(v.ok, false);
+  assert.match(v.error, /limit/i);
+});
+
+test("attachments: too many files are refused", () => {
+  const many = Array.from({ length: email.MAX_ATTACHMENTS + 1 }, (_, i) => ({ filename: `f${i}.pdf`, contentBase64: "AAAA" }));
+  assert.equal(email.validateAttachments(many).ok, false);
+});
+
+test("attachments: a normal document + image set is accepted", () => {
+  const v = email.validateAttachments([
+    { filename: "quote.pdf", contentBase64: "JVBERi0xLjQK" },
+    { filename: "photo.jpg", contentBase64: "/9j/4AAQSkZJRg==" },
+  ]);
+  assert.equal(v.ok, true);
+  assert.ok(v.total > 0);
+});
+
+test("attachments: none supplied is valid (plain email still works)", () => {
+  assert.equal(email.validateAttachments(undefined).ok, true);
+  assert.equal(email.validateAttachments([]).ok, true);
+});
