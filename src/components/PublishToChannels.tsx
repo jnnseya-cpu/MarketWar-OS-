@@ -50,7 +50,9 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
   const { activeBrand } = useActiveBrand();
   const [text, setText] = useState("");
   const [media, setMedia] = useState<string[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set(["instagram", "facebook", "tiktok"]));
+  // Start with NOTHING selected — you publish to exactly the channels you tick,
+  // never a surprise default that blocks on an unconnected account you didn't pick.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<PublishResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [capCopied, setCapCopied] = useState(false);
@@ -109,7 +111,8 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{selected.size === 0 ? "Tick the channels to publish to" : `Publishing to ${selected.size} channel${selected.size === 1 ? "" : "s"}`}</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
         {CHANNELS.map(([id, label]) => (
           <button key={id} type="button" onClick={() => toggle(id)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${selected.has(id) ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40" : "bg-ink-850 text-slate-400 hover:text-slate-200"}`}>{label}</button>
         ))}
@@ -130,8 +133,16 @@ export default function PublishToChannels({ defaultText = "", defaultMediaUrls, 
           </div>
           {!result.compliance.pass && <ul className="mt-2 list-disc pl-5 text-xs text-rose-300">{result.compliance.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
           <p className="mt-1.5 text-[11px] text-slate-500">{result.note}</p>
-          {result.status === "blocked" && /facebook|instagram|connected|connect/i.test(result.note) && (
-            <Link href="/dashboard/publish" className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#1877F2] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1568d8]">Connect Facebook &amp; Instagram →</Link>
+          {result.status === "blocked" && /connect|connected|account/i.test(result.note) && (
+            <Link href="/dashboard/publish" className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400">
+              {(() => {
+                // Name the channel that's actually blocked (from the note), not a
+                // hardcoded "Facebook & Instagram". Falls back to a generic label.
+                const m = /account for (\w[\w ]*?) on this brand/i.exec(result.note);
+                const chan = m ? (CHANNELS.find((c) => c[0] === m[1].trim().toLowerCase())?.[1] || m[1].trim()) : "";
+                return chan ? `Connect ${chan} →` : "Connect socials →";
+              })()}
+            </Link>
           )}
         </div>
       )}
