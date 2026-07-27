@@ -6,7 +6,7 @@
 // operational configuration, not customer data.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCcw, Rocket, Link2 } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCcw, Rocket, Link2, Gift } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 import { useIsAdmin } from "@/frontend/use-is-admin";
@@ -28,6 +28,13 @@ export default function GoLivePage() {
   const [busy, setBusy] = useState(false);
   const [googleMsg, setGoogleMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
+
+  // Grant-ACUs (pilot funding) state.
+  const [grantEmail, setGrantEmail] = useState("");
+  const [grantAmount, setGrantAmount] = useState("50000");
+  const [grantPlan, setGrantPlan] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [grantMsg, setGrantMsg] = useState<{ text: string; error: boolean } | null>(null);
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -91,6 +98,23 @@ export default function GoLivePage() {
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
+  async function grantAcus() {
+    setGranting(true); setGrantMsg(null);
+    const acus = Math.round(Number(grantAmount) || 0);
+    if (!grantEmail.trim()) { setGrantMsg({ text: "Enter the pilot's account email.", error: true }); setGranting(false); return; }
+    if (!(acus > 0)) { setGrantMsg({ text: "Enter an ACU amount greater than zero.", error: true }); setGranting(false); return; }
+    try {
+      const r = await authedFetch("/api/admin/grant-acus", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: grantEmail.trim(), acus, planId: grantPlan || undefined }),
+      });
+      const d = await r.json();
+      if (r.ok && d.ok) setGrantMsg({ text: d.note || `Granted ${acus} ACUs.`, error: false });
+      else setGrantMsg({ text: d.error || "Couldn't grant ACUs.", error: true });
+    } catch { setGrantMsg({ text: "Couldn't reach the grant endpoint.", error: true }); }
+    finally { setGranting(false); }
+  }
+
   async function connectGoogle() {
     setConnectingGoogle(true); setGoogleMsg(null);
     try {
@@ -143,6 +167,38 @@ export default function GoLivePage() {
         {googleMsg && (
           <p className={`mt-3 flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium ${googleMsg.error ? "bg-rose-500/10 text-rose-300" : "bg-emerald-500/10 text-emerald-300"}`}>
             {googleMsg.error ? <XCircle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />} {googleMsg.text}
+          </p>
+        )}
+      </div>
+
+      {/* Fund a pilot's ACU wallet — comp AI usage without a payment. */}
+      <div className="mb-6 card border-emerald-500/25 p-5">
+        <div className="mb-1 flex items-center gap-2"><Gift className="h-4 w-4 text-emerald-400" /><h2 className="font-display text-sm font-bold text-white">Grant ACUs to a pilot</h2></div>
+        <p className="mb-3 text-xs text-slate-400">Fund a design-partner or trial customer&apos;s wallet so they can use every AI engine freely — they stay a normal metered tenant, just never stall at the paywall. They must have signed up first.</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">Pilot account email
+            <input type="email" value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="founder@theircompany.com" className="w-64 rounded-md border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-white placeholder:text-slate-600" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">ACUs
+            <input type="number" min={1} value={grantAmount} onChange={(e) => setGrantAmount(e.target.value)} className="w-28 rounded-md border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-white" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">Plan (optional)
+            <select value={grantPlan} onChange={(e) => setGrantPlan(e.target.value)} className="w-32 rounded-md border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-white">
+              <option value="">— keep —</option>
+              <option value="starter">Starter</option>
+              <option value="growth">Growth</option>
+              <option value="scale">Scale</option>
+              <option value="business">Business</option>
+            </select>
+          </label>
+          <button className="btn-primary" onClick={grantAcus} disabled={granting}>
+            {granting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Grant
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">£1 = 100 ACUs. 50,000 ACUs ≈ a full, generous pilot. Credited instantly to their wallet.</p>
+        {grantMsg && (
+          <p className={`mt-3 flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium ${grantMsg.error ? "bg-rose-500/10 text-rose-300" : "bg-emerald-500/10 text-emerald-300"}`}>
+            {grantMsg.error ? <XCircle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />} {grantMsg.text}
           </p>
         )}
       </div>
