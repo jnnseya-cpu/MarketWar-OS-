@@ -31,8 +31,19 @@ type Variant = {
 // a real download so nobody has to open the raw storage URL in a bare tab. Falls
 // back to opening the URL if the fetch is blocked (e.g. CORS on an odd host).
 async function downloadCreative(url: string, filename: string) {
+  const proxied = `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(filename)}`;
   try {
-    const res = await fetch(url);
+    // data: URIs (demo / no Storage) download directly — no proxy needed.
+    if (url.startsWith("data:")) {
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
+    }
+    // Hosted URLs go through the same-origin proxy: it streams the file with
+    // Content-Disposition: attachment, so the browser SAVES it instead of opening
+    // the image in a tab (a direct fetch is blocked by Firebase Storage CORS).
+    const res = await fetch(proxied);
     if (!res.ok) throw new Error(String(res.status));
     const blob = await res.blob();
     const obj = URL.createObjectURL(blob);
@@ -41,7 +52,8 @@ async function downloadCreative(url: string, filename: string) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(obj), 2000);
   } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
+    // Last resort still uses the proxy so it downloads rather than opening a tab.
+    window.location.href = proxied;
   }
 }
 
