@@ -12,8 +12,14 @@ if (typeof window !== "undefined") {
 // marketing-eligible downstream.
 
 import { createHash } from "crypto";
+import { FieldPath } from "firebase-admin/firestore";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { CustomerRecord } from "@/backend/segments";
+
+// Firestore reads are paged this many at a time; there is NO overall cap — the
+// whole brand's contacts are walked via cursor so a large real list (tens of
+// thousands) is never silently truncated. Kept per-page so one query stays fast.
+const PAGE_SIZE = 1000;
 
 export type Contact = {
   id: string;              // stable id (email-derived when present)
@@ -121,16 +127,43 @@ export async function patchContact(brandId: string, id: string, patch: Partial<C
   }
 }
 
-export async function listContacts(brandId: string, limit = 5000): Promise<Contact[]> {
+// Read the brand's contacts. With no `limit` the ENTIRE list is returned by
+// walking Firestore in cursor-paged batches (no 5k cap). Pass a `limit` only when
+// a caller genuinely wants a bounded sample (it short-circuits the paging).
+export async function listContacts(brandId: string, limit?: number): Promise<Contact[]> {
   if (adminConfigured && adminDb) {
-    const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).limit(limit).get();
-    return snap.docs.map((d) => d.data() as Contact);
+    const out: Contact[] = [];
+    const base = adminDb.collection("contacts").where("brandId", "==", brandId).orderBy(FieldPath.documentId());
+    let cursor: string | undefined;
+    for (;;) {
+      const page = cursor ? base.startAfter(cursor).limit(PAGE_SIZE) : base.limit(PAGE_SIZE);
+      const snap = await page.get();
+      if (snap.empty) break;
+      for (const d of snap.docs) {
+        out.push(d.data() as Contact);
+        if (limit && out.length >= limit) return out;
+      }
+      if (snap.size < PAGE_SIZE) break;
+      cursor = snap.docs[snap.docs.length - 1].id;
+    }
+    return out;
   }
-  return [...(mem.get(brandId)?.values() ?? [])].slice(0, limit);
+  const all = [...(mem.get(brandId)?.values() ?? [])];
+  return limit ? all.slice(0, limit) : all;
 }
 
+// True total — uses Firestore's aggregation count (no read cap, no full scan).
 export async function countContacts(brandId: string): Promise<number> {
-  return (await listContacts(brandId)).length;
+  if (adminConfigured && adminDb) {
+    try {
+      const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).count().get();
+      return snap.data().count;
+    } catch {
+      // Aggregation unavailable → fall back to a full paged count.
+      return (await listContacts(brandId)).length;
+    }
+  }
+  return mem.get(brandId)?.size ?? 0;
 }
 
 // Real vault counts for Autopilot: total, marketing-consented, and dormant/
@@ -144,11 +177,15 @@ export async function vaultCountsFor(brandId: string): Promise<{ total: number; 
 
 export async function clearContacts(brandId: string): Promise<void> {
   if (adminConfigured && adminDb) {
-    const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).limit(5000).get();
-    for (let i = 0; i < snap.docs.length; i += 450) {
+    // Loop until the brand's contacts are exhausted — no 5k cap, so a large vault
+    // clears completely instead of leaving residue.
+    for (;;) {
+      const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).limit(450).get();
+      if (snap.empty) break;
       const batch = adminDb.batch();
-      for (const d of snap.docs.slice(i, i + 450)) batch.delete(d.ref);
+      for (const d of snap.docs) batch.delete(d.ref);
       await batch.commit();
+      if (snap.size < 450) break;
     }
   } else {
     mem.delete(brandId);
