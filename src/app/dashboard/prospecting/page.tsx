@@ -13,6 +13,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { LEAD_TEMPLATES, type LeadTemplate } from "@/shared/lead-templates";
 import { industryPlaceholders, resolveIndustry } from "@/shared/industry";
 import ExportButton from "@/components/ExportButton";
+import { authedFetch } from "@/frontend/api-client";
 
 type ICP = { persona: string; bestJobTitles: string[]; bestIndustries: string[]; bestCompanySize: string; bestRegions: string[]; exclusionRules: string[]; scoringFormula: string; outreachAngle: string };
 type DealScore = { dealProbability: number; expectedDealValueGbp: number; whyNow: string; band: string; fit: number; intent: number; authority: number };
@@ -131,7 +132,7 @@ export default function ProspectingPage() {
     try {
       // Fall back to industry-derived placeholders so a fresh page (no brand,
       // nothing typed) still builds a real ICP instead of erroring.
-      const res = await fetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      const res = await authedFetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         action: "icp",
         product: (o?.productOverride ?? product).trim() || ph.product,
         targetIndustry: (o?.industryOverride ?? industry).trim() || ph.audience,
@@ -147,7 +148,7 @@ export default function ProspectingPage() {
     if (!icp) return;
     setBusy("search");
     try {
-      const res = await fetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search", icp, industry, dealSizeGbp: dealSize }) });
+      const res = await authedFetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search", icp, industry, dealSizeGbp: dealSize }) });
       const data = await res.json();
       setProspects(data.prospects || []); setMode(data.mode); setNote(data.note || "");
     } finally { setBusy(""); }
@@ -155,7 +156,7 @@ export default function ProspectingPage() {
   async function sequence(p: Prospect) {
     setBusy(p.companyName);
     try {
-      const res = await fetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sequence", icp, prospect: p }) });
+      const res = await authedFetch("/api/prospecting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sequence", icp, prospect: p }) });
       setSeq({ name: p.companyName, plan: await res.json() });
     } finally { setBusy(""); }
   }

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Loader2, Radar, Search, MapPin, TrendingUp } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { authedFetch } from "@/frontend/api-client";
 
 type Opportunity = {
   niche: string; location: string; opportunityScore: number; demandLevel: string; competitionLevel: string;
@@ -30,7 +31,7 @@ export default function DiscoverPage() {
   async function run(kind: "opp" | "leads") {
     setBusy(kind);
     try {
-      const res = await fetch("/api/search", {
+      const res = await authedFetch("/api/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(kind === "opp"
           ? { action: "opportunity", niche, location }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { citationRadar, geoAudit, MAGNET_TOOLS } from "@/backend/geo";
+import { geoReadiness } from "@/backend/geo-readiness";
+import { measureCitations, defaultPrompts } from "@/backend/citation-measure";
 
 // Strike-phase API (MW-04 / MW-02 / MW-09).
 // POST { action: "audit", business, website, signals? } → GEO Readiness Score
@@ -15,23 +17,42 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "audit") {
-    return NextResponse.json(
-      geoAudit({
+    // MEASURED when we have a website: fetch the site and check the signals in
+    // code. The modelled geoAudit() below only runs with no URL to crawl — it can
+    // never contradict a real measurement (that mismatch is why the page showed
+    // 51 from one engine and 18 from another for the same business).
+    const website = typeof body.website === "string" ? body.website.trim() : "";
+    if (website) {
+      const report = await geoReadiness(website);
+      if (report.reachable) return NextResponse.json({ ...report, measured: true });
+      return NextResponse.json({ ...report, measured: false });
+    }
+    return NextResponse.json({
+      ...geoAudit({
         business: typeof body.business === "string" ? body.business : undefined,
-        website: typeof body.website === "string" ? body.website : undefined,
         signals: typeof body.signals === "object" && body.signals ? (body.signals as Record<string, boolean>) : undefined,
-      })
-    );
+      }),
+      measured: false,
+      note: "No website supplied — this is a MODELLED readiness estimate, not a measurement. Add your site URL to get the real audit.",
+    });
   }
 
   if (body.action === "citation") {
-    return NextResponse.json(
-      citationRadar({
-        business: typeof body.business === "string" ? body.business : undefined,
-        competitors: Array.isArray(body.competitors) ? body.competitors.map(String) : undefined,
-        prompts: Array.isArray(body.prompts) ? body.prompts.map(String) : undefined,
-      })
-    );
+    // MEASURED: actually ask the configured models and count who is named.
+    const business = typeof body.business === "string" ? body.business : "";
+    const competitors = Array.isArray(body.competitors) ? body.competitors.map(String).filter(Boolean) : [];
+    const market = typeof body.market === "string" ? body.market : undefined;
+    const category = typeof body.category === "string" ? body.category : undefined;
+    const prompts = Array.isArray(body.prompts) && body.prompts.length
+      ? body.prompts.map(String)
+      : defaultPrompts(business, market, category);
+    if (business) {
+      const measured = await measureCitations({ business, competitors, prompts, market });
+      if (measured.measured) return NextResponse.json(measured);
+      // No provider key → return the honest "cannot measure" result, NOT invented shares.
+      return NextResponse.json(measured);
+    }
+    return NextResponse.json(citationRadar({ competitors, prompts }));
   }
 
   return NextResponse.json({ error: "Unknown action — use audit or citation" }, { status: 400 });

@@ -11,6 +11,7 @@ import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { brandDefaults } from "@/shared/brand";
+import { authedFetch } from "@/frontend/api-client";
 
 type Decision = {
   best: { id: string; label: string; route: string; agentId?: string; api?: string; acuClass: string; acuEstimate: number; essentialQuestions: string[]; confidence: number };
@@ -65,7 +66,7 @@ export default function CreatePage() {
       // answers the user typed override.
       const payload: Record<string, string> = { ...brandDefaults(activeBrand), request: prompt };
       decision.best.essentialQuestions.forEach((q, i) => { if (answers[`q${i}`]?.trim()) payload[q] = answers[`q${i}`]; });
-      const res = await fetch(`/api/agents/${decision.best.agentId}`, {
+      const res = await authedFetch(`/api/agents/${decision.best.agentId}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });

@@ -45,7 +45,7 @@ export default function FirstCustomerPage() {
   const copy = (key: string, text: string) => { navigator.clipboard?.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
 
   async function runAgent(agentId: string, fields: Record<string, string>): Promise<string> {
-    const res = await fetch(`/api/agents/${agentId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) });
+    const res = await authedFetch(`/api/agents/${agentId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Agent failed");
     return data.output as string;
@@ -66,7 +66,7 @@ export default function FirstCustomerPage() {
       // Use the REAL lead engine (live Google Places via Serper) — real
       // businesses when a data source is connected, honest "connect it" otherwise.
       const category = form.targetCustomer || form.product || form.business;
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "leads", category, location: form.location }) });
+      const res = await authedFetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "leads", category, location: form.location }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Failed");
       const rows: { name: string; website?: string; phone?: string; rating?: number; leadScore: number; flags: string[] }[] = Array.isArray(d.leads) ? d.leads : [];
