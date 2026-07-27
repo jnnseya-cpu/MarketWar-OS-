@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTopupCheckout } from "@/backend/checkout";
 import { ACU_PER_GBP } from "@/backend/acu";
+import { MIN_TOPUP_GBP } from "@/backend/subscription";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
 // ACU top-up — POST { amountGbp, acus?, orgId?, planId? } → a Stripe Checkout
@@ -20,6 +21,12 @@ export async function POST(req: NextRequest) {
 
   const amountGbp = typeof body.amountGbp === "number" ? body.amountGbp : Number(body.amountGbp) || 0;
   if (!(amountGbp > 0)) return NextResponse.json({ error: "amountGbp must be greater than zero" }, { status: 400 });
+  // Below the minimum, Stripe's fixed 20p fee makes the top-up unprofitable —
+  // the action margin would fall under the owner's 100% net floor. Refuse rather
+  // than sell at a loss.
+  if (amountGbp < MIN_TOPUP_GBP) {
+    return NextResponse.json({ error: `The minimum top-up is £${MIN_TOPUP_GBP}. Smaller amounts are consumed by payment fees.` }, { status: 400 });
+  }
   const acus = typeof body.acus === "number" && body.acus > 0 ? Math.round(body.acus) : Math.round(amountGbp * ACU_PER_GBP);
 
   const result = await createTopupCheckout({

@@ -115,6 +115,11 @@ export function allPlanEconomics(): PlanEconomics[] {
 // ACU top-ups — default (20% of monthly price) + flexible tiers. No discount:
 // the 4× provider-cost recovery must stay protected.
 // ---------------------------------------------------------------------------
+// Minimum top-up. Stripe's 20p fixed fee is a fixed cost on a variable payment,
+// so a tiny top-up is eaten by it: at £1 the fee is 21.5% of the payment and an
+// AI action nets only 59% profit — below the 100% floor. At £5 the fee falls to
+// 5.5% and the floor is cleared (114%). Anything smaller loses money by design.
+export const MIN_TOPUP_GBP = 5;
 export const FLEXIBLE_TOPUPS_GBP = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 export function topUps() {
   return FLEXIBLE_TOPUPS_GBP.map((gbp) => ({ gbp, acus: gbp * ACU_PER_GBP }));

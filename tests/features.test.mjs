@@ -387,3 +387,21 @@ test("economics: minimumAcusFor solves for the %-of-revenue costs, not cost x2",
 test("economics: a smaller top-up costs us proportionally more in Stripe fees", () => {
   assert.ok(ue.paymentCostPerGbp(5) > ue.paymentCostPerGbp(100), "the 20p fixed fee hurts small top-ups most");
 });
+
+// ---------------------------------------------------------------------------
+// Minimum top-up — Stripe's fixed 20p fee makes tiny top-ups loss-making.
+// ---------------------------------------------------------------------------
+const sub5 = await import("../src/backend/subscription.ts");
+
+test("topup: the minimum is the smallest amount that still clears the profit floor", () => {
+  const below = ue.verdictForPrice({ providerCostGbp: 0.0125, retailAcus: 5, typicalPaymentGbp: sub5.MIN_TOPUP_GBP - 3 });
+  const at = ue.verdictForPrice({ providerCostGbp: 0.0125, retailAcus: 5, typicalPaymentGbp: sub5.MIN_TOPUP_GBP });
+  assert.equal(below.meetsFloor, false, "a top-up below the minimum must be recognised as loss-making");
+  assert.equal(at.meetsFloor, true, "the minimum top-up itself must clear the floor");
+});
+
+test("topup: every offered tier is at or above the minimum", () => {
+  for (const g of sub5.FLEXIBLE_TOPUPS_GBP) {
+    assert.ok(g >= sub5.MIN_TOPUP_GBP, `£${g} tier is below the £${sub5.MIN_TOPUP_GBP} minimum`);
+  }
+});
