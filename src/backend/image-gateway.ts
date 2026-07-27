@@ -27,6 +27,7 @@ import sharp, { type OverlayOptions } from "sharp";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { createHash } from "node:crypto";
 import {
   IMAGE_PROVIDERS, IMAGE_MARGIN_MULTIPLIER, IMAGE_MARGIN_FLOOR, ACU_PER_GBP, USD_TO_GBP,
   FORMAT_DIMENSIONS,
@@ -494,9 +495,17 @@ async function hostOrInline(png: Buffer, req: ImageGenerationRequest, i: number,
   let hostedUrl: string | null = null;
   if (storageConfigured()) {
     const slug = (req.business || "brand").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32);
+    // Seed the object name by the image CONTENT, not just the brief. The old seed
+    // (business|headline|offer|format|index) was identical whenever you re-ran with
+    // the same copy, so a freshly rendered creative overwrote the same path and
+    // kept the same URL + download token — and the browser/CDN then served the
+    // CACHED OLD image (you downloaded yesterday's picture). Hashing the bytes
+    // means new pixels always get a new URL, while an identical re-render still
+    // dedupes to one object.
+    const contentHash = createHash("sha256").update(png).digest("hex").slice(0, 24);
     hostedUrl = await uploadPublicMedia(png, {
       contentType: "image/png", ext: "png", keyPrefix: `creatives/${slug}`,
-      nameSeed: `${req.business}|${req.headline}|${req.offerText}|${req.options.platformFormat}|${i}|${aiBg ? "ai" : "svg"}`,
+      nameSeed: `${req.options.platformFormat}|${i}|${aiBg ? "ai" : "svg"}|${contentHash}`,
     });
   }
   return { url: inline, hosted: Boolean(hostedUrl), hostedUrl };

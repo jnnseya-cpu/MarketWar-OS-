@@ -41,7 +41,9 @@ export async function GET(req: NextRequest) {
   if (!hostAllowed(target.hostname)) return NextResponse.json({ error: "Host not allowed" }, { status: 403 });
 
   try {
-    const upstream = await fetch(target.toString());
+    // Bypass every cache on the way to the origin — a re-rendered creative must
+    // never come back as the previously cached copy.
+    const upstream = await fetch(target.toString(), { cache: "no-store", headers: { "Cache-Control": "no-cache" } });
     if (!upstream.ok || !upstream.body) return NextResponse.json({ error: `Upstream ${upstream.status}` }, { status: 502 });
     const contentType = upstream.headers.get("content-type") || "application/octet-stream";
     // Give the file a sensible extension if the name lacks one.
