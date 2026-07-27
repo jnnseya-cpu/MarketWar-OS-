@@ -36,9 +36,22 @@ function normalizeKey(k: string): string {
   return stripWrap(k).replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n").trim();
 }
 
-// Parse a value that MIGHT be a service-account JSON — as raw JSON OR base64-
-// encoded JSON (a common way to store it on Vercel to dodge newline issues).
-// Returns null if it isn't a usable service account.
+// Recover the 3 fields from a service-account blob even when JSON.parse FAILS —
+// which happens when the private key's real newlines end up inside the JSON (the
+// single most common corruption when pasting a service account into an env UI).
+// Regex-extracts each field; the private_key capture spans newlines up to the END
+// marker, so it survives both escaped "\n" and raw newlines.
+function extractCredsLoose(s: string): Creds | null {
+  const projectId = /"project_id"\s*:\s*"([^"]+)"/.exec(s)?.[1];
+  const clientEmail = /"client_email"\s*:\s*"([^"]+)"/.exec(s)?.[1];
+  const keyMatch = /"private_key"\s*:\s*"([\s\S]*?-----END [A-Z ]*PRIVATE KEY-----\\?n?)\s*"/.exec(s);
+  const privateKey = keyMatch ? normalizeKey(keyMatch[1]) : undefined;
+  if (clientEmail && privateKey) return { projectId, clientEmail, privateKey };
+  return null;
+}
+
+// Parse a value that MIGHT be a service-account JSON — raw JSON, base64 JSON, or
+// even corrupted JSON (via loose field extraction). Returns null if not usable.
 function parseJsonCreds(raw: string): Creds | null {
   let s = stripWrap(raw);
   // base64? (no leading '{', looks like base64) — decode and retry.
@@ -48,12 +61,16 @@ function parseJsonCreds(raw: string): Creds | null {
       if (decoded.startsWith("{")) s = decoded;
     } catch { /* not base64 */ }
   }
-  if (!s.startsWith("{")) return null;
-  try {
-    const j = JSON.parse(s) as { project_id?: string; client_email?: string; private_key?: string };
-    if (j.private_key && j.client_email) return { projectId: j.project_id, clientEmail: j.client_email, privateKey: normalizeKey(j.private_key) };
-  } catch { /* not JSON */ }
-  return null;
+  if (!s.includes("private_key")) return null; // not a service account at all
+  // 1) Clean JSON.
+  if (s.startsWith("{")) {
+    try {
+      const j = JSON.parse(s) as { project_id?: string; client_email?: string; private_key?: string };
+      if (j.private_key && j.client_email) return { projectId: j.project_id, clientEmail: j.client_email, privateKey: normalizeKey(j.private_key) };
+    } catch { /* fall through to loose recovery */ }
+  }
+  // 2) Corrupted JSON — recover fields by regex.
+  return extractCredsLoose(s);
 }
 
 // Which var supplied the creds + why loading failed — surfaced (safely) by the

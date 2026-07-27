@@ -59,6 +59,22 @@ export default function GoLivePage() {
       detail: !auth ? "Probe failed." : authProbe?.ran ? (authOk ? `Auth live — Identity Toolkit reachable, client & admin on the same project (${auth?.projectMatch?.clientProject || "matched"}). Customers can sign up.` : (authProbe?.googleReason || authProbe?.verdict || "Auth check failed.")) : "Demo mode — no NEXT_PUBLIC_FIREBASE_API_KEY in this build. Set the Firebase web keys in Vercel and REDEPLOY.",
       fix: (authOk ? undefined : authProbe?.fix) || (auth?.projectMatch && auth.projectMatch.match === false ? "Client and Admin Firebase projects differ — align FIREBASE_PROJECT_ID with NEXT_PUBLIC_FIREBASE_PROJECT_ID." : undefined) });
 
+    // Server verification (Admin SDK) — the real gate for isolation, wallets and
+    // Grant-ACUs. Shows the EXACT reason from adminSdk.diagnostics so a misconfig
+    // is never a mystery. `d` fields are safe (no secret): which var it read, the
+    // key shape, a one-way fingerprint, and the precise init error.
+    const admin = auth?.adminSdk;
+    const d = admin?.diagnostics;
+    const adminDetail = admin
+      ? (admin.configured
+          ? `Live — server verifies logins (read from ${d?.source || "creds"}). Isolation, wallets + Grant-ACUs active.`
+          : `NOT initialised${d?.initError ? ` — ${d.initError}` : "."}${d ? `  [seen: projectId=${d.hasProjectId} clientEmail=${d.hasClientEmail} privateKey=${d.hasPrivateKey} pemValid=${d.privateKeyLooksValidPem} source=${d.source} fp=${d.keyFingerprint ?? "none"}]` : ""}`)
+      : "Checking…";
+    out.push({ key: "admin", title: "Server verification (Firebase Admin SDK)", group: "Money path — required to charge",
+      status: admin ? (admin.configured ? "green" : "red") : "amber",
+      detail: adminDetail,
+      fix: admin && !admin.configured ? (admin.fix || "Set the whole service-account JSON in FIREBASE_PRIVATE_KEY and redeploy.") : undefined });
+
     // Storage (hosting creatives/video)
     out.push({ key: "storage", title: "Media hosting (Firebase Storage)", group: "Content hosting",
       status: storage?.verdict ? fromVerdict(storage.verdict) : "red",
