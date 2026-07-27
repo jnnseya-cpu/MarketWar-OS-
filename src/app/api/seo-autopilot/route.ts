@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSeoSettings, setSeoSettings, runBrandSeoPost, listEnabledBrands, isDue, ACU_PER_POST } from "@/backend/seo-autopilot";
 import { listPostsForBrand } from "@/backend/blog-store";
+import { getWallet } from "@/backend/wallet";
+import { PLANS, planEconomics } from "@/backend/subscription";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -37,11 +39,27 @@ export async function POST(req: NextRequest) {
   const action = s("action") || "settings";
 
   if (action === "settings") {
-    const [settings, posts] = await Promise.all([getSeoSettings(brandId), listPostsForBrand(brandId)]);
+    const [settings, posts, wallet] = await Promise.all([
+      getSeoSettings(brandId), listPostsForBrand(brandId), getWallet(brandId),
+    ]);
+    // Make "included in your plan" PROVABLE: posts are paid from the plan's own
+    // monthly ACU allocation, so show how many that actually buys and how many
+    // the current balance covers right now. No new charge, no separate add-on.
+    const plan = PLANS.find((pl) => pl.id === wallet.planId) ?? PLANS[0];
+    const eco = planEconomics(plan);
+    const includedPerMonth = Math.floor((eco.monthlyAcus || eco.annualAcus || 0) / ACU_PER_POST);
+    const affordableNow = Math.floor(wallet.balanceAcu / ACU_PER_POST);
     return NextResponse.json({
       settings, acuPerPost: ACU_PER_POST,
+      plan: {
+        id: plan.id, name: plan.name, monthlyAcus: eco.monthlyAcus,
+        includedPostsPerMonth: includedPerMonth,
+        balanceAcu: wallet.balanceAcu, postsAffordableNow: affordableNow,
+      },
       posts: posts.map((p) => ({ slug: p.slug, title: p.title, status: p.status, createdAt: p.createdAt, url: `${SITE}/blog/${p.slug}` })),
-      note: `Each post costs ${ACU_PER_POST} ACUs, whether you press Publish yourself or let it run automatically.`,
+      note: includedPerMonth > 0
+        ? `Included in your ${plan.name} plan: ${eco.monthlyAcus.toLocaleString("en-GB")} ACUs a month covers about ${includedPerMonth} posts. Each post uses ${ACU_PER_POST} ACUs from that same allowance — there is no separate SEO fee. You can afford ${affordableNow} more right now.`
+        : `Each post uses ${ACU_PER_POST} ACUs from your wallet. You can afford ${affordableNow} right now — top up or upgrade for a monthly allowance.`,
     });
   }
 
