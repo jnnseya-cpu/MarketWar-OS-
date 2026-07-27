@@ -83,8 +83,31 @@ function looksJunkEmail(e: string): boolean {
   return false;
 }
 
-// Fetch a page defensively: short timeout, capped body, swallow all errors.
+// Optional scraping-proxy API. Many company sites block a plain server fetch
+// (Cloudflare, bot walls, JS-only pages), which is the main cap on scraper yield.
+// If SCRAPER_API_URL is set to a template containing "{url}", every fetch is routed
+// through it — works with ANY GET-based provider (ScraperAPI, ScrapingBee, ZenRows,
+// Scrapfly…). Example values:
+//   ScraperAPI  : https://api.scraperapi.com/?api_key=KEY&url={url}
+//   ScrapingBee : https://app.scrapingbee.com/api/v1/?api_key=KEY&url={url}
+//   ZenRows     : https://api.zenrows.com/v1/?apikey=KEY&url={url}
+// {url} is replaced with the URL-encoded target. No key = direct fetch (unchanged).
+const SCRAPER_API_URL = (process.env.SCRAPER_API_URL || "").trim();
+export function scraperProxyConfigured(): boolean { return SCRAPER_API_URL.includes("{url}"); }
+
+// Fetch a page defensively: short timeout, capped body, swallow all errors. When a
+// scraping proxy is configured, route through it (with a longer timeout — proxies
+// and JS-render add latency) and fall back to a direct fetch if the proxy errors.
 async function fetchText(url: string, timeoutMs = 9_000, maxBytes = 600_000): Promise<string> {
+  if (scraperProxyConfigured()) {
+    const viaProxy = await rawFetchText(SCRAPER_API_URL.replace("{url}", encodeURIComponent(url)), Math.max(timeoutMs, 20_000), maxBytes);
+    if (viaProxy) return viaProxy;
+    // Proxy failed/empty — try a direct fetch so a proxy outage never zeroes yield.
+  }
+  return rawFetchText(url, timeoutMs, maxBytes);
+}
+
+async function rawFetchText(url: string, timeoutMs: number, maxBytes: number): Promise<string> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
