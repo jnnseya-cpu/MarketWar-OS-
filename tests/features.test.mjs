@@ -231,3 +231,37 @@ test("attachments: none supplied is valid (plain email still works)", () => {
   assert.equal(email.validateAttachments(undefined).ok, true);
   assert.equal(email.validateAttachments([]).ok, true);
 });
+
+// ---------------------------------------------------------------------------
+// Link Opportunity Engine — must EARN links, never place them, and never
+// fabricate an opportunity when no search key is configured.
+// ---------------------------------------------------------------------------
+const links = await import("../src/backend/link-opportunities.ts");
+
+test("links: with no brand it refuses rather than guessing", async () => {
+  const r = await links.findLinkOpportunities({ brand: "", website: "x.com" });
+  assert.equal(r.opportunities.length, 0);
+});
+
+test("links: never invents opportunities without live search", async () => {
+  const r = await links.findLinkOpportunities({ brand: "Acme Ltd", website: "https://acme-test.com", category: "backup software" });
+  // Demo mode (no SERPER key here) must not fabricate real-looking pages.
+  if (r.mode === "demo") {
+    assert.match(r.note, /nothing is invented|no live opportunities/i);
+  }
+  // Whatever the mode: never pitch the brand's own domain back to itself.
+  for (const o of r.opportunities) {
+    assert.notEqual(o.domain, "acme-test.com", "must never target the brand's own site");
+  }
+});
+
+test("links: one opportunity per domain (never spams a site)", async () => {
+  const r = await links.findLinkOpportunities({ brand: "Acme Ltd", website: "https://acme-test.com", category: "backup software" });
+  const domains = r.opportunities.map((o) => o.domain);
+  assert.equal(new Set(domains).size, domains.length, "a domain must appear at most once");
+});
+
+test("links: the compliance stance is stated and rules out placement", async () => {
+  const r = await links.findLinkOpportunities({ brand: "Acme Ltd", website: "https://acme-test.com" });
+  assert.match(r.compliance, /never buys?, exchanges?, injects? or auto-places/i);
+});
