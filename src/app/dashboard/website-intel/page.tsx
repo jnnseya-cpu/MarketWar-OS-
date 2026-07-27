@@ -32,6 +32,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { industryPlaceholders } from "@/shared/industry";
+import { authedFetch } from "@/frontend/api-client";
 
 type Status = "live" | "p1";
 
@@ -135,7 +136,7 @@ export default function WebsiteIntelPage() {
     if (!website.trim()) return;
     setCrawling(true); setCrawl(null);
     try {
-      const r = await fetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "crawl", url: website }) });
+      const r = await authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "crawl", url: website }) });
       setCrawl(await r.json());
     } catch { setCrawl({ ok: false, url: website, https: false, score: 0, grade: "F", findings: [], error: "Crawl request failed." }); }
     finally { setCrawling(false); }
@@ -175,7 +176,7 @@ export default function WebsiteIntelPage() {
         { text: `The best ${category.toLowerCase()} in ${location.split(",")[0]}`, substantiated: false },
       ];
       const post = (body: Record<string, unknown>) =>
-        fetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+        authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
       const [ingestion, audit, dna, attack, truth] = await Promise.all([
         post({ action: "authorise", authorisation }),
         post({ action: "audit", site }),

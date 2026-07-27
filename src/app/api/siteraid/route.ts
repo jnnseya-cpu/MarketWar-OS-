@@ -5,7 +5,8 @@ import {
   type Authorisation, type SiteExtract, type Claim,
 } from "@/backend/siteraid";
 import { crawlSite } from "@/backend/crawler";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 
 // SiteRaid AI™ API — Website → Autonomous Viral Growth brain (deterministic).
 // Live crawl / competitor fetch route through connectors; this surface is the
@@ -18,6 +19,14 @@ import { rateLimit, clientKey } from "@/backend/guard";
 // GET  → doctrine, input types, gap classes, priorities, demo SiteRaid run
 
 export async function POST(req: NextRequest) {
+  // P1 denial-of-wallet: this route spends real provider budget (AI/search/crawl).
+  // Rate-limit always; require auth + meter ACUs once accounts are enforced.
+  const _rl = rateLimit(clientKey(req, "siteraid"), 60, 60_000, Date.now());
+  if (!_rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(_rl.retryAfterSec) } });
+  const _auth = await requireAuth(req);
+  if (!_auth.ok) return NextResponse.json({ error: _auth.error }, { status: _auth.status });
+  const _meter = await meterAction(_auth, "search");
+  if (!_meter.allowed) return NextResponse.json({ error: _meter.error }, { status: _meter.status });
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "audit";

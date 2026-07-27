@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import { citationRadar, geoAudit, MAGNET_TOOLS } from "@/backend/geo";
 import { geoReadiness } from "@/backend/geo-readiness";
 import { measureCitations, defaultPrompts } from "@/backend/citation-measure";
@@ -9,6 +11,14 @@ import { measureCitations, defaultPrompts } from "@/backend/citation-measure";
 // GET                                                    → magnet-tool cluster
 
 export async function POST(req: NextRequest) {
+  // P1 denial-of-wallet: this route spends real provider budget (AI/search/crawl).
+  // Rate-limit always; require auth + meter ACUs once accounts are enforced.
+  const _rl = rateLimit(clientKey(req, "geo"), 60, 60_000, Date.now());
+  if (!_rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(_rl.retryAfterSec) } });
+  const _auth = await requireAuth(req);
+  if (!_auth.ok) return NextResponse.json({ error: _auth.error }, { status: _auth.status });
+  const _meter = await meterAction(_auth, "search");
+  if (!_meter.allowed) return NextResponse.json({ error: _meter.error }, { status: _meter.status });
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();

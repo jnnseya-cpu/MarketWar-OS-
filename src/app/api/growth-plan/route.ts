@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateGrowthPlan, type GrowthPlanInput } from "@/backend/growth-plan";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
 
 export const runtime = "nodejs";
@@ -9,6 +10,14 @@ export const dynamic = "force-dynamic";
 // POST { business, industry?, location?, product?, audience?, offer?, price?,
 //        pain?, goalGbp?, auditSummary? } → a concrete 30-day growth plan.
 export async function POST(req: NextRequest) {
+  // P1 denial-of-wallet: this route spends real provider budget (AI/search/crawl).
+  // Rate-limit always; require auth + meter ACUs once accounts are enforced.
+  const _rl = rateLimit(clientKey(req, "growth-plan"), 60, 60_000, Date.now());
+  if (!_rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(_rl.retryAfterSec) } });
+  const _auth = await requireAuth(req);
+  if (!_auth.ok) return NextResponse.json({ error: _auth.error }, { status: _auth.status });
+  const _meter = await meterAction(_auth, "llm");
+  if (!_meter.allowed) return NextResponse.json({ error: _meter.error }, { status: _meter.status });
   const rl = rateLimit(clientKey(req, "growth-plan"), 30, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 

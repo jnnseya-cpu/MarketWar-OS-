@@ -12,6 +12,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import GoogleInsightsPanel from "@/components/GoogleInsightsPanel";
+import { authedFetch } from "@/frontend/api-client";
 
 type Audit = {
   overall: number;
@@ -44,7 +45,7 @@ export default function OrganicPage() {
   async function run(action: "audit" | "citation") {
     setBusy(action);
     try {
-      const res = await fetch("/api/geo", {
+      const res = await authedFetch("/api/geo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, business, competitors: ["Flame Republic"] }),
