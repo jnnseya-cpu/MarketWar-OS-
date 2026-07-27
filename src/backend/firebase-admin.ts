@@ -36,9 +36,18 @@ function normalizeKey(k: string): string {
   return stripWrap(k).replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n").trim();
 }
 
-// Parse a value that MIGHT be a service-account JSON. Returns null if it isn't.
+// Parse a value that MIGHT be a service-account JSON — as raw JSON OR base64-
+// encoded JSON (a common way to store it on Vercel to dodge newline issues).
+// Returns null if it isn't a usable service account.
 function parseJsonCreds(raw: string): Creds | null {
-  const s = stripWrap(raw);
+  let s = stripWrap(raw);
+  // base64? (no leading '{', looks like base64) — decode and retry.
+  if (!s.startsWith("{") && /^[A-Za-z0-9+/=\s]+$/.test(s) && s.length > 100) {
+    try {
+      const decoded = Buffer.from(s.replace(/\s+/g, ""), "base64").toString("utf8").trim();
+      if (decoded.startsWith("{")) s = decoded;
+    } catch { /* not base64 */ }
+  }
   if (!s.startsWith("{")) return null;
   try {
     const j = JSON.parse(s) as { project_id?: string; client_email?: string; private_key?: string };
