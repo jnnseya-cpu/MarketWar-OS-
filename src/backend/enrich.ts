@@ -30,7 +30,18 @@ export type EnrichResult = {
   note: string;
 };
 
-export function apolloConfigured(): boolean { return Boolean(process.env.APOLLO_API_KEY); }
+export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO_API_KEY || "").trim()); }
+
+// Circuit-breaker: if Apollo returns 403 (the key is valid but the plan doesn't
+// include API access — Apollo's Free plan blocks every API endpoint), there is no
+// point retrying it for the next contact. We record the block and skip Apollo
+// straight to the scraper for a cooldown window, so a doomed 403 is paid ONCE per
+// window instead of 2–3 times per contact across a 25-row batch. Self-heals: the
+// window expires (re-probes) and a redeploy clears it — so upgrading the Apollo
+// plan lights the licensed path back up with no code change.
+let apolloBlockedUntil = 0;
+const APOLLO_BLOCK_MS = 60 * 60 * 1000; // 1 hour
+function apolloUsable(): boolean { return apolloConfigured() && Date.now() >= apolloBlockedUntil; }
 
 // Domains that are NOT a firm's own site — directories, registries, socials,
 // review sites, job boards. We never treat these as the company website.
@@ -154,6 +165,9 @@ async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": (process.env.APOLLO_API_KEY || "").trim() },
       body: JSON.stringify(body),
     });
+    // 403 = plan doesn't include API access. Trip the breaker so the rest of the
+    // batch skips Apollo entirely and goes straight to the scraper.
+    if (res.status === 403) apolloBlockedUntil = Date.now() + APOLLO_BLOCK_MS;
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     return { ok: res.ok, status: res.status, data };
   } finally { clearTimeout(t); }
@@ -214,7 +228,7 @@ async function apolloEnrich(input: EnrichInput): Promise<EnrichResult | null> {
 
 // Enrich ONE company. Apollo first (licensed, high-yield) → scraper fallback.
 export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
-  if (apolloConfigured()) {
+  if (apolloUsable()) {
     const a = await apolloEnrich(input);
     if (a?.email) return a;                        // Apollo got a real email — done.
     if (a && (a.website || a.phone)) {             // Apollo found the company; scrape its site for an email.
