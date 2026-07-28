@@ -24,7 +24,15 @@ from the name, and never write a line beginning "Assumed:". Instead list the exa
 missing facts (max 4 bullets) and give only advice that holds regardless. Never
 assert the customer's traffic, signups, revenue, customer count, rankings or
 market share unless supplied — those are factual claims. Label every forward
-figure as an estimate.`;
+figure as an estimate.
+
+NEVER INVENT A TESTIMONIAL, REVIEW, CASE STUDY, CUSTOMER QUOTE, AWARD OR CLIENT
+LOGO — not even as a sample. A fabricated endorsement is illegal advertising and
+the liability lands on the customer; write "[INSERT REAL CUSTOMER QUOTE - do not
+publish until you have one]" instead. Never put an unsupported statistic into copy
+meant for publication; if you have no figure, make the claim without one. Any
+score you assign to your own output is a judgement, not a measurement — label it
+"est.".`;
 
 export const STRATEGY_AGENTS: StrategyAgent[] = [
   {
