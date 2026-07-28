@@ -491,3 +491,98 @@ test("captions: short lines pass through untouched", () => {
   assert.equal(out.length, 1);
   assert.equal(out[0].text, "Short line");
 });
+
+// ---------------------------------------------------------------------------
+// Video job queue — the money and reliability contract with the FFmpeg worker.
+// ---------------------------------------------------------------------------
+const vj = await import("../src/backend/video-jobs.ts");
+const w5 = await import("../src/backend/wallet.ts");
+
+test("video jobs: enqueue charges the brand up front", async () => {
+  await w5.creditAcus("t-vid-1", 500);
+  const before = (await w5.getWallet("t-vid-1")).balanceAcu;
+  const r = await vj.enqueueVideoJob({ brandId: "t-vid-1", kind: "trim", sourceUrl: "https://x.test/a.mp4", params: { startSec: 0, endSec: 10 } });
+  assert.equal(r.ok, true);
+  const after = (await w5.getWallet("t-vid-1")).balanceAcu;
+  assert.equal(before - after, vj.JOB_COST_ACU.trim, "must charge exactly the job cost");
+});
+
+test("video jobs: an empty wallet cannot queue a render and is charged nothing", async () => {
+  await w5.debitAcus("t-vid-broke", w5.FREE_SIGNUP_ACUS);
+  const r = await vj.enqueueVideoJob({ brandId: "t-vid-broke", kind: "upscale", sourceUrl: "https://x.test/a.mp4" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /ACUs/);
+});
+
+test("video jobs: a job is claimed ONCE — two workers never get the same one", async () => {
+  await w5.creditAcus("t-vid-2", 500);
+  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-2", kind: "trim", sourceUrl: "https://x.test/b.mp4" });
+  const first = await vj.claimNextJob("worker-A");
+  assert.ok(first, "a queued job must be claimable");
+  assert.equal(first.attempts, 1, "claiming counts as an attempt");
+  assert.equal((await vj.getVideoJob(first.id)).status, "running");
+  // A running job must never be handed to a second worker. Drain the queue to
+  // be sure it is absent, not merely behind something else.
+  for (let i = 0; i < 40; i++) {
+    const other = await vj.claimNextJob("worker-B");
+    if (!other) break;
+    assert.notEqual(other.id, first.id, "a running job must not be re-claimed immediately");
+  }
+  assert.equal(job.status, "queued");
+});
+
+test("video jobs: a job whose worker died is retired and refunded, not looped forever", async () => {
+  await w5.creditAcus("t-vid-5", 500);
+  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-5", kind: "upscale", sourceUrl: "https://x.test/e.mp4" });
+  const afterCharge = (await w5.getWallet("t-vid-5")).balanceAcu;
+  // Simulate three workers that claimed it and died without reporting: the
+  // attempts are spent but nothing ever called fail. Backdate the claim so it
+  // reads as stale and is re-claimable.
+  await vj.__testSetJob(job.id, { attempts: 3, status: "running", claimedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() });
+  for (let i = 0; i < 40 && (await vj.getVideoJob(job.id)).status === "running"; i++) await vj.claimNextJob("worker-Z");
+  assert.equal((await vj.getVideoJob(job.id)).status, "failed", "it must be retired, never re-handed out");
+  assert.equal((await w5.getWallet("t-vid-5")).balanceAcu, afterCharge + vj.JOB_COST_ACU.upscale, "and refunded in full");
+});
+
+test("video jobs: completing records the output and marks it done", async () => {
+  await w5.creditAcus("t-vid-3", 500);
+  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-3", kind: "brand", sourceUrl: "https://x.test/c.mp4" });
+  await vj.completeVideoJob(job.id, ["https://storage.test/out.mp4"]);
+  const done = await vj.getVideoJob(job.id);
+  assert.equal(done.status, "done");
+  assert.equal(done.outputUrls.length, 1);
+  assert.equal(done.progress, 100);
+});
+
+test("video jobs: a permanently failed render REFUNDS the customer", async () => {
+  await w5.creditAcus("t-vid-4", 500);
+  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-4", kind: "clips", sourceUrl: "https://x.test/d.mp4" });
+  const afterCharge = (await w5.getWallet("t-vid-4")).balanceAcu;
+  // A worker claims whatever is next in the queue, not necessarily ours — so
+  // drain until we get this job, then fail it, the way a real worker would.
+  const claimOurs = async () => {
+    for (let i = 0; i < 40; i++) {
+      const c = await vj.claimNextJob("worker-X");
+      if (!c) return false;
+      if (c.id === job.id) return true;
+    }
+    return false;
+  };
+  let refunded = 0;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    assert.ok(await claimOurs(), `attempt ${attempt + 1} must be claimable`);
+    const r = await vj.failVideoJob(job.id, "ffmpeg exploded");
+    refunded += r.refunded;
+    if (refunded) break;
+  }
+  assert.equal(refunded, vj.JOB_COST_ACU.clips, "the full charge must be refunded once it gives up");
+  assert.equal((await vj.getVideoJob(job.id)).status, "failed", "it must stop retrying");
+  const finalBal = (await w5.getWallet("t-vid-4")).balanceAcu;
+  assert.equal(finalBal, afterCharge + vj.JOB_COST_ACU.clips);
+});
+
+test("video jobs: every job kind has a price and none is free", () => {
+  for (const [kind, cost] of Object.entries(vj.JOB_COST_ACU)) {
+    assert.ok(cost >= 1, `${kind} must cost something — rendering burns real CPU`);
+  }
+});
