@@ -125,9 +125,16 @@ export default function OmnirankPage() {
         <h2 className="mb-1 font-display text-sm font-bold text-white">Start it in two steps</h2>
         <p className="mb-3 text-xs text-slate-400">That is genuinely all you do. Everything below this is detail you never have to touch.</p>
         <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/go-live" className="btn-primary">1 · Connect Google Search Console</Link>
-          <Link href="/dashboard/seo-autopilot" className="btn-ghost">2 · Set your topics + switch on autopilot</Link>
+          <Link href="/dashboard/seo-autopilot" className="btn-primary">Set your topics + switch on autopilot →</Link>
+          <Link href="/dashboard/organic" className="btn-ghost">See your search data</Link>
         </div>
+        {/* Honest about who connects Search Console. It is a platform-level
+            service-account connection made by the MarketWar team, NOT self-serve —
+            the Go-Live board is operator-only, so pointing a customer at it sent
+            them to an "Operator only" wall. */}
+        <p className="mt-3 rounded-md bg-ink-900/60 px-3 py-2 text-[11px] text-slate-400">
+          <span className="font-semibold text-slate-300">Search Console:</span> your rankings appear once your site is linked to our Search Console access — we set that up with you during onboarding, there is nothing for you to configure. Ask your MarketWar contact if the figures below are still zero after 48 hours.
+        </p>
       </div>
 
       <HowToUse
