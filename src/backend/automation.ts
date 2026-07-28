@@ -32,6 +32,9 @@ export type TriggerId = (typeof TRIGGERS)[number];
 export type ActionId = (typeof ACTIONS)[number];
 
 const MESSAGING_ACTIONS = new Set<ActionId>(["send_email", "send_sms", "send_whatsapp", "send_push_notification"]);
+// Exported so the journey compiler counts marketing touches by the SAME
+// definition the validator enforces them by — two lists would drift.
+export const MESSAGING_ACTIONS_LIST: ActionId[] = [...MESSAGING_ACTIONS];
 
 export type WorkflowStep =
   | { kind: "wait"; delayHours: number; label: string }

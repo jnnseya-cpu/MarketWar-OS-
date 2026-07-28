@@ -1702,3 +1702,104 @@ test("analytics: a malformed event is ignored rather than corrupting the counts"
   const s = await pa.getPageStats("t-pa-3", "x");
   assert.equal(s.views, 1, "only the one valid event may count");
 });
+
+// ---------------------------------------------------------------------------
+// Journey compiler — turns an agent's WRITTEN plan into a runnable journey.
+// The fixture below is the real Lead Capture Agent output, verbatim.
+// ---------------------------------------------------------------------------
+const jc = await import("../src/backend/journey-compiler.ts");
+
+const AGENT_OUTPUT = `
+Follow-Up Sequence (48h)
++1h: Email — "Your VeryX setup is 2 minutes away" + link.
++6h: WhatsApp — "Stuck on anything? Reply here."
++24h: Email — answer the top objection for [product] + link.
++47h: WhatsApp — "Holding your £149 rate until midnight." (only if genuinely time-bound).
+`;
+
+test("compiler: the real agent output compiles into a runnable journey", () => {
+  const r = jc.compileJourney({ text: AGENT_OUTPUT, name: "VeryX signup recovery" });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.steps.length, 4, "all four timed messages must be found");
+  assert.deepEqual(r.steps.map((s) => s.atHours), [1, 6, 24, 47]);
+  assert.deepEqual(r.steps.map((s) => s.channel), ["email", "whatsapp", "email", "whatsapp"]);
+  assert.match(r.steps[0].text, /2 minutes away/, "the actual copy must survive, not a placeholder");
+});
+
+test("compiler: the compiled journey passes the same validator the Lab uses", () => {
+  const r = jc.compileJourney({ text: AGENT_OUTPUT });
+  const v = auto.validateWorkflow(r.workflow);
+  assert.equal(v.valid, true, v.warnings.join("; "));
+  assert.equal(v.touchesIn7d, 4, "four touches — exactly what the agent claimed");
+});
+
+test("compiler: waits are RELATIVE, so absolute times are not double-counted", () => {
+  const r = jc.compileJourney({ text: AGENT_OUTPUT });
+  const waits = r.workflow.steps.filter((s) => s.kind === "wait").map((s) => s.delayHours);
+  // +1h, then +5h, then +18h, then +23h — cumulative 47, not 78.
+  assert.deepEqual(waits, [1, 5, 18, 23]);
+  assert.equal(waits.reduce((a, b) => a + b, 0), 47, "the last message must land at +47h, not later");
+});
+
+test("compiler: every journey gets a way to end, and says when one was added", () => {
+  const withStop = jc.compileJourney({ text: AGENT_OUTPUT + "\nStop on signup or opt-out." });
+  const without = jc.compileJourney({ text: "+2h: Email — hello\n+30h: Email — again" });
+  assert.ok(withStop.workflow.steps.some((s) => s.kind === "condition"));
+  assert.ok(without.workflow.steps.some((s) => s.kind === "condition"), "a stop must always exist");
+  assert.ok(without.assumptions.some((a) => /did not state when to stop/.test(a)), "and an added one must be disclosed");
+  assert.equal(withStop.assumptions.some((a) => /did not state when to stop/.test(a)), false);
+});
+
+test("compiler: a step with no channel is NEVER guessed — it is handed back", () => {
+  const r = jc.compileJourney({ text: "+1h: Email — welcome\n+5h: follow up somehow\n+9h: WhatsApp — hi" });
+  assert.equal(r.steps.length, 2, "only the two channelled steps are runnable");
+  assert.ok(r.unparsed.some((u) => /follow up somehow/.test(u)));
+  assert.ok(r.assumptions.some((a) => /no channel was named/.test(a)),
+    "guessing a channel is how someone SMSes a list that only consented to email");
+});
+
+test("compiler: it reads the time formats a model actually writes", () => {
+  assert.equal(jc.parseDelay("+30 min: WhatsApp"), 0.5);
+  assert.equal(jc.parseDelay("+1h"), 1);
+  assert.equal(jc.parseDelay("+2 days"), 48);
+  assert.equal(jc.parseDelay("+1 week"), 168);
+  assert.equal(jc.parseDelay("Wait 24h → Condition"), 24);
+  assert.equal(jc.parseDelay("Wait 30 min"), 0.5);
+  assert.equal(jc.parseDelay("Day 3"), 48, "Day 1 is hour zero");
+  assert.equal(jc.parseDelay("sometime later"), null, "unreadable must be null, never a guess");
+});
+
+test("compiler: WhatsApp is not mistaken for a generic message, nor email for SMS", () => {
+  assert.equal(jc.parseChannel("+6h: WhatsApp — ping")?.channel, "whatsapp");
+  assert.equal(jc.parseChannel("+6h: Email — ping")?.channel, "email");
+  assert.equal(jc.parseChannel("+6h: SMS — ping")?.channel, "sms");
+  assert.equal(jc.parseChannel("+6h: send them a message"), null, "'message' alone names no channel");
+});
+
+test("compiler: an out-of-order plan is sorted rather than run backwards", () => {
+  const r = jc.compileJourney({ text: "+24h: Email — third\n+1h: Email — first\n+6h: WhatsApp — second" });
+  assert.deepEqual(r.steps.map((s) => s.atHours), [1, 6, 24]);
+  assert.match(r.steps[0].text, /first/);
+});
+
+test("compiler: a plan that breaches the frequency cap is caught before activation", () => {
+  const spammy = ["+1h", "+2h", "+3h", "+4h", "+5h", "+6h"].map((t) => `${t}: Email — buy now`).join("\n");
+  const r = jc.compileJourney({ text: spammy });
+  assert.equal(r.ok, true, "it compiles...");
+  const v = auto.validateWorkflow(r.workflow);
+  assert.equal(v.valid, false, "...but must not pass validation");
+  assert.match(v.warnings.join(" "), /frequency cap/i);
+});
+
+test("compiler: prose with no timed steps fails with an example, not a stack trace", () => {
+  const r = jc.compileJourney({ text: "We should follow up with people who sign up. Email works well." });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /time and a channel/);
+  assert.match(r.error, /\+6h/, "the error must show what a valid step looks like");
+});
+
+test("compiler: empty input is refused cleanly", () => {
+  const r = jc.compileJourney({ text: "   " });
+  assert.equal(r.ok, false);
+  assert.equal(r.workflow, undefined);
+});
