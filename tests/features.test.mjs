@@ -977,3 +977,130 @@ test("hosted ffmpeg: a nearly-expired output is treated as not fetchable", () =>
   assert.equal(fc.outputStillFetchable(url, signedAt + 599_000), false, "one second left is not enough to copy a video");
   assert.equal(fc.outputStillFetchable("https://plain.test/x.mp4"), true, "an unparseable URL must not be assumed dead");
 });
+
+// ---------------------------------------------------------------------------
+// Provider routing — which executor runs a job, and whether money moves when
+// NOTHING can run it. A paid job parked in a queue nobody reads is theft.
+// ---------------------------------------------------------------------------
+test("routing: with no renderer configured at all, rendering reports unavailable", () => {
+  const savedCloud = process.env.FFMPEG_CLOUD_API_KEY;
+  const savedWorker = process.env.VIDEO_WORKER_SECRET;
+  delete process.env.FFMPEG_CLOUD_API_KEY;
+  delete process.env.VIDEO_WORKER_SECRET;
+  try {
+    const r = vj.renderingAvailable();
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.via, []);
+  } finally {
+    if (savedCloud) process.env.FFMPEG_CLOUD_API_KEY = savedCloud;
+    if (savedWorker) process.env.VIDEO_WORKER_SECRET = savedWorker;
+  }
+});
+
+test("routing: each configured executor is reported, and both can coexist", () => {
+  const savedCloud = process.env.FFMPEG_CLOUD_API_KEY;
+  const savedWorker = process.env.VIDEO_WORKER_SECRET;
+  try {
+    process.env.FFMPEG_CLOUD_API_KEY = "k";
+    delete process.env.VIDEO_WORKER_SECRET;
+    assert.deepEqual(vj.renderingAvailable().via, ["cloud"]);
+
+    delete process.env.FFMPEG_CLOUD_API_KEY;
+    process.env.VIDEO_WORKER_SECRET = "s";
+    assert.deepEqual(vj.renderingAvailable().via, ["worker"]);
+
+    process.env.FFMPEG_CLOUD_API_KEY = "k";
+    assert.deepEqual(vj.renderingAvailable().via, ["cloud", "worker"]);
+  } finally {
+    if (savedCloud) process.env.FFMPEG_CLOUD_API_KEY = savedCloud; else delete process.env.FFMPEG_CLOUD_API_KEY;
+    if (savedWorker) process.env.VIDEO_WORKER_SECRET = savedWorker; else delete process.env.VIDEO_WORKER_SECRET;
+  }
+});
+
+test("routing: a whitespace-only secret does not count as a configured worker", () => {
+  const saved = process.env.VIDEO_WORKER_SECRET;
+  const savedCloud = process.env.FFMPEG_CLOUD_API_KEY;
+  delete process.env.FFMPEG_CLOUD_API_KEY;
+  process.env.VIDEO_WORKER_SECRET = "   ";
+  try {
+    assert.equal(vj.renderingAvailable().ok, false, "an empty env var is not a renderer");
+  } finally {
+    if (saved) process.env.VIDEO_WORKER_SECRET = saved; else delete process.env.VIDEO_WORKER_SECRET;
+    if (savedCloud) process.env.FFMPEG_CLOUD_API_KEY = savedCloud;
+  }
+});
+
+test("routing: the kinds needing a worker are exactly the two that composite", () => {
+  const needsWorker = ["trim", "clips", "captions_burn", "brand", "broll", "bg_remove", "upscale"]
+    .filter((k) => fr.hostedApiUnsupportedReason(k) !== null);
+  assert.deepEqual(needsWorker.sort(), ["brand", "broll"]);
+});
+
+test("routing: a hosted-only deployment refunds a render it cannot run", async () => {
+  const savedCloud = process.env.FFMPEG_CLOUD_API_KEY;
+  const savedWorker = process.env.VIDEO_WORKER_SECRET;
+  const savedUrl = process.env.FFMPEG_CLOUD_URL;
+  // Point at an unroutable host so the submit fails without touching the network.
+  process.env.FFMPEG_CLOUD_API_KEY = "k";
+  process.env.FFMPEG_CLOUD_URL = "http://127.0.0.1:1";
+  delete process.env.VIDEO_WORKER_SECRET;
+  try {
+    await w5.creditAcus("t-vid-route", 500);
+    const before = (await w5.getWallet("t-vid-route")).balanceAcu;
+    const r = await vj.enqueueVideoJob({
+      brandId: "t-vid-route", kind: "trim", sourceUrl: "https://x.test/a.mp4", params: { startSec: 0, endSec: 5 },
+    });
+    assert.equal(r.ok, false, "a job nothing can run must not be queued");
+    const after = (await w5.getWallet("t-vid-route")).balanceAcu;
+    assert.equal(after, before, "and the customer must end up exactly where they started");
+  } finally {
+    if (savedCloud) process.env.FFMPEG_CLOUD_API_KEY = savedCloud; else delete process.env.FFMPEG_CLOUD_API_KEY;
+    if (savedWorker) process.env.VIDEO_WORKER_SECRET = savedWorker; else delete process.env.VIDEO_WORKER_SECRET;
+    if (savedUrl) process.env.FFMPEG_CLOUD_URL = savedUrl; else delete process.env.FFMPEG_CLOUD_URL;
+  }
+});
+
+test("routing: when a worker exists, a hosted failure leaves the job queued and paid", async () => {
+  const savedCloud = process.env.FFMPEG_CLOUD_API_KEY;
+  const savedWorker = process.env.VIDEO_WORKER_SECRET;
+  const savedUrl = process.env.FFMPEG_CLOUD_URL;
+  process.env.FFMPEG_CLOUD_API_KEY = "k";
+  process.env.FFMPEG_CLOUD_URL = "http://127.0.0.1:1";
+  process.env.VIDEO_WORKER_SECRET = "s";
+  try {
+    await w5.creditAcus("t-vid-route2", 500);
+    const r = await vj.enqueueVideoJob({
+      brandId: "t-vid-route2", kind: "trim", sourceUrl: "https://x.test/a.mp4", params: { startSec: 0, endSec: 5 },
+    });
+    assert.equal(r.ok, true, "the worker can still run it, so it must be queued not refused");
+    assert.equal(r.job.provider, "worker");
+    assert.equal(r.job.status, "queued");
+  } finally {
+    if (savedCloud) process.env.FFMPEG_CLOUD_API_KEY = savedCloud; else delete process.env.FFMPEG_CLOUD_API_KEY;
+    if (savedWorker) process.env.VIDEO_WORKER_SECRET = savedWorker; else delete process.env.VIDEO_WORKER_SECRET;
+    if (savedUrl) process.env.FFMPEG_CLOUD_URL = savedUrl; else delete process.env.FFMPEG_CLOUD_URL;
+  }
+});
+
+test("render pricing: every job kind clears the owner's 100% net profit floor", () => {
+  for (const kind of Object.keys(vj.JOB_COST_ACU)) {
+    const v = ue2.verdictForPrice({
+      retailAcus: vj.JOB_COST_ACU[kind],
+      providerCostGbp: vj.RENDER_PROVIDER_COST_GBP[kind],
+      persistsArtifact: true,
+    });
+    assert.equal(v.meetsFloor, true, `${kind}: ${v.note}`);
+  }
+});
+
+test("render pricing: a heavier render costs more — prices track processing time", () => {
+  assert.ok(vj.JOB_COST_ACU.upscale > vj.JOB_COST_ACU.trim, "a slow 4K upscale cannot cost the same as a trim");
+  assert.ok(vj.JOB_COST_ACU.clips > vj.JOB_COST_ACU.trim, "ten cuts cannot cost the same as one");
+  assert.ok(vj.JOB_COST_ACU.bg_remove > vj.JOB_COST_ACU.brand);
+});
+
+test("render pricing: no render is free", () => {
+  for (const [kind, cost] of Object.entries(vj.JOB_COST_ACU)) {
+    assert.ok(cost >= 1, `${kind} must cost something — rendering burns real machine time`);
+  }
+});

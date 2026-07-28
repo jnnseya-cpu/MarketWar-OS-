@@ -54,6 +54,10 @@ export default function RenderFarm({
 
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [workerUp, setWorkerUp] = useState<boolean | null>(null);
+  const [renderVia, setRenderVia] = useState<string[]>([]);
+  // Kinds that composite a second source need the self-hosted worker; the
+  // hosted API cannot do them. Read from the server, never assumed.
+  const [hostedUnsupported, setHostedUnsupported] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -70,7 +74,12 @@ export default function RenderFarm({
   useEffect(() => {
     fetch("/api/video/jobs")
       .then((r) => r.json())
-      .then((d) => { setCosts(d?.costs || {}); setWorkerUp(Boolean(d?.workerConfigured)); })
+      .then((d) => {
+        setCosts(d?.costs || {});
+        setWorkerUp(Boolean(d?.workerConfigured));
+        setRenderVia(Array.isArray(d?.renderVia) ? d.renderVia : []);
+        setHostedUnsupported(Array.isArray(d?.hostedUnsupported) ? d.hostedUnsupported : []);
+      })
       .catch(() => setWorkerUp(false));
   }, []);
 
@@ -132,7 +141,10 @@ export default function RenderFarm({
 
   const active = KINDS.find((k) => k.key === kind)!;
   const cost = costs[kind];
-  const canSubmit = Boolean(activeBrand) && /^https:\/\//i.test(sourceUrl.trim()) && !busy && workerUp !== false
+  // Only the hosted renderer connected AND this kind needs the worker → it
+  // cannot run. Say so instead of taking the money and failing.
+  const needsWorker = hostedUnsupported.includes(kind) && renderVia.length > 0 && !renderVia.includes("worker");
+  const canSubmit = Boolean(activeBrand) && /^https:\/\//i.test(sourceUrl.trim()) && !busy && workerUp !== false && !needsWorker
     && (kind !== "captions_burn" || srt.trim().length > 0)
     && (kind !== "broll" || /^https:\/\//i.test(brollUrl.trim()));
 
@@ -141,8 +153,14 @@ export default function RenderFarm({
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <Scissors className="h-5 w-5 text-emerald-400" />
         <h2 className="font-display text-lg font-bold text-white">Render Farm</h2>
-        {workerUp === true && <Pill tone="good">worker connected</Pill>}
-        {workerUp === false && <Pill tone="warn">no worker connected</Pill>}
+        {workerUp === true && (
+          <Pill tone="good">
+            {renderVia.includes("cloud") && renderVia.includes("worker")
+              ? "hosted + self-hosted rendering"
+              : renderVia.includes("cloud") ? "hosted rendering live" : "render worker connected"}
+          </Pill>
+        )}
+        {workerUp === false && <Pill tone="warn">no renderer connected</Pill>}
       </div>
       <p className="mb-4 text-xs leading-relaxed text-slate-500">
         This is the panel that produces actual video files. Give it a hosted video, choose what to do, and the render worker
@@ -168,7 +186,14 @@ export default function RenderFarm({
         <div>
           <label className="label">What to do</label>
           <select className="input" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
-            {KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}{costs[k.key] ? ` — ${costs[k.key]} ACUs` : ""}</option>)}
+            {KINDS.map((k) => {
+              const blocked = hostedUnsupported.includes(k.key) && renderVia.length > 0 && !renderVia.includes("worker");
+              return (
+                <option key={k.key} value={k.key}>
+                  {k.label}{costs[k.key] ? ` — ${costs[k.key]} ACUs` : ""}{blocked ? " (needs the render worker)" : ""}
+                </option>
+              );
+            })}
           </select>
           <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{active.blurb}</p>
         </div>
@@ -219,6 +244,14 @@ export default function RenderFarm({
           <div><label className="label">Target height (px)</label><input className="input" value={height} onChange={(e) => setHeight(e.target.value)} /></div>
         )}
       </div>
+
+      {needsWorker && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-200">
+          {active.label} lays a second image or video over the frame, which the hosted render service cannot do. It needs
+          the self-hosted render worker (<code className="text-amber-100">worker/</code>). Every other render on this list
+          works right now — you have not been charged for this one.
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button className="btn-primary" onClick={enqueue} disabled={!canSubmit}>

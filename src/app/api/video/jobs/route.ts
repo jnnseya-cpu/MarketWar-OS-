@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   enqueueVideoJob, getVideoJob, listVideoJobs, claimNextJob, completeVideoJob,
-  failVideoJob, reportProgress, JOB_COST_ACU, type VideoJobKind,
+  failVideoJob, reportProgress, JOB_COST_ACU, renderingAvailable, advanceBrandCloudJobs,
+  type VideoJobKind,
 } from "@/backend/video-jobs";
-import { buildRecipe } from "@/backend/ffmpeg-recipes";
+import { buildRecipe, hostedApiUnsupportedReason } from "@/backend/ffmpeg-recipes";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -83,10 +84,14 @@ export async function POST(req: NextRequest) {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   if (action === "list") {
+    // Serverless has no background loop, so the customer's poll IS the tick that
+    // advances hosted renders and saves their files before the links expire.
+    await advanceBrandCloudJobs(brandId).catch(() => {});
     return NextResponse.json({ jobs: await listVideoJobs(brandId), costs: JOB_COST_ACU });
   }
 
   if (action === "status") {
+    await advanceBrandCloudJobs(brandId).catch(() => {});
     const job = await getVideoJob(s("jobId"));
     if (!job || job.brandId !== brandId) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     return NextResponse.json({ job });
@@ -112,11 +117,18 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  const rendering = renderingAvailable();
   return NextResponse.json({
     engine: "Video render queue",
     kinds: KINDS,
     costs: JOB_COST_ACU,
-    workerConfigured: Boolean((process.env.VIDEO_WORKER_SECRET || "").trim()),
+    // True when ANY executor can render — the hosted API or a self-hosted
+    // worker. The UI uses this to decide whether to accept a paid render.
+    workerConfigured: rendering.ok,
+    renderVia: rendering.via,
+    // Kinds that composite a second source need filter_complex, which the
+    // hosted API does not support — they require the self-hosted worker.
+    hostedUnsupported: KINDS.filter((k) => hostedApiUnsupportedReason(k) !== null),
     doctrine:
       "Vercel functions cannot run FFmpeg (60s ceiling, read-only disk, small bodies), so the app enqueues render work and a separate FFmpeg worker claims it, renders, uploads to Storage and reports back. Claiming is transactional so two workers never take one job; a job whose worker dies is re-claimed after 20 minutes; three failed attempts refunds the customer in full.",
     deploy: "See worker/README.md — deploy the container to Cloud Run, Fly.io or Railway and set VIDEO_WORKER_SECRET on both sides.",
