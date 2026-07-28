@@ -58,10 +58,16 @@ const PROVIDER_COST_GBP = {
   video: 0.10,     // one rendered clip
   enrich: 0.005,   // one contact/email lookup
   post: 0.0625,    // a long-form article (several completions)
+  // ElevenLabs. Speech is billed per character and dubbing per minute, so these
+  // are per-UNIT costs and the caller passes the unit count to meterAction:
+  //   voice → per 1,000 characters spoken   (Flash v2.5, ~0.5 credits/char)
+  //   dub   → per minute of dubbed video    (transcribe + translate + re-voice)
+  voice: 0.085,
+  dub: 0.35,
 } as const;
 
 // Actions that persist a large artifact carry extra storage/egress cost.
-const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true };
+const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true, voice: true, dub: true };
 
 // The price is the HIGHER of:
 //   (a) 4x the provider bill — the owner's headline markup, and
@@ -88,6 +94,8 @@ export const ACTION_COST_ACU = {
   video: priced("video"),      // 40
   enrich: priced("enrich"),    // 2
   post: priced("post"),        // 25
+  voice: priced("voice"),      // per 1,000 characters of speech
+  dub: priced("dub"),          // per minute of dubbed video
   // --- Rule 2: costs us ~nothing, so a token charge only -----------------
   publish_page: NOMINAL,       // hosting a page we already serve
   publish_social: NOMINAL,     // handing a post to a connected account

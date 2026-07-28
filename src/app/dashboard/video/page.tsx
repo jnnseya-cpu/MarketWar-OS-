@@ -9,9 +9,11 @@
 // VideoDominance engine (/api/video-intelligence): genre detection, moment
 // ranking, 8-dimension virality scoring and natural-language moment search.
 // Screen Recorder, in-browser Video Editor and Collaboration & Approvals are
-// LIVE with no key. Render/publish studios activate with a provider key. Only
-// Avatars + Audio/dubbing remain gated — they need an AI voice/avatar engine
-// connected — and are labelled "Activate", never shown as working.
+// LIVE with no key. The Caption Engine transcribes real audio; the Audio Studio
+// speaks and dubs through the voice engine; the Render Farm queues the FFmpeg
+// work (trims, social cuts, burned-in captions, watermarks, B-roll, keying,
+// upscales) to the render worker. Only Avatars remain gated — no talking-head
+// engine is connected — and it is labelled "Activate", never shown as working.
 
 import { useEffect, useState } from "react";
 import {
@@ -39,6 +41,7 @@ import ScreenRecorder from "@/components/ScreenRecorder";
 import VideoEditor from "@/components/VideoEditor";
 import RenderFarm from "@/components/RenderFarm";
 import CaptionEngine from "@/components/CaptionEngine";
+import AudioStudio from "@/components/AudioStudio";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -48,8 +51,8 @@ type Status = "live" | "p1";
 // "render" is different from the others: it is not a key but a machine — the
 // FFmpeg worker that does the pixel work Vercel cannot. Its readiness comes
 // from the job queue, not the key probe.
-type Cap = "image" | "video" | "publish" | "render";
-const CAP_LABELS: Record<Exclude<Cap, "render">, string> = {
+type Cap = "image" | "video" | "publish" | "render" | "voice";
+const CAP_LABELS: Record<Exclude<Cap, "render" | "voice">, string> = {
   image: "Photoreal image backgrounds",
   video: "Video render (Veo/Sora)",
   publish: "Social publishing (Zernio, 15 channels)",
@@ -75,9 +78,9 @@ const STUDIO: Studio[] = [
   { icon: Clapperboard, title: "AI Video Generator", status: "p1", cap: "video", note: "Scripts, shot lists & platform versions generate live in the Campaign Video tab; rendering an MP4 from a prompt needs a video model (Veo / Sora).", liveNote: "Rendered video is live (Veo / Sora) — render an MP4 in the panel below.", desc: "Prompt/script/product-demo/explainer/testimonial/ad/avatar/image/PPT-to-video — one-click campaign videos with platform versions." },
   { icon: Scissors, title: "Online Video Editor", status: "live", note: "Live now — trim & export clips in the browser in the panel below. No key needed.", desc: "Trim, clip and export video in the browser — turn long recordings into social-ready cuts." },
   { icon: Captions, title: "Subtitle & Caption Engine", status: "live", note: "Live now — the Caption Engine below transcribes your real audio into a real .srt/.vtt. Burning them into the frame is a Render Farm job.", desc: "Auto-subtitles, karaoke captions, word highlights, SRT/VTT, burned-in, multi-language — in Sales/Education/Viral/Brand modes." },
-  { icon: Globe2, title: "Translation & Dubbing", status: "p1", note: "The localisation plan generates live in the Global Reach tab; voice cloning + dubbed render need an audio-model.", desc: "Subtitle + voice translation, AI dubbing, voice cloning — one video in 10–50 languages with localised CTAs." },
+  { icon: Globe2, title: "Translation & Dubbing", status: "p1", cap: "voice", note: "The localisation plan generates live in the Global Reach tab; dubbing needs the voice engine connected.", liveNote: "Live \u2014 dub a hosted video into 29 languages in the Audio Studio below: transcribed, translated, re-voiced and re-timed.", desc: "Subtitle + voice translation, AI dubbing, voice cloning — one video in 10–50 languages with localised CTAs." },
   { icon: UserSquare2, title: "AI Avatar Studio", status: "p1", note: "Activates when an avatar-render engine is connected (needs a talking-head model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "Talking-head presenters: business, teacher, professional and influencer avatars — a branded company spokesperson in any language." },
-  { icon: Mic, title: "Audio Studio", status: "p1", note: "Activates when a voice/TTS engine is connected (needs an audio model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
+  { icon: Mic, title: "Audio Studio", status: "p1", cap: "voice", note: "Activates when the voice engine is connected (ELEVENLABS_API_KEY).", liveNote: "Live \u2014 write a script, pick a voice and download a real MP3 voiceover in the Audio Studio below. Cloned voices appear automatically.", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
   { icon: MonitorPlay, title: "Screen & Presentation Recorder", status: "live", note: "Live now — record your screen + voice in the panel below and download it. No key needed.", desc: "Screen/webcam/slides recording — turn demos into training modules, social clips and help-centre videos." },
   { icon: Layers, title: "Repurposing Engine", status: "live", cap: "render", note: "Rank moments in the Clip Lab below, then \u201cCut these into clips\u201d — connect the render worker to get the clip files back.", liveNote: "Live end to end — rank moments in the Clip Lab, hit \u201cCut these into clips\u201d and the Render Farm returns one file per moment, reframed for vertical.", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
   { icon: Palette, title: "Brand Kit", status: "p1", cap: "render", note: "Your logo + brand colours already theme every creative; watermarking video needs the render worker.", liveNote: "Live \u2014 your logo + colours theme every creative, and \u201cWatermark\u201d in the Render Farm burns your logo onto every frame.", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
@@ -121,7 +124,7 @@ export default function VideoWarRoomPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("video");
 
   // Live capability probe — flips the render/publish studios to "Live now".
-  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false, render: false });
+  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false, render: false, voice: false });
   useEffect(() => {
     let on = true;
     fetch("/api/health/live").then((r) => r.json()).then((d) => {
@@ -129,9 +132,13 @@ export default function VideoWarRoomPage() {
       const ready = (label: string) => Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === label)?.ready);
       setCaps((c) => ({ ...c, image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video), publish: ready(CAP_LABELS.publish) }));
     }).catch(() => {});
-    // The render worker announces itself on the queue endpoint.
+    // The render worker announces itself on the queue endpoint; the voice
+    // engine on its own. Both are separate from the model keys above.
     fetch("/api/video/jobs").then((r) => r.json()).then((d) => {
       if (on) setCaps((c) => ({ ...c, render: Boolean(d?.workerConfigured) }));
+    }).catch(() => {});
+    fetch("/api/voice").then((r) => r.json()).then((d) => {
+      if (on) setCaps((c) => ({ ...c, voice: Boolean(d?.configured) }));
     }).catch(() => {});
     return () => { on = false; };
   }, []);
@@ -238,7 +245,7 @@ export default function VideoWarRoomPage() {
           {renderLive
             ? <>Video rendering (Veo / Sora), publishing and hosting are <span className="text-emerald-300">Live now</span> too.</>
             : <><span className="text-amber-300">Activate with a key:</span> video rendering (Veo / Sora), publishing and hosting.</>}{" "}
-          <span className="text-amber-300">Avatars and audio/dubbing</span> need a talking-head / voice engine connected (see docs/EXTERNAL-ENGINES.md §5) — the only two not yet buildable without an AI model.
+          <span className="text-emerald-300">Voiceovers and dubbing</span> are live when the voice engine is connected. <span className="text-amber-300">Avatars</span> still need a talking-head model (see docs/EXTERNAL-ENGINES.md §5) — the last capability with no engine behind it.
         </p>
       </div>
 
@@ -272,6 +279,9 @@ export default function VideoWarRoomPage() {
 
       {/* LIVE video render + publish — render an MP4 and attach it to a post */}
       <VideoRenderAndPublish />
+
+      {/* LIVE Audio Studio — real voiceovers + real dubbing (ElevenLabs) */}
+      <AudioStudio />
 
       {/* LIVE Caption Engine — Whisper transcribes the real audio into a real .srt */}
       <CaptionEngine onSrt={setSrtForBurn} />

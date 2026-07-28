@@ -586,3 +586,61 @@ test("video jobs: every job kind has a price and none is free", () => {
     assert.ok(cost >= 1, `${kind} must cost something — rendering burns real CPU`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Voice & dubbing — the money rule is "bill the unit the provider bills us on".
+// ---------------------------------------------------------------------------
+const vo = await import("../src/backend/voice.ts");
+const w6 = await import("../src/backend/wallet.ts");
+const ue2 = await import("../src/backend/unit-economics.ts");
+
+test("voice: billing units follow characters, never a flat charge", () => {
+  assert.equal(vo.billableUnits("hi"), 1, "a short line is one unit, never zero");
+  assert.equal(vo.billableUnits("x".repeat(1000)), 1);
+  assert.equal(vo.billableUnits("x".repeat(1001)), 2, "crossing 1,000 chars costs another unit");
+  assert.equal(vo.billableUnits("x".repeat(4500)), 5);
+});
+
+test("voice: a long script cannot silently cost the same as a short one", () => {
+  const short = w6.ACTION_COST_ACU.voice * vo.billableUnits("x".repeat(500));
+  const long = w6.ACTION_COST_ACU.voice * vo.billableUnits("x".repeat(5000));
+  assert.ok(long > short, "10x the words must not be 1x the price");
+  assert.equal(long / short, 5);
+});
+
+test("voice & dub clear the owner's 100% net profit floor", () => {
+  for (const [kind, providerCost] of [["voice", 0.085], ["dub", 0.35]]) {
+    const v = ue2.verdictForPrice({
+      retailAcus: w6.ACTION_COST_ACU[kind], providerCostGbp: providerCost, persistsArtifact: true,
+    });
+    assert.equal(v.meetsFloor, true, `${kind} is at ${v.netProfitPct}% net profit — ${v.note}`);
+    assert.ok(v.netProfitPct >= 100, `${kind} must clear 100% net profit on fully-loaded cost`);
+  }
+});
+
+test("voice: with no key configured nothing is invented", async () => {
+  const saved = process.env.ELEVENLABS_API_KEY;
+  delete process.env.ELEVENLABS_API_KEY;
+  try {
+    assert.equal(vo.voiceConfigured(), false);
+    const r = await vo.textToSpeech({ text: "Say something" });
+    assert.equal(r.ok, false);
+    assert.equal(r.audio, undefined, "it must return no audio rather than fake audio");
+    assert.match(r.error, /ELEVENLABS_API_KEY/);
+  } finally {
+    if (saved) process.env.ELEVENLABS_API_KEY = saved;
+  }
+});
+
+test("voice: an over-long script is refused before it reaches the provider", async () => {
+  process.env.ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "test-key";
+  const r = await vo.textToSpeech({ text: "x".repeat(vo.MAX_TTS_CHARS + 1) });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /limit is/);
+});
+
+test("dub: every offered language is a distinct ISO code", () => {
+  const codes = vo.DUB_LANGUAGES.map((l) => l.code);
+  assert.equal(new Set(codes).size, codes.length, "no duplicate languages in the picker");
+  for (const c of codes) assert.match(c, /^[a-z]{2,3}$/, `${c} must be an ISO code`);
+});
