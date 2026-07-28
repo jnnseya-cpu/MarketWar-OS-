@@ -3120,7 +3120,7 @@ test("deliverability: the agent is handed the DNS answer instead of asking for i
   assert.match(src, /do not tell them to send you the domain/i,
     "the model must be told it already has the domain, or it asks again");
   assert.match(src, /maxDuration = 60/, "an agent route calling the gateway must outlast the gateway");
-  assert.match(src, /domainAuth \? \{ \.\.\.result, domainAuth \} : result/,
+  assert.match(src, /\.\.\.\(domainAuth \? \{ domainAuth \} : \{\}\)/,
     "the records travel beside the prose so the UI can render them");
 });
 
@@ -3357,4 +3357,118 @@ test("library: the store is Admin-SDK only — it holds the customer's strategy"
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/work_library\/\{doc\} \{ allow read, write: if false; \}/,
     "saved plans are commercial strategy and must never be readable by a browser token");
+});
+
+// ---------------------------------------------------------------------------
+// Claim Guard false positives. A clean CTA — "Secure your FREE lead now" — was
+// flagged as an unsubstantiated medical claim, because lower.includes("cure")
+// matches inside "secure". A compliance gate that cries wolf is worse than
+// none: the customer learns to dismiss the warnings and misses the real one.
+// ---------------------------------------------------------------------------
+const comp = await import("../src/backend/compliance.ts");
+
+test("claim guard: a word inside another word is not a claim", () => {
+  const clean = [
+    // Verbatim from the customer's own Day 7 CTA.
+    "Don't delay your next project. Secure your FREE lead now.",
+    "We handle asbestos removal across Birmingham.",   // "best" inside "asbestos"
+    "Procure materials at trade prices.",              // "cure" inside "procure"
+    "Serving Detroit and the surrounding area.",       // "roi" inside "Detroit"
+  ];
+  for (const text of clean) {
+    const v = comp.verifyClaim({ text });
+    assert.notEqual(v.status, "prohibited", `false positive on: ${text} (${v.reason || ""})`);
+  }
+});
+
+test("claim guard: a negated term is the opposite of the claim, not the claim", () => {
+  // "profit" needs evidence; "non-profit" is the opposite and needs none.
+  assert.equal(comp.verifyClaim({ text: "Strong profit margins this quarter." }).status, "inferred_pending",
+    "the un-negated term must still ask for evidence, or this test proves nothing");
+  for (const text of ["A non-profit rate for community projects.", "These results are unproven and we say so."]) {
+    const v = comp.verifyClaim({ text });
+    assert.equal(v.status, "user_confirmed", `flagged for being careful: ${text} → ${v.status}`);
+  }
+});
+
+test("claim guard: real superlatives and guarantees are still caught", () => {
+  const dirty = [
+    "We are the best builders in London.",
+    "Guaranteed results or your money back.",
+    "Our supplement cures back pain.",
+    "We're #1 for roofing in Manchester.",
+    "The cheapest quotes you will find.",
+    "Risk-free trial for 30 days.",
+  ];
+  for (const text of dirty) {
+    const v = comp.verifyClaim({ text });
+    assert.equal(v.status, "prohibited", `missed a real claim: ${text}`);
+  }
+});
+
+test("claim guard: word matching is not a substring scan any more", () => {
+  const src = readFileSync(new URL("../src/backend/compliance.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /PROHIBITED_TERMS\.find\(\(t\) => lower\.includes\(t\)\)/,
+    "substring matching is what flagged 'Secure' as 'cure'");
+  assert.match(src, /findTerm\(lower, PROHIBITED_TERMS\)/);
+  assert.match(src, /findTerm\(lower, EVIDENCE_REQUIRED_TERMS\)/);
+});
+
+// ---------------------------------------------------------------------------
+// "Next:" lines. Every agent closes by naming the next move, and it went
+// nowhere — good advice with no button, so the plan stalls one step from use.
+// ---------------------------------------------------------------------------
+const nextStep = await import("../src/backend/next-step.ts");
+
+test("next step: the closing instruction is found in its usual shapes", () => {
+  // Verbatim from the Content Factory run.
+  assert.equal(
+    nextStep.parseNextStep("…plan…\nNext: Build out the WhatsApp outreach script for the \"FREE Lead\" offer."),
+    'Build out the WhatsApp outreach script for the "FREE Lead" offer.');
+  assert.equal(nextStep.parseNextStep("**Next:** Write the landing page."), "Write the landing page.");
+  assert.equal(nextStep.parseNextStep("## Next Steps: Segment the list."), "Segment the list.");
+  // The LAST one wins — agents mention next steps mid-report too.
+  assert.equal(nextStep.parseNextStep("Next: first thing\n…\nNext: the real handover"), "the real handover");
+  assert.equal(nextStep.parseNextStep("no next line here"), "");
+});
+
+test("next step: the WhatsApp handover routes to a real engine", () => {
+  const r = nextStep.routeNextStep('Build out the WhatsApp outreach script for the "FREE Lead" offer.', "content-factory");
+  assert.equal(r.agentId, "outreach-commander", "WhatsApp is a channel the outreach engine writes for");
+  assert.ok(r.agentName);
+  assert.equal(r.blocked, undefined);
+});
+
+test("next step: a request for information the platform already has gets NO button", () => {
+  // Verbatim from the Deliverability Commander.
+  const r = nextStep.routeNextStep("send me the sending domain so I can check its live SPF/DKIM/DMARC records", "email-commander");
+  assert.equal(r.blocked, "asks_the_user");
+  assert.equal(r.agentId, undefined, "a button that reopens a dead end is worse than no button");
+  assert.match(r.reason, /already has/i);
+});
+
+test("next step: an engine is never routed back to itself", () => {
+  const r = nextStep.routeNextStep("Refine the content calendar and posts", "content-factory");
+  assert.equal(r.agentId, undefined, "pressing next and getting the same report is the dead end with an extra click");
+  assert.equal(r.blocked, "no_engine");
+});
+
+test("next step: something no engine does is said plainly, not faked", () => {
+  const r = nextStep.routeNextStep("Print the flyers and drop them at the trade counter", "content-factory");
+  assert.equal(r.blocked, "no_engine");
+  assert.match(r.reason, /yours to do/i);
+});
+
+test("next step: the button carries the work forward, not just the form", () => {
+  const src = readFileSync(new URL("../src/components/AgentRunner.tsx", import.meta.url), "utf8");
+  assert.match(src, /previousWork: result\.output/,
+    "without the plan just produced, the follow-on engine starts again and writes something that does not match it");
+  assert.match(src, /onClick=\{\(\) => runNext\(result\.nextStep!\.agentId!\)\}/, "and it must be wired");
+  assert.match(src, /void autosave\(data as AgentResult, \{ \.\.\.values, from: agentId \}, nextAgentId\)/,
+    "the follow-on output is work too — it gets saved under its own engine");
+});
+
+test("next step: the route attaches it to every agent response", () => {
+  const src = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(src, /nextStepFrom\(result\.output, agentId\)/);
 });

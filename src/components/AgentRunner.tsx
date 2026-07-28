@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, Zap, Download, Image as ImageIcon, ShieldAlert } from "lucide-react";
+import { Loader2, Sparkles, Zap, Download, Image as ImageIcon, ShieldAlert, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
@@ -92,6 +92,11 @@ export default function AgentRunner({
   // the output lived only in this component.
   const [saved, setSaved] = useState<{ id: string; durable: boolean; note: string } | null>(null);
   const [restored, setRestored] = useState<{ title: string; at: string } | null>(null);
+  // The follow-on engine named by the agent's closing "Next:" line, run in
+  // place with the work just produced carried into it.
+  const [nextResult, setNextResult] = useState<AgentResult | null>(null);
+  const [nextRunning, setNextRunning] = useState(false);
+  const [nextError, setNextError] = useState<string | null>(null);
 
   // Re-skin the form when the active brand changes.
   useEffect(() => {
@@ -99,6 +104,8 @@ export default function AgentRunner({
     setResult(null);
     setSaved(null);
     setRestored(null);
+    setNextResult(null);
+    setNextError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrand?.id]);
 
@@ -129,7 +136,37 @@ export default function AgentRunner({
 
   // Save the moment a run completes. Fire-and-forget: a save that fails must
   // never swallow the output the customer is looking at.
-  async function autosave(data: AgentResult, input: Record<string, string>) {
+  // Run the engine the agent pointed at, carrying the work forward.
+  //
+  // The context matters more than the routing: without the plan that was just
+  // produced, the follow-on engine starts from scratch and writes something that
+  // does not match it — which is why "do this next" has to pass the output on,
+  // not just open another form.
+  async function runNext(nextAgentId: string) {
+    if (!result || nextRunning) return;
+    setNextRunning(true); setNextError(null); setNextResult(null);
+    try {
+      const res = await authedFetch(`/api/agents/${nextAgentId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...values,
+          previousEngine: result.agentName,
+          previousWork: result.output.slice(0, 12_000),
+          instruction: result.nextStep?.text || "",
+          continuity: "This continues work already done for this brand. Build ON the previous output above — do not restate it, do not contradict it, and keep the same offer, tone and audience.",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setNextResult(data as AgentResult);
+      void autosave(data as AgentResult, { ...values, from: agentId }, nextAgentId);
+    } catch (err) {
+      setNextError(err instanceof Error ? err.message : "That step could not be run.");
+    } finally { setNextRunning(false); }
+  }
+
+  async function autosave(data: AgentResult, input: Record<string, string>, sourceId = agentId) {
     if (!activeBrand || !data?.output?.trim()) return;
     try {
       const r = await authedFetch("/api/work", {
@@ -138,8 +175,8 @@ export default function AgentRunner({
         body: JSON.stringify({
           action: "save",
           brandId: activeBrand.id,
-          source: agentId,
-          sourceName: data.agentName || agentId,
+          source: sourceId,
+          sourceName: data.agentName || sourceId,
           kind: "agent",
           output: data.output,
           input,
@@ -174,6 +211,8 @@ export default function AgentRunner({
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setResult(data as AgentResult);
       setRestored(null);
+      setNextResult(null);
+      setNextError(null);
       onResult?.(data as AgentResult);
       void autosave(data as AgentResult, { ...values });
       // A visual agent's deliverable is the IMAGE. Its text is only the creative
@@ -362,6 +401,47 @@ export default function AgentRunner({
               </div>
             )}
             <AgentMarkdown text={result.output} />
+
+            {/* "Next:" — made pressable. The agent names the next move; without a
+                button the plan stalls one step from being used. */}
+            {result.nextStep?.text && (
+              <div className="mt-5 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300">Next</p>
+                <p className="mt-0.5 text-sm text-slate-200">{result.nextStep.text}</p>
+                {result.nextStep.agentId ? (
+                  <>
+                    <button
+                      onClick={() => runNext(result.nextStep!.agentId!)}
+                      disabled={nextRunning}
+                      className="btn-primary mt-2 !bg-sky-500 hover:!bg-sky-400 disabled:opacity-60"
+                    >
+                      {nextRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {nextRunning ? "Running…" : `Do this with ${result.nextStep.agentName}`}
+                    </button>
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Runs with everything above carried over, so it builds on this plan instead of starting again. Costs ACUs like any AI action, and lands in your Library.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-1.5 text-[11px] text-slate-500">{result.nextStep.reason}</p>
+                )}
+                {nextError && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs text-rose-300">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {nextError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {nextResult && (
+              <div className="mt-4 rounded-lg border border-ink-700 bg-ink-850/40 p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 pb-2">
+                  <p className="font-display text-sm font-bold text-white">{nextResult.agentName}</p>
+                  <span className="text-[11px] text-emerald-300">Saved to your Library</span>
+                </div>
+                <AgentMarkdown text={nextResult.output} />
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex h-full min-h-[240px] flex-col items-center justify-center text-center">

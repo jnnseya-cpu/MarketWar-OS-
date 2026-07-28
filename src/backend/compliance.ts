@@ -86,6 +86,42 @@ const EVIDENCE_REQUIRED_TERMS = [
 
 export type ClaimInput = { text: string; evidenceSource?: string; substantiated?: boolean };
 
+// ---------------------------------------------------------------------------
+// Term matching. This used to be lower.includes(term), which is wrong in a way
+// that actively damages trust: a perfectly clean CTA — "Secure your FREE lead
+// now" — was flagged as an unsubstantiated medical claim, because "secure"
+// contains "cure". The same bug flags "asbestos" as the superlative "best",
+// "Detroit" as "roi", "non-profit" as "profit" and "unproven" as "proven".
+//
+// A compliance gate that cries wolf is worse than none: the customer learns to
+// dismiss the warnings, and then misses the real one. So terms match on WORD
+// BOUNDARIES, and a term negated by its prefix is not a claim at all.
+// ---------------------------------------------------------------------------
+
+const NEGATING_PREFIXES = ["non-", "un-", "not-", "not for ", "not-for-", "no ", "never "];
+
+function termPattern(term: string): RegExp {
+  const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // \b is unreliable when a term starts or ends with punctuation ("#1"), so the
+  // boundary is expressed as "not preceded/followed by a word character".
+  return new RegExp(`(?<!\\w)${esc}(?!\\w)`, "i");
+}
+
+/** The first term that genuinely appears as a word, or undefined. */
+export function findTerm(text: string, terms: readonly string[]): string | undefined {
+  const lower = (text || "").toLowerCase();
+  for (const term of terms) {
+    const m = termPattern(term).exec(lower);
+    if (!m) continue;
+    // "non-profit" and "unproven" are the OPPOSITE of the claim being guarded
+    // against; flagging them tells the customer off for being careful.
+    const before = lower.slice(Math.max(0, (m.index ?? 0) - 12), m.index ?? 0);
+    if (NEGATING_PREFIXES.some((p) => before.endsWith(p))) continue;
+    return term;
+  }
+  return undefined;
+}
+
 // Classify a single marketing claim. ESTIMATE — heuristic, not legal advice.
 export function verifyClaim(input: ClaimInput): ClaimVerification {
   const text = (input.text || "").trim();
@@ -96,7 +132,7 @@ export function verifyClaim(input: ClaimInput): ClaimVerification {
     return { text, status: "prohibited", publishable: false, reason: "Empty claim — nothing to substantiate." };
   }
 
-  const hitProhibited = PROHIBITED_TERMS.find((t) => lower.includes(t));
+  const hitProhibited = findTerm(lower, PROHIBITED_TERMS);
   if (hitProhibited && !hasEvidence) {
     return {
       text,
@@ -106,7 +142,7 @@ export function verifyClaim(input: ClaimInput): ClaimVerification {
     };
   }
 
-  const hitEvidence = EVIDENCE_REQUIRED_TERMS.find((t) => lower.includes(t));
+  const hitEvidence = findTerm(lower, EVIDENCE_REQUIRED_TERMS);
 
   if (hasEvidence) {
     return {

@@ -7,6 +7,7 @@ import { logAgentRun } from "@/backend/db";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 import { checkDomainAuth, normaliseDomain, type DomainAuthReport } from "@/backend/dns-auth";
+import { nextStepFrom } from "@/backend/next-step";
 
 // Denial-of-wallet defence: every AI call can spend real provider budget once
 // keys are live, so cap requests per caller. 240/min is generous for genuine
@@ -84,7 +85,10 @@ export async function POST(
     // The report travels beside the prose so the UI can render the records and
     // the exact values to publish, rather than leaving the customer to retype
     // them out of a paragraph.
-    return NextResponse.json(domainAuth ? { ...result, domainAuth } : result);
+    // The closing "Next:" line, routed to the engine that performs it. Without
+    // this the plan stalls one step from being used: good advice, no button.
+    const nextStep = nextStepFrom(result.output, agentId);
+    return NextResponse.json({ ...result, ...(domainAuth ? { domainAuth } : {}), ...(nextStep ? { nextStep } : {}) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent execution failed";
     return NextResponse.json({ error: message }, { status: 502 });

@@ -130,6 +130,16 @@ export interface AgentResult {
     summary: string;
     findings: { kind: string; severity: "block" | "warn"; excerpt: string; reason: string; fix: string }[];
   };
+  // The closing "Next:" instruction, routed to the engine that performs it.
+  // Present so the advice becomes a button instead of a sentence the reader has
+  // to action by hand — which is where a plan stalls one step from being used.
+  nextStep?: {
+    text: string;
+    agentId?: string;
+    agentName?: string;
+    blocked?: "asks_the_user" | "no_engine";
+    reason?: string;
+  };
 }
 
 export interface DailyAction {
