@@ -2512,3 +2512,34 @@ test("billing UI: choosing a plan calls the subscribe endpoint", () => {
   assert.match(src, /choosePlan\(p\.id/, "each plan card must pass its own id");
   assert.match(src, /r\.free/, "the free plan must activate rather than open a £0 checkout");
 });
+
+// ---------------------------------------------------------------------------
+// The PUBLIC pages. Generated copy is claim-guarded; hand-written marketing is
+// not, so it is the one place an unsubstantiated claim can still reach a
+// customer. These guard the two that matter commercially and legally.
+// ---------------------------------------------------------------------------
+test("public copy: nobody is told to bring their own AI key", () => {
+  const src = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /Connect your own Anthropic API key/i,
+    "telling a prospect to get their own AI account kills the sale and contradicts ACU billing");
+  assert.doesNotMatch(src, /zero-config demo mode/i,
+    "the public site must not sell demo mode as the product");
+});
+
+test("public copy: no unsubstantiated performance figures", () => {
+  const src = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  // "typically finds £1,000+ of dormant revenue" is exactly what claim-guard
+  // BLOCKS in generated copy. Hand-written marketing must meet the same bar.
+  const claims = src.match(/typically (finds|delivers|produces|saves)[^"]{0,60}/gi) || [];
+  assert.deepEqual(claims, [], `unsubstantiated performance claims on the homepage: ${claims.join(" | ")}`);
+  const guaranteed = src.match(/guaranteed (results|leads|sales|revenue)/gi) || [];
+  assert.deepEqual(guaranteed, []);
+});
+
+test("public copy: the AI answer matches how billing actually works", () => {
+  const src = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const answer = /Which AI powers[^}]*?a: "([^"]+)"/s.exec(src)?.[1] || "";
+  assert.ok(answer.length > 100, "the AI question must be answered properly");
+  assert.match(answer, /included in your plan/i, "it must say the AI is included");
+  assert.match(answer, /ACUs/, "and name the unit the customer is actually billed in");
+});

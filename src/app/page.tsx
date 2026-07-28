@@ -136,11 +136,11 @@ const FAQS = [
   },
   {
     q: "Do I need a big ad budget?",
-    a: "No. The OS starts with money you already own: your customer database (the Lead Recovery engine typically finds £1,000+ of dormant revenue), local SEO and referral loops. Paid tests start at £15/day and only scale on evidence.",
+    a: "No. The OS starts with money you already own: your existing customer list. Import it and dormant customers — people who bought before and stopped — are surfaced and ranked, which is the cheapest sale any business can make. Local SEO and referral loops cost nothing but time. If you do run paid ads, tests start small and only scale on evidence you can see.",
   },
   {
-    q: "Which AI powers the agents?",
-    a: "The platform ships with a zero-config demo mode so you can explore everything instantly. Connect your own Anthropic API key and every agent runs on live frontier-model intelligence with your business context.",
+    q: "Which AI powers the agents, and do I need my own account?",
+    a: "You need no AI account of your own. The intelligence is included in your plan and priced in ACUs — the unit shown next to every action before you click it — so there is nothing to sign up for, no separate bill and no keys to manage. The agents run on frontier models, and the platform routes across more than one provider, so a single provider having a bad day does not stop your work. If you would rather use your own provider account you can connect it on higher tiers, but nobody has to.",
   },
 ];
 
