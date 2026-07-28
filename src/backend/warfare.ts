@@ -3,6 +3,8 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import { writeCopy } from "@/backend/copywriter";
+
 // M-36 Autonomous Campaign Warfare Engine — the results-driven ecosystem.
 //
 // Doctrine (docs/ai-os/08 Autonomous Campaign Engine; spec STEPS 1–11):
@@ -553,6 +555,77 @@ export type CampaignEcosystem = {
   autonomy: ReturnType<typeof autonomyPlan>;
   learningSignals: { signal: string; how: string }[];
 };
+
+// ---------------------------------------------------------------------------
+// AI-written variant.
+//
+// designCampaign below decides the STRUCTURE — vertical, objective, psychology
+// profile, scored offers, formats, distribution, governance. That part is sound
+// and deterministic, and it should stay that way.
+//
+// What was wrong is that it also wrote the WORDS, by concatenating a psychology
+// profile: `${aspirations[0]} — for ${audience} in ${location}` produced "A
+// great result — for Businesses Senior Management in United Kingdom", and a
+// hook that read "sorted." — curiosity in three words. Every business on the
+// platform got the same sentences with their nouns swapped in.
+//
+// This keeps every structural decision and replaces only the copy, written
+// against the brand's real facts and claim-checked before it is returned.
+// ---------------------------------------------------------------------------
+export async function designCampaignWritten(
+  input: WarfareInput,
+  opts: { facts?: string[]; lang?: string } = {},
+): Promise<CampaignEcosystem & { written: "ai" | "template"; copyNote: string; copyWarnings: string[] }> {
+  const eco = designCampaign(input);
+
+  const result = await writeCopy({
+    business: input.product ? input.product : "this business",
+    product: input.product,
+    audience: input.audience,
+    location: input.location,
+    offer: input.offer,
+    objective: input.result,
+    facts: opts.facts,
+  }, { lang: opts.lang });
+
+  if (result.written !== "ai") {
+    return { ...eco, written: "template", copyNote: result.note, copyWarnings: result.warnings };
+  }
+
+  const c = result.copy;
+  const copy: CopyPack = {
+    ...eco.copy,
+    headline: c.headline || eco.copy.headline,
+    // AIDA and PAS keep their shape — the frameworks are the point — but are
+    // filled with written lines rather than profile fragments.
+    aida: [
+      `Attention: ${c.hooks[0] || c.headline}`,
+      `Interest: ${c.subheadline}`,
+      `Desire: ${c.benefits[0] || c.offerHeadline}`,
+      `Action: ${c.primaryCta}`,
+    ].join("\n"),
+    pas: [
+      `Problem: ${c.problemHeading || c.subheadline}`,
+      `Agitate: ${c.problemBody || ""}`.trim(),
+      `Solve: ${c.offerHeadline} ${c.primaryCta}.`,
+    ].filter(Boolean).join("\n"),
+    hooks: c.hooks.length ? c.hooks : eco.copy.hooks,
+    cta: c.primaryCta || eco.copy.cta,
+  };
+
+  // Payloads are derived FROM the copy, so they must be rebuilt or the channel
+  // adaptations would still carry the old concatenated lines.
+  const payloads = buildPayloads(input, copy, eco.objective);
+
+  return {
+    ...eco,
+    copy,
+    payloads,
+    written: "ai",
+    copyNote: result.note,
+    copyWarnings: result.warnings,
+  };
+}
 
 export function designCampaign(input: WarfareInput): CampaignEcosystem {
   const v = inferVertical(input.product || "");

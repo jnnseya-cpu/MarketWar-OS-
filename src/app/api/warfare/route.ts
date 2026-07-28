@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { designCampaign, type WarfareInput } from "@/backend/warfare";
+import { designCampaign, designCampaignWritten, type WarfareInput } from "@/backend/warfare";
+import { requireAuth } from "@/backend/guard";
+import { meterAction, creditAcus } from "@/backend/wallet";
+import { gatewayLangFrom } from "@/backend/gateway";
 
 // M-36 Autonomous Campaign Warfare Engine API.
 // POST { product, audience, result, budget, location, offer?, currency?, autonomy? }
 //   → the full campaign ecosystem + a readiness check on the brief (STEPS 1–11).
 // GET → the six questions the OS needs and the ecosystem it returns.
+//
+// The STRUCTURE of a campaign is deterministic — vertical, objective, offers,
+// formats, distribution, governance. Only the COPY goes through a model, and
+// only when one is connected. Without one the campaign still builds; its words
+// are labelled as assembled rather than written, and no AI charge is kept.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
@@ -30,7 +41,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "product is required — the OS needs to know what you sell" }, { status: 400 });
   }
 
-  return NextResponse.json(designCampaign(input));
+  // Copy written for this brand, metered as the AI action it is. If no model is
+  // reachable the deterministic campaign is returned instead and the charge is
+  // refunded — a customer must never pay AI prices for concatenation.
+  const auth = await requireAuth(req);
+  if (auth.ok) {
+    const meter = await meterAction(auth, "llm");
+    if (meter.allowed) {
+      const written = await designCampaignWritten(input, { lang: gatewayLangFrom(req) });
+      if (written.written !== "ai" && meter.metered && meter.charged && auth.uid) {
+        await creditAcus(auth.uid, meter.charged).catch(() => {});
+      }
+      return NextResponse.json({ ...written, chargedAcu: written.written === "ai" ? meter.charged ?? 0 : 0, balanceAcu: meter.balanceAcu });
+    }
+  }
+  return NextResponse.json({
+    ...designCampaign(input),
+    written: "template",
+    copyNote: "Copy assembled from a template. Sign in with an AI provider connected and the campaign is written for your brand instead.",
+  });
 }
 
 export async function GET() {
