@@ -2575,3 +2575,23 @@ test("multi-brand: the sprint saves prospects to the SELECTED brand, unconsented
     "businesses found in public listings never consented — marking them consented would authorise a send nobody agreed to");
   assert.match(src, /source: `sprint:/, "and must be tagged so the Return Ledger can attribute them");
 });
+
+// ---------------------------------------------------------------------------
+// Email discovery messaging. "No emails were invented" is reassuring but it
+// must not be said when emails WERE found — that reads as a broken feature.
+// ---------------------------------------------------------------------------
+test("enrichment: one unsearchable row must not flip the whole batch to 'demo'", () => {
+  const src = readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /const demo = results\.some\(/,
+    "a single unsearchable row must not claim the whole batch was never looked up");
+  assert.match(src, /demoCount === searched\.length/,
+    "the batch is only 'not looked up' when nothing at all could be looked up");
+});
+
+test("enrichment: finding no email is reported as a RESULT, not a failure", () => {
+  const src = readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8");
+  assert.match(src, /do not publish an email address/,
+    "a trade business with no published email is normal — saying so stops the customer thinking it broke");
+  assert.match(src, /could not be looked up/,
+    "and rows that genuinely could not be searched must be counted separately");
+});
