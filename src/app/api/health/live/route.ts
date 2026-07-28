@@ -64,6 +64,9 @@ export async function GET() {
     { capability: "Social publishing (Zernio, 15 channels)", ready: zernio, activates: "ZERNIO_API_KEY" },
     { capability: "Email sending (SMTP pool)", ready: env("SMTP_HOST") && env("SMTP_USER"), activates: "SMTP_HOST + SMTP_USER + SMTP_PASS" },
     { capability: "Payments (Stripe)", ready: env("STRIPE_SECRET_KEY"), activates: "STRIPE_SECRET_KEY (+ STRIPE_WEBHOOK_SECRET)" },
+    { capability: "Live prospect + market search", ready: env("SERPER_API_KEY"), activates: "SERPER_API_KEY — without it LeadWar Room and market research return nothing rather than inventing prospects" },
+    { capability: "Voiceovers & dubbing", ready: env("ELEVENLABS_API_KEY"), activates: "ELEVENLABS_API_KEY" },
+    { capability: "Video rendering (trim, clips, captions, upscale)", ready: env("FFMPEG_CLOUD_API_KEY") || env("VIDEO_WORKER_SECRET"), activates: "FFMPEG_CLOUD_API_KEY (hosted, no container) or VIDEO_WORKER_SECRET (self-hosted worker)" },
   ];
   const readyCount = caps.filter((c) => c.ready).length;
 
@@ -76,6 +79,11 @@ export async function GET() {
     "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "GEMINI_API_KEY", "AI_GATEWAY_ORDER",
     "NEXT_PUBLIC_FIREBASE_API_KEY", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY", "FIREBASE_STORAGE_BUCKET",
     "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "ZERNIO_API_KEY", "SERPER_API_KEY", "PLATFORM_ADMIN_EMAILS",
+    // Email is the highest-revenue action in the platform and the one most
+    // often missed, because nothing else fails without it — it simply does not
+    // send. Surfaced here so a go-live check can catch it.
+    "SMTP_HOST", "SMTP_USER", "SMTP_PASS",
+    "ELEVENLABS_API_KEY", "FFMPEG_CLOUD_API_KEY", "VIDEO_WORKER_SECRET",
   ];
   const envPresent: Record<string, boolean> = {};
   for (const k of KEYS) envPresent[k] = env(k);
