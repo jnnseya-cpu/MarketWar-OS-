@@ -2314,3 +2314,89 @@ test("gateway: every AI route reserves a timeout budget", async () => {
   const missing = files.filter((f) => !readFileSync(f, "utf8").includes("maxDuration"));
   assert.deepEqual(missing, [], `these AI routes have no timeout budget: ${missing.join(", ")}`);
 });
+
+// ---------------------------------------------------------------------------
+// Plan value + FAQ. A pricing page assembled by hand drifts out of date and
+// becomes a lie; these check every number is derived from the live price table.
+// ---------------------------------------------------------------------------
+const pv = await import("../src/backend/plan-value.ts");
+
+test("plans: allowances are quoted as WORK, derived from the real prices", () => {
+  const growth = pv.planCards().find((p) => p.id === "growth");
+  assert.ok(growth.buys.length > 0, "a plan must say what its allowance actually buys");
+  for (const b of growth.buys) {
+    assert.equal(b.count, Math.floor(growth.monthlyAcus / b.costEach),
+      `${b.label} count must be the allowance divided by the real price`);
+    assert.ok(b.count > 0);
+  }
+});
+
+test("plans: work counts move with the price table — they cannot drift", () => {
+  const growth = pv.planCards().find((p) => p.id === "growth");
+  const images = growth.buys.find((b) => b.label.includes("images"));
+  assert.equal(images.costEach, w6.ACTION_COST_ACU.image,
+    "the quoted price must be the price the wallet charges, not a marketing number");
+});
+
+test("plans: a bigger plan buys strictly more work", () => {
+  const cards = pv.planCards();
+  const starter = cards.find((p) => p.id === "starter");
+  const growth = cards.find((p) => p.id === "growth");
+  const scale = cards.find((p) => p.id === "scale");
+  assert.ok(growth.monthlyAcus > starter.monthlyAcus);
+  assert.ok(scale.monthlyAcus > growth.monthlyAcus);
+  const pagesOn = (p) => p.buys.find((b) => b.label.includes("landing pages"))?.count ?? 0;
+  assert.ok(pagesOn(scale) > pagesOn(growth) && pagesOn(growth) > pagesOn(starter),
+    "paying more must visibly buy more");
+});
+
+test("plans: tiers DIFFER — the same list on every plan answers nothing", () => {
+  const cards = pv.planCards();
+  const starter = cards.find((p) => p.id === "starter").includes;
+  const growth = cards.find((p) => p.id === "growth").includes;
+  const scale = cards.find((p) => p.id === "scale").includes;
+  assert.ok(growth.length > starter.length, "Growth must add something over Starter");
+  assert.ok(scale.length > growth.length, "Scale must add something over Growth");
+  assert.notDeepEqual(starter, growth);
+});
+
+test("plans: every plan says who it is for and what its hard limits are", () => {
+  for (const p of pv.planCards()) {
+    assert.ok(p.bestFor.length > 10, `${p.name} does not say who it is for`);
+    assert.ok(p.limits.length >= 4, `${p.name} hides its limits`);
+    for (const l of p.limits) assert.ok(l.value && l.value !== "undefined", `${p.name}: ${l.label} is blank`);
+  }
+});
+
+test("faq: the awkward questions are answered, not dodged", () => {
+  const faq = pv.pricingFaq();
+  const all = faq.map((f) => `${f.q} ${f.a}`).join("\n").toLowerCase();
+  // The four a buyer actually worries about.
+  assert.match(all, /run out/, "must say what happens when the allowance runs out");
+  assert.match(all, /cancel/, "must answer cancellation");
+  assert.match(all, /change plan|change your plan|changing plan/, "must answer plan changes");
+  assert.match(all, /ad spend|advertise on/, "must be clear that ad spend is separate");
+  // And the promise that matters most given what this platform is.
+  assert.match(all, /never take a cut|never.*mark it up/, "must state we do not mark up ad spend");
+});
+
+test("faq: it commits to the anti-fabrication rule in writing", () => {
+  const faq = pv.pricingFaq();
+  const answer = faq.find((f) => /invent/i.test(f.q))?.a || "";
+  assert.match(answer, /enforced in code/i, "the honesty claim must point at the enforcement, not just promise");
+  assert.match(answer, /rejected/i);
+});
+
+test("faq: the price quoted matches the real plan, not a stale number", () => {
+  const faq = pv.pricingFaq();
+  const cost = faq.find((f) => /how much/i.test(f.q)).a;
+  const growth = pv.planCards().find((p) => p.id === "growth");
+  assert.ok(cost.includes(growth.monthlyAcus.toLocaleString()),
+    "the FAQ must quote the allowance the plan actually grants");
+});
+
+test("faq: no answer is a one-line dodge", () => {
+  for (const f of pv.pricingFaq()) {
+    assert.ok(f.a.length > 80, `"${f.q}" is answered in ${f.a.length} characters — that is a dodge`);
+  }
+});
