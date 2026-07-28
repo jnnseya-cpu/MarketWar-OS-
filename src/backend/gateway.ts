@@ -51,6 +51,7 @@ export interface ProviderStatus {
   id: ProviderId;
   configured: boolean;
   model: string;
+  cooling?: boolean;
 }
 
 const DEFAULT_MAX_TOKENS = 4096;
@@ -199,17 +200,22 @@ const openai: Adapter = {
 
 // ------------------------------------------------------------------ Gemini
 // Google Generative Language API (generateContent).
+// Google publishes this key under two names depending on which console you
+// generate it from; accepting both stops a correctly-purchased key sitting
+// unused because it was pasted under the other one.
+function geminiKey(): string { return (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "").trim(); }
+
 const gemini: Adapter = {
   id: "gemini",
   model: () => process.env.GEMINI_MODEL || "gemini-2.5-flash",
-  configured: () => Boolean(process.env.GEMINI_API_KEY),
+  configured: () => Boolean(geminiKey()),
   async complete(req, deadline) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${gemini.model()}:generateContent`;
     const res = await fetchWithRetry(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-goog-api-key": process.env.GEMINI_API_KEY as string,
+        "x-goog-api-key": geminiKey(),
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: req.system }] },
@@ -241,17 +247,29 @@ function routingOrder(): Adapter[] {
   return unique.map((id) => ADAPTERS[id]);
 }
 
-export function gatewayStatus(): { order: ProviderId[]; providers: ProviderStatus[]; live: boolean } {
+export function gatewayStatus(): { order: ProviderId[]; providers: ProviderStatus[]; live: boolean; healthyCount: number; note: string } {
   const order = routingOrder();
   const providers = order.map((a) => ({
     id: a.id,
     configured: a.configured(),
     model: a.model(),
+    // Surfaced so a health page can show "configured but currently demoted"
+    // rather than a flat green tick beside a provider that is timing out.
+    cooling: providerCooling(a.id),
   }));
+  const configured = providers.filter((p) => p.configured);
+  const healthy = configured.filter((p) => !p.cooling);
+  const missing = providers.filter((p) => !p.configured).map((p) => p.id);
   return {
     order: order.map((a) => a.id),
     providers,
-    live: providers.some((p) => p.configured),
+    live: configured.length > 0,
+    healthyCount: healthy.length,
+    note: configured.length === 0
+      ? "No AI provider is configured — every AI surface runs in demo mode."
+      : configured.length === 1
+        ? `Only ${configured[0].id} is configured. There is no fallback: if it is slow or down, every AI surface fails.${missing.length ? ` Add ${missing.join(" or ")} to get one.` : ""}`
+        : `${configured.length} providers configured${healthy.length < configured.length ? `, ${configured.length - healthy.length} currently demoted after a failure` : ""}.${missing.length ? ` Not configured: ${missing.join(", ")}.` : ""}`,
   };
 }
 
@@ -274,7 +292,12 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
     ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
     : reqIn;
 
-  const candidates = preferHealthy(routingOrder().filter((a) => a.configured()));
+  const all = routingOrder();
+  const candidates = preferHealthy(all.filter((a) => a.configured()));
+  // Providers that were never eligible. Naming them is the difference between
+  // "All AI providers failed: anthropic…; openai…" — which invites the fair
+  // question "and what about Gemini?" — and an error that already answers it.
+  const unconfigured = all.filter((a) => !a.configured()).map((a) => a.id);
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 
   const deadline = Date.now() + OVERALL_TIMEOUT_MS;
@@ -327,9 +350,11 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
 
   // The message matters: a customer seeing "nothing happened" cannot act, but
   // "every provider timed out" tells them and us exactly what went wrong.
-  throw new Error(
-    `All AI providers failed: ${attempts.map((a) => `${a.provider} (${a.error})`).join("; ")}`
-  );
+  const tried = attempts.map((a) => `${a.provider} (${a.error})`).join("; ");
+  const notConfigured = unconfigured.length
+    ? ` Not configured, so never tried: ${unconfigured.join(", ")} — adding ${unconfigured.length === 1 ? "that key" : "one of those keys"} gives the gateway another provider to fall over to.`
+    : " Every configured provider was tried.";
+  throw new Error(`All AI providers failed: ${tried}.${notConfigured}`);
 }
 
 // Shared HTTP layer: retries 429/5xx and network errors with exponential

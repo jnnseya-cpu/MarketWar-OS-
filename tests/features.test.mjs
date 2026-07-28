@@ -3166,3 +3166,27 @@ test("search console: the empty state explains itself instead of showing zero", 
     "a blank '0 clicks' reads as broken; saying why reads as correct");
   assert.match(src, /gsc\.needsSelection/);
 });
+
+test("gateway: the failure names every provider, including the ones never tried", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /Not configured, so never tried/,
+    '"All AI providers failed: anthropic…; openai…" invites the fair question "and what about Gemini?" — the error must answer it');
+  assert.match(src, /unconfigured/, "the unconfigured set has to be computed before the loop filters it away");
+});
+
+test("gateway: a Gemini key works under either of Google's two names", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /GOOGLE_GENERATIVE_AI_API_KEY/,
+    "a correctly-purchased key must not sit unused because it was pasted under the other name");
+  assert.doesNotMatch(src, /process\.env\.GEMINI_API_KEY as string/,
+    "the request must use the same resolver as the configured() check, or one can pass while the other fails");
+});
+
+test("gateway: status says out loud when there is no fallback at all", async () => {
+  const { gatewayStatus } = await import("../src/backend/gateway.ts");
+  const st = gatewayStatus();
+  assert.ok(typeof st.note === "string" && st.note.length > 0);
+  assert.equal(st.live, false, "no keys are set in the test environment");
+  assert.match(st.note, /demo mode/i);
+  assert.ok(Array.isArray(st.providers) && st.providers.length === 3, "all three are reported, configured or not");
+});
