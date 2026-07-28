@@ -766,3 +766,47 @@ test("video jobs: unusable settings are refused BEFORE the wallet is touched", a
   assert.equal(r.ok, false, "a job that cannot render must not be queued");
   assert.equal((await w5.getWallet("t-vid-6")).balanceAcu, before, "and the customer must not be charged a penny");
 });
+
+// ---------------------------------------------------------------------------
+// Hosted FFmpeg — source validation happens BEFORE a customer is charged.
+// ---------------------------------------------------------------------------
+const fc = await import("../src/backend/ffmpeg-cloud.ts");
+
+test("hosted ffmpeg: content type is derived from the extension, case-insensitively", () => {
+  assert.equal(fc.contentTypeFor("Clip.MP4"), "video/mp4");
+  assert.equal(fc.contentTypeFor("a.mov"), "video/quicktime");
+  assert.equal(fc.contentTypeFor("a.webm"), "video/webm");
+  assert.equal(fc.contentTypeFor("notes.txt"), "application/octet-stream");
+});
+
+test("hosted ffmpeg: an unsupported or empty file is refused with a reason", () => {
+  assert.equal(fc.validateSource("slides.pdf", 1000).ok, false);
+  assert.match(fc.validateSource("slides.pdf", 1000).error, /not supported/);
+  assert.equal(fc.validateSource("a.mp4", 0).ok, false);
+  assert.equal(fc.validateSource("", 100).ok, false);
+});
+
+test("hosted ffmpeg: an oversized source is refused before any upload starts", () => {
+  const v = fc.validateSource("huge.mp4", fc.MAX_SOURCE_BYTES + 1);
+  assert.equal(v.ok, false);
+  assert.match(v.error, /2GB/);
+});
+
+test("hosted ffmpeg: a valid source passes and carries the signed content type", () => {
+  const v = fc.validateSource("promo.mov", 5_000_000);
+  assert.equal(v.ok, true);
+  assert.equal(v.contentType, "video/quicktime", "the PUT must use the type the URL was signed with");
+});
+
+test("hosted ffmpeg: with no key configured nothing is attempted", async () => {
+  const saved = process.env.FFMPEG_CLOUD_API_KEY;
+  delete process.env.FFMPEG_CLOUD_API_KEY;
+  try {
+    assert.equal(fc.ffmpegCloudConfigured(), false);
+    const r = await fc.presignUpload({ filename: "a.mp4", fileSize: 100 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /FFMPEG_CLOUD_API_KEY/);
+  } finally {
+    if (saved) process.env.FFMPEG_CLOUD_API_KEY = saved;
+  }
+});
