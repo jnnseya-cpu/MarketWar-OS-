@@ -153,6 +153,36 @@ export function histogramSimilarity(a: number[], b: number[]): number {
   return Math.max(0, Math.min(1, coeff)) * 100;
 }
 
+// Drop the single largest colour bucket and renormalise.
+//
+// This exists because whole-frame colour comparison is nearly useless for the
+// failure that matters most. A product typically occupies a minority of the
+// frame — a bottle on a backdrop might be 18% of the pixels — so turning that
+// bottle from white to red still leaves ~82% of the histogram untouched and
+// scores as a comfortable match. Removing each image's dominant bucket (almost
+// always the background) makes the comparison about the SUBJECT.
+export function withoutDominantBucket(hist: number[]): number[] {
+  if (!hist.length) return hist;
+  let maxAt = 0;
+  for (let i = 1; i < hist.length; i++) if (hist[i] > hist[maxAt]) maxAt = i;
+  const rest = hist.map((v, i) => (i === maxAt ? 0 : v));
+  const total = rest.reduce((sum, v) => sum + v, 0);
+  // If the dominant bucket WAS essentially the whole image there is no subject
+  // to isolate — hand back the original rather than a meaningless all-zero.
+  if (total <= 0) return hist;
+  return rest.map((v) => v / total);
+}
+
+// Colour agreement judged on the whole frame AND on the subject alone, taking
+// the worse of the two. Full-frame alone misses a recoloured product; subject
+// alone can over-react when the product fills the frame. The minimum catches
+// the recolour without inventing failures.
+export function subjectAwareColourSimilarity(a: number[], b: number[]): number {
+  const whole = histogramSimilarity(a, b);
+  const subject = histogramSimilarity(withoutDominantBucket(a), withoutDominantBucket(b));
+  return Math.min(whole, subject);
+}
+
 async function histogramOf(bytes: Buffer): Promise<number[]> {
   const { data, info } = await sharp(bytes)
     .resize(64, 64, { fit: "inside" })
@@ -185,30 +215,32 @@ export async function verifyIdentity(source: Buffer, rendered: Buffer): Promise<
       sharp(source).metadata(), sharp(rendered).metadata(),
     ]);
 
-    const structure = hammingSimilarity(hashFromLuma(srcLuma), hashFromLuma(outLuma));
-    const colour = histogramSimilarity(srcHist, outHist);
-    const proportion = proportionSimilarity(
+    // Every axis is rounded BEFORE the pass check, so a report can never show a
+    // score of 72 sitting next to a failure against a threshold of 72.
+    const structure = Math.round(hammingSimilarity(hashFromLuma(srcLuma), hashFromLuma(outLuma)));
+    const colour = Math.round(subjectAwareColourSimilarity(srcHist, outHist));
+    const proportion = Math.round(proportionSimilarity(
       { width: srcMeta.width || 0, height: srcMeta.height || 0 },
       { width: outMeta.width || 0, height: outMeta.height || 0 },
-    );
+    ));
 
     const axes: AxisResult[] = [
       {
-        axis: "structure", similarity: Math.round(structure), threshold: THRESHOLD.structure,
+        axis: "structure", similarity: structure, threshold: THRESHOLD.structure,
         passed: structure >= THRESHOLD.structure,
         detail: structure >= THRESHOLD.structure
           ? "The product's shape and layout survived the render."
           : "The silhouette changed materially — this may not be the same product.",
       },
       {
-        axis: "colour", similarity: Math.round(colour), threshold: THRESHOLD.colour,
+        axis: "colour", similarity: colour, threshold: THRESHOLD.colour,
         passed: colour >= THRESHOLD.colour,
         detail: colour >= THRESHOLD.colour
           ? "Colours match the original within normal lighting variation."
           : "The colour palette shifted. Check the product has not been recoloured.",
       },
       {
-        axis: "proportion", similarity: Math.round(proportion), threshold: THRESHOLD.proportion,
+        axis: "proportion", similarity: proportion, threshold: THRESHOLD.proportion,
         passed: proportion >= THRESHOLD.proportion,
         detail: proportion >= THRESHOLD.proportion
           ? "Proportions are intact."

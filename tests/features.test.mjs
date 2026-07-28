@@ -1339,3 +1339,292 @@ test("automation: every shipped template obeys the cap it advertises", () => {
     assert.ok(v.touchesIn7d <= 5, `template "${t.name}" plans ${v.touchesIn7d} touches in 7 days`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// A/B testing — the maths must be RIGHT, not merely present. The failure this
+// exists to prevent: declaring a winner off a handful of clicks, so the
+// customer kills the better creative while the tool looks clever.
+// ---------------------------------------------------------------------------
+const ex = await import("../src/backend/experiments.ts");
+
+test("stats: the normal CDF matches published values", () => {
+  assert.ok(Math.abs(ex.normalCdf(0) - 0.5) < 1e-6);
+  assert.ok(Math.abs(ex.normalCdf(1.96) - 0.975) < 1e-3, `got ${ex.normalCdf(1.96)}`);
+  assert.ok(Math.abs(ex.normalCdf(-1.96) - 0.025) < 1e-3);
+  assert.ok(Math.abs(ex.normalCdf(2.5758) - 0.995) < 1e-3);
+});
+
+test("stats: a two-sided p-value at z=1.96 is 0.05, the number everyone quotes", () => {
+  assert.ok(Math.abs(ex.twoSidedP(1.96) - 0.05) < 1e-3, `got ${ex.twoSidedP(1.96)}`);
+  assert.ok(Math.abs(ex.twoSidedP(0) - 1) < 1e-9);
+  assert.equal(ex.twoSidedP(-1.96), ex.twoSidedP(1.96), "the test is two-sided — direction must not change it");
+});
+
+test("stats: Wilson intervals stay inside 0-100% even at the extremes", () => {
+  const none = ex.wilsonInterval(0, 40);
+  assert.equal(none.low, 0, "zero conversions cannot have a negative lower bound");
+  assert.ok(none.high > 0 && none.high < 0.15, `0/40 should admit a small positive rate, got ${none.high}`);
+  const all = ex.wilsonInterval(40, 40);
+  assert.equal(all.high, 1, "forty of forty cannot exceed 100%");
+  assert.ok(all.low > 0.85 && all.low < 1);
+});
+
+test("stats: a small sample yields a WIDE interval — this is the whole point", () => {
+  const small = ex.wilsonInterval(3, 10);
+  const large = ex.wilsonInterval(300, 1000);
+  const smallWidth = small.high - small.low;
+  const largeWidth = large.high - large.low;
+  assert.ok(smallWidth > 0.4, `3/10 must be visibly uncertain, width was ${smallWidth}`);
+  assert.ok(largeWidth < 0.06, `300/1000 should be tight, width was ${largeWidth}`);
+  assert.ok(smallWidth > largeWidth * 7, "ten times the data must narrow the interval substantially");
+});
+
+test("stats: identical variants produce no significant difference", () => {
+  const r = ex.twoProportionTest({ conversions: 100, impressions: 1000 }, { conversions: 100, impressions: 1000 });
+  assert.equal(Math.round(r.z), 0);
+  assert.ok(r.pValue > 0.99, `identical data must give p ≈ 1, got ${r.pValue}`);
+});
+
+test("stats: a large, real difference is detected", () => {
+  const r = ex.twoProportionTest({ conversions: 50, impressions: 1000 }, { conversions: 120, impressions: 1000 });
+  assert.ok(r.pValue < 0.001, `5% vs 12% on 1000 each should be decisive, got p=${r.pValue}`);
+});
+
+test("stats: required sample size matches the standard formula", () => {
+  // Baseline 10%, detect a 2-point move, alpha 0.05, power 0.80 → ~3,840 per arm.
+  const n = ex.requiredSampleSize({ baselineRate: 0.10, mdeAbsolute: 0.02 });
+  assert.ok(n > 3600 && n < 4100, `expected ~3840 per arm, got ${n}`);
+});
+
+test("stats: detecting a SMALLER change requires a much larger sample", () => {
+  const big = ex.requiredSampleSize({ baselineRate: 0.10, mdeAbsolute: 0.04 });
+  const small = ex.requiredSampleSize({ baselineRate: 0.10, mdeAbsolute: 0.01 });
+  assert.ok(small > big * 10, "halving the effect roughly quadruples n; a quarter of it, ~16x");
+  assert.equal(ex.requiredSampleSize({ baselineRate: 0.1, mdeAbsolute: 0 }), Infinity, "detecting no change needs infinite data");
+});
+
+test("experiment: 12 impressions NEVER declare a winner, however lopsided", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 12, conversions: 1 },
+      { id: "b", label: "Challenger", impressions: 12, conversions: 5 },
+    ],
+  });
+  assert.equal(r.verdict, "collecting", "a 5-vs-1 split on 12 impressions is noise, not a result");
+  assert.equal(r.winnerId, undefined, "no winner may be named");
+  assert.match(r.headline, /not yet enough data/i);
+  assert.match(r.headline, /Do not switch off/i, "it must actively stop the customer acting on noise");
+});
+
+test("experiment: a real winner IS declared once the sample is there", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 20000, conversions: 1000 },   // 5%
+      { id: "b", label: "Challenger", impressions: 20000, conversions: 1400 }, // 7%
+    ],
+    mdeAbsolute: 0.01,
+  });
+  assert.equal(r.verdict, "winner");
+  assert.equal(r.winnerId, "b");
+  assert.ok(r.pValue < 0.001);
+  assert.equal(r.absoluteLiftPct, 2, "the lift must be reported in POINTS (5% → 7% = 2 points)");
+  assert.equal(r.relativeLiftPct, 40, "and separately as the relative +40%");
+});
+
+test("experiment: a full sample with no real difference says so, and says why that is useful", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 20000, conversions: 1000 },
+      { id: "b", label: "Challenger", impressions: 20000, conversions: 1010 },
+    ],
+    mdeAbsolute: 0.01,
+  });
+  assert.equal(r.verdict, "no_difference");
+  assert.equal(r.winnerId, undefined);
+  assert.match(r.caveats.join(" "), /smaller than/, "a null result must be explained, not just reported");
+});
+
+test("experiment: repeated peeking is called out", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 500, conversions: 25 },
+      { id: "b", label: "Challenger", impressions: 500, conversions: 40 },
+    ],
+    looksTaken: 11,
+  });
+  assert.match(r.caveats.join(" "), /false-positive rate/i, "checking 11 times must be flagged");
+  assert.equal(r.verdict, "collecting");
+});
+
+test("experiment: progress toward the decision is reported honestly", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 1000, conversions: 50 },
+      { id: "b", label: "Challenger", impressions: 1000, conversions: 55 },
+    ],
+    mdeAbsolute: 0.01,
+  });
+  assert.ok(r.requiredPerArm > 1000, "this test is nowhere near sized");
+  assert.equal(r.observedPerArm, 1000);
+  assert.ok(r.progressPct > 0 && r.progressPct < 100);
+});
+
+test("experiment: every variant's rate is reported WITH its uncertainty", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 10, conversions: 3 },
+      { id: "b", label: "Challenger", impressions: 10, conversions: 4 },
+    ],
+  });
+  const a = r.variants[0];
+  assert.equal(a.ratePct, 30);
+  assert.ok(a.lowPct < 15 && a.highPct > 55, `3/10 must show a wide range, got ${a.lowPct}-${a.highPct}`);
+  assert.match(a.intervalNote, /somewhere between/);
+});
+
+test("experiment: a single variant is not a test", () => {
+  const r = ex.evaluateExperiment({ variants: [{ id: "a", label: "Only", impressions: 5000, conversions: 500 }] });
+  assert.equal(r.verdict, "not_started");
+  assert.equal(r.winnerId, undefined);
+});
+
+test("experiment: zero impressions never divides by zero or invents a rate", () => {
+  const r = ex.evaluateExperiment({
+    variants: [
+      { id: "a", label: "Control", impressions: 0, conversions: 0 },
+      { id: "b", label: "Challenger", impressions: 0, conversions: 0 },
+    ],
+  });
+  assert.equal(r.verdict, "not_started");
+  for (const v of r.variants) assert.equal(v.ratePct, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Identity Lock — the ™ has to mean something. These check the measurement
+// catches the failure it exists for: the same shape in the wrong colour.
+// ---------------------------------------------------------------------------
+const il = await import("../src/backend/identity-lock.ts");
+const sharpLib = (await import("sharp")).default;
+
+const solid = (r, g, b, w = 300, h = 300) =>
+  sharpLib({ create: { width: w, height: h, channels: 3, background: { r, g, b } } }).png().toBuffer();
+
+// A recognisable "product": a light bottle-ish bar on a dark ground.
+const shape = (bar, ground, w = 300, h = 300) =>
+  sharpLib({ create: { width: w, height: h, channels: 3, background: ground } })
+    .composite([{
+      input: { create: { width: 80, height: 200, channels: 3, background: bar } },
+      top: 50, left: 110,
+    }])
+    .png().toBuffer();
+
+test("identity: a creative identical to the source passes every axis", async () => {
+  const img = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 });
+  const v = await il.verifyIdentity(img, img);
+  assert.equal(v.ok, true, v.error);
+  assert.equal(v.passed, true, v.summary);
+  assert.equal(v.overall, 100);
+});
+
+test("identity: RECOLOURING the product is caught even though the shape survives", async () => {
+  const original = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 });   // white bottle
+  const recoloured = await shape({ r: 220, g: 30, b: 30 }, { r: 20, g: 20, b: 40 });   // the red-bottle failure
+  const v = await il.verifyIdentity(original, recoloured);
+  assert.equal(v.ok, true, v.error);
+  const colour = v.axes.find((a) => a.axis === "colour");
+  const structure = v.axes.find((a) => a.axis === "structure");
+  assert.ok(structure.similarity > colour.similarity, "the silhouette is intact — only the colour changed");
+  assert.equal(colour.passed, false, "a recoloured product must FAIL the colour axis");
+  assert.equal(v.passed, false, "and therefore fail overall");
+  assert.match(v.summary, /FAILED/);
+});
+
+test("identity: the overall score is the WEAKEST axis, never a flattering average", async () => {
+  const original = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 });
+  const recoloured = await shape({ r: 220, g: 30, b: 30 }, { r: 20, g: 20, b: 40 });
+  const v = await il.verifyIdentity(original, recoloured);
+  const weakest = Math.min(...v.axes.map((a) => a.similarity));
+  const average = v.axes.reduce((s, a) => s + a.similarity, 0) / v.axes.length;
+  assert.equal(v.overall, weakest);
+  assert.ok(v.overall < average, "an average would have hidden the recolour behind two passing axes");
+});
+
+test("identity: a completely different product fails on structure", async () => {
+  const bottle = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 });
+  const noise = await sharpLib({ create: { width: 300, height: 300, channels: 3, background: { r: 128, g: 128, b: 128 } } })
+    .composite([{ input: { create: { width: 240, height: 40, channels: 3, background: { r: 0, g: 0, b: 0 } } }, top: 10, left: 10 }])
+    .png().toBuffer();
+  const v = await il.verifyIdentity(bottle, noise);
+  assert.equal(v.ok, true, v.error);
+  assert.equal(v.passed, false);
+  assert.ok(v.warnings.length > 0, "a failure must explain itself");
+});
+
+test("identity: stretching the image is caught by the proportion axis", async () => {
+  const square = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 }, 300, 300);
+  const stretched = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 }, 900, 200);
+  const v = await il.verifyIdentity(square, stretched);
+  const proportion = v.axes.find((a) => a.axis === "proportion");
+  assert.equal(proportion.passed, false, "a 4.5:1 render of a 1:1 photo is not the same product shot");
+});
+
+test("identity: the perceptual hash is stable and comparable", () => {
+  const flat = Array.from({ length: 32 }, () => new Array(32).fill(128));
+  const h1 = il.hashFromLuma(flat);
+  assert.equal(h1.length, 64, "an 8x8 block is a 64-bit hash");
+  assert.equal(il.hammingSimilarity(h1, h1), 100, "a hash must match itself exactly");
+  const inverted = h1.split("").map((b, i) => (i === 0 ? b : b === "1" ? "0" : "1")).join("");
+  assert.ok(il.hammingSimilarity(h1, inverted) < 10, "an inverted hash must be maximally different");
+  assert.equal(il.hammingSimilarity(h1, "1010"), 0, "mismatched lengths cannot be compared");
+});
+
+test("identity: histogram similarity is 100 for a match and ~0 for disjoint colours", () => {
+  const red = new Array(64).fill(0); red[63] = 1;
+  const blue = new Array(64).fill(0); blue[3] = 1;
+  assert.equal(Math.round(il.histogramSimilarity(red, red)), 100);
+  assert.equal(Math.round(il.histogramSimilarity(red, blue)), 0, "no shared colour means no similarity");
+  const half = new Array(64).fill(0); half[63] = 0.5; half[3] = 0.5;
+  const mixed = il.histogramSimilarity(red, half);
+  assert.ok(mixed > 60 && mixed < 80, `partial overlap should be partial, got ${mixed}`);
+});
+
+test("identity: proportion similarity is orientation-agnostic and bounded", () => {
+  assert.equal(il.proportionSimilarity({ width: 100, height: 100 }, { width: 500, height: 500 }), 100);
+  assert.equal(il.proportionSimilarity({ width: 0, height: 10 }, { width: 10, height: 10 }), 0);
+  const squashed = il.proportionSimilarity({ width: 100, height: 100 }, { width: 200, height: 100 });
+  assert.ok(squashed > 45 && squashed < 55, `2:1 vs 1:1 should be ~50, got ${squashed}`);
+});
+
+test("identity: the colour check looks at the SUBJECT, not the background", () => {
+  // A frame that is 82% background and 18% product. Recolouring only the
+  // product leaves the whole-frame histogram largely intact — which is exactly
+  // why whole-frame comparison misses the failure that matters.
+  const white = new Array(64).fill(0);
+  white[0] = 0.82;   // dark background bucket
+  white[63] = 0.18;  // white product bucket
+  const red = new Array(64).fill(0);
+  red[0] = 0.82;     // same background
+  red[48] = 0.18;    // product now red
+
+  const whole = il.histogramSimilarity(white, red);
+  const subject = il.subjectAwareColourSimilarity(white, red);
+  assert.ok(whole > 75, `whole-frame comparison is fooled — it scores ${whole}`);
+  assert.ok(subject < 10, `subject-aware comparison must catch it, got ${subject}`);
+});
+
+test("identity: removing the background does not break when the product fills the frame", () => {
+  const a = new Array(64).fill(0); a[63] = 1;      // one colour, whole frame
+  const b = new Array(64).fill(0); b[63] = 1;
+  assert.equal(Math.round(il.subjectAwareColourSimilarity(a, b)), 100, "identical must stay 100 with no subject to isolate");
+  assert.deepEqual(il.withoutDominantBucket(a), a, "a single-bucket image has no background to strip");
+});
+
+test("identity: reported scores never contradict their own pass/fail", async () => {
+  const original = await shape({ r: 240, g: 240, b: 240 }, { r: 20, g: 20, b: 40 });
+  const other = await shape({ r: 220, g: 30, b: 30 }, { r: 90, g: 90, b: 90 });
+  const v = await il.verifyIdentity(original, other);
+  for (const a of v.axes) {
+    assert.equal(a.passed, a.similarity >= a.threshold,
+      `${a.axis} shows ${a.similarity} against a threshold of ${a.threshold} but reports passed=${a.passed}`);
+  }
+});
