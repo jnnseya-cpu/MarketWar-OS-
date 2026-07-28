@@ -2543,3 +2543,35 @@ test("public copy: the AI answer matches how billing actually works", () => {
   assert.match(answer, /included in your plan/i, "it must say the AI is included");
   assert.match(answer, /ACUs/, "and name the unit the customer is actually billed in");
 });
+
+// ---------------------------------------------------------------------------
+// Multi-brand safety. A page that seeds a form from the active brand ONCE will
+// go stale the moment the brand is switched — and the damage is silent: copy
+// written for one brand, prospects and payment links attached to another.
+// ---------------------------------------------------------------------------
+test("multi-brand: any page seeding from the active brand must re-seed on switch", async () => {
+  const { execSync } = await import("node:child_process");
+  const files = execSync("grep -rl 'brandDefaults(activeBrand)' src/app/dashboard --include=page.tsx", { encoding: "utf8" })
+    .split("\n").filter(Boolean);
+  assert.ok(files.length > 0, "the check must not silently find nothing");
+
+  const stale = files.filter((f) => {
+    const src = readFileSync(f, "utf8");
+    // Seeds a form from the brand but never reacts to the brand changing.
+    const seedsForm = /useState\(\{[\s\S]{0,400}?business:/.test(src) || /const d = brandDefaults\(activeBrand\)/.test(src);
+    // Either dependency form is correct: [activeBrand] or [activeBrand?.id].
+    // What matters is that SOMETHING re-runs when the brand changes.
+    const reseeds = /\[\s*activeBrand(\?\.id)?\s*\]/.test(src);
+    return seedsForm && !reseeds;
+  });
+  assert.deepEqual(stale, [],
+    `these pages keep a stale brand after switching, so work is attributed to the wrong one: ${stale.join(", ")}`);
+});
+
+test("multi-brand: the sprint saves prospects to the SELECTED brand, unconsented", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/first-customer/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /brandId: activeBrand\.id/, "prospects must save to the brand actually selected");
+  assert.match(src, /consent: false/,
+    "businesses found in public listings never consented — marking them consented would authorise a send nobody agreed to");
+  assert.match(src, /source: `sprint:/, "and must be tagged so the Return Ledger can attribute them");
+});

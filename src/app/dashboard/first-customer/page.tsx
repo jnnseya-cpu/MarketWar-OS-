@@ -7,7 +7,7 @@
 // No ad platforms — owned channels + a margin-safe offer + a frictionless link.
 // Every step calls a real engine (/api/agents/* and /api/checkout).
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Building2, BadgePercent, Users, MessageCircle, Link2, Loader2, Copy, Check, Rocket, ArrowRight, Send } from "lucide-react";
 import { AgentMarkdown, PageHeader, Pill, HowToUse } from "@/components/ui";
@@ -46,6 +46,28 @@ export default function FirstCustomerPage() {
   // copy-pasted somewhere else before a single message can be sent.
   const [leadRows, setLeadRows] = useState<LeadRow[]>([]);
   const [saved, setSaved] = useState<string | null>(null);
+
+  // Re-seed when the brand changes.
+  //
+  // The form was seeded ONCE at mount, so switching brand in the sidebar left
+  // the business name stale. The consequence was not cosmetic: the offer and
+  // outreach were written for the OLD brand, while the saved prospects and the
+  // payment link attached to the NEW one — money attributed to a brand the copy
+  // was never written for, and prospects filed in the wrong vault. Everything
+  // the sprint has produced is cleared too, because it belongs to the brand
+  // that has just been left behind.
+  useEffect(() => {
+    if (!activeBrand) return;
+    const next = brandDefaults(activeBrand);
+    setForm((f) => ({
+      ...f,
+      business: next.business || activeBrand.name || "",
+      product: next.product || "",
+      targetCustomer: next.audience || "",
+      location: next.location || "",
+    }));
+    setOffer(null); setLeads(null); setLeadRows([]); setOutreach(null); setCheckout(null); setSaved(null);
+  }, [activeBrand?.id]);
   const [outreach, setOutreach] = useState<string | null>(null);
   const [checkout, setCheckout] = useState<CheckoutResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -196,7 +218,17 @@ export default function FirstCustomerPage() {
       <div className="mb-6 card p-5">
         <Step n={0} done={ready} icon={Rocket} title="Set the scene" sub="A few basics — the whole sprint runs off these." />
         <div className="grid gap-3 sm:grid-cols-2">
-          <div><label className="label">Business / brand</label><input className="input" value={form.business} onChange={(e) => set("business", e.target.value)} placeholder="Your business name" /></div>
+          <div>
+            <label className="label">Business / brand</label>
+            <input className="input" value={form.business} onChange={(e) => set("business", e.target.value)} placeholder="Your business name" />
+            {activeBrand && form.business.trim() && form.business.trim().toLowerCase() !== (activeBrand.name || "").trim().toLowerCase() && (
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-300">
+                You are writing for &ldquo;{form.business}&rdquo;, but the brand selected in the sidebar is
+                &ldquo;{activeBrand.name}&rdquo;. Saved prospects and the payment link attach to
+                &ldquo;{activeBrand.name}&rdquo; — switch brand in the sidebar if that is not where this belongs.
+              </p>
+            )}
+          </div>
           <div><label className="label">Product / service</label><input className="input" value={form.product} onChange={(e) => set("product", e.target.value)} placeholder={ph.product} /></div>
           <div><label className="label">Who should buy?</label><input className="input" value={form.targetCustomer} onChange={(e) => set("targetCustomer", e.target.value)} placeholder={ph.audience} /></div>
           <div><label className="label">Location / area</label><input className="input" value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="City or area" /></div>
