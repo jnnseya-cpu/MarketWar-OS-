@@ -2153,3 +2153,82 @@ test("publish inputs: a filled-in page passes its own anatomy audit", () => {
   const audit = pan.auditPageAnatomy(page);
   assert.ok(audit.scorePct >= 90, `a fully-filled page should score high, got ${audit.scorePct}: missing ${audit.checks.filter((c) => !c.present).map((c) => c.label).join(", ")}`);
 });
+
+// ---------------------------------------------------------------------------
+// Campaign Warfare — three fabrications, closed. These lock them shut.
+// ---------------------------------------------------------------------------
+const wf = await import("../src/backend/warfare.ts");
+
+const BRIEF = {
+  product: "Common Data Environment for construction",
+  audience: "UK construction project managers",
+  result: "get leads",
+  location: "United Kingdom",
+  budget: 600,
+  offer: "£149/mo, first project set up free",
+};
+
+test("warfare: hashtags are real words — never location fragments glued together", () => {
+  const c = wf.designCampaign(BRIEF);
+  const tags = c.hashtags.map((h) => h.tag);
+  // The exact nonsense the old engine produced from "United Kingdom".
+  for (const bad of ["#uniteddeals", "#orderunited", "#united", "#unitedbusiness", "#unitedevents"]) {
+    assert.ok(!tags.includes(bad), `fragment tag survived: ${bad}`);
+  }
+  assert.ok(tags.includes("#unitedkingdom"), `the WHOLE place name should be used, got ${tags.join(" ")}`);
+});
+
+test("warfare: no hashtag is a meaningless stub", () => {
+  const c = wf.designCampaign(BRIEF);
+  for (const h of c.hashtags) {
+    assert.ok(h.tag.length >= 5, `too short to be searched: ${h.tag}`);
+    assert.match(h.tag, /^#[a-z0-9]+$/, `not a usable tag: ${h.tag}`);
+  }
+  assert.equal(new Set(c.hashtags.map((h) => h.tag)).size, c.hashtags.length, "no duplicates");
+});
+
+test("warfare: hashtags are UNRANKED — scoring them would be invention", () => {
+  const c = wf.designCampaign(BRIEF);
+  for (const h of c.hashtags) {
+    assert.equal(h.score, 0, `${h.tag} carries a score of ${h.score}; reach data we do not have`);
+  }
+});
+
+test("warfare: readiness reports INPUTS, and never a probability", () => {
+  const c = wf.designCampaign(BRIEF);
+  const names = c.campaignScore.dimensions.map((d) => d.name);
+  for (const banned of ["Conversion Probability", "Revenue Probability", "Emotional Strength", "Attention Score"]) {
+    assert.ok(!names.includes(banned), `fabricated dimension survived: ${banned}`);
+  }
+  assert.match(c.campaignScore.honesty, /NOT a prediction/i);
+  assert.doesNotMatch(c.campaignScore.honesty, /probability ESTIMATE/i);
+});
+
+test("warfare: readiness is DETERMINISTIC — the same brief always scores the same", () => {
+  const a = wf.designCampaign(BRIEF).campaignScore;
+  const b = wf.designCampaign(BRIEF).campaignScore;
+  assert.equal(a.composite, b.composite);
+  assert.deepEqual(a.dimensions.map((d) => d.score), b.dimensions.map((d) => d.score),
+    "the old engine mixed in a hash-derived jitter, so scores wobbled for no reason");
+});
+
+test("warfare: every readiness line is a plain yes or no, not a soft percentage", () => {
+  const c = wf.designCampaign(BRIEF);
+  for (const d of c.campaignScore.dimensions) {
+    assert.ok(d.score === 0 || d.score === 100, `${d.name} reported ${d.score} — a made-up middle`);
+    assert.ok(d.driver && d.driver.length > 5, `${d.name} has no explanation`);
+  }
+});
+
+test("warfare: a thin brief scores LOW and names exactly what is missing", () => {
+  const thin = wf.designCampaign({ product: "stuff", audience: "", result: "sales", location: "", budget: 0, offer: "" });
+  assert.ok(thin.campaignScore.composite < 50, `an empty brief should not score ${thin.campaignScore.composite}`);
+  assert.match(thin.campaignScore.verdict, /Fill in:/);
+  assert.match(thin.campaignScore.verdict, /audience is specific/i);
+});
+
+test("warfare: a complete brief scores 100 and says the rest is up to the market", () => {
+  const full = wf.designCampaign({ ...BRIEF, offer: "£149/mo — offer ends Friday" });
+  assert.equal(full.campaignScore.composite, 100, full.campaignScore.verdict);
+  assert.match(full.campaignScore.verdict, /depends on the market/i);
+});

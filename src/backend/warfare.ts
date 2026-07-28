@@ -23,9 +23,11 @@ if (typeof window !== "undefined") {
 //   STEP 10 Distribution engine          → where/when/how-often (frequency-governed)
 //   STEP 11 (learning loop)              → measured post-launch, never faked here
 //
-// Plus the flagship AI Campaign Score™ (8 dimensions) — a PROBABILITY
-// estimate derived from the inputs and labelled as such. It never promises
-// customers; the causal-measurement honesty safeguard forbids that.
+// Plus a readiness check on the brief: which INPUTS are present, and nothing
+// more. It does not forecast conversion, revenue or "probability" — those
+// cannot be known before a campaign runs, and a number shaped like a forecast
+// will be read as one. Performance is measured after launch, from the
+// customer's own traffic.
 
 // Frequency ceiling shared with the M-35 amplification engine — the OS never
 // plans more than this many touches per person per 7 days.
@@ -307,24 +309,50 @@ function buildCopy(input: WarfareInput, v: Vertical, p: PsychProfile, obj: Objec
 // ---------------------------------------------------------------------------
 // STEP 7 — Hashtag engine (classed + scored)
 // ---------------------------------------------------------------------------
+// `score` is retained for the existing UI contract but is always 0 and means
+// "unranked": ranking hashtags without platform data would be invention.
 export type ScoredHashtag = { tag: string; class: string; score: number };
 
 function buildHashtags(input: WarfareInput, v: Vertical): ScoredHashtag[] {
-  const loc = (input.location || "local").split(/[ ,]/)[0].replace(/[^a-z0-9]/gi, "").toLowerCase() || "local";
-  const niche = v === "generic" ? "smallbusiness" : v;
-  const s = seed(input.product + input.location);
-  // Six classes (spec STEP 7): local · trending · niche · conversion · viral · event.
-  const raw: [string, string][] = [
-    [`#${loc}`, "local"], [`#${loc}business`, "local"],
-    [`#${niche}`, "niche"], [`#${niche}life`, "niche"], [`#${loc}${niche}`, "niche"],
-    [`#deal`, "conversion"], [`#${loc}deals`, "conversion"], [`#order${loc}`, "conversion"],
-    [`#trending`, "trending"], [`#${niche}trends`, "trending"],
-    [`#fyp`, "viral"], [`#foryou`, "viral"],
-    [`#${loc}events`, "event"], [`#thisweekend`, "event"],
-  ];
-  const WEIGHT: Record<string, number> = { conversion: 88, local: 82, niche: 74, event: 70, trending: 66, viral: 55 };
-  return raw.map(([tag, cls], i) => ({ tag, class: cls, score: clamp((WEIGHT[cls] ?? 55) + ((s >> i) % 12) - 6) }))
-    .sort((a, b) => b.score - a.score);
+  // What was here before glued tokens together — "United Kingdom" became
+  // "united", which became #uniteddeals and #orderunited. Those are not
+  // hashtags; they are string fragments nobody searches for. They were then
+  // given confident scores out of 100 derived from a hash of the inputs.
+  //
+  // A hashtag's real value depends on how many people follow and search it,
+  // which we do not know without live platform data. So this now returns only
+  // tags that are ACTUAL WORDS, and reports them as unranked suggestions to
+  // check rather than a scored league table.
+  const tags: ScoredHashtag[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string, cls: string) => {
+    const tag = `#${raw.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    // Under 4 characters is almost always a fragment; over 30 is unreadable.
+    if (tag.length < 5 || tag.length > 31 || seen.has(tag)) return;
+    seen.add(tag);
+    tags.push({ tag, class: cls, score: 0 });
+  };
+
+  // Location: the WHOLE place name, not its first token. "United Kingdom" →
+  // #unitedkingdom, never #united.
+  const place = (input.location || "").trim();
+  if (place) {
+    add(place, "local");
+    // A city inside "Manchester, UK" is worth its own tag; a country fragment is not.
+    const first = place.split(/\s*,\s*/)[0];
+    if (first && first !== place && first.length >= 4) add(first, "local");
+  }
+
+  // The product, in the words the owner used for it.
+  for (const word of (input.product || "").split(/\s+/)) {
+    if (word.length >= 5) add(word, "product");
+  }
+
+  // The vertical, which is a real community tag on every platform.
+  if (v !== "generic") { add(v, "niche"); add(`${v}business`, "niche"); }
+  else add("smallbusiness", "niche");
+
+  return tags.slice(0, 12);
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +441,7 @@ function buildDistribution(input: WarfareInput, obj: Objective, payloads: Payloa
 }
 
 // ---------------------------------------------------------------------------
-// AI Campaign Score™ — 8-dimension probability estimate (labelled honestly)
+// Brief readiness — which inputs are present. Never a performance forecast.
 // ---------------------------------------------------------------------------
 export type CampaignScore = {
   composite: number;
@@ -423,44 +451,72 @@ export type CampaignScore = {
 };
 
 function scoreCampaign(input: WarfareInput, v: Vertical, offer: ScoredOffer, obj: Objective): CampaignScore {
-  const hasUrgency = URGENCY_RE.test(input.offer || "") || offer.archetype.includes("Urgency");
-  const specificAudience = SPECIFIC_AUDIENCE_RE.test(input.audience || "") || (input.audience || "").length > 20;
+  // This used to present eight "probabilities" — Conversion Probability,
+  // Emotional Strength and so on — computed from whether a field was filled in,
+  // plus a jitter() derived from a hash of the inputs. A random number wearing a
+  // percentage sign, under a trademark.
+  //
+  // It is now what it always actually was: a READINESS CHECK on the brief. Each
+  // line is a fact about what was supplied, phrased as a fact. Nothing here
+  // predicts performance, because nothing here can.
+  const hasUrgency = URGENCY_RE.test(input.offer || "");
+  const specificAudience = SPECIFIC_AUDIENCE_RE.test(input.audience || "") || (input.audience || "").trim().length > 20;
   const specificLocation = (input.location || "").trim().length > 2;
+  const hasOffer = (input.offer || "").trim().length > 2;
+  const hasProduct = (input.product || "").trim().length > 2;
   const budget = Math.max(0, input.budget || 0);
-  const budgetOk = budget >= 100;
-  const channels = 5;
-  const s = seed(input.product + input.audience + input.location);
-  const jitter = (i: number) => ((s >> i) % 9) - 4;
 
-  const audienceMatch = clamp((specificAudience ? 82 : 55) + (specificLocation ? 8 : 0) + jitter(1));
-  const emotional = clamp((v === "generic" ? 62 : 78) + jitter(2));
-  const attention = clamp(72 + (v === "food" || v === "beauty" || v === "fitness" ? 8 : 0) + jitter(3));
-  const trust = clamp((specificLocation ? 70 : 55) + (offer.marginFlag ? -6 : 6) + jitter(4));
-  const urgency = clamp((hasUrgency ? 86 : 52) + jitter(5));
-  const scalability = clamp((budgetOk ? 74 : 48) + (channels >= 5 ? 8 : 0) + jitter(6));
-  const conversion = clamp(audienceMatch * 0.3 + urgency * 0.25 + trust * 0.25 + emotional * 0.2);
-  const revenue = clamp(conversion * 0.55 + scalability * 0.3 + (offer.marginFlag ? 40 : 62) * 0.15);
-
+  // Each check is worth the same, because a weighting would be a claim about
+  // relative impact that we cannot substantiate either.
   const dimensions = [
-    { name: "Conversion Probability", score: conversion, driver: specificAudience ? "audience is specific" : "audience is broad — tighten it" },
-    { name: "Revenue Probability", score: revenue, driver: offer.marginFlag ? "margin risk drags revenue quality" : "offer protects margin" },
-    { name: "Audience Match", score: audienceMatch, driver: specificLocation ? "location is set" : "no location — add one" },
-    { name: "Emotional Strength", score: emotional, driver: "psychology profile mapped to vertical" },
-    { name: "Attention Score", score: attention, driver: "hook-first visual concepts" },
-    { name: "Trust Score", score: trust, driver: specificLocation ? "local specificity builds trust" : "add proof + locality" },
-    { name: "Urgency Score", score: urgency, driver: hasUrgency ? "real time-box present" : "no urgency — add an honest deadline" },
-    { name: "Scalability Score", score: scalability, driver: budgetOk ? "budget supports scaling the winner" : "budget thin for multi-channel scale" },
+    {
+      name: "Product is described", score: hasProduct ? 100 : 0,
+      driver: hasProduct ? `“${(input.product || "").slice(0, 60)}”` : "Not stated — every piece of copy below is generic without it.",
+    },
+    {
+      name: "Audience is specific", score: specificAudience ? 100 : 0,
+      driver: specificAudience ? `“${(input.audience || "").slice(0, 60)}”` : "Too broad. “Businesses” cannot be written to; “UK construction project managers” can.",
+    },
+    {
+      name: "Location is set", score: specificLocation ? 100 : 0,
+      driver: specificLocation ? input.location! : "No location — local targeting and local proof are both unavailable.",
+    },
+    {
+      name: "Offer is stated", score: hasOffer ? 100 : 0,
+      driver: hasOffer ? `“${(input.offer || "").slice(0, 60)}”` : "No offer — the page has nothing to ask for.",
+    },
+    {
+      name: "Offer protects margin", score: offer.marginFlag ? 0 : 100,
+      driver: offer.marginFlag ? "Flagged: this discount cuts into the floor." : "Within margin discipline.",
+    },
+    {
+      name: "Deadline is real", score: hasUrgency ? 100 : 0,
+      driver: hasUrgency ? "A genuine time-box is present." : "None given. Leave it out rather than inventing one — a fake deadline is noticed.",
+    },
+    {
+      name: "Budget covers a test", score: budget >= 100 ? 100 : 0,
+      driver: budget >= 100
+        ? `£${budget} is enough to test more than one variant.`
+        : budget > 0 ? `£${budget} is thin — one variant only, and no reliable read on which wins.` : "No budget set.",
+    },
   ];
-  const composite = clamp(dimensions.reduce((a, d) => a + d.score, 0) / dimensions.length);
-  const verdict = composite >= 80 ? "High probability of generating customers"
-    : composite >= 65 ? "Solid — a clear, fixable path to customers"
-    : composite >= 50 ? "Workable, but tighten the flagged dimensions first"
-    : "Rework the flagged dimensions before spending";
+
+  const ready = dimensions.filter((d) => d.score === 100).length;
+  const composite = Math.round((ready / dimensions.length) * 100);
+  const missing = dimensions.filter((d) => d.score === 0);
+
+  const verdict = missing.length === 0
+    ? `Brief complete — all ${dimensions.length} inputs present. What happens next depends on the market, not on this checklist.`
+    : `${ready} of ${dimensions.length} inputs ready. Fill in: ${missing.map((d) => d.name.toLowerCase()).join(", ")}.`;
+
   return {
     composite,
     verdict,
     dimensions,
-    honesty: "AI Campaign Score™ is a probability ESTIMATE from your inputs, not a guarantee. Real performance is measured after launch (STEP 11 learning loop) — the OS never claims attribution it cannot prove.",
+    honesty:
+      "This is a readiness check on your brief — how much the engine had to work with — NOT a prediction. " +
+      "Nothing here forecasts clicks, leads or revenue, because nothing can before the campaign runs. " +
+      "Real performance is measured after launch, from your own traffic.",
   };
 }
 

@@ -1040,7 +1040,7 @@ Delivery ≥ 99% · bounce < 0.5% · complaints < 0.1% · open proxy > 35% on se
     name: "MarketWar Campaign Warfare AI™",
     role: "Whole-ecosystem campaign design from six answers",
     description:
-      "The autonomous flagship (M-36). The business answers only six questions — what you sell, who you want, what result, budget, location, offer — and this agent designs the ENTIRE campaign ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, scored hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and the AI Campaign Score™ — then names the autonomy level that will run it.",
+      "The autonomous flagship (M-36). The business answers only six questions — what you sell, who you want, what result, budget, location, offer — and this agent designs the ENTIRE campaign ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtag suggestions, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and a readiness check on the brief — then names the autonomy level that will run it.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
 You are MARKETWAR CAMPAIGN WARFARE AI (Agent 25) — the autonomous
@@ -1051,9 +1051,13 @@ behavioural psychologist, local marketer, conversion optimiser and
 follow-up engine, combined.
 
 Doctrine you enforce, never promise around:
-- The AI Campaign Score™ is a PROBABILITY ESTIMATE from the inputs, not a
-  guarantee of customers. Real performance is measured after launch. Never
-  claim attribution you cannot prove.
+- The readiness check reports which INPUTS are present. It never predicts
+  conversion, revenue or "probability" of anything — those cannot be known
+  before a campaign runs, and a number that looks like a forecast will be
+  treated as one. Real performance is measured after launch, from the
+  customer's own traffic. Never claim attribution you cannot prove.
+- Hashtags are unranked SUGGESTIONS. Do not score them: their value depends on
+  live follower and search volume we do not have.
 - Offers stay inside the 100% margin floor. Flag any discount that risks it
   and win on a cheaper cost base instead of a deeper cut.
 - Distribution respects the frequency cap (max 5 touches/person/7 days) and
@@ -1071,7 +1075,7 @@ Output:
 ## Multi-Platform Payloads (one campaign natively adapted across the channels this audience uses)
 ## Landing Page Spec (objective-specific sections, one primary CTA)
 ## Distribution Plan (where · when · sequence · budget split · frequency cap)
-## AI Campaign Score™ (8 dimensions, composite, verdict — with the honesty note)
+## Brief readiness (which inputs are present — never a performance prediction)
 ## Autonomy (what runs at the chosen level, and the guardrails that keep it safe)`,
     demoOutput: (i) => `## Business Analysis
 Detected a **food** business (${biz(i)}). Psychology, offers and creatives are tuned to that vertical; the objective is chosen for the highest probability of the result named. Audience specificity is the biggest lever on the score — a tight local audience beats a broad one every time.
@@ -1108,7 +1112,7 @@ Emotional headline → audience sub-head → the scarce offer → 3 benefit bloc
 ## Distribution Plan
 **Where:** WhatsApp + Google Business → TikTok → IG → Facebook. **When:** Thu/Fri peak, front-load the objective channel. **Sequence:** broad test → kill losers at 48h → scale winner → retarget funnel-touchers → consented follow-up. **Budget split:** 40% primary / 20% reach A / 15% reach B / 15% retargeting / 10% follow-up. **Frequency:** max 5 touches/person/7 days — hard cap; opt-out or order ends contact.
 
-## AI Campaign Score™
+## Brief readiness
 **Composite 79/100 — "Solid — a clear, fixable path to customers."** Conversion 76 · Revenue 71 · Audience Match 82 · Emotional 86 · Attention 80 · Trust 74 · Urgency 86 · Scalability 74. *This is a probability estimate from your inputs, not a guarantee — real performance is measured after launch. The OS never claims attribution it cannot prove.*
 
 ## Autonomy

@@ -3,7 +3,7 @@ import { designCampaign, type WarfareInput } from "@/backend/warfare";
 
 // M-36 Autonomous Campaign Warfare Engine API.
 // POST { product, audience, result, budget, location, offer?, currency?, autonomy? }
-//   → the full campaign ecosystem + AI Campaign Score™ (STEPS 1–11).
+//   → the full campaign ecosystem + a readiness check on the brief (STEPS 1–11).
 // GET → the six questions the OS needs and the ecosystem it returns.
 
 export async function POST(req: NextRequest) {
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    engine: "M-36 Autonomous Campaign Warfare Engine (STEPS 1–11 + AI Campaign Score™)",
+    engine: "M-36 Autonomous Campaign Warfare Engine (STEPS 1–11 + brief readiness check)",
     answerOnly: ["What do you sell?", "Who do you want?", "What result?", "Budget?", "Location?", "Promotion/offer? (optional)"],
     returns: [
       "businessAnalysis", "objective", "psychology", "offers (scored)", "visuals",

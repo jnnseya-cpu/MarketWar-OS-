@@ -2,7 +2,7 @@
 
 // M-36 Autonomous Campaign Warfare — the flagship command surface.
 // The operator answers six questions; the OS returns the whole ecosystem
-// (STEPS 1–11) and the AI Campaign Score™. Wired to /api/warfare; the score
+// (STEPS 1–11) and the brief readiness check. Wired to /api/warfare; readiness
 // is a probability estimate, labelled honestly, never a guarantee.
 
 import { useEffect, useState } from "react";
@@ -81,7 +81,7 @@ export default function WarfarePage() {
       <PageHeader
         kicker="Autonomous Campaign Warfare · M-36"
         title="Answer six questions. The OS builds the whole campaign."
-        subtitle="Not a picture and a caption — a results-driven ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and the AI Campaign Score™ that predicts probability before you spend."
+        subtitle="Not a picture and a caption — a results-driven ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and the a readiness check on your brief before you spend."
         actions={<Pill tone="info">STEPS 1–11 · margin-guarded · frequency-capped</Pill>}
       />
 
@@ -114,11 +114,11 @@ export default function WarfarePage() {
 
       {eco && (
         <div className="space-y-6">
-          {/* AI Campaign Score™ */}
+          {/* Brief readiness — inputs present, NOT a performance prediction */}
           <div className="card border-emerald-500/30 p-6">
             <div className="mb-4 flex items-center gap-2">
               <Gauge className="h-5 w-5 text-emerald-400" />
-              <h2 className="font-display text-lg font-bold text-white">AI Campaign Score™</h2>
+              <h2 className="font-display text-lg font-bold text-white">Brief readiness</h2>
               <Pill tone={scoreTone(eco.campaignScore.composite)}>{eco.campaignScore.composite}/100</Pill>
             </div>
             <p className="mb-4 text-sm font-semibold text-emerald-300">{eco.campaignScore.verdict}</p>
