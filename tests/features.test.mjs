@@ -768,7 +768,8 @@ test("video jobs: unusable settings are refused BEFORE the wallet is touched", a
 });
 
 // ---------------------------------------------------------------------------
-// Hosted FFmpeg — source validation happens BEFORE a customer is charged.
+// Hosted FFmpeg — the contract with ffmpeg-micro. Response-shape bugs here are
+// silent (undefined URLs, jobs reported done that never ran), so pin them.
 // ---------------------------------------------------------------------------
 const fc = await import("../src/backend/ffmpeg-cloud.ts");
 
@@ -786,6 +787,11 @@ test("hosted ffmpeg: an unsupported or empty file is refused with a reason", () 
   assert.equal(fc.validateSource("", 100).ok, false);
 });
 
+test("hosted ffmpeg: a non-integer byte count is caught before the API 400s on it", () => {
+  assert.equal(fc.validateSource("a.mp4", 1234.5).ok, false, "their API rejects a fractional/string size");
+  assert.equal(fc.validateSource("a.mp4", Number.NaN).ok, false);
+});
+
 test("hosted ffmpeg: an oversized source is refused before any upload starts", () => {
   const v = fc.validateSource("huge.mp4", fc.MAX_SOURCE_BYTES + 1);
   assert.equal(v.ok, false);
@@ -798,6 +804,32 @@ test("hosted ffmpeg: a valid source passes and carries the signed content type",
   assert.equal(v.contentType, "video/quicktime", "the PUT must use the type the URL was signed with");
 });
 
+test("hosted ffmpeg: unwrap handles BOTH the result-wrapped and flat responses", () => {
+  // Upload endpoints wrap; the transcode create endpoint does not.
+  assert.deepEqual(fc.unwrap({ success: true, result: { uploadUrl: "u", filename: "f" } }), { uploadUrl: "u", filename: "f" });
+  assert.deepEqual(fc.unwrap({ id: "abc", status: "pending" }), { id: "abc", status: "pending" });
+});
+
+test("hosted ffmpeg: an explicit failure is never unwrapped into a fake success", () => {
+  assert.equal(fc.unwrap({ success: false, result: { uploadUrl: "u" } }), null, "success:false must not yield a payload");
+  assert.equal(fc.unwrap(null), null);
+  assert.equal(fc.unwrap("nope"), null);
+});
+
+test("hosted ffmpeg: an unknown status is treated as still running, never as done", () => {
+  assert.equal(fc.toQueueStatus("completed"), "done");
+  assert.equal(fc.toQueueStatus("failed"), "failed");
+  assert.equal(fc.toQueueStatus("processing"), "running");
+  assert.equal(fc.toQueueStatus("pending"), "queued");
+  assert.equal(fc.toQueueStatus("something-new"), "queued", "an unrecognised status must never read as finished");
+});
+
+test("hosted ffmpeg: error messages name the fix, not just the status code", () => {
+  assert.match(fc.explainError(401, {}), /FFMPEG_CLOUD_API_KEY/);
+  assert.match(fc.explainError(429, {}), /allowance|rate limit/i);
+  assert.equal(fc.explainError(400, { message: "fileSize must be a number" }), "fileSize must be a number");
+});
+
 test("hosted ffmpeg: with no key configured nothing is attempted", async () => {
   const saved = process.env.FFMPEG_CLOUD_API_KEY;
   delete process.env.FFMPEG_CLOUD_API_KEY;
@@ -806,7 +838,16 @@ test("hosted ffmpeg: with no key configured nothing is attempted", async () => {
     const r = await fc.presignUpload({ filename: "a.mp4", fileSize: 100 });
     assert.equal(r.ok, false);
     assert.match(r.error, /FFMPEG_CLOUD_API_KEY/);
+    const j = await fc.createTranscode({ inputUrls: ["gs://b/x.mp4"], outputFormat: "mp4" });
+    assert.equal(j.ok, false);
   } finally {
     if (saved) process.env.FFMPEG_CLOUD_API_KEY = saved;
   }
+});
+
+test("hosted ffmpeg: a job with no inputs is refused locally", async () => {
+  process.env.FFMPEG_CLOUD_API_KEY = process.env.FFMPEG_CLOUD_API_KEY || "test-key";
+  const r = await fc.createTranscode({ inputUrls: [], outputFormat: "mp4" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /at least one input/);
 });
