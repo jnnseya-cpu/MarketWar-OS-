@@ -1177,3 +1177,165 @@ test("media urls: content types are judged on what the server actually served", 
   assert.equal(mu.isMediaContentType("application/json"), false);
   assert.equal(mu.isMediaContentType(""), true, "no header at all — let the provider decide");
 });
+
+// ---------------------------------------------------------------------------
+// Reach Amplifier — the two claims on that page that could be empty words:
+// that K is real arithmetic, and that the 5-touch cap is actually ENFORCED
+// rather than merely printed in the copy.
+// ---------------------------------------------------------------------------
+const amp = await import("../src/backend/amplify.ts");
+
+const VIRAL_FIXTURE = { seedAudience: 1000, shareRate: 0.15, invitesPerSharer: 3, inviteConversion: 0.25, cycles: 6 };
+
+test("amplifier: K is the product of the three mechanics, with no hidden multiplier", () => {
+  const p = amp.projectVirality(VIRAL_FIXTURE);
+  // 0.15 x 3 x 0.25 = 0.1125, displayed to 2dp as 0.11 — exactly what the page showed.
+  assert.equal(p.k, 0.11);
+  assert.equal(p.viral, false, "0.11 is nowhere near self-sustaining");
+});
+
+test("amplifier: a sub-1 K tapers, and the total converges instead of exploding", () => {
+  const p = amp.projectVirality(VIRAL_FIXTURE);
+  // Geometric series: 1000 x (1 + K + K^2 + ...) → 1000/(1-0.1125) ≈ 1126.
+  assert.ok(p.totalReach >= 1120 && p.totalReach <= 1130, `total reach should converge near 1126, got ${p.totalReach}`);
+  assert.ok(p.totalReach <= Math.ceil(1000 / (1 - 0.1125)), "a sub-1 K can never exceed its geometric limit");
+  // Each cycle must be smaller than the last — that IS what "tapers" means.
+  for (let i = 1; i < p.perCycle.length; i++) {
+    assert.ok(p.perCycle[i] < p.perCycle[i - 1], `cycle ${i + 1} did not taper`);
+  }
+});
+
+test("amplifier: the self-sustaining verdict flips at K = 1, and only there", () => {
+  const weak = amp.projectVirality({ ...VIRAL_FIXTURE, shareRate: 0.1, invitesPerSharer: 2, inviteConversion: 0.2 });
+  const strong = amp.projectVirality({ ...VIRAL_FIXTURE, shareRate: 0.5, invitesPerSharer: 4, inviteConversion: 0.6 });
+  assert.ok(weak.k < 1 && strong.k >= 1, "the fixture must straddle the threshold");
+  assert.equal(weak.viral, false);
+  assert.equal(strong.viral, true);
+  assert.match(strong.note, /self-sustaining/);
+});
+
+test("amplifier: doubling the seed doubles reach — it never invents extra growth", () => {
+  const a = amp.projectVirality({ ...VIRAL_FIXTURE, seedAudience: 1000 });
+  const b = amp.projectVirality({ ...VIRAL_FIXTURE, seedAudience: 2000 });
+  assert.equal(a.k, b.k, "K is a property of the mechanics, not of audience size");
+  assert.ok(Math.abs(b.totalReach - a.totalReach * 2) <= 4, "reach must scale linearly with the seed");
+});
+
+test("amplifier: the projection is capped at 20 cycles, so it cannot be run to absurdity", () => {
+  const p = amp.projectVirality({ ...VIRAL_FIXTURE, shareRate: 0.9, invitesPerSharer: 5, inviteConversion: 0.9, cycles: 500 });
+  assert.ok(p.perCycle.length <= 20, "an unbounded loop would produce a fantasy number");
+});
+
+const RETARGET_BASE = { behaviour: "clicked_no_purchase", consentedChannels: ["email"], optedOut: false, converted: false };
+
+test("amplifier: the 5-touch cap is ENFORCED, not just printed in the copy", () => {
+  const { decisions } = amp.planRetargeting([
+    { ...RETARGET_BASE, id: "fresh", touchesLast7d: 0 },
+    { ...RETARGET_BASE, id: "at-cap", touchesLast7d: amp.MAX_TOUCHES_PER_7D },
+    { ...RETARGET_BASE, id: "over-cap", touchesLast7d: amp.MAX_TOUCHES_PER_7D + 3 },
+  ]);
+  const by = Object.fromEntries(decisions.map((d) => [d.id, d]));
+  assert.equal(by["fresh"].action, "send", "someone with no recent touches must be reachable");
+  assert.equal(by["at-cap"].action, "hold", "exactly at the cap must be held");
+  assert.equal(by["over-cap"].action, "hold", "over the cap must stay held");
+  assert.match(by["at-cap"].reason, /frequency cap/);
+});
+
+test("amplifier: no consented channel means no contact, whatever the behaviour", () => {
+  const { decisions } = amp.planRetargeting([{ ...RETARGET_BASE, id: "x", consentedChannels: [], touchesLast7d: 0 }]);
+  assert.equal(decisions[0].action, "hold");
+  assert.equal(decisions[0].channel, null, "a held decision must never carry a channel to send on");
+  assert.match(decisions[0].reason, /lawfully/);
+});
+
+test("amplifier: opting out stops contact immediately, ahead of every other rule", () => {
+  const { decisions } = amp.planRetargeting([
+    { ...RETARGET_BASE, id: "out", optedOut: true, touchesLast7d: 0 },
+    { ...RETARGET_BASE, id: "won", converted: true, touchesLast7d: 0 },
+  ]);
+  const by = Object.fromEntries(decisions.map((d) => [d.id, d]));
+  assert.equal(by["out"].action, "stop", "an opt-out must stop, never merely hold");
+  assert.equal(by["won"].action, "stop", "pursuing someone who already bought is the failure this prevents");
+});
+
+test("amplifier: the counts reported back match the decisions actually made", () => {
+  const r = amp.planRetargeting([
+    { ...RETARGET_BASE, id: "a", touchesLast7d: 0 },
+    { ...RETARGET_BASE, id: "b", touchesLast7d: 0 },
+    { ...RETARGET_BASE, id: "c", touchesLast7d: 9 },
+    { ...RETARGET_BASE, id: "d", optedOut: true, touchesLast7d: 0 },
+  ]);
+  assert.equal(r.willSend, 2);
+  assert.equal(r.held, 1);
+  assert.equal(r.stopped, 1);
+  assert.equal(r.willSend + r.held + r.stopped, r.decisions.length, "every subject must be accounted for");
+});
+
+// ---------------------------------------------------------------------------
+// Automation Lab — "autonomous journeys that can't spam" is a strong claim.
+// These check the anti-spam machinery actually refuses, rather than advising.
+// ---------------------------------------------------------------------------
+const auto = await import("../src/backend/automation.ts");
+
+const wait = (h) => ({ kind: "wait", delayHours: h, label: `wait ${h}h` });
+const msg = (n) => ({ kind: "action", action: "send_email", channel: "email", detail: `message ${n}`, label: `msg ${n}` });
+
+test("automation: six messages in a week is REFUSED, five is allowed", () => {
+  const under = auto.validateWorkflow({
+    id: "u", name: "under", trigger: "form_submitted",
+    steps: [msg(1), wait(24), msg(2), wait(24), msg(3), wait(24), msg(4), wait(24), msg(5),
+            { kind: "condition", check: "converted", label: "stop on conversion" }],
+  });
+  assert.equal(under.valid, true, `five touches must pass — ${under.warnings.join("; ")}`);
+  assert.equal(under.touchesIn7d, 5);
+
+  const over = auto.validateWorkflow({
+    id: "o", name: "over", trigger: "form_submitted",
+    steps: [msg(1), wait(12), msg(2), wait(12), msg(3), wait(12), msg(4), wait(12), msg(5), wait(12), msg(6),
+            { kind: "condition", check: "converted", label: "stop on conversion" }],
+  });
+  assert.equal(over.valid, false, "six touches inside a week must be refused");
+  assert.equal(over.touchesIn7d, 6);
+  assert.match(over.warnings.join(" "), /frequency cap/i);
+});
+
+test("automation: the window ROLLS — spacing messages past 7 days makes them legal", () => {
+  const spaced = auto.validateWorkflow({
+    id: "s", name: "spaced", trigger: "form_submitted",
+    steps: [msg(1), wait(24), msg(2), wait(24), msg(3), wait(24), msg(4), wait(24), msg(5),
+            wait(24 * 8), msg(6), // a clear week later — a new window
+            { kind: "condition", check: "converted", label: "stop on conversion" }],
+  });
+  assert.equal(spaced.touchesIn7d, 5, "the 6th falls outside the rolling window");
+  assert.equal(spaced.valid, true, "the same six messages, properly spaced, must be allowed");
+});
+
+test("automation: a journey with no way to stop is flagged", () => {
+  const endless = auto.validateWorkflow({
+    id: "e", name: "endless", trigger: "form_submitted",
+    steps: [msg(1), wait(24), msg(2)],
+  });
+  assert.match(endless.warnings.join(" "), /stop condition/i, "pursuing someone forever is the failure mode to catch");
+});
+
+test("automation: a non-consented contact receives NO marketing in the dry run", () => {
+  const wf = {
+    id: "c", name: "consent", trigger: "form_submitted",
+    steps: [msg(1), wait(24), msg(2), { kind: "condition", check: "converted", label: "stop" }],
+  };
+  const consented = auto.simulateWorkflow(wf, { consented: true });
+  const not = auto.simulateWorkflow(wf, { consented: false });
+  assert.ok(consented.timeline.filter((e) => e.sent && e.kind === "send_email").length > 0, "a consented contact should receive messages");
+  assert.equal(not.timeline.filter((e) => e.sent && e.kind === "send_email").length, 0, "a non-consented contact must receive none");
+  for (const e of not.timeline.filter((e) => e.kind === "send_email")) {
+    assert.match(e.reason, /not consented/, "and each skip must say why");
+  }
+});
+
+test("automation: every shipped template obeys the cap it advertises", () => {
+  for (const t of auto.TEMPLATES) {
+    const v = auto.validateWorkflow(t);
+    assert.equal(v.valid, true, `template "${t.name}" breaches the frequency cap: ${v.warnings.join("; ")}`);
+    assert.ok(v.touchesIn7d <= 5, `template "${t.name}" plans ${v.touchesIn7d} touches in 7 days`);
+  }
+});
