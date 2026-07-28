@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveContacts, listContacts, clearContacts, patchContact, toCustomerRecords, type Contact } from "@/backend/contacts";
-import { enrichBatch } from "@/backend/enrich";
+import { enrichBatch, dropSharedEmails, auditStoredEmails } from "@/backend/enrich";
 import { scoredCustomerList, segmentLabel } from "@/backend/segments";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Email discovery makes many external fetches; reserve the platform maximum so a
+// large batch is never killed halfway with the work already paid for.
+export const maxDuration = 60;
 
 // Customer Vault contact store — real CSV/CRM import behind the vault.
 // POST { brandId, business, contacts:[...] }  → import + return scored vault
@@ -107,11 +110,49 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
+  // ---- Audit action: remove emails that belong to somebody else ----
+  // Local-only, free, and reversible by re-running discovery. It exists because
+  // fixing the discovery path does nothing about rows written before the fix —
+  // a vault can already carry one directory inbox spread across several firms,
+  // and mailing that is how a sender reputation gets destroyed.
+  // POST { action:"audit_emails", apply?: boolean }
+  if (body.action === "audit_emails") {
+    const stored = await listContacts(brandId);
+    const { bad, checked } = auditStoredEmails(stored.map((c) => ({ id: c.id, company: c.company, name: c.name, email: c.email, website: c.website })));
+    const apply = body.apply === true;
+    if (apply && bad.length) {
+      await Promise.all(bad.map((b) => patchContact(brandId, b.id, {
+        email: "",
+        emailConfidence: undefined,
+        enrichNote: `Email removed on review: ${b.reason}`,
+      })));
+    }
+    return NextResponse.json({
+      action: "audit_emails",
+      applied: apply,
+      checked,
+      badCount: bad.length,
+      // Capped so a huge vault does not return a megabyte of JSON; the count is
+      // the whole truth and the sample shows what kind of thing was found.
+      sample: bad.slice(0, 50),
+      ...(apply ? await scoredVault(brandId, business) : {}),
+      note: bad.length === 0
+        ? `Checked ${checked} address${checked === 1 ? "" : "es"} — every one belongs to the business it is attached to.`
+        : apply
+          ? `Removed ${bad.length} of ${checked} addresses that belonged to a directory or another company. Those rows are prospects again — run Find emails to try them properly.`
+          : `${bad.length} of ${checked} addresses do not belong to the business they are attached to. Nothing has been changed yet.`,
+    });
+  }
+
   // ---- Enrich action: find real emails/phones for company-only prospect rows ----
   // Reads each firm's own website via live Google (Serper) and extracts a genuine
   // email — never fabricates one. Capped per call (external fetches are slow).
   if (body.action === "enrich") {
-    const ENRICH_CAP = 25;
+    // Rows per call. With the ownership gate most misses now cost a single
+    // search instead of six page fetches against a directory site, so a bigger
+    // batch fits the same wall clock — and 2,700 prospects at 25 a click was
+    // 108 clicks, which is a feature nobody finishes using.
+    const ENRICH_CAP = Math.min(120, Math.max(10, Number(body.limit) || 60));
     const stored = await listContacts(brandId);
     const wanted = Array.isArray(body.contactIds) ? new Set((body.contactIds as unknown[]).map(String)) : null;
     // Targets: explicitly requested rows, else every row that has a company but no
@@ -123,7 +164,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ action: "enrich", enrichedCount: 0, remaining: 0, results: [], ...(await scoredVault(brandId, business)), note: "No rows to enrich — every prospect already has an email, or the rows have no company name to search." });
     }
     const batch = targets.slice(0, ENRICH_CAP);
-    const results = await enrichBatch(batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website })));
+    const raw = await enrichBatch(batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website })), 8);
+
+    // Addresses the vault has ALREADY attached to some other company. An address
+    // that turns up again for a different firm is a directory inbox, and catching
+    // it here means contamination cannot accumulate across separate runs.
+    const usedByCompany = new Map<string, string>();
+    for (const c of stored) {
+      if (c.email) usedByCompany.set(c.email.toLowerCase(), (c.company || c.name || "").trim());
+    }
+    const { results, dropped: sharedDropped } = dropSharedEmails(raw, usedByCompany);
     let withEmail = 0;
     const now = nowISO(req);
     await Promise.all(batch.map(async (c, i) => {
@@ -160,6 +210,7 @@ export async function POST(req: NextRequest) {
       // Per-row, so the customer can see WHICH companies could not be looked up
       // rather than inferring it from a single sentence about the batch.
       couldNotLookUp: demoCount,
+      rejectedAsDirectory: sharedDropped,
       results: batch.map((c, i) => ({ id: c.id, company: c.company || c.name, email: results[i]?.email || null, phone: results[i]?.phone || null, website: results[i]?.website || null, note: results[i]?.note || "" })),
       ...vault,
       note: allDemo
@@ -172,6 +223,7 @@ export async function POST(req: NextRequest) {
               ? " These businesses do not publish an email address, which is common for trades — use the phone numbers instead."
               : "",
             demoCount > 0 ? ` ${demoCount} could not be looked up (no search connector for those).` : "",
+            sharedDropped > 0 ? ` ${sharedDropped} address${sharedDropped === 1 ? "" : "es"} were rejected for belonging to a directory rather than to the business.` : "",
             targets.length > batch.length ? ` ${targets.length - batch.length} more remain — run again to continue.` : "",
           ].join(""),
     });

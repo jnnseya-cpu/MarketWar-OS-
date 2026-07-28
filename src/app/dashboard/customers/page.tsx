@@ -8,7 +8,7 @@
 // are marketing-eligible downstream (email/WhatsApp/autopilot).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2, AlertTriangle, Mail, MessageCircle, Search, ExternalLink } from "lucide-react";
+import { Loader2, Users, Upload, Trash2, FileUp, ClipboardPaste, CheckCircle2, AlertTriangle, Mail, MessageCircle, Search, ExternalLink, ShieldCheck } from "lucide-react";
 import { DonutChart, HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -158,6 +158,8 @@ export default function CustomerVaultPage() {
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
   const [enriching, setEnriching] = useState(false);
+  const [auditing, setAuditing] = useState(false);
+  const [audit, setAudit] = useState<{ badCount: number; checked: number; sample: { company: string; email: string; reason: string }[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Client-side cache of the last scored vault per brand. Makes import → display
@@ -272,6 +274,29 @@ export default function CustomerVaultPage() {
     } finally { setEnriching(false); }
   }
 
+  // Check the emails already in the vault and strip the ones that belong to
+  // somebody else. Free, local, no search calls — and necessary, because rows
+  // written before the ownership check can still carry one directory inbox
+  // spread across several businesses. Shows what it found before changing it.
+  async function auditEmails(apply: boolean) {
+    if (!activeBrand) return;
+    setAuditing(true); setMsg(null);
+    try {
+      const res = await authedFetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
+        body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, action: "audit_emails", apply }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ text: d.error || `Check failed (HTTP ${res.status})`, error: true }); return; }
+      if (apply && d.contactCount !== undefined) { setReport(d); writeCache(activeBrand.id, d); }
+      setAudit(apply ? null : { badCount: Number(d.badCount) || 0, checked: Number(d.checked) || 0, sample: Array.isArray(d.sample) ? d.sample : [] });
+      setMsg({ text: String(d.note || "Done."), error: false });
+    } catch (e) {
+      setMsg({ text: `Check failed: ${(e as Error).message || "network error"}.`, error: true });
+    } finally { setAuditing(false); }
+  }
+
   async function clearVault() {
     if (!activeBrand) return;
     if (!confirm("Remove all imported contacts for this brand? This cannot be undone.")) return;
@@ -345,13 +370,46 @@ export default function CustomerVaultPage() {
                   {enriching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Find emails ({missingEmail})
                 </button>
               )}
+              {withEmail > 0 && (
+                <button className="btn-ghost" onClick={() => auditEmails(false)} disabled={auditing} title="Check every stored email actually belongs to the business it is attached to">
+                  {auditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Check emails
+                </button>
+              )}
               {hasContacts && <button className="btn-ghost !text-rose-300" onClick={clearVault}><Trash2 className="h-4 w-4" /> Clear vault</button>}
             </div>
             {missingEmail > 0 && (
               <p className="mt-2 text-[11px] text-slate-500">
                 {withEmail > 0 && <span className="text-emerald-300">{withEmail} contactable. </span>}
-                {missingEmail} prospect{missingEmail === 1 ? "" : "s"} without an email — <span className="text-slate-300">Find emails</span> reads each company&apos;s own website (live Google) to get a real address. Done in batches of 25; nothing is invented — a firm with no public email stays blank.
+                {missingEmail} prospect{missingEmail === 1 ? "" : "s"} without an email — <span className="text-slate-300">Find emails</span> reads each company&apos;s own website (live Google) to get a real address. Done in batches; an address is only attached when the domain belongs to that company, so a directory&apos;s inbox is never passed off as theirs. Nothing is invented — a firm with no public email stays blank.
               </p>
+            )}
+            {audit && (
+              <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3">
+                {audit.badCount === 0 ? (
+                  <p className="text-xs text-emerald-300">All {audit.checked} stored addresses belong to the business they are attached to.</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-amber-200">
+                      {audit.badCount} of {audit.checked} addresses do not belong to the business they are on. Sending to these puts a stranger on your campaign and costs you sender reputation.
+                    </p>
+                    <ul className="mt-1.5 space-y-0.5">
+                      {audit.sample.slice(0, 6).map((b, i) => (
+                        <li key={i} className="text-[11px] text-slate-400">
+                          <span className="font-mono text-slate-300">{b.email}</span> on <span className="text-slate-300">{b.company}</span> — {b.reason}
+                        </li>
+                      ))}
+                      {audit.badCount > 6 && <li className="text-[11px] text-slate-500">…and {audit.badCount - 6} more.</li>}
+                    </ul>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button className="btn-primary !bg-amber-500 hover:!bg-amber-400 !py-1 !text-xs" onClick={() => auditEmails(true)} disabled={auditing}>
+                        Remove these {audit.badCount}
+                      </button>
+                      <button className="btn-ghost !py-1 !text-xs" onClick={() => setAudit(null)}>Leave them</button>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-slate-500">Removing puts those rows back to prospects — the company, trade and town stay, and Find emails can try them again properly.</p>
+                  </>
+                )}
+              </div>
             )}
             {showPaste && (
               <div className="mt-3">

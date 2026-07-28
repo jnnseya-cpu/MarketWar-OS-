@@ -2769,3 +2769,158 @@ test("email center: a silently corrected draft is not silent", () => {
     "corrections the server made must be shown, or the customer cannot tell a good draft from a repaired one");
   assert.match(src, /draftNotes\.map/, "and rendered");
 });
+
+// ---------------------------------------------------------------------------
+// Email discovery — the ownership gate.
+//
+// A live run over 25 UK trade companies attached support@rooplex.co.uk to FOUR
+// unrelated builders, john.doe@vat-search.co.uk to THREE, and put The Gazette's
+// customer-services inbox on a plasterer. None were invented — they were real
+// addresses read off real pages that simply belonged to somebody else, because
+// the code took Google's first non-blocklisted hit as "the company's own site"
+// and then scraped whatever inbox was on it.
+//
+// The fix is a positive ownership test, so these cases are the test data.
+// ---------------------------------------------------------------------------
+const enrich = await import("../src/backend/enrich.ts");
+
+test("email discovery: a domain that belongs to the company is accepted", () => {
+  // Every one of these was a CORRECT row in the live run and must stay correct.
+  const good = [
+    ["AFR STUDIO LIMITED", "afrstudioltd.com"],
+    ["HL BUILDING LTD", "hlbuildingltd.co.uk"],
+    ["ADL MECHANICAL SERVICES LTD", "adlmechanicalservices.co.uk"],
+    ["WINN HOMES LTD", "winnhomesltd.co"],
+    ["Master Construction", "masterconstruction.co.uk"],
+    ["Association of Master Tradesmen", "mastertradesmen.co.uk"],
+  ];
+  for (const [company, host] of good) {
+    assert.equal(enrich.domainMatchesCompany(company, host), true,
+      `${company} genuinely owns ${host} — rejecting it loses a real lead`);
+  }
+});
+
+test("email discovery: a directory's domain is refused, however plausible", () => {
+  // Every one of these was a WRONG row in the live run.
+  const bad = [
+    ["BUILD WITH US GROUP LTD", "rooplex.co.uk"],
+    ["NUNUCA PAINTING & DECORATING LTD", "rooplex.co.uk"],
+    ["SOUTHWEST ELECTRICAL GROUP LTD", "rooplex.co.uk"],
+    ["K&D FIX LTD", "rooplex.co.uk"],
+    ["NWDP SERVICES LTD", "vat-search.co.uk"],
+    ["M&M RESIDENTIAL GROUP LTD", "vat-search.co.uk"],
+    ["JTMTECH LTD", "vat-search.co.uk"],
+    ["KALWA DESIGN LIMITED", "thegazette.co"],
+    ["JSS CONSTRUCTION LTD", "zestate.co.uk"],
+    ["CILI CONSTRUCT LIMITED", "whoisvisiting.com"],
+    ["QBIC DESIGN & CONSTRUCTION LIMITED", "bebee.com"],
+    ["EMO&D LTD", "planningsignal.co"],
+    ["AINSCOUGH ENVIRONMENTAL SERVICES LIMITED", "recyclr.co"],
+    ["EAST GLOBAL LIMITED", "gov.vg"],
+    ["Tradesman Construction", "bruceburke.co.uk"],
+    ["Tradesman Construction", "mygoldtree.com"],
+  ];
+  for (const [company, host] of bad) {
+    assert.equal(enrich.domainMatchesCompany(company, host), false,
+      `${host} does not belong to ${company} — accepting it emails the wrong business`);
+  }
+});
+
+test("email discovery: generic words alone never prove ownership", () => {
+  // "SERVICES", "GROUP", "LTD", "LONDON" appear in thousands of names. A domain
+  // matching only those is a directory, not the firm.
+  assert.equal(enrich.domainMatchesCompany("SKYLINE LABOUR GROUP LTD", "groupltd.co.uk"), false);
+  assert.equal(enrich.domainMatchesCompany("LONDON TRADE SERVICES LTD.", "tradeservicesuk.com"), false,
+    "matching on 'trade services' alone would hand the same directory to every firm");
+  assert.deepEqual(enrich.companyTokens("THE UK SERVICES GROUP LTD").length > 0, true,
+    "a name made only of stopwords must still yield something to match on");
+});
+
+test("email discovery: the registrable label is read correctly under .co.uk", () => {
+  assert.equal(enrich.domainLabel("www.adlmechanicalservices.co.uk"), "adlmechanicalservices");
+  assert.equal(enrich.domainLabel("afrstudioltd.com"), "afrstudioltd");
+  assert.equal(enrich.domainLabel("vat-search.co.uk"), "vatsearch");
+});
+
+test("email discovery: one address on several companies is dropped from all of them", () => {
+  // Verbatim shape of the live failure.
+  const batch = [
+    { company: "BUILD WITH US GROUP LTD", email: "support@rooplex.co.uk", emailConfidence: "low", website: null, phone: null, source: "site", mode: "live", note: "" },
+    { company: "NUNUCA PAINTING & DECORATING LTD", email: "support@rooplex.co.uk", emailConfidence: "low", website: null, phone: null, source: "site", mode: "live", note: "" },
+    { company: "SOUTHWEST ELECTRICAL GROUP LTD", email: "support@rooplex.co.uk", emailConfidence: "low", website: null, phone: null, source: "site", mode: "live", note: "" },
+    { company: "AFR STUDIO LIMITED", email: "info@afrstudioltd.com", emailConfidence: "high", website: null, phone: null, source: "site", mode: "live", note: "" },
+  ];
+  const { results, dropped } = enrich.dropSharedEmails(batch);
+  assert.equal(dropped, 3, "all three copies go — there is no way to know which row it was ever right for");
+  assert.equal(results.filter((r) => r.email === "support@rooplex.co.uk").length, 0);
+  assert.equal(results[3].email, "info@afrstudioltd.com", "the genuine one is untouched");
+  assert.match(results[0].note, /directory/, "and the customer is told why it went");
+});
+
+test("email discovery: contamination is caught across separate runs, not just within a batch", () => {
+  // The live vault accumulated the same inbox over several 25-row batches, so a
+  // within-batch check alone would not have caught it.
+  const batch = [
+    { company: "K&D FIX LTD", email: "support@rooplex.co.uk", emailConfidence: "low", website: null, phone: null, source: "site", mode: "live", note: "" },
+  ];
+  const alreadyUsed = new Map([["support@rooplex.co.uk", "BUILD WITH US GROUP LTD"]]);
+  const { results, dropped } = enrich.dropSharedEmails(batch, alreadyUsed);
+  assert.equal(dropped, 1);
+  assert.equal(results[0].email, null);
+  // Re-enriching the SAME company must not trip the guard against itself.
+  const same = enrich.dropSharedEmails(
+    [{ company: "BUILD WITH US GROUP LTD", email: "support@rooplex.co.uk", emailConfidence: "low", website: null, phone: null, source: "site", mode: "live", note: "" }],
+    alreadyUsed,
+  );
+  assert.equal(same.dropped, 0, "a row keeping its own address is not contamination");
+});
+
+test("email discovery: placeholder and consumer addresses are classified correctly", () => {
+  assert.equal(enrich.isPersonalProvider("mike-kyle@virginmedia.com"), true);
+  assert.equal(enrich.isPersonalProvider("info@afrstudioltd.com"), false);
+});
+
+test("email discovery: the batch is big enough to finish, and reserves time to run", () => {
+  const src = readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /const ENRICH_CAP = 25;/,
+    "2,701 prospects at 25 a click is 108 clicks — nobody completes that");
+  assert.match(src, /maxDuration = 60/, "a batch of external fetches must reserve the full budget");
+  assert.match(src, /dropSharedEmails\(raw, usedByCompany\)/,
+    "and every batch must be checked against what the vault already holds");
+});
+
+test("email discovery: the vault can be cleaned of addresses written before the fix", () => {
+  // Fixing discovery does nothing about the 2,700-row list already carrying one
+  // directory inbox on four builders. Without this, the bad data just sits there
+  // waiting to be emailed.
+  const rows = [
+    { id: "1", company: "BUILD WITH US GROUP LTD", email: "support@rooplex.co.uk" },
+    { id: "2", company: "NUNUCA PAINTING & DECORATING LTD", email: "support@rooplex.co.uk" },
+    { id: "3", company: "KALWA DESIGN LIMITED", email: "customer.services@thegazette.co" },
+    { id: "4", company: "EAST GLOBAL LIMITED", email: "customerservice@gov.vg" },
+    { id: "5", company: "NWDP SERVICES LTD", email: "john.doe@vat-search.co.uk" },
+    { id: "6", company: "AFR STUDIO LIMITED", email: "info@afrstudioltd.com" },
+    { id: "7", company: "MLK TILING LTD", email: "mike-kyle@virginmedia.com" },
+    { id: "8", company: "Moulton Construction Tradesman", email: "moultonconstructiontradesman4@gmail.com" },
+  ];
+  const { bad, checked } = enrich.auditStoredEmails(rows);
+  assert.equal(checked, 8);
+  const badIds = bad.map((b) => b.id).sort();
+  assert.deepEqual(badIds, ["1", "2", "3", "4", "5"],
+    `wrong set flagged: ${JSON.stringify(bad.map((b) => `${b.id}:${b.email}`))}`);
+  // A genuine company-domain address survives.
+  assert.ok(!bad.some((b) => b.email === "info@afrstudioltd.com"));
+  // Consumer addresses are LEFT ALONE — a tiler using virginmedia is normal, and
+  // stripping those would delete real leads to look tidy.
+  assert.ok(!bad.some((b) => b.email.includes("virginmedia")));
+  assert.ok(!bad.some((b) => b.email.includes("gmail")));
+  assert.match(bad.find((b) => b.id === "1").reason, /2 different companies/);
+});
+
+test("email discovery: the clean-up is offered in the vault, and shows before it deletes", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/customers/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /action: "audit_emails"/, "the vault must be able to check itself");
+  assert.match(src, /auditEmails\(false\)/, "the first click only reports");
+  assert.match(src, /auditEmails\(true\)/, "deleting is a second, deliberate click");
+  assert.doesNotMatch(src, /batches of 25/, "the batch size claim must match what the server does");
+});
