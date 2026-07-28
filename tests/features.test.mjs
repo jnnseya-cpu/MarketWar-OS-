@@ -456,3 +456,38 @@ test("claims: every finding tells the user how to fix it", () => {
     assert.ok(f.reason && f.reason.length > 10);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Subtitle engine — real SRT/VTT from real timestamps (not a "caption spec").
+// ---------------------------------------------------------------------------
+const tr = await import("../src/backend/transcribe.ts");
+
+test("captions: SRT is correctly formatted and indexed", () => {
+  const srt = tr.toSrt([
+    { start: 0, end: 2.5, text: "Hello there" },
+    { start: 2.5, end: 5.25, text: "Welcome back" },
+  ]);
+  assert.match(srt, /^1\n00:00:00,000 --> 00:00:02,500\nHello there/);
+  assert.match(srt, /2\n00:00:02,500 --> 00:00:05,250\nWelcome back/);
+});
+
+test("captions: VTT uses the WEBVTT header and dot milliseconds", () => {
+  const vtt = tr.toVtt([{ start: 61.5, end: 63, text: "One minute in" }]);
+  assert.match(vtt, /^WEBVTT/);
+  assert.match(vtt, /00:01:01\.500 --> 00:01:03\.000/);
+});
+
+test("captions: long lines are split so they fit on screen", () => {
+  const long = "word ".repeat(60).trim();
+  const out = tr.tightenSegments([{ start: 0, end: 10, text: long }], 84);
+  assert.ok(out.length > 1, "an over-long caption must be split");
+  for (const s of out) assert.ok(s.text.length <= 90, `segment too long: ${s.text.length}`);
+  // Timings must stay inside the original window and move forward.
+  assert.ok(out[0].start >= 0 && out[out.length - 1].end <= 10.001);
+});
+
+test("captions: short lines pass through untouched", () => {
+  const out = tr.tightenSegments([{ start: 0, end: 2, text: "Short line" }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].text, "Short line");
+});
