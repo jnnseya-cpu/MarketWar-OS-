@@ -649,7 +649,7 @@ export function designCampaign(input: WarfareInput): CampaignEcosystem {
       read: `Detected a ${v} business. Psychology, offers and creatives are tuned to that vertical; the objective is chosen for highest probability of the result you named.`,
       demandSignal: SPECIFIC_AUDIENCE_RE.test(input.audience || "")
         ? "Audience is specific enough to target tightly — good."
-        : "Audience is broad — the engine defaulted to local intent; tightening it will lift Conversion Probability.",
+        : "Audience is broad, so the engine defaulted to local intent. Naming a narrower audience — a job title, an industry, a situation — gives every piece of copy below something specific to say.",
     },
     objective,
     psychology: p,

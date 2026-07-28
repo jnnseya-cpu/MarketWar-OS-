@@ -9,7 +9,7 @@
 // until Stripe + the acu_ledger go live. (Upgrades the earlier placeholder
 // £9–£99 ladder — the finalised model supersedes it per REQUIREMENTS-COVERAGE.)
 
-import { useEffect, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Check, Loader2, Wallet, Zap, TrendingUp, Star } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
@@ -46,12 +46,16 @@ export default function BillingPage() {
   const [data, setData] = useState<SubResponse | null>(null);
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
   const [error, setError] = useState(false);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
   const [buying, setBuying] = useState<number | null>(null);
   const [checkout, setCheckout] = useState<{ ok: boolean; mode: string; url: string | null; acus: number; note: string; error?: string } | null>(null);
 
   const [wallet, setWallet] = useState<{ live: boolean; balanceAcu: number; planId: string; lifetimeCreditedAcu: number; lifetimeDebitedAcu: number } | null>(null);
 
-  useEffect(() => {
+  // Named so it can be re-run after a plan change — activating the free plan
+  // changes the wallet, and a page still showing the old balance reads as a
+  // failed click.
+  const load = useCallback(() => {
     fetch("/api/subscription").then((r) => r.json()).then(setData).catch(() => setError(true));
     // Real ACU wallet (credited by the Stripe webhook, debited by AI use).
     authedFetch("/api/billing/wallet")
@@ -59,6 +63,8 @@ export default function BillingPage() {
       .then((d) => { if (d && d.wallet) setWallet({ live: Boolean(d.live), balanceAcu: d.wallet.balanceAcu, planId: d.wallet.planId, lifetimeCreditedAcu: d.wallet.lifetimeCreditedAcu, lifetimeDebitedAcu: d.wallet.lifetimeDebitedAcu }); })
       .catch(() => {});
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   async function buyTopup(gbp: number, acus: number) {
     setBuying(gbp); setCheckout(null);
@@ -74,6 +80,29 @@ export default function BillingPage() {
     } catch {
       setCheckout({ ok: false, mode: "demo", url: null, acus, note: "Network error" });
     } finally { setBuying(null); }
+  }
+
+  // Choose a plan. The endpoint has always existed; the button simply was not
+  // wired to it, so every "Choose <plan>" click did nothing — the money path
+  // was dead in the one place a customer tries to pay.
+  async function choosePlan(planId: string, custom?: boolean) {
+    if (custom) { window.location.href = "/contact?topic=enterprise"; return; }
+    setSubscribing(planId); setCheckout(null);
+    try {
+      const res = await authedFetch("/api/billing/subscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, cycle }),
+      });
+      const r = await res.json();
+      if (!res.ok) { setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: r?.error || "Could not start checkout." }); return; }
+      // Free needs no payment — reflect it immediately rather than sending the
+      // customer to a checkout for £0.
+      if (r.free) { setCheckout({ ok: true, mode: "live", url: null, acus: 0, note: r.note || "Free plan activated." }); load(); return; }
+      if (r.url) { window.location.href = r.url; return; }
+      setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: r.note || "Payments are not configured on this deployment yet." });
+    } catch {
+      setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: "Network error — the plan was not changed." });
+    } finally { setSubscribing(null); }
   }
 
   // Wallet: prefer the REAL balance (credited by the Stripe webhook, debited by
@@ -112,7 +141,10 @@ export default function BillingPage() {
               <p className="font-display text-3xl font-bold text-white">{balance.toLocaleString("en-GB")}<span className="ml-1 text-sm font-normal text-slate-400">ACUs</span></p>
               <p className="mt-1 text-xs text-slate-400">≈ {fmtGbp(balance / 100)} of AI usage available</p>
             </div>
-            <button className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-ink-950 hover:bg-emerald-400"><Zap className="h-4 w-4" /> Top up</button>
+            <button
+              onClick={() => { document.getElementById("top-up")?.scrollIntoView({ behavior: "smooth" }); }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-ink-950 hover:bg-emerald-400"
+            ><Zap className="h-4 w-4" /> Top up</button>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-ink-800">
             <div className="h-full rounded-full bg-emerald-500" style={{ width: `${allocation > 0 ? Math.max(2, Math.min(100, Math.round((balance / Math.max(balance, allocation)) * 100))) : 100}%` }} />
@@ -161,8 +193,12 @@ export default function BillingPage() {
                     <li key={f} className="flex items-start gap-1.5 text-[11px] text-slate-300"><Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" /> {f}</li>
                   ))}
                 </ul>
-                <button className={`mt-4 rounded-lg px-3 py-2 text-xs font-semibold ${isRec ? "bg-emerald-500 text-ink-950 hover:bg-emerald-400" : "border border-ink-700 text-slate-200 hover:border-emerald-500"}`}>
-                  {p.monthlyGbp === 0 ? "Start free" : p.custom ? "Contact sales" : "Choose " + p.name}
+                <button
+                  onClick={() => choosePlan(p.id, p.custom)}
+                  disabled={subscribing !== null}
+                  className={`mt-4 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50 ${isRec ? "bg-emerald-500 text-ink-950 hover:bg-emerald-400" : "border border-ink-700 text-slate-200 hover:border-emerald-500"}`}
+                >
+                  {subscribing === p.id ? "Starting…" : p.monthlyGbp === 0 ? "Start free" : p.custom ? "Contact sales" : "Choose " + p.name}
                 </button>
               </div>
             );
@@ -172,7 +208,7 @@ export default function BillingPage() {
 
       {/* Top-ups */}
       {data && (
-        <div className="mt-8">
+        <div id="top-up" className="mt-8 scroll-mt-24">
           <div className="mb-3 flex items-center gap-2"><Zap className="h-4 w-4 text-emerald-400" /><h2 className="font-display text-base font-bold text-white">ACU top-ups</h2><Pill tone="neutral">no discount — protects the 4× rule</Pill></div>
           <div className="flex flex-wrap gap-2">
             {data.topUps.map((t) => (

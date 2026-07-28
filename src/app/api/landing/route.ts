@@ -83,10 +83,16 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuth(req);
     let page = generateLandingPage(input);
     let written: "ai" | "template" = "template";
-    let copyNote = "Written from a template — connect an AI provider for copy grounded in your brand.";
+    // Distinguish the reasons. "No provider connected" and "you are out of
+    // ACUs" need different actions from the customer, and a single vague
+    // message sends them to the wrong place.
+    let copyNote = "Written from a template — sign in for copy written for your brand.";
     let copyWarnings: string[] = [];
     if (auth.ok) {
       const meter = await meterAction(auth, "llm");
+      if (!meter.allowed) {
+        copyNote = `Published, but the COPY is template copy: ${meter.error ?? "you are out of ACUs."} Top up and republish for copy written for your brand.`;
+      }
       if (meter.allowed) {
         const w = await generateLandingPageWritten(input, { lang: gatewayLangFrom(req) });
         page = w.page;

@@ -25,6 +25,9 @@ type Ecosystem = {
   landingPage: { objective: string; sections: string[]; conversionNote: string };
   distribution: { where: string[]; when: string; frequencyCap: string; sequence: string; budgetSplit: { label: string; amount: number; currency: string }[]; note: string };
   campaignScore: { composite: number; verdict: string; dimensions: { name: string; score: number; driver: string }[]; honesty: string };
+  written?: "ai" | "template";
+  copyNote?: string;
+  copyBlocked?: boolean;
   autonomy: { level: number; name: string; runs: string; youApprove: string };
 };
 
@@ -81,7 +84,7 @@ export default function WarfarePage() {
       <PageHeader
         kicker="Autonomous Campaign Warfare · M-36"
         title="Answer six questions. The OS builds the whole campaign."
-        subtitle="Not a picture and a caption — a results-driven ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and the a readiness check on your brief before you spend."
+        subtitle="Not a picture and a caption — a results-driven ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtags, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan — plus a readiness check on your brief before you spend a penny."
         actions={<Pill tone="info">STEPS 1–11 · margin-guarded · frequency-capped</Pill>}
       />
 
@@ -201,7 +204,11 @@ export default function WarfarePage() {
               <div className="flex flex-wrap gap-2">
                 {eco.hashtags.map((h) => (
                   <span key={h.tag} className="inline-flex items-center gap-1 rounded-full border border-white/[0.07] bg-ink-900/50 px-2.5 py-1 text-xs text-slate-300">
-                    {h.tag}<span className="text-emerald-400">{h.score}</span>
+                    {/* Unranked by design: a hashtag's value depends on live
+                        follower and search volume we do not have, so a score
+                        would be invention. Showing "0" was worse than showing
+                        nothing. */}
+                    {h.tag}{h.score > 0 && <span className="text-emerald-400">{h.score}</span>}
                   </span>
                 ))}
               </div>

@@ -54,11 +54,25 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ ...written, chargedAcu: written.written === "ai" ? meter.charged ?? 0 : 0, balanceAcu: meter.balanceAcu });
     }
+    // Out of ACUs. The campaign STRUCTURE costs nothing to compute and is still
+    // worth having, so it is returned — but the copy is template copy, and
+    // saying so is the whole point. Silently serving concatenated words on a
+    // page labelled AI is exactly the failure this codebase keeps fixing.
+    return NextResponse.json({
+      ...designCampaign(input),
+      written: "template",
+      copyBlocked: true,
+      balanceAcu: meter.balanceAcu,
+      copyNote:
+        `The plan below is real — objective, offers, formats, budget split and governance are computed from your brief. ` +
+        `THE WORDS ARE NOT WRITTEN: ${meter.error ?? "you are out of ACUs."} Top up and run this again and the copy is written for your brand instead of assembled from a template.`,
+    });
   }
   return NextResponse.json({
     ...designCampaign(input),
     written: "template",
-    copyNote: "Copy assembled from a template. Sign in with an AI provider connected and the campaign is written for your brand instead.",
+    copyNote:
+      "The plan below is computed from your brief and is real. The COPY is assembled from a template — sign in, with an AI provider connected, and it is written for your brand instead.",
   });
 }
 

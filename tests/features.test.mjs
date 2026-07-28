@@ -2494,3 +2494,21 @@ test("batch: every format maps to a real platform the image gateway understands"
     assert.ok(f.usedFor.length > 10, `${f.id} does not say where it is used`);
   }
 });
+
+test("billing UI: every plan button is wired to checkout", () => {
+  // The "Choose <plan>" buttons were bare <button> elements with no onClick.
+  // A customer clicked and nothing happened — the money path was dead in the
+  // exact place someone tries to pay. Guarded here because it is invisible in
+  // a screenshot and catastrophic in production.
+  const src = readFileSync(new URL("../src/app/dashboard/billing/page.tsx", import.meta.url), "utf8");
+  const buttons = src.match(/<button[^>]*>/g) || [];
+  const unwired = buttons.filter((b) => !b.includes("onClick"));
+  assert.deepEqual(unwired, [], `these billing buttons do nothing when clicked: ${unwired.join(" | ")}`);
+});
+
+test("billing UI: choosing a plan calls the subscribe endpoint", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/billing/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /\/api\/billing\/subscribe/, "the plan button must reach the subscribe endpoint");
+  assert.match(src, /choosePlan\(p\.id/, "each plan card must pass its own id");
+  assert.match(src, /r\.free/, "the free plan must activate rather than open a £0 checkout");
+});
