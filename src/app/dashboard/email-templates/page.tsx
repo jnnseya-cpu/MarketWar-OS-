@@ -7,7 +7,7 @@
 // contact at send time.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle, Wand2 } from "lucide-react";
+import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle, Wand2, Sparkles } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -46,6 +46,22 @@ const DESIGN_DEFAULT: Design = {
   accent: "#16a34a",
 };
 const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// The jobs an email can do. Client-safe mirror of EMAIL_PURPOSES so the picker
+// renders before the round-trip; the server is still the authority on which one
+// was used.
+const PURPOSES: { id: string; label: string }[] = [
+  { id: "win_back", label: "Win back a quiet customer" },
+  { id: "new_offer", label: "Announce an offer" },
+  { id: "welcome", label: "Welcome a new customer" },
+  { id: "follow_up", label: "Follow up an enquiry" },
+  { id: "announcement", label: "Announce something new" },
+  { id: "review_request", label: "Ask for a review" },
+  { id: "referral_ask", label: "Ask for a referral" },
+  { id: "reminder", label: "Appointment / deadline reminder" },
+];
+
+type AiReport = { ok: boolean; written: string; note: string; warnings: string[]; tokensUsed: string[] };
 
 // Build email-client-safe HTML (tables + inline styles) from the simple Design
 // fields, so a non-technical user designs the email and sets the CTA without
@@ -91,6 +107,11 @@ export default function EmailTemplatesPage() {
   const [view, setView] = useState<"design" | "code" | "preview">("design");
   const [design, setDesign] = useState<Design>({ ...DESIGN_DEFAULT });
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [purpose, setPurpose] = useState<string>(PURPOSES[0].id);
+  const [aiNotes, setAiNotes] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [ai, setAi] = useState<AiReport | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const htmlRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -151,6 +172,58 @@ export default function EmailTemplatesPage() {
     requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = start + snippet.length; });
   }
 
+  // Write the template with AI. The draft lands in the Design fields the
+  // customer already edits — subject, headline, message, button — so it is a
+  // starting point they own, not a black box. Nothing is saved or sent here.
+  async function writeWithAi() {
+    if (!activeBrand || aiBusy) return;
+    setAiBusy(true); setAiError(null); setAi(null); setMsg(null);
+    try {
+      const res = await authedFetch("/api/email-templates/ai", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId: activeBrand.id,
+          business: activeBrand.name,
+          product: activeBrand.product,
+          audience: activeBrand.audience,
+          location: activeBrand.location,
+          offer: activeBrand.offer,
+          website: activeBrand.website,
+          purpose,
+          notes: aiNotes.trim() || undefined,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setAiError(d.error || `The writer returned ${res.status}.`); return; }
+
+      const draft = d.draft || {};
+      const next: Design = {
+        heading: draft.heading || "",
+        body: draft.body || design.body,
+        ctaLabel: draft.ctaLabel || design.ctaLabel,
+        ctaUrl: draft.ctaUrl || design.ctaUrl,
+        accent: design.accent || activeBrand.brandColours?.[0] || DESIGN_DEFAULT.accent,
+      };
+      setDesign(next);
+      setForm((f) => ({
+        ...f,
+        name: f.name.trim() || draft.name || "",
+        subject: draft.subject || f.subject,
+        html: buildEmail(activeBrand.name, next),
+      }));
+      setView("design");
+      setAi({
+        ok: Boolean(d.ok),
+        written: d.written || "template",
+        note: d.note || "",
+        warnings: Array.isArray(d.warnings) ? d.warnings : [],
+        tokensUsed: Array.isArray(d.tokensUsed) ? d.tokensUsed : [],
+      });
+    } catch {
+      setAiError("Couldn't reach the writer. Check your connection and try again.");
+    } finally { setAiBusy(false); }
+  }
+
   async function save() {
     if (!activeBrand || !form.name.trim()) { setMsg({ text: "Give the template a name first.", error: true }); return; }
     setSaving(true); setMsg(null);
@@ -195,7 +268,7 @@ export default function EmailTemplatesPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           {/* Template list */}
           <div className="card h-max p-3">
-            <button className="btn-primary mb-3 w-full justify-center" onClick={() => { const d = { ...DESIGN_DEFAULT }; setForm({ ...BLANK, html: buildEmail(activeBrand.name, d) }); setDesign(d); setView("design"); setMsg(null); }}>
+            <button className="btn-primary mb-3 w-full justify-center" onClick={() => { const d = { ...DESIGN_DEFAULT }; setForm({ ...BLANK, html: buildEmail(activeBrand.name, d) }); setDesign(d); setView("design"); setMsg(null); setAi(null); setAiError(null); }}>
               <Plus className="h-4 w-4" /> New template
             </button>
             {busy && !templates.length && <p className="p-2 text-xs text-slate-500"><Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> Loading…</p>}
@@ -203,7 +276,7 @@ export default function EmailTemplatesPage() {
             <div className="space-y-1">
               {templates.map((t) => (
                 <div key={t.id} className={`group flex items-center gap-1 rounded-md pr-1 ${form.id === t.id ? "bg-emerald-500/10" : "hover:bg-ink-850"}`}>
-                  <button className="min-w-0 flex-1 px-2.5 py-2 text-left" onClick={() => { setForm({ id: t.id, name: t.name, subject: t.subject, html: t.html }); setView("preview"); setMsg(null); }}>
+                  <button className="min-w-0 flex-1 px-2.5 py-2 text-left" onClick={() => { setForm({ id: t.id, name: t.name, subject: t.subject, html: t.html }); setView("preview"); setMsg(null); setAi(null); setAiError(null); }}>
                     <span className="block truncate text-sm font-medium text-white">{t.name}</span>
                     <span className="block truncate text-[10px] text-slate-500">{t.subject || "no subject"}</span>
                   </button>
@@ -220,6 +293,47 @@ export default function EmailTemplatesPage() {
               <input className="input" value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} placeholder="Subject line (supports {{ variables }})" />
             </div>
 
+            {/* AI writer — the real one. Writes the subject, headline, message
+                and button from this brand's own details, checks every merge tag
+                against the ones the send engine can actually fill, and refuses
+                copy that invents claims about the business. */}
+            <div className="mb-3 rounded-lg border border-violet-500/25 bg-violet-500/[0.06] p-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="min-w-[190px] flex-1">
+                  <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-violet-200"><Sparkles className="h-3.5 w-3.5" /> Write this email with AI</span>
+                  <select className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+                    {PURPOSES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-[220px] flex-[2]">
+                  <span className="mb-1 block text-xs font-semibold text-slate-400">Anything it must say <span className="font-normal text-slate-600">(optional)</span></span>
+                  <input className="input" value={aiNotes} onChange={(e) => setAiNotes(e.target.value)} placeholder="e.g. mention the free site survey, we're booked to March" />
+                </label>
+                <button onClick={writeWithAi} disabled={aiBusy} className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-violet-500/50 bg-violet-500/15 px-3 text-sm font-semibold text-violet-100 hover:bg-violet-500/25 disabled:opacity-60">
+                  {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {aiBusy ? "Writing…" : "Write it"}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Uses <span className="text-slate-300">{activeBrand.name}</span>&apos;s own details{activeBrand.offer ? ` and your current offer` : ""}. It fills the fields below — you edit and save. Nothing is sent.
+              </p>
+              {aiError && (
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-rose-300"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {aiError}</p>
+              )}
+              {ai && (
+                <div className="mt-2 space-y-1 border-t border-violet-500/20 pt-2">
+                  <p className={`flex items-start gap-1.5 text-xs ${ai.ok ? "text-emerald-300" : "text-amber-300"}`}>
+                    {ai.ok ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />} {ai.note}
+                  </p>
+                  {ai.tokensUsed.length > 0 && (
+                    <p className="text-[11px] text-slate-500">Personalised on: {ai.tokensUsed.map((t) => <span key={t} className="mr-1 font-mono text-slate-400">{`{{ ${t} }}`}</span>)}</p>
+                  )}
+                  {ai.warnings.map((w, i) => (
+                    <p key={i} className="text-[11px] text-amber-300/80">• {w}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => {
@@ -228,8 +342,8 @@ export default function EmailTemplatesPage() {
                   setForm((f) => ({ ...f, html: buildEmail(activeBrand.name, seeded), subject: f.subject || `A message from ${activeBrand.name}` }));
                   setView("design");
                 }}
-                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20" title="Start from a ready-made branded template with a CTA button">
-                ✨ Branded starter + CTA
+                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20" title="A blank branded layout in your colours with a CTA button — no copy is written, you type it yourself">
+                Blank branded layout
               </button>
               <span className="ml-1 mr-1 text-xs text-slate-500">Insert:</span>
               {VARS.map((v) => (

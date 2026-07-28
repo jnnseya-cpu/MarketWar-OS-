@@ -80,6 +80,7 @@ export default function EmailPage() {
   const [files, setFiles] = useState<{ filename: string; contentBase64: string; contentType: string; size: number }[]>([]);
   const [fileErr, setFileErr] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
+  const [draftNotes, setDraftNotes] = useState<string[]>([]);
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
@@ -157,7 +158,7 @@ export default function EmailPage() {
   // in the editable fields; never sends, never saves.
   async function draftWithAi(mode: "email" | "template") {
     if (!activeBrand) return;
-    setDrafting(true); setFileErr(null);
+    setDrafting(true); setFileErr(null); setDraftNotes([]);
     try {
       const r = await authedFetch("/api/email/draft", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -171,6 +172,9 @@ export default function EmailPage() {
       if (!r.ok) { setFileErr(d.error || "Drafting failed."); return; }
       if (d.subject) setSubject(d.subject);
       if (d.body) setMessage(d.body);
+      // Merge tags the writer got wrong are repaired server-side. Say what
+      // changed — a silent correction is how a customer stops trusting it.
+      setDraftNotes(Array.isArray(d.warnings) ? d.warnings : []);
       setTemplateId("");
     } catch { setFileErr("Couldn't reach the drafting service."); }
     finally { setDrafting(false); }
@@ -496,6 +500,11 @@ export default function EmailPage() {
                   </div>
                 )}
                 {fileErr && <p className="mt-1.5 rounded-md bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-300">{fileErr}</p>}
+                {draftNotes.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200">
+                    {draftNotes.map((w, i) => <p key={i}>• {w}</p>)}
+                  </div>
+                )}
               </div>
             </>
             </>

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 import { gatewayComplete, GatewayUnconfiguredError, gatewayLangFrom } from "@/backend/gateway";
+import { MERGE_VARS } from "@/backend/email-templates";
+import { fixTokens, tokenWarnings } from "@/backend/email-template-writer";
 
 // AI email drafting — writes the campaign copy, or a reusable template.
 //
@@ -75,7 +77,11 @@ RULES:
 - Plain text, short paragraphs, one clear call to action.
 - 90-160 words. Mobile-first: the first line must earn the second.
 - Subject line under 60 characters, specific, no clickbait and no emoji.
-${mode === "template" ? "- This is a REUSABLE TEMPLATE. Use the merge tags {{name}} and {{business}} where a person's name or the sender's business belongs, so each contact gets a personalised copy." : "- Write it ready to send as-is. Do NOT use merge tags or placeholders like [name]."}
+${mode === "template"
+  ? `- This is a REUSABLE TEMPLATE sent to many people. You may use ONLY these merge tags, written exactly like this, and no others:
+${MERGE_VARS.map((v) => `    {{ ${v.token} }}   — ${v.label}`).join("\n")}
+  Give any tag that could be blank a fallback, like {{ firstName | there }}. Never invent a tag, and never use [Name] style placeholders.`
+  : "- Write it ready to send as-is. Do NOT use merge tags or placeholders like [name]."}
 
 Reply in exactly this shape:
 Subject: <subject line>
@@ -84,10 +90,29 @@ Subject: <subject line>
 
   try {
     const res = await gatewayComplete({ system, prompt: facts, maxTokens: 800, lang: gatewayLangFrom(req) });
-    const { subject, body: text } = splitDraft(res.text);
+    let { subject, body: text } = splitDraft(res.text);
+    const warnings: string[] = [];
+
+    if (mode === "template") {
+      // A merge tag the send engine does not know renders as an EMPTY STRING to
+      // every recipient, and the editor preview will not show it — it only
+      // fills tags it recognises. So repair before the draft ever reaches the
+      // customer: rewrite near-misses, drop the unfillable, add fallbacks.
+      const s2 = fixTokens(subject);
+      const b2 = fixTokens(text);
+      subject = s2.text;
+      text = b2.text;
+      const removed = [...new Set([...s2.removed, ...b2.removed])];
+      const rewritten = [...new Set([...s2.rewritten, ...b2.rewritten].map((r) => `{{ ${r.from} }} → {{ ${r.to} }}`))];
+      if (rewritten.length) warnings.push(`Corrected ${rewritten.length} merge tag(s): ${rewritten.join(", ")}.`);
+      if (removed.length) warnings.push(`Removed ${removed.length} merge tag(s) this platform cannot fill (${removed.join(", ")}) — left in, they would have sent blanks to every recipient.`);
+      warnings.push(...tokenWarnings(`${subject}\n${text}`));
+    }
+
     return NextResponse.json({
       mode, subject, body: text, html: toHtml(text),
       provider: res.provider,
+      warnings,
       note: "Draft only — edit it before sending. Nothing was sent or saved.",
     });
   } catch (e) {

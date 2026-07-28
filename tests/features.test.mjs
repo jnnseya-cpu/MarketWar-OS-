@@ -2595,3 +2595,177 @@ test("enrichment: finding no email is reported as a RESULT, not a failure", () =
   assert.match(src, /could not be looked up/,
     "and rows that genuinely could not be searched must be counted separately");
 });
+
+// ---------------------------------------------------------------------------
+// Email Templates — the AI writer.
+//
+// The editor shipped with a sparkle button that ran string concatenation and
+// no model. Everything on the page was typed by hand, which is how a customer
+// ends up sending "Dear {{ firstName }} {{ name }} there are 1000s of leads
+// waiting for {{ company }}" — a duplicated name and an unsupported claim.
+//
+// The dangerous half of a template is the merge tags: a tag the send engine
+// does not know renders as an EMPTY STRING to every recipient, and the editor
+// preview will not show it, because the preview only fills tags it knows.
+// So the token repair is tested hardest.
+// ---------------------------------------------------------------------------
+const tplWriter = await import("../src/backend/email-template-writer.ts");
+
+test("email templates: an unknown merge tag is removed, not sent as a blank", () => {
+  // {{ salesRep }} is not a field any contact has. Left in, every recipient
+  // gets "your rep  will call" with a hole in it.
+  const fix = tplWriter.fixTokens("Your rep {{ salesRep }} will call {{ firstName }}.");
+  assert.deepEqual(fix.removed, ["salesRep"], "the unknown tag must be identified");
+  assert.ok(!/salesRep/.test(fix.text), "and must not survive into the template");
+  assert.match(fix.text, /\{\{ firstName \| there \}\}/, "the real tag stays and gains a fallback");
+});
+
+test("email templates: a near-miss tag is REWRITTEN rather than thrown away", () => {
+  const fix = tplWriter.fixTokens("Hi {{ first_name }} at {{ company_name }} in {{ city }}.");
+  const map = Object.fromEntries(fix.rewritten.map((r) => [r.from, r.to]));
+  assert.equal(map.first_name, "firstName");
+  assert.equal(map.company_name, "company");
+  assert.equal(map.city, "town");
+  assert.deepEqual(fix.removed, [], "a tag whose intent is unambiguous must not be deleted");
+});
+
+test("email templates: {{ business }} means the SENDER, not a contact field", () => {
+  // The old draft route emitted {{business}}, which no contact has — it would
+  // have merged to empty for every single recipient.
+  const fix = tplWriter.fixTokens("A note from {{ business }}.");
+  assert.deepEqual(fix.rewritten, [{ from: "business", to: "brand" }]);
+  assert.match(fix.text, /\{\{ brand \}\}/);
+});
+
+test("email templates: a tag with no fallback gets one, so a blank field never breaks the sentence", () => {
+  const fix = tplWriter.fixTokens("Hi {{ firstName }}, more work for {{ company }} in {{ town }}.");
+  assert.ok(fix.fallbacksAdded.includes("firstName"));
+  assert.match(fix.text, /\{\{ firstName \| there \}\}/);
+  assert.match(fix.text, /\{\{ company \| your business \}\}/);
+  // A contact with no name/company/town must still read as a sentence.
+  const merged = fix.text.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\|\s*([^}]*?)\s*\}\}/g, "$1");
+  assert.ok(!/,\s*,/.test(merged) && !/\s{2,}/.test(merged), `blank contact renders badly: ${merged}`);
+});
+
+test("email templates: a fallback the writer supplied is never overwritten", () => {
+  const fix = tplWriter.fixTokens("Hi {{ firstName | friend }},");
+  assert.match(fix.text, /\{\{ firstName \| friend \}\}/);
+  assert.deepEqual(fix.fallbacksAdded, [], "it already had one");
+});
+
+test("email templates: name + first name side by side is flagged", () => {
+  // This is verbatim what the owner's own template did.
+  const w = tplWriter.tokenWarnings("Dear {{ firstName }} {{ name }} there are leads waiting");
+  assert.ok(w.some((x) => /twice/.test(x)), `expected a duplicate-name warning, got ${JSON.stringify(w)}`);
+  assert.deepEqual(tplWriter.tokenWarnings("Dear {{ firstName }}, we have leads waiting"), [],
+    "a single name token is correct and must not be nagged about");
+});
+
+test("email templates: every purpose states a job, and offer-led ones declare they need one", () => {
+  const purposes = tplWriter.EMAIL_PURPOSES;
+  assert.ok(purposes.length >= 6, "a template writer with two options is a toy");
+  for (const p of purposes) {
+    assert.ok(p.brief.length > 60, `${p.id} has no real brief — it would produce the same email as every other purpose`);
+    assert.ok(p.nameHint, `${p.id} must suggest a template name`);
+  }
+  assert.equal(purposes.find((p) => p.id === "new_offer")?.needs, "offer");
+});
+
+test("email templates: the AI writer is actually wired to the page", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email-templates/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /\/api\/email-templates\/ai/, "the page must call the writer");
+  assert.match(src, /onClick=\{writeWithAi\}/, "and the button must be wired — a dead button is worse than no button");
+  assert.doesNotMatch(src, /✨ Branded starter/,
+    "a sparkle on a string-concatenation button reads as AI and is why this was reported broken");
+});
+
+test("email templates: the writer route meters ACUs and reserves gateway time", () => {
+  const src = readFileSync(new URL("../src/app/api/email-templates/ai/route.ts", import.meta.url), "utf8");
+  assert.match(src, /meterAction\(auth, "llm"\)/, "AI work is charged");
+  assert.match(src, /resolveBrandAccess/, "and never writes for a brand the caller does not own");
+  assert.match(src, /maxDuration = 60/,
+    "a route calling the gateway must outlast the gateway's own 50s budget or it dies mid-call");
+  // The charge must happen AFTER validation, so a bad request never costs money.
+  assert.ok(src.indexOf("resolveBrandAccess") < src.indexOf('meterAction(auth, "llm")'),
+    "ownership is checked before the customer is charged");
+});
+
+test("email templates: a whole draft is repaired end to end, tags and all", async () => {
+  // A realistic bad reply: a fenced JSON blob, a tag that does not exist, a
+  // near-miss tag, a bare tag with no fallback, and a CTA that is not a URL.
+  const fakeModel = async () => ({
+    text: '```json\n' + JSON.stringify({
+      name: "Sunday delivery win-back",
+      subject: "{{ first_name }}, we now deliver on Sundays",
+      heading: "Sundays are covered",
+      body: "It has been a while since your last order with {{ business }}.\n\nYour usual basket still takes about ten minutes to put together, and {{ salesRep }} can now bring it to {{ city }} on a Sunday. If {{ company }} needs a standing order, reply to this email.",
+      ctaLabel: "Order for Sunday",
+      ctaUrl: "the website link",
+    }) + '\n```',
+    provider: "test",
+  });
+
+  const { writeEmailTemplate } = tplWriter;
+  const res = await writeEmailTemplate(
+    { business: "Evandeli", product: "same-day grocery delivery", location: "Kinshasa", website: "https://www.evandeli.com/", purpose: "win_back" },
+    { complete: fakeModel },
+  );
+
+  assert.equal(res.ok, true, res.note);
+  assert.equal(res.written, "ai");
+  // The tag no contact has is gone — it would have shipped a blank to everyone.
+  assert.ok(!/salesRep/.test(res.draft.body), "unknown tag survived into the body");
+  // The near-misses were repaired, not deleted.
+  assert.match(res.draft.subject, /\{\{ firstName \| there \}\}/);
+  assert.match(res.draft.body, /\{\{ brand \}\}/, "{{ business }} means the sender");
+  assert.match(res.draft.body, /\{\{ town \| your area \}\}/, "{{ city }} is {{ town }}");
+  assert.match(res.draft.body, /\{\{ company \| your business \}\}/, "a bare tag must gain a fallback");
+  // A CTA that is prose, not a link, falls back to the brand's real website
+  // rather than rendering a button that goes nowhere.
+  assert.equal(res.draft.ctaUrl, "https://www.evandeli.com/");
+  assert.ok(res.warnings.some((w) => /salesRep/.test(w)), "the customer is told what was removed");
+  assert.deepEqual([...res.tokensUsed].sort(), ["brand", "company", "firstName", "town"]);
+});
+
+test("email templates: an invented claim is refused, not shipped with a warning", async () => {
+  const fakeModel = async () => ({
+    text: JSON.stringify({
+      name: "Offer", subject: "Our offer",
+      heading: "", ctaLabel: "Order now", ctaUrl: "",
+      body: '"Best delivery service in the city" — Jean Mukendi, regular customer. Rated 4.9 out of 5 by over 10,000 shoppers.',
+    }),
+    provider: "test",
+  });
+  const res = await tplWriter.writeEmailTemplate(
+    { business: "Evandeli", product: "grocery delivery" },
+    { complete: fakeModel },
+  );
+  assert.equal(res.ok, false, "a fabricated testimonial must not reach a customer's list");
+  assert.ok(res.blocked.length > 0);
+  assert.equal(res.written, "template", "the outline is returned instead, clearly labelled");
+  assert.ok(!/Jean Mukendi/.test(res.draft.body), "and the invented quote is nowhere in what is returned");
+});
+
+test("email templates: no AI key is an honest outline, never a silent blank", async () => {
+  const unconfigured = async () => { const e = new Error("no provider"); e.name = "GatewayUnconfiguredError"; throw e; };
+  const res = await tplWriter.writeEmailTemplate({ business: "Evandeli" }, { complete: unconfigured });
+  assert.equal(res.ok, false);
+  assert.equal(res.written, "template");
+  assert.ok(res.draft.body.length > 50, "something usable is still returned to work from");
+  assert.match(res.note, /writer failed|No AI provider/, "and the reason is stated plainly");
+});
+
+test("email center: template-mode drafts use tags the send engine can actually fill", () => {
+  const src = readFileSync(new URL("../src/app/api/email/draft/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /\{\{business\}\}/,
+    "{{business}} is not a contact field — it merged to an empty string for every recipient");
+  assert.match(src, /fixTokens/, "the draft must be token-repaired before the customer sees it");
+  assert.match(src, /MERGE_VARS\.map/, "and the prompt must list the real tags rather than name two by hand");
+});
+
+test("email center: a silently corrected draft is not silent", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /setDraftNotes\(Array\.isArray\(d\.warnings\)/,
+    "corrections the server made must be shown, or the customer cannot tell a good draft from a repaired one");
+  assert.match(src, /draftNotes\.map/, "and rendered");
+});
