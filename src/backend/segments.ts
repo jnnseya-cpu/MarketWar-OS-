@@ -23,6 +23,10 @@ export type CustomerRecord = {
   emailEngaged?: boolean;
   consent?: boolean; // marketing consent (governs eligibility)
   referredCount?: number;
+  // Where this person came from — "landing:my-offer-page", "import", "manual".
+  // Carried through scoring so the vault can answer "which page produced this
+  // lead", which is the question that tells you where to spend next.
+  source?: string;
 };
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));

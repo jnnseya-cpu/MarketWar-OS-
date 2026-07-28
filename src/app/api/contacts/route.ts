@@ -34,6 +34,16 @@ type ScoredRow = {
 
 // Build the SAME VaultReport shape the Customer Vault page renders (mirrors
 // /api/segments action:"customers"), but from the brand's REAL stored contacts.
+// "landing:family-platter-friday" → "Landing page · family platter friday".
+function sourceLabelFor(source?: string | null): string | null {
+  const raw = (source || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("landing:")) return `Landing page · ${raw.slice(8).replace(/-/g, " ")}`;
+  if (raw === "import" || raw.startsWith("import:")) return "CSV import";
+  if (raw.startsWith("form:")) return `Form · ${raw.slice(5)}`;
+  return raw.replace(/[:_]/g, " · ");
+}
+
 async function scoredVault(brandId: string, business: string) {
   const biz = business || "your brand";
   const contacts = await listContacts(brandId);
@@ -58,6 +68,10 @@ async function scoredVault(brandId: string, business: string) {
       lastOrderDaysAgo: c.lastOrderDaysAgo ?? null, consent: c.consent !== false,
       email: src?.email ?? null, phone: src?.phone ?? null, company: src?.company ?? null,
       trade: src?.trade ?? null, town: src?.town ?? null, status: src?.status ?? null,
+      source: src?.source ?? null,
+      // A friendly label for where they came from, so a landing-page lead is
+      // identifiable at a glance rather than buried in a raw tag.
+      sourceLabel: sourceLabelFor(src?.source),
       website: src?.website ?? null, emailConfidence: src?.emailConfidence ?? null,
     };
   });

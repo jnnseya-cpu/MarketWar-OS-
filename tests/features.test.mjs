@@ -1896,3 +1896,136 @@ test("anatomy: auditing a page with no sections at all does not throw", () => {
   assert.ok(Number.isFinite(a.scorePct));
   assert.ok(a.scorePct >= 0 && a.scorePct <= 100);
 });
+
+// ---------------------------------------------------------------------------
+// "Every form submission lands in your Customer Vault as a consented lead."
+// That is a promise printed on the product. This proves the round trip.
+// ---------------------------------------------------------------------------
+test("landing leads: a form submission becomes a consented vault contact, tagged with its page", async () => {
+  const brand = "t-lead-vault";
+  await contacts.clearContacts(brand);
+  await contacts.saveContacts(brand, [{
+    email: "buyer@example.com", name: "Sam Buyer", phone: "+447700900123",
+    consent: true, source: "landing:family-platter-friday",
+  }], new Date().toISOString());
+
+  assert.equal(await contacts.countContacts(brand), 1, "the lead must be IN the vault, not just acknowledged");
+  const counts = await contacts.vaultCountsFor(brand);
+  assert.equal(counts.consented, 1, "and it must count as consented, or it can never be messaged");
+});
+
+test("landing leads: the page a lead came from is preserved, so pages can be compared", async () => {
+  const brand = "t-lead-source";
+  await contacts.clearContacts(brand);
+  const now = new Date().toISOString();
+  await contacts.saveContacts(brand, [
+    { email: "a@example.com", consent: true, source: "landing:page-a" },
+    { email: "b@example.com", consent: true, source: "landing:page-b" },
+    { email: "c@example.com", consent: true, source: "landing:page-a" },
+  ], now);
+  const all = await contacts.listContacts(brand);
+  const fromA = all.filter((c) => c.source === "landing:page-a");
+  assert.equal(fromA.length, 2, "you must be able to tell which page produced which leads");
+  assert.equal(new Set(all.map((c) => c.source)).size, 2);
+});
+
+test("landing leads: the same person filling the form twice does not become two leads", async () => {
+  const brand = "t-lead-dupe";
+  await contacts.clearContacts(brand);
+  const now = new Date().toISOString();
+  await contacts.saveContacts(brand, [{ email: "twice@example.com", name: "First try", consent: true, source: "landing:p" }], now);
+  await contacts.saveContacts(brand, [{ email: "TWICE@example.com", name: "Second try", consent: true, source: "landing:p" }], now);
+  assert.equal(await contacts.countContacts(brand), 1, "a duplicate submission must merge, not inflate the vault");
+});
+
+// ---------------------------------------------------------------------------
+// Return Ledger — "what did my money actually buy?" A dashboard that can only
+// show good news is an advert, so these check it reports losses too, and that
+// it never invents revenue.
+// ---------------------------------------------------------------------------
+const rl = await import("../src/backend/return-ledger.ts");
+
+const PAGES = [
+  { slug: "offer-a", headline: "Offer A", views: 800, leads: 24 },
+  { slug: "offer-b", headline: "Offer B", views: 400, leads: 2 },
+];
+
+test("ledger: with no deal value it reports LEADS and refuses to invent pounds", () => {
+  const l = rl.buildReturnLedger({ brandId: "b", spentAcu: 1300, pages: PAGES });
+  assert.equal(l.verdict, "leads_only");
+  assert.equal(l.estimatedValueGbp, undefined, "no revenue may be assumed on the customer's behalf");
+  assert.equal(l.totalLeads, 26);
+  assert.equal(l.costPerLeadGbp, 0.5, "£13.00 over 26 leads is 50p each");
+  assert.ok(l.whatWouldMakeThisAccurate.some((m) => /average deal value/i.test(m)));
+});
+
+test("ledger: with the customer's own numbers it reports pounds and ROI", () => {
+  const l = rl.buildReturnLedger({ brandId: "b", spentAcu: 1300, pages: PAGES, averageDealGbp: 200, closeRatePct: 25 });
+  // 26 leads x £200 x 25% = £1,300 value against £13.00 spent.
+  assert.equal(l.estimatedValueGbp, 1300);
+  assert.equal(l.netGbp, 1287);
+  assert.equal(l.verdict, "profitable");
+  assert.ok(l.roiPct > 9000, `£13 returning £1,300 is a big multiple, got ${l.roiPct}%`);
+});
+
+test("ledger: a LOSS is reported as plainly as a win", () => {
+  const l = rl.buildReturnLedger({
+    brandId: "b", spentAcu: 50_000, pages: [{ slug: "x", views: 500, leads: 1 }],
+    averageDealGbp: 100, closeRatePct: 20,
+  });
+  assert.equal(l.verdict, "unprofitable");
+  assert.ok(l.netGbp < 0);
+  assert.match(l.headline, /behind/, "it must say the customer is down, not bury it");
+});
+
+test("ledger: traffic with no leads names the actual problem", () => {
+  const l = rl.buildReturnLedger({
+    brandId: "b", spentAcu: 2000, pages: [{ slug: "x", views: 900, leads: 0 }],
+    averageDealGbp: 500,
+  });
+  assert.equal(l.totalLeads, 0);
+  assert.match(l.headline, /not converting/i, "900 visitors and no leads is a page problem, not a traffic problem");
+});
+
+test("ledger: no measured traffic is 'no data', never a confident zero", () => {
+  const l = rl.buildReturnLedger({ brandId: "b", spentAcu: 900, pages: [{ slug: "x", views: 0, leads: 0 }] });
+  assert.equal(l.verdict, "no_data");
+  assert.match(l.caveats.join(" "), /not a zero return/);
+  assert.equal(l.roiPct, undefined);
+});
+
+test("ledger: without a close rate the value is flagged as a CEILING", () => {
+  const l = rl.buildReturnLedger({ brandId: "b", spentAcu: 1000, pages: PAGES, averageDealGbp: 100 });
+  // No close rate → every lead counted as a sale.
+  assert.equal(l.estimatedValueGbp, 2600);
+  assert.match(l.caveats.join(" "), /ceiling/i, "assuming a 100% close rate must be disclosed, loudly");
+});
+
+test("ledger: a handful of leads is flagged as too few to be a rate", () => {
+  const l = rl.buildReturnLedger({
+    brandId: "b", spentAcu: 500, pages: [{ slug: "x", views: 200, leads: 3 }],
+    averageDealGbp: 400, closeRatePct: 50,
+  });
+  assert.match(l.caveats.join(" "), /too few/i);
+});
+
+test("ledger: pages are ranked by what they produced, best first", () => {
+  const l = rl.buildReturnLedger({ brandId: "b", spentAcu: 100, pages: PAGES, averageDealGbp: 100, closeRatePct: 50 });
+  assert.equal(l.lines[0].slug, "offer-a", "the page that produced most must lead");
+  assert.equal(l.lines[0].valueGbp, 1200);
+  assert.equal(l.lines[1].valueGbp, 100);
+});
+
+test("ledger: break-even tells you how many leads you need to stop losing money", () => {
+  // £20 spent, each closed deal worth £200 x 25% = £50 → 1 lead (rounded up).
+  assert.equal(rl.breakEvenLeads(2000, 200, 25), 1);
+  // £100 spent, each lead worth £10 → 10 leads.
+  assert.equal(rl.breakEvenLeads(10_000, 10, 100), 10);
+  assert.equal(rl.breakEvenLeads(1000, 0), null, "a zero deal value cannot break even");
+});
+
+test("ledger: an action's price is shown in the customer's money, not internal units", () => {
+  const p = rl.priceOfAction("image");
+  assert.ok(p.acu > 0);
+  assert.equal(p.gbp, p.acu / 100, "1 ACU is 1 penny — a customer should never have to convert");
+});

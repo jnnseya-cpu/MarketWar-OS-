@@ -203,6 +203,9 @@ export function toCustomerRecords(contacts: Contact[]): CustomerRecord[] {
     avgOrderValueGbp: c.totalSpendGbp && c.orderCount ? c.totalSpendGbp / Math.max(1, c.orderCount) : undefined,
     emailEngaged: c.consent, // consented as a light engagement proxy until opens land
     consent: c.consent,
+    // Kept so the vault can answer "which landing page produced this lead" —
+    // the question that tells the owner where to spend next.
+    source: c.source,
   }));
 }
 
