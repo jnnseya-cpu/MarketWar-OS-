@@ -155,6 +155,67 @@ export function buildRecipe(kind: VideoJobKind, params: Record<string, unknown>)
   }
 }
 
+// ---------------------------------------------------------------------------
+// Hosted-API translation.
+//
+// A hosted FFmpeg API takes an ORDERED list of {option, argument} pairs rather
+// than an argv array, supplies the input via its own `inputs` field and writes
+// the output to its own bucket. So the translation drops `-i`/input and the
+// output path, and pairs the rest.
+//
+// One capability gap is real and must not be papered over: ffmpeg-micro does not
+// support -filter_complex. That rules out the two kinds that composite a SECOND
+// video source over the first — watermarking and B-roll — because an overlay of
+// two inputs has no single-input `-vf` equivalent. Those kinds stay on the
+// self-hosted worker, and the code says so rather than submitting a job that
+// will fail after the customer has paid.
+// ---------------------------------------------------------------------------
+export type OptionPair = { option: string; argument: string };
+
+export function passSupportedOnHostedApi(pass: RenderPass): boolean {
+  return !pass.args.includes("-filter_complex");
+}
+
+export function hostedApiUnsupportedReason(kind: VideoJobKind): string | null {
+  const passes = (() => {
+    try { return buildRecipe(kind, kind === "clips" ? { moments: [{ startSec: 0, endSec: 1 }] } : kind === "captions_burn" ? { srt: "1" } : kind === "broll" ? { brollUrl: "https://x/x.mp4" } : kind === "brand" ? { logoUrl: "https://x/l.png" } : {}); }
+    catch { return []; }
+  })();
+  if (passes.every(passSupportedOnHostedApi)) return null;
+  return "Compositing a second video or image over the frame needs FFmpeg's filter_complex, which the hosted render service does not support. Use the self-hosted render worker for this one.";
+}
+
+// Output container the hosted API should produce, taken from the recipe's own
+// filename so the two never disagree.
+export function outputFormatFor(pass: RenderPass): string {
+  const ext = pass.output.toLowerCase().split(".").pop() || "mp4";
+  return ext === "webm" ? "webm" : "mp4";
+}
+
+export function toOptionPairs(pass: RenderPass, subs: { asset?: string } = {}): OptionPair[] {
+  if (!passSupportedOnHostedApi(pass)) {
+    throw new RecipeError("This render needs filter_complex, which the hosted service does not support.");
+  }
+  // Resolve placeholders first; the input and output are the API's job, so they
+  // are substituted with sentinels that are then dropped.
+  const resolved = resolveArgs(pass.args, { input: " IN", output: " OUT", asset: subs.asset });
+
+  const pairs: OptionPair[] = [];
+  for (let i = 0; i < resolved.length; i++) {
+    const token = resolved[i];
+    // The API supplies the input itself.
+    if (token === "-i") { i++; continue; }
+    // The API writes to its own bucket; the output path is not ours to give.
+    if (token === " OUT" || token === " IN") continue;
+    if (!token.startsWith("-")) continue; // a stray value with no flag
+    const next = resolved[i + 1];
+    const takesArg = next !== undefined && !next.startsWith("-") && next !== " OUT" && next !== " IN";
+    pairs.push({ option: token, argument: takesArg ? next : "" });
+    if (takesArg) i++;
+  }
+  return pairs;
+}
+
 // Substitute the placeholders for a concrete executor. Kept here so the worker
 // and any hosted API agree on exactly what "$IN" means.
 export function resolveArgs(args: string[], paths: { input: string; output: string; asset?: string }): string[] {

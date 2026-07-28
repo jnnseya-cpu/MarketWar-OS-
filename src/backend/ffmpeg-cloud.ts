@@ -26,6 +26,11 @@ if (typeof window !== "undefined") {
 // create endpoint does NOT, and every byte count must be a JSON number — a
 // quoted string is a 400.
 
+import {
+  passSupportedOnHostedApi, toOptionPairs, outputFormatFor,
+  type RenderPass, type OptionPair,
+} from "@/backend/ffmpeg-recipes";
+
 const BASE = (process.env.FFMPEG_CLOUD_URL || "https://api.ffmpeg-micro.com").replace(/\/$/, "");
 
 // Their signed URLs — both upload and download — last 10 minutes.
@@ -190,6 +195,40 @@ export async function createTranscode(input: {
       inputs: input.inputUrls.map((url) => ({ url })),
       outputFormat: input.outputFormat,
       ...(input.preset ? { preset: input.preset } : {}),
+    }),
+  });
+  if (!r.ok) return r;
+  if (!r.data.id) return { ok: false, error: "The service accepted the job but returned no job id." };
+  return { ok: true, job: { id: r.data.id, status: r.data.status || "pending" } };
+}
+
+// Submit ONE render pass from the shared recipes. This is the bridge between
+// "what the job means" (ffmpeg-recipes.ts) and "how this vendor takes it".
+//
+// Two vendor facts shape it: the input arrives via `inputs` rather than -i, and
+// filter_complex is unsupported — so a pass that composites a second source is
+// refused here rather than submitted and billed to fail.
+export async function submitPass(input: {
+  pass: RenderPass;
+  sourceUrl: string;       // gs:// or https URL already in their storage
+  assetUrl?: string;       // the SRT / logo / B-roll URL, when the pass needs one
+}): Promise<{ ok: true; job: CloudJob } | { ok: false; error: string }> {
+  if (!passSupportedOnHostedApi(input.pass)) {
+    return { ok: false, error: "Compositing a second video or image over the frame needs FFmpeg's filter_complex, which the hosted render service does not support. Run this one on the self-hosted render worker." };
+  }
+  let options: OptionPair[];
+  try {
+    options = toOptionPairs(input.pass, { asset: input.assetUrl });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Those render settings cannot be sent to the hosted service." };
+  }
+
+  const r = await api<{ id?: string; status?: CloudJobStatus }>("/v1/transcodes", {
+    method: "POST",
+    body: JSON.stringify({
+      inputs: [{ url: input.sourceUrl }],
+      outputFormat: outputFormatFor(input.pass),
+      options,
     }),
   });
   if (!r.ok) return r;

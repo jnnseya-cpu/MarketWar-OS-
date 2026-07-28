@@ -851,3 +851,73 @@ test("hosted ffmpeg: a job with no inputs is refused locally", async () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /at least one input/);
 });
+
+// ---------------------------------------------------------------------------
+// Recipe → hosted-API translation. The vendor supplies the input itself and
+// does not support filter_complex, so this is where a mismatch becomes a job
+// the customer paid for that could never have worked.
+// ---------------------------------------------------------------------------
+test("hosted translation: the input and output paths are dropped — the API owns both", () => {
+  const [pass] = fr.buildRecipe("trim", { startSec: 5, endSec: 20 });
+  const pairs = fr.toOptionPairs(pass);
+  const flat = JSON.stringify(pairs);
+  assert.doesNotMatch(flat, /"-i"/, "-i must not be sent; the API takes inputs separately");
+  assert.doesNotMatch(flat, /\$IN|\$OUT/, "no placeholder may survive translation");
+  assert.doesNotMatch(flat, /IN|OUT/, "no input/output sentinel may leak into the options");
+});
+
+test("hosted translation: every flag keeps its own argument, in order", () => {
+  const [pass] = fr.buildRecipe("trim", { startSec: 5, endSec: 20 });
+  const pairs = fr.toOptionPairs(pass);
+  const byOption = Object.fromEntries(pairs.map((p) => [p.option, p.argument]));
+  assert.equal(byOption["-ss"], "5");
+  assert.equal(byOption["-t"], "15");
+  assert.equal(byOption["-c:v"], "libx264");
+  // Order matters to FFmpeg: -ss must precede -t.
+  assert.ok(pairs.findIndex((p) => p.option === "-ss") < pairs.findIndex((p) => p.option === "-t"));
+});
+
+test("hosted translation: the vertical crop survives intact", () => {
+  const [pass] = fr.buildRecipe("clips", { aspect: "9:16", moments: [{ startSec: 0, endSec: 10 }] });
+  const vf = fr.toOptionPairs(pass).find((p) => p.option === "-vf");
+  assert.ok(vf, "the video filter must be carried over");
+  assert.match(vf.argument, /crop=ih\*9\/16:ih,scale=1080:1920/);
+});
+
+test("hosted translation: burning captions points at the SRT's hosted URL", () => {
+  const [pass] = fr.buildRecipe("captions_burn", { srt: "1\n" });
+  const vf = fr.toOptionPairs(pass, { asset: "https://storage.test/subs.srt" }).find((p) => p.option === "-vf");
+  assert.match(vf.argument, /subtitles=https/, "the hosted service reads the SRT from a URL, not a local path");
+});
+
+test("hosted translation: kinds needing filter_complex are refused, not silently mangled", () => {
+  for (const [kind, params] of [["brand", { logoUrl: "https://x/l.png" }], ["broll", { brollUrl: "https://x/b.mp4" }]]) {
+    const [pass] = fr.buildRecipe(kind, params);
+    assert.equal(fr.passSupportedOnHostedApi(pass), false, `${kind} composites two sources — it cannot go to the hosted API`);
+    assert.throws(() => fr.toOptionPairs(pass), fr.RecipeError);
+    assert.match(fr.hostedApiUnsupportedReason(kind), /filter_complex/);
+  }
+});
+
+test("hosted translation: the kinds that CAN run hosted are all accepted", () => {
+  const runnable = { trim: {}, clips: { moments: [{ startSec: 0, endSec: 5 }] }, captions_burn: { srt: "1\n" }, bg_remove: {}, upscale: {} };
+  for (const [kind, params] of Object.entries(runnable)) {
+    assert.equal(fr.hostedApiUnsupportedReason(kind), null, `${kind} should run on the hosted API`);
+    for (const pass of fr.buildRecipe(kind, params)) {
+      assert.ok(fr.toOptionPairs(pass, { asset: "https://x/a.srt" }).length > 0, `${kind} translated to nothing`);
+    }
+  }
+});
+
+test("hosted translation: the output container follows the recipe, not a default", () => {
+  assert.equal(fr.outputFormatFor(fr.buildRecipe("bg_remove", {})[0]), "webm", "transparency needs WebM");
+  assert.equal(fr.outputFormatFor(fr.buildRecipe("trim", {})[0]), "mp4");
+});
+
+test("hosted ffmpeg: submitting an unsupported pass never reaches the network", async () => {
+  process.env.FFMPEG_CLOUD_API_KEY = process.env.FFMPEG_CLOUD_API_KEY || "test-key";
+  const [pass] = fr.buildRecipe("brand", { logoUrl: "https://x/l.png" });
+  const r = await fc.submitPass({ pass, sourceUrl: "gs://b/in.mp4" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /self-hosted render worker/, "it must tell the operator where this render CAN run");
+});
