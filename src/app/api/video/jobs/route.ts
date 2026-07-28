@@ -7,6 +7,7 @@ import {
 import { buildRecipe, hostedApiUnsupportedReason } from "@/backend/ffmpeg-recipes";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { classifyMediaUrl } from "@/shared/media-url";
 
 // Video render queue — the customer-facing half.
 //
@@ -101,7 +102,19 @@ export async function POST(req: NextRequest) {
     const kind = s("kind") as VideoJobKind;
     if (!KINDS.includes(kind)) return NextResponse.json({ error: `kind must be one of: ${KINDS.join(", ")}` }, { status: 400 });
     const sourceUrl = s("sourceUrl");
-    if (!/^https:\/\//i.test(sourceUrl)) return NextResponse.json({ error: "sourceUrl must be a hosted https URL. Upload the video first." }, { status: 400 });
+    if (!/^(https:\/\/|gs:\/\/)/i.test(sourceUrl)) return NextResponse.json({ error: "sourceUrl must be a hosted https URL, or a gs:// object from an upload. Upload the video first." }, { status: 400 });
+    // A YouTube/Vimeo/page link is not a video file — no renderer can read one,
+    // so refuse it here rather than charging for a job doomed to fail.
+    const source = classifyMediaUrl(sourceUrl);
+    if (!source.usable) return NextResponse.json({ error: source.reason, urlKind: source.kind }, { status: 400 });
+    // Same for a secondary asset (the B-roll clip or the logo).
+    for (const field of ["brollUrl", "logoUrl"] as const) {
+      const p = body.params && typeof body.params === "object" ? (body.params as Record<string, unknown>)[field] : undefined;
+      if (typeof p === "string" && p.trim()) {
+        const v = classifyMediaUrl(p.trim());
+        if (!v.usable) return NextResponse.json({ error: `${field === "brollUrl" ? "The B-roll link" : "The logo link"} is not usable — ${v.reason}` }, { status: 400 });
+      }
+    }
     const result = await enqueueVideoJob({
       brandId, kind, sourceUrl,
       params: (body.params && typeof body.params === "object" ? body.params : {}) as Record<string, unknown>,

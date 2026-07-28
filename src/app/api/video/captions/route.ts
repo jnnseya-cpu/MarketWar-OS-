@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { transcribeAudio, transcriptionConfigured, MAX_AUDIO_BYTES } from "@/backend/transcribe";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
-import { meterAction } from "@/backend/wallet";
+import { meterAction, creditAcus } from "@/backend/wallet";
+import { classifyMediaUrl, isMediaContentType } from "@/shared/media-url";
 
 // Real subtitles from real audio — SRT + VTT, not a "caption spec".
 //
@@ -13,6 +14,11 @@ import { meterAction } from "@/backend/wallet";
 // Meta and TikTok all accept on upload, so this is usable immediately without
 // any video processing. Burning captions INTO the frame needs FFmpeg and is a
 // separate job; a subtitle file is what platforms actually want.
+//
+// The ORDER here is deliberate and is a money rule: every check that can fail
+// runs before the wallet is touched, and if the provider fails after we have
+// charged, the charge is returned. A customer must never pay for a transcript
+// they did not receive.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,9 +28,6 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const auth = await requireAuth(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  // Transcription spends real provider budget — meter it like any AI action.
-  const meter = await meterAction(auth, "llm");
-  if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
 
   if (!transcriptionConfigured()) {
     return NextResponse.json({ error: "Subtitles need OPENAI_API_KEY (Whisper). Nothing is invented — connect the key to generate real captions." }, { status: 503 });
@@ -36,6 +39,7 @@ export async function POST(req: NextRequest) {
   let language: string | undefined;
   let translate = false;
 
+  // ---- gather the media; reject anything unusable BEFORE metering ----------
   try {
     if (ctype.includes("multipart/form-data")) {
       const form = await req.formData();
@@ -54,22 +58,53 @@ export async function POST(req: NextRequest) {
       language = typeof body.language === "string" ? body.language : undefined;
       translate = body.translate === true;
       if (!url) return NextResponse.json({ error: "Provide a hosted video/audio url, or upload a file." }, { status: 400 });
-      if (!/^https:\/\//i.test(url)) return NextResponse.json({ error: "Only https URLs are accepted." }, { status: 400 });
+
+      // A YouTube/Vimeo/page link fetches HTML, and HTML handed to Whisper comes
+      // back as "Unrecognized file format" — an error that explains nothing and
+      // arrives after the charge. Catch it here and say what to do instead.
+      const verdict = classifyMediaUrl(url);
+      if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind }, { status: 400 });
+
       const r = await fetch(url);
       if (!r.ok) return NextResponse.json({ error: `Couldn't fetch that media (HTTP ${r.status}).` }, { status: 400 });
+
+      // A URL can still lie about what it serves — check what actually came back.
+      const served = r.headers.get("content-type") || "";
+      if (!isMediaContentType(served)) {
+        return NextResponse.json({
+          error: `That link returned ${served.split(";")[0] || "a web page"}, not audio or video. Paste a direct link to the media file, or upload it instead.`,
+          urlKind: "page",
+        }, { status: 400 });
+      }
       const len = Number(r.headers.get("content-length") || 0);
       if (len > MAX_AUDIO_BYTES) {
         return NextResponse.json({ error: `That file is ${(len / 1048576).toFixed(1)}MB — the limit is 25MB. Trim it first.` }, { status: 400 });
       }
       bytes = await r.arrayBuffer();
+      // content-length is optional, so re-check once the bytes are in hand.
+      if (bytes.byteLength > MAX_AUDIO_BYTES) {
+        return NextResponse.json({ error: `That file is ${(bytes.byteLength / 1048576).toFixed(1)}MB — the limit is 25MB. Trim it first.` }, { status: 400 });
+      }
       filename = url.split("/").pop()?.split("?")[0] || filename;
     }
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't read the media." }, { status: 400 });
   }
 
-  const result = await transcribeAudio({ bytes: bytes!, filename, language, translateToEnglish: translate });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 502 });
+  if (!bytes || bytes.byteLength === 0) {
+    return NextResponse.json({ error: "That file is empty — there is no audio to transcribe." }, { status: 400 });
+  }
+
+  // ---- only now does it cost anything --------------------------------------
+  const meter = await meterAction(auth, "llm");
+  if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
+
+  const result = await transcribeAudio({ bytes, filename, language, translateToEnglish: translate });
+  if (!result.ok) {
+    // Charged, but no transcript — give the money back.
+    if (meter.metered && meter.charged && auth.uid) await creditAcus(auth.uid, meter.charged).catch(() => {});
+    return NextResponse.json({ error: result.error, refundedAcu: meter.charged ?? 0 }, { status: 502 });
+  }
 
   return NextResponse.json({
     ok: true,
@@ -80,6 +115,8 @@ export async function POST(req: NextRequest) {
     srt: result.srt,
     vtt: result.vtt,
     text: result.text,
+    chargedAcu: meter.charged ?? 0,
+    balanceAcu: meter.balanceAcu,
     note: "Real subtitles transcribed from your audio. Download the .srt and upload it with your video on YouTube, LinkedIn, Facebook, Instagram or TikTok — every one of them accepts it.",
   });
 }
@@ -91,6 +128,7 @@ export async function GET() {
     returns: ["srt", "vtt", "segments with timestamps", "plain transcript"],
     limits: { maxBytes: MAX_AUDIO_BYTES, note: "25MB per request (Whisper limit). Trim longer videos first." },
     configured: transcriptionConfigured(),
-    doctrine: "Transcribed from the actual audio — never generated, never guessed. Burning captions into the frame is a separate video-processing job; a subtitle file is what the platforms accept on upload.",
+    notAccepted: "YouTube and Vimeo page links — those are web pages, not media files, and the platforms do not permit downloading the video. Export your own copy and upload it.",
+    doctrine: "Transcribed from the actual audio — never generated, never guessed. Charged only once usable media is in hand, and refunded if transcription fails.",
   });
 }

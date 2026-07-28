@@ -1104,3 +1104,76 @@ test("render pricing: no render is free", () => {
     assert.ok(cost >= 1, `${kind} must cost something — rendering burns real machine time`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Media URL classification. Pasting a YouTube link is the most common thing a
+// user does here, and the worst thing to handle badly: it fetches HTML, which a
+// transcriber rejects with a meaningless error AFTER the charge.
+// ---------------------------------------------------------------------------
+const mu = await import("../src/shared/media-url.ts");
+
+test("media urls: every YouTube link shape is recognised as a page, not media", () => {
+  const links = [
+    "https://www.youtube.com/watch?v=lgCAU_26xA0",
+    "https://www.youtube.com/watch?v=lgCAU_26xA0&t=0s",
+    "https://youtu.be/lgCAU_26xA0",
+    "https://www.youtube.com/shorts/lgCAU_26xA0",
+    "https://www.youtube.com/embed/lgCAU_26xA0?start=0&end=15",
+    "https://www.youtube.com/watch?list=PL123&v=lgCAU_26xA0",
+  ];
+  for (const l of links) {
+    const v = mu.classifyMediaUrl(l);
+    assert.equal(v.kind, "youtube", `not recognised: ${l}`);
+    assert.equal(v.usable, false);
+    assert.equal(v.youtubeId, "lgCAU_26xA0", `wrong id for ${l}`);
+  }
+});
+
+test("media urls: the YouTube message tells the user what to actually do", () => {
+  const v = mu.classifyMediaUrl("https://www.youtube.com/watch?v=lgCAU_26xA0");
+  assert.match(v.reason, /YouTube Studio/, "it must name the export path, not just refuse");
+  assert.match(v.reason, /Download/);
+});
+
+test("media urls: a direct media link is usable, whatever the extension case", () => {
+  for (const u of ["https://x.test/a.mp4", "https://x.test/A.MOV", "https://x.test/b.webm", "https://x.test/c.mp3", "https://x.test/d.wav"]) {
+    assert.equal(mu.classifyMediaUrl(u).usable, true, `should be usable: ${u}`);
+  }
+});
+
+test("media urls: a media link with a query string is still media", () => {
+  assert.equal(mu.classifyMediaUrl("https://x.test/a.mp4?token=abc&v=2").usable, true);
+});
+
+test("media urls: a Firebase/Cloud Storage link is media even with no extension in the path", () => {
+  assert.equal(mu.classifyMediaUrl("https://firebasestorage.googleapis.com/v0/b/p/o/renders%2Fx?alt=media&token=t").usable, true);
+});
+
+test("media urls: a gs:// object from a direct upload is usable", () => {
+  assert.equal(mu.classifyMediaUrl("gs://bucket/1234-clip.mp4").usable, true);
+  assert.equal(mu.classifyMediaUrl("gs://bucket").usable, false, "a bucket with no object is not a file");
+});
+
+test("media urls: an ordinary web page is refused with a usable explanation", () => {
+  const v = mu.classifyMediaUrl("https://example.com/our-story");
+  assert.equal(v.kind, "page");
+  assert.equal(v.usable, false);
+  assert.match(v.reason, /\.mp4/, "it must say what a usable link looks like");
+});
+
+test("media urls: junk input never throws", () => {
+  for (const bad of ["", "   ", "not a url", "ftp://x.test/a.mp4", "javascript:alert(1)"]) {
+    const v = mu.classifyMediaUrl(bad);
+    assert.equal(v.usable, false, `should be unusable: ${bad}`);
+    assert.ok(v.reason, "every refusal must carry a reason");
+  }
+});
+
+test("media urls: content types are judged on what the server actually served", () => {
+  assert.equal(mu.isMediaContentType("video/mp4"), true);
+  assert.equal(mu.isMediaContentType("audio/mpeg; charset=binary"), true);
+  assert.equal(mu.isMediaContentType("application/octet-stream"), true);
+  assert.equal(mu.isMediaContentType("text/html; charset=utf-8"), false, "an HTML page is what a YouTube fetch returns");
+  assert.equal(mu.isMediaContentType("application/json"), false);
+  assert.equal(mu.isMediaContentType(""), true, "no header at all — let the provider decide");
+});

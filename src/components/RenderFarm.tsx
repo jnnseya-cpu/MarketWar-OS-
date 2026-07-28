@@ -12,10 +12,11 @@
 // money for work nothing can perform.
 
 import { useCallback, useEffect, useState } from "react";
-import { Clapperboard, Download, Loader2, RefreshCw, Scissors } from "lucide-react";
+import { Clapperboard, Download, Loader2, RefreshCw, Scissors, Upload } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { Pill } from "@/components/ui";
+import { classifyMediaUrl } from "@/shared/media-url";
 
 type Kind = "trim" | "clips" | "captions_burn" | "brand" | "broll" | "bg_remove" | "upscale";
 type Job = {
@@ -62,6 +63,8 @@ export default function RenderFarm({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [uploadedName, setUploadedName] = useState<string | null>(null);
 
   // The Caption Engine can hand its transcript straight over — arriving captions
   // switch this panel to the burn-in job so the next click is the right one.
@@ -120,6 +123,49 @@ export default function RenderFarm({
     }
   }
 
+  // Upload a local file STRAIGHT to storage. It never passes through our server
+  // — a serverless function cannot receive a video — so size is limited by the
+  // storage vendor rather than by us.
+  async function upload(file: File) {
+    if (!activeBrand) { setError("Pick a brand first."); return; }
+    setError(null); setMsg(null); setUploadPct(0); setUploadedName(null);
+    try {
+      const signRes = await authedFetch("/api/video/upload", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sign", brandId: activeBrand.id, filename: file.name, fileSize: file.size }),
+      });
+      const signed = await signRes.json();
+      if (!signRes.ok) throw new Error(signed?.error || "Could not start the upload.");
+
+      // XHR rather than fetch: it reports progress, and a 200MB upload with no
+      // progress bar looks broken.
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", signed.uploadUrl);
+        xhr.setRequestHeader("Content-Type", signed.contentType);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100)); };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (HTTP ${xhr.status}).`)));
+        xhr.onerror = () => reject(new Error("The upload was interrupted."));
+        xhr.send(file);
+      });
+
+      const confRes = await authedFetch("/api/video/upload", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm", brandId: activeBrand.id, filename: signed.filename, fileSize: file.size }),
+      });
+      const confirmed = await confRes.json();
+      if (!confRes.ok) throw new Error(confirmed?.error || "The upload could not be confirmed.");
+
+      setSourceUrl(confirmed.fileUrl);
+      setUploadedName(file.name);
+      setMsg(`${file.name} uploaded — choose what to do with it and press Render.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed.");
+    } finally {
+      setUploadPct(null);
+    }
+  }
+
   async function enqueue() {
     if (!activeBrand) { setError("Pick a brand first."); return; }
     setBusy(true); setError(null); setMsg(null);
@@ -144,7 +190,11 @@ export default function RenderFarm({
   // Only the hosted renderer connected AND this kind needs the worker → it
   // cannot run. Say so instead of taking the money and failing.
   const needsWorker = hostedUnsupported.includes(kind) && renderVia.length > 0 && !renderVia.includes("worker");
-  const canSubmit = Boolean(activeBrand) && /^https:\/\//i.test(sourceUrl.trim()) && !busy && workerUp !== false && !needsWorker
+  // Tell the customer a YouTube/page link is unusable as they type it, not after
+  // they have clicked Render.
+  const source = sourceUrl.trim() ? classifyMediaUrl(sourceUrl.trim()) : null;
+  const sourceBad = Boolean(source && !source.usable);
+  const canSubmit = Boolean(activeBrand) && !sourceBad && Boolean(source?.usable) && !busy && workerUp !== false && !needsWorker
     && (kind !== "captions_burn" || srt.trim().length > 0)
     && (kind !== "broll" || /^https:\/\//i.test(brollUrl.trim()));
 
@@ -163,9 +213,9 @@ export default function RenderFarm({
         {workerUp === false && <Pill tone="warn">no renderer connected</Pill>}
       </div>
       <p className="mb-4 text-xs leading-relaxed text-slate-500">
-        This is the panel that produces actual video files. Give it a hosted video, choose what to do, and the render worker
-        does the work and hands back a download. Rendering runs on a real machine, so each job costs ACUs — and a job that
-        fails refunds you in full, automatically.
+        This is the panel that produces actual video files. Upload a video (or paste a direct link), choose what to do, and
+        the renderer hands back a download. Rendering burns real machine time, so each job costs ACUs — and a job that fails
+        refunds you in full, automatically.
       </p>
 
       {workerUp === false && (
@@ -179,9 +229,31 @@ export default function RenderFarm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="label">Source video URL (https)</label>
-          <input className="input" placeholder="https://…/my-video.mp4" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} />
-          <p className="mt-1 text-[11px] text-slate-500">Upload it anywhere public first — a Storage link from a render or recording on this page works.</p>
+          <label className="label">Your video</label>
+          <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs ${uploadedName ? "border-emerald-500/40 text-emerald-300" : "border-white/15 text-slate-400 hover:border-emerald-500/40"}`}>
+            <Upload className="h-4 w-4" />
+            {uploadPct !== null ? `Uploading… ${uploadPct}%` : uploadedName ? `${uploadedName} — uploaded` : "Upload a video file…"}
+            <input
+              type="file" accept="video/*" className="hidden" disabled={uploadPct !== null}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }}
+            />
+          </label>
+          {uploadPct !== null && (
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${uploadPct}%` }} />
+            </div>
+          )}
+          <label className="label mt-3">…or paste a direct link</label>
+          <input className="input" placeholder="https://…/my-video.mp4" value={sourceUrl} onChange={(e) => { setSourceUrl(e.target.value); setUploadedName(null); }} />
+          {sourceBad ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-300">{source!.reason}</p>
+          ) : (
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Uploading is free — you are only charged for the render. The file goes straight to storage and never passes
+              through our servers, so there is no size limit from us. A direct link works too, but YouTube and Vimeo page
+              links do not: those are web pages, not files.
+            </p>
+          )}
         </div>
         <div>
           <label className="label">What to do</label>
