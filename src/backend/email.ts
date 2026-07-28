@@ -47,7 +47,13 @@ const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros
 // no pool configured it falls back to the single SMTP_* node — identical to the
 // original single-node behaviour, no extra infrastructure. Adding nodes is a
 // config change (MW_SENDING_POOL), not a code change.
+// Evaluated on demand, not frozen at module load. A module-level constant is
+// impossible to re-read, which turns "the variable is set but sending is still
+// in demo mode" into an unanswerable question.
 export const smtpConfigured = poolConfigured();
+export function emailIsConfigured(): boolean {
+  return Boolean(poolConfigured() || process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
+}
 export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
 
 // The active sending path, for status surfaces (never exposes credentials).
