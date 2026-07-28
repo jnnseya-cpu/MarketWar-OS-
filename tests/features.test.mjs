@@ -2400,3 +2400,97 @@ test("faq: no answer is a one-line dodge", () => {
     assert.ok(f.a.length > 80, `"${f.q}" is answered in ${f.a.length} characters — that is a dodge`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Batch static ads — the competitor feature. What matters is that a batch is
+// VARIED and that it never invents the material it lacks.
+// ---------------------------------------------------------------------------
+const ba = await import("../src/backend/batch-ads.ts");
+
+const FULL_BRIEF = {
+  business: "VeryX", product: "Common Data Environment for construction",
+  productImageUrl: "https://storage.test/product.png",
+  offer: "£149/mo, first project set up free",
+  pain: "drawings lost in email threads",
+  proofQuote: "Cut our RFI turnaround from days to hours. — Site Manager, Acme Build",
+  deadline: "Offer closes Friday",
+  brandColours: ["#eb1e1e", "#2b1eeb"],
+};
+
+test("batch: a full brief produces a varied set, not the same ad resized", () => {
+  const plan = ba.planBatch(FULL_BRIEF);
+  assert.ok(plan.count >= 12, `a batch should be substantial, got ${plan.count}`);
+  assert.ok(new Set(plan.variants.map((v) => v.angle)).size >= 4, "several ARGUMENTS, not one");
+  assert.ok(new Set(plan.variants.map((v) => v.format)).size >= 3, "several placements");
+  assert.ok(new Set(plan.variants.map((v) => v.treatment)).size >= 2, "several visual registers");
+  assert.equal(new Set(plan.variants.map((v) => v.id)).size, plan.count, "every variant must be distinct");
+});
+
+test("batch: each angle carries DIFFERENT copy — that is the point", () => {
+  const plan = ba.planBatch(FULL_BRIEF);
+  const headlines = new Set(plan.variants.map((v) => v.headline));
+  assert.ok(headlines.size >= 4, `a batch with one headline is one ad, got ${headlines.size} distinct`);
+  const offerAd = plan.variants.find((v) => v.angle === "offer");
+  const problemAd = plan.variants.find((v) => v.angle === "problem");
+  assert.match(offerAd.headline, /£149/, "the offer ad must lead with the offer");
+  assert.match(problemAd.headline, /drawings lost/, "the problem ad must lead with the problem");
+});
+
+test("batch: an angle with no material is DROPPED, never invented", () => {
+  const bare = ba.planBatch({ business: "VeryX", product: "CDE software" });
+  const angles = new Set(bare.variants.map((v) => v.angle));
+  assert.ok(!angles.has("proof"), "a proof ad with no customer quote would have to invent one");
+  assert.ok(!angles.has("urgency"), "a countdown with no deadline is a fake countdown");
+  assert.ok(!angles.has("offer"), "an offer ad with no offer has nothing to say");
+  assert.ok(bare.count > 0, "but the angles that need nothing must still run");
+  assert.ok(bare.skipped.length >= 3, "and each omission must be explained");
+  assert.match(bare.skipped.find((s) => s.angle === "proof").reason, /never generated/);
+});
+
+test("batch: supplying material ADDS angles — the brief drives the batch", () => {
+  const bare = ba.planBatch({ business: "V", product: "P" });
+  const withOffer = ba.planBatch({ business: "V", product: "P", offer: "£99 this month" });
+  assert.ok(withOffer.count > bare.count, "giving the engine an offer must produce more ads");
+  assert.ok(new Set(withOffer.variants.map((v) => v.angle)).has("offer"));
+});
+
+test("batch: every prompt forbids redesigning the customer's product", () => {
+  const plan = ba.planBatch(FULL_BRIEF);
+  for (const v of plan.variants) {
+    assert.match(v.prompt, /Do not redesign, recolour or restyle the product/,
+      "the red-bottle failure must be forbidden in every prompt, not just checked afterwards");
+    assert.match(v.prompt, /No invented logos, badges, awards or ratings/);
+  }
+});
+
+test("batch: with no product photo it says so rather than inventing a product", () => {
+  const plan = ba.planBatch({ business: "V", product: "P", offer: "£99" });
+  for (const v of plan.variants) {
+    assert.match(v.prompt, /No product photograph was supplied/);
+    assert.doesNotMatch(v.prompt, /Use the supplied product photograph/);
+  }
+});
+
+test("batch: each format carries its own safe-area instruction", () => {
+  const plan = ba.planBatch(FULL_BRIEF);
+  const story = plan.variants.find((v) => v.format === "story");
+  const square = plan.variants.find((v) => v.format === "square");
+  assert.match(story.prompt, /9:16/);
+  assert.match(square.prompt, /1:1/);
+  assert.match(story.prompt, /safe area/, "a story crops differently — the prompt must say so");
+});
+
+test("batch: narrowing the request narrows the batch, predictably", () => {
+  const narrow = ba.planBatch({ ...FULL_BRIEF, angles: ["offer"], formats: ["square"] });
+  assert.equal(narrow.count, 1);
+  assert.equal(narrow.variants[0].angle, "offer");
+  assert.equal(narrow.variants[0].format, "square");
+});
+
+test("batch: every format maps to a real platform the image gateway understands", () => {
+  const valid = new Set(["facebook", "instagram", "tiktok", "linkedin", "whatsapp", "story", "reel", "banner"]);
+  for (const f of ba.AD_FORMATS) {
+    assert.ok(valid.has(f.platform), `${f.id} maps to "${f.platform}", which the renderer does not know`);
+    assert.ok(f.usedFor.length > 10, `${f.id} does not say where it is used`);
+  }
+});
