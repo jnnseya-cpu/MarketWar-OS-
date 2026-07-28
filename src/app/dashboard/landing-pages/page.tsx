@@ -25,6 +25,13 @@ const PAGE_ANATOMY = [
 ];
 
 type SavedPage = { slug: string; headline: string; pageType: string; publishedAt?: string; url: string; absoluteUrl: string; conversionScore?: number };
+// Measured, not predicted. Mirrors src/backend/page-analytics.ts.
+type PageReport = {
+  slug: string; views: number; ctaClicks: number; leads: number;
+  clickRatePct: number; conversionRatePct: number;
+  conversionLowPct: number; conversionHighPct: number;
+  enoughData: boolean; headline: string; caveat?: string;
+};
 
 export default function LandingPagesPage() {
   const { activeBrand } = useActiveBrand();
@@ -34,6 +41,9 @@ export default function LandingPagesPage() {
   const [copied, setCopied] = useState(false);
   const [pages, setPages] = useState<SavedPage[]>([]);
   const [pubError, setPubError] = useState<string | null>(null);
+  // REAL traffic, keyed by slug. The old "Conv" number beside each link was a
+  // predicted copy score, which next to a live URL read as a conversion rate.
+  const [stats, setStats] = useState<Record<string, PageReport>>({});
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   // Load this brand's published pages so they're always findable (retrieved from
@@ -41,6 +51,16 @@ export default function LandingPagesPage() {
   async function loadPages() {
     if (!activeBrand) { setPages([]); return; }
     try {
+      authedFetch("/api/page-analytics", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stats", brandId: activeBrand.id }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!Array.isArray(d?.reports)) return;
+          setStats(Object.fromEntries((d.reports as PageReport[]).map((r) => [r.slug, r])));
+        })
+        .catch(() => {});
       const res = await authedFetch("/api/landing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list", brandId: activeBrand.id }) });
       const d = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(d.pages)) setPages(d.pages);
@@ -135,9 +155,32 @@ export default function LandingPagesPage() {
                   <a href={p.absoluteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-emerald-300 hover:underline">{p.absoluteUrl.replace(/^https?:\/\//, "")} <ExternalLink className="h-3 w-3 shrink-0" /></a>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  {typeof p.conversionScore === "number" && <span className="text-xs text-slate-400">Conv {p.conversionScore}</span>}
                   <button onClick={() => navigator.clipboard?.writeText(p.absoluteUrl)} className="text-xs font-semibold text-emerald-300 hover:text-emerald-200">Copy link</button>
                   <a href={p.absoluteUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-300 hover:text-emerald-200">Open</a>
+                </div>
+                {/* Measured traffic. A rate is only shown once there is enough
+                    of it to mean something — below that, the raw counts. */}
+                <div className="w-full border-t border-white/[0.06] pt-2">
+                  {(() => {
+                    const st = stats[p.slug];
+                    if (!st || st.views === 0) {
+                      return <p className="text-xs text-slate-500">No visitors yet — share the link and this fills in.</p>;
+                    }
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+                        <span className="text-slate-300"><span className="font-semibold text-white">{st.views.toLocaleString()}</span> visitors</span>
+                        <span className="text-slate-300"><span className="font-semibold text-white">{st.ctaClicks.toLocaleString()}</span> CTA clicks</span>
+                        <span className="text-slate-300"><span className="font-semibold text-white">{st.leads.toLocaleString()}</span> leads</span>
+                        {st.enoughData ? (
+                          <span className="font-semibold text-emerald-300">{st.conversionRatePct}% convert</span>
+                        ) : (
+                          <span className="text-amber-300/90" title={st.caveat}>
+                            too little traffic to call a rate ({st.conversionLowPct}–{st.conversionHighPct}% so far)
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))}

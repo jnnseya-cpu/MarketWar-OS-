@@ -7,6 +7,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPage } from "@/backend/landing-store";
+import { recordPageEvent } from "@/backend/page-analytics";
+import PageTracker from "@/components/PageTracker";
 import LandingLeadForm from "@/components/LandingLeadForm";
 
 export const runtime = "nodejs";
@@ -24,6 +26,12 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
   const page = await getPage(params.brandId, params.slug).catch(() => null);
   if (!page || !page.live) notFound();
 
+  // Count the visit server-side, so it is recorded even for a visitor with
+  // JavaScript disabled or an ad blocker that eats client-side beacons. A
+  // failure here must never stop the page rendering — the customer is paying
+  // for the page, not for the counter.
+  await recordPageEvent(params.brandId, params.slug, "view").catch(() => {});
+
   const cols = page.brandColours && page.brandColours.length ? page.brandColours : ["#1F6FEB", "#0B7285"];
   const primary = cols[0];
   const accent = cols[1] || cols[0];
@@ -39,6 +47,8 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
 
   return (
     <main className="min-h-screen bg-white text-slate-900">
+      {/* Counts CTA clicks. Views are already counted server-side above. */}
+      <PageTracker brandId={page.brandId} slug={page.slug} />
       {/* Hero */}
       <header className="relative overflow-hidden px-6 py-16 text-white" style={{ background: `linear-gradient(135deg, ${primary}, ${accent})` }}>
         <div className="mx-auto max-w-3xl text-center">

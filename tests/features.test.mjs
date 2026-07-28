@@ -1628,3 +1628,77 @@ test("identity: reported scores never contradict their own pass/fail", async () 
       `${a.axis} shows ${a.similarity} against a threshold of ${a.threshold} but reports passed=${a.passed}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Landing-page analytics — real counts, and a rate that refuses to mislead.
+// The defect being fixed: a page list showing "Conv 67" beside a live URL,
+// where 67 was a PREDICTED copy score, not a conversion rate.
+// ---------------------------------------------------------------------------
+const pa = await import("../src/backend/page-analytics.ts");
+
+test("analytics: events accumulate per brand and slug, and never leak between pages", async () => {
+  await pa.recordPageEvent("t-pa-1", "offer-a", "view");
+  await pa.recordPageEvent("t-pa-1", "offer-a", "view");
+  await pa.recordPageEvent("t-pa-1", "offer-a", "cta_click");
+  await pa.recordPageEvent("t-pa-1", "offer-a", "lead");
+  await pa.recordPageEvent("t-pa-1", "offer-b", "view");
+
+  const a = await pa.getPageStats("t-pa-1", "offer-a");
+  assert.equal(a.views, 2);
+  assert.equal(a.ctaClicks, 1);
+  assert.equal(a.leads, 1);
+  const b = await pa.getPageStats("t-pa-1", "offer-b");
+  assert.equal(b.views, 1);
+  assert.equal(b.leads, 0, "one page's leads must never appear on another");
+});
+
+test("analytics: another brand's pages are not visible", async () => {
+  await pa.recordPageEvent("t-pa-other", "secret", "view");
+  const mine = await pa.listPageStats("t-pa-1");
+  assert.ok(!mine.some((s) => s.slug === "secret"), "cross-tenant leak");
+});
+
+test("analytics: a rate is NOT claimed on tiny traffic — the whole point", () => {
+  const r = pa.reportFor({ brandId: "b", slug: "s", views: 3, ctaClicks: 2, leads: 1, daily: {} });
+  assert.equal(r.enoughData, false, "3 visitors is not a 33% conversion rate");
+  assert.ok(r.caveat, "it must say why the number is not shown as fact");
+  assert.match(r.caveat, /between/, "and give the honest range instead");
+  assert.ok(r.conversionLowPct < 10 && r.conversionHighPct > 70, `1-of-3 must show a wide range, got ${r.conversionLowPct}-${r.conversionHighPct}`);
+});
+
+test("analytics: with real traffic the rate IS reported, and it is arithmetic", () => {
+  const r = pa.reportFor({ brandId: "b", slug: "s", views: 1000, ctaClicks: 300, leads: 40, daily: {} });
+  assert.equal(r.enoughData, true);
+  assert.equal(r.conversionRatePct, 4, "40 of 1000 is 4%");
+  assert.equal(r.clickRatePct, 30, "300 of 1000 is 30%");
+  assert.equal(r.caveat, undefined, "no hedge is needed once the data is there");
+  assert.match(r.headline, /1,000 visitors/);
+});
+
+test("analytics: a page with no visitors reports zero, never a divide-by-zero", () => {
+  const r = pa.reportFor({ brandId: "b", slug: "s", views: 0, ctaClicks: 0, leads: 0, daily: {} });
+  assert.equal(r.conversionRatePct, 0);
+  assert.equal(r.clickRatePct, 0);
+  assert.ok(Number.isFinite(r.conversionRatePct));
+  assert.match(r.headline, /No visitors yet/);
+});
+
+test("analytics: daily buckets are kept so a trend can be drawn", async () => {
+  await pa.recordPageEvent("t-pa-2", "trend", "view");
+  await pa.recordPageEvent("t-pa-2", "trend", "lead");
+  const s = await pa.getPageStats("t-pa-2", "trend");
+  const days = Object.keys(s.daily);
+  assert.equal(days.length, 1, "one day of activity, one bucket");
+  assert.equal(s.daily[days[0]].views, 1);
+  assert.equal(s.daily[days[0]].leads, 1);
+  assert.match(days[0], /^\d{4}-\d{2}-\d{2}$/, "buckets are dates, not timestamps — no visitor is identifiable");
+});
+
+test("analytics: a malformed event is ignored rather than corrupting the counts", async () => {
+  await pa.recordPageEvent("t-pa-3", "x", "view");
+  await pa.recordPageEvent("t-pa-3", "x", "not_a_real_event");
+  await pa.recordPageEvent("", "x", "view");
+  await pa.recordPageEvent("t-pa-3", "", "view");
+  const s = await pa.getPageStats("t-pa-3", "x");
+  assert.equal(s.views, 1, "only the one valid event may count");
+});
