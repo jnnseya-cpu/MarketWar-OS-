@@ -10,6 +10,7 @@ import LanguageSelector from "@/components/LanguageSelector";
 import { useIsAdmin } from "@/frontend/use-is-admin";
 import {
   Activity,
+  Library,
   AtSign,
   BadgePercent,
   Banknote,
@@ -60,6 +61,7 @@ export const NAV = [
   {
     group: "Command",
     items: [
+      { href: "/dashboard/library", label: "Work Library", icon: Library },
       { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
       { href: "/dashboard/command", label: "Revenue Command (War Report)", icon: Crown },

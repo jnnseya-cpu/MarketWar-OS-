@@ -7,6 +7,7 @@ import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import { mdToHtml } from "@/frontend/markdown";
 import { brandDefaults, BRAND_FIELD_KEYS } from "@/shared/brand";
 import ExportButton from "@/components/ExportButton";
 import { extractAdCopy } from "@/shared/ad-copy";
@@ -42,18 +43,6 @@ async function saveImage(url: string, filename: string) {
   } catch { window.location.href = proxied; }
 }
 
-// Light, safe markdown → HTML for the branded export report. Escapes first
-// (no HTML injection from agent output), then applies a small subset: ##/###
-// headings, **bold**, and •/- bullets. The report body is white-space:pre-wrap,
-// so remaining line breaks render as-is.
-function mdToHtml(md: string): string {
-  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
-  return esc(md || "")
-    .replace(/^###\s+(.+)$/gm, "<h2>$1</h2>")
-    .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/^\s*[-•]\s+(.+)$/gm, "• $1");
-}
 
 export interface AgentField {
   key: string;
@@ -98,13 +87,68 @@ export default function AgentRunner({
   const isVisual = VISUAL_AGENT_IDS.has(agentId);
   const [variants, setVariants] = useState<RenderedVariant[]>([]);
   const [rendering, setRendering] = useState(false);
+  // Autosave state. Work is kept without being asked — a customer who paid for
+  // a plan should not lose it by clicking a link, which is what happened when
+  // the output lived only in this component.
+  const [saved, setSaved] = useState<{ id: string; durable: boolean; note: string } | null>(null);
+  const [restored, setRestored] = useState<{ title: string; at: string } | null>(null);
 
   // Re-skin the form when the active brand changes.
   useEffect(() => {
     setValues(fillFor(brandDefaults(activeBrand)));
     setResult(null);
+    setSaved(null);
+    setRestored(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrand?.id]);
+
+  // Bring back the last run for THIS agent and THIS brand. Returning to a page
+  // and finding it blank is indistinguishable from the work never existing.
+  useEffect(() => {
+    if (!activeBrand) return;
+    let on = true;
+    (async () => {
+      try {
+        const r = await authedFetch(`/api/work?brandId=${encodeURIComponent(activeBrand.id)}&source=${encodeURIComponent(agentId)}&latest=1`);
+        const d = await r.json().catch(() => ({}));
+        if (!on || !d?.item?.output) return;
+        // Never overwrite something generated in this session.
+        setResult((cur) => cur ?? ({
+          agentId,
+          agentName: d.item.sourceName || agentId,
+          mode: "live",
+          output: d.item.output,
+          generatedAt: d.item.createdAt,
+        } as AgentResult));
+        setRestored({ title: d.item.title || "", at: d.item.updatedAt || d.item.createdAt || "" });
+      } catch { /* a missing library must never block the page */ }
+    })();
+    return () => { on = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id, agentId]);
+
+  // Save the moment a run completes. Fire-and-forget: a save that fails must
+  // never swallow the output the customer is looking at.
+  async function autosave(data: AgentResult, input: Record<string, string>) {
+    if (!activeBrand || !data?.output?.trim()) return;
+    try {
+      const r = await authedFetch("/api/work", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-now": new Date().toISOString() },
+        body: JSON.stringify({
+          action: "save",
+          brandId: activeBrand.id,
+          source: agentId,
+          sourceName: data.agentName || agentId,
+          kind: "agent",
+          output: data.output,
+          input,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d?.item?.id) setSaved({ id: d.item.id, durable: Boolean(d.persisted), note: String(d.note || "") });
+    } catch { /* the output stays on screen either way */ }
+  }
 
   async function run() {
     setLoading(true);
@@ -129,7 +173,9 @@ export default function AgentRunner({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setResult(data as AgentResult);
+      setRestored(null);
       onResult?.(data as AgentResult);
+      void autosave(data as AgentResult, { ...values });
       // A visual agent's deliverable is the IMAGE. Its text is only the creative
       // direction — so immediately render real, downloadable creatives from it.
       if (isVisual) renderCreatives((data as AgentResult).output);
@@ -229,6 +275,26 @@ export default function AgentRunner({
                 />
               </div>
             </div>
+            {/* Where this went. An autosave nobody can see is indistinguishable
+                from no autosave at all — the customer still assumes it is lost. */}
+            {(saved || restored) && (
+              <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                {restored && !saved && (
+                  <span className="text-slate-400">
+                    Showing your last run{restored.at ? ` from ${new Date(restored.at).toLocaleString()}` : ""} — generate again to replace it.
+                  </span>
+                )}
+                {saved && (
+                  <span className={saved.durable ? "text-emerald-300" : "text-amber-300"}>
+                    {saved.durable ? "Saved to your Library." : saved.note}
+                  </span>
+                )}
+                <a href="/dashboard/library" className="text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200">
+                  Open Library →
+                </a>
+              </div>
+            )}
+
             {/* Claim Guard — what must NOT be published as written. Shown ABOVE
                 the output so it is read before anything is copied out. */}
             {result.claims && !result.claims.clean && (

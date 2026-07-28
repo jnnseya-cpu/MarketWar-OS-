@@ -3257,3 +3257,104 @@ test("health: the running deployment reports its own AI posture", () => {
     "the route must report presence via the gateway, never touch a key value itself");
   assert.match(src, /unrecognisedInOrder/);
 });
+
+// ---------------------------------------------------------------------------
+// Autosave. A 7-day content plan was generated, ACUs were spent, the customer
+// clicked another link, and the work was gone — no copy, no history, no way
+// back. Output lived in React state and nowhere else.
+// ---------------------------------------------------------------------------
+const lib = await import("../src/backend/work-library.ts");
+
+test("library: the same output saved twice updates one entry, not two", async () => {
+  lib.__resetWorkLibrary();
+  const base = { brandId: "b1", ownerId: "u1", kind: "agent", source: "content-factory", sourceName: "Content Factory", title: "Plan", output: "# 7-Day Plan\nDay 1…", input: {} };
+  const a = await lib.saveWork(base, "2026-01-01T10:00:00.000Z");
+  const b = await lib.saveWork(base, "2026-01-01T11:00:00.000Z");
+  assert.equal(a.item.id, b.item.id, "identical work must collapse — a library full of duplicates is one nobody opens");
+  assert.equal(b.item.createdAt, "2026-01-01T10:00:00.000Z", "the original creation time is kept");
+  assert.equal(b.item.updatedAt, "2026-01-01T11:00:00.000Z");
+  assert.equal((await lib.listWork("b1")).length, 1);
+});
+
+test("library: work is scoped to its brand and never leaks to another", async () => {
+  lib.__resetWorkLibrary();
+  await lib.saveWork({ brandId: "axionos", ownerId: "u1", kind: "agent", source: "content-factory", sourceName: "CF", title: "A", output: "axion plan", input: {} }, "2026-01-01T10:00:00.000Z");
+  await lib.saveWork({ brandId: "evandeli", ownerId: "u1", kind: "agent", source: "content-factory", sourceName: "CF", title: "B", output: "deli plan", input: {} }, "2026-01-01T10:00:00.000Z");
+  const axion = await lib.listWork("axionos");
+  assert.equal(axion.length, 1);
+  assert.equal(axion[0].output, "axion plan");
+  // Asking for the other brand's item BY ID must still refuse.
+  const otherId = lib.workId("evandeli", "content-factory", "deli plan");
+  assert.equal(await lib.getWork("axionos", otherId), null, "an id from another brand must not resolve");
+});
+
+test("library: pinned work stays at the top, then newest first", async () => {
+  lib.__resetWorkLibrary();
+  const mk = (out, at, pinned) => lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "s", sourceName: "S", title: out, output: out, input: {}, pinned }, at);
+  await mk("oldest", "2026-01-01T10:00:00.000Z", false);
+  await mk("newest", "2026-01-03T10:00:00.000Z", false);
+  await mk("pinned-old", "2026-01-02T10:00:00.000Z", true);
+  const list = await lib.listWork("b1");
+  assert.deepEqual(list.map((w) => w.output), ["pinned-old", "newest", "oldest"],
+    "the thing you marked as mattering must not sink below newer noise");
+});
+
+test("library: the last run for an engine can be brought back", async () => {
+  lib.__resetWorkLibrary();
+  await lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "content-factory", sourceName: "CF", title: "old", output: "old plan", input: {} }, "2026-01-01T10:00:00.000Z");
+  await lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "content-factory", sourceName: "CF", title: "new", output: "new plan", input: {} }, "2026-01-05T10:00:00.000Z");
+  await lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "email-commander", sourceName: "EC", title: "email", output: "email plan", input: {} }, "2026-01-06T10:00:00.000Z");
+  const latest = await lib.latestWork("b1", "content-factory");
+  assert.equal(latest.output, "new plan", "returning to a page must restore ITS work, not the last thing generated anywhere");
+});
+
+test("library: a title is taken from the work, never invented", () => {
+  assert.equal(lib.titleFrom("## 7-Day Content Strike Plan: AxionOS\nDay 1…", "Content Factory"), "7-Day Content Strike Plan: AxionOS");
+  assert.equal(lib.titleFrom("**Win-back sequence**\nbody", "Email"), "Win-back sequence");
+  // No heading — use what the customer actually typed.
+  assert.equal(lib.titleFrom("plain text with no heading", "Content Factory", { offer: "Free first lead" }),
+    "Content Factory — Free first lead");
+  assert.equal(lib.titleFrom("plain text", "Content Factory"), "Content Factory");
+});
+
+test("library: a non-durable save says so instead of pretending", async () => {
+  lib.__resetWorkLibrary();
+  const res = await lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "s", sourceName: "S", title: "t", output: "o", input: {} }, "2026-01-01T10:00:00.000Z");
+  // Firebase Admin is not configured in tests — the in-memory path must be honest.
+  assert.equal(res.persisted, false);
+  assert.match(res.note, /session only|not survive/i,
+    "a save that silently evaporates at the next deploy loses the work twice");
+});
+
+test("library: deleting is scoped too", async () => {
+  lib.__resetWorkLibrary();
+  await lib.saveWork({ brandId: "b1", ownerId: null, kind: "agent", source: "s", sourceName: "S", title: "t", output: "keep me", input: {} }, "2026-01-01T10:00:00.000Z");
+  const id = lib.workId("b1", "s", "keep me");
+  assert.equal(await lib.deleteWork("b2", id), false, "another brand must not be able to delete it");
+  assert.equal((await lib.listWork("b1")).length, 1);
+  assert.equal(await lib.deleteWork("b1", id), true);
+  assert.equal((await lib.listWork("b1")).length, 0);
+});
+
+test("autosave: the runner saves every result and restores the last one", () => {
+  const src = readFileSync(new URL("../src/components/AgentRunner.tsx", import.meta.url), "utf8");
+  assert.match(src, /void autosave\(data as AgentResult/, "every completed run must be saved without being asked");
+  assert.match(src, /latest=1/, "and the last one restored when the page is reopened");
+  assert.match(src, /setResult\(\(cur\) => cur \?\? \(/,
+    "restoring must never overwrite something generated in this session");
+  assert.match(src, /Open Library/, "an autosave nobody can see reads as no autosave at all");
+});
+
+test("autosave: there is a page to actually find the work on", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/library/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /\/api\/work\?brandId=/);
+  assert.match(page, /Nothing saved yet/, "the empty state must explain how work gets here");
+  const side = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(side, /dashboard\/library/, "a page nobody can navigate to is not a fix");
+});
+
+test("library: the store is Admin-SDK only — it holds the customer's strategy", () => {
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  assert.match(rules, /match \/work_library\/\{doc\} \{ allow read, write: if false; \}/,
+    "saved plans are commercial strategy and must never be readable by a browser token");
+});
