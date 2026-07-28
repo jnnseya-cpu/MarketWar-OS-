@@ -17,6 +17,8 @@ export type PageType =
   | "partner_signup" | "event_ticket" | "reactivation" | "local_seo" | "offer_claim";
 
 export type FormField = { key: string; label: string; type: string; required: boolean };
+import { writeCopy } from "@/backend/copywriter";
+
 export type LandingSection = { type: string; heading: string; body: string; items?: string[] };
 
 export type LandingInput = {
@@ -279,6 +281,69 @@ export type GeneratedLandingPage = {
   optimisationRecommendations: string[];
   publishUrl: string;
 };
+
+// ---------------------------------------------------------------------------
+// AI-written variant. generateLandingPage below builds the STRUCTURE (page type,
+// form fields, scoring, slug) deterministically — that part is sound. What was
+// wrong is that it also wrote the words, by concatenation, which is how a
+// construction-software company got "…, made easy in United Kingdom".
+//
+// This keeps the structure and replaces the words with real copy, grounded in
+// the brand's own facts and claim-checked. With no provider key it returns the
+// deterministic page unchanged and says so, rather than pretending.
+// ---------------------------------------------------------------------------
+export async function generateLandingPageWritten(
+  input: LandingInput,
+  opts: { facts?: string[]; lang?: string } = {},
+): Promise<{ page: ReturnType<typeof generateLandingPage>; written: "ai" | "template"; note: string; warnings: string[] }> {
+  const page = generateLandingPage(input);
+
+  const result = await writeCopy({
+    business: input.business,
+    product: input.product || "",
+    audience: input.audience,
+    location: input.location,
+    offer: input.offer,
+    objective: input.objective,
+    pain: input.painPoint,
+    facts: opts.facts,
+  }, { lang: opts.lang });
+
+  if (result.written !== "ai") {
+    return { page, written: "template", note: result.note, warnings: result.warnings };
+  }
+
+  const c = result.copy;
+  // Replace only what was written; keep every structural decision.
+  const sections = page.sections.map((sec) => {
+    if (sec.type === "problem" && c.problemHeading) {
+      return { ...sec, heading: c.problemHeading, body: c.problemBody || sec.body };
+    }
+    if (sec.type === "offer") {
+      return { ...sec, heading: c.offerHeadline || sec.heading, items: c.offerBullets.length ? c.offerBullets : sec.items };
+    }
+    if ((sec.type === "benefits" || sec.type === "how_it_works") && c.benefits.length) {
+      return { ...sec, items: c.benefits };
+    }
+    if (sec.type === "faq" && c.faq.length) {
+      return { ...sec, items: c.faq.map((f) => `${f.q} ${f.a}`) };
+    }
+    return sec;
+  });
+
+  return {
+    page: {
+      ...page,
+      headline: c.headline || page.headline,
+      subheadline: c.subheadline || page.subheadline,
+      primaryCta: c.primaryCta || page.primaryCta,
+      sections,
+    },
+    written: "ai",
+    note: result.note,
+    warnings: result.warnings,
+  };
+}
 
 export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
   const business = clean(input.business) || "Our business";

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateLandingPage, selectPageType, type LandingInput } from "@/backend/landing";
+import { generateLandingPage, generateLandingPageWritten, selectPageType, type LandingInput } from "@/backend/landing";
+import { requireAuth } from "@/backend/guard";
+import { meterAction, creditAcus } from "@/backend/wallet";
+import { gatewayLangFrom } from "@/backend/gateway";
 import { savePage, listPages, deletePage, type StoredLandingPage } from "@/backend/landing-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
@@ -62,7 +65,28 @@ export async function POST(req: NextRequest) {
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
     const input = inputFrom(body);
-    const page = generateLandingPage(input);
+    // Write the copy properly. Metered as an AI action because it is one; if no
+    // provider is connected the deterministic page is published instead and the
+    // customer is told, rather than being charged for a template.
+    const auth = await requireAuth(req);
+    let page = generateLandingPage(input);
+    let written: "ai" | "template" = "template";
+    let copyNote = "Written from a template — connect an AI provider for copy grounded in your brand.";
+    let copyWarnings: string[] = [];
+    if (auth.ok) {
+      const meter = await meterAction(auth, "llm");
+      if (meter.allowed) {
+        const w = await generateLandingPageWritten(input, { lang: gatewayLangFrom(req) });
+        page = w.page;
+        written = w.written;
+        copyNote = w.note;
+        copyWarnings = w.warnings;
+        // Charged for AI but got a template — give the money back.
+        if (w.written !== "ai" && meter.metered && meter.charged && auth.uid) {
+          await creditAcus(auth.uid, meter.charged).catch(() => {});
+        }
+      }
+    }
     const relUrl = `/b/${brandId}/${page.slug}`;
     const origin = req.nextUrl.origin || "https://www.marketwaros.com";
     const stored: StoredLandingPage = {
@@ -77,7 +101,11 @@ export async function POST(req: NextRequest) {
       live: true,
     };
     await savePage(stored);
-    return NextResponse.json({ page: stored, url: relUrl, absoluteUrl: `${origin}${relUrl}` });
+    return NextResponse.json({
+      page: stored, url: relUrl, absoluteUrl: `${origin}${relUrl}`,
+      written, copyNote, copyWarnings,
+      anatomy: auditPageAnatomy(stored),
+    });
   }
 
   // Default: generate (preview) — no persistence.

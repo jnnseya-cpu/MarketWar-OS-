@@ -3,6 +3,7 @@
 // Run: npm test    (no network, no API keys)
 
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -2028,4 +2029,62 @@ test("ledger: an action's price is shown in the customer's money, not internal u
   const p = rl.priceOfAction("image");
   assert.ok(p.acu > 0);
   assert.equal(p.gbp, p.acu / 100, "1 ACU is 1 penny — a customer should never have to convert");
+});
+
+// ---------------------------------------------------------------------------
+// Copywriter — the fix for surfaces labelled "AI" that were string concatenation.
+// ---------------------------------------------------------------------------
+const cw = await import("../src/backend/copywriter.ts");
+
+test("copywriter: with no provider connected it says so instead of pretending", async () => {
+  const saved = { a: process.env.ANTHROPIC_API_KEY, o: process.env.OPENAI_API_KEY, g: process.env.GEMINI_API_KEY };
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.OPENAI_API_KEY; delete process.env.GEMINI_API_KEY;
+  try {
+    const r = await cw.writeCopy({ business: "VeryX", product: "Common Data Environment for construction" });
+    assert.equal(r.written, "template", "no key means no AI — it must not claim otherwise");
+    assert.match(r.note, /no AI provider is connected/i);
+    assert.ok(r.copy.headline, "a page must still be publishable");
+  } finally {
+    if (saved.a) process.env.ANTHROPIC_API_KEY = saved.a;
+    if (saved.o) process.env.OPENAI_API_KEY = saved.o;
+    if (saved.g) process.env.GEMINI_API_KEY = saved.g;
+  }
+});
+
+test("copywriter: a brief with no product is refused — generic in, generic out", async () => {
+  const r = await cw.writeCopy({ business: "VeryX", product: "" });
+  assert.equal(r.ok, false);
+  assert.match(r.note, /what the business sells/i);
+});
+
+test("copywriter: empty filler phrasing is DETECTED — this is the bug being fixed", () => {
+  // The exact strings the old generator produced.
+  assert.deepEqual(cw.fillerIn("The Enterprise Execution Operating System, made easy in United Kingdom"), ["made easy"]);
+  assert.deepEqual(cw.fillerIn("A great result — for Businesses Senior Management"), ["a great result"]);
+  assert.deepEqual(cw.fillerIn("Take your business to the next level"), ["next level", "take your business"]);
+  assert.deepEqual(cw.fillerIn("Stop losing drawings in email. One CDE for every site file."), [],
+    "specific copy must not be flagged");
+});
+
+test("copywriter: the template fallback never emits a bracketed placeholder", () => {
+  const c = cw.templateCopy({ business: "VeryX", product: "CDE software", location: "United Kingdom" });
+  const all = JSON.stringify(c);
+  assert.doesNotMatch(all, /\[[A-Z ]+\]/, "a published page must never show [INSERT SOMETHING]");
+  assert.doesNotMatch(all, /undefined|NaN/);
+});
+
+test("copywriter: JSON is extracted whether or not the model fenced it", () => {
+  assert.deepEqual(cw.extractJson('{"headline":"Hi"}'), { headline: "Hi" });
+  assert.deepEqual(cw.extractJson('```json\n{"headline":"Hi"}\n```'), { headline: "Hi" });
+  assert.deepEqual(cw.extractJson('Sure! Here is the copy:\n{"headline":"Hi"}\nHope that helps.'), { headline: "Hi" });
+  assert.equal(cw.extractJson("no json at all"), null);
+  assert.equal(cw.extractJson('{"broken": '), null, "malformed JSON must be null, never a partial object");
+});
+
+test("copywriter: the system prompt forbids the things that got us in trouble", () => {
+  // Guard the guard: these instructions are the reason output is safe to publish.
+  const src = readFileSync(new URL("../src/backend/copywriter.ts", import.meta.url), "utf8");
+  for (const rule of ["never invent a statistic", "customer quote", "award", "superlative", "Never invent urgency"]) {
+    assert.ok(src.toLowerCase().includes(rule.toLowerCase()), `the copywriter must forbid: ${rule}`);
+  }
 });
