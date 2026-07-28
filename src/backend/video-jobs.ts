@@ -23,6 +23,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { debitAcus, creditAcus } from "@/backend/wallet";
+import { buildRecipe, RecipeError } from "@/backend/ffmpeg-recipes";
 
 export type VideoJobKind =
   | "trim"            // cut in/out points → one clip
@@ -83,6 +84,15 @@ export async function enqueueVideoJob(input: {
 }): Promise<{ ok: boolean; job?: VideoJob; error?: string; balanceAcu?: number }> {
   const cost = JOB_COST_ACU[input.kind];
   if (!input.sourceUrl) return { ok: false, error: "A source video is required." };
+
+  // Build the recipe BEFORE taking any money. A job with missing or malformed
+  // params can never render, so the customer is told now rather than charged,
+  // queued, retried three times and refunded.
+  try {
+    buildRecipe(input.kind, input.params || {});
+  } catch (e) {
+    return { ok: false, error: e instanceof RecipeError ? e.message : "Those render settings are not usable." };
+  }
 
   const debit = await debitAcus(input.brandId, cost);
   if (!debit.ok) {

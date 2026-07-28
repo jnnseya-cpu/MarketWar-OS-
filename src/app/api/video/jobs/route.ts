@@ -3,6 +3,7 @@ import {
   enqueueVideoJob, getVideoJob, listVideoJobs, claimNextJob, completeVideoJob,
   failVideoJob, reportProgress, JOB_COST_ACU, type VideoJobKind,
 } from "@/backend/video-jobs";
+import { buildRecipe } from "@/backend/ffmpeg-recipes";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
 
@@ -47,7 +48,17 @@ export async function POST(req: NextRequest) {
     }
     if (action === "claim") {
       const job = await claimNextJob(s("workerId") || "worker");
-      return NextResponse.json({ job });
+      if (!job) return NextResponse.json({ job: null });
+      // The worker is a dumb executor: it never decides what FFmpeg should do.
+      // The recipe is built here, from the single definition in
+      // ffmpeg-recipes.ts, and handed over with the job — so a fix to the crop
+      // maths or caption style ships without redeploying the container.
+      try {
+        return NextResponse.json({ job, passes: buildRecipe(job.kind, job.params) });
+      } catch (e) {
+        const res = await failVideoJob(job.id, e instanceof Error ? e.message : "Unusable render settings");
+        return NextResponse.json({ job: null, skipped: job.id, ...res });
+      }
     }
     const jobId = s("jobId");
     if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });

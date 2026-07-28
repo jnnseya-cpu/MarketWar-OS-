@@ -556,7 +556,7 @@ test("video jobs: completing records the output and marks it done", async () => 
 
 test("video jobs: a permanently failed render REFUNDS the customer", async () => {
   await w5.creditAcus("t-vid-4", 500);
-  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-4", kind: "clips", sourceUrl: "https://x.test/d.mp4" });
+  const { job } = await vj.enqueueVideoJob({ brandId: "t-vid-4", kind: "clips", sourceUrl: "https://x.test/d.mp4", params: { moments: [{ startSec: 0, endSec: 10 }] } });
   const afterCharge = (await w5.getWallet("t-vid-4")).balanceAcu;
   // A worker claims whatever is next in the queue, not necessarily ours — so
   // drain until we get this job, then fail it, the way a real worker would.
@@ -643,4 +643,126 @@ test("dub: every offered language is a distinct ISO code", () => {
   const codes = vo.DUB_LANGUAGES.map((l) => l.code);
   assert.equal(new Set(codes).size, codes.length, "no duplicate languages in the picker");
   for (const c of codes) assert.match(c, /^[a-z]{2,3}$/, `${c} must be an ISO code`);
+});
+
+// ---------------------------------------------------------------------------
+// FFmpeg recipes — one definition, executed by the worker AND any hosted API.
+// A defect here is a wrong-looking video the customer paid for.
+// ---------------------------------------------------------------------------
+const fr = await import("../src/backend/ffmpeg-recipes.ts");
+
+test("recipes: trim cuts the requested window, not a fixed length", () => {
+  const [pass] = fr.buildRecipe("trim", { startSec: 30, endSec: 45 });
+  const args = pass.args.join(" ");
+  assert.match(args, /-ss 30\b/, "must seek to the requested start");
+  assert.match(args, /-t 15\b/, "duration must be end minus start");
+});
+
+test("recipes: a backwards or zero-length trim still produces a valid command", () => {
+  const [pass] = fr.buildRecipe("trim", { startSec: 60, endSec: 10 });
+  const t = pass.args[pass.args.indexOf("-t") + 1];
+  assert.ok(Number(t) > 0, "duration must never be zero or negative");
+});
+
+test("recipes: vertical clips are cropped to 9:16 AND scaled to 1080x1920", () => {
+  const passes = fr.buildRecipe("clips", { aspect: "9:16", moments: [{ startSec: 0, endSec: 10 }, { startSec: 20, endSec: 32 }] });
+  assert.equal(passes.length, 2, "one pass per moment");
+  const vf = passes[0].args.join(" ");
+  assert.match(vf, /crop=ih\*9\/16:ih/, "must crop to a 9:16 column");
+  assert.match(vf, /scale=1080:1920/, "must scale to the platform frame");
+  assert.notEqual(passes[0].output, passes[1].output, "clips must not overwrite each other");
+});
+
+test("recipes: horizontal clips are NOT cropped", () => {
+  const [pass] = fr.buildRecipe("clips", { moments: [{ startSec: 0, endSec: 10 }] });
+  assert.doesNotMatch(pass.args.join(" "), /crop=/, "a 16:9 clip must keep its frame");
+});
+
+test("recipes: cutting clips with no moments is refused, not silently empty", () => {
+  assert.throws(() => fr.buildRecipe("clips", { moments: [] }), fr.RecipeError);
+});
+
+test("recipes: burning captions carries the SRT as an inline asset", () => {
+  const [pass] = fr.buildRecipe("captions_burn", { srt: "1\n00:00:00,000 --> 00:00:01,000\nHello\n" });
+  assert.equal(pass.asset.filename, "subs.srt");
+  assert.match(pass.asset.inlineText, /Hello/);
+  assert.match(pass.args.join(" "), /subtitles=\$ASSET_ESCAPED/, "the subtitle path must be filter-escaped");
+});
+
+test("recipes: burning captions with no SRT is refused before any money moves", () => {
+  assert.throws(() => fr.buildRecipe("captions_burn", {}), fr.RecipeError);
+  assert.throws(() => fr.buildRecipe("captions_burn", { srt: "   " }), fr.RecipeError);
+});
+
+test("recipes: a filtergraph path with colons is escaped so the graph parses", () => {
+  const escaped = fr.escapeFilterPath("/tmp/a:b/subs.srt");
+  assert.ok(!/(^|[^\\]):/.test(escaped), `unescaped colon survives: ${escaped}`);
+});
+
+test("recipes: watermarking with no logo returns a copy, never a failure", () => {
+  const [pass] = fr.buildRecipe("brand", {});
+  assert.match(pass.args.join(" "), /-c copy/, "a paid job must still return a file");
+  assert.equal(pass.asset, undefined);
+});
+
+test("recipes: watermarking fetches the logo and overlays bottom-right", () => {
+  const [pass] = fr.buildRecipe("brand", { logoUrl: "https://x.test/logo.png" });
+  assert.equal(pass.asset.url, "https://x.test/logo.png");
+  assert.match(pass.args.join(" "), /overlay=W-w-30:H-h-30/);
+});
+
+test("recipes: background removal outputs WebM — MP4 cannot carry transparency", () => {
+  const [pass] = fr.buildRecipe("bg_remove", {});
+  assert.match(pass.output, /\.webm$/);
+  assert.match(pass.args.join(" "), /format=yuva420p/, "must keep the alpha channel");
+});
+
+test("recipes: a chroma colour from user input cannot inject filter syntax", () => {
+  const [pass] = fr.buildRecipe("bg_remove", { colour: "0x00FF00,drawtext=text='pwned'" });
+  assert.match(pass.args.join(" "), /chromakey=0x00FF00:/, "a malformed colour must fall back, not be interpolated");
+  assert.doesNotMatch(pass.args.join(" "), /drawtext/);
+});
+
+test("recipes: upscale height is clamped to a sane, encodable range", () => {
+  assert.match(fr.buildRecipe("upscale", { height: 99999 })[0].args.join(" "), /scale=-2:2160/);
+  assert.match(fr.buildRecipe("upscale", { height: 12 })[0].args.join(" "), /scale=-2:720/);
+  assert.match(fr.buildRecipe("upscale", { height: 1440 })[0].args.join(" "), /scale=-2:1440/);
+});
+
+test("recipes: upscale uses a quality preset — a fast upscale is pointless", () => {
+  const args = fr.buildRecipe("upscale", { height: 1440 })[0].args.join(" ");
+  assert.match(args, /-preset slow/);
+  assert.match(args, /-crf 18/);
+});
+
+test("recipes: every kind produces at least one pass with both placeholders", () => {
+  const params = {
+    trim: {}, clips: { moments: [{ startSec: 1, endSec: 5 }] }, captions_burn: { srt: "1\n" },
+    brand: {}, broll: { brollUrl: "https://x.test/b.mp4" }, bg_remove: {}, upscale: {},
+  };
+  for (const [kind, p] of Object.entries(params)) {
+    const passes = fr.buildRecipe(kind, p);
+    assert.ok(passes.length >= 1, `${kind} produced no passes`);
+    for (const pass of passes) {
+      assert.ok(pass.args.includes("$IN"), `${kind} never reads the source video`);
+      assert.ok(pass.args.includes("$OUT"), `${kind} never writes an output`);
+      assert.ok(pass.output && pass.label, `${kind} is missing output/label`);
+    }
+  }
+});
+
+test("recipes: resolveArgs substitutes every placeholder, leaving none behind", () => {
+  const [pass] = fr.buildRecipe("captions_burn", { srt: "1\n" });
+  const out = fr.resolveArgs(pass.args, { input: "/t/in.mp4", output: "/t/out.mp4", asset: "/t/a:b.srt" });
+  assert.doesNotMatch(out.join(" "), /\$(IN|OUT|ASSET)/, "an unsubstituted placeholder would be passed to ffmpeg literally");
+  assert.ok(out.includes("/t/in.mp4"));
+  assert.ok(out.includes("/t/out.mp4"));
+});
+
+test("video jobs: unusable settings are refused BEFORE the wallet is touched", async () => {
+  await w5.creditAcus("t-vid-6", 500);
+  const before = (await w5.getWallet("t-vid-6")).balanceAcu;
+  const r = await vj.enqueueVideoJob({ brandId: "t-vid-6", kind: "captions_burn", sourceUrl: "https://x.test/f.mp4", params: {} });
+  assert.equal(r.ok, false, "a job that cannot render must not be queued");
+  assert.equal((await w5.getWallet("t-vid-6")).balanceAcu, before, "and the customer must not be charged a penny");
 });
