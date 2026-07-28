@@ -24,7 +24,9 @@ const PAGE_ANATOMY = [
   "Tracking pixels + A/B variant slot",
 ];
 
-type SavedPage = { slug: string; headline: string; pageType: string; publishedAt?: string; url: string; absoluteUrl: string; conversionScore?: number };
+type AnatomyCheck = { id: string; label: string; present: boolean; detail: string; fix?: string };
+type Anatomy = { checks: AnatomyCheck[]; presentCount: number; total: number; scorePct: number; topFix?: string; summary: string };
+type SavedPage = { slug: string; headline: string; pageType: string; publishedAt?: string; url: string; absoluteUrl: string; conversionScore?: number; anatomy?: Anatomy };
 // Measured, not predicted. Mirrors src/backend/page-analytics.ts.
 type PageReport = {
   slug: string; views: number; ctaClicks: number; leads: number;
@@ -182,6 +184,29 @@ export default function LandingPagesPage() {
                     );
                   })()}
                 </div>
+
+                {/* The anatomy checklist, checked against THIS page. */}
+                {p.anatomy && (
+                  <details className="w-full border-t border-white/[0.06] pt-2">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
+                      <span className={p.anatomy.scorePct >= 85 ? "text-emerald-300" : p.anatomy.scorePct >= 60 ? "text-amber-300" : "text-rose-300"}>
+                        Page anatomy {p.anatomy.presentCount}/{p.anatomy.total}
+                      </span>
+                      <span className="text-slate-500">— {p.anatomy.summary}</span>
+                    </summary>
+                    <div className="mt-2 space-y-1.5">
+                      {p.anatomy.checks.map((c) => (
+                        <div key={c.id} className="flex items-start gap-2 text-xs">
+                          <span className={c.present ? "text-emerald-400" : "text-slate-600"}>{c.present ? "✓" : "○"}</span>
+                          <div className="min-w-0">
+                            <span className={c.present ? "text-slate-300" : "text-white"}>{c.label}</span>
+                            <p className="text-[11px] leading-relaxed text-slate-500">{c.present ? c.detail : c.fix || c.detail}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
             ))}
           </div>
@@ -189,7 +214,11 @@ export default function LandingPagesPage() {
       </div>
 
       <div className="mb-6 card p-5">
-        <h2 className="mb-3 font-display font-bold text-white">Anatomy of a MarketWar page</h2>
+        <h2 className="mb-1 font-display font-bold text-white">Anatomy of a MarketWar page</h2>
+        <p className="mb-3 text-xs leading-relaxed text-slate-400">
+          These eight elements are what make a page convert. Every page you publish is checked against them — open
+          &ldquo;Page anatomy&rdquo; on any page above to see which it has, which it is missing, and what to do about each gap.
+        </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {PAGE_ANATOMY.map((item) => (
             <p key={item} className="flex items-center gap-2 text-sm text-slate-300">

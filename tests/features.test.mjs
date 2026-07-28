@@ -1803,3 +1803,96 @@ test("compiler: empty input is refused cleanly", () => {
   assert.equal(r.ok, false);
   assert.equal(r.workflow, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Page anatomy — the eight-point checklist, audited against a REAL page rather
+// than printed as decoration.
+// ---------------------------------------------------------------------------
+const pan = await import("../src/backend/page-anatomy.ts");
+
+const FULL_PAGE = {
+  slug: "full", headline: "Cut your survey costs in half", subheadline: "For UK contractors",
+  offerText: "£149 setup, cancel anytime", primaryCta: "Start for £149", primaryCtaUrl: "https://x.test/buy",
+  formConfig: { enabled: true, fields: [{ key: "name" }, { key: "email" }] },
+  whatsappConfig: { enabled: true, phoneNumber: "447700900000" },
+  sections: [
+    { type: "problem", heading: "Sound familiar?", body: "Re-surveying costs you weeks." },
+    { type: "offer", heading: "The offer", body: "£149 setup", items: ["Unlimited sites", "Cancel anytime"] },
+    { type: "benefits", heading: "What you get", items: ["Faster", "Cheaper"] },
+    { type: "proof", heading: "Customers", items: ["Real quote from a named customer"] },
+    { type: "faq", heading: "Questions", items: ["How long? About a week", "Any contract? No"] },
+    { type: "urgency", heading: "Ends Friday", body: "Offer closes Friday" },
+  ],
+};
+
+test("anatomy: a complete page scores 100 and is told to stop adding sections", () => {
+  const a = pan.auditPageAnatomy(FULL_PAGE);
+  assert.equal(a.presentCount, a.total, a.checks.filter((c) => !c.present).map((c) => c.label).join("; "));
+  assert.equal(a.scorePct, 100);
+  assert.equal(a.topFix, undefined);
+  assert.match(a.summary, /structurally complete/);
+});
+
+test("anatomy: a bare page is scored honestly, not generously", () => {
+  const a = pan.auditPageAnatomy({ slug: "bare", headline: "Hello" });
+  assert.ok(a.scorePct < 40, `a headline alone should not score ${a.scorePct}`);
+  assert.ok(a.presentCount < a.total);
+  assert.ok(a.topFix, "there must be a single obvious next action");
+});
+
+test("anatomy: the score is WEIGHTED — a missing CTA costs more than a missing FAQ", () => {
+  const noFaq = pan.auditPageAnatomy({ ...FULL_PAGE, sections: FULL_PAGE.sections.filter((s) => s.type !== "faq") });
+  const noCta = pan.auditPageAnatomy({ ...FULL_PAGE, primaryCta: "", primaryCtaUrl: "" });
+  assert.ok(noCta.scorePct < noFaq.scorePct, "losing the button must hurt more than losing the FAQ");
+});
+
+test("anatomy: a CTA with nowhere to go does not count as a CTA", () => {
+  const a = pan.auditPageAnatomy({
+    slug: "x", headline: "H", primaryCta: "Buy now",
+    formConfig: { enabled: false }, whatsappConfig: { enabled: false },
+  });
+  const cta = a.checks.find((c) => c.id === "cta");
+  assert.equal(cta.present, false, "a button with no destination is not a call to action");
+  assert.match(cta.detail, /nowhere/);
+});
+
+test("anatomy: too many form fields FAILS the check and says how many to cut to", () => {
+  const a = pan.auditPageAnatomy({
+    ...FULL_PAGE,
+    formConfig: { enabled: true, fields: [{ key: "a" }, { key: "b" }, { key: "c" }, { key: "d" }, { key: "e" }] },
+  });
+  const form = a.checks.find((c) => c.id === "form");
+  assert.equal(form.present, false, "five fields is a leak, not a feature");
+  assert.match(form.fix, /three/);
+});
+
+test("anatomy: the proof fix never suggests generating a testimonial", () => {
+  const a = pan.auditPageAnatomy({ ...FULL_PAGE, sections: FULL_PAGE.sections.filter((s) => s.type !== "proof") });
+  const proof = a.checks.find((c) => c.id === "proof");
+  assert.equal(proof.present, false);
+  assert.match(proof.fix, /REAL/, "it must ask for a real quote");
+  assert.match(proof.fix, /Never generate/i, "and explicitly refuse to invent one");
+});
+
+test("anatomy: a missing deadline is not treated as a fault to fix with a fake one", () => {
+  const a = pan.auditPageAnatomy({ ...FULL_PAGE, sections: FULL_PAGE.sections.filter((s) => s.type !== "urgency") });
+  const urgency = a.checks.find((c) => c.id === "urgency");
+  assert.equal(urgency.present, false);
+  assert.match(urgency.detail, /correct unless one genuinely exists/);
+  assert.match(urgency.fix, /Only add urgency if the offer really ends/);
+});
+
+test("anatomy: an FAQ with a single question does not count", () => {
+  const one = pan.auditPageAnatomy({
+    ...FULL_PAGE,
+    sections: FULL_PAGE.sections.map((s) => (s.type === "faq" ? { ...s, items: ["Only one?"] } : s)),
+  });
+  assert.equal(one.checks.find((c) => c.id === "faq").present, false, "one question does not kill three objections");
+});
+
+test("anatomy: auditing a page with no sections at all does not throw", () => {
+  const a = pan.auditPageAnatomy({ slug: "empty" });
+  assert.equal(a.total, 9);
+  assert.ok(Number.isFinite(a.scorePct));
+  assert.ok(a.scorePct >= 0 && a.scorePct <= 100);
+});

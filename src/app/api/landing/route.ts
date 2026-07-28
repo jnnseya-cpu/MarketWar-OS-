@@ -3,6 +3,7 @@ import { generateLandingPage, selectPageType, type LandingInput } from "@/backen
 import { savePage, listPages, deletePage, type StoredLandingPage } from "@/backend/landing-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { auditPageAnatomy } from "@/backend/page-anatomy";
 
 // AI Landing Page Creation Engine API (§4.6–§4.14).
 // POST { action?:"generate", business, objective, offer?, ... }
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
       slug: p.slug, headline: p.headline, pageType: p.pageType, publishedAt: p.publishedAt,
       url: `/b/${brandId}/${p.slug}`, absoluteUrl: `${origin}/b/${brandId}/${p.slug}`,
       conversionScore: p.scores?.conversionScore,
+      // The eight-point anatomy, checked against THIS page rather than printed
+      // as a poster. Turns the checklist into a to-do list.
+      anatomy: auditPageAnatomy(p),
     }));
     return NextResponse.json({ pages, count: pages.length });
   }
