@@ -14,6 +14,10 @@ import { gatewayComplete, GatewayUnconfiguredError, gatewayLangFrom } from "@/ba
 // send path substitutes them per contact.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A route that calls the AI gateway MUST reserve more time than the gateway's
+// own budget. Without this it inherits the platform default, the function is
+// killed mid-call, and the customer sees nothing at all — no output, no error.
+export const maxDuration = 60;
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 

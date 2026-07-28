@@ -56,11 +56,40 @@ export interface ProviderStatus {
 const DEFAULT_MAX_TOKENS = 4096;
 const RETRIES_PER_PROVIDER = 3;
 
+// ---------------------------------------------------------------------------
+// Deadlines. This is what makes the gateway RELIABLE rather than usually-fine.
+//
+// Without a per-request timeout, a provider that accepts a connection and then
+// holds it open blocks until the serverless function is killed. The caller gets
+// nothing, no error is logged, and it cannot be reproduced — the exact shape of
+// "it worked yesterday". Both big providers do this occasionally under load.
+//
+// A single timeout is not enough either. With three retries and exponential
+// backoff, one slow provider can consume the whole function budget, so the
+// FALLBACK provider that exists for reliability never gets tried. So there are
+// two budgets: one per HTTP call, and one for the whole gateway call, and every
+// wait is checked against the overall deadline before it is taken.
+// ---------------------------------------------------------------------------
+
+// Longest any single provider call may take. Generous enough for a long
+// completion, short enough that a hang leaves time to fall over to the next
+// provider.
+const PER_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 25_000);
+// Longest the whole gatewayComplete may take, across every provider and retry.
+// Deliberately under the tightest route budget so the caller returns an ERROR
+// the customer can read, rather than the platform returning nothing at all.
+const OVERALL_TIMEOUT_MS = Number(process.env.AI_TOTAL_TIMEOUT_MS || 50_000);
+// Backoff is capped: an 8-second sleep inside a 50-second budget is most of the
+// budget spent waiting rather than working.
+const MAX_BACKOFF_MS = 4_000;
+
 interface Adapter {
   id: ProviderId;
   model: () => string;
   configured: () => boolean;
-  complete: (req: GatewayRequest) => Promise<string>;
+  // `deadline` is an absolute epoch-ms budget for the whole gateway call, so a
+  // slow provider cannot spend the time its fallback needs.
+  complete: (req: GatewayRequest, deadline?: number) => Promise<string>;
 }
 
 // ---------------------------------------------------------------- Anthropic
@@ -70,7 +99,7 @@ const anthropic: Adapter = {
   id: "anthropic",
   model: () => process.env.ANTHROPIC_MODEL || "claude-opus-4-8",
   configured: () => Boolean(process.env.ANTHROPIC_API_KEY),
-  async complete(req) {
+  async complete(req, deadline) {
     const res = await fetchWithRetry("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -85,7 +114,7 @@ const anthropic: Adapter = {
         system: req.system,
         messages: [{ role: "user", content: req.prompt }],
       }),
-    });
+    }, deadline);
     const data = (await res.json()) as {
       stop_reason?: string;
       content: { type: string; text?: string }[];
@@ -109,7 +138,7 @@ const openai: Adapter = {
   id: "openai",
   model: () => process.env.OPENAI_MODEL || "gpt-5-mini",
   configured: () => Boolean(process.env.OPENAI_API_KEY),
-  async complete(req) {
+  async complete(req, deadline) {
     const res = await fetchWithRetry("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -122,7 +151,7 @@ const openai: Adapter = {
         input: req.prompt,
         max_output_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
       }),
-    });
+    }, deadline);
     const data = (await res.json()) as {
       output?: { type: string; content?: { type: string; text?: string }[] }[];
     };
@@ -144,7 +173,7 @@ const gemini: Adapter = {
   id: "gemini",
   model: () => process.env.GEMINI_MODEL || "gemini-2.5-flash",
   configured: () => Boolean(process.env.GEMINI_API_KEY),
-  async complete(req) {
+  async complete(req, deadline) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${gemini.model()}:generateContent`;
     const res = await fetchWithRetry(url, {
       method: "POST",
@@ -157,7 +186,7 @@ const gemini: Adapter = {
         contents: [{ role: "user", parts: [{ text: req.prompt }] }],
         generationConfig: { maxOutputTokens: req.maxTokens ?? DEFAULT_MAX_TOKENS },
       }),
-    });
+    }, deadline);
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
@@ -218,11 +247,17 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
   const candidates = routingOrder().filter((a) => a.configured());
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 
+  const deadline = Date.now() + OVERALL_TIMEOUT_MS;
   const attempts: { provider: ProviderId; error: string }[] = [];
   for (const adapter of candidates) {
+    // Out of budget — stop rather than starting a call that cannot finish.
+    if (Date.now() >= deadline) {
+      attempts.push({ provider: adapter.id, error: "skipped — overall gateway deadline reached" });
+      break;
+    }
     const started = Date.now();
     try {
-      const text = await adapter.complete(req);
+      const text = await adapter.complete(req, deadline);
       return {
         text,
         provider: adapter.id,
@@ -238,6 +273,8 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
     }
   }
 
+  // The message matters: a customer seeing "nothing happened" cannot act, but
+  // "every provider timed out" tells them and us exactly what went wrong.
   throw new Error(
     `All AI providers failed: ${attempts.map((a) => `${a.provider} (${a.error})`).join("; ")}`
   );
@@ -246,25 +283,43 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
 // Shared HTTP layer: retries 429/5xx and network errors with exponential
 // backoff, honouring Retry-After when present. Non-retryable statuses throw
 // immediately with the provider's error body for diagnosis.
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+async function fetchWithRetry(url: string, init: RequestInit, deadline = Date.now() + OVERALL_TIMEOUT_MS): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < RETRIES_PER_PROVIDER; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
+    // Never wait longer than the overall budget allows, even on the first try.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.min(PER_REQUEST_TIMEOUT_MS, remaining));
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(timer);
       if (res.ok) return res;
       const body = await res.text().catch(() => "");
       if (res.status === 429 || res.status >= 500) {
         lastError = new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
         const retryAfter = Number(res.headers.get("retry-after"));
-        const delay = retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
+        const wanted = retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
+        const delay = Math.min(wanted, MAX_BACKOFF_MS, Math.max(0, deadline - Date.now()));
+        // No budget left to wait AND retry — give up now so the next provider
+        // still has time. Sleeping through the remaining budget helps nobody.
+        if (delay <= 0 || deadline - Date.now() <= delay + 1000) break;
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
     } catch (err) {
+      clearTimeout(timer);
       if (err instanceof Error && err.message.startsWith("HTTP ")) throw err;
-      lastError = err;
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      // An abort is a timeout, and saying so is the difference between a
+      // diagnosable incident and a mystery.
+      lastError = err instanceof Error && err.name === "AbortError"
+        ? new Error(`timed out after ${Math.round(Math.min(PER_REQUEST_TIMEOUT_MS, remaining) / 1000)}s`)
+        : err;
+      const delay = Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS, Math.max(0, deadline - Date.now()));
+      if (delay <= 0 || deadline - Date.now() <= delay + 1000) break;
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   throw lastError instanceof Error ? lastError : new Error("provider unreachable");

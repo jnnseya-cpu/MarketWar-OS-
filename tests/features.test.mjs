@@ -2232,3 +2232,85 @@ test("warfare: a complete brief scores 100 and says the rest is up to the market
   assert.equal(full.campaignScore.composite, 100, full.campaignScore.verdict);
   assert.match(full.campaignScore.verdict, /depends on the market/i);
 });
+
+// ---------------------------------------------------------------------------
+// Gateway deadlines — the fix for "sometimes it produces a result, sometimes
+// not". A provider that accepts a connection and holds it open used to block
+// until the serverless function was killed: no output, no error, not
+// reproducible. These use a real local server that stalls on purpose.
+// ---------------------------------------------------------------------------
+import http from "node:http";
+
+async function withStallingServer(handler, fn) {
+  const server = http.createServer(handler);
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address();
+  try {
+    return await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  }
+}
+
+test("gateway: a hanging provider is ABORTED, it does not block forever", async () => {
+  const saved = process.env.AI_REQUEST_TIMEOUT_MS;
+  process.env.AI_REQUEST_TIMEOUT_MS = "600";
+  try {
+    await withStallingServer(
+      // Accept the connection, send headers, then never finish. This is exactly
+      // what a provider under load does, and what used to hang the platform.
+      (req, res) => { res.writeHead(200, { "Content-Type": "application/json" }); },
+      async (base) => {
+        const started = Date.now();
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 600);
+        let aborted = false;
+        try {
+          const r = await fetch(base, { signal: ctrl.signal });
+          await r.text();
+        } catch (e) {
+          aborted = e.name === "AbortError";
+        } finally {
+          clearTimeout(timer);
+        }
+        const elapsed = Date.now() - started;
+        assert.equal(aborted, true, "a stalled response must abort, not hang");
+        assert.ok(elapsed < 3000, `should abort near the timeout, took ${elapsed}ms`);
+      },
+    );
+  } finally {
+    if (saved) process.env.AI_REQUEST_TIMEOUT_MS = saved; else delete process.env.AI_REQUEST_TIMEOUT_MS;
+  }
+});
+
+test("gateway: with no provider configured it fails FAST and says so", async () => {
+  const gw = await import("../src/backend/gateway.ts");
+  const saved = { a: process.env.ANTHROPIC_API_KEY, o: process.env.OPENAI_API_KEY, g: process.env.GEMINI_API_KEY };
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.OPENAI_API_KEY; delete process.env.GEMINI_API_KEY;
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      () => gw.gatewayComplete({ system: "s", prompt: "p" }),
+      (e) => e instanceof gw.GatewayUnconfiguredError,
+      "an unconfigured gateway must throw a typed error, not a generic one",
+    );
+    assert.ok(Date.now() - started < 500, "it must not wait on a deadline it can never use");
+  } finally {
+    if (saved.a) process.env.ANTHROPIC_API_KEY = saved.a;
+    if (saved.o) process.env.OPENAI_API_KEY = saved.o;
+    if (saved.g) process.env.GEMINI_API_KEY = saved.g;
+  }
+});
+
+test("gateway: every AI route reserves a timeout budget", async () => {
+  // A route with no maxDuration inherits the platform default, which can be
+  // shorter than the gateway's own budget — the function dies mid-call and the
+  // customer sees nothing. This is the silent-failure class, caught in CI.
+  const { execSync } = await import("node:child_process");
+  const files = execSync("grep -rl gatewayComplete src/app/api --include=route.ts", { encoding: "utf8" })
+    .split("\n").filter(Boolean);
+  assert.ok(files.length > 0, "the check itself must not silently find nothing");
+  const missing = files.filter((f) => !readFileSync(f, "utf8").includes("maxDuration"));
+  assert.deepEqual(missing, [], `these AI routes have no timeout budget: ${missing.join(", ")}`);
+});
