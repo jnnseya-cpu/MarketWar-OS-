@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, Zap, Download, Image as ImageIcon } from "lucide-react";
+import { Loader2, Sparkles, Zap, Download, Image as ImageIcon, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
@@ -229,6 +229,32 @@ export default function AgentRunner({
                 />
               </div>
             </div>
+            {/* Claim Guard — what must NOT be published as written. Shown ABOVE
+                the output so it is read before anything is copied out. */}
+            {result.claims && !result.claims.clean && (
+              <div className={`mb-4 rounded-lg border p-3 ${result.claims.blocking ? "border-rose-500/40 bg-rose-500/[0.07]" : "border-amber-500/30 bg-amber-500/[0.06]"}`}>
+                <p className={`flex items-center gap-1.5 text-sm font-bold ${result.claims.blocking ? "text-rose-300" : "text-amber-300"}`}>
+                  <ShieldAlert className="h-4 w-4 shrink-0" /> Check before you publish
+                </p>
+                <p className="mt-1 text-xs text-slate-300">{result.claims.summary}</p>
+                <ul className="mt-2 space-y-2">
+                  {result.claims.findings.map((f, i) => (
+                    <li key={i} className="rounded-md bg-ink-950/50 p-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${f.severity === "block" ? "bg-rose-500/20 text-rose-300" : "bg-amber-500/20 text-amber-300"}`}>
+                          {f.severity === "block" ? "do not publish" : "check"}
+                        </span>
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{f.kind}</span>
+                      </div>
+                      <p className="mt-1 text-xs italic text-slate-200">&ldquo;{f.excerpt}&rdquo;</p>
+                      <p className="mt-1 text-[11px] text-slate-400">{f.reason}</p>
+                      <p className="mt-0.5 text-[11px] text-emerald-300">{f.fix}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* Visual agents: the FINISHED creatives come first — the brief below
                 is the reasoning, not the deliverable. */}
             {isVisual && (

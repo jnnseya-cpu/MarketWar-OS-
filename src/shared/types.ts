@@ -120,6 +120,16 @@ export interface AgentResult {
   mode: "live" | "demo";
   output: string;
   generatedAt: string;
+  // Set by the Claim Guard: anything in this output the customer must not
+  // publish as written (invented testimonials, unevidenced statistics,
+  // absolute claims). Absent/clean means nothing was flagged.
+  claims?: {
+    clean: boolean;
+    blocking: number;
+    warnings: number;
+    summary: string;
+    findings: { kind: string; severity: "block" | "warn"; excerpt: string; reason: string; fix: string }[];
+  };
 }
 
 export interface DailyAction {

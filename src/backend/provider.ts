@@ -3,6 +3,7 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import { claimReport } from "@/backend/claim-guard";
 import { AGENTS } from "@/shared/agents";
 import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
 import { withConciseStyle } from "@/backend/agent-style";
@@ -44,6 +45,10 @@ export async function runAgent(
       mode: "live",
       output: result.text,
       generatedAt,
+      // Code gate: scan what the model produced BEFORE the user can act on it.
+      // A prompt rule can be ignored; this cannot. Supplied inputs are passed in
+      // so a figure the CUSTOMER gave us is never flagged as fabricated.
+      claims: claimReport(result.text, Object.values(input).join(" ")),
     };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
@@ -56,12 +61,14 @@ export async function runAgent(
         );
       }
       // Zero-config demo (local/dev/no-key): deterministic output so nothing breaks.
+      const demoText = agent.demoOutput(input);
       return {
         agentId: agent.id,
         agentName: agent.name,
         mode: "demo",
-        output: agent.demoOutput(input),
+        output: demoText,
         generatedAt,
+        claims: claimReport(demoText, Object.values(input).join(" ")),
       };
     }
     throw err;

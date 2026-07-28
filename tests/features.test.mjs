@@ -405,3 +405,54 @@ test("topup: every offered tier is at or above the minimum", () => {
     assert.ok(g >= sub5.MIN_TOPUP_GBP, `£${g} tier is below the £${sub5.MIN_TOPUP_GBP} minimum`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Claim Guard — the CODE gate on publishable claims. A prompt rule can be
+// ignored by a model; this cannot. Uses the exact fabrications live agents
+// produced, so the regression can never return silently.
+// ---------------------------------------------------------------------------
+const guard = await import("../src/backend/claim-guard.ts");
+
+test("claims: the fabricated contractor testimonial is BLOCKED", () => {
+  const out = `Testimonial | UK contractor: cut RFI turnaround | "We stopped chasing drawings. Full stop." — Mark Johnson, Site Director`;
+  const r = guard.claimReport(out);
+  assert.equal(r.clean, false);
+  assert.ok(r.blocking >= 1, "an invented testimonial must be a BLOCKING finding");
+  assert.ok(r.findings.some((f) => f.kind === "testimonial"));
+});
+
+test("claims: the invented £40k ad statistic is flagged", () => {
+  const out = `Hook: "The wrong drawing already cost a UK site £40k this week."`;
+  const r = guard.claimReport(out);
+  assert.equal(r.clean, false);
+  assert.ok(r.findings.some((f) => f.kind === "statistic"), "an unevidenced money figure must be flagged");
+});
+
+test("claims: percentage and multiplier claims are flagged", () => {
+  for (const bad of ["Boost output 40% in the first month", "Get 3x more leads", "Trusted by 10,000 businesses"]) {
+    const r = guard.claimReport(bad);
+    assert.equal(r.clean, false, `should flag: ${bad}`);
+  }
+});
+
+test("claims: a figure the CUSTOMER supplied is NOT flagged as fabricated", () => {
+  // The user told us their price. Repeating their own number is not a fabrication.
+  const supplied = "Our price is £149 per month and we saved a client £40k";
+  const out = `Headline: "Cut your rework — one client saved £40k."`;
+  const r = guard.claimReport(out, supplied);
+  assert.ok(!r.findings.some((f) => f.kind === "statistic"), "the customer's own figure must pass");
+});
+
+test("claims: clean marketing copy passes without noise", () => {
+  const out = `Headline: "One environment for every project file."\n\nOffer: Full access from £149/mo\n\nBook a demo →`;
+  const r = guard.claimReport(out);
+  assert.equal(r.clean, true, `expected clean, got: ${JSON.stringify(r.findings)}`);
+});
+
+test("claims: every finding tells the user how to fix it", () => {
+  const r = guard.claimReport(`"We doubled revenue in 30 days." — Sarah, CEO`);
+  for (const f of r.findings) {
+    assert.ok(f.fix && f.fix.length > 10, "a finding without a fix is not actionable");
+    assert.ok(f.reason && f.reason.length > 10);
+  }
+});
