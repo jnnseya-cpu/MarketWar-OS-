@@ -10,21 +10,29 @@ if (typeof window !== "undefined") {
 // around the clock, or an HTTP API billed per processing minute. Whichever is
 // configured, the customer sees one Render Farm.
 //
-// The lifecycle, as documented:
+// The lifecycle, as OBSERVED (the published docs differ in three places, noted):
 //   1. POST /v1/upload/presigned-url  { filename, contentType, fileSize }
 //                                   → { success, result: { uploadUrl, filename } }
-//   2. PUT  <uploadUrl>               binary, Content-Type must match, 10-min TTL
+//   2. PUT  <uploadUrl>               binary; Content-Type is in the signature,
+//                                     so a mismatch is a hard 403
 //   3. POST /v1/upload/confirm        { filename, fileSize }
-//                                   → { success, result: { fileUrl, downloadUrl } }
-//   4. POST /v1/transcodes            { inputs: [{url}], outputFormat, preset }
-//                                   → { id, status, ... }
-//   5. GET  /v1/transcodes/{id}     → { success, jobId, status, outputUrl?, completedAt? }
-//   6. GET  /v1/transcodes/{id}/download → { url }   (signed, 10-min TTL)
+//                                   → { fileUrl, downloadUrl }      [FLAT, not
+//                                     wrapped in `result` as the docs show]
+//   4. POST /v1/transcodes            { inputs:[{url}], outputFormat, options[] }
+//                                   → { jobId, status, downloadToken }
+//                                     [`jobId`, not `id`; downloadToken is
+//                                     undocumented]
+//   5. GET  /v1/transcodes/{id}     → { status, outputUrl? }
+//                                     [outputUrl is a SIGNED HTTPS URL, not the
+//                                     gs:// the docs show, and it expires in
+//                                     ~10 minutes]
+//   6. GET  /v1/transcodes/{id}/download → { url }   (fresh signed URL)
 //
-// Two shapes to be careful with, both of which cost an afternoon if missed:
-// the upload endpoints wrap their payload in `result` while the transcode
-// create endpoint does NOT, and every byte count must be a JSON number — a
-// quoted string is a 400.
+// Three things that cost an afternoon each if missed: byte counts must be JSON
+// numbers (a quoted string is a 400); the response envelope is inconsistent
+// between endpoints; and every output URL is short-lived, so a finished render
+// MUST be copied into our own storage rather than linked to directly — a job
+// list that shows yesterday's renders would otherwise be a list of dead links.
 
 import {
   passSupportedOnHostedApi, toOptionPairs, outputFormatFor,
@@ -33,8 +41,19 @@ import {
 
 const BASE = (process.env.FFMPEG_CLOUD_URL || "https://api.ffmpeg-micro.com").replace(/\/$/, "");
 
-// Their signed URLs — both upload and download — last 10 minutes.
+// Signed-URL lifetimes vary by endpoint (uploads have been seen at 900s,
+// outputs at 600s, confirm's download link at 3600s), so nothing here assumes a
+// fixed window — signedUrlSecondsRemaining reads each URL's own deadline.
+// This is only the conservative default used when a URL cannot be parsed.
 export const SIGNED_URL_TTL_SEC = 600;
+
+// A finished render's URL dies within minutes. True when we still have time to
+// copy the file into our own storage, which is what makes a download link in
+// the job list work tomorrow as well as today.
+export function outputStillFetchable(url: string, now = Date.now()): boolean {
+  const left = signedUrlSecondsRemaining(url, now);
+  return left === null || left > 15;
+}
 // Guard rail: a render source larger than this is a mistake, not a marketing
 // video, and would burn ACUs on a transfer that times out.
 export const MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
@@ -42,7 +61,24 @@ export const MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
 export type CloudJobStatus = "pending" | "processing" | "completed" | "failed";
 export type PresignedUpload = { uploadUrl: string; filename: string };
 export type ConfirmedUpload = { fileUrl: string; downloadUrl?: string };
-export type CloudJob = { id: string; status: CloudJobStatus; outputUrl?: string; completedAt?: string; error?: string };
+export type CloudJob = {
+  id: string;
+  status: CloudJobStatus;
+  outputUrl?: string;
+  completedAt?: string;
+  error?: string;
+  // Returned by the live create endpoint (undocumented). Kept because it is the
+  // handle for the finished file; discarding it would be discarding the result.
+  downloadToken?: string;
+};
+
+// The create endpoint returns `jobId` live but `id` in the docs, and the status
+// endpoint returns `jobId`. Read every spelling — a job id we fail to find
+// reads as "the service returned no job id" and loses a render already paid for.
+type JobEnvelope = { jobId?: string; id?: string; status?: CloudJobStatus; downloadToken?: string; outputUrl?: string; completedAt?: string; error?: string };
+export function jobIdOf(body: JobEnvelope): string {
+  return (body.jobId || body.id || "").trim();
+}
 
 function key(): string { return (process.env.FFMPEG_CLOUD_API_KEY || "").trim(); }
 export function ffmpegCloudConfigured(): boolean { return Boolean(key()); }
@@ -134,19 +170,49 @@ export async function presignUpload(input: { filename: string; fileSize: number 
   return { ok: true, upload: r.data, contentType: valid.contentType! };
 }
 
+// How long a signed URL actually has left, read from the signature itself.
+//
+// The docs say 10 minutes and the signatures we have seen say 900s — so trust
+// neither and read X-Goog-Date + X-Goog-Expires off the URL. This matters for a
+// large upload: knowing there are four minutes left is the difference between a
+// clear message and an opaque 403 after a long transfer.
+export function signedUrlSecondsRemaining(url: string, now = Date.now()): number | null {
+  try {
+    const q = new URL(url).searchParams;
+    const expires = Number(q.get("X-Goog-Expires"));
+    const date = q.get("X-Goog-Date") || "";
+    // Basic-format ISO8601: 20260728T110901Z
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(date);
+    if (!Number.isFinite(expires) || !m) return null;
+    const signedAt = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return Math.round((signedAt + expires * 1000 - now) / 1000);
+  } catch {
+    return null;
+  }
+}
+
 // --- 2. push the bytes ------------------------------------------------------
-// The Content-Type MUST match the one the URL was signed with — Cloud Storage
-// rejects the PUT otherwise with an opaque error, so both come from one place.
+// The Content-Type MUST match the one the URL was signed with — it is in
+// X-Goog-SignedHeaders, so a mismatch is a hard 403 with an opaque body. Both
+// the signing request and this PUT take it from one function.
 export async function uploadToPresigned(uploadUrl: string, bytes: ArrayBuffer, contentType: string): Promise<{ ok: boolean; error?: string }> {
+  const left = signedUrlSecondsRemaining(uploadUrl);
+  if (left !== null && left <= 0) {
+    return { ok: false, error: "That upload link has already expired. Start the upload again." };
+  }
   try {
     const res = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
     if (!res.ok) {
-      return {
-        ok: false,
-        error: res.status === 403
-          ? "The upload link expired before the file finished (they last 10 minutes). Try again."
-          : `Upload failed (HTTP ${res.status}).`,
-      };
+      if (res.status === 403) {
+        const now = signedUrlSecondsRemaining(uploadUrl);
+        return {
+          ok: false,
+          error: now !== null && now <= 0
+            ? "The upload link expired before the file finished. Try again, or upload a smaller file."
+            : "Cloud Storage rejected the upload — the content type must match the one the link was signed with.",
+        };
+      }
+      return { ok: false, error: `Upload failed (HTTP ${res.status}).` };
     }
     return { ok: true };
   } catch (e) {
@@ -189,7 +255,7 @@ export async function createTranscode(input: {
   preset?: { quality?: string; resolution?: string };
 }): Promise<{ ok: true; job: CloudJob } | { ok: false; error: string }> {
   if (!input.inputUrls.length) return { ok: false, error: "A render needs at least one input." };
-  const r = await api<{ id?: string; status?: CloudJobStatus }>("/v1/transcodes", {
+  const r = await api<JobEnvelope>("/v1/transcodes", {
     method: "POST",
     body: JSON.stringify({
       inputs: input.inputUrls.map((url) => ({ url })),
@@ -198,8 +264,9 @@ export async function createTranscode(input: {
     }),
   });
   if (!r.ok) return r;
-  if (!r.data.id) return { ok: false, error: "The service accepted the job but returned no job id." };
-  return { ok: true, job: { id: r.data.id, status: r.data.status || "pending" } };
+  const id = jobIdOf(r.data);
+  if (!id) return { ok: false, error: "The service accepted the job but returned no job id." };
+  return { ok: true, job: { id, status: r.data.status || "pending", downloadToken: r.data.downloadToken } };
 }
 
 // Submit ONE render pass from the shared recipes. This is the bridge between
@@ -223,7 +290,7 @@ export async function submitPass(input: {
     return { ok: false, error: e instanceof Error ? e.message : "Those render settings cannot be sent to the hosted service." };
   }
 
-  const r = await api<{ id?: string; status?: CloudJobStatus }>("/v1/transcodes", {
+  const r = await api<JobEnvelope>("/v1/transcodes", {
     method: "POST",
     body: JSON.stringify({
       inputs: [{ url: input.sourceUrl }],
@@ -232,24 +299,24 @@ export async function submitPass(input: {
     }),
   });
   if (!r.ok) return r;
-  if (!r.data.id) return { ok: false, error: "The service accepted the job but returned no job id." };
-  return { ok: true, job: { id: r.data.id, status: r.data.status || "pending" } };
+  const id = jobIdOf(r.data);
+  if (!id) return { ok: false, error: "The service accepted the job but returned no job id." };
+  return { ok: true, job: { id, status: r.data.status || "pending", downloadToken: r.data.downloadToken } };
 }
 
 // --- 5. poll ----------------------------------------------------------------
 export async function getTranscode(jobId: string): Promise<{ ok: true; job: CloudJob } | { ok: false; error: string }> {
-  const r = await api<{ jobId?: string; id?: string; status?: CloudJobStatus; outputUrl?: string; completedAt?: string; error?: string }>(
-    `/v1/transcodes/${encodeURIComponent(jobId)}`,
-  );
+  const r = await api<JobEnvelope>(`/v1/transcodes/${encodeURIComponent(jobId)}`);
   if (!r.ok) return r;
   return {
     ok: true,
     job: {
-      id: r.data.jobId || r.data.id || jobId,
+      id: jobIdOf(r.data) || jobId,
       status: r.data.status || "pending",
       outputUrl: r.data.outputUrl,
       completedAt: r.data.completedAt,
       error: r.data.error,
+      downloadToken: r.data.downloadToken,
     },
   };
 }

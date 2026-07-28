@@ -921,3 +921,59 @@ test("hosted ffmpeg: submitting an unsupported pass never reaches the network", 
   assert.equal(r.ok, false);
   assert.match(r.error, /self-hosted render worker/, "it must tell the operator where this render CAN run");
 });
+
+// ---------------------------------------------------------------------------
+// Observed vendor responses. The docs and the live API disagree in places, so
+// these pin what the API ACTUALLY returns (URLs below are synthetic).
+// ---------------------------------------------------------------------------
+test("hosted ffmpeg: confirm is read correctly whether or not it wraps in `result`", () => {
+  // Live responses have been seen flat; the docs show them wrapped. Both must work.
+  const flat = fc.unwrap({ fileUrl: "gs://bucket/123-clip.mp4", downloadUrl: "https://storage.test/x" });
+  assert.equal(flat.fileUrl, "gs://bucket/123-clip.mp4");
+  const wrapped = fc.unwrap({ success: true, result: { fileUrl: "gs://bucket/123-clip.mp4" } });
+  assert.equal(wrapped.fileUrl, "gs://bucket/123-clip.mp4");
+});
+
+test("hosted ffmpeg: a signed URL's real deadline is read from the signature", () => {
+  // X-Goog-Date is basic-format ISO8601; X-Goog-Expires is seconds from then.
+  const url = "https://storage.googleapis.com/b/o.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256"
+    + "&X-Goog-Date=20260728T110901Z&X-Goog-Expires=900&X-Goog-SignedHeaders=content-type%3Bhost&X-Goog-Signature=deadbeef";
+  const signedAt = Date.UTC(2026, 6, 28, 11, 9, 1);
+  assert.equal(fc.signedUrlSecondsRemaining(url, signedAt), 900, "the full window at the moment of signing");
+  assert.equal(fc.signedUrlSecondsRemaining(url, signedAt + 600_000), 300, "ten minutes later, five left");
+  assert.ok(fc.signedUrlSecondsRemaining(url, signedAt + 901_000) < 0, "past the window it must read as expired");
+});
+
+test("hosted ffmpeg: the deadline reader never throws on a URL it cannot parse", () => {
+  assert.equal(fc.signedUrlSecondsRemaining("not a url"), null);
+  assert.equal(fc.signedUrlSecondsRemaining("https://storage.test/plain.mp4"), null);
+  assert.equal(fc.signedUrlSecondsRemaining("https://s.test/o?X-Goog-Date=garbage&X-Goog-Expires=900"), null);
+});
+
+test("hosted ffmpeg: an already-expired link is refused before the bytes are sent", async () => {
+  const stale = "https://storage.googleapis.com/b/o.mp4?X-Goog-Date=20200101T000000Z&X-Goog-Expires=900&X-Goog-Signature=x";
+  const r = await fc.uploadToPresigned(stale, new ArrayBuffer(8), "video/mp4");
+  assert.equal(r.ok, false);
+  assert.match(r.error, /expired/, "a long upload must not be started against a dead link");
+});
+
+test("hosted ffmpeg: the job id is found under either spelling the API uses", () => {
+  assert.equal(fc.jobIdOf({ jobId: "2296773c-live" }), "2296773c-live", "the live create endpoint returns jobId");
+  assert.equal(fc.jobIdOf({ id: "docs-shape" }), "docs-shape", "the documented shape returns id");
+  assert.equal(fc.jobIdOf({}), "", "neither present must read as missing, not as undefined");
+});
+
+test("hosted ffmpeg: a completed status carries a usable output URL", () => {
+  // The live completed response is flat: { status, outputUrl } with no jobId.
+  const body = fc.unwrap({ status: "completed", outputUrl: "https://storage.test/out.mp4?X-Goog-Expires=600" });
+  assert.equal(fc.toQueueStatus(body.status), "done");
+  assert.ok(body.outputUrl);
+});
+
+test("hosted ffmpeg: a nearly-expired output is treated as not fetchable", () => {
+  const signedAt = Date.UTC(2026, 6, 28, 11, 23, 41);
+  const url = "https://storage.googleapis.com/b/out.mp4?X-Goog-Date=20260728T112341Z&X-Goog-Expires=600&X-Goog-Signature=x";
+  assert.equal(fc.outputStillFetchable(url, signedAt), true, "fresh — copy it to our storage now");
+  assert.equal(fc.outputStillFetchable(url, signedAt + 599_000), false, "one second left is not enough to copy a video");
+  assert.equal(fc.outputStillFetchable("https://plain.test/x.mp4"), true, "an unparseable URL must not be assumed dead");
+});
