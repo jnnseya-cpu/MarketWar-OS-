@@ -21,6 +21,10 @@ type CheckoutResult = { ok: boolean; mode: "live" | "demo"; url: string | null; 
 // Trim generated markdown to a short brief we can feed the next agent.
 const brief = (md: string, n = 700) => md.replace(/```[\s\S]*?```/g, "").replace(/[#*_>`]/g, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, n);
 
+// The structured prospect row the lead engine returns. Kept as a type so the
+// list can be SAVED, not merely rendered.
+type LeadRow = { name: string; website?: string; phone?: string; rating?: number; leadScore: number; flags: string[] };
+
 export default function FirstCustomerPage() {
   const { activeBrand } = useActiveBrand();
   const d = brandDefaults(activeBrand);
@@ -37,6 +41,11 @@ export default function FirstCustomerPage() {
 
   const [offer, setOffer] = useState<string | null>(null);
   const [leads, setLeads] = useState<string | null>(null);
+  // The structured rows behind the table. Without these the sprint produces a
+  // list you can read and nothing you can act on — the prospects have to be
+  // copy-pasted somewhere else before a single message can be sent.
+  const [leadRows, setLeadRows] = useState<LeadRow[]>([]);
+  const [saved, setSaved] = useState<string | null>(null);
   const [outreach, setOutreach] = useState<string | null>(null);
   const [checkout, setCheckout] = useState<CheckoutResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,7 +78,9 @@ export default function FirstCustomerPage() {
       const res = await authedFetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "leads", category, location: form.location }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Failed");
-      const rows: { name: string; website?: string; phone?: string; rating?: number; leadScore: number; flags: string[] }[] = Array.isArray(d.leads) ? d.leads : [];
+      const rows: LeadRow[] = Array.isArray(d.leads) ? d.leads : [];
+      setLeadRows(d.mode === "live" ? rows : []);
+      setSaved(null);
       let md = `## ${d.summary || "Prospects"}\n\n`;
       if (d.mode === "live" && rows.length) {
         md += "**REAL businesses from live Google data — highest-opportunity first.**\n\n";
@@ -84,6 +95,41 @@ export default function FirstCustomerPage() {
       setLeads(md);
     } catch (e) { setLeads(`⚠️ ${e instanceof Error ? e.message : "Failed"}`); } finally { setBusy(null); }
   }
+  // Put the found businesses INTO the Customer Vault, so the sprint hands over
+  // something you can actually work: they appear in the vault tagged with this
+  // sprint, ready for the outreach sequence, and any that convert show up in
+  // the Return Ledger against this campaign.
+  //
+  // Consent is deliberately NOT set. These are businesses found in public
+  // listings, not people who opted in — marking them consented would be a lie
+  // that later authorises a marketing send nobody agreed to.
+  async function saveProspects() {
+    if (!activeBrand || !leadRows.length) return;
+    setBusy("save");
+    setSaved(null);
+    try {
+      const contacts = leadRows.map((l) => ({
+        name: l.name,
+        phone: l.phone || undefined,
+        company: l.name,
+        website: l.website || undefined,
+        town: form.location || undefined,
+        consent: false,
+        source: `sprint:${(form.targetCustomer || form.product || "prospects").slice(0, 40)}`,
+        notes: [l.rating ? `Google rating ${l.rating}` : "", ...(l.flags || [])].filter(Boolean).join(" · "),
+      }));
+      const res = await authedFetch("/api/contacts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: activeBrand.id, business: form.business || activeBrand.name, contacts }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || "Could not save to the vault.");
+      setSaved(`${d.imported ?? contacts.length} prospects saved to your Customer Vault, tagged with this sprint. They are marked NOT consented — these came from public listings, so reach out one to one first and record consent before any bulk send.`);
+    } catch (e) {
+      setSaved(`⚠️ ${e instanceof Error ? e.message : "Could not save."}`);
+    } finally { setBusy(null); }
+  }
+
   async function step3Outreach() {
     setBusy("outreach");
     try {
@@ -175,6 +221,17 @@ export default function FirstCustomerPage() {
 
       {/* 3 — Outreach */}
       <div className="mb-6 card p-5">
+        {leadRows.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <button className="btn-primary" onClick={saveProspects} disabled={busy === "save"}>
+              {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              Save {leadRows.length} prospects to my Vault
+            </button>
+            <span className="text-[11px] text-slate-500">Then they are reachable from Email Center and tracked in the Return Ledger.</span>
+          </div>
+        )}
+        {saved && <p className="mb-4 text-xs leading-relaxed text-emerald-300">{saved}</p>}
+
         <Step n={3} done={Boolean(outreach)} icon={MessageCircle} title="Write the outreach" sub="Ready-to-send WhatsApp + email messages built around your offer." />
         <button className="btn-primary" onClick={step3Outreach} disabled={!ready || busy === "outreach"}>{busy === "outreach" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />} {outreach ? "Rewrite outreach" : "Write my messages"}</button>
         {!offer && <p className="mt-2 text-[11px] text-amber-300">Tip: build the offer first (step 1) so the messages are built around it.</p>}
