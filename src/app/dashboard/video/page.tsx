@@ -37,14 +37,19 @@ import AgentRunner from "@/components/AgentRunner";
 import VideoRenderAndPublish from "@/components/VideoRenderAndPublish";
 import ScreenRecorder from "@/components/ScreenRecorder";
 import VideoEditor from "@/components/VideoEditor";
+import RenderFarm from "@/components/RenderFarm";
+import CaptionEngine from "@/components/CaptionEngine";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type Status = "live" | "p1";
 // A studio gated on a real provider key flips to Live when the key is present
 // (read from the no-spend /api/health/live probe).
-type Cap = "image" | "video" | "publish";
-const CAP_LABELS: Record<Cap, string> = {
+// "render" is different from the others: it is not a key but a machine — the
+// FFmpeg worker that does the pixel work Vercel cannot. Its readiness comes
+// from the job queue, not the key probe.
+type Cap = "image" | "video" | "publish" | "render";
+const CAP_LABELS: Record<Exclude<Cap, "render">, string> = {
   image: "Photoreal image backgrounds",
   video: "Video render (Veo/Sora)",
   publish: "Social publishing (Zernio, 15 channels)",
@@ -67,17 +72,17 @@ function StatusChip({ status }: { status: Status }) {
 // `liveNote`; their chip flips to Live the moment the provider key is present.
 type Studio = { icon: typeof Clapperboard; title: string; desc: string; status: Status; note: string; cap?: Cap; liveNote?: string };
 const STUDIO: Studio[] = [
-  { icon: Clapperboard, title: "AI Video Generator", status: "p1", cap: "video", note: "Scripts, shot lists & platform versions generate live in the Campaign Video tab; rendered video needs a video-model + render queue.", liveNote: "Rendered video is live (Veo / Sora) — render an MP4 in the panel below.", desc: "Prompt/script/product-demo/explainer/testimonial/ad/avatar/image/PPT-to-video — one-click campaign videos with platform versions." },
+  { icon: Clapperboard, title: "AI Video Generator", status: "p1", cap: "video", note: "Scripts, shot lists & platform versions generate live in the Campaign Video tab; rendering an MP4 from a prompt needs a video model (Veo / Sora).", liveNote: "Rendered video is live (Veo / Sora) — render an MP4 in the panel below.", desc: "Prompt/script/product-demo/explainer/testimonial/ad/avatar/image/PPT-to-video — one-click campaign videos with platform versions." },
   { icon: Scissors, title: "Online Video Editor", status: "live", note: "Live now — trim & export clips in the browser in the panel below. No key needed.", desc: "Trim, clip and export video in the browser — turn long recordings into social-ready cuts." },
-  { icon: Captions, title: "Subtitle & Caption Engine", status: "live", note: "Caption specs generated live — run the Captions tab below.", desc: "Auto-subtitles, karaoke captions, word highlights, SRT/VTT, burned-in, multi-language — in Sales/Education/Viral/Brand modes." },
+  { icon: Captions, title: "Subtitle & Caption Engine", status: "live", note: "Live now — the Caption Engine below transcribes your real audio into a real .srt/.vtt. Burning them into the frame is a Render Farm job.", desc: "Auto-subtitles, karaoke captions, word highlights, SRT/VTT, burned-in, multi-language — in Sales/Education/Viral/Brand modes." },
   { icon: Globe2, title: "Translation & Dubbing", status: "p1", note: "The localisation plan generates live in the Global Reach tab; voice cloning + dubbed render need an audio-model.", desc: "Subtitle + voice translation, AI dubbing, voice cloning — one video in 10–50 languages with localised CTAs." },
   { icon: UserSquare2, title: "AI Avatar Studio", status: "p1", note: "Activates when an avatar-render engine is connected (needs a talking-head model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "Talking-head presenters: business, teacher, professional and influencer avatars — a branded company spokesperson in any language." },
   { icon: Mic, title: "Audio Studio", status: "p1", note: "Activates when a voice/TTS engine is connected (needs an audio model + connector — see docs/EXTERNAL-ENGINES.md §5).", desc: "TTS, voiceovers, voice cloning, noise removal, audio enhancement — Perfect Voice, Ad Voice and Course Voice agents." },
   { icon: MonitorPlay, title: "Screen & Presentation Recorder", status: "live", note: "Live now — record your screen + voice in the panel below and download it. No key needed.", desc: "Screen/webcam/slides recording — turn demos into training modules, social clips and help-centre videos." },
-  { icon: Layers, title: "Repurposing Engine", status: "live", note: "Powered by the live clip-intelligence engine — rank & find moments in the lab below.", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
-  { icon: Palette, title: "Brand Kit", status: "p1", cap: "video", note: "Logo colour auto-detection + intro/outro render land with the creative pipeline.", liveNote: "Your logo + brand colours (Brand Studio) theme every creative; intro/outro render is live via the video model.", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
+  { icon: Layers, title: "Repurposing Engine", status: "live", cap: "render", note: "Rank moments in the Clip Lab below, then \u201cCut these into clips\u201d — connect the render worker to get the clip files back.", liveNote: "Live end to end — rank moments in the Clip Lab, hit \u201cCut these into clips\u201d and the Render Farm returns one file per moment, reframed for vertical.", desc: "1 long video → 10 TikToks, 10 Reels, 10 Shorts, 5 LinkedIn clips, 5 Facebook ads, 1 blog, 1 email campaign, 1 landing-page script." },
+  { icon: Palette, title: "Brand Kit", status: "p1", cap: "render", note: "Your logo + brand colours already theme every creative; watermarking video needs the render worker.", liveNote: "Live \u2014 your logo + colours theme every creative, and \u201cWatermark\u201d in the Render Farm burns your logo onto every frame.", desc: "Logo colour auto-detection, fonts, intros/outros, watermarks — the Brand Guardian rejects off-brand visuals at generation time." },
   { icon: Users2, title: "Collaboration & Approvals", status: "live", note: "Live now — open the Collaboration & Approvals workspace from the sidebar. No key needed.", desc: "Team workspace, versions, client approval portal (Approve/Reject/Request Change), creator→editor→manager→client→publish." },
-  { icon: ImagePlus, title: "B-Roll & Visual Enhancer", status: "p1", cap: "video", note: "B-roll generation + background removal need an image/video-model.", liveNote: "B-roll + image-to-video are live via the image/video models.", desc: "AI B-roll, image-to-video, video-to-video, image generation/extension, background removal, green screen, upscaling." },
+  { icon: ImagePlus, title: "B-Roll & Visual Enhancer", status: "p1", cap: "render", note: "B-roll compositing, green-screen keying and upscaling need the render worker connected.", liveNote: "Live in the Render Farm \u2014 composite B-roll, key out a green screen and upscale to 4K. Green-screen removal needs a real green screen, not AI matting.", desc: "AI B-roll, image-to-video, video-to-video, image generation/extension, background removal, green screen, upscaling." },
   { icon: Send, title: "Publishing & Hosting", status: "p1", cap: "publish", note: "Hosting + scheduled publishing activate with channel connectors.", liveNote: "Publishing is live (Zernio, 15 channels) + Firebase Storage hosting — publish or schedule from the render panel.", desc: "Hosting, share/approval links, embed player, platform export, scheduled publishing and the campaign library." },
 ];
 
@@ -116,13 +121,17 @@ export default function VideoWarRoomPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("video");
 
   // Live capability probe — flips the render/publish studios to "Live now".
-  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false });
+  const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false, render: false });
   useEffect(() => {
     let on = true;
     fetch("/api/health/live").then((r) => r.json()).then((d) => {
       if (!on || !Array.isArray(d?.capabilities)) return;
       const ready = (label: string) => Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === label)?.ready);
-      setCaps({ image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video), publish: ready(CAP_LABELS.publish) });
+      setCaps((c) => ({ ...c, image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video), publish: ready(CAP_LABELS.publish) }));
+    }).catch(() => {});
+    // The render worker announces itself on the queue endpoint.
+    fetch("/api/video/jobs").then((r) => r.json()).then((d) => {
+      if (on) setCaps((c) => ({ ...c, render: Boolean(d?.workerConfigured) }));
     }).catch(() => {});
     return () => { on = false; };
   }, []);
@@ -140,6 +149,10 @@ export default function VideoWarRoomPage() {
   const [found, setFound] = useState<FindResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Handoffs into the Render Farm: captions transcribed here get burned in
+  // there, and moments ranked here become the cut list for social clips.
+  const [srtForBurn, setSrtForBurn] = useState<string | undefined>(undefined);
+  const [cutList, setCutList] = useState<{ startSec: number; endSec: number }[] | undefined>(undefined);
 
   const post = (body: Record<string, unknown>) =>
     fetch("/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -260,6 +273,13 @@ export default function VideoWarRoomPage() {
       {/* LIVE video render + publish — render an MP4 and attach it to a post */}
       <VideoRenderAndPublish />
 
+      {/* LIVE Caption Engine — Whisper transcribes the real audio into a real .srt */}
+      <CaptionEngine onSrt={setSrtForBurn} />
+
+      {/* Render Farm — the FFmpeg worker queue: trims, social cuts, burned-in
+          captions, watermarks, B-roll, keying and upscales. Actual files out. */}
+      <div id="render-farm"><RenderFarm presetSrt={srtForBurn} presetMoments={cutList} /></div>
+
       {/* LIVE Clip Intelligence Lab — wired to the real VideoDominance engine */}
       <div className="mb-8 card border-emerald-500/30 p-6">
         <div className="mb-1 flex items-center gap-2">
@@ -298,7 +318,21 @@ export default function VideoWarRoomPage() {
 
             {/* Ranked moments */}
             <div className="card p-4">
-              <h3 className="mb-3 font-display text-sm font-bold text-white">Ranked moments</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-display text-sm font-bold text-white">Ranked moments</h3>
+                {/* Repurposing: the ranking IS the cut list. Send the strongest
+                    moments to the Render Farm and get one clip per moment. */}
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => {
+                    setCutList(ranked.filter((m) => m.momentScore >= 55).map((m) => ({ startSec: m.startSec, endSec: m.endSec })));
+                    document.getElementById("render-farm")?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                >
+                  <Scissors className="h-3.5 w-3.5" /> Cut these into clips →
+                </button>
+              </div>
+              {cutList && <p className="mb-2 text-[11px] text-emerald-300/80">{cutList.length} moments sent to the Render Farm — choose &ldquo;Cut social clips&rdquo; there.</p>}
               <div className="space-y-2">
                 {ranked.map((m) => (
                   <div key={m.id} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-3">
