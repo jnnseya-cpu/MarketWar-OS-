@@ -129,13 +129,13 @@ interface Adapter {
 const anthropic: Adapter = {
   id: "anthropic",
   model: () => process.env.ANTHROPIC_MODEL || "claude-opus-4-8",
-  configured: () => Boolean(process.env.ANTHROPIC_API_KEY),
+  configured: () => Boolean(anthropicKey()),
   async complete(req, deadline) {
     const res = await fetchWithRetry("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY as string,
+        "x-api-key": anthropicKey(),
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
@@ -168,13 +168,13 @@ const anthropic: Adapter = {
 const openai: Adapter = {
   id: "openai",
   model: () => process.env.OPENAI_MODEL || "gpt-5-mini",
-  configured: () => Boolean(process.env.OPENAI_API_KEY),
+  configured: () => Boolean(openaiKey()),
   async complete(req, deadline) {
     const res = await fetchWithRetry("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        authorization: `Bearer ${openaiKey()}`,
       },
       body: JSON.stringify({
         model: openai.model(),
@@ -203,7 +203,20 @@ const openai: Adapter = {
 // Google publishes this key under two names depending on which console you
 // generate it from; accepting both stops a correctly-purchased key sitting
 // unused because it was pasted under the other one.
-function geminiKey(): string { return (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "").trim(); }
+// Every key is read through here. A value pasted into a dashboard often carries
+// a trailing newline or a leading space; sent as an HTTP header that either
+// throws "invalid header value" or is rejected by the provider, and both surface
+// as "the provider is broken" rather than "the value has whitespace on it".
+function envKey(...names: string[]): string {
+  for (const n of names) {
+    const v = (process.env[n] || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+function geminiKey(): string { return envKey("GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"); }
+function anthropicKey(): string { return envKey("ANTHROPIC_API_KEY"); }
+function openaiKey(): string { return envKey("OPENAI_API_KEY"); }
 
 const gemini: Adapter = {
   id: "gemini",
@@ -237,14 +250,47 @@ const gemini: Adapter = {
 
 const ADAPTERS: Record<ProviderId, Adapter> = { anthropic, openai, gemini };
 
+const DEFAULT_ORDER: ProviderId[] = ["anthropic", "openai", "gemini"];
+
+/** Entries in AI_GATEWAY_ORDER that name no known provider — almost always a typo. */
+export function unknownProvidersInOrder(raw = process.env.AI_GATEWAY_ORDER || ""): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((s) => !(s in ADAPTERS));
+}
+
+/**
+ * AI_GATEWAY_ORDER expresses PREFERENCE, never permission.
+ *
+ * It used to be an allowlist: any provider not named in it was dropped from the
+ * gateway entirely. So a deployment with a valid, paid GEMINI_API_KEY in
+ * production never called Gemini once — not because the key was missing, but
+ * because an ordering variable did not mention it. The failure then read "All AI
+ * providers failed: anthropic…; openai…", with no hint that a third working
+ * provider had been excluded by configuration.
+ *
+ * That is the worst class of bug in a platform like this: a paid capability
+ * silently switched off, invisible in the error, and impossible to diagnose from
+ * the outside. A variable whose job is to order a list must never be able to
+ * remove things from it. Named providers now come first in the order given, and
+ * every other known provider follows — so the only thing that decides whether a
+ * provider is used is whether its key is set.
+ *
+ * Separator is any comma or whitespace, so a value pasted with a stray newline
+ * or an extra space still parses. Unknown words are ignored for routing and
+ * reported by unknownProvidersInOrder() so a typo is visible instead of silent.
+ */
 function routingOrder(): Adapter[] {
-  const raw = process.env.AI_GATEWAY_ORDER || "anthropic,openai,gemini";
-  const ids = raw
-    .split(",")
+  const raw = process.env.AI_GATEWAY_ORDER || "";
+  const named = raw
+    .split(/[\s,]+/)
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is ProviderId => s in ADAPTERS);
-  const unique = [...new Set(ids)];
-  return unique.map((id) => ADAPTERS[id]);
+  const preferred = [...new Set(named)];
+  const rest = DEFAULT_ORDER.filter((id) => !preferred.includes(id));
+  return [...preferred, ...rest].map((id) => ADAPTERS[id]);
 }
 
 export function gatewayStatus(): { order: ProviderId[]; providers: ProviderStatus[]; live: boolean; healthyCount: number; note: string } {

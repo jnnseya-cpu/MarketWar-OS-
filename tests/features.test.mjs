@@ -3190,3 +3190,70 @@ test("gateway: status says out loud when there is no fallback at all", async () 
   assert.match(st.note, /demo mode/i);
   assert.ok(Array.isArray(st.providers) && st.providers.length === 3, "all three are reported, configured or not");
 });
+
+// ---------------------------------------------------------------------------
+// The worst bug in this session: a paid, working provider silently switched off.
+//
+// GEMINI_API_KEY was set in Vercel production. Gemini was never called once, and
+// never appeared in any error, because AI_GATEWAY_ORDER was treated as an
+// ALLOWLIST — a variable whose only job is to ORDER a list was able to REMOVE
+// things from it. Undiagnosable from the outside: the key was right, the code
+// was "working", and the capability was off.
+// ---------------------------------------------------------------------------
+
+test("gateway: AI_GATEWAY_ORDER orders providers — it must never remove one", async () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  // The old shape: parse the env, filter to known ids, and return ONLY those.
+  assert.doesNotMatch(src, /const unique = \[\.\.\.new Set\(ids\)\];\s*\n\s*return unique\.map/,
+    "returning only the named providers is what switched off a paid Gemini key");
+  assert.match(src, /const rest = DEFAULT_ORDER\.filter\(\(id\) => !preferred\.includes\(id\)\)/,
+    "providers not named in the order must still be appended, never dropped");
+  assert.match(src, /\[\.\.\.preferred, \.\.\.rest\]/);
+});
+
+test("gateway: a partial order still reaches every configured provider", async () => {
+  const gwmod = "../src/backend/gateway.ts";
+  const prev = process.env.AI_GATEWAY_ORDER;
+  try {
+    // Exactly the production shape: two named, the third omitted.
+    process.env.AI_GATEWAY_ORDER = "anthropic,openai";
+    const { gatewayStatus } = await import(gwmod);
+    const st = gatewayStatus();
+    assert.deepEqual(st.order, ["anthropic", "openai", "gemini"],
+      "gemini must still be in the order — omitting it from the preference is not permission to skip it");
+  } finally {
+    if (prev === undefined) delete process.env.AI_GATEWAY_ORDER; else process.env.AI_GATEWAY_ORDER = prev;
+  }
+});
+
+test("gateway: a typo in the order is reported, not silently obeyed", async () => {
+  const { unknownProvidersInOrder } = await import("../src/backend/gateway.ts");
+  assert.deepEqual(unknownProvidersInOrder("anthropic, gemeni, openai"), ["gemeni"],
+    "a misspelt provider must surface as a typo rather than quietly changing behaviour");
+  assert.deepEqual(unknownProvidersInOrder("anthropic,openai,gemini"), []);
+  // A value pasted with a newline or extra spaces must still parse.
+  assert.deepEqual(unknownProvidersInOrder("anthropic\n openai\tgemini"), []);
+});
+
+test("gateway: keys are trimmed, so a pasted newline is not read as a provider fault", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /function envKey\(/, "one place reads keys, and it trims");
+  for (const bad of [
+    /"x-api-key": process\.env\.ANTHROPIC_API_KEY as string/,
+    /process\.env\.OPENAI_API_KEY as string/,
+  ]) {
+    assert.doesNotMatch(src, bad, "an untrimmed key sent as a header fails in a way that looks like the provider is down");
+  }
+});
+
+test("health: the running deployment reports its own AI posture", () => {
+  const src = readFileSync(new URL("../src/app/api/health/ai/route.ts", import.meta.url), "utf8");
+  assert.match(src, /resolvedOrder/, "the resolved order is the only trustworthy answer to 'is my key being used'");
+  assert.match(src, /keyPresent/, "presence only");
+  // Array .length is fine; a KEY's length or prefix is a disclosure.
+  assert.doesNotMatch(src, /(API_KEY|Key\(\))[^\n]*\.(slice|substring|length)/,
+    "never return a key prefix or length — both narrow a brute-force search");
+  assert.doesNotMatch(src, /process\.env\.[A-Z_]*API_KEY/,
+    "the route must report presence via the gateway, never touch a key value itself");
+  assert.match(src, /unrecognisedInOrder/);
+});
