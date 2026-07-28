@@ -84,20 +84,60 @@ export default function OmnirankPage() {
   return (
     <div>
       <PageHeader
-        kicker="OMNIRANK Dominion Stack · ES-05"
-        title="Own the search. Win the answer. Capture the customer."
-        subtitle={info?.doctrine || "Manufacture the conditions under which a ranking is inevitable — then defend the position with automated counter-fire. White-hat only."}
-        actions={<Pill tone="info">22 modules · 45 agents · 1 graph</Pill>}
+        kicker="Long-game SEO"
+        title="Get found on Google and in AI answers"
+        subtitle="The slow, compounding channel. Connect Google Search Console and we handle the rest — content, technical fixes, links and AI-answer capture. Expect first movement in 6–12 weeks, not this week."
+        actions={<Pill tone="info">runs in the background</Pill>}
       />
 
+      {/* Expectation management — the honest timeline, stated before anything else.
+          SEO is a 3-6 month channel; a customer judging it in week 1 will wrongly
+          conclude the platform does not work. Say so plainly, up front. */}
+      <div className="mb-6 card border-amber-500/25 bg-amber-500/[0.04] p-5">
+        <h2 className="font-display text-sm font-bold text-white">Read this first — what to expect, and when</h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg bg-ink-950/50 p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-amber-300">Weeks 1–4</p>
+            <p className="mt-1 text-sm text-slate-300">Groundwork. Posts published, technical fixes applied, links pitched.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Expect no new customers yet. This is normal.</p>
+          </div>
+          <div className="rounded-lg bg-ink-950/50 p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-amber-300">Weeks 6–12</p>
+            <p className="mt-1 text-sm text-slate-300">First movement: impressions rise, long-tail rankings appear, first AI citations.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Measured in Search Console, not guessed.</p>
+          </div>
+          <div className="rounded-lg bg-ink-950/50 p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-emerald-300">Month 4+</p>
+            <p className="mt-1 text-sm text-slate-300">Compounding traffic and enquiries from search.</p>
+            <p className="mt-1 text-[11px] text-slate-500">This is where SEO pays back.</p>
+          </div>
+        </div>
+        <p className="mt-3 rounded-md bg-ink-900/60 px-3 py-2 text-xs text-slate-300">
+          <span className="font-semibold text-white">Need customers sooner?</span> SEO is the long game — it will not produce a sale this week.
+          For revenue in days, use <Link href="/dashboard/customers" className="font-semibold text-emerald-400 hover:text-emerald-300">Customer Vault</Link> (win back past buyers),{" "}
+          <Link href="/dashboard/email" className="font-semibold text-emerald-400 hover:text-emerald-300">Email</Link> and{" "}
+          <Link href="/dashboard/landing" className="font-semibold text-emerald-400 hover:text-emerald-300">Landing Pages</Link>. Run both: fast channels now, SEO compounding behind them.
+        </p>
+      </div>
+
+      {/* The two things that actually start it */}
+      <div className="mb-8 card border-emerald-500/25 p-5">
+        <h2 className="mb-1 font-display text-sm font-bold text-white">Start it in two steps</h2>
+        <p className="mb-3 text-xs text-slate-400">That is genuinely all you do. Everything below this is detail you never have to touch.</p>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/go-live" className="btn-primary">1 · Connect Google Search Console</Link>
+          <Link href="/dashboard/seo-autopilot" className="btn-ghost">2 · Set your topics + switch on autopilot</Link>
+        </div>
+      </div>
+
       <HowToUse
-        does="Your search-domination command centre. Some engines run now; others switch on when you connect a data source (each card tells you which)."
+        does="The long-game channel: content, technical health, links and AI-answer capture, running in the background. Figures fill in from Search Console — never invented."
         steps={[
-          "1. Use the live engines now — open Content Velocity, Social Amplification, Competitor Displacement and the SEO Workbench (green 'live' cards).",
-          "2. To turn on rank tracking, AI-citation and backlink modules, connect your site + Google Search Console (the 'connect a source' cards link there).",
-          "3. Score yourself with the Dominion Score below — it auto-fills with real figures once those sources are connected.",
+          "1. Connect Google Search Console (Go-Live board) so results can be measured.",
+          "2. Set your topics and switch on SEO Autopilot — it publishes for you.",
+          "3. Check back monthly. Judge it at 90 days, not 9 days.",
         ]}
-        connector="Google Search Console + a rank/backlink data source unlock the measurement modules — the strategy, content and defence engines already work."
+        connector="Search Console unlocks the measurement panels below. Without it we show zeros rather than estimates."
       />
 
       {/* Strategic honesty */}
@@ -152,6 +192,16 @@ export default function OmnirankPage() {
           {dom && <div className="mt-3 inline-flex items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3"><p className="font-display text-4xl font-bold text-emerald-300">{dom.score}</p><p className="text-[10px] text-slate-500">dominion<br/>/100</p></div>}
         </div>
       )}
+
+      {/* Everything below is reference detail. A customer never needs it, so it is
+          collapsed by default — 22 module codes and 45 codenamed agents on first
+          load read as noise and damage trust in the parts that work. */}
+      <details className="mb-8 rounded-xl border border-white/10 bg-ink-950/40 p-4">
+        <summary className="cursor-pointer list-none text-sm font-bold text-slate-300 hover:text-white">
+          Under the bonnet — modules, agents and the 90-day plan ▾
+          <span className="ml-2 text-[11px] font-normal text-slate-500">(reference only — nothing here needs your attention)</span>
+        </summary>
+        <div className="mt-4">
 
       {/* Module registry */}
       {info?.modules && (
@@ -225,6 +275,9 @@ export default function OmnirankPage() {
           </div>
         </div>
       )}
+
+        </div>
+      </details>
 
       <div className="card border-emerald-500/25 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
