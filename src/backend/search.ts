@@ -15,7 +15,15 @@ if (typeof window !== "undefined") {
 export type SearchType = "search" | "news" | "places" | "shopping" | "images";
 
 export type SearchResult = { title: string; link?: string; snippet?: string; extra?: Record<string, string | number | undefined> };
-export type SearchResponse = { query: string; type: SearchType; mode: "live" | "demo"; gl?: string; hl?: string; results: SearchResult[] };
+export type SearchResponse = {
+  query: string; type: SearchType; mode: "live" | "demo"; gl?: string; hl?: string; results: SearchResult[];
+  // Why a KEYED deployment still fell back to demo. Without this, an exhausted
+  // quota is indistinguishable from a missing key — so the platform told a
+  // customer to "set SERPER_API_KEY" for a key that was set, working, and
+  // simply out of credit. That misdiagnosis is expensive: it sends the owner
+  // hunting for vanished environment variables instead of topping up.
+  providerError?: { status: number; reason: string };
+};
 
 const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
 const pick = <T,>(arr: T[], n: number): T => arr[n % arr.length];
@@ -28,6 +36,7 @@ function serperConfigured(): boolean { return Boolean(process.env.SERPER_API_KEY
 export async function webSearch(input: { query: string; type?: SearchType; gl?: string; hl?: string }): Promise<SearchResponse> {
   const type = input.type ?? "search";
   const query = input.query.trim();
+  let providerError: SearchResponse["providerError"];
   if (serperConfigured()) {
     try {
       const res = await fetch(`https://google.serper.dev/${type}`, {
@@ -39,11 +48,22 @@ export async function webSearch(input: { query: string; type?: SearchType; gl?: 
         const data = (await res.json()) as Record<string, unknown>;
         return { query, type, mode: "live", gl: input.gl, hl: input.hl, results: normaliseSerper(data, type) };
       }
-    } catch {
-      // fall through to demo
+      providerError = { status: res.status, reason: serperFailureReason(res.status) };
+    } catch (e) {
+      providerError = { status: 0, reason: `Could not reach the search provider: ${(e as Error).message || "network error"}.` };
     }
   }
-  return { query, type, mode: "demo", gl: input.gl, hl: input.hl, results: demoResults(query, type) };
+  return { query, type, mode: "demo", gl: input.gl, hl: input.hl, results: demoResults(query, type), providerError };
+}
+
+// Turn the provider's status into something the owner can act on. A silent
+// fallback to demo is what made an exhausted quota look like a deleted key.
+export function serperFailureReason(status: number): string {
+  if (status === 401 || status === 403) return "The search key was rejected (401/403) — it is wrong, revoked, or not yet active on this deployment.";
+  if (status === 429) return "Search quota exhausted (429) — the key is valid but out of credits. Top up the Serper plan and it resumes immediately.";
+  if (status === 402) return "Search credits used up (402) — the key works, the balance does not. Top up the Serper plan.";
+  if (status >= 500) return `The search provider is failing (${status}) — this is their outage, not your configuration. Retry shortly.`;
+  return `The search provider refused the request (${status}).`;
 }
 
 function normaliseSerper(data: Record<string, unknown>, type: SearchType): SearchResult[] {

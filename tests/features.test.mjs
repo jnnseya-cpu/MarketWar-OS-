@@ -2924,3 +2924,95 @@ test("email discovery: the clean-up is offered in the vault, and shows before it
   assert.match(src, /auditEmails\(true\)/, "deleting is a second, deliberate click");
   assert.doesNotMatch(src, /batches of 25/, "the batch size claim must match what the server does");
 });
+
+// ---------------------------------------------------------------------------
+// Yield collapse: 1 email from 2,100 companies.
+//
+// Two causes, and they were indistinguishable from each other in the UI.
+//
+// (a) The ownership gate matched word by word, so a firm that registered a long
+//     formal name and bought a short domain from its initials — NWDP SERVICES
+//     LTD → nwdp.co.uk, K&D FIX LTD → kdfix.co.uk — was thrown away as if the
+//     domain belonged to a stranger.
+// (b) webSearch() fell back to demo mode on ANY non-200 from the provider, so an
+//     exhausted quota (429) produced the message "set SERPER_API_KEY" for a key
+//     that was set, valid, and simply out of credit.
+// ---------------------------------------------------------------------------
+
+test("email discovery: a firm's own abbreviated domain is not thrown away", () => {
+  const shouldPass = [
+    ["NWDP SERVICES LTD", "nwdp.co.uk"],
+    ["K&D FIX LTD", "kdfix.co.uk"],
+    ["SANTA DAMPPROOFING AND CONSTRUCTION LTD", "santadamp.co.uk"],
+    ["SJB SHOPFITTING LTD", "sjbshopfitting.co.uk"],
+    ["A H MIDLANDS LTD", "ahmidlands.co.uk"],
+    ["M&M RESIDENTIAL GROUP LTD", "mmresidential.co.uk"],
+    ["GAS NATION LTD", "gasnation.co.uk"],
+  ];
+  for (const [company, host] of shouldPass) {
+    assert.equal(enrich.domainMatchesCompany(company, host), true,
+      `${host} IS ${company}'s own domain — rejecting it is why 2,100 companies produced one email`);
+  }
+});
+
+test("email discovery: loosening for abbreviations did not re-open the directory hole", () => {
+  // Every address that was wrong in the live run must still be refused.
+  const mustStillFail = [
+    ["BUILD WITH US GROUP LTD", "rooplex.co.uk"],
+    ["NWDP SERVICES LTD", "vat-search.co.uk"],
+    ["KALWA DESIGN LIMITED", "thegazette.co"],
+    ["EAST GLOBAL LIMITED", "gov.vg"],
+    ["QBIC DESIGN & CONSTRUCTION LIMITED", "bebee.com"],
+    ["CILI CONSTRUCT LIMITED", "whoisvisiting.com"],
+    ["JSS CONSTRUCTION LTD", "zestate.co.uk"],
+  ];
+  for (const [company, host] of mustStillFail) {
+    assert.equal(enrich.domainMatchesCompany(company, host), false,
+      `${host} still does not belong to ${company}`);
+  }
+});
+
+test("email discovery: the squashed-name rule needs real length, not two letters", () => {
+  assert.equal(enrich.compactName("K&D FIX LTD"), "kdfix");
+  assert.equal(enrich.compactName("NWDP SERVICES LIMITED"), "nwdpservices");
+  // A 2-3 char label must not prefix-match its way onto every company.
+  assert.equal(enrich.domainMatchesCompany("BUILD WITH US GROUP LTD", "bu.co.uk"), false);
+});
+
+test("search: an exhausted quota is reported as exhausted, not as a missing key", () => {
+  const search = "../src/backend/search.ts";
+  assert.match(enrichSearchSrc, /providerError/,
+    "a keyed deployment that gets refused must say why, or the owner hunts for env vars that never moved");
+  assert.ok(search); // path documented for the reader
+});
+
+const enrichSearchSrc = readFileSync(new URL("../src/backend/search.ts", import.meta.url), "utf8");
+
+test("search: each provider status maps to the action that actually fixes it", async () => {
+  const { serperFailureReason } = await import("../src/backend/search.ts");
+  assert.match(serperFailureReason(429), /quota|credit/i);
+  assert.match(serperFailureReason(429), /valid/i, "429 must say the KEY IS FINE — that is the whole point");
+  assert.match(serperFailureReason(402), /credit/i);
+  assert.match(serperFailureReason(401), /rejected|wrong|revoked/i);
+  assert.match(serperFailureReason(503), /outage|provider/i);
+  // The three must not read the same, or the owner cannot tell them apart.
+  assert.notEqual(serperFailureReason(429), serperFailureReason(401));
+});
+
+test("email discovery: the result says WHERE each row stopped", () => {
+  const src = readFileSync(new URL("../src/backend/enrich.ts", import.meta.url), "utf8");
+  for (const stage of ["search_unavailable", "no_own_site", "site_no_email", "found"]) {
+    assert.ok(src.includes(`"${stage}"`), `missing stage ${stage} — "1 from 2,100" is unactionable without it`);
+  }
+  const route = readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8");
+  assert.match(route, /breakdown,/, "and the count must reach the customer");
+  assert.match(route, /providerError/, "including the provider's own reason");
+  const page = readFileSync(new URL("../src/app/dashboard/customers/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /Where the last/, "shown in the vault, not buried in a JSON response");
+});
+
+test("email discovery: the company search is not forced into an exact phrase", () => {
+  const src = readFileSync(new URL("../src/backend/enrich.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /`"\$\{input\.company\}"`/,
+    'exact-phrase search for a Companies-House name like "M.C.B. AND SON LTD" returns almost nothing — the firm\'s own site writes the name the way people say it');
+});

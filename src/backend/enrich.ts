@@ -28,6 +28,15 @@ export type EnrichResult = {
   source: "apollo" | "site" | "search" | "none";
   mode: "live" | "demo";
   note: string;
+  /**
+   * WHERE this row stopped. Without it, "1 email out of 2,100" is unactionable:
+   * it could be an exhausted search quota, companies with no website, websites
+   * with no published address, or an over-strict ownership rule — four totally
+   * different fixes that look identical in a bare count.
+   */
+  stage?: "found" | "search_unavailable" | "no_own_site" | "site_no_email" | "email_rejected";
+  /** Set when the search provider refused (quota/key), as opposed to no key at all. */
+  providerError?: string;
 };
 
 export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO_API_KEY || "").trim()); }
@@ -148,6 +157,23 @@ export function companyTokens(company: string): string[] {
   return distinctive.length ? distinctive : raw.filter((t) => t.length >= 2);
 }
 
+/**
+ * The company name with everything but letters and digits removed, and the legal
+ * suffix dropped: "K&D FIX LTD" → "kdfix".
+ *
+ * Small firms very often register a long formal name and buy a short domain made
+ * of its initials — NWDP SERVICES LTD → nwdp.co.uk, K&D FIX LTD → kdfix.co.uk.
+ * Word-by-word matching cannot see those (the only word long enough to count is
+ * "fix"), so checking the squashed name as a prefix is what keeps real firms
+ * from being thrown away by the ownership gate.
+ */
+export function compactName(company: string): string {
+  return (company || "")
+    .toLowerCase()
+    .replace(/\b(limited|ltd|plc|llp|cic|co|company)\b/g, " ")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 /** The registrable label of a host — "adlmechanicalservices" from adlmechanicalservices.co.uk. */
 export function domainLabel(host: string): string {
   const h = (host || "").replace(/^www\./, "").toLowerCase();
@@ -170,6 +196,14 @@ export function domainMatchesCompany(company: string, host: string): boolean {
   if (!label) return false;
   const tokens = companyTokens(company);
   if (!tokens.length) return false;
+
+  // Squashed-name match, which catches the abbreviations word matching misses:
+  // NWDP SERVICES LTD → nwdp.co.uk, SANTA DAMPPROOFING… → santadamp.co.uk.
+  // Four characters minimum, so a two-letter label cannot match everything.
+  const compact = compactName(company);
+  if (label.length >= 4 && compact.length >= 4) {
+    if (compact.startsWith(label) || label.startsWith(compact)) return true;
+  }
 
   const matched = tokens.filter((t) => label.includes(t));
   // Two distinctive words in common is ownership. One is only enough when it is
@@ -291,13 +325,18 @@ function normalisePhone(s: string): string {
 // Now every result is scanned and only a domain that plausibly belongs to the
 // company is accepted; if none does, we say so rather than handing back a
 // stranger's website to be scraped.
-async function findWebsite(input: EnrichInput): Promise<{ website: string | null; mode: "live" | "demo"; rejected: number }> {
+async function findWebsite(input: EnrichInput): Promise<{ website: string | null; mode: "live" | "demo"; rejected: number; providerError?: string }> {
   if (input.website && /^https?:\/\//i.test(input.website) && !isAggregator(input.website)) {
     return { website: input.website, mode: "live", rejected: 0 };
   }
-  const q = [`"${input.company}"`, input.town, input.trade, "contact"].filter(Boolean).join(" ");
+  // Companies-House names are formal and punctuated ("M.C.B. AND SON LTD").
+  // Forcing them into an exact-phrase query returns almost nothing, because the
+  // firm's own site writes the name the way people say it. So search the plain
+  // trading name with the legal suffix stripped.
+  const trading = (input.company || "").replace(/\b(LIMITED|LTD|PLC|LLP|CIC)\b\.?/gi, " ").replace(/\s{2,}/g, " ").trim();
+  const q = [trading, input.town, input.trade].filter(Boolean).join(" ");
   const res = await webSearch({ query: q, type: "search", gl: "uk" });
-  if (res.mode === "demo") return { website: null, mode: "demo", rejected: 0 };
+  if (res.mode === "demo") return { website: null, mode: "demo", rejected: 0, providerError: res.providerError?.reason };
 
   let rejected = 0;
   for (const r of res.results) {
@@ -423,13 +462,19 @@ export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
 // and reads a genuine email off it. Never fabricates.
 export async function scrapeEnrich(input: EnrichInput): Promise<EnrichResult> {
   const base: EnrichResult = { company: input.company, website: null, email: null, emailConfidence: "none", phone: null, source: "none", mode: "live", note: "" };
-  const { website, mode, rejected } = await findWebsite(input);
+  const { website, mode, rejected, providerError } = await findWebsite(input);
   if (mode === "demo") {
-    return { ...base, mode: "demo", note: "Enrichment needs live Google data — set SERPER_API_KEY. No email invented." };
+    return {
+      ...base, mode: "demo", stage: "search_unavailable", providerError,
+      // A key that is set but out of credit is NOT a missing key, and saying so
+      // sends the owner looking for environment variables that never moved.
+      note: providerError || "Enrichment needs live Google data — set SERPER_API_KEY. No email invented.",
+    };
   }
   if (!website) {
     return {
       ...base,
+      stage: "no_own_site",
       note: rejected
         ? `No website of their own. ${rejected} result${rejected === 1 ? " was" : "s were"} directory or third-party pages about this company — scraping those would have attached someone else's inbox to this row.`
         : "No independent website found for this company (only directory listings). Can't extract an email without inventing one.",
@@ -449,12 +494,12 @@ export async function scrapeEnrich(input: EnrichInput): Promise<EnrichResult> {
     if (picked && picked.confidence === "high") break;
   }
   if (!picked) {
-    return { ...base, website, phone, source: phone ? "site" : "none",
+    return { ...base, website, phone, source: phone ? "site" : "none", stage: "site_no_email",
       note: phone ? `Found the site (${host}) and a phone, but no email published — call, or use the site contact form.` : `Found the site (${host}) but no public email/phone — use the site's contact form.` };
   }
   return {
     company: input.company, website, email: picked.email, emailConfidence: picked.confidence, phone,
-    source: "site", mode: "live",
+    source: "site", mode: "live", stage: "found",
     note: `Real email read from ${host}${picked.confidence === "high" ? " (company-domain inbox)" : picked.confidence === "medium" ? " (company domain)" : " (published on the site)"}.`,
   };
 }

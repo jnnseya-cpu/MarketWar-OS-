@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { serperFailureReason } from "@/backend/search";
 
 // Serper self-diagnostic — is real Google data (leads, prospects, market intel)
 // live? Reports whether SERPER_API_KEY is present and validates it with one tiny
@@ -26,12 +27,17 @@ export async function GET() {
         probe = { ran: true, ok: true, organicResults: Array.isArray(d.organic) ? d.organic.length : 0, note: "Serper key valid — real Google/Places data will power the lead + prospect engines." };
       } else {
         const body = (await res.text().catch(() => "")).slice(0, 160);
-        probe = { ran: true, ok: false, httpStatus: res.status, error: body, fix: res.status === 403 || res.status === 401 ? "Key rejected — check it's correct and has credit at serper.dev → Dashboard." : "Serper returned an error — see the status/body above." };
+        // A 429/402 means the key is FINE and the balance is not. Reporting that
+        // as "key rejected" sends the owner hunting for a vanished environment
+        // variable instead of topping up, which is the actual fix.
+        probe = { ran: true, ok: false, httpStatus: res.status, error: body, quotaExhausted: res.status === 429 || res.status === 402, fix: serperFailureReason(res.status) };
       }
     } catch (e) { probe = { ran: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach serper.dev — a network/egress issue on the host." }; }
   }
   const verdict = !key ? "AMBER — no Serper key; real prospect data off (sample data only)."
     : (probe as { ok?: boolean }).ok ? "GREEN — real Google/Places data is live."
-    : "RED — Serper key present but rejected (see fix).";
+    : (probe as { quotaExhausted?: boolean }).quotaExhausted
+      ? "AMBER — the key is valid and OUT OF CREDIT. Nothing is misconfigured; top up the Serper plan and discovery resumes immediately."
+      : "RED — Serper key present but rejected (see fix).";
   return NextResponse.json({ service: "serper", verdict, present, probe });
 }

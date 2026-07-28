@@ -159,6 +159,7 @@ export default function CustomerVaultPage() {
   const [showPaste, setShowPaste] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [auditing, setAuditing] = useState(false);
+  const [breakdown, setBreakdown] = useState<{ found: number; searchUnavailable: number; noOwnSite: number; siteNoEmail: number; total: number } | null>(null);
   const [audit, setAudit] = useState<{ badCount: number; checked: number; sample: { company: string; email: string; reason: string }[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -268,6 +269,14 @@ export default function CustomerVaultPage() {
       try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
       if (!res.ok) { setMsg({ text: (typeof d.error === "string" && d.error) || `Enrichment failed (HTTP ${res.status})`, error: true }); return; }
       if (d.contactCount !== undefined) { setReport(d as unknown as VaultReport); writeCache(activeBrand.id, d as unknown as VaultReport); }
+      const b = d.breakdown as { found?: number; searchUnavailable?: number; noOwnSite?: number; siteNoEmail?: number } | undefined;
+      setBreakdown(b ? {
+        found: Number(b.found) || 0,
+        searchUnavailable: Number(b.searchUnavailable) || 0,
+        noOwnSite: Number(b.noOwnSite) || 0,
+        siteNoEmail: Number(b.siteNoEmail) || 0,
+        total: Number((d as { enrichedCount?: number }).enrichedCount) || 0,
+      } : null);
       setMsg({ text: (typeof d.note === "string" && d.note) || "Enrichment complete.", error: (d as { emailsFound?: number }).emailsFound === 0 });
     } catch (e) {
       setMsg({ text: `Enrichment failed: ${(e as Error).message || "network error"}.`, error: true });
@@ -382,6 +391,23 @@ export default function CustomerVaultPage() {
                 {withEmail > 0 && <span className="text-emerald-300">{withEmail} contactable. </span>}
                 {missingEmail} prospect{missingEmail === 1 ? "" : "s"} without an email — <span className="text-slate-300">Find emails</span> reads each company&apos;s own website (live Google) to get a real address. Done in batches; an address is only attached when the domain belongs to that company, so a directory&apos;s inbox is never passed off as theirs. Nothing is invented — a firm with no public email stays blank.
               </p>
+            )}
+            {breakdown && breakdown.total > 0 && (
+              <div className="mt-3 rounded-lg border border-ink-700 bg-ink-850/50 p-3">
+                <p className="text-[11px] font-semibold text-slate-300">Where the last {breakdown.total} went</p>
+                <ul className="mt-1 space-y-0.5 text-[11px] text-slate-400">
+                  <li><span className="font-semibold text-emerald-300">{breakdown.found}</span> — real email found on the company&apos;s own site.</li>
+                  {breakdown.noOwnSite > 0 && (
+                    <li><span className="font-semibold text-slate-300">{breakdown.noOwnSite}</span> — no website of their own, only directory pages about them. Common for small trades; these are phone/WhatsApp leads, not email leads.</li>
+                  )}
+                  {breakdown.siteNoEmail > 0 && (
+                    <li><span className="font-semibold text-slate-300">{breakdown.siteNoEmail}</span> — has a site but publishes no address (contact form only).</li>
+                  )}
+                  {breakdown.searchUnavailable > 0 && (
+                    <li><span className="font-semibold text-amber-300">{breakdown.searchUnavailable}</span> — could not be looked up at all. This is a search-connector problem, not a data problem: check <span className="font-mono text-slate-300">/api/health/serper</span>.</li>
+                  )}
+                </ul>
+              </div>
             )}
             {audit && (
               <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3">

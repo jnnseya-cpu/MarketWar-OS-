@@ -201,6 +201,20 @@ export async function POST(req: NextRequest) {
     const searched = results.filter(Boolean);
     const demoCount = searched.filter((r) => r?.mode === "demo").length;
     const allDemo = searched.length > 0 && demoCount === searched.length;
+
+    // Where every row actually stopped. "1 email out of 2,100" is unactionable
+    // on its own — an exhausted search quota, firms with no website, and sites
+    // with no published address are three different problems with three
+    // different fixes, and they look identical in a bare count.
+    const breakdown = {
+      found: searched.filter((r) => r?.stage === "found").length,
+      searchUnavailable: searched.filter((r) => r?.stage === "search_unavailable").length,
+      noOwnSite: searched.filter((r) => r?.stage === "no_own_site").length,
+      siteNoEmail: searched.filter((r) => r?.stage === "site_no_email").length,
+    };
+    // The provider's own words when a KEYED deployment was refused — quota
+    // exhausted reads exactly like a deleted key unless it is passed through.
+    const providerError = searched.find((r) => r?.providerError)?.providerError;
     return NextResponse.json({
       action: "enrich",
       enrichedCount: batch.length,
@@ -211,18 +225,24 @@ export async function POST(req: NextRequest) {
       // rather than inferring it from a single sentence about the batch.
       couldNotLookUp: demoCount,
       rejectedAsDirectory: sharedDropped,
+      breakdown,
+      providerError,
       results: batch.map((c, i) => ({ id: c.id, company: c.company || c.name, email: results[i]?.email || null, phone: results[i]?.phone || null, website: results[i]?.website || null, note: results[i]?.note || "" })),
       ...vault,
       note: allDemo
-        ? "None of these could be looked up — live email discovery needs a search connector (SERPER_API_KEY). No emails were invented."
+        ? (providerError
+            ? `${providerError} Nothing was looked up on this run, and no emails were invented.`
+            : "None of these could be looked up — live email discovery needs a search connector (SERPER_API_KEY). No emails were invented.")
         : [
             `Checked ${batch.length} compan${batch.length === 1 ? "y" : "ies"} — found ${withEmail} real email${withEmail === 1 ? "" : "s"} on their own websites.`,
             // Finding nothing is a RESULT, not a failure, and saying so stops a
             // customer concluding the feature is broken.
-            withEmail === 0 && demoCount === 0
+            withEmail === 0 && demoCount === 0 && breakdown.siteNoEmail > 0
               ? " These businesses do not publish an email address, which is common for trades — use the phone numbers instead."
               : "",
-            demoCount > 0 ? ` ${demoCount} could not be looked up (no search connector for those).` : "",
+            demoCount > 0 ? ` ${demoCount} could not be looked up${providerError ? ` — ${providerError}` : " (no search connector for those)"}.` : "",
+            breakdown.noOwnSite > 0 ? ` ${breakdown.noOwnSite} have no website of their own — only directory pages about them, which is normal for small trades and is a phone/WhatsApp lead, not an email one.` : "",
+            breakdown.siteNoEmail > 0 ? ` ${breakdown.siteNoEmail} have a site but publish no address (contact form only).` : "",
             sharedDropped > 0 ? ` ${sharedDropped} address${sharedDropped === 1 ? "" : "es"} were rejected for belonging to a directory rather than to the business.` : "",
             targets.length > batch.length ? ` ${targets.length - batch.length} more remain — run again to continue.` : "",
           ].join(""),
