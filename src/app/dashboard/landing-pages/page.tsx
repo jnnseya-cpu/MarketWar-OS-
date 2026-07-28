@@ -37,7 +37,15 @@ type PageReport = {
 
 export default function LandingPagesPage() {
   const { activeBrand } = useActiveBrand();
-  const [form, setForm] = useState({ business: "", location: "", campaign: "", offer: "", goal: "" });
+  const [form, setForm] = useState({
+    business: "", location: "", campaign: "", offer: "", goal: "",
+    // Everything below exists to close a specific gap the page-anatomy audit
+    // flags. Each one was already supported by the generator and simply had no
+    // field to put it in.
+    pain: "", ctaLabel: "", ctaDest: "form" as "form" | "whatsapp" | "link",
+    whatsapp: "", ctaUrl: "", deadline: "",
+    proofQuote: "", proofName: "",
+  });
   const [publishing, setPublishing] = useState(false);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -91,6 +99,16 @@ export default function LandingPagesPage() {
           business: form.business || activeBrand.name,
           objective: form.goal, offer: form.offer, location: form.location,
           product: form.campaign, audience: brandDefaults(activeBrand).audience,
+          painPoint: form.pain || undefined,
+          ctaLabel: form.ctaLabel || undefined,
+          // One destination, chosen deliberately. A button with nowhere to go
+          // is the single most common reason a page produces no leads.
+          whatsappNumber: form.ctaDest === "whatsapp" ? form.whatsapp : undefined,
+          ctaUrl: form.ctaDest === "link" ? form.ctaUrl : undefined,
+          deadline: form.deadline || undefined,
+          testimonials: form.proofQuote.trim() && form.proofName.trim()
+            ? [{ quote: form.proofQuote.trim(), name: form.proofName.trim() }]
+            : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -120,6 +138,61 @@ export default function LandingPagesPage() {
           <div><label className="label">Offer</label><input className="input" value={form.offer} onChange={set("offer")} placeholder="Feed 4 for £25, Fridays only" /></div>
           <div><label className="label">Location</label><input className="input" value={form.location} onChange={set("location")} /></div>
           <div><label className="label">Conversion goal</label><input className="input" value={form.goal} onChange={set("goal")} placeholder="get whatsapp orders" /></div>
+          <div className="sm:col-span-2">
+            <label className="label">The problem your customer has</label>
+            <input className="input" value={form.pain} onChange={set("pain")} placeholder="drawings getting lost in email threads" />
+            <p className="mt-1 text-[11px] text-slate-500">Fills the &ldquo;Problem → benefits&rdquo; section. Say it the way a customer would.</p>
+          </div>
+
+          {/* ---- the single CTA, and where it actually goes ---- */}
+          <div className="sm:col-span-2 rounded-lg border border-white/[0.08] p-3">
+            <label className="label">Where should the button send them?</label>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {([
+                { key: "whatsapp", label: "WhatsApp chat" },
+                { key: "link", label: "My own link" },
+                { key: "form", label: "Lead form on the page" },
+              ] as const).map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, ctaDest: o.key }))}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    form.ctaDest === o.key ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40" : "bg-white/[0.04] text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {form.ctaDest === "whatsapp" && (
+              <input className="input" value={form.whatsapp} onChange={set("whatsapp")} placeholder="447700900123 — number with country code, no + or spaces" />
+            )}
+            {form.ctaDest === "link" && (
+              <input className="input" value={form.ctaUrl} onChange={set("ctaUrl")} placeholder="https://… your checkout, booking or product page" />
+            )}
+            {form.ctaDest === "form" && (
+              <p className="text-[11px] text-slate-500">The button scrolls to a two-field form. Every submission lands in your Customer Vault, tagged with this page.</p>
+            )}
+            <input className="input mt-2" value={form.ctaLabel} onChange={set("ctaLabel")} placeholder="Button wording — e.g. “Book a 15-min walkthrough”" />
+          </div>
+
+          {/* ---- proof: real or nothing ---- */}
+          <div className="sm:col-span-2 rounded-lg border border-white/[0.08] p-3">
+            <label className="label">A real customer quote (optional)</label>
+            <input className="input" value={form.proofQuote} onChange={set("proofQuote")} placeholder="Cut our RFI turnaround from days to hours." />
+            <input className="input mt-2" value={form.proofName} onChange={set("proofName")} placeholder="Who said it — name and company" />
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-300/80">
+              Only used if you give both the quote and the name. Nothing here is ever generated — an invented testimonial is a
+              legal problem, not a shortcut. Leave it blank and the proof section is simply omitted.
+            </p>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="label">A real deadline (optional)</label>
+            <input className="input" value={form.deadline} onChange={set("deadline")} placeholder="Offer closes Friday 5pm" />
+            <p className="mt-1 text-[11px] text-slate-500">Only fill this if the offer genuinely ends. A countdown that resets on refresh is noticed, and it costs trust permanently.</p>
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button className="btn-primary !bg-emerald-500 hover:!bg-emerald-400" onClick={publish} disabled={publishing || !activeBrand}>

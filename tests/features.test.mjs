@@ -2088,3 +2088,68 @@ test("copywriter: the system prompt forbids the things that got us in trouble", 
     assert.ok(src.toLowerCase().includes(rule.toLowerCase()), `the copywriter must forbid: ${rule}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The publish form now has a field for every gap the anatomy audit reports.
+// These check the generator honours them — and refuses to fake the ones it
+// cannot honestly produce.
+// ---------------------------------------------------------------------------
+test("publish inputs: a supplied customer quote becomes a real proof section", () => {
+  const page = landing.generateLandingPage({
+    business: "VeryX", product: "CDE software", objective: "get leads", offer: "£149/mo",
+    testimonials: [{ quote: "Cut our RFI turnaround from days to hours.", name: "Site Manager, Acme Build" }],
+  });
+  const proof = page.sections.find((s) => s.type === "proof");
+  assert.ok(proof, "a supplied quote must appear on the page");
+  assert.match(proof.items[0], /RFI turnaround/);
+  assert.match(proof.items[0], /Acme Build/, "the attribution must survive — an anonymous quote is not proof");
+});
+
+test("publish inputs: an unattributed quote is DROPPED, never published anonymously", () => {
+  const page = landing.generateLandingPage({
+    business: "VeryX", product: "CDE software", objective: "get leads",
+    testimonials: [{ quote: "Brilliant service!", name: "" }],
+  });
+  assert.equal(page.sections.find((s) => s.type === "proof"), undefined);
+});
+
+test("publish inputs: no quote means NO proof section — never a generated one", () => {
+  const page = landing.generateLandingPage({ business: "VeryX", product: "CDE software", objective: "get leads" });
+  const proof = page.sections.find((s) => s.type === "proof");
+  assert.equal(proof, undefined, "the platform must never write a testimonial nobody said");
+});
+
+test("publish inputs: a real deadline creates urgency; no deadline creates none", () => {
+  const withDeadline = landing.generateLandingPage({
+    business: "VeryX", product: "CDE", objective: "get leads", offer: "£149/mo", deadline: "Offer closes Friday 5pm",
+  });
+  const without = landing.generateLandingPage({
+    business: "VeryX", product: "CDE", objective: "get leads", offer: "£149/mo",
+  });
+  assert.ok(withDeadline.sections.some((s) => s.type === "urgency"), "a stated deadline must be shown");
+  assert.equal(without.sections.some((s) => s.type === "urgency"), false, "urgency must never be invented");
+});
+
+test("publish inputs: the CTA destination is honoured — WhatsApp, own link, or form", () => {
+  const wa = landing.generateLandingPage({ business: "V", product: "P", objective: "get whatsapp orders", whatsappNumber: "447700900123" });
+  assert.equal(wa.whatsappConfig.enabled, true);
+  assert.equal(wa.whatsappConfig.phoneNumber, "447700900123");
+
+  const link = landing.generateLandingPage({ business: "V", product: "P", objective: "get leads", ctaUrl: "https://x.test/buy" });
+  assert.match(link.primaryCtaUrl, /^https:\/\/x\.test\/buy/, "the owner's own link must be used verbatim");
+
+  const form = landing.generateLandingPage({ business: "V", product: "P", objective: "get leads" });
+  assert.equal(form.formConfig.enabled, true, "with no destination given, the form is the destination");
+});
+
+test("publish inputs: a filled-in page passes its own anatomy audit", () => {
+  const page = landing.generateLandingPage({
+    business: "VeryX", product: "Common Data Environment", objective: "get leads",
+    offer: "£149/mo, first project set up free", location: "United Kingdom",
+    audience: "UK construction PMs", painPoint: "drawings lost in email threads",
+    whatsappNumber: "447700900123", deadline: "Offer closes Friday",
+    testimonials: [{ quote: "Cut our RFI turnaround from days to hours.", name: "Site Manager, Acme Build" }],
+  });
+  const audit = pan.auditPageAnatomy(page);
+  assert.ok(audit.scorePct >= 90, `a fully-filled page should score high, got ${audit.scorePct}: missing ${audit.checks.filter((c) => !c.present).map((c) => c.label).join(", ")}`);
+});

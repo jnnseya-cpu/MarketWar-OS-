@@ -29,6 +29,13 @@ export type LandingInput = {
   // page's button links out instead of scrolling to the built-in lead form —
   // this is what turns a page into "add my own product link", not a placeholder.
   ctaLabel?: string; ctaUrl?: string;
+  // REAL proof, supplied by the owner. Never generated: an invented testimonial
+  // is a legal problem, not a shortcut. Each entry is a quote the owner has and
+  // can stand behind, with the name of the person who said it.
+  testimonials?: { quote: string; name: string }[];
+  // A real deadline. Urgency is only ever rendered when one is given — a
+  // countdown that resets on refresh is noticed, and costs trust permanently.
+  deadline?: string;
 };
 
 import { resolveIndustry } from "@/shared/industry";
@@ -199,11 +206,28 @@ function buildSections(input: LandingInput, pageType: PageType): LandingSection[
   });
 
   // FAQ — real questions WITH honest short answers.
+  // Proof — ONLY from quotes the owner supplied. Nothing here is written by the
+  // platform, because a testimonial nobody said is a claim nobody can defend.
+  const quotes = (input.testimonials || [])
+    .filter((t) => t && t.quote?.trim() && t.name?.trim())
+    .slice(0, 4);
+  if (quotes.length) {
+    sections.push({
+      type: "proof",
+      heading: "What customers say",
+      body: "",
+      items: quotes.map((t) => `\u201C${t.quote.trim()}\u201D — ${t.name.trim()}`),
+    });
+  }
+
   sections.push({ type: "faq", heading: "Questions", body: "", items: faqFor(offer, where, pageType) });
 
   // Urgency — ONLY when the offer is genuinely time-bound (honesty: no fake scarcity).
   if (offer && hasRealDeadline(offer)) {
     sections.push({ type: "urgency", heading: "Don't miss it", body: offer });
+  } else if (clean(input.deadline)) {
+    // A deadline the owner stated explicitly — real, so it may be shown.
+    sections.push({ type: "urgency", heading: "Ends soon", body: clean(input.deadline) });
   }
 
   // Conversion tail (booking/order/app) — describes the real capture step.

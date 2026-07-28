@@ -25,6 +25,18 @@ function inputFrom(body: Record<string, unknown>): LandingInput {
     location: str("location"), product: str("product"), painPoint: str("painPoint"),
     whatsappNumber: str("whatsappNumber"),
     ctaLabel: str("ctaLabel"), ctaUrl: str("ctaUrl"),
+    deadline: str("deadline"),
+    // Only quotes with BOTH a line and an attributable name are accepted. An
+    // anonymous testimonial is not proof, it is decoration.
+    testimonials: Array.isArray(body.testimonials)
+      ? (body.testimonials as unknown[])
+          .map((t) => {
+            const o = (t || {}) as Record<string, unknown>;
+            return { quote: typeof o.quote === "string" ? o.quote.trim() : "", name: typeof o.name === "string" ? o.name.trim() : "" };
+          })
+          .filter((t) => t.quote && t.name)
+          .slice(0, 4)
+      : undefined,
   };
 }
 
