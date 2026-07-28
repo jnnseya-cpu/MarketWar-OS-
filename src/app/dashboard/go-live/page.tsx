@@ -40,9 +40,29 @@ export default function GoLivePage() {
     setBusy(true);
     const out: Check[] = [];
     const get = async (u: string) => { try { const r = await authedFetch(u); return await r.json(); } catch { return null; } };
-    const [stripe, storage, auth, live, serper, apollo, google] = await Promise.all([
+    const [stripe, storage, auth, live, serper, apollo, google, email] = await Promise.all([
       get("/api/health/stripe"), get("/api/health/storage"), get("/api/health/auth"), get("/api/health/live"), get("/api/health/serper"), get("/api/health/apollo"), get("/api/health/google"),
+      get("/api/health/email"),
     ]);
+
+    // Email. On the money path because a win-back campaign to an existing list
+    // is the highest-revenue action in the platform — and the only one that
+    // fails SILENTLY. Nothing errors without SMTP; sends just stop happening.
+    // This row runs a real connect + authenticate against the mail server, so
+    // it can never report "configured" for credentials the server would reject.
+    out.push({
+      key: "email",
+      title: "Email sending — win-back & campaigns",
+      group: "Money path — required to charge",
+      status: email?.probe?.ok ? "green" : email?.configured ? "amber" : "red",
+      detail: email?.verdict
+        || "Probe failed — could not determine whether this deployment can send mail.",
+      fix: email?.probe?.ok
+        ? undefined
+        : email?.activeNode
+          ? `The mail server refused these credentials at "${email?.probe?.stage ?? "connect"}". Check the mailbox password at your mail host — an app-specific password is often required.`
+          : "Set SMTP_HOST, SMTP_USER and SMTP_PASS in Vercel (Production), then redeploy — environment changes only apply to deployments created after them.",
+    });
 
     // Stripe (money)
     out.push({ key: "stripe", title: "Stripe — take payments", group: "Money path — required to charge",
