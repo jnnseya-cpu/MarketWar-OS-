@@ -3016,3 +3016,153 @@ test("email discovery: the company search is not forced into an exact phrase", (
   assert.doesNotMatch(src, /`"\$\{input\.company\}"`/,
     'exact-phrase search for a Companies-House name like "M.C.B. AND SON LTD" returns almost nothing — the firm\'s own site writes the name the way people say it');
 });
+
+// ---------------------------------------------------------------------------
+// Gateway failover. The live error was:
+//
+//   "All AI providers failed: anthropic (timed out after 24s);
+//    openai (skipped — overall gateway deadline reached)"
+//
+// A configured, working fallback never ran, because the first provider was
+// handed the entire budget and spent it on a timeout plus retries. A fallback
+// that only runs when the first provider fails FAST is not a fallback.
+// ---------------------------------------------------------------------------
+const gw = await import("../src/backend/gateway.ts");
+
+test("gateway: a provider that just failed is demoted, not tried first again", () => {
+  gw.__resetProviderCooldowns();
+  const list = [{ id: "anthropic" }, { id: "openai" }, { id: "gemini" }];
+  assert.deepEqual(gw.preferHealthy(list).map((a) => a.id), ["anthropic", "openai", "gemini"],
+    "order is untouched while everything is healthy");
+
+  gw.markProviderCooling("anthropic");
+  assert.deepEqual(gw.preferHealthy(list).map((a) => a.id), ["openai", "gemini", "anthropic"],
+    "a timing-out provider must not cost every later request its full slice before the working one is tried");
+  assert.equal(gw.providerCooling("anthropic"), true);
+  gw.__resetProviderCooldowns();
+});
+
+test("gateway: demotion is never a ban — a blip cannot take the AI offline", () => {
+  gw.__resetProviderCooldowns();
+  const list = [{ id: "anthropic" }, { id: "openai" }];
+  gw.markProviderCooling("anthropic");
+  gw.markProviderCooling("openai");
+  assert.deepEqual(gw.preferHealthy(list).map((a) => a.id), ["anthropic", "openai"],
+    "with everything cooling, every provider is still attempted in the configured order");
+  gw.__resetProviderCooldowns();
+});
+
+test("gateway: the cooldown expires, so recovery does not need a redeploy", () => {
+  gw.__resetProviderCooldowns();
+  const now = 1_000_000;
+  gw.markProviderCooling("anthropic", now);
+  assert.equal(gw.providerCooling("anthropic", now + 60_000), true, "still cooling a minute later");
+  assert.equal(gw.providerCooling("anthropic", now + 600_000), false, "healthy again after the window");
+  gw.__resetProviderCooldowns();
+});
+
+test("gateway: the budget is split so a fallback always gets a real attempt", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /providersLeft/, "each provider must get a share, not the whole deadline");
+  assert.match(src, /adapter\.complete\(req, providerDeadline\)/,
+    "handing the first adapter the overall deadline is exactly what starved the fallback");
+  assert.match(src, /MIN_PROVIDER_MS/, "and a slice too small to succeed is not worth starting");
+});
+
+test("gateway: a success clears the demotion immediately", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /coolingUntil\.delete\(adapter\.id\)/,
+    "recovery must be instant on the first success, not held until a timer expires");
+});
+
+// ---------------------------------------------------------------------------
+// Deliverability Commander — it ended with "send me the sending domain so I can
+// check its live SPF/DKIM/DMARC records", which is a dead end: the domain was in
+// the form above it, and there was nowhere to reply.
+// ---------------------------------------------------------------------------
+const dns = await import("../src/backend/dns-auth.ts");
+
+test("deliverability: whatever the customer typed is reduced to a domain", () => {
+  assert.equal(dns.normaliseDomain("https://www.evandeli.com/"), "evandeli.com",
+    "the form holds a URL — asking again for 'the domain' is why this felt like a dead end");
+  assert.equal(dns.normaliseDomain("info@evandeli.com"), "evandeli.com");
+  assert.equal(dns.normaliseDomain("EVANDELI.COM"), "evandeli.com");
+  assert.equal(dns.normaliseDomain("not a domain"), "");
+  assert.equal(dns.normaliseDomain(""), "");
+});
+
+test("deliverability: a missing record is a blocker with the exact value to publish", async () => {
+  // No DNS is reachable from the test runner, so every lookup comes back empty —
+  // which is precisely the unauthenticated-domain case the report must handle.
+  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com");
+  assert.equal(report.checked, true);
+  assert.equal(report.readyToSend, false, "nothing published means not ready to send");
+  assert.ok(report.blockers.length >= 3, "SPF, DKIM and DMARC must each be named");
+  const spf = report.checks.find((c) => c.id === "spf");
+  const dmarc = report.checks.find((c) => c.id === "dmarc");
+  assert.equal(spf.status, "fail");
+  assert.ok(spf.fix?.value.startsWith("v=spf1"), "telling someone to 'publish SPF' without the record is homework, not help");
+  assert.ok(dmarc.fix?.value.startsWith("v=DMARC1"));
+  assert.equal(dmarc.fix.host, "_dmarc", "the host matters — it is not published at the root");
+  assert.match(report.summary, /NOT ready/i);
+});
+
+test("deliverability: BIMI is cosmetic and must not inflate the score", async () => {
+  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com");
+  assert.equal(report.score, 0, "an unauthenticated domain scores zero, not 'a bit' for optional extras");
+  assert.ok(!report.blockers.some((b) => /BIMI/i.test(b)), "BIMI never blocks a send");
+});
+
+test("deliverability: the agent is handed the DNS answer instead of asking for it", () => {
+  const src = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(src, /checkDomainAuth/, "the platform must read the public records itself");
+  assert.match(src, /liveDnsFacts/, "and put them in the prompt");
+  assert.match(src, /do not tell them to send you the domain/i,
+    "the model must be told it already has the domain, or it asks again");
+  assert.match(src, /maxDuration = 60/, "an agent route calling the gateway must outlast the gateway");
+  assert.match(src, /domainAuth \? \{ \.\.\.result, domainAuth \} : result/,
+    "the records travel beside the prose so the UI can render them");
+});
+
+// ---------------------------------------------------------------------------
+// Multi-tenant leak: a customer viewing their own brand saw
+//
+//   "This brand's property: sc-domain:marketwaros.com"
+//
+// — the PLATFORM's Search Console property, with the platform's clicks and
+// impressions (and, on the query dimension, the platform's actual search terms)
+// presented as the customer's. Caused by falling back to "the first property in
+// the connected account" when the brand's website matched nothing.
+// ---------------------------------------------------------------------------
+
+test("search console: never falls back to whatever property happens to be first", () => {
+  const src = readFileSync(new URL("../src/app/api/seo-insights/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /sitesRes\.sites\[0\]\?\.siteUrl/,
+    "this is the exact line that showed marketwaros.com to a customer as their own property");
+  assert.doesNotMatch(src, /locRes\.locations\[0\]\?\.name/,
+    "the same fallback on Business Profile shows one business's reviews under another's brand");
+  assert.match(src, /needsSelection/, "an unmatched brand must be asked to pick, not silently given someone else's data");
+});
+
+test("search console: a property is only used when it is explicitly this brand's", () => {
+  const src = readFileSync(new URL("../src/app/api/seo-insights/route.ts", import.meta.url), "utf8");
+  // Three legitimate sources, and nothing else: an explicit pick, a saved
+  // mapping for this brand, or a hostname match against this brand's website.
+  assert.match(src, /mapping\?\.siteUrl \|\| matchSite\(sitesRes\.sites, website\) \|\| ""/);
+});
+
+test("search console: hostname matching is strict enough to not cross brands", async () => {
+  const { matchSite } = await import("../src/backend/google-mapping.ts");
+  const sites = [{ siteUrl: "sc-domain:marketwaros.com" }, { siteUrl: "https://evandeli.com/" }];
+  assert.equal(matchSite(sites, "https://www.evandeli.com/"), "https://evandeli.com/");
+  // A brand with no matching property gets NOTHING, not the platform's.
+  assert.equal(matchSite(sites, "https://some-other-brand.co.uk"), undefined);
+  assert.equal(matchSite(sites, undefined), undefined);
+});
+
+test("search console: the empty state explains itself instead of showing zero", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/omnirank/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /No Search Console property is linked to this brand yet/,
+    "a blank '0 clicks' reads as broken; saying why reads as correct");
+  assert.match(src, /gsc\.needsSelection/);
+});

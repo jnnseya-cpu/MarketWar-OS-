@@ -82,6 +82,36 @@ const OVERALL_TIMEOUT_MS = Number(process.env.AI_TOTAL_TIMEOUT_MS || 50_000);
 // Backoff is capped: an 8-second sleep inside a 50-second budget is most of the
 // budget spent waiting rather than working.
 const MAX_BACKOFF_MS = 4_000;
+// The least time worth giving a provider. Below this, starting the call only
+// guarantees another timeout, so the slot is better spent on the next one.
+const MIN_PROVIDER_MS = 8_000;
+// How long a provider that just failed is moved to the BACK of the order.
+//
+// Without this, a provider that is timing out costs its full slice on EVERY
+// request — the customer waits 25 seconds for a failure before the working
+// provider is even tried, on every page, all day. Demoting it means the first
+// request pays that once and the rest go straight to what works. It is a
+// demotion and not a ban: if every provider is cooling, the order is unchanged
+// and all of them are still attempted, so a blip can never take the AI offline.
+const PROVIDER_COOLDOWN_MS = Number(process.env.AI_PROVIDER_COOLDOWN_MS || 300_000);
+const coolingUntil = new Map<ProviderId, number>();
+
+/** Record that a provider failed, so the next request does not wait on it first. */
+export function markProviderCooling(id: ProviderId, now = Date.now()): void {
+  coolingUntil.set(id, now + PROVIDER_COOLDOWN_MS);
+}
+export function providerCooling(id: ProviderId, now = Date.now()): boolean {
+  return (coolingUntil.get(id) ?? 0) > now;
+}
+/** Test seam — the cooldown is process state and would otherwise leak between tests. */
+export function __resetProviderCooldowns(): void { coolingUntil.clear(); }
+
+/** Healthy providers first, cooling ones after, each group keeping its configured order. */
+export function preferHealthy<T extends { id: ProviderId }>(list: T[], now = Date.now()): T[] {
+  const healthy = list.filter((a) => !providerCooling(a.id, now));
+  const cooling = list.filter((a) => providerCooling(a.id, now));
+  return [...healthy, ...cooling];
+}
 
 interface Adapter {
   id: ProviderId;
@@ -244,20 +274,40 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
     ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
     : reqIn;
 
-  const candidates = routingOrder().filter((a) => a.configured());
+  const candidates = preferHealthy(routingOrder().filter((a) => a.configured()));
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 
   const deadline = Date.now() + OVERALL_TIMEOUT_MS;
   const attempts: { provider: ProviderId; error: string }[] = [];
-  for (const adapter of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const adapter = candidates[i];
+    const providersLeft = candidates.length - i;
+    const remaining = deadline - Date.now();
+
     // Out of budget — stop rather than starting a call that cannot finish.
-    if (Date.now() >= deadline) {
+    if (remaining <= MIN_PROVIDER_MS) {
       attempts.push({ provider: adapter.id, error: "skipped — overall gateway deadline reached" });
       break;
     }
+
+    // Each provider gets a FAIR SLICE, not the whole budget.
+    //
+    // Handing the first provider the entire deadline is why a slow Anthropic
+    // produced "anthropic (timed out after 24s); openai (skipped — overall
+    // gateway deadline reached)": the first adapter timed out, retried, and
+    // spent all 50 seconds, so the fallback that exists precisely for this case
+    // never got to run and the customer saw a total failure. Reserving time for
+    // the providers behind it means a fallback always gets a real attempt.
+    // The last remaining provider gets whatever is left, so nothing is wasted.
+    const slice = providersLeft > 1
+      ? Math.max(MIN_PROVIDER_MS, Math.floor(remaining / providersLeft))
+      : remaining;
+    const providerDeadline = Math.min(deadline, Date.now() + slice);
+
     const started = Date.now();
     try {
-      const text = await adapter.complete(req, deadline);
+      const text = await adapter.complete(req, providerDeadline);
+      coolingUntil.delete(adapter.id);   // it works again — restore it at once
       return {
         text,
         provider: adapter.id,
@@ -266,6 +316,8 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
         attempts,
       };
     } catch (err) {
+      // Demote it so the NEXT request does not spend its slice here first.
+      markProviderCooling(adapter.id);
       attempts.push({
         provider: adapter.id,
         error: err instanceof Error ? err.message : String(err),

@@ -42,7 +42,7 @@ export default function OmnirankPage() {
   const [dom, setDom] = useState<{ score: number } | null>(null);
   const [busy, setBusy] = useState(false);
   // Live Search Console → auto-fills the organic vital + flips SC-fed modules.
-  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; site?: string } | null>(null);
+  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; site?: string; needsSelection?: boolean; sites?: string[]; note?: string } | null>(null);
 
   useEffect(() => { fetch("/api/omnirank").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
@@ -70,7 +70,7 @@ export default function OmnirankPage() {
           const inputs = { organicShare };
           setDv(inputs);
           scoreWith(inputs);
-        } else setGsc({ connected: false });
+        } else setGsc({ connected: false, needsSelection: Boolean(d.needsSelection), sites: Array.isArray(d.sites) ? d.sites.map((x: { siteUrl: string }) => x.siteUrl) : [], note: typeof d.note === "string" ? d.note : "" });
       } catch { if (on) setGsc({ connected: false }); }
     })();
     return () => { on = false; };
@@ -179,6 +179,19 @@ export default function OmnirankPage() {
         <div className="mb-8 card p-5">
           <div className="mb-2 flex items-center gap-2"><Gauge className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Dominion Score</h2></div>
           <p className="mb-3 text-xs text-slate-500">Composite of the five vitals (0–100 each; unmeasured = 0). Real figures fill when Search Console, rank and AI-citation sources connect — never invented.</p>
+          {gsc && !gsc.connected && gsc.needsSelection && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2 text-[11px] text-amber-100">
+              <p className="font-semibold">No Search Console property is linked to this brand yet.</p>
+              <p className="mt-0.5 text-slate-400">{gsc.note}</p>
+              {Boolean(gsc.sites?.length) && (
+                <p className="mt-1 text-slate-400">
+                  Verified in the connected Google account: {gsc.sites!.slice(0, 6).map((sName) => <span key={sName} className="mr-1 font-mono text-slate-300">{sName}</span>)}
+                  {gsc.sites!.length > 6 ? `…and ${gsc.sites!.length - 6} more` : ""}
+                </p>
+              )}
+              <p className="mt-1 text-slate-500">Rankings stay empty rather than showing a different site&apos;s numbers — another property&apos;s clicks are not this brand&apos;s data.</p>
+            </div>
+          )}
           {gsc?.connected && (
             <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-slate-300">
               <span className="inline-flex items-center gap-1 font-semibold text-emerald-300"><CheckCircle2 className="h-3.5 w-3.5" /> Search Console live</span>

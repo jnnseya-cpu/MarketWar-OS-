@@ -72,7 +72,7 @@ export default function SearchDominancePage() {
   const [busySeo, setBusySeo] = useState(false);
   const [seoErr, setSeoErr] = useState("");
   // Live Search Console → auto-fills the measurable Dominance components.
-  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; queries?: number } | null>(null);
+  const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; queries?: number; needsSelection?: boolean; sites?: string[]; note?: string } | null>(null);
 
   // Pull the brand's real Search Console figures and translate them into the two
   // components SC actually measures — technical eligibility (indexed & serving)
@@ -98,7 +98,7 @@ export default function SearchDominancePage() {
           setDom(derived);
           const sr = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: derived }) });
           setDomScore(await sr.json().catch(() => null));
-        } else setGsc({ connected: false });
+        } else setGsc({ connected: false, needsSelection: Boolean(d.needsSelection), sites: Array.isArray(d.sites) ? d.sites.map((x: { siteUrl: string }) => x.siteUrl) : [], note: typeof d.note === "string" ? d.note : "" });
       } catch { if (on) setGsc({ connected: false }); }
     })();
     return () => { on = false; };
