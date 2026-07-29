@@ -3543,3 +3543,69 @@ test("routes doing slow external work all reserve a budget", () => {
   assert.deepEqual(missing, [],
     `these routes do slow external work with no reserved time, so they die mid-request: ${missing.join(", ")}`);
 });
+
+// ---------------------------------------------------------------------------
+// "Why does the template have these names?" — Marie Jolaine, Rawbank, Kinshasa.
+//
+// They were invented people hardcoded in the preview. A customer reads that as
+// strangers' data leaking into their template. And because made-up values are
+// uniformly present, a template that breaks on a contact with no company still
+// previewed perfectly.
+//
+// "MarieMarie Jolaine" was the second bug: {{ firstName }}{{ name }} adjacent.
+// The duplicate check existed but ran only when the AI wrote a template, so a
+// hand-typed one shipped it.
+// ---------------------------------------------------------------------------
+
+test("template preview: no invented people are baked into the editor", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email-templates/page.tsx", import.meta.url), "utf8");
+  // Strip comments: the note explaining WHY these names were wrong is worth
+  // keeping, but no invented person may survive in code the page actually runs.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const invented of ["Marie Jolaine", "Rawbank", "marie@example.com", "Gombe"]) {
+    assert.ok(!code.includes(invented),
+      `"${invented}" is a made-up person or company — a customer reasonably asks whose data it is`);
+  }
+  assert.match(src, /\[first name\]/, "an empty vault must show an obvious slot, not a fabricated name");
+  assert.match(src, /previewIsReal/, "and a real contact is used when one exists");
+});
+
+test("template preview: it merges a real contact from the brand's own vault", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email-templates/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /\/api\/contacts\?brandId=/, "the preview must read this brand's actual list");
+  assert.match(src, /rows\.find\(\(c: \{ email\?: string \}\) => c\?\.email\)/,
+    "prefer a contact that could actually be sent to");
+  assert.match(src, /what that person actually receives/i);
+});
+
+test("template preview: duplicate-name templates are flagged as you type", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email-templates/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /tokenWarnings\(`\$\{form\.subject\}/,
+    "a check that only runs when the AI writes the template misses every hand-typed one");
+  assert.match(src, /liveWarnings\.map/, "and the warning has to be rendered");
+});
+
+test("merge tokens: one shared definition, so preview and send cannot disagree", async () => {
+  const shared = await import("../src/shared/merge-tokens.ts");
+  // The exact template that produced "MarieMarie Jolaine".
+  const merged = shared.mergeTokens("Hi {{ firstName }}{{ name }},", { firstname: "Marie", name: "Marie Jolaine" });
+  assert.equal(merged, "Hi MarieMarie Jolaine,", "reproduce the defect before asserting it is caught");
+  assert.ok(shared.tokenWarnings("Hi {{ firstName }}{{ name }},").some((w) => /twice/.test(w)),
+    "and the editor must say so before it is sent");
+
+  const editor = readFileSync(new URL("../src/app/dashboard/email-templates/page.tsx", import.meta.url), "utf8");
+  assert.match(editor, /from "@\/shared\/merge-tokens"/, "the editor uses the shared grammar");
+  assert.doesNotMatch(editor, /Client-safe mirror of MERGE_VARS/,
+    "a local mirror is how a clean preview ships a template that merges badly");
+
+  const sender = readFileSync(new URL("../src/backend/email-templates.ts", import.meta.url), "utf8");
+  assert.match(sender, /return mergeTokens\(text, contactValues\(ctx\)\)/,
+    "and the send path merges through the same function the preview does");
+});
+
+test("merge tokens: an unknown tag still never reaches an inbox raw", async () => {
+  const { mergeTokens } = await import("../src/shared/merge-tokens.ts");
+  assert.equal(mergeTokens("Your rep {{ salesRep }} will call.", {}), "Your rep  will call.",
+    "a literal {{ salesRep }} arriving in someone's inbox is worse than a gap");
+  assert.equal(mergeTokens("Hi {{ firstName | there }},", {}), "Hi there,");
+});

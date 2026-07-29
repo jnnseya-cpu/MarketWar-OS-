@@ -11,29 +11,14 @@ import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle,
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import { MERGE_VARS, mergeTokens, tokenWarnings } from "@/shared/merge-tokens";
 
 type Template = { id: string; brandId: string; name: string; subject: string; html: string; updatedAt: string };
 
-// Client-safe mirror of MERGE_VARS (backend module can't be imported here).
-const VARS: { token: string; label: string }[] = [
-  { token: "firstName", label: "First name" },
-  { token: "name", label: "Full name" },
-  { token: "email", label: "Email" },
-  { token: "company", label: "Company" },
-  { token: "trade", label: "Trade" },
-  { token: "town", label: "Town" },
-  { token: "area", label: "Area" },
-  { token: "brand", label: "Brand" },
-];
-
-// Lightweight client merge for the LIVE preview (same token grammar as the
-// backend). The real send uses the backend merge against each contact.
-function mergePreview(text: string, values: Record<string, string>): string {
-  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_m, key: string, fb?: string) => {
-    const v = values[key.toLowerCase()];
-    return (v && v.length ? v : (fb ?? "")).toString();
-  });
-}
+// The token grammar is SHARED with the send path. A local copy is how a preview
+// ends up looking clean for a template that merges badly on the real list.
+const VARS = MERGE_VARS;
+const mergePreview = mergeTokens;
 
 const BLANK = { id: "", name: "", subject: "", html: "" };
 
@@ -141,14 +126,69 @@ export default function EmailTemplatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrand?.id]);
 
-  const sample = useMemo<Record<string, string>>(() => ({
-    firstname: "Marie", name: "Marie Jolaine", email: "marie@example.com",
-    company: "Rawbank", trade: "Banking", town: "Kinshasa", area: "Gombe",
-    brand: activeBrand?.name || "Your brand",
-  }), [activeBrand]);
+  // Preview against a REAL contact from this brand's vault.
+  //
+  // It used to merge invented people — "Marie Jolaine" at "Rawbank" in
+  // "Kinshasa" — which a customer reasonably reads as strangers' data leaking
+  // into their template. Worse, made-up values are uniformly present, so a
+  // template that breaks on a contact with no company still previewed perfectly.
+  // A real row shows what an actual recipient gets, gaps and all.
+  const [previewContact, setPreviewContact] = useState<{
+    name?: string; email?: string; company?: string; trade?: string; town?: string; area?: string;
+  } | null>(null);
+  const [previewIsReal, setPreviewIsReal] = useState(false);
+
+  useEffect(() => {
+    if (!activeBrand) { setPreviewContact(null); setPreviewIsReal(false); return; }
+    let on = true;
+    (async () => {
+      try {
+        const r = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(activeBrand.id)}&business=${encodeURIComponent(activeBrand.name)}`);
+        const d = await r.json().catch(() => ({}));
+        const rows = Array.isArray(d.customers) ? d.customers : [];
+        const withEmail = rows.find((c: { email?: string }) => c?.email) || rows[0];
+        if (!on) return;
+        setPreviewContact(withEmail || null);
+        setPreviewIsReal(Boolean(withEmail));
+      } catch { if (on) { setPreviewContact(null); setPreviewIsReal(false); } }
+    })();
+    return () => { on = false; };
+  }, [activeBrand]);
+
+  const sample = useMemo<Record<string, string>>(() => {
+    const c = previewContact;
+    if (c) {
+      const full = (c.name || "").trim();
+      return {
+        firstname: full.split(/\s+/)[0] || "",
+        name: full,
+        email: (c.email || "").trim(),
+        company: (c.company || "").trim(),
+        trade: (c.trade || "").trim(),
+        town: (c.town || "").trim(),
+        area: (c.area || "").trim(),
+        brand: activeBrand?.name || "",
+      };
+    }
+    // Empty vault: obvious placeholders, not invented people. Square brackets
+    // read as "this is a slot", which no real name ever does.
+    return {
+      firstname: "[first name]", name: "[full name]", email: "[email]",
+      company: "[company]", trade: "[trade]", town: "[town]", area: "[area]",
+      brand: activeBrand?.name || "[your brand]",
+    };
+  }, [previewContact, activeBrand]);
 
   const previewSubject = mergePreview(form.subject, sample);
   const previewHtml = mergePreview(form.html, sample);
+
+  // Problems that are legal but render badly on a real list — the duplicate name
+  // that produced "MarieMarie Jolaine" is the reason this runs as you type
+  // rather than only when the AI writes the template.
+  const liveWarnings = useMemo(
+    () => tokenWarnings(`${form.subject}\n${form.html}`),
+    [form.subject, form.html],
+  );
 
   function insertVar(token: string) {
     const snippet = `{{ ${token} }}`;
@@ -402,7 +442,27 @@ export default function EmailTemplatesPage() {
               </div>
             )}
 
-            <p className="mt-2 text-[11px] text-slate-500">Preview uses sample data ({sample.name}, {sample.company}…). Use <span className="font-mono text-slate-400">{"{{ firstName | there }}"}</span> to set a fallback when a contact has no value.</p>
+            <p className="mt-2 text-[11px] text-slate-500">
+              {previewIsReal ? (
+                <>Previewed against a real contact in your vault{sample.name ? <> — <span className="text-slate-300">{sample.name}</span></> : null}{sample.company ? <> at <span className="text-slate-300">{sample.company}</span></> : null}. This is what that person actually receives.</>
+              ) : (
+                <>Your vault is empty, so the merge slots show as <span className="font-mono text-slate-400">[first name]</span> rather than an invented person. Import contacts and the preview switches to a real one.</>
+              )}{" "}
+              Use <span className="font-mono text-slate-400">{"{{ firstName | there }}"}</span> to set a fallback for a contact with no value.
+            </p>
+
+            {/* Merge problems that are legal but read badly on a real list. Shown
+                as you type: a template only checked when the AI writes it still
+                goes out wrong when it is typed by hand, which is what happened. */}
+            {liveWarnings.length > 0 && (
+              <div className="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5">
+                {liveWarnings.map((w, i) => (
+                  <p key={i} className="flex items-start gap-1.5 text-[11px] text-amber-100">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {w}
+                  </p>
+                ))}
+              </div>
+            )}
 
             <div className="mt-3 flex items-center gap-3">
               <button className="btn-primary" onClick={save} disabled={saving || !form.name.trim()}>

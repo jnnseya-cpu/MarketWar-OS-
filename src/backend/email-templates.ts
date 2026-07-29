@@ -14,6 +14,7 @@ if (typeof window !== "undefined") {
 import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { Contact } from "@/backend/contacts";
+import { mergeTokens, usedTokens } from "@/shared/merge-tokens";
 
 export type EmailTemplate = {
   id: string;
@@ -32,25 +33,20 @@ export function templateId(brandId: string, name: string): string {
 }
 const docId = (id: string) => id.replace(/\//g, "_");
 
-// The merge tokens a template can use, and where each is sourced from a Contact
-// (+ the brand name). Kept small and obvious so the editor can list them.
-export const MERGE_VARS: { token: string; label: string }[] = [
-  { token: "firstName", label: "First name" },
-  { token: "name", label: "Full name" },
-  { token: "email", label: "Email" },
-  { token: "company", label: "Company" },
-  { token: "trade", label: "Trade / sector" },
-  { token: "town", label: "Town / city" },
-  { token: "area", label: "Area / region" },
-  { token: "brand", label: "Your brand name" },
-];
+// Merge tokens and the merge itself come from shared/merge-tokens so the browser
+// preview and this send path can never disagree about what a template renders.
+export { MERGE_VARS } from "@/shared/merge-tokens";
 
-// Merge {{ token }} (optional `{{ token | fallback }}`) against a contact + brand.
-// Unknown tokens resolve to their fallback or empty string — never left raw.
+// Merge a template against a contact + brand.
 export function mergeTemplate(text: string, ctx: { contact?: Partial<Contact>; brand?: string }): string {
+  return mergeTokens(text, contactValues(ctx));
+}
+
+/** A contact row flattened into the token value map. */
+export function contactValues(ctx: { contact?: Partial<Contact>; brand?: string }): Record<string, string> {
   const c = ctx.contact || {};
   const firstName = (c.name || "").trim().split(/\s+/)[0] || "";
-  const values: Record<string, string> = {
+  return {
     firstname: firstName,
     name: (c.name || "").trim(),
     email: (c.email || "").trim(),
@@ -60,19 +56,10 @@ export function mergeTemplate(text: string, ctx: { contact?: Partial<Contact>; b
     area: (c.area || "").trim(),
     brand: (ctx.brand || "").trim(),
   };
-  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_m, rawKey: string, fallback?: string) => {
-    const v = values[rawKey.toLowerCase()];
-    return (v && v.length ? v : (fallback ?? "")).toString();
-  });
 }
 
-// Which known tokens actually appear in a template (for the editor's chip list).
 export function usedVariables(text: string): string[] {
-  const found = new Set<string>();
-  const re = /\{\{\s*([a-zA-Z0-9_]+)\s*(?:\|[^}]*)?\}\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) found.add(m[1].toLowerCase());
-  return [...found];
+  return usedTokens(text).map((t) => t.toLowerCase());
 }
 
 export async function saveTemplate(brandId: string, name: string, subject: string, html: string, nowISO: string): Promise<EmailTemplate> {
