@@ -122,6 +122,43 @@ export function suggestQuestions(input: { business: string; product?: string; lo
   return q.map((x) => ({ id: hash(x.text), text: x.text, intent: x.intent }));
 }
 
+/**
+ * What KIND of question is this, judged from the words in it?
+ *
+ * Read from the text rather than taken on trust, because the label was not
+ * trustworthy. The route stamped every customer-edited question as "buying",
+ * so "What is AxionOS and would you recommend them?" counted as a buying
+ * question: a live plan claimed "the what-is question is excluded" directly
+ * above the figure "3 of 18", when excluding it gives 15. The panel was
+ * contradicting itself on screen.
+ *
+ * It also decides whether an answer should be mined for competitor names at
+ * all. "What should I look for when choosing a provider?" is answered with
+ * criteria, and reading those as companies told one customer they were losing
+ * to "Lead exclusivity" and "Return/refund policy".
+ */
+export function classifyIntent(text: string, brand: string): VisibilityQuestion["intent"] {
+  const t = (text || "").toLowerCase();
+  for (const alias of brandAliases(brand)) {
+    if (new RegExp(`(?<!\\w)${escapeRe(alias)}(?!\\w)`, "i").test(text)) return "brand";
+  }
+  // Asks for attributes, not vendors.
+  if (/\b(what|which)\b[^?]*\b(look for|consider|matters?|criteria|questions? to ask|avoid|watch out)\b/.test(t)) return "problem";
+  if (/^\s*(how|why)\b/.test(t)) return "problem";
+  if (/\b(compare|versus|vs\.?|difference between)\b/.test(t)) return "comparison";
+  return "buying";
+}
+
+/**
+ * Should competitor names be read out of this answer?
+ *
+ * Only where the question asked WHO. An answer listing what to look for is a
+ * list of criteria, and every entry in it would become a fabricated rival.
+ */
+export function seeksVendors(intent: VisibilityQuestion["intent"]): boolean {
+  return intent === "buying" || intent === "comparison";
+}
+
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
@@ -189,6 +226,33 @@ const NOT_A_NAME_OPENER = /^(?:whether|if|when|while|how|why|what|where|who|whic
 /** Contractions and first/second person are the giveaway that a line is prose. */
 const PROSE_MARKERS = /\b(?:you're|you'll|your|we're|we'll|our|they're|it's|isn't|aren't|don't)\b/i;
 
+/**
+ * Words that describe a market segment or a buying criterion, not a company.
+ *
+ * A live run listed "Mid", "Agencies", "AI features", "B2B mid", "Breadth vs.
+ * depth", "Integrations & API" and "Data model" among a customer's competitors.
+ * Those came from answers that segment the market or list what to look for —
+ * the assistant was being helpful, and the parser read every bullet as a rival.
+ *
+ * A speed bump, not a wall, and curated deliberately short: every entry here is
+ * a name a real company could in principle have, so a long list would start
+ * deleting genuine competitors. The structural rules above do most of the work.
+ */
+const CATEGORY_TERMS = new Set([
+  "enterprise", "mid", "midmarket", "mid-market", "smb", "sme", "small", "medium", "large",
+  "agencies", "agency", "startups", "startup", "freelancers", "individuals", "businesses",
+  "b2b", "b2c", "dtc", "ecommerce", "e-commerce", "retail", "saas",
+  "pricing", "price", "cost", "budget", "integrations", "integration", "api", "support",
+  "features", "feature", "usability", "scalability", "security", "compliance", "reporting",
+  "analytics", "automation", "onboarding", "breadth", "depth", "data", "model", "ai",
+]);
+
+function isCategoryPhrase(name: string): boolean {
+  const words = name.toLowerCase().replace(/[^a-z0-9 -]/g, " ").split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  return words.every((w) => CATEGORY_TERMS.has(w));
+}
+
 function looksLikeBusinessName(name: string): boolean {
   const n = name.trim();
   if (n.length < 2 || n.length > 60) return false;
@@ -196,6 +260,20 @@ function looksLikeBusinessName(name: string): boolean {
   if (n.split(/\s+/).length > 6) return false;
   if (NOT_A_NAME_OPENER.test(n)) return false;
   if (PROSE_MARKERS.test(n)) return false;
+  // Unbalanced brackets mean the capture ran past where the name ended and was
+  // cut off. A live run reported "Asite (UK, Autodesk Construction Cloud (Aut."
+  // as a competitor — half of one company and a third of another.
+  const opens = (n.match(/\(/g) || []).length;
+  const closes = (n.match(/\)/g) || []).length;
+  if (opens !== closes) return false;
+  // A truncated capture also tends to end mid-word after a comma joined two
+  // entries together. One list row is one company.
+  if (n.includes(",")) return false;
+  // A dangling separator is the other truncation signature: "B2B or B2C / e".
+  if (/[/&\-–—+|]\s*\S{0,2}$/.test(n)) return false;
+  // "X or Y" and "X vs Y" describe a choice, not a company.
+  if (/\b(?:or|vs\.?|versus)\b/i.test(n)) return false;
+  if (isCategoryPhrase(n)) return false;
   // A real name carries at least one capitalised word or is a known-style
   // lower-case brand written in full caps/camel. All-lowercase multi-word
   // phrases are overwhelmingly prose.
@@ -374,12 +452,16 @@ export async function runVisibilityCheck(
         continue;
       }
       const { mentioned, evidence } = findMention(res.text, aliases);
-      const { names } = extractNamedBusinesses(res.text);
+      // Competitors only where the question asked WHO. A "what should I look
+      // for" answer is a list of criteria, and mining it produces rivals the
+      // customer does not have.
+      const vendorQuestion = seeksVendors(classifyIntent(question.text, input.brand));
+      const { names } = vendorQuestion ? extractNamedBusinesses(res.text) : { names: [] as string[] };
       verdictFor.set(key, {
         assistant: job.assistant,
         model: res.model,
         mentioned,
-        rank: rankOf(res.text, aliases),
+        rank: vendorQuestion ? rankOf(res.text, aliases) : null,
         // The brand is not its own competitor.
         competitors: names.filter((n) => !aliases.some((a) => new RegExp(`(?<!\\w)${escapeRe(a)}(?!\\w)`, "i").test(n))).slice(0, 10),
         evidence,

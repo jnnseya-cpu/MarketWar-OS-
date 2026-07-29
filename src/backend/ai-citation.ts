@@ -32,7 +32,7 @@ if (typeof window !== "undefined") {
 //   that is fact and goes first.
 
 import type { VisibilityRun } from "@/backend/ai-visibility";
-import { canonicalCompetitor, cleanField } from "@/backend/ai-visibility";
+import { canonicalCompetitor, cleanField, classifyIntent, seeksVendors } from "@/backend/ai-visibility";
 import type { GeoReport } from "@/backend/geo-readiness";
 import { gatewayComplete } from "@/backend/gateway";
 
@@ -85,7 +85,11 @@ export type CitationPlaybook = {
 export function unpromptedScore(run: VisibilityRun): { mentions: number; answers: number; rate: number } {
   let mentions = 0, answers = 0;
   for (const r of run.results) {
-    if (r.question.intent === "brand") continue;
+    // Re-classified from the text, not read off the stored label: runs recorded
+    // before the classifier existed have every question stamped "buying", and
+    // trusting that label is what produced "3 of 18" under a line promising the
+    // brand question was excluded.
+    if (classifyIntent(r.question.text, run.brand) === "brand") continue;
     for (const v of r.verdicts) {
       if (!v.asked) continue;
       answers++;
@@ -95,11 +99,29 @@ export function unpromptedScore(run: VisibilityRun): { mentions: number; answers
   return { mentions, answers, rate: answers ? Math.round((mentions / answers) * 100) : 0 };
 }
 
+/**
+ * How many answers could plausibly have named a company at all.
+ *
+ * Not every buying answer can: "What should I look for when choosing a
+ * provider?" is answered with criteria. Dividing a rival's appearances by ALL
+ * answers understates how dominant they are in the answers that actually list
+ * vendors — a live run showed Asite at 11% when it was in 2 of the 6 answers
+ * where naming anyone was on the table.
+ */
+export function vendorAnswerCount(run: VisibilityRun): number {
+  let n = 0;
+  for (const r of run.results) {
+    if (!seeksVendors(classifyIntent(r.question.text, run.brand))) continue;
+    n += r.verdicts.filter((v) => v.asked).length;
+  }
+  return n;
+}
+
 /** Who the models name instead, as a share of the answers that could have named them. */
 export function incumbents(run: VisibilityRun): { name: string; appearances: number; share: number }[] {
-  const { answers } = unpromptedScore(run);
+  const denom = vendorAnswerCount(run) || unpromptedScore(run).answers;
   return run.topCompetitors
-    .map((c) => ({ ...c, share: answers ? Math.round((c.appearances / answers) * 100) : 0 }))
+    .map((c) => ({ ...c, share: denom ? Math.round((c.appearances / denom) * 100) : 0 }))
     .slice(0, 8);
 }
 
@@ -107,7 +129,7 @@ export function incumbents(run: VisibilityRun): { name: string; appearances: num
 export function missingQuestions(run: VisibilityRun): { question: string; namedInstead: string[] }[] {
   const out: { question: string; namedInstead: string[] }[] = [];
   for (const r of run.results) {
-    if (r.question.intent === "brand") continue;
+    if (classifyIntent(r.question.text, run.brand) === "brand") continue;
     const asked = r.verdicts.filter((v) => v.asked);
     if (!asked.length || asked.some((v) => v.mentioned)) continue;
     const named = new Map<string, string>();
@@ -115,7 +137,13 @@ export function missingQuestions(run: VisibilityRun): { question: string; namedI
       const k = canonicalCompetitor(c);
       if (k && !named.has(k)) named.set(k, c);
     }
-    out.push({ question: r.question.text, namedInstead: [...named.values()].slice(0, 6) });
+    out.push({
+      question: r.question.text,
+      // Only where the question asked WHO. A criteria answer's list items are
+      // attributes: one live plan told a customer they were absent because
+      // assistants "named ISO 19650 support, Model handling, Version control".
+      namedInstead: seeksVendors(classifyIntent(r.question.text, run.brand)) ? [...named.values()].slice(0, 6) : [],
+    });
   }
   return out;
 }
@@ -202,9 +230,21 @@ export function actionsFromSite(geo: GeoReport | null): CitationAction[] {
   ] as const) {
     const c = byId.get(id);
     if (!c || c.status === "pass") continue;
+    // Say what is MISSING, not what to "add" in general. A live plan read "Add
+    // Organization and Product schema" directly above its own evidence line
+    // "Found on the homepage: Organization, ContactPoint" — an action that
+    // contradicts the fact printed under it is worse than no action.
+    let title: string = spec.title;
+    if (id === "schema") {
+      const wanted = ["Organization", "Product", "FAQPage"];
+      const missing = wanted.filter((w) => !new RegExp(`(?<!\\w)${w}(?!\\w)`, "i").test(c.evidence));
+      title = missing.length
+        ? `Add ${missing.join(" and ")} schema — your markup does not include ${missing.length === 1 ? "it" : "them"} yet`
+        : "Extend your existing schema so a model can state facts about you";
+    }
     out.push({
       id: `site-${id}`,
-      title: spec.title,
+      title,
       mechanism: spec.mechanism,
       evidence: c.evidence,
       source: "your site",
@@ -228,7 +268,7 @@ export function actionsFromAnswers(run: VisibilityRun): CitationAction[] {
   const inc = incumbents(run);
   const missing = missingQuestions(run);
 
-  const brandOnly = run.results.some((r) => r.question.intent === "brand" && r.verdicts.some((v) => v.asked && v.mentioned));
+  const brandOnly = run.results.some((r) => classifyIntent(r.question.text, run.brand) === "brand" && r.verdicts.some((v) => v.asked && v.mentioned));
   if (brandOnly && score.mentions === 0) {
     out.push({
       id: "known-but-not-recommended",

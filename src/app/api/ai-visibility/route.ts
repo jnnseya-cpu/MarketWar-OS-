@@ -4,7 +4,7 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { configuredProviders } from "@/backend/gateway";
 import {
-  runVisibilityCheck, suggestQuestions, saveRun, listRuns, trend, RUN_BUDGET_MS,
+  runVisibilityCheck, suggestQuestions, saveRun, listRuns, trend, RUN_BUDGET_MS, classifyIntent,
   type VisibilityQuestion,
 } from "@/backend/ai-visibility";
 
@@ -94,7 +94,10 @@ export async function POST(req: NextRequest) {
     ? (body.questions as unknown[]).map(s).filter(Boolean).slice(0, MAX_QUESTIONS)
     : [];
   const questions: VisibilityQuestion[] = asked.length
-    ? asked.map((text) => ({ id: text.slice(0, 40), text, intent: "buying" as const }))
+    // Classified from the words, not stamped "buying". Stamping meant the
+    // "what is <brand>?" question counted as a buying question, so the plan
+    // reported "3 of 18" under a line saying that question was excluded.
+    ? asked.map((text) => ({ id: text.slice(0, 40), text, intent: classifyIntent(text, brand) }))
     : suggestQuestions({
         business: brand,
         product: s(body.product),

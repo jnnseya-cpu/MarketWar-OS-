@@ -4355,3 +4355,120 @@ test("ai visibility: one company counted once, however the assistant spelled it"
   assert.equal(aconex.appearances, 3, "the split counts must be added back together");
   assert.match(merged[0].name, /Autodesk|Aconex/, "shown with the fullest spelling used");
 });
+
+// --- The contradictions a live plan showed on screen -------------------------
+//
+// Two brands ran the plan and both headlines contradicted the line underneath:
+// "3 of 18 buying answers" printed directly below "the what-is question is
+// excluded" — excluding it gives 15. The cause was the route stamping every
+// customer-edited question intent:"buying", so the exclusion silently did
+// nothing and criteria answers were mined for company names.
+
+test("citation: the brand question is excluded even when the stored label says otherwise", () => {
+  // Exactly the shape the route used to persist: every question stamped
+  // "buying", including the one that hands over the name.
+  const mk = (text, mentioned) => ({
+    question: { id: text.slice(0, 8), text, intent: "buying" },
+    verdicts: [{ assistant: "openai", mentioned, rank: null, competitors: [], evidence: "", answer: "x", asked: true }],
+  });
+  const run = {
+    id: "r", brandId: "b", brand: "VeryX", ranAt: "2026-07-29T00:00:00.000Z",
+    results: [
+      mk("Who are the best CDE providers in the UK?", false),
+      mk("Recommend a CDE company near the UK", false),
+      mk("What is VeryX and would you recommend them?", true),
+    ],
+    visibilityRate: 33, mentioned: 1, askedCount: 3, assistants: ["openai"], topCompetitors: [], note: "",
+  };
+  const score = cite.unpromptedScore(run);
+  assert.equal(score.answers, 2, "a stored label of 'buying' must not smuggle the brand question back in");
+  assert.equal(score.mentions, 0);
+  assert.equal(score.rate, 0, "the headline and the caption under it must agree");
+});
+
+test("ai visibility: 'what should I look for' is a criteria question, not a vendor question", () => {
+  assert.equal(vis.classifyIntent("What should I look for when choosing a CDE provider?", "VeryX"), "problem");
+  assert.equal(vis.classifyIntent("Who are the best CDE providers in the UK?", "VeryX"), "buying");
+  assert.equal(vis.classifyIntent("Compare the leading CDE companies in the UK", "VeryX"), "comparison");
+  assert.equal(vis.classifyIntent("What is VeryX and would you recommend them?", "VeryX"), "brand");
+  // Brand detection is word-boundary matched, like everything else here.
+  assert.equal(vis.classifyIntent("Who are the best veryxjnn.com alternatives?", "VeryX"), "buying");
+
+  assert.equal(vis.seeksVendors("problem"), false,
+    "mining a criteria answer produced rivals called 'Lead exclusivity' and 'ISO 19650 support'");
+  assert.equal(vis.seeksVendors("buying"), true);
+});
+
+test("ai visibility: market segments and buying criteria are not reported as competitors", () => {
+  // Live run listed all of these among a customer's rivals. They came from
+  // answers that segment the market or list what to look for.
+  const { names } = vis.extractNamedBusinesses([
+    "1. **HubSpot** — real",
+    "2. **Mid** — a segment",
+    "3. **Agencies** — a segment",
+    "4. **AI features** — a criterion",
+    "5. **B2B mid** — a segment",
+    "6. **B2B or B2C / e** — truncated description",
+    "7. **Salesforce Marketing Cloud** — real",
+  ].join("\n"));
+  assert.deepEqual(names, ["HubSpot", "Salesforce Marketing Cloud"], names.join(" | "));
+});
+
+test("ai visibility: an unbalanced bracket alone marks a truncated capture", () => {
+  // Separate from the comma rule, which would otherwise carry this test and
+  // leave the bracket check untested — a mutation proved exactly that.
+  const { names } = vis.extractNamedBusinesses([
+    "1. **Autodesk Construction Cloud (ACC** — cut off mid-bracket",
+    "2. **Asite (UK)** — properly closed",
+  ].join("\n"));
+  assert.deepEqual(names, ["Asite (UK)"],
+    "a name whose brackets never close is half a name");
+});
+
+test("ai visibility: a truncated half-name is not reported as a competitor", () => {
+  // Live: "Asite (UK, Autodesk Construction Cloud (Aut." — half of one company
+  // and a third of another, printed to a customer as a single rival.
+  const { names } = vis.extractNamedBusinesses([
+    "1. **Asite (UK, Autodesk Construction Cloud (Aut** — truncated",
+    "2. **Bentley ProjectWise** — fine",
+    "3. **Asite (UK)** — balanced brackets are fine",
+  ].join("\n"));
+  assert.ok(!names.some((n) => n.includes("(Aut")), names.join(" | "));
+  assert.ok(names.includes("Bentley ProjectWise"));
+  assert.ok(names.includes("Asite (UK)"), "a properly closed bracket is a normal part of a name");
+});
+
+test("citation: the schema action never contradicts the evidence printed under it", async () => {
+  const geo = (evidence) => ({
+    url: "https://veryxjnn.com", reachable: true, measuredAt: "", score: 50, grade: "C",
+    detectedBusiness: null, note: "",
+    checks: [{ id: "schema", label: "Schema", status: "warn", score: 50, weight: 20, evidence }],
+  });
+  const plan = await cite.buildPlaybook(
+    { run: veryxRun(), geo: geo("Found on the homepage: Organization, ContactPoint.") },
+    { complete: async () => { throw new Error("no key"); } },
+  );
+  const schema = plan.actions.find((a) => a.id === "site-schema");
+  assert.ok(schema);
+  assert.ok(!/Add Organization/i.test(schema.title),
+    `"${schema.title}" contradicts its own evidence, which says Organization was found`);
+  assert.match(schema.title, /Product/, "it should name what is actually missing");
+});
+
+test("citation: a rival's share is measured against answers that could name anyone", async () => {
+  // Asite showed as 11% because the denominator was all 18 answers, including
+  // three questions whose answers list criteria rather than companies.
+  const run = veryxRun();
+  const denom = cite.vendorAnswerCount(run);
+  // 4 vendor-seeking questions x 3 assistants. The "what should I look for"
+  // question and the brand question are both excluded from the denominator.
+  assert.equal(denom, 12, "only answers that could have named a company count");
+
+  const inc = cite.incumbents(run);
+  // Pinned to the exact figure, not merely "bigger than X": an inequality
+  // against the wrong baseline let a mutation dividing by all 15 non-brand
+  // answers pass unnoticed.
+  assert.equal(inc[0].appearances, 5);
+  assert.equal(inc[0].share, Math.round((5 / 12) * 100),
+    "share must be measured against answers that list vendors, not every answer");
+});
