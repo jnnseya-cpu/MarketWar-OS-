@@ -3849,7 +3849,8 @@ test("ai visibility: the brand is never listed as its own competitor", async () 
     { brandId: "b1", brand: "AxionOS", questions: [{ id: "q1", text: "best?", intent: "buying" }], assistants: ["openai"] },
     "2026-01-01T00:00:00.000Z", { ask },
   );
-  assert.deepEqual(run.topCompetitors.map((c) => c.name), ["buildco"]);
+  assert.deepEqual(run.topCompetitors.map((c) => c.name), ["BuildCo"],
+    "shown as the assistant spelled it — a customer should recognise the name");
   assert.equal(run.results[0].verdicts[0].rank, 1);
 });
 
@@ -4182,4 +4183,175 @@ test("human check: both signup AND login run the check", () => {
     "credential stuffing is a login attack, so the gate cannot be signup-only");
   assert.match(form, /honeypot: trap/);
   assert.match(form, /mountedAt: mountedAt\.current/);
+});
+
+// ---------------------------------------------------------------------------
+// AI Citation Playbook — the half that tells you what to DO.
+//
+// Built after a live run scored 17% and the page had nothing to say about it.
+// The fixture below is that run: all three mentions came from the "What is
+// VeryX?" question, and the honest reading was ZERO unprompted mentions in
+// fifteen answers.
+// ---------------------------------------------------------------------------
+const cite = await import("../src/backend/ai-citation.ts");
+
+function veryxRun() {
+  const buying = [
+    "Who are the best Common Data Environment providers in United Kingdom?",
+    "What should I look for when choosing a Common Data Environment provider?",
+    "Recommend a Common Data Environment company near United Kingdom",
+    "What is the best Common Data Environment option for Senior Management?",
+    "Compare the leading Common Data Environment companies in the UK",
+  ];
+  const results = buying.map((text, i) => ({
+    question: { id: `q${i}`, text, intent: "buying" },
+    verdicts: ["anthropic", "openai", "gemini"].map((a) => ({
+      assistant: a, mentioned: false, rank: null,
+      competitors: ["Asite", "Bentley ProjectWise", "Oracle Aconex"],
+      evidence: "", answer: "1. **Asite**\n2. **Bentley ProjectWise**\n3. **Oracle Aconex**", asked: true,
+    })),
+  }));
+  results.push({
+    question: { id: "qb", text: "What is VeryX and would you recommend them?", intent: "brand" },
+    verdicts: ["anthropic", "openai", "gemini"].map((a) => ({
+      assistant: a, mentioned: true, rank: null, competitors: [],
+      evidence: "VeryX is a UK CDE.", answer: "VeryX is a UK CDE.", asked: true,
+    })),
+  });
+  return {
+    id: "r1", brandId: "b1", brand: "VeryX", domain: "veryxjnn.com", ranAt: "2026-07-29T10:00:00.000Z",
+    results, visibilityRate: 17, mentioned: 3, askedCount: 18,
+    assistants: ["anthropic", "openai", "gemini"],
+    topCompetitors: [{ name: "Asite", appearances: 5 }, { name: "Bentley ProjectWise", appearances: 5 }, { name: "Oracle Aconex", appearances: 5 }],
+    note: "",
+  };
+}
+
+test("citation: the headline score EXCLUDES the question that handed over the name", () => {
+  // The panel read 17%. Every one of those mentions was the assistant repeating
+  // a name it was given. The number a customer acts on must be the unprompted
+  // one, or the module flatters exactly when it needs to warn.
+  const run = veryxRun();
+  const score = cite.unpromptedScore(run);
+  assert.equal(score.answers, 15, "the brand-name question is not a buying question");
+  assert.equal(score.mentions, 0);
+  assert.equal(score.rate, 0, "17% on the panel was 0% in reality");
+});
+
+test("citation: 'they know you but never bring you up' is diagnosed, not lumped in with unknown", async () => {
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo: null }, { complete: async () => { throw new Error("no key"); } });
+  const known = plan.actions.find((a) => a.id === "known-but-not-recommended");
+  assert.ok(known, "being described but never recommended is a different problem from being unknown");
+  assert.match(known.evidence, /0 of 15/, "and the evidence must be the counts, not an adjective");
+});
+
+test("citation: every action names the observation it came from", async () => {
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo: null }, { complete: async () => { throw new Error("no key"); } });
+  assert.ok(plan.actions.length >= 3);
+  for (const a of plan.actions) {
+    assert.ok(a.evidence && a.evidence.length > 8, `action ${a.id} has no evidence — advice with no observation behind it is the thing this module exists to avoid`);
+    assert.ok(["your site", "the AI answers", "the run itself"].includes(a.source), `action ${a.id} has no checkable source`);
+    assert.ok(["retrieval", "training-corpus", "extractability", "measurement"].includes(a.mechanism),
+      `action ${a.id} does not say WHY it would change whether a model names you`);
+  }
+});
+
+test("citation: a measured robots.txt block outranks every piece of general advice", async () => {
+  const geo = {
+    url: "https://veryxjnn.com", reachable: true, measuredAt: "", score: 40, grade: "D",
+    detectedBusiness: null, note: "",
+    checks: [
+      { id: "crawlers", label: "AI crawler access", status: "fail", score: 0, weight: 20, evidence: "robots.txt BLOCKS: GPTBot, ClaudeBot." },
+      { id: "schema", label: "Schema", status: "fail", score: 0, weight: 20, evidence: "No JSON-LD found." },
+    ],
+  };
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo }, { complete: async () => { throw new Error("no key"); } });
+  assert.equal(plan.actions[0].id, "unblock-ai-crawlers",
+    "a model that cannot fetch the site cannot cite it — nothing else matters until that is fixed");
+  assert.match(plan.actions[0].evidence, /BLOCKS/, "quoted from the fetched robots.txt, not asserted");
+  // And it must present it as a genuine trade-off rather than an obvious error.
+  assert.match(plan.actions[0].detail, /train on your content/i);
+});
+
+test("citation: an unreachable site produces an honest gap, not silent generic advice", async () => {
+  const geo = { url: "https://nope.invalid", reachable: false, measuredAt: "", score: 0, grade: "F", checks: [], detectedBusiness: null, note: "" };
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo }, { complete: async () => { throw new Error("no key"); } });
+  assert.equal(plan.actions[0].id, "site-unreachable");
+  assert.match(plan.actions[0].detail, /does not guess/i);
+});
+
+test("citation: with no AI key there are no briefs — never locally invented ones", async () => {
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo: null }, { complete: async () => { throw new Error("no key configured"); } });
+  assert.deepEqual(plan.briefs, [], "a template outline dressed as a written brief is the failure this codebase keeps undoing");
+  assert.ok(plan.actions.length > 0, "but the evidence-based actions still stand — they need no model");
+});
+
+test("citation: a brief is only kept if the model returned parseable JSON", async () => {
+  const good = JSON.stringify({ angle: "Lead with UK-hosted data residency.", outline: ["What a CDE is", "UK hosting"], proofNeeded: ["Where your data is hosted"] });
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo: null }, {
+    complete: async () => ({ text: `Here you go:\n${good}`, provider: "openai", model: "m", latencyMs: 1, attempts: [] }),
+  }, { maxBriefs: 2 });
+  assert.equal(plan.briefs.length, 2);
+  assert.match(plan.briefs[0].angle, /data residency/);
+  assert.ok(plan.briefs[0].proofNeeded.length, "the facts the customer must supply are named rather than invented");
+
+  const broken = await cite.buildPlaybook({ run: veryxRun(), geo: null }, {
+    complete: async () => ({ text: "Sure! Here's a great outline for your page.", provider: "openai", model: "m", latencyMs: 1, attempts: [] }),
+  });
+  assert.deepEqual(broken.briefs, [], "half-read output must produce nothing, not a half-brief");
+});
+
+test("citation: the plan refuses to promise it can make a model recommend you", async () => {
+  const plan = await cite.buildPlaybook({ run: veryxRun(), geo: null }, { complete: async () => { throw new Error("no key"); } });
+  assert.match(plan.note, /Nobody can make a model recommend a company/i,
+    "this is the most snake-oil-infested topic in marketing; the copy must not join in");
+  assert.match(plan.note, /training cycle, or may never arrive/i, "and the timescale must be honest");
+});
+
+// --- The two data bugs visible in the live run ------------------------------
+
+test("ai visibility: punctuation left on a form field does not poison every question", () => {
+  // Live: "Recommend a Work-Centric Common Data Environment: company near
+  // United Kingdom" — the colon came straight from the stored product field.
+  const qs = vis.suggestQuestions({ business: "VeryX", product: "Work-Centric Common Data Environment:", location: "United Kingdom " });
+  assert.ok(qs.every((q) => !/Environment:/.test(q.text)), qs.map((q) => q.text).join(" | "));
+  assert.ok(qs.some((q) => q.text === "Recommend a Work-Centric Common Data Environment company near United Kingdom"));
+});
+
+test("ai visibility: a bullet of advice is not reported as a competitor", () => {
+  // Live: "whether you're design ×1" appeared in the customer's rival list.
+  const { names } = vis.extractNamedBusinesses([
+    "- whether you're design led — consider this",
+    "- It depends on scale",
+    "1. **Asite** — UK CDE",
+    "2. **Bentley ProjectWise** — engineering",
+  ].join("\n"));
+  assert.deepEqual(names, ["Asite", "Bentley ProjectWise"],
+    "telling a customer they are losing to 'whether you're design' is a fabricated competitor");
+});
+
+test("ai visibility: one company counted once, however the assistant spelled it", () => {
+  // Live run listed "oracle aconex x2" and "aconex (oracle) x1" as two rivals,
+  // and Autodesk Construction Cloud three separate ways. That splits the count
+  // and makes the field look more crowded than it is.
+  assert.equal(vis.sameCompany("Oracle Aconex", "Aconex (Oracle)"), true);
+  assert.equal(vis.sameCompany("Autodesk Construction Cloud (ACC/BIM 360)", "Autodesk Construction Cloud"), true);
+  assert.equal(vis.sameCompany("Autodesk Construction Cloud / BIM 360", "Autodesk Construction Cloud"), true);
+
+  // ...but merging must not go so far that two real rivals become one.
+  assert.equal(vis.sameCompany("Asite", "Autodesk"), false);
+  assert.equal(vis.sameCompany("Procore UK", "Aconex UK"), false,
+    "sharing only a short common word is not being the same company");
+
+  const merged = vis.mergeCompetitorCounts([
+    { name: "Oracle Aconex", appearances: 2 },
+    { name: "Aconex (Oracle)", appearances: 1 },
+    { name: "Autodesk Construction Cloud (ACC/BIM 360)", appearances: 2 },
+    { name: "Autodesk Construction Cloud / BIM 360", appearances: 1 },
+    { name: "Asite", appearances: 2 },
+  ]);
+  assert.equal(merged.length, 3, `expected 3 companies, got ${merged.map((m) => m.name).join(" | ")}`);
+  const aconex = merged.find((m) => /aconex/i.test(m.name));
+  assert.equal(aconex.appearances, 3, "the split counts must be added back together");
+  assert.match(merged[0].name, /Autodesk|Aconex/, "shown with the fullest spelling used");
 });

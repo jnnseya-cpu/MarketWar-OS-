@@ -86,10 +86,28 @@ const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0
 // the brand name proves nothing: the assistant will discuss whatever it is
 // handed.
 // ---------------------------------------------------------------------------
+/**
+ * Clean a field that was typed into onboarding before it goes into a question.
+ *
+ * A live run asked "Recommend a Work-Centric Common Data Environment: company
+ * near United Kingdom" — the trailing colon came straight from the stored
+ * product field. Every question was malformed, which changes what the assistant
+ * answers, which corrupts the measurement. Punctuation a person left on the end
+ * of a form field is not part of the product's name.
+ */
+export function cleanField(raw: string | undefined): string {
+  return (raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[\s:;,.\-–—/|]+/, "")
+    .replace(/[\s:;,.\-–—/|]+$/, "")
+    .trim();
+}
+
 export function suggestQuestions(input: { business: string; product?: string; location?: string; audience?: string }): VisibilityQuestion[] {
-  const product = (input.product || "").trim();
-  const where = (input.location || "").trim();
-  const who = (input.audience || "").trim();
+  const product = cleanField(input.product);
+  const where = cleanField(input.location);
+  const who = cleanField(input.audience);
   const q: { text: string; intent: VisibilityQuestion["intent"] }[] = [];
 
   if (product && where) q.push({ text: `Who are the best ${product} providers in ${where}?`, intent: "buying" });
@@ -162,6 +180,29 @@ const LIST_ENTRY = /^\s*(?:(\d{1,2})[.)]|[-*•])\s+(?:\*\*)?([^*\n:—–-]{2,6
  * guessing which capitalised words are companies, and a wrong guess becomes a
  * "competitor" the customer is told they are losing to.
  */
+// Words that open advice, not a company. A live run reported "whether you're
+// design" as a competitor: a bullet of guidance parsed as a business, printed
+// to the customer as a rival they are losing to. A fabricated competitor is the
+// same class of error as a fabricated citation.
+const NOT_A_NAME_OPENER = /^(?:whether|if|when|while|how|why|what|where|who|which|do|does|don't|make|ensure|consider|check|look|think|choose|decide|start|avoid|use|note|remember|it|they|you|your|this|that|these|those|there|for|from|with|about|based|depends?|the best|a |an )\b/i;
+
+/** Contractions and first/second person are the giveaway that a line is prose. */
+const PROSE_MARKERS = /\b(?:you're|you'll|your|we're|we'll|our|they're|it's|isn't|aren't|don't)\b/i;
+
+function looksLikeBusinessName(name: string): boolean {
+  const n = name.trim();
+  if (n.length < 2 || n.length > 60) return false;
+  if (!/[A-Za-z]/.test(n)) return false;
+  if (n.split(/\s+/).length > 6) return false;
+  if (NOT_A_NAME_OPENER.test(n)) return false;
+  if (PROSE_MARKERS.test(n)) return false;
+  // A real name carries at least one capitalised word or is a known-style
+  // lower-case brand written in full caps/camel. All-lowercase multi-word
+  // phrases are overwhelmingly prose.
+  if (!/[A-Z]/.test(n) && n.split(/\s+/).length > 1) return false;
+  return true;
+}
+
 export function extractNamedBusinesses(answer: string): { names: string[]; ranked: boolean } {
   const names: string[] = [];
   let numbered = 0;
@@ -170,13 +211,78 @@ export function extractNamedBusinesses(answer: string): { names: string[]; ranke
     if (!m) continue;
     if (m[1]) numbered++;
     const name = m[2].trim().replace(/[.,;]$/, "");
-    // Reject sentence fragments — a real business name is short and has few
-    // lower-case function words.
-    if (name.split(/\s+/).length > 6) continue;
-    if (!/[A-Za-z]/.test(name)) continue;
+    if (!looksLikeBusinessName(name)) continue;
     names.push(name);
   }
   return { names, ranked: numbered >= 2 };
+}
+
+/**
+ * One company, one row.
+ *
+ * A live run listed "oracle aconex ×2" and "aconex (oracle) ×1" as two separate
+ * rivals, and did the same for Autodesk Construction Cloud written three ways.
+ * That splits the count and overstates how crowded the field is. Parentheticals
+ * and slash-alternates are dropped and the remaining words sorted, so every
+ * spelling of the same company lands on the same key.
+ */
+function nameTokens(name: string): string[] {
+  const base = (name || "")
+    .toLowerCase()
+    .replace(/\b(?:limited|ltd|plc|llp|inc|corp|co|the|and)\b/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [...new Set(base.split(" ").filter(Boolean))].sort();
+}
+
+export function canonicalCompetitor(name: string): string {
+  const t = nameTokens(name);
+  return t.length ? t.join(" ") : (name || "").trim().toLowerCase();
+}
+
+/**
+ * Are these two spellings the same company?
+ *
+ * Subset, not equality. "Aconex (Oracle)" and "Oracle Aconex" share every word
+ * once punctuation goes; "Autodesk Construction Cloud" is contained in
+ * "Autodesk Construction Cloud (ACC/BIM 360)". Both pairs are one rival each,
+ * and counting them as two splits the score and overstates the field.
+ *
+ * The shared part must carry a real word — a four-character floor stops two
+ * unrelated companies merging because both mention "UK" or "360".
+ */
+export function sameCompany(a: string, b: string): boolean {
+  const ta = nameTokens(a), tb = nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.join(" ") === tb.join(" ")) return true;
+  const [small, large] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  const big = new Set(large);
+  if (!small.every((t) => big.has(t))) return false;
+  return small.some((t) => t.length >= 4 && /[a-z]/.test(t));
+}
+
+/**
+ * Collapse a tally of raw names into one row per company.
+ *
+ * Displayed with the fullest spelling any assistant used, because that is the
+ * one carrying the product detail the customer will recognise.
+ */
+export function mergeCompetitorCounts(entries: { name: string; appearances: number }[]): { name: string; appearances: number }[] {
+  const groups: { display: string; appearances: number; members: string[] }[] = [];
+  for (const e of entries) {
+    const hit = groups.find((g) => g.members.some((m) => sameCompany(m, e.name)));
+    if (hit) {
+      hit.appearances += e.appearances;
+      hit.members.push(e.name);
+      if (e.name.length > hit.display.length) hit.display = e.name;
+    } else {
+      groups.push({ display: e.name, appearances: e.appearances, members: [e.name] });
+    }
+  }
+  return groups
+    .map((g) => ({ name: g.display, appearances: g.appearances }))
+    .sort((a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name));
 }
 
 /** Where the brand sits in a ranked answer, or null when the answer is not a ranking. */
@@ -296,16 +402,21 @@ export async function runVisibilityCheck(
   const mentioned = answered.filter((v) => v.mentioned).length;
   const visibilityRate = answered.length ? Math.round((mentioned / answered.length) * 100) : 0;
 
-  const counts = new Map<string, number>();
+  // Counted per canonical company, but DISPLAYED with the fullest spelling an
+  // assistant actually used — the customer should recognise the name, and the
+  // longest form is the one carrying the product detail.
+  const raw: { name: string; appearances: number }[] = [];
   for (const v of answered) {
-    for (const c of new Set(v.competitors.map((x) => x.toLowerCase()))) {
-      counts.set(c, (counts.get(c) || 0) + 1);
+    // One appearance per answer, however many times that answer repeats a name.
+    const seen = new Set<string>();
+    for (const c of v.competitors) {
+      const key = canonicalCompetitor(c);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      raw.push({ name: c, appearances: 1 });
     }
   }
-  const topCompetitors = [...counts.entries()]
-    .map(([name, appearances]) => ({ name, appearances }))
-    .sort((a, b) => b.appearances - a.appearances)
-    .slice(0, 10);
+  const topCompetitors = mergeCompetitorCounts(raw).slice(0, 10);
 
   const notAsked = results.flatMap((r) => r.verdicts).filter((v) => !v.asked);
   const note = answered.length === 0
