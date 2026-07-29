@@ -55,8 +55,7 @@ import {
   Wand2,
   Users,
   Wallet,
-  Workflow,
-} from "lucide-react";
+  Workflow, Palette,} from "lucide-react";
 
 export const NAV = [
   {
@@ -64,6 +63,7 @@ export const NAV = [
     items: [
       { href: "/dashboard/library", label: "Work Library", icon: Library },
       { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
+      { href: "/dashboard/brand-kit", label: "Brand Launch Kit", icon: Palette },
       { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
       { href: "/dashboard/command", label: "Revenue Command (War Report)", icon: Crown },
       { href: "/dashboard/money-ledger", label: "Money Ledger", icon: Receipt },

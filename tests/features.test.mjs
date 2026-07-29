@@ -5079,3 +5079,124 @@ test("ai visibility: a sentence-case phrase is not a company", () => {
     "GroupBIM / BIM+ / Clearbox (BIMXtra)",
   ], names.join(" | "));
 });
+
+// ---------------------------------------------------------------------------
+// Brand Launch Kit — eight day-one documents, done rather than described.
+//
+// These are the highest-stakes outputs in the platform, because they leave it:
+// a guidelines sheet gets built to by a freelancer, a business card gets
+// printed five hundred times, a bio gets pasted into Instagram. So the rules
+// are stricter here than anywhere else, and these tests hold them.
+// ---------------------------------------------------------------------------
+const kit = await import("../src/backend/brand-kit.ts");
+
+const kitGw = (text) => async () => ({ text, provider: "openai", model: "m", latencyMs: 1, attempts: [] });
+
+test("brand kit: a hex code the customer never gave is never invented", async () => {
+  let prompt = "";
+  await kit.buildAsset(
+    "guidelines",
+    { name: "VeryX", product: "CDE" },
+    { complete: async (req) => { prompt = req.prompt; return { text: "# Charte\n\n[TO SUPPLY: brand hex codes]", provider: "openai", model: "m", latencyMs: 1, attempts: [] }; } },
+  );
+  assert.doesNotMatch(prompt, /#[0-9a-f]{6}/i,
+    "no colour may reach the writer that the customer did not set — a designer builds to whatever is on the sheet");
+
+  // And when they ARE set, they must be handed over exactly.
+  let withColours = "";
+  await kit.buildAsset(
+    "guidelines",
+    { name: "VeryX", colours: ["#10b981", "0f172a"] },
+    { complete: async (req) => { withColours = req.prompt; return { text: "# Charte", provider: "openai", model: "m", latencyMs: 1, attempts: [] }; } },
+  );
+  assert.match(withColours, /#10b981/i);
+  assert.match(withColours, /#0f172a/i, "a hex typed without its hash is still that colour");
+});
+
+test("brand kit: missing details come back marked, in either language", () => {
+  // The model writes in the customer's language, so the French instruction
+  // produces "[À FOURNIR: …]" — both must be recognised or a French customer's
+  // gaps are silently reported as complete.
+  assert.deepEqual(kit.findNeeds("Tel: [À FOURNIR: numéro de téléphone]"), ["numéro de téléphone"]);
+  assert.deepEqual(kit.findNeeds("Phone: [TO SUPPLY: phone number]"), ["phone number"]);
+  assert.deepEqual(kit.findNeeds("Nothing missing here."), []);
+});
+
+test("brand kit: bio character limits are MEASURED, not requested", () => {
+  // Telling a model "under 150 characters" and trusting it is how a bio gets
+  // rejected at the moment the customer pastes it into Instagram.
+  const md = [
+    "## Instagram",
+    "x".repeat(180),
+    "",
+    "## LinkedIn",
+    "Short and fine.",
+    "",
+    "## Threads",
+    "Also fine.",
+  ].join("\n");
+  const limits = kit.measureBios(md);
+  const ig = limits.find((l) => l.label === "Instagram");
+  assert.equal(ig.used, 180);
+  assert.equal(ig.max, 150);
+  assert.equal(ig.ok, false, "180 characters must not be reported as within a 150 limit");
+  assert.equal(limits.find((l) => l.label === "LinkedIn").ok, true);
+});
+
+test("brand kit: the real platform limits are used", () => {
+  const byLabel = Object.fromEntries(kit.SOCIAL_LIMITS.map((l) => [l.label, l.max]));
+  // Wrong numbers here are worse than no check: the customer would trust a bio
+  // that gets truncated.
+  assert.equal(byLabel.Instagram, 150);
+  assert.equal(byLabel.LinkedIn, 220);
+  assert.equal(byLabel.X, 160);
+  assert.equal(byLabel.Threads, 500);
+});
+
+test("brand kit: an over-limit bio is called out in the note", async () => {
+  const asset = await kit.buildAsset(
+    "social-profiles",
+    { name: "VeryX" },
+    { complete: kitGw(`## Instagram\n${"x".repeat(200)}\n\n## LinkedIn\nFine.`) },
+  );
+  assert.match(asset.note, /Over the limit: Instagram 200\/150/);
+  assert.match(asset.note, /measured, not assumed/i);
+});
+
+test("brand kit: an invented statistic blocks the document", async () => {
+  // These leave the platform. An unbacked figure on a page someone hands to a
+  // designer or publishes under their own name is not a note to check later.
+  const asset = await kit.buildAsset(
+    "launch-post",
+    { name: "VeryX", product: "CDE" },
+    { complete: kitGw("We cut rework by 42% and are trusted by 4,000 businesses.") },
+  );
+  assert.ok(asset.blockers.length > 0);
+  assert.match(asset.note, /not backed by anything you supplied/i);
+});
+
+test("brand kit: a figure the customer supplied is theirs to stand behind", async () => {
+  const asset = await kit.buildAsset(
+    "launch-post",
+    { name: "VeryX", extras: [{ label: "Measured rework reduction", value: "Customers cut rework by 42% on average." }] },
+    { complete: kitGw("Customers cut rework by 42% on average.") },
+  );
+  assert.deepEqual(asset.blockers, [], "flagging the customer's own evidence would make the guard useless");
+});
+
+test("brand kit: every one of the eight assets is real and buildable", async () => {
+  assert.equal(kit.ASSET_IDS.length, 8);
+  for (const id of kit.ASSET_IDS) {
+    const a = await kit.buildAsset(id, { name: "VeryX", product: "CDE" }, { complete: kitGw("# Doc\n\nBody.") });
+    assert.ok(a.title && a.title.length > 3, `${id} has no title`);
+    assert.equal(a.id, id);
+  }
+});
+
+test("brand kit: the kit is written in the customer's language", () => {
+  const route = readFileSync(new URL("../src/app/api/brand-kit/route.ts", import.meta.url), "utf8");
+  assert.match(route, /gatewayLangFrom\(req\)/,
+    "a French customer needs a French charte graphique, not an English one to translate before handing it over");
+  assert.match(route, /maxDuration = 300/);
+  assert.match(route, /creditAcus\(auth\.uid, refunded\)/, "documents that were not produced are not charged for");
+});
