@@ -289,6 +289,14 @@ function looksLikeBusinessName(name: string): boolean {
   // "X or Y" and "X vs Y" describe a choice, not a company.
   if (/\b(?:or|vs\.?|versus)\b/i.test(n)) return false;
   if (isCategoryPhrase(n)) return false;
+  // Sentence case gives a phrase away. A live run listed "Executive dashboards
+  // and portfolio" as a rival: three or more words with a capital ONLY on the
+  // first is how prose is written, not how companies are named. Real names keep
+  // their capitals throughout — "Bentley ProjectWise", "Viewpoint For Projects
+  // (Trimble)" — and names with a lower-case joiner still have a capital after
+  // it, so "Marks and Spencer" and "Bank of America" survive this.
+  const words = n.split(/\s+/);
+  if (words.length >= 3 && !words.slice(1).some((w) => /^[A-Z0-9(]/.test(w))) return false;
   // A real name carries at least one capitalised word or is a known-style
   // lower-case brand written in full caps/camel. All-lowercase multi-word
   // phrases are overwhelmingly prose.

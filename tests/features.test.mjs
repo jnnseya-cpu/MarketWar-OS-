@@ -4979,3 +4979,103 @@ test("pwa: the install prompt is honest on iOS, where there is no install API", 
   assert.match(p, /DISMISSED_KEY/, "a banner that returns after being declined is an advert, not a feature");
   assert.match(p, /measured live/i, "and it must not promise the installed app works offline");
 });
+
+// ---------------------------------------------------------------------------
+// "openai: empty completion"
+//
+// Live, twice in one run, always on the hardest questions while the easy ones
+// came back fine. That pattern is the tell: gpt-5-mini is a reasoning model and
+// spends max_output_tokens on HIDDEN reasoning before emitting a character, so
+// a 700-token budget was consumed before the answer began. The customer lost a
+// data point and was shown a message that pointed at a broken key.
+// ---------------------------------------------------------------------------
+
+test("gateway: reasoning models get room to answer AFTER they finish reasoning", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /REASONING_HEADROOM/,
+    "hidden reasoning tokens are billed and counted against the budget but never returned");
+  assert.match(gw, /reasoningModel\(openai\.model\(\)\)\n\s+\? Math\.max\(2_000/,
+    "the requested maxTokens is the size of the ANSWER, not of the answer plus the thinking");
+  // The parameter must not be sent to models that reject it.
+  assert.match(gw, /\.\.\.\(reasoningModel\(openai\.model\(\)\) \? \{ reasoning: \{ effort: "low" \} \} : \{\}\)/,
+    "a non-reasoning model rejects the reasoning param outright");
+});
+
+test("gateway: reasoningModel recognises the families that reason, and no others", async () => {
+  // Not exported — asserted through the source, because guessing wrong in
+  // either direction breaks a provider: too broad sends a rejected parameter,
+  // too narrow leaves the original bug in place.
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  const m = gw.match(/return \/\^\(\?:(.+?)\/i\.test\(model\.trim\(\)\)/);
+  assert.ok(m, "reasoningModel must be a single explicit pattern");
+  const re = new RegExp(`^(?:${m[1].replace(/\/i$/, "")}`.replace(/\)$/, ")"), "i");
+  for (const yes of ["gpt-5-mini", "gpt-5", "o3", "o4-mini"]) {
+    assert.ok(re.test(yes), `${yes} reasons before answering`);
+  }
+  for (const no of ["gpt-4o", "gpt-4o-mini", "gpt-4.1"]) {
+    assert.ok(!re.test(no), `${no} would reject the reasoning parameter`);
+  }
+});
+
+test("gateway: an exhausted token budget is not reported as an empty answer", async () => {
+  // Driven through the real adapter with a stubbed transport, not grepped for a
+  // string: the first version of this test asserted the message existed in the
+  // source, so disabling the branch that produces it changed nothing and the
+  // mutation survived.
+  const gateway = await import("../src/backend/gateway.ts");
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.OPENAI_API_KEY;
+  const realModel = process.env.OPENAI_MODEL;
+  process.env.OPENAI_API_KEY = "sk-test-not-a-real-key";
+  process.env.OPENAI_MODEL = "gpt-5-mini";
+
+  let sentBody = null;
+  globalThis.fetch = async (_url, init) => {
+    sentBody = JSON.parse(init.body);
+    // Exactly what the Responses API returns when reasoning ate the budget:
+    // a successful HTTP call, no message content, and the reason stated.
+    return new Response(JSON.stringify({
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+      output: [{ type: "reasoning", content: [] }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const res = await gateway.askProvider("openai", { system: "s", prompt: "p", maxTokens: 700 });
+    assert.equal(res.ok, false);
+    assert.match(res.reason, /output budget/i,
+      `the customer saw "openai: empty completion" and went looking for a broken key — got: ${res.reason}`);
+    assert.doesNotMatch(res.reason, /^openai: empty completion$/);
+
+    // And the request that produced it must have asked for more than the answer
+    // size, because the reasoning is billed out of the same budget.
+    assert.ok(sentBody.max_output_tokens > 700,
+      `asked for ${sentBody.max_output_tokens} with a 700-token answer requested — reasoning would eat it`);
+    assert.deepEqual(sentBody.reasoning, { effort: "low" });
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = realKey;
+    if (realModel === undefined) delete process.env.OPENAI_MODEL; else process.env.OPENAI_MODEL = realModel;
+  }
+});
+
+test("ai visibility: a sentence-case phrase is not a company", () => {
+  // Live: "Executive dashboards and portfolio ×2" listed among a customer's
+  // rivals. Three or more words with a capital only on the first is prose.
+  const { names } = vis.extractNamedBusinesses([
+    "1. **Executive dashboards and portfolio** — a feature, not a company",
+    "2. **Bentley ProjectWise** — real",
+    "3. **Viewpoint For Projects (Trimble)** — real",
+    "4. **Marks and Spencer** — a lower-case joiner is fine",
+    "5. **Bank of America** — so is this",
+    "6. **GroupBIM / BIM+ / Clearbox (BIMXtra)** — real",
+  ].join("\n"));
+  assert.deepEqual(names, [
+    "Bentley ProjectWise",
+    "Viewpoint For Projects (Trimble)",
+    "Marks and Spencer",
+    "Bank of America",
+    "GroupBIM / BIM+ / Clearbox (BIMXtra)",
+  ], names.join(" | "));
+});

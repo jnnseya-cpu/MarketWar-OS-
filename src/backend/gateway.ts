@@ -165,6 +165,15 @@ const anthropic: Adapter = {
 
 // ------------------------------------------------------------------ OpenAI
 // Responses API (POST /v1/responses).
+// Hidden reasoning tokens are billed and counted against max_output_tokens but
+// never returned. This is the room the answer itself needs on top.
+const REASONING_HEADROOM = 1_500;
+
+/** The OpenAI families that reason before answering, and reject unknown params if you guess wrong. */
+function reasoningModel(model: string): boolean {
+  return /^(?:gpt-5|o[1345](?:-|$))/i.test(model.trim());
+}
+
 const openai: Adapter = {
   id: "openai",
   model: () => process.env.OPENAI_MODEL || "gpt-5-mini",
@@ -180,10 +189,24 @@ const openai: Adapter = {
         model: openai.model(),
         instructions: req.system,
         input: req.prompt,
-        max_output_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
+        // Reasoning models spend max_output_tokens on HIDDEN reasoning before
+        // they emit a single visible character. Asking gpt-5-mini for 700 and
+        // getting nothing back is not the model declining to answer — it is the
+        // budget being eaten before the reply started, and it showed up live as
+        // "openai: empty completion" on the two hardest questions in a run while
+        // the four easy ones came back fine.
+        max_output_tokens: reasoningModel(openai.model())
+          ? Math.max(2_000, (req.maxTokens ?? DEFAULT_MAX_TOKENS) + REASONING_HEADROOM)
+          : (req.maxTokens ?? DEFAULT_MAX_TOKENS),
+        // Low, not off: these prompts want a natural answer, not a proof. Heavy
+        // reasoning here is both the cause of the failure and money spent on
+        // tokens the customer never sees.
+        ...(reasoningModel(openai.model()) ? { reasoning: { effort: "low" } } : {}),
       }),
     }, deadline);
     const data = (await res.json()) as {
+      status?: string;
+      incomplete_details?: { reason?: string };
       output?: { type: string; content?: { type: string; text?: string }[] }[];
     };
     const text = (data.output ?? [])
@@ -193,7 +216,16 @@ const openai: Adapter = {
       .map((c) => c.text)
       .join("\n")
       .trim();
-    if (!text) throw new Error("openai: empty completion");
+    if (!text) {
+      // Say WHICH failure it was. "empty completion" sent the owner looking for
+      // a broken key when the real cause was a token budget.
+      const why = data.incomplete_details?.reason;
+      if (why === "max_output_tokens") {
+        throw new Error("openai: ran out of output budget while reasoning — raise maxTokens or lower reasoning effort");
+      }
+      if (data.status === "incomplete") throw new Error(`openai: incomplete response (${why || "no reason given"})`);
+      throw new Error("openai: empty completion");
+    }
     return text;
   },
 };
