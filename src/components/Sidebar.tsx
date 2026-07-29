@@ -164,7 +164,7 @@ export default function Sidebar() {
     return () => { on = false; };
   }, []);
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-ink-700/60 bg-ink-900/95 lg:flex">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-ink-700/60 bg-ink-900/95 pb-[var(--safe-bottom)] pl-[var(--safe-left)] pt-[var(--safe-top)] lg:flex">
       <Link href="/" className="flex items-center gap-2.5 border-b border-ink-700/60 px-5 py-5">
         <BrandLockup markClass="h-7 w-auto" textClass="font-display text-base font-bold tracking-tight text-white" />
       </Link>

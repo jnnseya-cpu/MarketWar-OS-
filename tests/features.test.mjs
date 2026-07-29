@@ -3,7 +3,7 @@
 // Run: npm test    (no network, no API keys)
 
 import { test } from "node:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -4896,4 +4896,86 @@ test("ai visibility: a job title is not a competitor", () => {
     "3. **Others** — filler",
   ].join("\n"));
   assert.deepEqual(names, ["Procore"]);
+});
+
+// ---------------------------------------------------------------------------
+// PWA — installable, and actually FITTING the screen it is installed on.
+//
+// The manifest and service worker already existed. What did not was any
+// handling of safe-area insets, despite the viewport being declared
+// viewport-fit=cover — which is precisely the flag that puts a header under the
+// notch and the last card under the home indicator unless the insets are used.
+// ---------------------------------------------------------------------------
+
+test("pwa: the manifest is valid, installable and has a real maskable icon", () => {
+  const m = JSON.parse(readFileSync(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"));
+  assert.ok(m.name && m.short_name);
+  assert.equal(m.display, "standalone");
+  assert.ok(m.start_url.startsWith("/"), "a relative start_url keeps the app inside its own scope");
+  assert.ok(m.background_color && m.theme_color, "without these the launch screen flashes white");
+
+  const any = m.icons.filter((i) => i.purpose === "any");
+  const maskable = m.icons.filter((i) => i.purpose === "maskable");
+  assert.ok(any.some((i) => i.sizes === "512x512"));
+  assert.equal(maskable.length, 1);
+  // The bug this replaced: the square "any" icon was ALSO declared maskable, so
+  // Android's launcher mask sliced the logo's edges off.
+  assert.notEqual(maskable[0].src, any.find((i) => i.sizes === "512x512").src,
+    "a maskable icon needs its own padded artwork, not the square one reused");
+
+  for (const i of m.icons) {
+    const f = new URL(`../public${i.src}`, import.meta.url);
+    assert.ok(existsSync(f), `${i.src} is declared in the manifest but not in public/`);
+  }
+});
+
+test("pwa: the service worker never serves a cached number as a live one", () => {
+  const sw = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
+  // Every figure on these pages is measured server-side. A cached dashboard
+  // shown when the network is gone is yesterday's numbers under today's date —
+  // a fabricated measurement, which is the one thing this platform refuses.
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)/, "API responses must never be cached");
+  assert.match(sw, /caches\.match\(OFFLINE_URL\)/,
+    "a failed page load must fall back to the offline page, not a stale copy of the page asked for");
+  assert.doesNotMatch(sw, /caches\.match\(req\)\.then\(\(cached\) => cached \|\| caches\.match\("\/"\)\)/,
+    "the old fallback served whatever stale page happened to be cached");
+  assert.match(sw, /MAX_ENTRIES/, "an unbounded cache eventually gets the whole origin evicted");
+});
+
+test("pwa: the offline page ships and is precached before it is needed", () => {
+  const sw = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
+  assert.match(sw, /PRECACHE = \[OFFLINE_URL/,
+    "caching the offline page only on first failure means there is nothing to fall back to");
+  assert.ok(existsSync(new URL("../public/offline.html", import.meta.url)));
+  const html = readFileSync(new URL("../public/offline.html", import.meta.url), "utf8");
+  assert.match(html, /safe-area-inset/, "the offline page is full-screen too");
+  assert.match(html, /measured live/i, "and it must not imply the app works offline, because it does not");
+});
+
+test("pwa: safe-area insets are honoured, since viewport-fit=cover is declared", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /viewportFit: "cover"/,
+    "this is what makes the app edge-to-edge — and what hides content under the notch if the insets are ignored");
+
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  for (const side of ["top", "right", "bottom", "left"]) {
+    assert.match(css, new RegExp(`--safe-${side}: env\\(safe-area-inset-${side}`),
+      `no --safe-${side}: landscape on a notched phone loses content off the ${side} edge`);
+  }
+  assert.match(css, /min-height: 100dvh/,
+    "100vh on a mobile browser excludes the address bar, so a full-height screen overflows by exactly its height");
+
+  const dash = readFileSync(new URL("../src/app/dashboard/layout.tsx", import.meta.url), "utf8");
+  assert.match(dash, /header-safe/, "the mobile header sat under the dynamic island");
+  assert.match(dash, /var\(--safe-bottom\)/, "and the last card sat under the home indicator");
+});
+
+test("pwa: the install prompt is honest on iOS, where there is no install API", () => {
+  const p = readFileSync(new URL("../src/components/InstallPrompt.tsx", import.meta.url), "utf8");
+  assert.match(p, /beforeinstallprompt/);
+  assert.match(p, /e\.preventDefault\(\)/, "the event must be captured to be re-fired from a real gesture");
+  // An "Install" button that does nothing on iPhone is worse than no button.
+  assert.match(p, /Add to Home Screen/i, "iOS gets instructions, because Safari fires no event and exposes no API");
+  assert.match(p, /DISMISSED_KEY/, "a banner that returns after being declined is an advert, not a feature");
+  assert.match(p, /measured live/i, "and it must not promise the installed app works offline");
 });

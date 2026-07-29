@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#070a11" />
+<title>Offline — MarketWar OS</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: calc(2rem + env(safe-area-inset-top, 0px)) calc(1.5rem + env(safe-area-inset-right, 0px))
+             calc(2rem + env(safe-area-inset-bottom, 0px)) calc(1.5rem + env(safe-area-inset-left, 0px));
+    background: #070a11;
+    color: #cbd5e1;
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    text-align: center;
+  }
+  .card { max-width: 26rem; }
+  img { width: 56px; height: 56px; }
+  h1 { margin: 1.25rem 0 .5rem; font-size: 1.25rem; color: #fff; font-weight: 700; }
+  p { margin: 0 0 .75rem; font-size: .9rem; color: #94a3b8; }
+  button {
+    margin-top: .75rem; padding: .6rem 1.1rem; border-radius: .5rem; border: 0;
+    background: #10b981; color: #04140d; font-weight: 700; font-size: .875rem; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img src="/brand/icon-192.png" alt="" />
+    <h1>You're offline</h1>
+    <!-- Deliberately does NOT claim the app works offline. It does not: every
+         number on these pages is computed server-side from live data, and a
+         cached copy of yesterday's dashboard presented as today's would be a
+         lie of exactly the kind this platform refuses to tell. -->
+    <p>MarketWar OS needs a connection — every figure it shows is measured live, so there is nothing honest to show you from a cache.</p>
+    <p>Pages you already loaded may still open. Anything with a number on it will not.</p>
+    <button onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>

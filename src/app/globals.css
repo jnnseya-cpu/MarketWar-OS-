@@ -214,3 +214,44 @@ body::after {
   background-size: 60px 60px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 45%, transparent 100%);
 }
+
+/* ---------------------------------------------------------------------------
+   Installed-app fit.
+   ---------------------------------------------------------------------------
+   The viewport is declared viewport-fit=cover, which is what lets the app fill
+   an iPhone edge to edge — and also what puts the top bar under the notch and
+   the bottom of a page under the home indicator unless the insets are honoured.
+   Nothing was honouring them, so the installed app had its header half-hidden
+   behind the dynamic island.
+
+   dvh rather than vh for the same class of reason: 100vh on a mobile browser is
+   the viewport WITHOUT the address bar, so a full-height screen overflows by the
+   height of that bar and the page scrolls when it should not. dvh tracks it.
+   vh is kept as the fallback for browsers that do not know dvh. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+.h-screen-safe { min-height: 100vh; min-height: 100dvh; }
+
+/* The app shell: never let content sit under a notch, a rounded corner or the
+   home indicator, in any orientation. Landscape matters — that is where the
+   left/right insets become non-zero and a sidebar disappears under the curve. */
+.pad-safe { padding-left: var(--safe-left); padding-right: var(--safe-right); }
+.pad-safe-top { padding-top: var(--safe-top); }
+.pad-safe-bottom { padding-bottom: var(--safe-bottom); }
+
+/* A sticky header must extend INTO the inset and pad its content down, so the
+   blur/background covers the notch area rather than leaving a transparent strip. */
+.header-safe { padding-top: calc(0.75rem + var(--safe-top)); }
+
+/* Standalone only: browsers already draw their own chrome in these places. */
+@media (display-mode: standalone) {
+  body { overscroll-behavior-y: none; }
+  /* The elastic scroll past the end of a page reveals the page background and
+     reads as a rendering fault in an installed app, where there is no address
+     bar to explain it. */
+}

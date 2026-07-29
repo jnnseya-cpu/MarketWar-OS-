@@ -1,10 +1,14 @@
 {
+  "id": "/",
   "name": "MarketWar OS",
   "short_name": "MarketWar",
   "description": "The AI-powered customer-acquisition operating system.",
-  "start_url": "/dashboard",
+  "lang": "en-GB",
+  "dir": "ltr",
+  "start_url": "/dashboard?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#070a11",
   "theme_color": "#070a11",
@@ -12,6 +16,11 @@
   "icons": [
     { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Command Centre", "short_name": "Command", "url": "/dashboard?source=pwa" },
+    { "name": "AI Visibility", "short_name": "Visibility", "url": "/dashboard/ai-visibility?source=pwa" },
+    { "name": "Email Command", "short_name": "Email", "url": "/dashboard/email-center?source=pwa" }
   ]
 }
