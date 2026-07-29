@@ -202,9 +202,32 @@ export default function EmailPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      setSendResult(await res.json().catch(() => ({ error: "Request failed" })));
+      // A bare "Request failed" tells the customer nothing and hides the one
+      // fact that matters: whether anything was actually sent. When the body is
+      // not JSON the route died rather than answering — usually killed on time —
+      // so say that, and say what it means for their list.
+      const raw = await res.text();
+      let parsed: Record<string, unknown> | null = null;
+      try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
+      if (parsed) {
+        setSendResult(parsed as typeof sendResult);
+      } else {
+        const detail = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+        setSendResult({
+          error:
+            res.status === 504 || res.status === 502 || !raw
+              ? `The send timed out (HTTP ${res.status}) before it could report back. Some emails may already have gone out — open the stats above before retrying, and re-run rather than starting a new campaign.`
+              : `The send failed with HTTP ${res.status}${detail ? `: ${detail}` : "."}`,
+          sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "",
+        });
+      }
       loadStats();
-    } catch { setSendResult({ error: "Network error", sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "" }); }
+    } catch (e) {
+      setSendResult({
+        error: `Couldn't reach the sending service (${(e as Error).message || "network error"}). Nothing was sent — your list and warm-up allowance are untouched.`,
+        sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "",
+      });
+    }
     finally { setSending(false); }
   }
 

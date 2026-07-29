@@ -9,6 +9,11 @@ import { listInbound, getInbound, markRead, unreadCount } from "@/backend/inboun
 // Ownership-enforced on every path.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Reserves the platform maximum. This route does slow external work (processes inbound mail and may reply),
+// and without a budget the function is killed part-way through: the caller
+// gets no JSON at all — just "Request failed" — and any work already done
+// goes unreported, which is how a send gets repeated.
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";

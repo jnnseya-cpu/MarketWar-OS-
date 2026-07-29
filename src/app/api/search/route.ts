@@ -11,6 +11,12 @@ import { meterAction } from "@/backend/wallet";
 // GET → search types + doctrine + live/demo status
 
 export const runtime = "nodejs";
+// Reserves the platform maximum. This route does slow external work (calls the live search provider),
+// and without a budget the function is killed part-way through: the caller
+// gets no JSON at all — just "Request failed" — and any work already done
+// goes unreported, which is how a send gets repeated.
+export const maxDuration = 60;
+
 
 export async function POST(req: NextRequest) {
   // Denial-of-wallet defence: Serper spends real budget per query. Rate-limit

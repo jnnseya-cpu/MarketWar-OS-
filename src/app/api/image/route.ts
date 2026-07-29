@@ -12,6 +12,11 @@ import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 // Node runtime: live rendering uses sharp (raster composite) + firebase-admin
 // (Storage upload), both of which require Node — not the edge runtime.
 export const runtime = "nodejs";
+// Reserves the platform maximum. This route does slow external work (renders images through a provider),
+// and without a budget the function is killed part-way through: the caller
+// gets no JSON at all — just "Request failed" — and any work already done
+// goes unreported, which is how a send gets repeated.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};

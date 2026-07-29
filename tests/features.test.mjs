@@ -3,7 +3,7 @@
 // Run: npm test    (no network, no API keys)
 
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -3471,4 +3471,75 @@ test("next step: the button carries the work forward, not just the form", () => 
 test("next step: the route attaches it to every agent response", () => {
   const src = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
   assert.match(src, /nextStepFrom\(result\.output, agentId\)/);
+});
+
+// ---------------------------------------------------------------------------
+// "Request failed" on Send to vault.
+//
+// /api/email sends up to 250 emails in a SERIAL SMTP loop — each send is allowed
+// 15 seconds before it times out — and the route reserved no time at all. The
+// function was killed part-way through, so no JSON came back and the page fell
+// back to a bare "Request failed".
+//
+// The silent half is worse than the visible half: sends that DID go out were
+// never counted against the warm-up allowance, so retrying mails those people a
+// second time and burns the sending reputation the warm-up exists to protect.
+// ---------------------------------------------------------------------------
+
+test("email send: the route reserves time for the work it actually does", () => {
+  const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(src, /export const maxDuration = 60/,
+    "a serial SMTP loop cannot run inside the default function budget");
+  assert.match(src, /SEND_BUDGET_MS/, "and it must stop with time to spare, not be killed");
+});
+
+test("email send: it stops cleanly and reports what really went out", () => {
+  const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(Date\.now\(\) >= sendDeadline\) \{ stoppedEarly = true; break; \}/,
+    "breaking out is what lets the response — and the warm-up count — be written");
+  assert.match(src, /const attempted = sent \+ failed;/,
+    "'attempted' must be what was tried, not the size of the batch that was planned");
+  assert.match(src, /remaining: Math\.max\(0, sendable\.length - attempted\)/,
+    "unsent recipients must still count as remaining, or the customer thinks the campaign finished");
+  assert.match(src, /Nobody was sent to twice/, "and the customer needs to know it is safe to run again");
+});
+
+test("email send: warm-up is credited before the response, so a retry cannot double-send", () => {
+  const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  const record = src.indexOf("recordWarmupSends(brandId, today, sent)");
+  const respond = src.indexOf("return NextResponse.json({\n      mode: emailConfigured");
+  assert.ok(record > -1 && respond > -1 && record < respond,
+    "what was delivered must be counted BEFORE the reply, or a timeout loses the tally");
+});
+
+test("email send: a dead route explains itself instead of saying 'Request failed'", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /catch\(\(\) => \(\{ error: "Request failed" \}\)\)/,
+    "throwing away the status hides the one fact that matters — whether anything was sent");
+  assert.match(src, /timed out \(HTTP \$\{res\.status\}\)/);
+  assert.match(src, /Some emails may already have gone out/,
+    "after a timeout the customer must check before retrying, not blindly resend");
+  assert.match(src, /Nothing was sent — your list and warm-up allowance are untouched/,
+    "a genuine network failure is the opposite case and must not read the same");
+});
+
+test("routes doing slow external work all reserve a budget", () => {
+  // The systemic version of the bug. Any route that calls out to SMTP, a search
+  // provider, an image renderer or the AI gateway can exceed the default budget;
+  // when it does, the caller gets no JSON and the work is unaccounted for.
+  const slow = /gatewayComplete|sendEmail|webSearch|enrichBatch|checkDomainAuth|generateImage|scrapeEnrich|runAgent/;
+  const missing = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === "route.ts") {
+        const src = readFileSync(full, "utf8");
+        if (slow.test(src) && !/maxDuration/.test(src)) missing.push(full.replace(/^.*\/src\//, "src/"));
+      }
+    }
+  };
+  walk(new URL("../src/app/api", import.meta.url).pathname);
+  assert.deepEqual(missing, [],
+    `these routes do slow external work with no reserved time, so they die mid-request: ${missing.join(", ")}`);
 });

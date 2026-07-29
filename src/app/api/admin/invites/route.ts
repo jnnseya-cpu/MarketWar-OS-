@@ -22,6 +22,11 @@ function inviteHtml(companyName: string, link: string): string {
 // GET  → all invites. POST { email, companyName, planId?, brands?, note? } → create.
 // DELETE ?token= → revoke.
 export const runtime = "nodejs";
+// Reserves the platform maximum. This route does slow external work (sends invitation email over SMTP),
+// and without a budget the function is killed part-way through: the caller
+// gets no JSON at all — just "Request failed" — and any work already done
+// goes unreported, which is how a send gets repeated.
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req, { scope: "tenant_manage" });

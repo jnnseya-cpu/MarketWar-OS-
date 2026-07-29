@@ -9,6 +9,17 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 // GET                                            → engine status
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A campaign is a SERIAL loop of SMTP sends, each of which can take seconds and
+// is allowed up to 15 before it times out. Without a reserved budget the
+// platform default kills the function part-way through — the customer sees
+// "Request failed" with no JSON at all, and worse, the sends that DID go out are
+// never counted, so a retry mails those people twice.
+export const maxDuration = 60;
+
+// Stop sending with time to spare, so the response is written by US rather than
+// the function being killed. What went out is then reported honestly and counted
+// against the warm-up allowance, and the rest is picked up by the next run.
+const SEND_BUDGET_MS = Number(process.env.EMAIL_SEND_BUDGET_MS || 45_000);
 
 export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "email"), 30, 60_000, Date.now());
@@ -159,8 +170,13 @@ export async function POST(req: NextRequest) {
     const byEmail = new Map(eligible.map((c) => [(c.email as string).toLowerCase(), c]));
 
     let sent = 0, failed = 0;
+    let stoppedEarly = false;
+    const sendDeadline = Date.now() + SEND_BUDGET_MS;
     const failures: string[] = [];
     for (const to of batch) {
+      // Out of budget: stop cleanly and report. Being killed here is what loses
+      // the count of what was already delivered.
+      if (Date.now() >= sendDeadline) { stoppedEarly = true; break; }
       try {
         const contact = byEmail.get(to.toLowerCase());
         const personalSubject = mergeTemplate(subject, { contact, brand: brandName });
@@ -185,15 +201,20 @@ export async function POST(req: NextRequest) {
     // Count what actually went out against today's warm-up allowance.
     if (sent > 0) { try { await recordWarmupSends(brandId, today, sent); } catch { /* counter best-effort */ } }
     const dailyRemaining = Math.max(0, warm.remaining - sent);
+    const attempted = sent + failed;
+    // Anything the budget cut off is still sendable and must be counted as such,
+    // or the customer thinks the campaign finished when most of it never went.
+    const notReached = batch.length - attempted;
     return NextResponse.json({
       mode: emailConfigured ? "live" : "demo",
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
-      attempted: batch.length, sent, failed, failures,
-      remaining: Math.max(0, sendable.length - batch.length),
+      attempted, sent, failed, failures,
+      stoppedEarly, notReached,
+      remaining: Math.max(0, sendable.length - attempted),
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: emailConfigured
-        ? `Sent ${sent} of ${batch.length}. ${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
+        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : "Demo mode — no sending server configured, so nothing left the machine. Set SMTP_HOST/USER/PASS to send for real.",
     });
   }
