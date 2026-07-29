@@ -11,6 +11,10 @@
     {
       "path": "/api/seo-autopilot",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/ai-visibility/scheduled?cron=1",
+      "schedule": "0 9 * * 1"
     }
   ]
 }

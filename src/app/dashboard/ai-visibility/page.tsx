@@ -8,7 +8,7 @@
 // verdict came from.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText, Search, ExternalLink, Check } from "lucide-react";
+import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText, Search, ExternalLink, Check, PenLine, CalendarClock } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -46,6 +46,13 @@ type SourcesReport = {
   searched: number; fetched: number; live: boolean; note: string;
 };
 
+type PageDraft = {
+  title: string; excerpt: string; content: string;
+  blockers: { excerpt: string; reason: string; fix: string }[];
+  warnings: { excerpt: string; reason: string; fix: string }[];
+  unanswered: string[]; safeToPublish: boolean; note: string;
+};
+
 const KIND_LABEL: Record<string, string> = {
   "review-platform": "Review platform", directory: "Directory", roundup: "Round-up",
   comparison: "Comparison", forum: "Community thread", "vendor-site": "A competitor's own site",
@@ -78,6 +85,17 @@ export default function AiVisibilityPage() {
   const [srcBusy, setSrcBusy] = useState(false);
   const [srcErr, setSrcErr] = useState<string | null>(null);
   const [srcNote, setSrcNote] = useState("");
+  // Page writing: which brief is open, the facts typed for it, and the draft.
+  const [writing, setWriting] = useState<string | null>(null);
+  const [facts, setFacts] = useState<Record<string, string>>({});
+  const [pageBusy, setPageBusy] = useState(false);
+  const [pageErr, setPageErr] = useState<string | null>(null);
+  const [draftOut, setDraftOut] = useState<PageDraft | null>(null);
+  // Weekly schedule.
+  const [sched, setSched] = useState<{ enabled: boolean; cadenceDays: number; notifyEmail?: string } | null>(null);
+  const [schedEmail, setSchedEmail] = useState("");
+  const [schedBusy, setSchedBusy] = useState(false);
+  const [schedNote, setSchedNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -194,6 +212,61 @@ export default function AiVisibilityPage() {
         ? "Gave up waiting after 75 seconds. Nothing was charged for searches that did not run."
         : `Could not look up the sources: ${(e as Error).message || "network error"}.`);
     } finally { clearTimeout(giveUp); setSrcBusy(false); }
+  }
+
+  // Write the page a brief describes. The facts the customer types are the ONLY
+  // things the model may state about them — that constraint is enforced server
+  // side and re-checked against the output.
+  async function writePage(b: Brief) {
+    if (!activeBrand || pageBusy) return;
+    setPageBusy(true); setPageErr(null); setDraftOut(null);
+    try {
+      const r = await authedFetch("/api/ai-citation/page", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          brandId: activeBrand.id, business: activeBrand.name, domain: activeBrand.website,
+          category: activeBrand.product, question: b.question, angle: b.angle, outline: b.outline,
+          proof: b.proofNeeded.map((q) => ({ question: q, answer: facts[q] || "" })),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setPageErr(d.error || `Could not write the page (HTTP ${r.status})`); return; }
+      setDraftOut(d.draft);
+    } catch (e) {
+      setPageErr(`Could not write the page: ${(e as Error).message || "network error"}.`);
+    } finally { setPageBusy(false); }
+  }
+
+  const loadSchedule = useCallback(async (brandId: string) => {
+    try {
+      const r = await authedFetch(`/api/ai-visibility/scheduled?brandId=${encodeURIComponent(brandId)}`);
+      const d = await r.json().catch(() => ({}));
+      if (d.schedule) { setSched(d.schedule); setSchedEmail(d.schedule.notifyEmail || ""); }
+      setSchedNote(d.note || "");
+    } catch { /* the page works without it */ }
+  }, []);
+
+  useEffect(() => { if (ready && activeBrand) loadSchedule(activeBrand.id); }, [ready, activeBrand, loadSchedule]);
+
+  async function saveSchedule(enabled: boolean) {
+    if (!activeBrand || schedBusy) return;
+    setSchedBusy(true);
+    try {
+      const r = await authedFetch("/api/ai-visibility/scheduled", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          brandId: activeBrand.id, business: activeBrand.name, domain: activeBrand.website,
+          enabled, questions, notifyEmail: schedEmail, cadenceDays: sched?.cadenceDays ?? 7,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.schedule) setSched(d.schedule);
+      setSchedNote(d.error || d.note || "");
+    } catch (e) {
+      setSchedNote(`Could not save the schedule: ${(e as Error).message || "network error"}.`);
+    } finally { setSchedBusy(false); }
   }
 
   const TrendIcon = trend?.direction === "up" ? TrendingUp : trend?.direction === "down" ? TrendingDown : Minus;
@@ -438,6 +511,62 @@ export default function AiVisibilityPage() {
                                 You must supply: {b.proofNeeded.join("; ")}. These are left blank on purpose — inventing them would put claims on your site that you cannot stand behind.
                               </p>
                             )}
+
+                            <button
+                              onClick={() => { setWriting(writing === b.question ? null : b.question); setDraftOut(null); setPageErr(null); }}
+                              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-300 hover:text-violet-200"
+                            >
+                              <PenLine className="h-3 w-3" />
+                              {writing === b.question ? "Close" : "Write this page"}
+                            </button>
+
+                            {writing === b.question && (
+                              <div className="mt-2 rounded-lg border border-ink-700 bg-ink-950/70 p-3">
+                                <p className="text-[11px] leading-relaxed text-slate-400">
+                                  Fill in what you can. The writer is given <strong className="text-slate-200">only</strong> what you type here and is forbidden from stating anything else about your business — anything left blank comes back marked <code className="text-amber-200">[NEEDS: …]</code> rather than invented. A page carrying a claim you cannot stand behind is the worst outcome of this whole exercise: the assistants would learn it.
+                                </p>
+                                <div className="mt-2 space-y-2">
+                                  {b.proofNeeded.map((q) => (
+                                    <label key={q} className="block">
+                                      <span className="mb-0.5 block text-[10px] text-slate-500">{q}</span>
+                                      <textarea
+                                        rows={2}
+                                        value={facts[q] || ""}
+                                        onChange={(e) => setFacts((f) => ({ ...f, [q]: e.target.value }))}
+                                        placeholder="Leave blank if you cannot evidence it"
+                                        className="w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-[11px] text-white placeholder-slate-600 outline-none focus:border-violet-500/50"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                                <button className="btn-primary !bg-violet-500 hover:!bg-violet-400 mt-2" onClick={() => writePage(b)} disabled={pageBusy}>
+                                  {pageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenLine className="h-4 w-4" />}
+                                  {pageBusy ? "Writing…" : "Write the draft"}
+                                </button>
+
+                                {pageErr && <p className="mt-2 rounded border border-rose-500/30 bg-rose-500/[0.07] px-2 py-1.5 text-[11px] text-rose-200">{pageErr}</p>}
+
+                                {draftOut && (
+                                  <div className="mt-3">
+                                    <p className={`rounded px-2 py-1.5 text-[11px] ${draftOut.safeToPublish ? "bg-emerald-500/10 text-emerald-200" : "bg-rose-500/10 text-rose-200"}`}>
+                                      {draftOut.safeToPublish ? "No unsupported claims found. Saved as a draft." : `${draftOut.blockers.length} claim(s) here are not backed by anything you supplied — fix these before publishing.`}
+                                    </p>
+                                    {draftOut.blockers.map((f, i) => (
+                                      <p key={`b${i}`} className="mt-1.5 rounded border border-rose-500/25 bg-rose-500/[0.06] px-2 py-1.5 text-[10px] leading-relaxed text-rose-100">
+                                        <strong>&ldquo;{f.excerpt}&rdquo;</strong> — {f.reason} {f.fix}
+                                      </p>
+                                    ))}
+                                    {draftOut.warnings.map((f, i) => (
+                                      <p key={`w${i}`} className="mt-1.5 rounded border border-amber-500/25 bg-amber-500/[0.06] px-2 py-1.5 text-[10px] leading-relaxed text-amber-100">
+                                        <strong>&ldquo;{f.excerpt}&rdquo;</strong> — {f.reason} {f.fix}
+                                      </p>
+                                    ))}
+                                    <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded border border-ink-700 bg-ink-950 p-2.5 text-[11px] leading-relaxed text-slate-300">{draftOut.content}</pre>
+                                    <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{draftOut.note}</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -514,6 +643,45 @@ export default function AiVisibilityPage() {
                   {planNote && <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{planNote}</p>}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ---- Weekly runs ------------------------------------------------ */}
+          {Boolean(questions.length) && (
+            <div className="mb-4 card p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300"><CalendarClock className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-display text-sm font-bold text-white">Run this every week automatically</h3>
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    One run is a sample. The trend only exists if the runs keep happening — on the <em>same</em> questions, because changing them restarts the comparison.
+                  </p>
+                </div>
+                <button
+                  className={sched?.enabled ? "btn-secondary" : "btn-primary !bg-violet-500 hover:!bg-violet-400"}
+                  onClick={() => saveSchedule(!sched?.enabled)}
+                  disabled={schedBusy}
+                >
+                  {schedBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+                  {sched?.enabled ? "Turn off weekly runs" : "Run weekly"}
+                </button>
+              </div>
+
+              <label className="mt-3 block">
+                <span className="mb-1 block text-[10px] uppercase tracking-wide text-slate-500">Email me when it actually moves (optional)</span>
+                <input
+                  type="email"
+                  value={schedEmail}
+                  onChange={(e) => setSchedEmail(e.target.value)}
+                  onBlur={() => { if (sched?.enabled) saveSchedule(true); }}
+                  placeholder="you@business.com"
+                  className="w-full max-w-sm rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-violet-500/50"
+                />
+              </label>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                Alerts fire <strong className="text-slate-300">only</strong> when the movement is bigger than these models produce on their own. A run that drifts within the noise is recorded silently — an email every week regardless of what you did is one nobody reads.
+              </p>
+              {schedNote && <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{schedNote}</p>}
             </div>
           )}
 

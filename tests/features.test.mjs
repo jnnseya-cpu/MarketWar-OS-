@@ -4632,3 +4632,158 @@ test("sources: a domain that recurs across questions is surfaced first", async (
   assert.equal(report.priorityDomains[0].pages, 2,
     "one domain covering two questions is worth more effort than two covering one each");
 });
+
+// ---------------------------------------------------------------------------
+// Page generation from a brief.
+//
+// The point of the citation work is to get a model to repeat what your page
+// says about you. So a page stating something you cannot stand behind is not a
+// marketing risk — it is the WORST outcome, because you would be teaching the
+// assistants a claim you have to retract. These tests hold that line.
+// ---------------------------------------------------------------------------
+const cpage = await import("../src/backend/citation-page.ts");
+
+const pageGw = (text) => async () => ({ text, provider: "openai", model: "m", latencyMs: 1, attempts: [] });
+
+test("page: only the facts the customer typed are given to the writer", async () => {
+  let prompt = "";
+  await cpage.writeCitationPage(
+    {
+      brand: "VeryX", question: "Who are the best CDE providers?", angle: "UK-hosted",
+      outline: ["What a CDE is"],
+      proof: [
+        { question: "Where is your data hosted?", answer: "London, UK" },
+        { question: "Which certifications do you hold?", answer: "" },
+      ],
+    },
+    { complete: async (req) => { prompt = req.prompt; return { text: "# Page\n\nHosted in London.", provider: "openai", model: "m", latencyMs: 1, attempts: [] }; } },
+  );
+  assert.match(prompt, /London, UK/, "a supplied fact must reach the writer");
+  assert.match(prompt, /DELIBERATELY NOT SUPPLIED/, "and a blank one must be named as off-limits");
+
+  // The SUPPLIED FACTS block is also what the claim guard scans against, so an
+  // empty-valued entry in it is worse than useless: it reads to the model as a
+  // fact it is allowed to state, and to the guard as nothing at all. Asserting
+  // only that "certifications" appears somewhere in the prompt let a mutation
+  // that dumped every unanswered question into the facts block pass unnoticed.
+  const factsBlock = prompt.slice(prompt.indexOf("SUPPLIED FACTS"), prompt.indexOf("DELIBERATELY NOT SUPPLIED"));
+  assert.doesNotMatch(factsBlock, /certifications/i,
+    `a blank answer must never appear as a supplied fact:\n${factsBlock}`);
+  assert.match(prompt.slice(prompt.indexOf("DELIBERATELY NOT SUPPLIED")), /certifications/i,
+    "it belongs in the do-not-guess list instead");
+});
+
+test("page: an invented statistic is a BLOCKER, not a suggestion", async () => {
+  const draft = await cpage.writeCitationPage(
+    {
+      brand: "VeryX", question: "best?", angle: "a", outline: ["x"],
+      proof: [{ question: "Where is your data hosted?", answer: "London" }],
+    },
+    // The model ignored the instruction and produced a number nobody supplied.
+    { complete: pageGw("# VeryX\n\nVeryX cuts rework by 42% and is trusted by 4,000 businesses.") },
+  );
+  assert.equal(draft.safeToPublish, false);
+  assert.ok(draft.blockers.length > 0, "an unbacked figure must stop publication, not warn about it");
+  assert.match(draft.note, /worse than not publishing/i);
+});
+
+test("page: a figure the customer DID supply is theirs to stand behind", async () => {
+  const draft = await cpage.writeCitationPage(
+    {
+      brand: "VeryX", question: "best?", angle: "a", outline: ["x"],
+      proof: [{ question: "Measured rework reduction?", answer: "Customers cut rework by 42% on average." }],
+    },
+    { complete: pageGw("# VeryX\n\nVeryX cuts rework by 42% on average.") },
+  );
+  assert.equal(draft.safeToPublish, true,
+    "flagging the customer's own supplied number would make the guard useless");
+});
+
+test("page: a gap is marked, never filled in", async () => {
+  const draft = await cpage.writeCitationPage(
+    {
+      brand: "VeryX", question: "best?", angle: "a", outline: ["Certifications"],
+      proof: [{ question: "Which certifications do you hold?", answer: "" }],
+    },
+    { complete: pageGw("# VeryX\n\nA CDE organises project information.\n\n## Certifications\n\n[NEEDS: which certifications VeryX holds]") },
+  );
+  assert.deepEqual(draft.unanswered, ["Which certifications do you hold?"]);
+  assert.match(draft.note, /\[NEEDS/, "the customer must be told the markers are there");
+  assert.match(draft.note, /do not simply delete the markers/i,
+    "deleting them silently loses the specifics that make a page quotable");
+  assert.match(draft.note, /DRAFT/, "and nothing may be published without a person looking at it");
+});
+
+// ---------------------------------------------------------------------------
+// Weekly runs and the alert.
+// ---------------------------------------------------------------------------
+const sched = await import("../src/backend/visibility-schedule.ts");
+
+function runAt(rate, at, competitors = []) {
+  return {
+    id: at, brandId: "b1", brand: "VeryX", ranAt: at, results: [],
+    visibilityRate: rate, mentioned: 1, askedCount: 12, assistants: ["openai"],
+    topCompetitors: competitors.map((name) => ({ name, appearances: 1 })), note: "",
+  };
+}
+
+test("schedule: an alert only fires when the trend engine calls the move real", () => {
+  // The same noise floor the page uses. If these disagreed, the email and the
+  // number on screen would contradict each other — the exact failure this
+  // codebase has already had to fix twice.
+  const noise = sched.alertFor([runAt(50, "2026-02-01"), runAt(42, "2026-01-25")]);
+  assert.equal(noise, null, "an 8-point swing across 12 answers is what these models do unprompted");
+
+  const real = sched.alertFor([runAt(83, "2026-02-01"), runAt(17, "2026-01-25")]);
+  assert.ok(real);
+  assert.equal(real.direction, "up");
+  assert.match(real.body, /only fires when the movement is bigger/i,
+    "silence must be explained, or it reads as nothing having run");
+});
+
+test("schedule: one run is never an alert", () => {
+  assert.equal(sched.alertFor([runAt(50, "2026-02-01")]), null,
+    "there is nothing to compare against — a first run cannot be movement");
+});
+
+test("schedule: a new rival in the answers is named in the alert", () => {
+  const a = sched.alertFor([
+    runAt(83, "2026-02-01", ["Asite", "Newcomer Ltd"]),
+    runAt(17, "2026-01-25", ["Asite"]),
+  ]);
+  assert.deepEqual(a.newRivals, ["Newcomer Ltd"]);
+});
+
+test("schedule: daily is refused and turned into weekly, with the reason", async () => {
+  const s1 = await sched.setSchedule("b-cad", { enabled: true, business: "VeryX", questions: ["best?"], cadenceDays: 1 });
+  assert.equal(s1.cadenceDays, sched.MIN_CADENCE_DAYS,
+    "daily runs of a non-deterministic measurement buy a noisier line at a higher cost");
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/scheduled/route.ts", import.meta.url), "utf8");
+  assert.match(route, /noisier line at a higher cost/, "and the customer must be told why, not just overridden");
+});
+
+test("schedule: a run where nothing could be asked does not consume the week", () => {
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/scheduled/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(run\.askedCount > 0\) await setSchedule\(sc\.brandId, \{ lastRunAt: run\.ranAt \}\)/,
+    "an outage must not silently cost the customer their weekly data point");
+  assert.match(route, /x-cron-secret/, "and the cron endpoint must not be open to the internet");
+});
+
+test("schedule: due only when enabled, asked before, and old enough", () => {
+  const base = { brandId: "b", enabled: true, cadenceDays: 7, questions: ["q"], business: "VeryX", lastRunAt: null, updatedAt: "" };
+  const day = 86_400_000;
+  assert.equal(sched.isDue(base, 0), true, "never run → due");
+  assert.equal(sched.isDue({ ...base, enabled: false }, 0), false);
+  assert.equal(sched.isDue({ ...base, questions: [] }, 0), false, "nothing to ask is not due");
+  assert.equal(sched.isDue({ ...base, lastRunAt: new Date(0).toISOString() }, 6 * day), false);
+  assert.equal(sched.isDue({ ...base, lastRunAt: new Date(0).toISOString() }, 7 * day), true);
+});
+
+test("schedule: the weekly cron is registered and the store is server-only", () => {
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const cron = vercel.crons.find((c) => c.path.startsWith("/api/ai-visibility/scheduled"));
+  assert.ok(cron, "advice to re-run weekly that nothing acts on is advice nobody follows");
+  assert.match(cron.schedule, /^\S+ \S+ \* \* [0-6]$/, `weekly, not daily: ${cron.schedule}`);
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  assert.match(rules, /match \/ai_visibility_schedules\/\{doc\} \{ allow read, write: if false; \}/);
+});
