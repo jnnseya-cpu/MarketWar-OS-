@@ -252,6 +252,44 @@ const ADAPTERS: Record<ProviderId, Adapter> = { anthropic, openai, gemini };
 
 const DEFAULT_ORDER: ProviderId[] = ["anthropic", "openai", "gemini"];
 
+/**
+ * Ask ONE named provider, with NO failover.
+ *
+ * gatewayComplete exists to get an answer from whoever can give one — correct
+ * when the caller wants text. It is wrong when the caller wants to know what a
+ * PARTICULAR assistant says: falling over to OpenAI and filing the reply under
+ * Anthropic would be a fabricated measurement, and the AI-visibility monitor
+ * exists precisely to measure per-assistant.
+ *
+ * Returns a reason instead of throwing, because "this assistant is not
+ * configured" and "this assistant errored" are both results the monitor must
+ * report rather than hide.
+ */
+export async function askProvider(
+  id: ProviderId,
+  req: GatewayRequest,
+  opts: { timeoutMs?: number } = {},
+): Promise<{ ok: true; text: string; provider: ProviderId; model: string; latencyMs: number } | { ok: false; provider: ProviderId; reason: string; configured: boolean }> {
+  const adapter = ADAPTERS[id];
+  if (!adapter) return { ok: false, provider: id, reason: `Unknown provider "${id}".`, configured: false };
+  if (!adapter.configured()) {
+    return { ok: false, provider: id, reason: `No API key configured for ${id}, so it was not asked.`, configured: false };
+  }
+  const started = Date.now();
+  const deadline = Date.now() + (opts.timeoutMs ?? PER_REQUEST_TIMEOUT_MS);
+  try {
+    const text = await adapter.complete(req, deadline);
+    return { ok: true, text, provider: id, model: adapter.model(), latencyMs: Date.now() - started };
+  } catch (e) {
+    return { ok: false, provider: id, reason: e instanceof Error ? e.message : String(e), configured: true };
+  }
+}
+
+/** Providers that could actually be asked right now. */
+export function configuredProviders(): ProviderId[] {
+  return DEFAULT_ORDER.filter((id) => ADAPTERS[id].configured());
+}
+
 /** Entries in AI_GATEWAY_ORDER that name no known provider — almost always a typo. */
 export function unknownProvidersInOrder(raw = process.env.AI_GATEWAY_ORDER || ""): string[] {
   return raw

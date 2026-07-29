@@ -10,6 +10,7 @@ import LanguageSelector from "@/components/LanguageSelector";
 import { useIsAdmin } from "@/frontend/use-is-admin";
 import {
   Activity,
+  Bot,
   Library,
   AtSign,
   BadgePercent,
@@ -82,6 +83,7 @@ export const NAV = [
       // Search & organic stack (command → strategy → execution/defence).
       // Organic Dominance is the OS command centre; the Strike-phase surface
       // (/dashboard/organic) is cross-linked from it — merged, nothing lost.
+      { href: "/dashboard/ai-visibility", label: "AI Visibility", icon: Bot },
       { href: "/dashboard/organic-dominance", label: "Organic Dominance", icon: Radar },
       { href: "/dashboard/search-dominance", label: "Search Dominance Engine", icon: Search },
       { href: "/dashboard/omnirank", label: "OMNIRANK Dominion", icon: Crosshair },

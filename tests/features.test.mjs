@@ -3756,3 +3756,145 @@ test("data sources: the UI does not promise metrics for an unbuilt connector", (
   assert.ok(guardIdx > -1 && guardIdx < promiseIdx,
     "the 'metrics fill in' promise must sit behind the planned/live branch");
 });
+
+// ---------------------------------------------------------------------------
+// AI Visibility — built rather than bought.
+//
+// No vendor sells "is ChatGPT recommending you" as an API; they all do what this
+// does — ask the assistants the buying questions and record the answers. The
+// risk in building it is a number nobody can check, so every verdict here has to
+// trace back to text.
+// ---------------------------------------------------------------------------
+const vis = await import("../src/backend/ai-visibility.ts");
+
+test("ai visibility: a brand is not matched inside another word", () => {
+  // Same rule as the claim guard, for a sharper reason: a false positive tells
+  // someone they are being recommended when they are not.
+  const aliases = vis.brandAliases("Axion", "axionos.com");
+  assert.equal(vis.findMention("Consider the axionometric survey method.", aliases).mentioned, false,
+    "'Axion' inside 'axionometric' is not a citation");
+  assert.equal(vis.findMention("I would look at Axion for this.", aliases).mentioned, true);
+});
+
+test("ai visibility: legal suffixes and the domain both count as the brand", () => {
+  const aliases = vis.brandAliases("AxionOS Limited", "https://www.axionos.com/");
+  assert.ok(aliases.includes("AxionOS"), "prose drops the Ltd");
+  assert.ok(aliases.includes("axionos.com"));
+  assert.equal(vis.findMention("Try AxionOS — they cover the Midlands.", aliases).mentioned, true);
+  assert.equal(vis.findMention("See axionos.com for details.", aliases).mentioned, true);
+});
+
+test("ai visibility: the evidence is the sentence the claim came from", () => {
+  const aliases = vis.brandAliases("AxionOS");
+  const answer = "There are several options. AxionOS is strong for UK trades. Others exist too.";
+  const { mentioned, evidence } = vis.findMention(answer, aliases);
+  assert.equal(mentioned, true);
+  assert.match(evidence, /AxionOS is strong for UK trades/,
+    "a verdict with no quotable source is unfalsifiable");
+});
+
+test("ai visibility: rank is only reported when the answer is actually ranked", () => {
+  const aliases = vis.brandAliases("AxionOS");
+  const ranked = "1. **BuildCo** — large\n2. **AxionOS** — trades focus\n3. **Others** — misc";
+  assert.equal(vis.rankOf(ranked, aliases), 2);
+  // Prose mentions the brand but ranks nothing. Inventing "#1" here would be a
+  // fabricated position.
+  assert.equal(vis.rankOf("AxionOS is worth a look, as is BuildCo.", aliases), null);
+});
+
+test("ai visibility: competitors are read from lists only, never guessed from prose", () => {
+  const listed = vis.extractNamedBusinesses("1. **BuildCo** — big\n2. **TradeHub** — small");
+  assert.deepEqual(listed.names, ["BuildCo", "TradeHub"]);
+  assert.equal(listed.ranked, true);
+  // Guessing which capitalised words in a paragraph are companies would invent
+  // rivals the customer does not have.
+  const prose = vis.extractNamedBusinesses("In Birmingham, Many Builders Compete For Work Every Day.");
+  assert.deepEqual(prose.names, []);
+});
+
+test("ai visibility: an assistant that could not be asked is not a 'no'", async () => {
+  vis.__resetVisibilityRuns();
+  const ask = async (id) => id === "openai"
+    ? { ok: true, text: "I would suggest AxionOS.", provider: id, model: "m", latencyMs: 1 }
+    : { ok: false, provider: id, reason: "No API key configured for anthropic, so it was not asked.", configured: false };
+  const run = await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions: [{ id: "q1", text: "best?", intent: "buying" }], assistants: ["openai", "anthropic"] },
+    "2026-01-01T00:00:00.000Z", { ask },
+  );
+  assert.equal(run.askedCount, 1, "only the assistant that answered counts");
+  assert.equal(run.visibilityRate, 100, "1 of 1 answered — an unreachable provider must not drag the rate down");
+  assert.match(run.note, /could not be collected/i, "and the gap must be stated");
+});
+
+test("ai visibility: nothing measured means nothing reported", async () => {
+  vis.__resetVisibilityRuns();
+  const ask = async (id) => ({ ok: false, provider: id, reason: "no key", configured: false });
+  const run = await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions: [{ id: "q1", text: "best?", intent: "buying" }], assistants: ["openai"] },
+    "2026-01-01T00:00:00.000Z", { ask },
+  );
+  assert.equal(run.askedCount, 0);
+  assert.equal(run.visibilityRate, 0);
+  assert.match(run.note, /Nothing was measured/i,
+    "a configuration failure must not be presented as a marketing result");
+});
+
+test("ai visibility: the brand is never listed as its own competitor", async () => {
+  vis.__resetVisibilityRuns();
+  const ask = async (id) => ({
+    ok: true, provider: id, model: "m", latencyMs: 1,
+    text: "1. **AxionOS** — trades\n2. **BuildCo** — general",
+  });
+  const run = await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions: [{ id: "q1", text: "best?", intent: "buying" }], assistants: ["openai"] },
+    "2026-01-01T00:00:00.000Z", { ask },
+  );
+  assert.deepEqual(run.topCompetitors.map((c) => c.name), ["buildco"]);
+  assert.equal(run.results[0].verdicts[0].rank, 1);
+});
+
+test("ai visibility: a small swing between runs is NOT called a trend", () => {
+  const mk = (rate, at) => ({ visibilityRate: rate, askedCount: 6, ranAt: at });
+  const noisy = vis.trend([mk(50, "2026-01-02"), mk(33, "2026-01-01")]);
+  assert.equal(noisy.direction, "flat",
+    "6 non-deterministic answers moving 17 points is what these models do on their own");
+  assert.match(noisy.note, /not movement you caused/i);
+
+  const real = vis.trend([mk(83, "2026-01-02"), mk(17, "2026-01-01")]);
+  assert.equal(real.direction, "up");
+  assert.match(real.note, /confirm it holds/i, "even a real move needs a third run before spending against it");
+
+  const single = vis.trend([mk(50, "2026-01-01")]);
+  assert.equal(single.direction, "unknown");
+});
+
+test("ai visibility: questions are what a BUYER asks, not questions about you", () => {
+  const qs = vis.suggestQuestions({ business: "AxionOS", product: "lead generation", location: "Birmingham" });
+  const brandQuestions = qs.filter((q) => q.text.includes("AxionOS"));
+  assert.equal(brandQuestions.length, 1,
+    "asking the assistant about you proves only that it will discuss what it is handed");
+  assert.ok(qs.length >= 4);
+  assert.ok(qs.some((q) => /best|recommend/i.test(q.text) && !q.text.includes("AxionOS")),
+    "being named unprompted is the thing worth measuring");
+});
+
+test("ai visibility: each assistant is asked directly, never through failover", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /export async function askProvider/,
+    "falling over would file one model's answer under another — a fabricated measurement");
+  const src = readFileSync(new URL("../src/backend/ai-visibility.ts", import.meta.url), "utf8");
+  assert.match(src, /deps\.ask \?\? askProvider/);
+  assert.doesNotMatch(src, /gatewayComplete/, "gatewayComplete picks whoever answers — wrong tool here");
+});
+
+test("ai visibility: the monitor is a LIVE data source now, and metered per call", () => {
+  const sources = organic.dataSources();
+  const ai = sources.find((s) => s.key === "ai_answers");
+  assert.equal(ai.connector, "live", "it is built — the panel must stop saying 'not built yet'");
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/route.ts", import.meta.url), "utf8");
+  assert.match(route, /questions\.length \* assistants\.length/, "one AI call per question per assistant");
+  assert.match(route, /meterAction\(auth, "llm", units\)/, "and charged for what it actually costs");
+  assert.match(route, /maxDuration = 60/);
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  assert.match(rules, /match \/ai_visibility_runs\/\{doc\} \{ allow read, write: if false; \}/);
+});

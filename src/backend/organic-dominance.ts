@@ -24,6 +24,7 @@ if (typeof window !== "undefined") {
 import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
 import { quoteAcu } from "@/backend/acu";
 import { searchConsoleConfigured } from "@/backend/search-console";
+import { configuredProviders } from "@/backend/gateway";
 
 // ---------------------------------------------------------------------------
 // §3 — The 20-section navigation, each mapped to a real destination or an
@@ -112,8 +113,14 @@ export function dataSources(): DataSource[] {
       "It needs a GA4 Data API connector plus per-brand property selection, like Search Console has."),
     planned("listening", "Social listening provider", "listening", "LISTENING_API_KEY", "Live mentions across social, forums, news + reviews",
       "It needs a licensed listening feed (Brand24, Meltwater, Talkwalker or similar) and a connector to normalise its mentions."),
-    planned("ai_answers", "AI-answer monitor", "ai_answers", "AI_ANSWER_MONITOR_KEY", "Brand visibility + citations in ChatGPT / Perplexity / Gemini",
-      "It needs a service that repeatedly asks the assistants your buying questions and records whether you are cited — either a vendor (Profound, Peec, Otterly) or a scheduled job built here using the AI keys already configured."),
+    // Built here rather than bought. No vendor sells "is ChatGPT recommending
+    // you" as an API — they all do the same thing this now does: ask the
+    // assistants the buying questions and record the answers. Using the AI keys
+    // already configured means the measurement and its history are the
+    // platform's own, and every number traces back to text you can read.
+    live("ai_answers", "AI-answer monitor", "ai_answers", "ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY", "Brand visibility + citations in ChatGPT / Claude / Gemini", "admin",
+      "Already on if any AI provider is configured — open AI Visibility, set the questions your buyers ask, and run it. Each assistant is asked directly with no failover, so an answer is always attributed to the model that gave it.",
+      () => configuredProviders().length > 0),
     planned("backlinks", "Backlink index", "authority", "BACKLINK_API_KEY", "Backlink gaps, unlinked mentions + toxic-link detection",
       "It needs a licensed backlink index (Ahrefs, Majestic, DataForSEO or similar) — the crawl behind it is not something this platform can produce itself."),
     planned("cms", "CMS (WordPress / Webflow / Shopify)", "cms", "CMS_PUBLISH_TOKEN", "One-click publishing of approved content",
