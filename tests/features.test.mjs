@@ -3682,3 +3682,77 @@ test("health: the running build identifies its own commit", () => {
     "a fix and a stale deploy are indistinguishable from the outside without this");
   assert.match(src, /build: BUILD/);
 });
+
+// ---------------------------------------------------------------------------
+// Data sources: a green light for a wire that was never run.
+//
+// "Admin: set AI_ANSWER_MONITOR_KEY in the environment… Once set, this shows
+// 'connected' and the blank metrics fill in."
+//
+// No code read that variable. Nor LISTENING_API_KEY, nor BACKLINK_API_KEY. The
+// connected check was Boolean(process.env[envKey]) — pure presence — so pasting
+// any string lit the indicator and the panel stayed empty. Worst case the owner
+// buys a data subscription first.
+// ---------------------------------------------------------------------------
+const organic = await import("../src/backend/organic-dominance.ts");
+
+test("data sources: a source with no connector can never report itself connected", () => {
+  const planned = organic.dataSources().filter((s) => s.connector === "planned");
+  assert.ok(planned.length > 0, "these exist and must be labelled honestly");
+  for (const s of planned) {
+    assert.equal(s.connected, false, `${s.key} has no connector but reports connected`);
+    assert.match(s.how, /Not built yet/i);
+    assert.match(s.how, /does nothing today/i, "the owner must be told the key changes nothing before they buy a subscription");
+  }
+});
+
+test("data sources: setting a planned key does NOT light it up", () => {
+  const key = "AI_ANSWER_MONITOR_KEY";
+  const prev = process.env[key];
+  try {
+    process.env[key] = "a-real-looking-key-that-nothing-reads";
+    const s = organic.dataSources().find((x) => x.key === "ai_answers");
+    assert.equal(s.connected, false,
+      "a presence check on a variable nothing reads is a green light for a wire that was never run");
+  } finally {
+    if (prev === undefined) delete process.env[key]; else process.env[key] = prev;
+  }
+});
+
+test("data sources: a live source is judged by its REAL probe, not a lookalike variable", () => {
+  const sc = organic.dataSources().find((s) => s.key === "search_console");
+  assert.equal(sc.connector, "live", "Search Console does have a connector");
+  const prev = process.env.GOOGLE_SEARCH_CONSOLE_TOKEN;
+  try {
+    // The old list named a variable the fetching code never checks. Setting it
+    // lit the indicator while the connector looked at a Google credential.
+    process.env.GOOGLE_SEARCH_CONSOLE_TOKEN = "not-the-credential-the-code-uses";
+    const again = organic.dataSources().find((s) => s.key === "search_console");
+    assert.equal(again.connected, false,
+      "the indicator must follow the credential the connector actually reads");
+  } finally {
+    if (prev === undefined) delete process.env.GOOGLE_SEARCH_CONSOLE_TOKEN; else process.env.GOOGLE_SEARCH_CONSOLE_TOKEN = prev;
+  }
+});
+
+test("data sources: a live source DOES light up on its real key", () => {
+  const prev = process.env.SERPER_API_KEY;
+  try {
+    process.env.SERPER_API_KEY = "test-key";
+    const s = organic.dataSources().find((x) => x.key === "serp");
+    assert.equal(s.connected, true, "or the honest labelling has simply broken the working ones");
+  } finally {
+    if (prev === undefined) delete process.env.SERPER_API_KEY; else process.env.SERPER_API_KEY = prev;
+  }
+});
+
+test("data sources: the UI does not promise metrics for an unbuilt connector", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/organic-dominance/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /Not built yet/, "planned sources must read differently from unconfigured ones");
+  assert.match(src, /Nothing to set today/);
+  // The promise may still be made — but only where a connector exists to keep it.
+  const promiseIdx = src.indexOf("the blank metrics fill in");
+  const guardIdx = src.indexOf('s.connector === "planned"');
+  assert.ok(guardIdx > -1 && guardIdx < promiseIdx,
+    "the 'metrics fill in' promise must sit behind the planned/live branch");
+});

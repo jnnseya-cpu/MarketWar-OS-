@@ -32,7 +32,7 @@ type Result = {
   ninetyDayPlan: { phase: string; focus: string; actions: string[] }[]; note: string;
 };
 type NavSection = { n: number; label: string; status: "foundation" | "live" | "connect"; route?: string; note: string };
-type DataSource = { key: string; label: string; category: string; connected: boolean; unlocks: string; connectType?: "admin" | "oauth"; how?: string };
+type DataSource = { key: string; label: string; category: string; connected: boolean; unlocks: string; connectType?: "admin" | "oauth"; how?: string; connector: "live" | "planned" };
 type Meta = { navigation: NavSection[]; dataSources: DataSource[] };
 
 // One-click actions → real destinations that already exist in the OS.
@@ -233,8 +233,8 @@ export default function OrganicDominancePage() {
       {/* Data sources — honest connection status */}
       {meta && (
         <div className="mb-6 card p-6">
-          <div className="mb-3 flex items-center gap-2"><Plug className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Data sources</h3><Pill tone={connectedSources > 0 ? "good" : "neutral"}>{connectedSources}/{meta.dataSources.length} connected</Pill></div>
-          <p className="mb-3 text-xs text-slate-500">Live listening, search volumes and AI-answer citations activate when their source is connected. Until then those metrics stay honestly blank — never invented. <span className="text-slate-400">Admin sources are set once by the owner (an environment key); per-brand sources each user connects for their own brand.</span></p>
+          <div className="mb-3 flex items-center gap-2"><Plug className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">Data sources</h3><Pill tone={connectedSources > 0 ? "good" : "neutral"}>{connectedSources}/{meta.dataSources.filter((x) => x.connector === "live").length} connected</Pill></div>
+          <p className="mb-3 text-xs text-slate-500">Live search volumes activate when their source is connected. Sources marked <span className="text-slate-300">Not built yet</span> have no connector behind them — no key will switch them on, and their panels stay blank rather than showing invented numbers. <span className="text-slate-400">Admin sources are set once by the owner (an environment key); per-brand sources each user connects for their own brand.</span></p>
           <div className="grid gap-2 sm:grid-cols-2">
             {meta.dataSources.map((s) => (
               <details key={s.key} className="group rounded-lg border border-white/[0.07] bg-ink-900/50 p-2.5 text-sm [&_summary]:list-none">
@@ -244,16 +244,26 @@ export default function OrganicDominancePage() {
                     <p className="text-xs text-slate-500">{s.unlocks}</p>
                   </div>
                   <span className="flex shrink-0 items-center gap-1.5">
-                    {s.connectType && !s.connected && <span className="rounded-full bg-ink-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">{s.connectType === "admin" ? "Admin" : "Per-brand"}</span>}
-                    {s.connected ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />connected</Pill> : <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300 group-open:bg-emerald-500/25">How to connect ▾</span>}
+                    {s.connector === "live" && !s.connected && <span className="rounded-full bg-ink-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">{s.connectType === "admin" ? "Admin" : "Per-brand"}</span>}
+                    {s.connected
+                      ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />connected</Pill>
+                      : s.connector === "planned"
+                        ? <span className="rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] font-bold text-slate-400 group-open:bg-slate-500/25">Not built yet ▾</span>
+                        : <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300 group-open:bg-emerald-500/25">How to connect ▾</span>}
                   </span>
                 </summary>
                 {!s.connected && s.how && (
                   <div className="mt-2 rounded-lg border border-white/[0.06] bg-ink-950/50 p-2.5 text-xs text-slate-400">
                     {s.how}
-                    {s.connectType === "admin"
-                      ? <p className="mt-1 text-slate-500">Owner action — see <span className="font-mono text-slate-400">docs/EXTERNAL-ENGINES.md</span>. Once set, this shows &ldquo;connected&rdquo; and the blank metrics fill in.</p>
-                      : <p className="mt-1 text-slate-500">Per-brand OAuth connect flow is being wired; until then the owner can supply the token in the environment.</p>}
+                    {/* "Set the key and the metrics fill in" was true only for the
+                        sources that HAVE a connector. Said about the others it
+                        sends the owner to buy a data subscription for a wire that
+                        was never run. */}
+                    {s.connector === "planned"
+                      ? <p className="mt-1 text-slate-500">Nothing to set today — this panel stays blank on purpose rather than showing invented numbers. Tracked in <span className="font-mono text-slate-400">docs/EXTERNAL-ENGINES.md</span>.</p>
+                      : s.connectType === "admin"
+                        ? <p className="mt-1 text-slate-500">Owner action — see <span className="font-mono text-slate-400">docs/EXTERNAL-ENGINES.md</span>. Once set, this shows &ldquo;connected&rdquo; and the blank metrics fill in.</p>
+                        : <p className="mt-1 text-slate-500">Per-brand: the owner registers the credential once, then each brand selects its own property.</p>}
                   </div>
                 )}
               </details>

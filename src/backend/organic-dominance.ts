@@ -23,6 +23,7 @@ if (typeof window !== "undefined") {
 
 import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
 import { quoteAcu } from "@/backend/acu";
+import { searchConsoleConfigured } from "@/backend/search-console";
 
 // ---------------------------------------------------------------------------
 // §3 — The 20-section navigation, each mapped to a real destination or an
@@ -58,6 +59,7 @@ export const NAV_SECTIONS: NavSection[] = [
 // ---------------------------------------------------------------------------
 // §6/§10/§34 — Data-source registry. Honest connection status (env-gated). A
 // source that is not connected NEVER produces numbers — the surface says so.
+// And a source with no CONNECTOR can never report itself connected at all.
 // ---------------------------------------------------------------------------
 // connectType — WHO connects it and HOW:
 //   "admin" = a platform-wide licensed data feed; the owner sets one env key and
@@ -67,21 +69,55 @@ export type DataSource = {
   key: string; label: string; category: "search" | "listening" | "ai_answers" | "analytics" | "cms" | "authority";
   envKey: string; connected: boolean; unlocks: string;
   connectType: "admin" | "oauth"; how: string;
+  /**
+   * Whether code exists that USES this credential.
+   *
+   * "live"    — a connector is built; setting the credential switches real data on.
+   * "planned" — no connector exists. Setting the variable changes nothing, and
+   *             saying otherwise is the worst kind of bug in this product: the
+   *             owner buys a data subscription, pastes the key, sees a green
+   *             light, and the panel stays empty with no explanation.
+   */
+  connector: "live" | "planned";
 };
 
-function connected(envKey: string): boolean { return Boolean(envKey && process.env[envKey]); }
+function envPresent(envKey: string): boolean { return Boolean(envKey && process.env[envKey]); }
 
 export function dataSources(): DataSource[] {
-  const S = (key: string, label: string, category: DataSource["category"], envKey: string, unlocks: string, connectType: "admin" | "oauth", how: string): DataSource =>
-    ({ key, label, category, envKey, connected: connected(envKey), unlocks, connectType, how });
+  const live = (key: string, label: string, category: DataSource["category"], envKey: string, unlocks: string, connectType: "admin" | "oauth", how: string, isConfigured: () => boolean): DataSource =>
+    ({ key, label, category, envKey, connected: isConfigured(), unlocks, connectType, how, connector: "live" });
+
+  // A planned source is NEVER "connected", whatever is in the environment. A
+  // presence check on a variable nothing reads is a green light for a wire that
+  // was never run.
+  const planned = (key: string, label: string, category: DataSource["category"], envKey: string, unlocks: string, needs: string): DataSource =>
+    ({
+      key, label, category, envKey, connected: false, unlocks, connectType: "admin",
+      connector: "planned",
+      how: `Not built yet — there is no connector for this, so setting ${envKey} does nothing today. ${needs}`,
+    });
+
   return [
-    S("search_console", "Google Search Console", "search", "GOOGLE_SEARCH_CONSOLE_TOKEN", "Real search volumes, rankings, impressions + click data", "oauth", "Per-brand: connect this brand's Search Console property (owner registers the Google OAuth app, then each user authorises their own site)."),
-    S("analytics", "Google Analytics", "analytics", "GOOGLE_ANALYTICS_TOKEN", "Traffic, conversions + organic-influenced revenue", "oauth", "Per-brand: connect this brand's GA4 property via Google OAuth."),
-    S("serp", "SERP data provider", "search", "SERPER_API_KEY", "Live SERP features, People-Also-Ask + competitor rankings", "admin", "Admin: set SERPER_API_KEY in the environment — connects live SERP data for every brand."),
-    S("listening", "Social listening provider", "listening", "LISTENING_API_KEY", "Live mentions across social, forums, news + reviews", "admin", "Admin: set LISTENING_API_KEY in the environment."),
-    S("ai_answers", "AI-answer monitor", "ai_answers", "AI_ANSWER_MONITOR_KEY", "Brand visibility + citations in ChatGPT / Perplexity / Gemini", "admin", "Admin: set AI_ANSWER_MONITOR_KEY in the environment."),
-    S("backlinks", "Backlink index", "authority", "BACKLINK_API_KEY", "Backlink gaps, unlinked mentions + toxic-link detection", "admin", "Admin: set BACKLINK_API_KEY in the environment."),
-    S("cms", "CMS (WordPress / Webflow / Shopify)", "cms", "CMS_PUBLISH_TOKEN", "One-click publishing of approved content", "oauth", "Per-brand: connect this brand's CMS account (WordPress/Webflow/Shopify) to publish approved content."),
+    // Real connector, and it reads a GOOGLE credential — not a token named after
+    // this panel. Naming the wrong variable meant setting it lit the indicator
+    // while the code that fetches the data checked something else entirely.
+    live("search_console", "Google Search Console", "search", "GOOGLE_SERVICE_ACCOUNT_JSON / Google OAuth", "Real search volumes, rankings, impressions + click data", "oauth",
+      "Per-brand: the owner registers the Google credential once, then each brand picks its own verified property in SEO. A brand with no matching property shows nothing rather than another site's numbers.",
+      searchConsoleConfigured),
+    live("serp", "SERP data provider", "search", "SERPER_API_KEY", "Live SERP features, People-Also-Ask + competitor rankings", "admin",
+      "Admin: set SERPER_API_KEY (serper.dev) — connects live SERP + email discovery for every brand. Check /api/health/serper to confirm it is live and in credit.",
+      () => envPresent("SERPER_API_KEY")),
+
+    planned("analytics", "Google Analytics", "analytics", "GOOGLE_ANALYTICS_TOKEN", "Traffic, conversions + organic-influenced revenue",
+      "It needs a GA4 Data API connector plus per-brand property selection, like Search Console has."),
+    planned("listening", "Social listening provider", "listening", "LISTENING_API_KEY", "Live mentions across social, forums, news + reviews",
+      "It needs a licensed listening feed (Brand24, Meltwater, Talkwalker or similar) and a connector to normalise its mentions."),
+    planned("ai_answers", "AI-answer monitor", "ai_answers", "AI_ANSWER_MONITOR_KEY", "Brand visibility + citations in ChatGPT / Perplexity / Gemini",
+      "It needs a service that repeatedly asks the assistants your buying questions and records whether you are cited — either a vendor (Profound, Peec, Otterly) or a scheduled job built here using the AI keys already configured."),
+    planned("backlinks", "Backlink index", "authority", "BACKLINK_API_KEY", "Backlink gaps, unlinked mentions + toxic-link detection",
+      "It needs a licensed backlink index (Ahrefs, Majestic, DataForSEO or similar) — the crawl behind it is not something this platform can produce itself."),
+    planned("cms", "CMS (WordPress / Webflow / Shopify)", "cms", "CMS_PUBLISH_TOKEN", "One-click publishing of approved content",
+      "Articles publish to your own hosted blog today. Pushing INTO an external CMS needs a per-platform OAuth app for each of WordPress, Webflow and Shopify."),
   ];
 }
 
