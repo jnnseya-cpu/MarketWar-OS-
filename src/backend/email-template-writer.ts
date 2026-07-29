@@ -84,6 +84,14 @@ export type TemplateBrief = {
   notes?: string;
   tone?: string;
   lang?: string;
+  /**
+   * The brand's stored identity, rendered by identityBrief().
+   *
+   * Passed in rather than fetched here so this module stays a pure writer with
+   * an injectable seam — and so the caller decides whether the identity is
+   * authoritative for this particular email.
+   */
+  identityBrief?: string;
 };
 
 export type TemplateDraft = {
@@ -238,7 +246,14 @@ export async function writeEmailTemplate(
   let provider: string | undefined;
   try {
     const res = await complete({
-      system: systemPrompt(purpose),
+      // The brand's stored identity, when it has one. This is what makes the
+      // Launch Kit infrastructure rather than a document dump: the tone, the
+      // tagline and the words this brand refuses to use are decided once and
+      // every writer in the OS reads the same answer instead of inventing its
+      // own voice per module.
+      system: brief.identityBrief?.trim()
+        ? `${systemPrompt(purpose)}\n\nBRAND IDENTITY — write in this voice and respect it exactly:\n${brief.identityBrief.trim()}`
+        : systemPrompt(purpose),
       prompt: briefText(brief, purpose),
       maxTokens: 900,
       lang: brief.lang,

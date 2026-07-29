@@ -4,6 +4,7 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { meterAction } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
 import { writeEmailTemplate, EMAIL_PURPOSES, type EmailPurposeId } from "@/backend/email-template-writer";
+import { getIdentity, identityBrief } from "@/backend/brand-identity";
 
 // AI writer for the Email Template editor.
 //
@@ -56,8 +57,14 @@ export async function POST(req: NextRequest) {
 
   const purpose = EMAIL_PURPOSES.find((p) => p.id === s(body.purpose))?.id as EmailPurposeId | undefined;
 
+  // Read the brand's stored identity so this email sounds like the brand rather
+  // than like whatever the model felt like today. Best-effort: a brand with no
+  // identity yet still gets an email.
+  const identity = await getIdentity(s(body.brandId)).catch(() => null);
+
   const result = await writeEmailTemplate({
     business,
+    identityBrief: identityBrief(identity) || undefined,
     product: s(body.product) || undefined,
     audience: s(body.audience) || undefined,
     location: s(body.location) || undefined,

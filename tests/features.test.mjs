@@ -5200,3 +5200,248 @@ test("brand kit: the kit is written in the customer's language", () => {
   assert.match(route, /maxDuration = 300/);
   assert.match(route, /creditAcus\(auth\.uid, refunded\)/, "documents that were not produced are not charged for");
 });
+
+// ---------------------------------------------------------------------------
+// The brand's identity record — turning eight documents into infrastructure.
+//
+// A Launch Kit used once and never returned to is a chat window with better
+// manners. What makes it worth a subscription is that the structured parts are
+// KEPT and every other engine reads them.
+// ---------------------------------------------------------------------------
+const ident = await import("../src/backend/brand-identity.ts");
+const palette = await import("../src/backend/logo-palette.ts");
+
+test("identity: a value the customer set is never overwritten by a rebuild", async () => {
+  ident.__resetIdentities();
+  await ident.saveIdentity("b1", { accent: { value: "#10b981", source: "supplied", confirmedAt: "2026-01-01" } });
+  // Rebuilding the kit proposes a different accent.
+  const after = await ident.saveIdentity("b1", { accent: { value: "#ff0000", source: "generated" } });
+  assert.equal(after.accent.value, "#10b981",
+    "a colour the customer went and corrected must survive the next kit build");
+
+  // But a MEASURED value does replace a generated one — pixels beat a proposal.
+  await ident.saveIdentity("b2", { accent: { value: "#ff0000", source: "generated" } });
+  const b2 = await ident.saveIdentity("b2", { accent: { value: "#0f172a", source: "measured" } });
+  assert.equal(b2.accent.value, "#0f172a");
+});
+
+test("identity: generated values are labelled as proposals in the brief", () => {
+  const brief = ident.identityBrief({
+    brandId: "b", updatedAt: "",
+    positioning: { value: "A work-centric CDE for UK teams.", source: "generated" },
+    tagline: { value: "Work, not folders.", source: "supplied" },
+    toneWords: { value: ["precise", "calm"], source: "generated" },
+  });
+  assert.match(brief, /Positioning \(proposed, not confirmed\)/,
+    "a downstream writer must not state a model's guess as a fact about the business");
+  assert.doesNotMatch(brief, /Tagline \(proposed/, "a supplied value is not a proposal");
+  assert.match(brief, /Tone: precise, calm/);
+});
+
+test("identity: the kit's documents are distilled into structure", () => {
+  const assets = [
+    { id: "guidelines", content: "## Colours\n- Primary #10B981 — accent\n- Ink #0f172a\n\n## Typography\nHeading: Space Grotesk\nBody: Inter" },
+    { id: "social-profiles", content: `## Instagram\nShort bio.\n\n## LinkedIn\n${"x".repeat(300)}` },
+    { id: "moodboard", content: "Keywords: precise, calm, industrial, spacious, honest" },
+    { id: "website-copy", content: "# Home\n\nVeryX is a work-centric common data environment for UK construction teams." },
+  ];
+  const patch = ident.distilIdentity("b1", assets);
+  assert.deepEqual(patch.colours.value, ["#10b981", "#0f172a"], "hex codes are read back out of the document");
+  assert.equal(patch.fonts.value.heading, "Space Grotesk");
+  assert.equal(patch.fonts.value.body, "Inter");
+  assert.match(patch.positioning.value, /work-centric common data environment/);
+  assert.deepEqual(patch.moodboardKeywords.value.slice(0, 3), ["precise", "calm", "industrial"]);
+  // The over-limit LinkedIn bio must be stored AS over-limit, not silently kept.
+  const li = patch.bios.value.find((b) => b.platform === "LinkedIn");
+  assert.equal(li.chars, 300);
+  assert.equal(li.withinLimit, false);
+});
+
+test("identity: a measured palette outranks whatever the document wrote", () => {
+  const patch = ident.distilIdentity(
+    "b1",
+    [{ id: "guidelines", content: "Primary #ff0000" }],
+    { measuredColours: ["#10b981", "#0f172a"], measuredAccent: "#10b981" },
+  );
+  assert.equal(patch.colours.source, "measured");
+  assert.deepEqual(patch.colours.value, ["#10b981", "#0f172a"],
+    "pixels from the real logo beat a hex a model wrote in a document");
+});
+
+// --- Palette from the logo ---------------------------------------------------
+
+test("palette: colours are counted from real pixels, transparency ignored", () => {
+  // 4 opaque green pixels, 2 opaque near-black, 4 fully transparent.
+  const px = [];
+  for (let i = 0; i < 4; i++) px.push(16, 185, 129, 255);
+  for (let i = 0; i < 2; i++) px.push(15, 23, 42, 255);
+  for (let i = 0; i < 4; i++) px.push(255, 255, 255, 0);
+  const found = palette.countColours(Uint8Array.from(px), 4);
+  assert.equal(found.length, 2, "transparent padding is not a brand colour, and most logos are mostly padding");
+  assert.equal(found[0].share, 67, "share is of NON-transparent pixels");
+  assert.match(found[0].hex, /^#10b981$/i);
+});
+
+test("palette: the accent is the brand colour, not the background", () => {
+  // A dark wordmark with a small coloured device — the common real case, and
+  // the only shape that separates "most-used chromatic colour" from "darkest
+  // colour". An earlier fixture put the green first among the inks too, so
+  // deleting the chroma rule entirely still returned the right answer.
+  const colours = [
+    { hex: "#ffffff", share: 55, lightness: 100 },
+    { hex: "#0f172a", share: 32, lightness: 2 },
+    { hex: "#10b981", share: 13, lightness: 45 },
+  ];
+  assert.equal(palette.pickAccent(colours, palette.hexToRgb), "#10b981",
+    "the accent is the brand's colour, not the most-used ink and certainly not the background");
+
+  // A genuinely monochrome mark's accent really is its ink.
+  const mono = [{ hex: "#ffffff", share: 80, lightness: 100 }, { hex: "#111111", share: 20, lightness: 1 }];
+  assert.equal(palette.pickAccent(mono, palette.hexToRgb), "#111111");
+});
+
+test("palette: an unreadable logo says so rather than proposing colours", async () => {
+  const res = await palette.extractLogoPalette("https://example.invalid/logo.png", { fetchImage: async () => null });
+  assert.equal(res.ok, false);
+  assert.deepEqual(res.colours, []);
+  assert.match(res.note, /Nothing is guessed/i);
+  const none = await palette.extractLogoPalette("");
+  assert.equal(none.reason, "no-logo");
+});
+
+// --- Fidelity: the moat ------------------------------------------------------
+
+function brandRun(answer) {
+  return {
+    id: "r", brandId: "b1", brand: "VeryX", ranAt: "2026-07-29", visibilityRate: 33,
+    mentioned: 1, askedCount: 3, assistants: ["openai"], topCompetitors: [], note: "",
+    results: [
+      // MENTIONED on purpose: a buying answer where the brand IS named is the
+      // only case that exercises the intent filter. With mentioned:false the
+      // answer was excluded anyway, so removing the filter changed nothing and
+      // the mutation survived.
+      { question: { id: "1", text: "Who are the best CDE providers?", intent: "buying" },
+        verdicts: [{ assistant: "openai", mentioned: true, rank: null, competitors: [], evidence: "", answer: "Asite, Aconex and VeryX are options.", asked: true }] },
+      { question: { id: "2", text: "What is VeryX and would you recommend them?", intent: "brand" },
+        verdicts: [{ assistant: "openai", mentioned: true, rank: null, competitors: [], evidence: "", answer, asked: true }] },
+    ],
+  };
+}
+
+test("fidelity: scores how much of your own language the assistants reuse", () => {
+  const identity = {
+    brandId: "b1", updatedAt: "",
+    positioning: { value: "VeryX is a work-centric common data environment for construction teams.", source: "generated" },
+  };
+  const close = ident.brandFidelity(identity, brandRun("VeryX is a work-centric common data environment used by construction teams."));
+  assert.equal(close.scored, true);
+  assert.ok(close.overlap >= 80, `expected a high overlap, got ${close.overlap}`);
+
+  const adrift = ident.brandFidelity(identity, brandRun("VeryX appears to be a small document storage vendor."));
+  assert.ok(adrift.overlap < close.overlap, "a different description must score lower");
+  assert.ok(adrift.missing.length, "and must name the words they never used");
+});
+
+test("fidelity: only the BRAND question counts as a description", () => {
+  const identity = { brandId: "b1", updatedAt: "", positioning: { value: "Work-centric common data environment.", source: "generated" } };
+  // The buying answer mentions competitors, not the brand. Scoring against it
+  // would measure the industry's vocabulary, not the brand's.
+  const run = brandRun("VeryX is a work-centric environment.");
+  const f = ident.brandFidelity(identity, run);
+  assert.ok(!f.theirWords.includes("asite"),
+    `a buying answer names the field, not you — scoring against it measures the industry's vocabulary: ${f.theirWords.join(", ")}`);
+  assert.ok(!f.theirWords.includes("aconex"));
+  assert.ok(f.theirWords.includes("centric") || f.theirWords.includes("environment"),
+    "and the brand-question answer must still be scored");
+});
+
+test("fidelity: refuses to score when there is nothing to compare", () => {
+  assert.equal(ident.brandFidelity(null, brandRun("x")).scored, false);
+  assert.equal(ident.brandFidelity({ brandId: "b", updatedAt: "" }, brandRun("x")).scored, false);
+  const noDescription = ident.brandFidelity(
+    { brandId: "b", updatedAt: "", positioning: { value: "A work-centric CDE.", source: "generated" } },
+    { ...brandRun("x"), results: [] },
+  );
+  assert.equal(noDescription.scored, false);
+  assert.match(noDescription.note, /nothing has been asked|no description/i);
+});
+
+test("fidelity: calls itself a word overlap, not a judgement of meaning", () => {
+  const f = ident.brandFidelity(
+    { brandId: "b", updatedAt: "", positioning: { value: "Work-centric common data environment for construction.", source: "generated" } },
+    brandRun("VeryX is a work-centric common data environment."),
+  );
+  assert.match(f.note, /word overlap, not a judgement of meaning/i,
+    "dressing a token count up as semantic understanding is the kind of claim this platform refuses");
+});
+
+// --- Consistency: the recurring job -----------------------------------------
+
+test("consistency: an off-palette colour is flagged, a neutral is not", () => {
+  const identity = { brandId: "b", updatedAt: "", colours: { value: ["#10b981", "#0f172a"], source: "measured" } };
+  const clean = ident.checkConsistency("<div style='color:#10b981;background:#ffffff;border:1px solid #cccccc'>Hi</div>", identity);
+  assert.deepEqual(clean.issues, [],
+    "flagging white and grey on every email would train the customer to ignore this check");
+
+  const drifted = ident.checkConsistency("<div style='color:#ff00aa'>Hi</div>", identity);
+  assert.equal(drifted.issues.length, 1);
+  assert.equal(drifted.issues[0].found, "#ff00aa");
+});
+
+test("consistency: a forbidden word BLOCKS, an absent tagline only warns", () => {
+  const identity = {
+    brandId: "b", updatedAt: "",
+    tagline: { value: "Work, not folders.", source: "supplied" },
+    avoidWords: { value: ["cheap", "guaranteed"], source: "supplied" },
+  };
+  const bad = ident.checkConsistency("The cheapest and guaranteed option.", identity);
+  const forbidden = bad.issues.filter((i) => i.kind === "forbidden");
+  assert.equal(forbidden.length, 1, "'cheapest' must not match 'cheap' — word boundaries, as everywhere else here");
+  assert.equal(forbidden[0].found, "guaranteed");
+  assert.equal(bad.ok, false, "a do-not-use word is blocking");
+
+  const noTagline = ident.checkConsistency("Perfectly fine copy.", identity, { expectTagline: true });
+  assert.equal(noTagline.ok, true, "a missing tagline is worth knowing, not worth blocking");
+  assert.equal(noTagline.issues[0].kind, "tagline");
+});
+
+test("consistency: no identity means no false findings", () => {
+  const r = ident.checkConsistency("#ff00aa everywhere", null);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.issues, []);
+  assert.match(r.note, /nothing to check against/i);
+});
+
+// --- The deliverables actually deliver ---------------------------------------
+
+test("signature: real sendable HTML, not a description of one", () => {
+  const html = ident.signatureHtml(
+    { name: "VeryX", personName: "J. Bankwa", role: "Founder", email: "hello@veryxjnn.com", website: "https://www.veryxjnn.com" },
+    { brandId: "b", updatedAt: "", accent: { value: "#10b981", source: "measured" }, tagline: { value: "Work, not folders.", source: "supplied" } },
+  );
+  // Table-based with inline styles is what survives Outlook and Gmail. A
+  // flexbox signature previews correctly and collapses in the inbox.
+  assert.match(html, /<table/);
+  assert.doesNotMatch(html, /display:\s*flex/i);
+  assert.match(html, /#10b981/, "the accent comes from the identity, not a default");
+  assert.match(html, /Work, not folders\./);
+  assert.match(html, /mailto:hello@veryxjnn\.com/);
+  assert.doesNotMatch(html, /veryxjnn\.com<\/a> \| https/, "the website is shown without its scheme");
+});
+
+test("signature: injected markup cannot escape into the mail body", () => {
+  const html = ident.signatureHtml({ name: '"><script>alert(1)</script>', email: "a@b.com" }, null);
+  assert.doesNotMatch(html, /<script>/, "a brand name is data, not markup");
+  assert.match(html, /&lt;script&gt;/);
+});
+
+test("identity: the email writer actually reads the record", () => {
+  // Storing an identity nothing consumes is a database table, not infrastructure.
+  const writer = readFileSync(new URL("../src/backend/email-template-writer.ts", import.meta.url), "utf8");
+  assert.match(writer, /brief\.identityBrief\?\.trim\(\)/);
+  assert.match(writer, /BRAND IDENTITY — write in this voice/);
+  const route = readFileSync(new URL("../src/app/api/email-templates/ai/route.ts", import.meta.url), "utf8");
+  assert.match(route, /identityBrief\(identity\)/, "the route must load it and pass it in");
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  assert.match(rules, /match \/brand_identities\/\{doc\} \{ allow read, write: if false; \}/);
+});

@@ -4,6 +4,8 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
 import { buildAsset, ASSET_IDS, SOCIAL_LIMITS, type BrandKitAssetId, type BrandKitAsset } from "@/backend/brand-kit";
+import { extractLogoPalette } from "@/backend/logo-palette";
+import { distilIdentity, saveIdentity, getIdentity } from "@/backend/brand-identity";
 
 // Brand Launch Kit — the eight day-one documents, generated from the brand the
 // customer already set up.
@@ -24,8 +26,11 @@ const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 // asset is one model call; eight of them at ~20s worst case fits 300s.
 const BUDGET_MS = Number(process.env.BRAND_KIT_BUDGET_MS || 260_000);
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const brandId = req.nextUrl.searchParams.get("brandId") || "";
+  const identity = brandId ? await getIdentity(brandId).catch(() => null) : null;
   return NextResponse.json({
+    identity,
     assets: ASSET_IDS,
     socialLimits: SOCIAL_LIMITS,
     note: "Every asset is built from your brand's stored details. Anything the platform does not actually hold — hex codes, typefaces, phone numbers — is marked for you to supply rather than invented: a guessed colour becomes your brand the moment a designer builds to it.",
@@ -72,6 +77,16 @@ export async function POST(req: NextRequest) {
   const meter = await meterAction(auth, "llm", assets.length);
   if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
 
+  // Read the real palette out of the logo the customer already uploaded, before
+  // anything is written. The colours were always in the file; nothing had ever
+  // read a pixel of it, so the guidelines asked for hex codes the platform
+  // could have measured. Not charged — it is our own CPU, not a provider call.
+  let palette = null as Awaited<ReturnType<typeof extractLogoPalette>> | null;
+  if (!facts.colours.length && facts.logoUrl) {
+    palette = await extractLogoPalette(facts.logoUrl).catch(() => null);
+    if (palette?.ok) facts.colours = palette.colours.map((c) => c.hex);
+  }
+
   const lang = gatewayLangFrom(req);
   const built: BrandKitAsset[] = [];
   const failed: { id: string; error: string }[] = [];
@@ -98,12 +113,34 @@ export async function POST(req: NextRequest) {
     await creditAcus(auth.uid, refunded).catch(() => { refunded = 0; });
   }
 
+  // Distil and KEEP the structured parts. This is what turns eight documents
+  // into the brand's memory: every other engine in the OS reads this record
+  // rather than inventing its own answer.
+  let identity = null;
+  if (built.length) {
+    const suppliedFonts = (() => {
+      const f = facts.extras.find((e) => /font|typeface|police/i.test(e.label));
+      if (!f) return undefined;
+      const [heading, body] = f.value.split(/\s*[\/,;]\s*/);
+      return { heading: heading?.trim(), body: (body || heading)?.trim() };
+    })();
+    const tagline = facts.extras.find((e) => /tagline|slogan|baseline/i.test(e.label))?.value;
+    identity = await saveIdentity(brandId, distilIdentity(brandId, built, {
+      measuredColours: palette?.ok ? palette.colours.map((c) => c.hex) : undefined,
+      measuredAccent: palette?.ok ? palette.accent : undefined,
+      suppliedFonts,
+      suppliedTagline: tagline,
+    })).catch(() => null);
+  }
+
   const needsTotal = built.reduce((n, a) => n + a.needs.length, 0);
   const blocked = built.filter((a) => a.blockers.length).length;
 
   return NextResponse.json({
     assets: built,
     failed,
+    identity,
+    palette: palette ? { ok: palette.ok, colours: palette.colours, accent: palette.accent, note: palette.note } : null,
     charged: assets.length * ACTION_COST_ACU.llm,
     refunded,
     balanceAcu: meter.balanceAcu === undefined ? undefined : meter.balanceAcu + refunded,
@@ -112,6 +149,8 @@ export async function POST(req: NextRequest) {
       needsTotal ? `${needsTotal} detail(s) across the kit are marked for you to supply — fill them in and rebuild rather than deleting the markers.` : "",
       blocked ? `${blocked} document(s) contain a claim nothing you supplied backs. Fix those before handing them to anyone.` : "",
       refunded ? `${refunded} ACUs refunded for ${failed.length} document(s) that were not produced.` : "",
+      palette?.ok ? `${palette.colours.length} colour(s) were read from your logo rather than asked for.` : "",
+      identity ? "Saved as this brand's identity — the email writer, page builder and social publisher now read the same tone, colours and bios." : "",
     ].filter(Boolean).join(" "),
   });
 }

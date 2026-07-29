@@ -181,6 +181,9 @@ service cloud.firestore {
     // ownership-checked /api/ai-visibility route.
     match /ai_visibility_runs/{doc} { allow read, write: if false; }
     match /ai_visibility_schedules/{doc} { allow read, write: if false; }
+    // The brand's identity record — written by the Launch Kit, read by every
+    // other engine. Admin-SDK only, through the ownership-checked routes.
+    match /brand_identities/{doc} { allow read, write: if false; }
 
     // Email delivery events + suppression ledger (src/backend/email-events.ts):
     // opens/clicks/bounces/complaints/unsubscribes and the do-not-send list.
