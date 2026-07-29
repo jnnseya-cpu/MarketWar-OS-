@@ -4787,3 +4787,113 @@ test("schedule: the weekly cron is registered and the store is server-only", () 
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/ai_visibility_schedules\/\{doc\} \{ allow read, write: if false; \}/);
 });
+
+// ---------------------------------------------------------------------------
+// One number, one meaning.
+//
+// A live page showed "Named in 18% — 3 of 17 answers" at the top and "0% — 0 of
+// 14 buying answers" in the plan directly below, for the SAME run. Both were
+// computed correctly by their own rules; the rules disagreed. The fix is that
+// the run carries the honest figure and everything reads it from there.
+// ---------------------------------------------------------------------------
+
+test("visibility: the run itself carries the unprompted score", async () => {
+  vis.__resetVisibilityRuns();
+  const ask = async (id, req) => ({
+    ok: true, provider: id, model: "m", latencyMs: 1,
+    // Named only when handed the name.
+    text: /what is veryx/i.test(req.prompt) ? "VeryX is a UK CDE." : "Try Asite or Aconex.",
+  });
+  const run = await vis.runVisibilityCheck(
+    {
+      brandId: "b1", brand: "VeryX",
+      questions: [
+        { id: "q1", text: "Who are the best CDE providers in the UK?", intent: "buying" },
+        { id: "q2", text: "Recommend a CDE company near the UK", intent: "buying" },
+        { id: "q3", text: "What is VeryX and would you recommend them?", intent: "buying" },
+      ],
+      assistants: ["openai"],
+    },
+    "2026-07-29T00:00:00.000Z", { ask },
+  );
+  assert.equal(run.askedCount, 3);
+  assert.equal(run.mentioned, 1, "the raw figure still counts every answer");
+  assert.equal(run.unpromptedAnswers, 2, "the honest one counts buying answers only");
+  assert.equal(run.unpromptedMentions, 0);
+  assert.equal(run.unpromptedRate, 0, "33% at the top of the page beside 0% in the plan is one bug, not two views");
+
+  // And the same number comes back out of the shared reader.
+  assert.deepEqual(vis.unpromptedScore(run), { mentions: 0, answers: 2, rate: 0 });
+});
+
+test("visibility: a run recorded before this existed is still scored honestly", () => {
+  // No unprompted* fields at all, and every question mislabelled "buying" —
+  // exactly what is sitting in Firestore for the brands already using this.
+  const legacy = {
+    id: "old", brandId: "b", brand: "VeryX", ranAt: "2026-01-01", visibilityRate: 33, mentioned: 1, askedCount: 3,
+    assistants: ["openai"], topCompetitors: [], note: "",
+    results: [
+      { question: { id: "1", text: "Who are the best CDE providers?", intent: "buying" }, verdicts: [{ assistant: "openai", mentioned: false, rank: null, competitors: [], evidence: "", answer: "", asked: true }] },
+      { question: { id: "2", text: "Recommend a CDE company", intent: "buying" }, verdicts: [{ assistant: "openai", mentioned: false, rank: null, competitors: [], evidence: "", answer: "", asked: true }] },
+      { question: { id: "3", text: "What is VeryX and would you recommend them?", intent: "buying" }, verdicts: [{ assistant: "openai", mentioned: true, rank: null, competitors: [], evidence: "", answer: "", asked: true }] },
+    ],
+  };
+  assert.deepEqual(vis.unpromptedScore(legacy), { mentions: 0, answers: 2, rate: 0 });
+});
+
+test("visibility: the trend tracks the honest number, not the flattering one", () => {
+  const mk = (unpromptedRate, visibilityRate, at) => ({
+    id: at, brandId: "b", brand: "VeryX", ranAt: at, results: [], assistants: [], topCompetitors: [], note: "",
+    visibilityRate, mentioned: 1, askedCount: 18,
+    unpromptedRate, unpromptedMentions: 0, unpromptedAnswers: 15,
+  });
+  // The raw rate barely moves while the honest one swings hard. A trend on the
+  // raw number would report "flat" for a real change in what matters.
+  const t = vis.trend([mk(60, 18, "2026-02-01"), mk(0, 17, "2026-01-25")]);
+  assert.equal(t.direction, "up", `trend read ${t.direction} (${t.delta})`);
+  assert.equal(t.delta, 60);
+});
+
+test("citation: the plan reports how many runs there ACTUALLY are", async () => {
+  // Live: "One run recorded so far (17 answers)" printed under a header reading
+  // "4 runs recorded". A plan that cannot count its own history is not one to
+  // trust with anything else.
+  const plan = await cite.buildPlaybook(
+    { run: veryxRun(), geo: null, runsRecorded: 4 },
+    { complete: async () => { throw new Error("no key"); } },
+  );
+  const remeasure = plan.actions.find((a) => a.id === "re-measure");
+  assert.match(remeasure.evidence, /4 runs recorded/);
+  assert.doesNotMatch(remeasure.evidence, /One run/i);
+  assert.match(remeasure.title, /Keep running/i, "it is no longer a first run");
+
+  const first = await cite.buildPlaybook({ run: veryxRun(), geo: null }, { complete: async () => { throw new Error("x"); } });
+  assert.match(first.actions.find((a) => a.id === "re-measure").evidence, /1 run recorded/);
+});
+
+test("sources: a round-up is recognised however the headline is phrased", () => {
+  // Live run came back almost entirely "Unclassified" with the generic
+  // go-look-yourself route — the exact homework this feature removes.
+  assert.equal(src.classifyPage("https://blog.oceanbim.com/7-recommend-cde-software-bim/", "7 Most Recommended Common Data Environment (CDE) Softwares For BIM", ""), "roundup");
+  assert.equal(src.classifyPage("https://x.example/a", "Top 10 CDE tools", ""), "roundup");
+  assert.equal(src.classifyPage("https://x.example/b", "Our picks for 2026, ranked", ""), "roundup");
+  assert.equal(src.classifyPage("https://revizto.com/resources/blog/what-is-common-data-environment", "What is a common data environment (CDE)? BIM and CDE explained", ""), "explainer");
+  assert.equal(src.classifyPage("https://www.linkedin.com/pulse/exploring-cde", "Exploring Common Data Environments", ""), "social");
+});
+
+test("sources: an explainer and a LinkedIn post get routes you can actually follow", () => {
+  assert.match(src.routeFor("explainer", "revizto.com", false), /author chose which products/i,
+    "there is no submission form on an explainer — the route in is the person who wrote it");
+  assert.match(src.routeFor("social", "linkedin.com", false), /no submission form/i);
+  // The generic fallback must remain for pages we genuinely cannot place.
+  assert.match(src.routeFor("unknown", "x.example", false), /judge it yourself/i);
+});
+
+test("ai visibility: a job title is not a competitor", () => {
+  const { names } = vis.extractNamedBusinesses([
+    "1. **Contractor** — a role, not a company",
+    "2. **Procore** — real",
+    "3. **Others** — filler",
+  ].join("\n"));
+  assert.deepEqual(names, ["Procore"]);
+});

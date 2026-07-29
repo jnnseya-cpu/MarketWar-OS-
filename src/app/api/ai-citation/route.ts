@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-  const runs = await listRuns(brandId, 5);
+  const runs = await listRuns(brandId, 50);
   const runId = s(body.runId);
   const run = runId ? runs.find((r) => r.id === runId) : runs[0];
   if (!run) {
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     : null;
 
   const playbook = await buildPlaybook(
-    { run, geo, category: s(body.category) },
+    { run, geo, category: s(body.category), runsRecorded: runs.length },
     {},
     { deadline: startedAt + BUDGET_MS, maxBriefs: MAX_BRIEFS },
   );

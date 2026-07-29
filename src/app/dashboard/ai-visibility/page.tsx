@@ -20,7 +20,8 @@ type Verdict = {
 };
 type Result = { question: Question; verdicts: Verdict[] };
 type Run = {
-  id: string; ranAt: string; visibilityRate: number; mentioned: number; askedCount: number;
+  id: string; brand?: string; ranAt: string; visibilityRate: number; mentioned: number; askedCount: number;
+  unpromptedRate?: number; unpromptedMentions?: number; unpromptedAnswers?: number;
   assistants: string[]; results: Result[]; topCompetitors: { name: string; appearances: number }[]; note: string;
 };
 type Trend = { direction: "up" | "down" | "flat" | "unknown"; delta: number; note: string };
@@ -55,7 +56,8 @@ type PageDraft = {
 
 const KIND_LABEL: Record<string, string> = {
   "review-platform": "Review platform", directory: "Directory", roundup: "Round-up",
-  comparison: "Comparison", forum: "Community thread", "vendor-site": "A competitor's own site",
+  comparison: "Comparison", forum: "Community thread", social: "Written by a person",
+  explainer: "Explainer", "vendor-site": "A competitor's own site",
   unknown: "Unclassified",
 };
 
@@ -340,9 +342,14 @@ export default function AiVisibilityPage() {
             <>
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div className="card p-4">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Named in</p>
-                  <p className="font-display text-3xl font-bold text-white">{run.visibilityRate}%</p>
-                  <p className="text-[11px] text-slate-500">{run.mentioned} of {run.askedCount} answers</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Named unprompted</p>
+                  <p className="font-display text-3xl font-bold text-white">{run.unpromptedRate ?? run.visibilityRate}%</p>
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    {run.unpromptedMentions ?? run.mentioned} of {run.unpromptedAnswers ?? run.askedCount} buying answers.
+                    {typeof run.unpromptedAnswers === "number" && run.unpromptedAnswers !== run.askedCount
+                      ? ` The "what is ${run.brand ?? "your brand"}?" question is excluded — being named when you were handed the name measures nothing.`
+                      : ""}
+                  </p>
                 </div>
                 <div className="card p-4">
                   <p className="text-[11px] uppercase tracking-wide text-slate-500">Since last run</p>

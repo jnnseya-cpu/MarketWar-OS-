@@ -30,7 +30,7 @@ const UA = "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)
 
 export type SourcePageKind =
   | "review-platform" | "directory" | "roundup" | "comparison"
-  | "forum" | "vendor-site" | "unknown";
+  | "forum" | "social" | "explainer" | "vendor-site" | "unknown";
 
 export type SourcePage = {
   url: string;
@@ -79,6 +79,9 @@ export function domainOf(url: string): string {
 // route text rather than presented as a classification we verified.
 const REVIEW_DOMAINS = /(^|\.)(g2|capterra|trustpilot|trustradius|softwareadvice|getapp|sourceforge|checkatrade|trustatrader|yell|clutch|glassdoor)\./i;
 const FORUM_DOMAINS = /(^|\.)(reddit|quora|stackexchange|stackoverflow|news\.ycombinator)\./i;
+// Where a person publishes under their own name — the route in is the author,
+// not a submission form.
+const SOCIAL_DOMAINS = /(^|\.)(?:linkedin\.|medium\.|substack\.|hashnode\.|twitter\.|x\.com|dev\.to)/i;
 
 export function classifyPage(url: string, title: string, brandDomain: string): SourcePageKind {
   const d = domainOf(url);
@@ -86,10 +89,18 @@ export function classifyPage(url: string, title: string, brandDomain: string): S
   if (brandDomain && (d === brandDomain || d.endsWith(`.${brandDomain}`))) return "vendor-site";
   if (REVIEW_DOMAINS.test(d)) return "review-platform";
   if (FORUM_DOMAINS.test(d)) return "forum";
+  if (SOCIAL_DOMAINS.test(d)) return "social";
   const t = `${title} ${url}`.toLowerCase();
-  if (/\b(vs|versus|compare|comparison|alternative)/.test(t)) return "comparison";
-  if (/\b(best|top\s*\d|leading|\d+\s+best)/.test(t)) return "roundup";
-  if (/\b(directory|listings?|find-a|suppliers?|providers?)\b/.test(t)) return "directory";
+  if (/\b(vs|versus|compare|comparison|alternatives?)\b/.test(t)) return "comparison";
+  // "7 Most Recommended CDE Softwares" and "Top 10 tools" are the same kind of
+  // page. The first version matched only "best" and "top N", so a live run came
+  // back almost entirely "Unclassified" with the generic go-look-yourself route
+  // — which is the homework this feature exists to remove.
+  if (/\b(best|leading|recommended|top\s*\d+|\d+\s*(?:most|best|top)|round[- ]?up|picks?|ranked)\b/.test(t)) return "roundup";
+  if (/\b(director(?:y|ies)|listings?|find-a|suppliers?|providers?|marketplace)\b/.test(t)) return "directory";
+  // An explainer is not somewhere you get "listed", but its author decides
+  // which products get named in it — a different, and real, route in.
+  if (/\b(what is|guide|explained|introduction|how to choose|overview|101)\b/.test(t)) return "explainer";
   return "unknown";
 }
 
@@ -113,6 +124,10 @@ export function routeFor(kind: SourcePageKind, domain: string, namesYou: boolean
       return `A comparison page you are missing from. Ask to be added, or publish your own honest comparison covering the same companies — pages that compare are the ones models quote.`;
     case "forum":
       return `A community thread. Do not astroturf it: an obvious plant does more damage than absence. Answer the actual question as yourself, disclosing who you are.`;
+    case "social":
+      return `Written by a person under their own name on ${domain}. There is no submission form — the route in is the author. Comment on it substantively, or approach them directly with something worth writing about.`;
+    case "explainer":
+      return `An explainer, not a listing — but its author chose which products to name in it. Ask to be included, and give them the reason: a specific capability, a named integration, a sector they have not covered.`;
     case "vendor-site":
       return "A competitor's own site. Nothing to do here — recorded so the list is complete.";
     default:
@@ -152,7 +167,8 @@ export function strengthOf(kind: SourcePageKind, rivalsNamed: number, totalRival
   const base = Math.round(corroboration * 70);
   const kindBonus = kind === "review-platform" || kind === "directory" ? 20
     : kind === "roundup" || kind === "comparison" ? 15
-    : kind === "forum" ? 5 : 0;
+    : kind === "explainer" ? 10
+    : kind === "social" || kind === "forum" ? 5 : 0;
   // An unfetched page was judged on its search snippet alone. It must not rank
   // alongside one whose text we actually read.
   return Math.max(1, Math.min(100, base + kindBonus - (fetched ? 0 : 25)));

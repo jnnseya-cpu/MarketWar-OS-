@@ -32,7 +32,12 @@ if (typeof window !== "undefined") {
 //   that is fact and goes first.
 
 import type { VisibilityRun } from "@/backend/ai-visibility";
-import { canonicalCompetitor, cleanField, classifyIntent, seeksVendors } from "@/backend/ai-visibility";
+import { canonicalCompetitor, cleanField, classifyIntent, seeksVendors, unpromptedScore } from "@/backend/ai-visibility";
+
+// One definition, in the module that owns the run. Re-exported so existing
+// callers keep working — two copies of this number is how the page came to show
+// 18% beside a plan showing 0%.
+export { unpromptedScore };
 import type { GeoReport } from "@/backend/geo-readiness";
 import { gatewayComplete } from "@/backend/gateway";
 
@@ -73,31 +78,6 @@ export type CitationPlaybook = {
 // ---------------------------------------------------------------------------
 // Reading the run honestly
 // ---------------------------------------------------------------------------
-
-/**
- * The number that actually matters.
- *
- * Being named in "What is VeryX and would you recommend them?" is not
- * visibility — the assistant was handed the name. Counting it inflates the
- * headline exactly when the customer most needs the truth. A live run read 17%
- * on the panel and 0% here, and 0% was the honest figure.
- */
-export function unpromptedScore(run: VisibilityRun): { mentions: number; answers: number; rate: number } {
-  let mentions = 0, answers = 0;
-  for (const r of run.results) {
-    // Re-classified from the text, not read off the stored label: runs recorded
-    // before the classifier existed have every question stamped "buying", and
-    // trusting that label is what produced "3 of 18" under a line promising the
-    // brand question was excluded.
-    if (classifyIntent(r.question.text, run.brand) === "brand") continue;
-    for (const v of r.verdicts) {
-      if (!v.asked) continue;
-      answers++;
-      if (v.mentioned) mentions++;
-    }
-  }
-  return { mentions, answers, rate: answers ? Math.round((mentions / answers) * 100) : 0 };
-}
 
 /**
  * How many answers could plausibly have named a company at all.
@@ -262,7 +242,7 @@ export function actionsFromSite(geo: GeoReport | null): CitationAction[] {
 // Actions from what the assistants actually said
 // ---------------------------------------------------------------------------
 
-export function actionsFromAnswers(run: VisibilityRun): CitationAction[] {
+export function actionsFromAnswers(run: VisibilityRun, runsRecorded = 1): CitationAction[] {
   const out: CitationAction[] = [];
   const score = unpromptedScore(run);
   const inc = incumbents(run);
@@ -313,11 +293,17 @@ export function actionsFromAnswers(run: VisibilityRun): CitationAction[] {
     });
   }
 
+  // The real count. Hardcoding "One run recorded so far" printed exactly that
+  // under a header reading "4 runs recorded" — a plan that cannot count its own
+  // history is not one to trust with anything else.
+  const n = Math.max(1, runsRecorded);
   out.push({
     id: "re-measure",
-    title: "Re-run this check weekly and judge the trend, not the run",
+    title: n >= 2
+      ? "Keep running this weekly and judge the trend, not the run"
+      : "Re-run this check weekly and judge the trend, not the run",
     mechanism: "measurement",
-    evidence: `One run recorded so far${run.askedCount ? ` (${run.askedCount} answers)` : ""}.`,
+    evidence: `${n} run${n === 1 ? "" : "s"} recorded so far${run.askedCount ? ` (${run.askedCount} answers in the latest)` : ""}.`,
     source: "the run itself",
     detail: "These models are not deterministic — the same question returns different companies an hour later. A single run cannot tell you whether anything you did worked, and the changes above take weeks to show up in a model's answers at all. Weekly runs on the same questions are what turns this from a number into evidence.",
     effort: "ongoing",
@@ -382,7 +368,7 @@ async function briefFor(
 }
 
 export async function buildPlaybook(
-  input: { run: VisibilityRun; geo: GeoReport | null; category?: string },
+  input: { run: VisibilityRun; geo: GeoReport | null; category?: string; runsRecorded?: number },
   deps: { complete?: typeof gatewayComplete } = {},
   opts: { deadline?: number; maxBriefs?: number } = {},
 ): Promise<CitationPlaybook> {
@@ -392,7 +378,7 @@ export async function buildPlaybook(
   const score = unpromptedScore(input.run);
   const inc = incumbents(input.run);
 
-  const actions = [...actionsFromSite(input.geo), ...actionsFromAnswers(input.run)]
+  const actions = [...actionsFromSite(input.geo), ...actionsFromAnswers(input.run, input.runsRecorded ?? 1)]
     .map((a) => ({ ...a, detail: a.detail.replace("${category}", category || "provider in your category") }))
     .sort((a, b) => b.priority - a.priority);
 

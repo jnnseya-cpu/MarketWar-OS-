@@ -68,10 +68,23 @@ export type VisibilityRun = {
   domain?: string;
   ranAt: string;
   results: QuestionResult[];
-  /** Share of ANSWERED questions in which the brand was named. */
+  /** Share of ANSWERED questions in which the brand was named — INCLUDING the brand-name question. */
   visibilityRate: number;
   mentioned: number;
   askedCount: number;
+  /**
+   * The honest headline: buying questions only.
+   *
+   * Carried on the run rather than recomputed by each surface, because two
+   * surfaces computing it separately is exactly how the page came to show 18%
+   * beside a plan showing 0% for the same run.
+   *
+   * Optional because runs recorded before this existed do not have it —
+   * unpromptedScore() re-derives it from the stored answers for those.
+   */
+  unpromptedRate?: number;
+  unpromptedMentions?: number;
+  unpromptedAnswers?: number;
   assistants: AiAssistant[];
   /** Who is recommended instead, most frequent first. */
   topCompetitors: { name: string; appearances: number }[];
@@ -245,6 +258,8 @@ const CATEGORY_TERMS = new Set([
   "pricing", "price", "cost", "budget", "integrations", "integration", "api", "support",
   "features", "feature", "usability", "scalability", "security", "compliance", "reporting",
   "analytics", "automation", "onboarding", "breadth", "depth", "data", "model", "ai",
+  "contractor", "contractors", "subcontractor", "client", "clients", "owner", "consultant",
+  "architect", "architects", "engineer", "engineers", "other", "others",
 ]);
 
 function isCategoryPhrase(name: string): boolean {
@@ -513,6 +528,15 @@ export async function runVisibilityCheck(
           : "",
       ].filter(Boolean).join(" ");
 
+  const unprompted = (() => {
+    let m = 0, a = 0;
+    results.forEach((r) => {
+      if (classifyIntent(r.question.text, input.brand) === "brand") return;
+      r.verdicts.forEach((v) => { if (v.asked) { a++; if (v.mentioned) m++; } });
+    });
+    return { mentions: m, answers: a, rate: a ? Math.round((m / a) * 100) : 0 };
+  })();
+
   return {
     id: `${input.brandId}__${hash(nowISO + input.brand)}`,
     brandId: input.brandId,
@@ -523,10 +547,55 @@ export async function runVisibilityCheck(
     visibilityRate,
     mentioned,
     askedCount: answered.length,
+    unpromptedRate: unprompted.rate,
+    unpromptedMentions: unprompted.mentions,
+    unpromptedAnswers: unprompted.answers,
     assistants,
     topCompetitors,
     note,
   };
+}
+
+/**
+ * The number that actually matters: buying questions only.
+ *
+ * Being named in "What is VeryX and would you recommend them?" is not
+ * visibility — the assistant was handed the name. Counting it inflates the
+ * headline exactly when the customer most needs the truth: one live run read
+ * 18% at the top of the page and 0% in the plan below it, and 0% was right.
+ *
+ * Re-classified from the question TEXT, so a run recorded before the classifier
+ * existed — every question stamped "buying" — still scores correctly.
+ */
+export function unpromptedScore(run: VisibilityRun): { mentions: number; answers: number; rate: number } {
+  // Trust the stored figures when the run carries them AND they are consistent.
+  if (typeof run.unpromptedRate === "number" && typeof run.unpromptedAnswers === "number" && typeof run.unpromptedMentions === "number") {
+    return { mentions: run.unpromptedMentions, answers: run.unpromptedAnswers, rate: run.unpromptedRate };
+  }
+  // A run with no stored answers cannot be re-derived — fall back to the raw
+  // figures rather than throwing, or one malformed history record takes the
+  // whole trend line down.
+  const results = Array.isArray(run.results) ? run.results : [];
+  if (!results.length) {
+    const answers = run.askedCount || 0;
+    // Honour the rate the run recorded rather than recomputing it: a stored run
+    // may carry its rate without the per-answer counts, and recomputing from a
+    // missing `mentioned` silently reports 0% for a run that was not zero.
+    const rate = typeof run.visibilityRate === "number"
+      ? run.visibilityRate
+      : (answers ? Math.round(((run.mentioned || 0) / answers) * 100) : 0);
+    return { mentions: run.mentioned ?? Math.round((rate / 100) * answers), answers, rate };
+  }
+  let mentions = 0, answers = 0;
+  for (const r of results) {
+    if (classifyIntent(r.question.text, run.brand) === "brand") continue;
+    for (const v of r.verdicts) {
+      if (!v.asked) continue;
+      answers++;
+      if (v.mentioned) mentions++;
+    }
+  }
+  return { mentions, answers, rate: answers ? Math.round((mentions / answers) * 100) : 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -563,13 +632,15 @@ export async function listRuns(brandId: string, limit = 30): Promise<VisibilityR
  * same error as calling an A/B test on nine clicks.
  */
 export function trend(runs: VisibilityRun[]): { direction: "up" | "down" | "flat" | "unknown"; delta: number; note: string } {
-  const usable = runs.filter((r) => r.askedCount > 0);
-  if (usable.length < 2) {
+  // Scored on buying answers only — a trend in "does it repeat the name I gave
+  // it" is not a trend in visibility.
+  const scored = runs.map((r) => ({ run: r, s: unpromptedScore(r) })).filter((x) => x.s.answers > 0);
+  if (scored.length < 2) {
     return { direction: "unknown", delta: 0, note: "One run so far. A second gives you something to compare — the number on its own is a sample, not a position." };
   }
-  const [latest, previous] = usable;
-  const delta = latest.visibilityRate - previous.visibilityRate;
-  const sample = Math.min(latest.askedCount, previous.askedCount);
+  const [latest, previous] = scored;
+  const delta = latest.s.rate - previous.s.rate;
+  const sample = Math.min(latest.s.answers, previous.s.answers);
   // With a handful of answers per run, anything under a third of them is noise.
   const meaningful = Math.max(15, Math.round(100 / Math.max(1, sample)) * 2);
   if (Math.abs(delta) < meaningful) {
