@@ -64,7 +64,18 @@ type DohAnswer = { name: string; type: number; data: string };
 // that were already correct.
 const RESOLVERS = ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"];
 
-export async function dnsQuery(name: string, type: "TXT" | "MX" | "CNAME", timeoutMs = 6_000): Promise<DohAnswer[]> {
+/**
+ * A lookup result that distinguishes "no such record" from "could not ask".
+ *
+ * Returning a bare empty array for both is how this reported "NOT ready to send —
+ * 3 authentication records are missing" for a domain whose DNS it never actually
+ * reached. Telling a customer their SPF is missing when you could not look is
+ * worse than saying nothing: they go and edit records that were already correct,
+ * and the one thing a deliverability tool must never do is manufacture an alarm.
+ */
+export type DnsLookup = { answers: DohAnswer[]; resolved: boolean };
+
+export async function dnsQuery(name: string, type: "TXT" | "MX" | "CNAME", timeoutMs = 6_000): Promise<DnsLookup> {
   for (const base of RESOLVERS) {
     try {
       const ctrl = new AbortController();
@@ -76,10 +87,12 @@ export async function dnsQuery(name: string, type: "TXT" | "MX" | "CNAME", timeo
       clearTimeout(t);
       if (!res.ok) continue;
       const data = (await res.json().catch(() => ({}))) as { Answer?: DohAnswer[] };
-      return Array.isArray(data.Answer) ? data.Answer : [];
+      // A resolver that answered has told us the truth, including "nothing here".
+      return { answers: Array.isArray(data.Answer) ? data.Answer : [], resolved: true };
     } catch { /* try the next resolver */ }
   }
-  return [];
+  // Every resolver refused or timed out. We know nothing about this name.
+  return { answers: [], resolved: false };
 }
 
 /** TXT records come back quoted and split into 255-char chunks; join them back up. */
@@ -99,7 +112,14 @@ const DKIM_SELECTORS = [
   "marketwar", "mw",
 ];
 
-export async function checkDomainAuth(rawDomain: string): Promise<DomainAuthReport> {
+/** The lookup function, injectable so both outcomes can be tested without a network. */
+export type LookupFn = (name: string, type: "TXT" | "MX" | "CNAME") => Promise<DnsLookup>;
+
+export async function checkDomainAuth(
+  rawDomain: string,
+  deps: { lookup?: LookupFn } = {},
+): Promise<DomainAuthReport> {
+  const lookup: LookupFn = deps.lookup ?? ((n, t) => dnsQuery(n, t));
   const domain = normaliseDomain(rawDomain);
   const empty: DomainAuthReport = {
     domain: domain || rawDomain, checked: false, readyToSend: false, score: 0,
@@ -109,12 +129,24 @@ export async function checkDomainAuth(rawDomain: string): Promise<DomainAuthRepo
     return { ...empty, error: "That is not a domain. Give the domain you send FROM — evandeli.com, not a page on it." };
   }
 
-  const [txt, mx, dmarcTxt] = await Promise.all([
-    dnsQuery(domain, "TXT"),
-    dnsQuery(domain, "MX"),
-    dnsQuery(`_dmarc.${domain}`, "TXT"),
+  const [txtL, mxL, dmarcL] = await Promise.all([
+    lookup(domain, "TXT"),
+    lookup(domain, "MX"),
+    lookup(`_dmarc.${domain}`, "TXT"),
   ]);
 
+  // If not one resolver answered, we have no information — and an absence of
+  // information is not a finding. Say so and stop.
+  if (!txtL.resolved && !mxL.resolved && !dmarcL.resolved) {
+    return {
+      ...empty,
+      checked: false,
+      error: `Could not reach a DNS resolver, so ${domain}'s authentication could not be checked. This says nothing about your records — do not change them on the strength of this. Try again shortly.`,
+      summary: `${domain} was not checked — DNS was unreachable from this deployment.`,
+    };
+  }
+
+  const txt = txtL.answers, mx = mxL.answers, dmarcTxt = dmarcL.answers;
   const checks: RecordCheck[] = [];
 
   // --- MX: does the domain receive mail at all? -----------------------------
@@ -155,8 +187,8 @@ export async function checkDomainAuth(rawDomain: string): Promise<DomainAuthRepo
   const dkimHits = (
     await Promise.all(
       DKIM_SELECTORS.map(async (sel) => {
-        const a = await dnsQuery(`${sel}._domainkey.${domain}`, "TXT");
-        const v = txtValues(a).find((t) => /v=DKIM1|p=/i.test(t));
+        const a = await lookup(`${sel}._domainkey.${domain}`, "TXT");
+        const v = txtValues(a.answers).find((t) => /v=DKIM1|p=/i.test(t));
         return v ? sel : null;
       }),
     )
@@ -194,7 +226,7 @@ export async function checkDomainAuth(rawDomain: string): Promise<DomainAuthRepo
   });
 
   // --- BIMI: optional, shows your logo beside the message -------------------
-  const bimi = txtValues(await dnsQuery(`default._bimi.${domain}`, "TXT")).find((v) => /^v=BIMI1\b/i.test(v)) || null;
+  const bimi = txtValues((await lookup(`default._bimi.${domain}`, "TXT")).answers).find((v) => /^v=BIMI1\b/i.test(v)) || null;
   checks.push({
     id: "bimi",
     label: "BIMI — your logo in the inbox (optional)",

@@ -3091,10 +3091,16 @@ test("deliverability: whatever the customer typed is reduced to a domain", () =>
   assert.equal(dns.normaliseDomain(""), "");
 });
 
+// Two DNS worlds, injected so the outcome does not depend on the test runner's
+// network — which is exactly how the old version of this test passed for the
+// wrong reason: DNS was unreachable, the code reported "3 records missing", and
+// the assertion agreed with it.
+const dnsSilent = async () => ({ answers: [], resolved: false });
+const dnsEmpty = async () => ({ answers: [], resolved: true });
+
 test("deliverability: a missing record is a blocker with the exact value to publish", async () => {
-  // No DNS is reachable from the test runner, so every lookup comes back empty —
-  // which is precisely the unauthenticated-domain case the report must handle.
-  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com");
+  // Resolver ANSWERED and there is genuinely nothing published.
+  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com", { lookup: dnsEmpty });
   assert.equal(report.checked, true);
   assert.equal(report.readyToSend, false, "nothing published means not ready to send");
   assert.ok(report.blockers.length >= 3, "SPF, DKIM and DMARC must each be named");
@@ -3108,7 +3114,7 @@ test("deliverability: a missing record is a blocker with the exact value to publ
 });
 
 test("deliverability: BIMI is cosmetic and must not inflate the score", async () => {
-  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com");
+  const report = await dns.checkDomainAuth("example-not-a-real-domain-xyz.com", { lookup: dnsEmpty });
   assert.equal(report.score, 0, "an unauthenticated domain scores zero, not 'a bit' for optional extras");
   assert.ok(!report.blockers.some((b) => /BIMI/i.test(b)), "BIMI never blocks a send");
 });
@@ -3608,4 +3614,37 @@ test("merge tokens: an unknown tag still never reaches an inbox raw", async () =
   assert.equal(mergeTokens("Your rep {{ salesRep }} will call.", {}), "Your rep  will call.",
     "a literal {{ salesRep }} arriving in someone's inbox is worse than a gap");
   assert.equal(mergeTokens("Hi {{ firstName | there }},", {}), "Hi there,");
+});
+
+
+test("deliverability: an unreachable resolver is NOT a finding", async () => {
+  // Found by actually running the checker: with DNS blocked it reported
+  // "NOT ready to send — 3 authentication records are missing" for domains it
+  // had never looked at. A customer acting on that edits records that were
+  // already correct, and a deliverability tool must never manufacture an alarm.
+  const report = await dns.checkDomainAuth("veryxjnn.com", { lookup: dnsSilent });
+  assert.equal(report.checked, false, "we did not check it, so we must not claim to have");
+  assert.deepEqual(report.blockers, [], "nothing may be reported as missing when nothing was looked at");
+  assert.match(report.error, /could not be checked/i);
+  assert.match(report.error, /do not change them/i, "and the customer must be told not to act on it");
+  assert.match(report.summary, /not checked/i);
+});
+
+test("deliverability: an unchecked report is not fed to the agent as fact", () => {
+  const src = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(!domainAuth\.checked\)/,
+    "handing the model 'everything is missing' makes it tell the customer to republish correct records");
+  assert.match(src, /Do NOT state that any record is missing or present/);
+});
+
+test("deliverability: the real lookup marks a refused resolver as unresolved", () => {
+  // The injected-stub tests above prove the REPORT behaves; this proves the
+  // lookup itself sets the flag they depend on. Without it the mutation
+  // "treat unreachable as no-records" passes every behavioural test while
+  // reintroducing the exact bug.
+  const src = readFileSync(new URL("../src/backend/dns-auth.ts", import.meta.url), "utf8");
+  assert.match(src, /\/\/ Every resolver refused or timed out\. We know nothing about this name\.\s*\n\s*return \{ answers: \[\], resolved: false \};/,
+    "the fallthrough after every resolver fails must report resolved:false");
+  assert.match(src, /return \{ answers: Array\.isArray\(data\.Answer\) \? data\.Answer : \[\], resolved: true \}/,
+    "and a resolver that answered — including with nothing — is resolved:true");
 });

@@ -67,7 +67,12 @@ export async function POST(
     if (domain) {
       try {
         domainAuth = await checkDomainAuth(domain);
-        input.liveDnsFacts = [
+        if (!domainAuth.checked) {
+          // DNS was unreachable. Handing the model a report of "everything is
+          // missing" would have it tell the customer to republish records that
+          // may already be correct.
+          input.liveDnsFacts = `A live DNS check of ${domainAuth.domain} could not be completed (${domainAuth.error || "resolver unreachable"}). Do NOT state that any record is missing or present — you do not know. Say the check could not run, and build the plan on the assumption that authentication must be VERIFIED before volume sending.`;
+        } else input.liveDnsFacts = [
           `LIVE DNS for ${domainAuth.domain} — read from public records just now. These are FACTS. Do not ask the user for them, and do not tell them to send you the domain; you have it and you have checked it.`,
           ...domainAuth.checks.map((c) => `- ${c.label}: ${c.status.toUpperCase()}${c.value ? ` — ${c.value}` : ""}. ${c.detail}`),
           `Authentication score ${domainAuth.score}/100. Ready to send: ${domainAuth.readyToSend ? "yes" : "no"}.`,
