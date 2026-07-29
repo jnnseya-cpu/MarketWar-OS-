@@ -8,7 +8,7 @@
 // verdict came from.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText } from "lucide-react";
+import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText, Search, ExternalLink, Check } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -35,6 +35,23 @@ type Playbook = {
   actions: Action[]; briefs: Brief[]; headline: string; note: string;
 };
 
+type SourcePage = {
+  url: string; domain: string; title: string; kind: string;
+  namesRivals: string[]; namesYou: boolean; fetched: boolean;
+  forQuestion: string; strength: number; route: string;
+};
+type SourcesReport = {
+  pages: SourcePage[];
+  priorityDomains: { domain: string; pages: number; rivalsNamed: number; youNamed: boolean }[];
+  searched: number; fetched: number; live: boolean; note: string;
+};
+
+const KIND_LABEL: Record<string, string> = {
+  "review-platform": "Review platform", directory: "Directory", roundup: "Round-up",
+  comparison: "Comparison", forum: "Community thread", "vendor-site": "A competitor's own site",
+  unknown: "Unclassified",
+};
+
 const MECHANISM_LABEL: Record<string, string> = {
   retrieval: "Can a model reach it",
   "training-corpus": "What the models learned from",
@@ -57,6 +74,10 @@ export default function AiVisibilityPage() {
   const [planBusy, setPlanBusy] = useState(false);
   const [planErr, setPlanErr] = useState<string | null>(null);
   const [planNote, setPlanNote] = useState("");
+  const [sources, setSources] = useState<SourcesReport | null>(null);
+  const [srcBusy, setSrcBusy] = useState(false);
+  const [srcErr, setSrcErr] = useState<string | null>(null);
+  const [srcNote, setSrcNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -149,6 +170,30 @@ export default function AiVisibilityPage() {
         ? "Gave up waiting after 75 seconds. Nothing was charged for work that did not finish."
         : `Could not build the plan: ${(e as Error).message || "network error"}.`);
     } finally { clearTimeout(giveUp); setPlanBusy(false); }
+  }
+
+  // Turns the plan's top action from homework into a worklist: search the
+  // questions, read the pages that rank, report which name the same rivals.
+  async function findSources() {
+    if (!activeBrand || srcBusy) return;
+    setSrcBusy(true); setSrcErr(null);
+    const ctl = new AbortController();
+    const giveUp = setTimeout(() => ctl.abort(), 75_000);
+    try {
+      const r = await authedFetch("/api/ai-citation/sources", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: ctl.signal,
+        body: JSON.stringify({ brandId: activeBrand.id, domain: activeBrand.website, location: activeBrand.location }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setSrcErr(d.error || `Could not look up the sources (HTTP ${r.status})`); return; }
+      setSources(d.report); setSrcNote(d.note || "");
+    } catch (e) {
+      setSrcErr((e as Error).name === "AbortError"
+        ? "Gave up waiting after 75 seconds. Nothing was charged for searches that did not run."
+        : `Could not look up the sources: ${(e as Error).message || "network error"}.`);
+    } finally { clearTimeout(giveUp); setSrcBusy(false); }
   }
 
   const TrendIcon = trend?.direction === "up" ? TrendingUp : trend?.direction === "down" ? TrendingDown : Minus;
@@ -398,6 +443,73 @@ export default function AiVisibilityPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* The top action, done for you rather than assigned to you. */}
+                  <div className="mt-4 rounded-lg border border-violet-500/25 bg-violet-500/[0.05] p-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="flex items-center gap-1.5 font-display text-xs font-bold text-white">
+                          <Search className="h-3.5 w-3.5 text-violet-300" />
+                          Find the pages the answers came from
+                        </h4>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                          Action 1 says to search your questions and get onto the pages that rank. This does it: searches them, reads the results, and shows which pages carry the same companies the assistants named.
+                        </p>
+                      </div>
+                      <button className="btn-secondary" onClick={findSources} disabled={srcBusy}>
+                        {srcBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        {srcBusy ? "Searching…" : sources ? "Search again" : "Find the source pages"}
+                      </button>
+                    </div>
+
+                    {srcErr && (
+                      <p className="mt-2 flex items-start gap-1.5 rounded border border-rose-500/30 bg-rose-500/[0.07] px-2.5 py-1.5 text-[11px] text-rose-200">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{srcErr}
+                      </p>
+                    )}
+
+                    {sources && Boolean(sources.priorityDomains.length) && (
+                      <div className="mt-3">
+                        <p className="text-[10px] uppercase tracking-wide text-slate-500">Worth the effort first — these carry your rivals across more than one question</p>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {sources.priorityDomains.map((d) => (
+                            <span key={d.domain} className={`rounded-full border px-2.5 py-1 text-[11px] ${d.youNamed ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-ink-700 bg-ink-850 text-slate-300"}`}>
+                              {d.youNamed && <Check className="mr-1 inline h-3 w-3" />}
+                              {d.domain} <span className="text-slate-500">· {d.pages} page{d.pages === 1 ? "" : "s"}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {sources && Boolean(sources.pages.length) && (
+                      <div className="mt-3 space-y-1.5">
+                        {sources.pages.slice(0, 12).map((p) => (
+                          <div key={p.url} className="rounded border border-ink-700 bg-ink-950/60 p-2.5">
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 w-8 shrink-0 text-center font-display text-[11px] font-bold text-violet-300">{p.strength}</span>
+                              <div className="min-w-0 flex-1">
+                                <a href={p.url} target="_blank" rel="noopener noreferrer" className="flex items-start gap-1 text-xs font-semibold text-slate-100 hover:text-white">
+                                  <span className="truncate">{p.title}</span>
+                                  <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-slate-500" />
+                                </a>
+                                <p className="mt-0.5 text-[10px] text-slate-500">
+                                  {p.domain} · {KIND_LABEL[p.kind] || p.kind}
+                                  {!p.fetched && " · could not be read, judged on its search result only"}
+                                </p>
+                                {Boolean(p.namesRivals.length) && (
+                                  <p className="mt-1 text-[11px] text-amber-200/90">Names {p.namesRivals.join(", ")}</p>
+                                )}
+                                <p className={`mt-1 text-[11px] leading-relaxed ${p.namesYou ? "text-emerald-300" : "text-slate-400"}`}>{p.route}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {srcNote && <p className="mt-2 text-[10px] leading-relaxed text-slate-500">{srcNote}</p>}
+                  </div>
 
                   {planNote && <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{planNote}</p>}
                 </div>

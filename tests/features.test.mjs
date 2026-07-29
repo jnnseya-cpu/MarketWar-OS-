@@ -4472,3 +4472,163 @@ test("citation: a rival's share is measured against answers that could name anyo
   assert.equal(inc[0].share, Math.round((5 / 12) * 100),
     "share must be measured against answers that list vendors, not every answer");
 });
+
+// ---------------------------------------------------------------------------
+// Citation sources — the plan's top action, done rather than assigned.
+//
+// "Search the exact question yourself, open the top results, and get onto them"
+// is homework. This searches, reads the pages, and reports which of them carry
+// the same companies the assistants named.
+//
+// The claim it must never make: that a model read a particular page. Nobody can
+// show that. It reports corroboration and says so.
+// ---------------------------------------------------------------------------
+const src = await import("../src/backend/citation-sources.ts");
+
+const fakeSearch = (results) => async ({ query }) => ({
+  query, type: "search", mode: "live", results,
+});
+const fakePages = (map) => async (url) => map[url] ?? "";
+
+test("sources: a page carrying the rivals outranks one that merely ranks", async () => {
+  const report = await src.findCitationSources(
+    {
+      brand: "VeryX", brandDomain: "veryxjnn.com",
+      questions: ["Who are the best CDE providers in the UK?"],
+      rivals: ["Asite", "Bentley ProjectWise", "Oracle Aconex"],
+    },
+    {
+      search: fakeSearch([
+        { title: "Best CDE platforms 2026", link: "https://thereview.example/best-cde", snippet: "" },
+        { title: "Some unrelated blog", link: "https://blog.example/hello", snippet: "" },
+      ]),
+      fetchPage: fakePages({
+        "https://thereview.example/best-cde": "Our picks: Asite, Bentley ProjectWise and Oracle Aconex all rate well.",
+        "https://blog.example/hello": "A post about gardening.",
+      }),
+    },
+  );
+  assert.equal(report.pages[0].url, "https://thereview.example/best-cde");
+  assert.deepEqual(report.pages[0].namesRivals, ["Asite", "Bentley ProjectWise", "Oracle Aconex"]);
+  assert.ok(report.pages[0].strength > report.pages[1].strength,
+    "corroboration is the whole signal — a page naming nobody is weak evidence");
+  assert.equal(report.pages[1].namesRivals.length, 0,
+    "and a page that names nobody is still listed, not silently dropped");
+});
+
+test("sources: a rival named inside a longer word is not a citation", async () => {
+  const report = await src.findCitationSources(
+    { brand: "VeryX", questions: ["best?"], rivals: ["Asite"] },
+    {
+      search: fakeSearch([{ title: "Pest control guide", link: "https://x.example/a", snippet: "" }]),
+      // "Asite" sits inside "parasite" — the substring trap this codebase has
+      // hit in the claim guard, the email vault and the mention detector. The
+      // first version of this test used "Composite", which does not contain the
+      // letters at all, so it passed without exercising anything.
+      fetchPage: fakePages({ "https://x.example/a": "Parasite treatment and quasite fittings." }),
+    },
+  );
+  assert.deepEqual(report.pages[0].namesRivals, []);
+});
+
+test("sources: a page you are ALREADY on says so instead of telling you to join it", async () => {
+  const report = await src.findCitationSources(
+    { brand: "VeryX", brandDomain: "veryxjnn.com", questions: ["best?"], rivals: ["Asite"] },
+    {
+      search: fakeSearch([{ title: "UK CDE directory", link: "https://directory.example/uk-cde", snippet: "" }]),
+      fetchPage: fakePages({ "https://directory.example/uk-cde": "Listed: Asite, VeryX, and others." }),
+    },
+  );
+  assert.equal(report.pages[0].namesYou, true);
+  assert.match(report.pages[0].route, /already named/i,
+    "telling someone to submit to a directory they are on wastes their afternoon");
+});
+
+test("sources: a competitor's own website is not somewhere you can get listed", () => {
+  assert.equal(src.classifyPage("https://asite.com/products", "Asite", "veryxjnn.com"), "unknown");
+  assert.equal(src.classifyPage("https://www.veryxjnn.com/about", "About", "veryxjnn.com"), "vendor-site");
+  assert.match(src.routeFor("vendor-site", "asite.com", false), /Nothing to do here/i);
+  assert.ok(src.strengthOf("vendor-site", 3, 3, true) < src.strengthOf("directory", 1, 3, true),
+    "a rival's own page ranking tells the customer nothing actionable");
+});
+
+test("sources: page kind decides the route, because the work is completely different", () => {
+  assert.equal(src.classifyPage("https://www.g2.com/categories/cde", "Best CDE Software", ""), "review-platform");
+  assert.equal(src.classifyPage("https://www.reddit.com/r/bim/comments/x", "Which CDE?", ""), "forum");
+  assert.equal(src.classifyPage("https://blog.example/top-10-cde-tools", "Top 10 CDE tools", ""), "roundup");
+  assert.match(src.routeFor("forum", "reddit.com", false), /Do not astroturf/i,
+    "an obvious plant does more damage than absence");
+  assert.match(src.routeFor("review-platform", "g2.com", false), /Claim or create/i);
+  assert.match(src.routeFor("roundup", "blog.example", false), /Pitch the author/i);
+});
+
+test("sources: more of the same rivals on a page means stronger evidence", () => {
+  // Same kind, same everything else — only the corroboration differs. The
+  // earlier test compared a round-up against an unclassified blog, so the kind
+  // bonus carried it and removing corroboration entirely changed nothing.
+  const three = src.strengthOf("roundup", 3, 3, true);
+  const one = src.strengthOf("roundup", 1, 3, true);
+  const none = src.strengthOf("roundup", 0, 3, true);
+  assert.ok(three > one && one > none,
+    `corroboration must drive the ranking (${none} / ${one} / ${three})`);
+});
+
+test("sources: an unread page is ranked below one that was actually read", () => {
+  const read = src.strengthOf("roundup", 2, 3, true);
+  const unread = src.strengthOf("roundup", 2, 3, false);
+  assert.ok(unread < read, "judging a page on its search snippet is weaker evidence and must rank lower");
+});
+
+test("sources: no live search means NO pages — never plausible-looking ones", async () => {
+  const report = await src.findCitationSources(
+    { brand: "VeryX", questions: ["best?"], rivals: ["Asite"] },
+    {
+      search: async ({ query }) => ({
+        query, type: "search", mode: "demo", results: [{ title: "Demo", link: "https://demo.example" }],
+        providerError: { status: 429, reason: "Serper quota exhausted." },
+      }),
+      fetchPage: fakePages({}),
+    },
+  );
+  assert.deepEqual(report.pages, [], "a made-up directory would waste a real afternoon");
+  assert.equal(report.live, false);
+  assert.match(report.note, /quota exhausted/i, "and the real reason must be passed through, not hidden");
+});
+
+test("sources: the report never claims a model read the page", async () => {
+  const report = await src.findCitationSources(
+    { brand: "VeryX", questions: ["best?"], rivals: ["Asite"] },
+    {
+      search: fakeSearch([{ title: "Best CDE", link: "https://r.example/a", snippet: "" }]),
+      fetchPage: fakePages({ "https://r.example/a": "Asite is good." }),
+    },
+  );
+  assert.match(report.note, /corroboration, not proof/i);
+  assert.doesNotMatch(report.note, /the model (used|read)\b/i,
+    "nobody can show which pages a model read; claiming it would be the same lie the module was built to avoid");
+});
+
+test("sources: a domain that recurs across questions is surfaced first", async () => {
+  const report = await src.findCitationSources(
+    {
+      brand: "VeryX",
+      questions: ["Who are the best CDE providers?", "Recommend a CDE company"],
+      rivals: ["Asite", "Aconex"],
+    },
+    {
+      search: async ({ query }) => ({
+        query, type: "search", mode: "live",
+        results: query.startsWith("Who")
+          ? [{ title: "Best CDE", link: "https://hub.example/best", snippet: "" }]
+          : [{ title: "CDE picks", link: "https://hub.example/picks", snippet: "" }],
+      }),
+      fetchPage: fakePages({
+        "https://hub.example/best": "Asite and Aconex lead.",
+        "https://hub.example/picks": "Asite again.",
+      }),
+    },
+  );
+  assert.equal(report.priorityDomains[0].domain, "hub.example");
+  assert.equal(report.priorityDomains[0].pages, 2,
+    "one domain covering two questions is worth more effort than two covering one each");
+});
