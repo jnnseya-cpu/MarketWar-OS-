@@ -3650,3 +3650,35 @@ test("deliverability: the real lookup marks a refused resolver as unresolved", (
   assert.match(src, /return \{ answers: Array\.isArray\(data\.Answer\) \? data\.Answer : \[\], resolved: true \}/,
     "and a resolver that answered — including with nothing — is resolved:true");
 });
+
+test("email send: the fallback path honours the deadline too", () => {
+  // Without this, addresses the batch skipped for time were immediately re-sent
+  // one at a time with no budget — undoing the stop and running the function
+  // past its limit, which is the exact failure the deadline exists to prevent.
+  const src = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(Date\.now\(\) >= deadline\) break;/,
+    "the one-at-a-time fallback must stop when the budget is spent");
+  assert.match(src, /stay sendable on the next run/);
+});
+
+test("email send: an address the batch already tried is never re-sent", () => {
+  const src = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  assert.match(src, /const existing = results\.get\(it\.to\);\s*\n\s*if \(existing\) \{ out\.push\(existing\); continue; \}/,
+    "retrying a failed attempt would double-send anyone whose message was accepted just before the connection died");
+});
+
+test("email send: the response says which path ran", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /sendMode: lastBatchMode/,
+    "inferring the path from a throughput number is how a stale deploy and a real cap look identical");
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  assert.match(email, /lastBatchMode = "session"/);
+  assert.match(email, /lastBatchMode = "one-at-a-time"/);
+});
+
+test("health: the running build identifies its own commit", () => {
+  const src = readFileSync(new URL("../src/app/api/health/ai/route.ts", import.meta.url), "utf8");
+  assert.match(src, /VERCEL_GIT_COMMIT_SHA/,
+    "a fix and a stale deploy are indistinguishable from the outside without this");
+  assert.match(src, /build: BUILD/);
+});

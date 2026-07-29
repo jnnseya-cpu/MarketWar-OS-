@@ -665,6 +665,9 @@ export type SendResult = {
  * Falls back to the one-at-a-time path when SMTP is not the active provider, so
  * a Resend/SendGrid deployment and demo mode behave exactly as before.
  */
+/** Which path a batch actually took — surfaced so the send result can say so. */
+export let lastBatchMode: "session" | "one-at-a-time" | "mixed" | "none" = "none";
+
 export async function sendEmailBatch(
   items: { to: string; subject: string; html: string; listUnsubscribe?: string }[],
   common: {
@@ -728,6 +731,7 @@ export async function sendEmailBatch(
       const accepted = batchResults.filter((r) => r.ok).length;
       if (accepted > 0) recordNodeSend(node.label, day, accepted);
       const provider = getPool().length > 1 ? `smtp:${node.label}` : "smtp";
+      lastBatchMode = "session";
       for (const r of batchResults) {
         results.set(r.to, {
           ok: r.ok, mode: "live", provider, id: r.id ?? null, filteredOut: [],
@@ -737,15 +741,31 @@ export async function sendEmailBatch(
     } catch {
       // Session-level failure: fall through so every address still gets its own
       // attempt through the single-send path rather than the batch failing whole.
+      lastBatchMode = "one-at-a-time";
     }
+  } else {
+    lastBatchMode = "one-at-a-time";
   }
 
   // Anything without a result — no SMTP node, a session that died, or a provider
   // pool that is not SMTP — goes through the original one-at-a-time path.
+  //
+  // The deadline is honoured HERE too. Without it, addresses the batch skipped
+  // for time were immediately re-sent one at a time with no budget at all, which
+  // undoes the stop and runs the function past its limit — the very failure the
+  // deadline exists to prevent.
+  //
+  // An address the batch ATTEMPTED and failed is never retried here. The result
+  // is already recorded, and re-sending it would mail anyone whose message the
+  // server accepted just before the connection died a second time.
   const out: SendResult[] = [];
+  const deadline = common.deadline ?? Number.POSITIVE_INFINITY;
   for (const it of items) {
     const existing = results.get(it.to);
     if (existing) { out.push(existing); continue; }
+    // Out of budget: leave the rest ABSENT. The caller reads a missing result as
+    // "never attempted", so they stay sendable on the next run.
+    if (Date.now() >= deadline) break;
     out.push(await sendEmail({
       to: it.to, subject: it.subject, html: it.html,
       from: common.from, replyTo: common.replyTo, listUnsubscribe: it.listUnsubscribe,

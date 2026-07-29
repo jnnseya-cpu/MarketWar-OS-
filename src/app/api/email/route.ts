@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { emailConfigured, filterList, sendEmail, sendEmailBatch, validateAttachments, type EmailAttachment } from "@/backend/email";
+import { emailConfigured, filterList, sendEmail, sendEmailBatch, lastBatchMode, validateAttachments, type EmailAttachment } from "@/backend/email";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 
@@ -234,6 +234,10 @@ export async function POST(req: NextRequest) {
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
       attempted, sent, failed, failures,
       stoppedEarly, notReached,
+      // Which path actually ran. Reported because the alternative is inferring it
+      // from a throughput number, which is how a stale deploy and a real cap look
+      // identical from the outside.
+      sendMode: lastBatchMode,
       remaining: Math.max(0, sendable.length - attempted),
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",

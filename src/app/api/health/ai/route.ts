@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { gatewayStatus, unknownProvidersInOrder } from "@/backend/gateway";
 
+// Which commit is actually serving. Vercel injects this at build time.
+//
+// It exists because a fix and a stale deploy are indistinguishable from the
+// outside: a run that still caps at 34 looks the same whether the batching code
+// is broken or simply not live yet, and the only way to tell was to reason about
+// the wording of an error message.
+const BUILD = {
+  commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "unknown",
+  message: (process.env.VERCEL_GIT_COMMIT_MESSAGE || "").split("\n")[0].slice(0, 120),
+  builtAt: process.env.VERCEL_DEPLOYMENT_ID ? undefined : "local",
+};
+
 // AI gateway self-diagnostic.
 //
 // This exists because the platform and its owner spent a day disagreeing about
@@ -28,6 +40,7 @@ export async function GET() {
 
   return NextResponse.json({
     service: "ai-gateway",
+    build: BUILD,
     verdict,
     // The order the gateway ACTUALLY resolved, after AI_GATEWAY_ORDER is applied.
     // AI_GATEWAY_ORDER is a preference, not an allowlist — a provider with a key
