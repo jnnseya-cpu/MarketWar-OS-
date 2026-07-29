@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { emailConfigured, filterList, sendEmail, validateAttachments, type EmailAttachment } from "@/backend/email";
+import { emailConfigured, filterList, sendEmail, sendEmailBatch, validateAttachments, type EmailAttachment } from "@/backend/email";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 
@@ -173,30 +173,54 @@ export async function POST(req: NextRequest) {
     let stoppedEarly = false;
     const sendDeadline = Date.now() + SEND_BUDGET_MS;
     const failures: string[] = [];
-    for (const to of batch) {
-      // Out of budget: stop cleanly and report. Being killed here is what loses
-      // the count of what was already delivered.
-      if (Date.now() >= sendDeadline) { stoppedEarly = true; break; }
-      try {
-        const contact = byEmail.get(to.toLowerCase());
-        const personalSubject = mergeTemplate(subject, { contact, brand: brandName });
-        const merged = mergeTemplate(html, { contact, brand: brandName });
-        // Add open pixel + click-wrapping + one-click unsubscribe for THIS recipient.
-        const personalHtml = injectTracking(merged, brandId, to, campaign);
-        const listUnsubscribe = unsubscribeUrl(brandId, to, campaign);
-        const r = await sendEmail({ to, subject: personalSubject, html: personalHtml, from: fromHeader, replyTo, listUnsubscribe, dkim, attachments: attachments.length ? attachments : undefined });
-        if (r.ok) {
-          sent++;
-          try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
-        } else {
-          failed++; if (failures.length < 10) failures.push(to);
-          // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
-          // so it's never retried. Async bounces arrive via /api/webhooks/email.
-          if (r.provider !== "demo-pool" && (/\b5\d\d\b/.test(r.detail || "") || r.provider === "hygiene-filter")) {
-            try { await recordEvent({ brandId, email: to, type: "bounce", at: new Date().toISOString(), campaign }); } catch { /* best-effort */ }
-          }
+
+    // Personalise every message first — subject, body, tracking pixel, click
+    // wrapping and a per-recipient one-click unsubscribe — then hand the whole
+    // batch to ONE authenticated SMTP session.
+    //
+    // Opening a fresh connection, TLS handshake and AUTH per message cost about
+    // a second and a half each before any content moved, which capped a run at
+    // roughly 34 recipients inside the send budget: a 250-a-day allowance took
+    // eight presses to spend. Reusing the session is also gentler on the
+    // provider, which rate-limits connections far harder than messages.
+    const prepared = batch.map((to) => {
+      const contact = byEmail.get(to.toLowerCase());
+      return {
+        to,
+        subject: mergeTemplate(subject, { contact, brand: brandName }),
+        html: injectTracking(mergeTemplate(html, { contact, brand: brandName }), brandId, to, campaign),
+        listUnsubscribe: unsubscribeUrl(brandId, to, campaign),
+      };
+    });
+
+    let results: Awaited<ReturnType<typeof sendEmailBatch>> = [];
+    try {
+      results = await sendEmailBatch(prepared, {
+        from: fromHeader, replyTo, dkim,
+        attachments: attachments.length ? attachments : undefined,
+        deadline: sendDeadline,
+      });
+    } catch {
+      results = [];
+    }
+
+    for (let i = 0; i < prepared.length; i++) {
+      const to = prepared[i].to;
+      const r = results[i];
+      // No result at all means the budget stopped the run before this address —
+      // it was never attempted, so it stays sendable rather than counting failed.
+      if (!r) { stoppedEarly = true; continue; }
+      if (r.ok) {
+        sent++;
+        try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
+      } else {
+        failed++; if (failures.length < 10) failures.push(to);
+        // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
+        // so it's never retried. Async bounces arrive via /api/webhooks/email.
+        if (r.provider !== "demo-pool" && (/\b5\d\d\b/.test(r.detail || "") || r.provider === "hygiene-filter")) {
+          try { await recordEvent({ brandId, email: to, type: "bounce", at: new Date().toISOString(), campaign }); } catch { /* best-effort */ }
         }
-      } catch { failed++; if (failures.length < 10) failures.push(to); }
+      }
     }
     // Count what actually went out against today's warm-up allowance.
     if (sent > 0) { try { await recordWarmupSends(brandId, today, sent); } catch { /* counter best-effort */ } }

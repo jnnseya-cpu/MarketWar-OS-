@@ -235,6 +235,233 @@ function buildMimeBody(html: string, attachments: EmailAttachment[]): { body: st
   return { body: parts.join("\r\n"), contentType: `multipart/mixed; boundary="${boundary}"` };
 }
 
+// ---------------------------------------------------------------------------
+// Message construction — one definition, used by the single send and the batch.
+// The header map is what DKIM signs, so it must match the emitted headers
+// exactly; building it in two places is how a signature silently stops matching.
+// ---------------------------------------------------------------------------
+export type SmtpExtra = {
+  replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string;
+  attachments?: EmailAttachment[]; dkim?: { domain: string; selector: string; privateKeyPem: string };
+};
+
+function buildWireMessage(from: string, to: string, subject: string, html: string, extra?: SmtpExtra, hostHint = ""): string {
+  const domainOfFrom = angleAddr(from).split("@")[1] || hostHint || "marketwaros.com";
+  const messageId = `<${Date.now().toString(36)}.${Math.abs(hashStr(to + subject)).toString(36)}@${domainOfFrom}>`;
+  const headers: Record<string, string> = {
+    From: from,
+    To: to,
+    Subject: subject,
+    Date: new Date().toUTCString(),
+    "Message-ID": messageId,
+    "MIME-Version": "1.0",
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Transfer-Encoding": "8bit",
+  };
+  const atts = extra?.attachments ?? [];
+  let bodySource = html;
+  if (atts.length) {
+    const mime = buildMimeBody(html, atts);
+    bodySource = mime.body;
+    headers["Content-Type"] = mime.contentType;
+    delete headers["Content-Transfer-Encoding"];
+  }
+  if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
+  if (extra?.listUnsubscribe) {
+    headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
+    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+  }
+  // Dot-stuffing + bare-LF normalisation so the body cannot break the DATA
+  // terminator or trip a strict MTA.
+  const canonBody = bodySource.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+  let dkimHeader = "";
+  if (extra?.dkim) {
+    try { dkimHeader = dkimSignature(headers, bodySource, { ...extra.dkim }) + "\r\n"; }
+    catch { dkimHeader = ""; /* never block a send on a signing hiccup */ }
+  }
+  const headerBlock = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n");
+  return dkimHeader + headerBlock + "\r\n\r\n" + canonBody;
+}
+
+// Idle timeout: fires only when the server goes quiet, so it bounds a stuck
+// session without capping how long a healthy batch may run.
+const SESSION_IDLE_MS = 20_000;
+
+export type SmtpBatchItem = { to: string; subject: string; html: string; extra?: SmtpExtra };
+export type SmtpBatchResult = { to: string; ok: boolean; id?: string; error?: string };
+
+/**
+ * Send MANY messages over ONE authenticated SMTP session.
+ *
+ * The single-send path opens a TCP connection, negotiates TLS and authenticates
+ * for every individual email — roughly a second and a half of handshake per
+ * message before a byte of content moves. On a 45-second budget that capped a
+ * campaign at about 34 recipients per click, so a 250-a-day warm-up allowance
+ * took eight presses to spend.
+ *
+ * SMTP is designed for exactly this: after a message is accepted, RSET clears
+ * the transaction and the next MAIL FROM begins on the same authenticated
+ * connection. It is also GENTLER on the provider than opening 250 connections —
+ * most rate-limit connections per hour far more tightly than messages.
+ *
+ * A rejected RECIPIENT does not end the run: the failure is recorded, RSET is
+ * issued, and the batch continues. Only a connection-level fault stops it, and
+ * even then the results gathered so far are returned so the caller knows exactly
+ * who was already sent to and nobody is mailed twice on the retry.
+ */
+export async function smtpSendMany(
+  node: SendingNode,
+  from: string,
+  items: SmtpBatchItem[],
+  opts: { deadline?: number } = {},
+): Promise<SmtpBatchResult[]> {
+  if (!items.length) return [];
+  const net = await import("node:net");
+  const tls = await import("node:tls");
+  const SMTP_HOST = node.host, SMTP_PORT = node.port, SMTP_USER = node.user, SMTP_PASS = node.pass, SMTP_SECURE = node.secure;
+  const deadline = opts.deadline ?? Number.POSITIVE_INFINITY;
+
+  return new Promise<SmtpBatchResult[]>((resolve) => {
+    let socket: import("node:net").Socket | import("node:tls").TLSSocket;
+    let buffer = "";
+    let stage = 0;
+    let upgraded = SMTP_SECURE;
+    let settled = false;
+    let i = 0;                       // index of the message in flight
+    let message = "";                // its wire bytes
+    const results: SmtpBatchResult[] = [];
+
+    // Always RESOLVE, never reject: a half-finished batch still has to tell the
+    // caller who received mail, or the retry sends to them again.
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      try { socket.end(); } catch { /* already closed */ }
+      resolve(results);
+    };
+    const abort = (err: Error) => {
+      // Whatever was in flight never completed; everything after it is untried.
+      for (let k = results.length; k < items.length; k++) {
+        results.push({ to: items[k].to, ok: false, error: err.message });
+      }
+      done();
+    };
+
+    const write = (line: string) => socket.write(line + "\r\n");
+
+    const startNext = () => {
+      if (i >= items.length) { stage = 99; write("QUIT"); return done(); }
+      if (Date.now() >= deadline) {
+        // Out of time. Stop cleanly WITHOUT marking the rest as failed — they
+        // were never attempted, and the caller sends them on the next run.
+        stage = 99; write("QUIT"); return done();
+      }
+      const item = items[i];
+      message = buildWireMessage(from, item.to, item.subject, item.html, item.extra, SMTP_HOST);
+      const envelopeFrom = item.extra?.bounceReturnPath ? angleAddr(item.extra.bounceReturnPath) : angleAddr(from);
+      stage = 6;
+      write(`MAIL FROM:<${envelopeFrom}>`);
+    };
+
+    const failCurrent = (line: string) => {
+      results.push({ to: items[i].to, ok: false, error: line });
+      i++;
+      stage = 10;             // await the RSET reply, then start the next
+      write("RSET");
+    };
+
+    const onData = (chunk: Buffer) => {
+      buffer += chunk.toString("utf8");
+      let idx;
+      while ((idx = buffer.indexOf("\r\n")) !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        if (/^\d{3}-/.test(line)) continue;   // continuation line
+        step(Number(line.slice(0, 3)), line);
+      }
+    };
+
+    const startTls = () => {
+      const secure = tls.connect({ socket: socket as import("node:net").Socket, servername: SMTP_HOST }, () => {
+        upgraded = true;
+        socket.removeAllListeners("data");
+        socket = secure;
+        socket.on("data", onData);
+        // Re-arm every liveness handler on the NEW socket.
+        //
+        // They were attached to the plaintext socket before the upgrade, and
+        // after reassignment nothing watched the TLS socket at all: a server
+        // that dropped the connection mid-session left this promise pending
+        // forever, with no timeout to rescue it. That is the shape of a request
+        // that "just hangs" and returns nothing — reproduced deterministically
+        // against a server that closes mid-batch.
+        socket.setTimeout(SESSION_IDLE_MS, () => abort(new Error("SMTP timeout")));
+        socket.on("error", (e) => abort(e));
+        socket.on("end", () => abort(new Error("SMTP connection closed before completion")));
+        socket.on("close", () => abort(new Error("SMTP connection closed")));
+        write(`EHLO marketwaros.com`);
+      });
+      secure.on("error", (e) => abort(e));
+    };
+
+    const step = (code: number, line: string) => {
+      const ok = code >= 200 && code < 400;
+      switch (stage) {
+        case 0:
+          if (!ok) return abort(new Error(`SMTP greeting: ${line}`));
+          stage = 1; write(`EHLO marketwaros.com`); break;
+        case 1:
+          if (!ok) return abort(new Error(`SMTP EHLO: ${line}`));
+          if (!upgraded) { stage = 2; write("STARTTLS"); }
+          else { stage = 3; write("AUTH LOGIN"); }
+          break;
+        case 2:
+          if (!ok) return abort(new Error(`SMTP STARTTLS: ${line}`));
+          stage = 1; startTls(); break;
+        case 3:
+          if (!ok) return abort(new Error(`SMTP AUTH: ${line}`));
+          stage = 4; write(Buffer.from(SMTP_USER).toString("base64")); break;
+        case 4:
+          if (!ok) return abort(new Error(`SMTP AUTH user: ${line}`));
+          stage = 5; write(Buffer.from(SMTP_PASS).toString("base64")); break;
+        case 5:
+          if (!ok) return abort(new Error(`SMTP AUTH failed: ${line}`));
+          startNext(); break;                       // authenticated once, for all of them
+        case 6:
+          if (!ok) return failCurrent(`MAIL FROM: ${line}`);
+          stage = 7; write(`RCPT TO:<${angleAddr(items[i].to)}>`); break;
+        case 7:
+          // A refused recipient is THIS recipient's problem, not the batch's.
+          if (!ok) return failCurrent(`RCPT TO: ${line}`);
+          stage = 8; write("DATA"); break;
+        case 8:
+          if (code !== 354) return failCurrent(`DATA: ${line}`);
+          stage = 9; socket.write(message + "\r\n.\r\n"); break;
+        case 9:
+          if (!ok) return failCurrent(`send: ${line}`);
+          results.push({ to: items[i].to, ok: true, id: (line.match(/queued as (\S+)/i) || [])[1] || "accepted" });
+          i++;
+          stage = 10; write("RSET"); break;
+        case 10:
+          // RSET's reply — whatever it says, move on to the next message.
+          startNext(); break;
+        case 99:
+          break;                                    // QUIT reply; already resolved
+      }
+    };
+
+    const connectOpts = { host: SMTP_HOST, port: SMTP_PORT };
+    socket = SMTP_SECURE ? tls.connect({ ...connectOpts, servername: SMTP_HOST }) : net.connect(connectOpts);
+    // Idle timeout: fires only when the server goes quiet, so it bounds a stuck
+    // session without capping how long a healthy batch may run.
+    socket.setTimeout(SESSION_IDLE_MS, () => abort(new Error("SMTP timeout")));
+    socket.on("data", onData);
+    socket.on("error", (e) => abort(e));
+    socket.on("end", () => abort(new Error("SMTP connection closed before completion")));
+    socket.on("close", () => abort(new Error("SMTP connection closed")));
+  });
+}
+
 async function sendViaSmtp(
   node: SendingNode,
   from: string,
@@ -333,7 +560,13 @@ async function sendViaSmtp(
         socket.removeAllListeners("data");
         socket = secure;
         socket.on("data", onData);
+        // Re-arm on the new socket — see the note in smtpSendMany. Without this
+        // the timeout stayed on the discarded plaintext socket and a connection
+        // that died after the upgrade never settled.
+        socket.setTimeout(15000, () => finish(new Error("SMTP timeout")));
         socket.on("error", (e) => finish(e));
+        socket.on("end", () => finish(new Error("SMTP connection closed before completion")));
+        socket.on("close", () => finish(new Error("SMTP connection closed")));
         write(`EHLO marketwaros.com`);
       });
       secure.on("error", (e) => finish(e));
@@ -420,6 +653,107 @@ export type SendResult = {
   filteredOut: EmailVerdict[];
   detail: string;
 };
+
+/**
+ * Send a whole campaign batch over one authenticated SMTP session.
+ *
+ * Hygiene still runs per address — an unsendable one is filtered before the
+ * provider is contacted, exactly as in the single send — and every message keeps
+ * its own personalised subject, body, tracking and unsubscribe link. Only the
+ * connection is shared.
+ *
+ * Falls back to the one-at-a-time path when SMTP is not the active provider, so
+ * a Resend/SendGrid deployment and demo mode behave exactly as before.
+ */
+export async function sendEmailBatch(
+  items: { to: string; subject: string; html: string; listUnsubscribe?: string }[],
+  common: {
+    from?: string; replyTo?: string;
+    dkim?: { domain: string; selector: string; privateKeyPem: string };
+    attachments?: EmailAttachment[];
+    deadline?: number;
+  } = {},
+): Promise<SendResult[]> {
+  const from = common.from || FROM_DEFAULT;
+
+  // Pre-send hygiene, before a connection is opened. Blocked addresses never
+  // reach the provider — that is the "no bounce back" guarantee, and batching
+  // must not weaken it.
+  const verdicts = items.map((it) => ({ item: it, verdict: validateAddress(it.to) }));
+  const sendableItems = verdicts.filter((v) => v.verdict.sendable);
+
+  const results = new Map<string, SendResult>();
+  for (const v of verdicts) {
+    if (!v.verdict.sendable) {
+      results.set(v.item.to, {
+        ok: false, mode: emailConfigured ? "live" : "demo", provider: "hygiene-filter",
+        id: null, filteredOut: [v.verdict], detail: `blocked pre-send: ${v.verdict.reason}`,
+      });
+    }
+  }
+
+  const fromDomain = angleAddr(from).split("@")[1] || "";
+  const day = new Date().toISOString().slice(0, 10);
+  const node = smtpConfigured ? pickNode(fromDomain, day) : null;
+
+  if (node && sendableItems.length) {
+    try {
+      const prepared = sendableItems.map((v) => ({
+        to: v.verdict.email,
+        subject: v.item.subject,
+        html: v.item.html,
+        extra: {
+          replyTo: common.replyTo, dkim: common.dkim, listUnsubscribe: v.item.listUnsubscribe,
+          bounceReturnPath: BOUNCE_RETURN_PATH, attachments: common.attachments,
+        },
+      }));
+
+      // A few sessions in parallel, not one per message.
+      //
+      // Reusing a session removes the handshake, but each message still costs a
+      // handful of round trips to the provider, so on a real link one session
+      // alone does not fit a day's allowance into a single press. A small number
+      // of concurrent sessions does, while staying far below the connection
+      // limits providers actually enforce — they cap connections per hour much
+      // harder than messages. Deliberately small: this is a reputation system,
+      // not a benchmark.
+      const streams = Math.max(1, Math.min(8, Number(process.env.SMTP_CONCURRENCY || 4)));
+      const lanes: typeof prepared[] = Array.from({ length: streams }, () => []);
+      prepared.forEach((item, idx) => lanes[idx % streams].push(item));
+
+      const laneResults = await Promise.all(
+        lanes.filter((l) => l.length).map((lane) => smtpSendMany(node, from, lane, { deadline: common.deadline })),
+      );
+      const batchResults = laneResults.flat();
+      const accepted = batchResults.filter((r) => r.ok).length;
+      if (accepted > 0) recordNodeSend(node.label, day, accepted);
+      const provider = getPool().length > 1 ? `smtp:${node.label}` : "smtp";
+      for (const r of batchResults) {
+        results.set(r.to, {
+          ok: r.ok, mode: "live", provider, id: r.id ?? null, filteredOut: [],
+          detail: r.ok ? (common.dkim ? "accepted (DKIM-signed)" : "accepted") : (r.error || "send failed"),
+        });
+      }
+    } catch {
+      // Session-level failure: fall through so every address still gets its own
+      // attempt through the single-send path rather than the batch failing whole.
+    }
+  }
+
+  // Anything without a result — no SMTP node, a session that died, or a provider
+  // pool that is not SMTP — goes through the original one-at-a-time path.
+  const out: SendResult[] = [];
+  for (const it of items) {
+    const existing = results.get(it.to);
+    if (existing) { out.push(existing); continue; }
+    out.push(await sendEmail({
+      to: it.to, subject: it.subject, html: it.html,
+      from: common.from, replyTo: common.replyTo, listUnsubscribe: it.listUnsubscribe,
+      dkim: common.dkim, attachments: common.attachments,
+    }));
+  }
+  return out;
+}
 
 export async function sendEmail(opts: {
   attachments?: EmailAttachment[];

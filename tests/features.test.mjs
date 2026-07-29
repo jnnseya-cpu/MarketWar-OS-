@@ -3501,8 +3501,10 @@ test("email send: the route reserves time for the work it actually does", () => 
 
 test("email send: it stops cleanly and reports what really went out", () => {
   const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
-  assert.match(src, /if \(Date\.now\(\) >= sendDeadline\) \{ stoppedEarly = true; break; \}/,
-    "breaking out is what lets the response — and the warm-up count — be written");
+  assert.match(src, /deadline: sendDeadline/,
+    "the send must be bounded, so the response — and the warm-up count — is written by us");
+  assert.match(src, /if \(!r\) \{ stoppedEarly = true; continue; \}/,
+    "an address the budget never reached was not attempted and must not count as failed");
   assert.match(src, /const attempted = sent \+ failed;/,
     "'attempted' must be what was tried, not the size of the batch that was planned");
   assert.match(src, /remaining: Math\.max\(0, sendable\.length - attempted\)/,
