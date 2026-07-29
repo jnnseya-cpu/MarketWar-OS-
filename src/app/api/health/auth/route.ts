@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminConfigured, adminDiagnostics } from "@/backend/firebase-admin";
+import { humanCheckStatus } from "@/backend/human-check";
 
 // Auth self-diagnostic — turns "auth/internal-error" into a definitive reason.
 //
@@ -126,6 +127,9 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     service: "MarketWar OS — auth diagnostic",
+    // Whether anything is actually keeping scripted signups out, and which half
+    // of the problem each control covers.
+    humanCheck: humanCheckStatus(),
     envPresent: present,
     envMissing: missing.length ? missing : undefined,
     adminSdk,

@@ -60,13 +60,19 @@ export function clientKey(req: Request, route: string): string {
 // Authentication + role authorisation
 // ---------------------------------------------------------------------------
 export type AuthResult =
-  | { ok: true; enforced: boolean; uid: string | null; role: Role | null }
+  | {
+      ok: true; enforced: boolean; uid: string | null; role: Role | null;
+      // Carried so a route can tell a real mailbox from a made-up one without a
+      // second round trip to Firebase. Both are null when auth is not enforced.
+      email?: string | null;
+      emailVerified?: boolean;
+    }
   | { ok: false; status: 401 | 403; error: string };
 
 export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promise<AuthResult> {
   // Demo / CI: Admin not configured → do not enforce (keeps zero-config working).
   if (!adminConfigured || !adminAuth) {
-    return { ok: true, enforced: false, uid: null, role: null };
+    return { ok: true, enforced: false, uid: null, role: null, email: null, emailVerified: false };
   }
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -88,5 +94,11 @@ export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promi
       return { ok: false, status: 403, error: `Insufficient permission (requires ${opts.scope})` };
     }
   }
-  return { ok: true, enforced: true, uid: decoded.uid, role };
+  return {
+    ok: true, enforced: true, uid: decoded.uid, role,
+    email: decoded.email ? String(decoded.email).toLowerCase() : null,
+    // Firebase's own verification, read off the signed token — not something the
+    // client can assert about itself.
+    emailVerified: Boolean(decoded.email_verified),
+  };
 }

@@ -39,6 +39,32 @@ if (firebaseAuth) {
     /* private-mode / storage blocked — falls back to default persistence */
   });
 }
+// App Check — the ONLY layer that can stop a script creating accounts.
+//
+// Everything the signup form does can be skipped: the web API key is in the page
+// source, so a bot can POST straight to Google's Identity Toolkit and never load
+// our React at all. App Check is enforced by Google AT that endpoint, which is
+// why it is the one control that stops the account existing rather than merely
+// leaving it empty.
+//
+// Two things are needed and BOTH matter: this site key, and enforcement switched
+// on for Authentication in the Firebase console. The key on its own enforces
+// nothing — it only starts sending tokens. See docs/HUMAN-VERIFICATION.md.
+const recaptchaSiteKey = (process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "").trim();
+export const appCheckConfigured = Boolean(recaptchaSiteKey);
+if (firebaseApp && recaptchaSiteKey && typeof window !== "undefined") {
+  // Dynamic import: the App Check bundle must not be shipped to browsers that
+  // will never use it, and a failure here must never stop the app booting.
+  import("firebase/app-check")
+    .then(({ initializeAppCheck, ReCaptchaV3Provider }) => {
+      initializeAppCheck(firebaseApp, {
+        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+        isTokenAutoRefreshEnabled: true,
+      });
+    })
+    .catch((e) => console.error("[app-check] failed to initialise:", e));
+}
+
 export const firebaseDb: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
 export const firebaseStorage: FirebaseStorage | null = firebaseApp
   ? getStorage(firebaseApp)

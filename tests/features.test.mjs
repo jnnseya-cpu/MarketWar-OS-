@@ -3987,3 +3987,199 @@ test("ai visibility: the browser gives up rather than spinning for ever", () => 
   assert.match(page, /AbortController/, "a spinner that can never stop looks like work");
   assert.match(page, /504/, "and a gateway timeout must be explained, not shown as a bare code");
 });
+
+// ---------------------------------------------------------------------------
+// Human check — only a person gets in, and only a person gets the free ACUs.
+//
+// The honest boundary, stated once here so no future change quietly forgets it:
+// the signup form talks straight to Google's Identity Toolkit with the PUBLIC
+// web API key. Nothing on our side can stop a script creating a Firebase
+// account. What our side CAN do — and what these tests hold to — is make that
+// account worth nothing: no free allowance without work done in a real browser,
+// a verified mailbox, and a domain that receives mail.
+// ---------------------------------------------------------------------------
+const pow = await import("../src/shared/proof-of-work.ts");
+const human = await import("../src/backend/human-check.ts");
+
+test("human check: the browser and the server agree on what solves the puzzle", async () => {
+  // One definition, imported by both. If these ever diverged, every real
+  // customer would be locked out while the difficulty check passed vacuously.
+  const solved = await pow.solve("abc123", 10);
+  assert.ok(solved, "a 10-bit puzzle must be solvable");
+  assert.equal(await pow.meetsDifficulty("abc123", solved.solution, 10), true);
+  assert.equal(await pow.meetsDifficulty("abc123", solved.solution, 32), false,
+    "and the same solution must NOT satisfy a harder challenge");
+});
+
+test("human check: leading zero bits are counted in bits, not hex characters", () => {
+  assert.equal(pow.leadingZeroBits("0000ff"), 16);
+  assert.equal(pow.leadingZeroBits("1000ff"), 3, "0x1 is three leading zero bits, not zero");
+  assert.equal(pow.leadingZeroBits("8000ff"), 0);
+  assert.equal(pow.leadingZeroBits("07ffff"), 5);
+});
+
+test("human check: a real solution passes and issues a token", async () => {
+  human.__resetHumanCheck();
+  const binding = "bind-a";
+  const ch = human.issueChallenge(binding);
+  const solved = await pow.solve(ch.nonce, ch.bits);
+  const res = await human.verifyHumanCheck({ challenge: ch, solution: solved.solution, binding, elapsedMs: 5_000 });
+  assert.equal(res.ok, true, res.ok ? "" : res.reason);
+  assert.equal(human.verifyHumanToken(res.token, binding).ok, true);
+  assert.equal(human.verifyHumanToken(res.token, "someone-else").ok, false,
+    "a token minted for one browser must not work in another");
+});
+
+test("human check: a solved challenge cannot be spent twice", async () => {
+  human.__resetHumanCheck();
+  const binding = "bind-b";
+  const ch = human.issueChallenge(binding);
+  const solved = await pow.solve(ch.nonce, ch.bits);
+  const first = await human.verifyHumanCheck({ challenge: ch, solution: solved.solution, binding, elapsedMs: 5_000 });
+  assert.equal(first.ok, true);
+  const second = await human.verifyHumanCheck({ challenge: ch, solution: solved.solution, binding, elapsedMs: 5_000 });
+  assert.equal(second.ok, false, "one solution is worth one signup — replay is the whole attack");
+});
+
+test("human check: a forged or downgraded challenge is refused", async () => {
+  human.__resetHumanCheck();
+  const binding = "bind-c";
+  const ch = human.issueChallenge(binding);
+
+  // Difficulty turned down and re-signed by nobody.
+  const easy = { ...ch, bits: 4 };
+  const cheat = await pow.solve(easy.nonce, 4);
+  const r1 = await human.verifyHumanCheck({ challenge: easy, solution: cheat.solution, binding, elapsedMs: 5_000 });
+  assert.equal(r1.ok, false, "a self-issued easy challenge is the obvious bypass");
+
+  // Right difficulty, wrong signature.
+  const forged = { ...ch, sig: "0".repeat(64) };
+  const solved = await pow.solve(ch.nonce, ch.bits);
+  const r2 = await human.verifyHumanCheck({ challenge: forged, solution: solved.solution, binding, elapsedMs: 5_000 });
+  assert.equal(r2.ok, false);
+
+  // Expired.
+  const old = human.issueChallenge(binding, 0);
+  const r3 = await human.verifyHumanCheck({ challenge: old, solution: "0", binding, elapsedMs: 5_000 });
+  assert.equal(r3.ok, false);
+});
+
+test("human check: a genuine challenge with a WRONG answer is refused", async () => {
+  // The case every other test in this block misses: signature valid, not
+  // expired, honeypot empty, timing plausible — and the work simply was not
+  // done. Without this, deleting the difficulty check entirely leaves the suite
+  // green, which is how a gate becomes decoration.
+  human.__resetHumanCheck();
+  const binding = "bind-wrong";
+  const ch = human.issueChallenge(binding);
+  const bad = await human.verifyHumanCheck({ challenge: ch, solution: "0", binding, elapsedMs: 5_000 });
+  assert.equal(bad.ok, false, "an unsolved puzzle must not pass");
+  assert.match(bad.reason, /did not solve/i);
+
+  // And the same challenge still accepts the RIGHT answer afterwards — a failed
+  // attempt must not burn a customer's challenge.
+  const solved = await pow.solve(ch.nonce, ch.bits);
+  const good = await human.verifyHumanCheck({ challenge: ch, solution: solved.solution, binding, elapsedMs: 5_000 });
+  assert.equal(good.ok, true, good.ok ? "" : good.reason);
+});
+
+test("human check: the honeypot and the clock are checked before the hash", async () => {
+  human.__resetHumanCheck();
+  const binding = "bind-d";
+  const ch = human.issueChallenge(binding);
+  const solved = await pow.solve(ch.nonce, ch.bits);
+
+  const trapped = await human.verifyHumanCheck({ challenge: ch, solution: solved.solution, binding, elapsedMs: 5_000, honeypot: "http://spam" });
+  assert.equal(trapped.ok, false, "a filled invisible field is a script, whatever else it got right");
+  assert.equal(trapped.retryable, false, "and there is nothing for it to retry");
+
+  const ch2 = human.issueChallenge(binding);
+  const solved2 = await pow.solve(ch2.nonce, ch2.bits);
+  const instant = await human.verifyHumanCheck({ challenge: ch2, solution: solved2.solution, binding, elapsedMs: 40 });
+  assert.equal(instant.ok, false, "nobody types an email and a password in 40ms");
+});
+
+test("human check: throwaway mailboxes are rejected without catching real ones", () => {
+  assert.equal(human.isDisposableEmail("someone@mailinator.com"), true);
+  assert.equal(human.isDisposableEmail("someone@inbox.mailinator.com"), true, "subdomains too");
+  // The substring trap that has bitten this codebase twice already.
+  assert.equal(human.isDisposableEmail("owner@notmailinator.com"), false,
+    "'mailinator.com' inside a longer domain is a different company");
+  assert.equal(human.isDisposableEmail("jnbankwa@gmail.com"), false);
+  assert.equal(human.isDisposableEmail("hello@veryxjnn.com"), false);
+});
+
+test("human check: the status report does not overstate what it blocks", () => {
+  const st = human.humanCheckStatus();
+  // NEXT_PUBLIC_RECAPTCHA_SITE_KEY is unset here, so App Check cannot be
+  // enforcing — and the report must not imply account creation is stopped.
+  assert.equal(st.appCheckConfigured, false);
+  assert.equal(st.blocksAccountCreation, false,
+    "claiming to block signups when only the allowance is gated would be a false green light");
+  assert.match(st.note, /Identity Toolkit directly/i, "the gap must be named, not implied");
+});
+
+test("human check: the free allowance can never be claimed twice", async () => {
+  const wallet = await import("../src/backend/wallet.ts");
+  const uid = `grant-${Math.round(Number(process.hrtime.bigint() % 1000000n))}`;
+
+  // Demo mode (no Firebase Admin, which is how this suite runs): there are no
+  // accounts to farm and no real money to spend, so a new wallet opens WITH the
+  // allowance already in it and a claim is a no-op. The zero-config platform
+  // must keep working with no keys — that rule is older than this feature.
+  const opening = await wallet.getWallet(uid);
+  assert.equal(opening.balanceAcu, wallet.FREE_SIGNUP_ACUS);
+
+  const first = await wallet.claimSignupGrant(uid);
+  const second = await wallet.claimSignupGrant(uid);
+  assert.equal(first.granted + second.granted, 0, "the allowance was already given — claiming must not add more");
+  assert.equal(second.balanceAcu, opening.balanceAcu, "and the balance must not move");
+
+  // The once-only guarantee itself, on a wallet that HAS an unclaimed grant —
+  // which is what production creates. Claiming twice is exactly what a farm does.
+  const unclaimed = { orgId: uid, balanceAcu: 0, planId: "free", cycle: null, lifetimeCreditedAcu: 0, lifetimeDebitedAcu: 0, updatedAt: "", signupGrantClaimed: false };
+  assert.equal(wallet.signupGrantClaimed(unclaimed), false);
+  assert.equal(wallet.signupGrantClaimed({ ...unclaimed, signupGrantClaimed: true, balanceAcu: 100, lifetimeCreditedAcu: 100 }), true);
+});
+
+test("human check: production opens a wallet EMPTY, so a scripted account is worthless", () => {
+  // The whole point. Granting 100 ACUs on first wallet read means one HTTP
+  // request from a script converts directly into the owner's provider spend.
+  const src = readFileSync(new URL("../src/backend/wallet.ts", import.meta.url), "utf8");
+  assert.match(src, /const opening = adminConfigured \? 0 : FREE_SIGNUP_ACUS;/,
+    "with Admin configured (production) a new wallet must start at zero and claim later");
+  assert.match(src, /signupGrantClaimed: !adminConfigured/,
+    "and must be flagged unclaimed so the grant is still available to a real person");
+  // The flag is written in the same transaction as the credit — two racing
+  // requests must not both see 'unclaimed' and both pay out.
+  assert.match(src, /signupGrantClaimed: true,\n\s+updatedAt: nowIso\(\),\n\s+\};\n\s+tx\.set\(ref, next/,
+    "the claim flag and the credit must be one atomic write");
+});
+
+test("human check: a wallet from before this shipped is not asked to re-prove itself", async () => {
+  const wallet = await import("../src/backend/wallet.ts");
+  // No flag at all, but already credited — an existing paying customer.
+  assert.equal(wallet.signupGrantClaimed({ orgId: "x", balanceAcu: 4_000, planId: "pro", cycle: "monthly", lifetimeCreditedAcu: 5_000, lifetimeDebitedAcu: 1_000, updatedAt: "" }), true);
+  // A genuinely new, empty wallet has not claimed.
+  assert.equal(wallet.signupGrantClaimed({ orgId: "y", balanceAcu: 0, planId: "free", cycle: null, lifetimeCreditedAcu: 0, lifetimeDebitedAcu: 0, updatedAt: "", signupGrantClaimed: false }), false);
+});
+
+test("human check: the allowance route demands work, a verified mailbox AND a real domain", () => {
+  const route = readFileSync(new URL("../src/app/api/auth/human/route.ts", import.meta.url), "utf8");
+  assert.match(route, /verifyHumanToken\(/, "work done in this browser");
+  assert.match(route, /auth\.emailVerified/, "a mailbox that actually receives mail");
+  assert.match(route, /isDisposableEmail\(auth\.email\)/, "at a domain that is not a throwaway");
+  assert.match(route, /claimSignupGrant\(auth\.uid\)/);
+  // The token is checked against the SERVER's view of who is calling, never a
+  // uid the client asserts about itself.
+  assert.doesNotMatch(route, /body\.uid/, "the caller must never name its own account");
+});
+
+test("human check: both signup AND login run the check", () => {
+  const form = readFileSync(new URL("../src/components/AuthForm.tsx", import.meta.url), "utf8");
+  // One call site inside submit() covers both modes; the Google path has its own.
+  assert.match(form, /if \(!\(await passHumanCheck\(email\)\)\) return;/,
+    "credential stuffing is a login attack, so the gate cannot be signup-only");
+  assert.match(form, /honeypot: trap/);
+  assert.match(form, /mountedAt: mountedAt\.current/);
+});

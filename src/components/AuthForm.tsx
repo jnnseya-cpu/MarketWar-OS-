@@ -5,12 +5,14 @@
 // five-layer model in docs/ai-os/08 §B.4a); otherwise renders the demo-mode
 // path so the zero-config platform stays fully usable.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, Mail, User, Ticket } from "lucide-react";
+import { Loader2, Lock, Mail, User, Ticket, ShieldCheck } from "lucide-react";
 import { BrandLockup } from "@/components/Logo";
 import { firebaseAuth } from "@/frontend/firebase-client";
+import { authedFetch } from "@/frontend/api-client";
+import { runHumanCheck, claimSignupAllowance } from "@/frontend/human-check";
 
 type PublicInvite = { token: string; companyName: string; planId: string; brands: number; status: string };
 
@@ -99,7 +101,27 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [invite, setInvite] = useState<PublicInvite | null>(null);
+  // The human check. `trap` is a field no sighted person can reach — anything in
+  // it means the form was filled in by a script. `mountedAt` is the other half:
+  // a submit that arrives faster than a hand can type did not come from one.
+  const [trap, setTrap] = useState("");
+  const [checking, setChecking] = useState<string | null>(null);
+  const mountedAt = useRef(Date.now());
   const copy = COPY[mode];
+
+  // Runs before Firebase is touched. A failure stops the attempt entirely rather
+  // than letting it through with a warning — half a gate is not a gate.
+  async function passHumanCheck(withEmail: string): Promise<boolean> {
+    const res = await runHumanCheck({
+      email: withEmail,
+      honeypot: trap,
+      mountedAt: mountedAt.current,
+      onStage: (s) => setChecking(s === "solving" ? "Checking you're human…" : "Securing your session…"),
+    });
+    setChecking(null);
+    if (!res.ok) { setError(res.error); return false; }
+    return true;
+  }
 
   // Invited company? Read ?invite=<token> (client-only, no Suspense needed) and
   // validate it, so sign-up shows who invited them and accepts on completion.
@@ -124,6 +146,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         if (res?.user) {
           setBusy(true);
           await acceptInviteIfAny(res.user.uid);
+          await claimSignupAllowance(authedFetch).catch(() => null);
           const stored = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("mw_auth_dest") : null;
           if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("mw_auth_dest");
           router.push(stored || (mode === "signup" ? "/choose-plan" : "/dashboard"));
@@ -154,6 +177,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setBusy(true);
     setError(null);
     try {
+      // Both modes, not just signup: the same check blunts credential stuffing
+      // on login, where the attacker's whole business model is volume.
+      if (!(await passHumanCheck(email))) return;
       const { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification, setPersistence, browserLocalPersistence } = await import(
         "firebase/auth"
       );
@@ -173,6 +199,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         } catch { /* non-fatal — verification can be re-sent from Settings */ }
       }
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
+      // Spend the token on the free allowance. Best-effort: never block entry to
+      // the platform on it — it can be claimed from Billing instead.
+      await claimSignupAllowance(authedFetch).catch(() => null);
       router.push(dest);
     } catch (err) {
       setError(friendlyAuthError(err));
@@ -204,6 +233,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setError(null);
     setNotice(null);
     try {
+      // Google's own flow proves a person is at the keyboard, but the check also
+      // mints the token the free allowance is claimed with — so run it here too.
+      if (!(await passHumanCheck(""))) return;
       const { GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence } = await import("firebase/auth");
       await setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
       const provider = new GoogleAuthProvider();
@@ -229,6 +261,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         throw e;
       }
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
+      await claimSignupAllowance(authedFetch).catch(() => null);
       router.push(dest);
     } catch (err) {
       setError(friendlyAuthError(err));
@@ -258,7 +291,23 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                   <span>You&apos;re invited to test <strong className="text-white">{invite.companyName}</strong> on MarketWar OS — {invite.planId} plan, {invite.brands} brands. Create your account to start.</span>
                 </div>
               )}
-              <form onSubmit={submit} className="space-y-3">
+              <form onSubmit={submit} className="relative space-y-3">
+                {/* Honeypot. Off-screen rather than display:none — some bots skip
+                    hidden fields but fill everything else. No tab stop, no label
+                    a screen reader will read out, autocomplete off so a browser
+                    never fills it in on a real person's behalf. */}
+                <div aria-hidden className="pointer-events-none absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
+                  <label htmlFor="company-website-url">Leave this field empty</label>
+                  <input
+                    id="company-website-url"
+                    name="company_website_url"
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={trap}
+                    onChange={(e) => setTrap(e.target.value)}
+                  />
+                </div>
                 {mode === "signup" && (
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold text-slate-400">Full name</span>
@@ -333,8 +382,12 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
                 <button type="submit" disabled={busy} className="btn-primary w-full justify-center disabled:opacity-60">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {copy.cta}
+                  {checking || copy.cta}
                 </button>
+                <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+                  <ShieldCheck className="h-3 w-3 shrink-0" />
+                  Protected by an automated-signup check. No puzzles, no images — your browser does the work.
+                </p>
               </form>
 
               <div className="my-5 flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">

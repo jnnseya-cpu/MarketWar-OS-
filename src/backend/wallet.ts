@@ -115,6 +115,15 @@ export type WalletState = {
   lifetimeCreditedAcu: number;
   lifetimeDebitedAcu: number;
   updatedAt: string;
+  /**
+   * Has the one-off free signup allowance been handed over?
+   *
+   * Optional because wallets created before the human check existed do not
+   * carry it. Those wallets were already credited, so absent is read as
+   * "claimed" — an existing customer must never be asked to prove themselves
+   * to keep ACUs they already have.
+   */
+  signupGrantClaimed?: boolean;
 };
 
 const COLLECTION = "org_wallets";
@@ -127,10 +136,26 @@ const memEvents = new Set<string>();
 
 function nowIso() { return new Date().toISOString(); }
 
+/**
+ * A brand-new wallet.
+ *
+ * In production the free allowance is NOT handed out here. Creating a wallet
+ * takes one unauthenticated-looking HTTP request from a script, and granting
+ * 100 ACUs on that request means a bot farm converts signups directly into the
+ * owner's provider spend. The allowance is claimed instead — once, by an
+ * account that has passed the human check and verified its email — through
+ * claimSignupGrant below.
+ *
+ * With Firebase Admin absent (zero-config demo and CI) there is no account
+ * system to farm and nothing real to spend, so the allowance is granted
+ * immediately and the demo stays usable with no keys.
+ */
 function freshWallet(orgId: string): WalletState {
+  const opening = adminConfigured ? 0 : FREE_SIGNUP_ACUS;
   return {
-    orgId, balanceAcu: FREE_SIGNUP_ACUS, planId: "free", cycle: null,
-    lifetimeCreditedAcu: FREE_SIGNUP_ACUS, lifetimeDebitedAcu: 0, updatedAt: nowIso(),
+    orgId, balanceAcu: opening, planId: "free", cycle: null,
+    lifetimeCreditedAcu: opening, lifetimeDebitedAcu: 0, updatedAt: nowIso(),
+    signupGrantClaimed: !adminConfigured,
   };
 }
 
@@ -153,6 +178,66 @@ export async function getWallet(orgId: string): Promise<WalletState> {
   let w = mem.get(id);
   if (!w) { w = freshWallet(id); mem.set(id, w); }
   return w;
+}
+
+/**
+ * Has this wallet already had its free allowance?
+ *
+ * Wallets created before the human check existed carry no flag at all. They
+ * were credited when they were made, so an unflagged wallet that has ever been
+ * credited counts as claimed — otherwise every existing customer would be
+ * handed a second 100 ACUs the first time they signed in after this shipped.
+ */
+export function signupGrantClaimed(w: WalletState): boolean {
+  if (typeof w.signupGrantClaimed === "boolean") return w.signupGrantClaimed;
+  return w.lifetimeCreditedAcu > 0;
+}
+
+export type GrantResult = { granted: number; already: boolean; balanceAcu: number };
+
+/**
+ * Hand over the free signup allowance — exactly once per account.
+ *
+ * The caller is responsible for having established that a human is behind the
+ * account; this function is responsible for it happening only once. The flag is
+ * written in the SAME transaction as the credit, so two requests racing each
+ * other cannot both see "unclaimed" and both pay out.
+ */
+export async function claimSignupGrant(orgId: string): Promise<GrantResult> {
+  const id = (orgId || "").trim();
+  if (!id) return { granted: 0, already: true, balanceAcu: 0 };
+  const amount = FREE_SIGNUP_ACUS;
+
+  if (adminConfigured && adminDb) {
+    const ref = adminDb.collection(COLLECTION).doc(id);
+    return await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const cur = snap.exists ? (snap.data() as WalletState) : freshWallet(id);
+      if (signupGrantClaimed(cur)) {
+        if (!snap.exists) tx.set(ref, cur, { merge: false });
+        return { granted: 0, already: true, balanceAcu: cur.balanceAcu };
+      }
+      const next: WalletState = {
+        ...cur,
+        balanceAcu: cur.balanceAcu + amount,
+        lifetimeCreditedAcu: cur.lifetimeCreditedAcu + amount,
+        signupGrantClaimed: true,
+        updatedAt: nowIso(),
+      };
+      tx.set(ref, next, { merge: false });
+      return { granted: amount, already: false, balanceAcu: next.balanceAcu };
+    });
+  }
+
+  const cur = await getWallet(id);
+  if (signupGrantClaimed(cur)) return { granted: 0, already: true, balanceAcu: cur.balanceAcu };
+  const next: WalletState = {
+    ...cur, balanceAcu: cur.balanceAcu + amount,
+    lifetimeCreditedAcu: cur.lifetimeCreditedAcu + amount,
+    signupGrantClaimed: true, updatedAt: nowIso(),
+  };
+  mem.set(id, next);
+  return { granted: amount, already: false, balanceAcu: next.balanceAcu };
 }
 
 // ---------------------------------------------------------------------------
