@@ -63,10 +63,15 @@ export default function AiVisibilityPage() {
   async function check() {
     if (!activeBrand || busy) return;
     setBusy(true); setErr(null);
+    // The server keeps itself under its own ceiling, but a spinner that can never
+    // stop is the worst possible failure: it looks like work. Give up here too.
+    const ctl = new AbortController();
+    const giveUp = setTimeout(() => ctl.abort(), 75_000);
     try {
       const r = await authedFetch("/api/ai-visibility", {
         method: "POST",
         headers: { "content-type": "application/json", "x-now": new Date().toISOString() },
+        signal: ctl.signal,
         body: JSON.stringify({
           brandId: activeBrand.id, business: activeBrand.name,
           domain: activeBrand.website, questions,
@@ -74,11 +79,21 @@ export default function AiVisibilityPage() {
         }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(d.error || `Check failed (HTTP ${r.status})`); return; }
+      if (!r.ok) {
+        // 502/504 mean the function was killed before it could answer — nothing was
+        // recorded and nothing was charged for the calls it never made.
+        setErr(d.error || (r.status === 504 || r.status === 502
+          ? `The check took too long and the server cut it off (HTTP ${r.status}). Nothing was recorded. Try again with fewer questions — each one is asked of every assistant, so removing two questions removes ${assistants.length * 2} calls.`
+          : `Check failed (HTTP ${r.status})`));
+        return;
+      }
       setRun(d.run); setTrend(d.trend); setRuns(d.runs || []); setNote(d.note || "");
     } catch (e) {
-      setErr(`Couldn't run the check: ${(e as Error).message || "network error"}.`);
-    } finally { setBusy(false); }
+      const aborted = (e as Error).name === "AbortError";
+      setErr(aborted
+        ? "Gave up waiting after 75 seconds. Nothing was recorded. Run it again with fewer questions."
+        : `Couldn't run the check: ${(e as Error).message || "network error"}.`);
+    } finally { clearTimeout(giveUp); setBusy(false); }
   }
 
   const TrendIcon = trend?.direction === "up" ? TrendingUp : trend?.direction === "down" ? TrendingDown : Minus;

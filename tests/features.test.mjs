@@ -3898,3 +3898,92 @@ test("ai visibility: the monitor is a LIVE data source now, and metered per call
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/ai_visibility_runs\/\{doc\} \{ allow read, write: if false; \}/);
 });
+
+// --- The HTTP 504 -----------------------------------------------------------
+//
+// Live on marketwaros.com the button sat on "Asking…" and then returned
+// "Check failed (HTTP 504)". 6 questions × 3 assistants asked question-by-
+// question, each round waiting for its slowest assistant at up to 25s, is 150s
+// against a 60s ceiling. The function is killed, the browser holds a request
+// that never answers, and NOTHING is reported — while the ACUs are already spent.
+// Exactly the defect that capped the email send, in a second place.
+
+test("ai visibility: the run stops at its deadline instead of being killed by the platform", async () => {
+  vis.__resetVisibilityRuns();
+  // Every call is slow — the shape that produced the 504.
+  let calls = 0;
+  const ask = async (id, _req, opts) => {
+    calls++;
+    const wait = Math.min(opts?.timeoutMs ?? 25_000, 25_000);
+    await new Promise((r) => setTimeout(r, Math.min(wait, 40)));
+    return { ok: true, provider: id, model: "m", latencyMs: wait, text: "1. **BuildCo** — big" };
+  };
+  const questions = Array.from({ length: 6 }, (_, i) => ({ id: `q${i}`, text: `best ${i}?`, intent: "buying" }));
+  const started = Date.now();
+  const run = await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions, assistants: ["openai", "anthropic", "gemini"] },
+    "2026-01-01T00:00:00.000Z", { ask },
+    // Already past its budget: not one call may be started.
+    { deadline: Date.now() - 1 },
+  );
+  assert.equal(calls, 0, "a call that cannot finish before the ceiling must not be started");
+  assert.ok(Date.now() - started < 5_000, "and the run must return immediately rather than hang");
+
+  // Every pair still has a verdict, so the report is complete...
+  const all = run.results.flatMap((r) => r.verdicts);
+  assert.equal(all.length, 18);
+  // ...and not one of them is a "no".
+  assert.ok(all.every((v) => v.asked === false), "unasked is not answered");
+  assert.equal(run.askedCount, 0);
+  assert.match(run.note, /Nothing was measured/i);
+  assert.ok(all.every((v) => /ran out of time/i.test(v.error)),
+    "and the reason must say the clock ran out, not that a key is missing");
+});
+
+test("ai visibility: what WAS collected before the deadline is still reported", async () => {
+  vis.__resetVisibilityRuns();
+  const ask = async (id) => ({ ok: true, provider: id, model: "m", latencyMs: 1, text: "I would suggest AxionOS." });
+  const questions = Array.from({ length: 4 }, (_, i) => ({ id: `q${i}`, text: `best ${i}?`, intent: "buying" }));
+  const run = await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions, assistants: ["openai"] },
+    "2026-01-01T00:00:00.000Z", { ask },
+    { deadline: Date.now() + 60_000 },
+  );
+  assert.equal(run.askedCount, 4, "a healthy run is unaffected by the deadline machinery");
+  assert.equal(run.visibilityRate, 100);
+});
+
+test("ai visibility: the questions run concurrently, not one round at a time", async () => {
+  vis.__resetVisibilityRuns();
+  let inFlight = 0, peak = 0;
+  const ask = async (id) => {
+    inFlight++; peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 25));
+    inFlight--;
+    return { ok: true, provider: id, model: "m", latencyMs: 25, text: "no names here" };
+  };
+  const questions = Array.from({ length: 6 }, (_, i) => ({ id: `q${i}`, text: `best ${i}?`, intent: "buying" }));
+  await vis.runVisibilityCheck(
+    { brandId: "b1", brand: "AxionOS", questions, assistants: ["openai", "anthropic", "gemini"] },
+    "2026-01-01T00:00:00.000Z", { ask }, { deadline: Date.now() + 60_000 },
+  );
+  assert.ok(peak > 3,
+    `18 calls at 3-at-a-time is what blew the 60s ceiling; saw peak concurrency ${peak}`);
+});
+
+test("ai visibility: calls that were never made are refunded", () => {
+  // Charged up front at questions × assistants, because that is what a full run
+  // costs. When the clock or a missing key means fewer calls were made, the
+  // difference goes back — the customer pays for answers, not for intentions.
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/route.ts", import.meta.url), "utf8");
+  assert.match(route, /units - run\.askedCount/, "the refund is the gap between charged and asked");
+  assert.match(route, /creditAcus\(auth\.uid, refunded\)/);
+  assert.match(route, /deadline: startedAt \+ RUN_BUDGET_MS/,
+    "and the budget is measured from the top of the request, not from after auth and metering");
+});
+
+test("ai visibility: the browser gives up rather than spinning for ever", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/ai-visibility/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /AbortController/, "a spinner that can never stop looks like work");
+  assert.match(page, /504/, "and a gateway timeout must be explained, not shown as a bare code");
+});

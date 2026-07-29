@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
-import { meterAction } from "@/backend/wallet";
+import { meterAction, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { configuredProviders } from "@/backend/gateway";
 import {
-  runVisibilityCheck, suggestQuestions, saveRun, listRuns, trend,
+  runVisibilityCheck, suggestQuestions, saveRun, listRuns, trend, RUN_BUDGET_MS,
   type VisibilityQuestion,
 } from "@/backend/ai-visibility";
 
@@ -60,6 +60,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Anchored at the top of the request, not at the top of the run: auth, access
+  // and metering all take time, and a budget measured from after them can still
+  // push the function past maxDuration. Overrunning it returns HTTP 504 with no
+  // body — the button spins for ever and nothing is reported. Better to answer
+  // with what was collected and say what was not.
+  const startedAt = Date.now();
   const rl = rateLimit(clientKey(req, "ai-visibility"), 10, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
@@ -107,7 +113,19 @@ export async function POST(req: NextRequest) {
   const run = await runVisibilityCheck(
     { brandId, brand, domain: s(body.domain) || undefined, questions, assistants },
     nowISO(req),
+    {},
+    { deadline: startedAt + RUN_BUDGET_MS },
   );
+  // Refund every call that was never made. A run that ran out of time, or hit an
+  // assistant with no key, made fewer calls than it was charged for — and the
+  // customer pays for answers, not for the count we intended to ask.
+  const unasked = Math.max(0, units - run.askedCount);
+  let refunded = 0;
+  if (unasked > 0 && meter.metered && auth.uid) {
+    refunded = unasked * ACTION_COST_ACU.llm;
+    await creditAcus(auth.uid, refunded).catch(() => { refunded = 0; });
+  }
+
   const { persisted } = await saveRun(run);
   const runs = await listRuns(brandId);
 
@@ -116,10 +134,16 @@ export async function POST(req: NextRequest) {
     trend: trend(runs),
     runs: runs.slice(0, 12),
     persisted,
-    balanceAcu: meter.balanceAcu,
-    charged: units,
-    note: persisted
-      ? run.note
-      : `${run.note} Saved for this session only — durable storage is not configured, so this run will not be there to compare against next time.`,
+    balanceAcu: meter.balanceAcu === undefined ? undefined : meter.balanceAcu + refunded,
+    charged: units * ACTION_COST_ACU.llm,
+    refunded,
+    // What the UI needs to offer "run the rest" without recounting for itself.
+    asked: run.askedCount,
+    planned: units,
+    note: [
+      run.note,
+      refunded ? `${refunded} ACUs refunded for the ${unasked} call(s) that were never made.` : "",
+      persisted ? "" : "Saved for this session only — durable storage is not configured, so this run will not be there to compare against next time.",
+    ].filter(Boolean).join(" "),
   });
 }

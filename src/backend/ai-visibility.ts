@@ -201,6 +201,17 @@ const SYSTEM = [
   "Keep it under 250 words.",
 ].join("\n");
 
+// How many model calls are in flight at once. Small: these go to three separate
+// vendors, and a burst of parallel requests to one of them is how a rate limit
+// turns a measurement into a row of errors.
+const CONCURRENCY = Number(process.env.AI_VISIBILITY_CONCURRENCY || 6);
+// The least time worth starting a call with — below this it can only time out.
+const MIN_CALL_MS = 6_000;
+// Under the route's own ceiling, so the response is written by us rather than
+// the function being killed with the browser still waiting. The gap between this
+// and maxDuration=60 is the margin for scoring, saving and serialising the run.
+export const RUN_BUDGET_MS = Number(process.env.AI_VISIBILITY_BUDGET_MS || 45_000);
+
 export type RunInput = {
   brandId: string;
   brand: string;
@@ -213,41 +224,70 @@ export async function runVisibilityCheck(
   input: RunInput,
   nowISO: string,
   deps: { ask?: typeof askProvider } = {},
+  opts: { deadline?: number } = {},
 ): Promise<VisibilityRun> {
   const ask = deps.ask ?? askProvider;
   const assistants = input.assistants?.length ? input.assistants : configuredProviders();
   const aliases = brandAliases(input.brand, input.domain);
 
-  const results: QuestionResult[] = [];
-  for (const question of input.questions) {
-    // Every assistant gets the SAME question, asked in parallel — comparing
-    // answers to different questions would measure nothing.
-    const verdicts = await Promise.all(
-      assistants.map(async (assistant): Promise<AnswerVerdict> => {
-        const res = await ask(assistant, { system: SYSTEM, prompt: question.text, maxTokens: 700 });
-        if (!res.ok) {
-          return {
-            assistant, mentioned: false, rank: null, competitors: [], evidence: "", answer: "",
-            error: res.reason, asked: false,
-          };
-        }
-        const { mentioned, evidence } = findMention(res.text, aliases);
-        const { names } = extractNamedBusinesses(res.text);
-        return {
-          assistant,
-          model: res.model,
-          mentioned,
-          rank: rankOf(res.text, aliases),
-          // The brand is not its own competitor.
-          competitors: names.filter((n) => !aliases.some((a) => new RegExp(`(?<!\\w)${escapeRe(a)}(?!\\w)`, "i").test(n))).slice(0, 10),
-          evidence,
-          answer: res.text,
-          asked: true,
-        };
-      }),
-    );
-    results.push({ question, verdicts });
-  }
+  // Every question × assistant pair is one call. They run through a bounded
+  // pool against a DEADLINE.
+  //
+  // Asking question-by-question and waiting for the slowest assistant each time
+  // meant six rounds of up to twenty-five seconds — a hundred and fifty against
+  // a sixty-second ceiling. The function is killed part-way, the browser holds a
+  // request that never answers, and the button spins for ever. Same defect as
+  // the email send, and the same fix: bound the concurrency, watch the clock,
+  // and report what was actually collected.
+  const deadline = opts.deadline ?? Date.now() + RUN_BUDGET_MS;
+  const jobs: { qi: number; assistant: AiAssistant }[] = [];
+  input.questions.forEach((_, qi) => { for (const a of assistants) jobs.push({ qi, assistant: a }); });
+
+  const verdictFor = new Map<string, AnswerVerdict>();
+  const notReached = (assistant: AiAssistant): AnswerVerdict => ({
+    assistant, mentioned: false, rank: null, competitors: [], evidence: "", answer: "",
+    error: "Not asked — the run ran out of time before reaching this one. Ask fewer questions, or run again.",
+    asked: false,
+  });
+
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) {
+      const job = jobs[next++];
+      const key = `${job.qi}:${job.assistant}`;
+      // Out of budget: leave it unasked rather than starting a call that cannot
+      // finish. An unasked question is not a "no".
+      if (Date.now() >= deadline - MIN_CALL_MS) { verdictFor.set(key, notReached(job.assistant)); continue; }
+      const question = input.questions[job.qi];
+      const res = await ask(job.assistant, { system: SYSTEM, prompt: question.text, maxTokens: 700 }, { timeoutMs: Math.max(MIN_CALL_MS, deadline - Date.now()) });
+      if (!res.ok) {
+        verdictFor.set(key, {
+          assistant: job.assistant, mentioned: false, rank: null, competitors: [], evidence: "", answer: "",
+          error: res.reason, asked: false,
+        });
+        continue;
+      }
+      const { mentioned, evidence } = findMention(res.text, aliases);
+      const { names } = extractNamedBusinesses(res.text);
+      verdictFor.set(key, {
+        assistant: job.assistant,
+        model: res.model,
+        mentioned,
+        rank: rankOf(res.text, aliases),
+        // The brand is not its own competitor.
+        competitors: names.filter((n) => !aliases.some((a) => new RegExp(`(?<!\\w)${escapeRe(a)}(?!\\w)`, "i").test(n))).slice(0, 10),
+        evidence,
+        answer: res.text,
+        asked: true,
+      });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+
+  const results: QuestionResult[] = input.questions.map((question, qi) => ({
+    question,
+    verdicts: assistants.map((a) => verdictFor.get(`${qi}:${a}`) ?? notReached(a)),
+  }));
 
   // Rates are computed over what was ACTUALLY asked. Counting an assistant that
   // could not be reached as "did not mention you" would report a configuration
@@ -275,6 +315,9 @@ export async function runVisibilityCheck(
         // The single most important caveat on this whole surface.
         "Assistants are not deterministic — the same question can return different companies an hour later. Treat one run as a sample, and watch the trend across runs rather than reading anything into a single answer.",
         notAsked.length ? `${notAsked.length} answer(s) could not be collected: ${[...new Set(notAsked.map((v) => v.error))].join("; ")}` : "",
+        notAsked.some((v) => /ran out of time/i.test(v.error || ""))
+          ? "The ones that ran out of time were never asked, so they are not counted against you — run again, or ask fewer questions at once."
+          : "",
       ].filter(Boolean).join(" ");
 
   return {
