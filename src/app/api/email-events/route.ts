@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { eventStats, suppressedEmails } from "@/backend/email-events";
+import { engagementSanity } from "@/backend/email-bot-filter";
 import { getWarmup } from "@/backend/email-warmup";
 
 // Engagement stats for a brand's Email Center — opens/clicks/bounces/complaints
@@ -16,5 +17,24 @@ export async function GET(req: NextRequest) {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const today = new Date().toISOString().slice(0, 10);
   const [stats, suppressed, warmup] = await Promise.all([eventStats(brandId), suppressedEmails(brandId), getWarmup(brandId, today)]);
-  return NextResponse.json({ ...stats, suppressed: suppressed.size, warmup });
+  // Click-to-open is the tell. A live account showed 79 clicks from 98 openers —
+  // 81%, where real people run 10–15% — because every corporate mail scanner
+  // fetches every link on delivery and nothing was distinguishing them.
+  const sanity = engagementSanity({
+    sent: stats.sent, opens: stats.open, clicks: stats.click,
+    machineOpens: stats.machineOpen, machineClicks: stats.machineClick,
+  });
+  return NextResponse.json({
+    ...stats,
+    suppressed: suppressed.size,
+    warmup,
+    engagement: sanity,
+    note: [
+      sanity.note,
+      stats.machineOpen || stats.machineClick
+        ? `${stats.machineOpen} open(s) and ${stats.machineClick} click(s) were identified as machines and are excluded from the rates above. They are kept in the ledger as evidence of delivery.`
+        : "",
+      "Events recorded before machine detection existed carry no verdict and are counted as human — they cannot be reclassified after the fact, so early figures read higher than later ones.",
+    ].filter(Boolean).join(" "),
+  });
 }

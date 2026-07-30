@@ -108,7 +108,7 @@ export async function suppressedEmails(brandId: string, limit = 5000): Promise<S
 }
 
 // Aggregated engagement stats for a brand (for the Email Center dashboard).
-export async function eventStats(brandId: string): Promise<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number }> {
+export async function eventStats(brandId: string): Promise<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; machineOpen: number; machineClick: number; openRate: number; clickRate: number }> {
   let events: EmailEvent[];
   if (adminConfigured && adminDb) {
     const snap = await adminDb.collection("email_events").where("brandId", "==", brandId).limit(10000).get();
@@ -117,6 +117,7 @@ export async function eventStats(brandId: string): Promise<{ sent: number; open:
     events = mem.filter((e) => e.brandId === brandId);
   }
   const c = { sent: 0, open: 0, click: 0, bounce: 0, complaint: 0, unsubscribe: 0 };
+  const machine = { open: 0, click: 0 };
   // Unique-per-address for opens/clicks (a contact opening twice is one opener).
   const seen = new Set<string>();
   for (const e of events) {
@@ -124,12 +125,15 @@ export async function eventStats(brandId: string): Promise<{ sent: number; open:
       const k = `${e.type}:${e.email}`;
       if (seen.has(k)) continue;
       seen.add(k);
+      // A security scanner fetching every link in the message is not a reader.
+      // Counted separately rather than discarded: it is evidence of delivery.
+      if (e.meta?.machine === "true") { machine[e.type]++; continue; }
     }
     if (e.type in c) c[e.type as keyof typeof c]++;
   }
   const openRate = c.sent ? Math.round((c.open / c.sent) * 1000) / 10 : 0;
   const clickRate = c.sent ? Math.round((c.click / c.sent) * 1000) / 10 : 0;
-  return { ...c, openRate, clickRate };
+  return { ...c, machineOpen: machine.open, machineClick: machine.click, openRate, clickRate };
 }
 
 function nowISO(): string {

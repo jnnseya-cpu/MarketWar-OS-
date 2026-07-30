@@ -5573,3 +5573,89 @@ test("landing pages: the beacon survives the navigation it triggers", () => {
     "a plain fetch is cancelled by the navigation that follows the click it is reporting");
   assert.match(tracker, /keepalive: true/, "and the fallback needs the same guarantee");
 });
+
+// ---------------------------------------------------------------------------
+// "Very poor rate": 1,129 sent, 98 opens, 79 clicks.
+//
+// 79 clicks from 98 openers is 81% click-to-open. A strong human campaign runs
+// 10–15%. That is not a marketing result — it is corporate mail security
+// (Proofpoint, Mimecast, Barracuda, Microsoft Safe Links) fetching every link
+// the moment the message lands, with nothing telling them apart from people.
+// ---------------------------------------------------------------------------
+const botf = await import("../src/backend/email-bot-filter.ts");
+
+test("email: security scanners and automation are identified as machines", () => {
+  for (const ua of [
+    "Mimecast-Link-Protection/1.0", "ProofPoint URL Defense", "BarracudaCentral scanner",
+    "Mozilla/5.0 (compatible; Symantec Link Scanner)", "curl/8.4.0", "python-requests/2.31",
+    "Go-http-client/2.0", "HeadlessChrome/120",
+  ]) {
+    assert.equal(botf.classifyAgent(ua).machine, true, `${ua} should be a machine`);
+  }
+  // A link unfurl is not a reader either.
+  assert.equal(botf.classifyAgent("Slackbot-LinkExpanding 1.0").machine, true);
+});
+
+test("email: a real person behind a privacy relay is NOT a bot", () => {
+  // Gmail proxies every image; Apple relays them. Classifying these as machines
+  // would delete most of the list's genuine opens — the opposite error, and a
+  // worse one, because it under-reports real customers.
+  assert.equal(botf.classifyAgent("Mozilla/5.0 (Windows NT 10.0) GoogleImageProxy").machine, false);
+  assert.equal(botf.classifyAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X) Apple Mail/16.0").machine, false);
+  assert.equal(botf.classifyAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15 Mobile/15E148").machine, false,
+    "an ordinary phone is an ordinary reader");
+});
+
+test("email: prefetch, HEAD and a missing agent are machines", () => {
+  assert.equal(botf.classifyAgent("Mozilla/5.0", null, { method: "HEAD" }).machine, true,
+    "a browser does not HEAD an image it is about to display");
+  const headers = { get: (n) => (n.toLowerCase() === "purpose" ? "prefetch" : null) };
+  assert.equal(botf.classifyAgent("Mozilla/5.0", headers).machine, true);
+  assert.equal(botf.classifyAgent("").machine, true, "every real mail client sends a user agent");
+});
+
+test("email: a human proxy is checked BEFORE the scanner lists", () => {
+  // Ordering is the guarantee. If a token like "scan" were ever added to a list
+  // and a relay's agent happened to contain it, real readers would vanish from
+  // the numbers silently.
+  const src = readFileSync(new URL("../src/backend/email-bot-filter.ts", import.meta.url), "utf8");
+  const humanAt = src.indexOf("const human = has(ua, HUMAN_PROXIES);");
+  const scannerAt = src.indexOf("const scanner = has(ua, SCANNERS);");
+  assert.ok(humanAt > 0 && scannerAt > humanAt,
+    "a real reader must be recognised before any machine list is consulted");
+});
+
+test("email: an impossible click-to-open is called out, not presented as a result", () => {
+  const bad = botf.engagementSanity({ sent: 1129, opens: 98, clicks: 79 });
+  assert.equal(bad.clickToOpenPct, 80.6);
+  assert.equal(bad.plausible, false);
+  assert.match(bad.note, /10–15%/, "the customer needs the benchmark to judge it themselves");
+  assert.match(bad.note, /security scanning|Safe Links|Proofpoint/i);
+  assert.match(bad.note, /upper bound, not a result/i,
+    "unfiltered clicks must be presented as a ceiling, not an achievement");
+
+  const ok = botf.engagementSanity({ sent: 1000, opens: 300, clicks: 40 });
+  assert.equal(ok.plausible, true);
+  assert.match(ok.note, /within the range real people produce/i);
+});
+
+test("email: machine hits are excluded from the rates but kept in the ledger", () => {
+  const events = readFileSync(new URL("../src/backend/email-events.ts", import.meta.url), "utf8");
+  assert.match(events, /if \(e\.meta\?\.machine === "true"\) \{ machine\[e\.type\]\+\+; continue; \}/,
+    "a scanner fetch must not count toward the open or click rate");
+  assert.match(events, /machineOpen: machine\.open, machineClick: machine\.click/,
+    "and must still be reported, because it is evidence the message was delivered");
+
+  for (const route of ["open", "click"]) {
+    const src = readFileSync(new URL(`../src/app/api/track/${route}/route.ts`, import.meta.url), "utf8");
+    assert.match(src, /classifyAgent\(req\.headers\.get\("user-agent"\), req\.headers, \{ method: req\.method \}\)/, route);
+    assert.match(src, /machine: String\(verdict\.machine\)/, `${route} must record the verdict`);
+    assert.match(src, /recordEvent\(/, `${route} must still record the event — flagged, not dropped`);
+  }
+});
+
+test("email: the stats route admits older events cannot be reclassified", () => {
+  const route = readFileSync(new URL("../src/app/api/email-events/route.ts", import.meta.url), "utf8");
+  assert.match(route, /cannot be reclassified after the fact/i,
+    "pretending the historical numbers were always filtered would be a quiet rewrite of the past");
+});

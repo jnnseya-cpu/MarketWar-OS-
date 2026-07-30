@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, recordEvent } from "@/backend/email-events";
+import { classifyAgent } from "@/backend/email-bot-filter";
 
 // Click tracking — records a CLICK for the signed recipient, then 302-redirects
 // to the original URL. Only http(s) targets are honoured (no open-redirect to
@@ -22,7 +23,11 @@ export async function GET(req: NextRequest) {
   const claim = verifyToken(t);
   if (claim) {
     try {
-      await recordEvent({ brandId: claim.brandId, email: claim.email, type: "click", at: new Date().toISOString(), campaign: claim.campaign || undefined, url: target });
+      // Flagged, not dropped. A scanner fetch is real evidence the message was
+      // delivered and inspected; it is simply not a person, so it must not be
+      // counted as one. Keeping the row means the decision stays reviewable.
+      const verdict = classifyAgent(req.headers.get("user-agent"), req.headers, { method: req.method });
+      await recordEvent({ brandId: claim.brandId, email: claim.email, type: "click", at: new Date().toISOString(), campaign: claim.campaign || undefined, url: target, meta: { machine: String(verdict.machine), agentReason: verdict.reason } });
     } catch { /* never block the redirect */ }
   }
   return NextResponse.redirect(target, 302);
