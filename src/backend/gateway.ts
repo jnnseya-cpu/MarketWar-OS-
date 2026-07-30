@@ -41,6 +41,12 @@ export function gatewayLangFrom(req: { headers: { get(name: string): string | nu
 
 export interface GatewayResponse {
   text: string;
+  /**
+   * The provider stopped because it ran out of output budget, so this text is
+   * CUT OFF mid-thought. A caller that ignores this hands a customer half a
+   * document as if it were the whole one.
+   */
+  truncated?: boolean;
   provider: ProviderId;
   model: string;
   latencyMs: number;
@@ -120,8 +126,20 @@ interface Adapter {
   configured: () => boolean;
   // `deadline` is an absolute epoch-ms budget for the whole gateway call, so a
   // slow provider cannot spend the time its fallback needs.
-  complete: (req: GatewayRequest, deadline?: number) => Promise<string>;
+  /**
+   * Returns the text AND whether the provider stopped because it ran out of
+   * output budget. Truncation used to be invisible: a seven-day calendar came
+   * back with one row, a moodboard brief stopped mid-heading, and both were
+   * handed to the customer as finished documents.
+   */
+  complete: (req: GatewayRequest, deadline?: number) => Promise<{ text: string; truncated?: boolean }>;
 }
+
+// Hidden reasoning/thinking tokens are billed and counted against the output
+// budget but never returned. This is the room the answer itself needs on top,
+// and it applies to every provider that thinks before it writes — not just the
+// one where the symptom was first noticed.
+const REASONING_HEADROOM = 1_500;
 
 // ---------------------------------------------------------------- Anthropic
 // Claude Messages API. Adaptive thinking is set explicitly (on Opus-tier
@@ -140,7 +158,10 @@ const anthropic: Adapter = {
       },
       body: JSON.stringify({
         model: anthropic.model(),
-        max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
+        // Adaptive thinking is billed out of max_tokens and produces no visible
+        // text, so asking for 900 and expecting a 900-token document is asking
+        // for a truncated one. Same defect as the OpenAI reasoning budget.
+        max_tokens: Math.max(2_000, (req.maxTokens ?? DEFAULT_MAX_TOKENS) + REASONING_HEADROOM),
         thinking: { type: "adaptive" },
         system: req.system,
         messages: [{ role: "user", content: req.prompt }],
@@ -159,16 +180,12 @@ const anthropic: Adapter = {
       .join("\n")
       .trim();
     if (!text) throw new Error("anthropic: empty completion");
-    return text;
+    return { text, truncated: data.stop_reason === "max_tokens" };
   },
 };
 
 // ------------------------------------------------------------------ OpenAI
 // Responses API (POST /v1/responses).
-// Hidden reasoning tokens are billed and counted against max_output_tokens but
-// never returned. This is the room the answer itself needs on top.
-const REASONING_HEADROOM = 1_500;
-
 /** The OpenAI families that reason before answering, and reject unknown params if you guess wrong. */
 function reasoningModel(model: string): boolean {
   return /^(?:gpt-5|o[1345](?:-|$))/i.test(model.trim());
@@ -226,7 +243,7 @@ const openai: Adapter = {
       if (data.status === "incomplete") throw new Error(`openai: incomplete response (${why || "no reason given"})`);
       throw new Error("openai: empty completion");
     }
-    return text;
+    return { text, truncated: data.incomplete_details?.reason === "max_output_tokens" };
   },
 };
 
@@ -269,14 +286,14 @@ const gemini: Adapter = {
       }),
     }, deadline);
     const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
+      candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];
     };
     const text = (data.candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? "")
       .join("")
       .trim();
     if (!text) throw new Error("gemini: empty completion");
-    return text;
+    return { text, truncated: data.candidates?.[0]?.finishReason === "MAX_TOKENS" };
   },
 };
 
@@ -301,7 +318,7 @@ export async function askProvider(
   id: ProviderId,
   req: GatewayRequest,
   opts: { timeoutMs?: number } = {},
-): Promise<{ ok: true; text: string; provider: ProviderId; model: string; latencyMs: number } | { ok: false; provider: ProviderId; reason: string; configured: boolean }> {
+): Promise<{ ok: true; text: string; truncated?: boolean; provider: ProviderId; model: string; latencyMs: number } | { ok: false; provider: ProviderId; reason: string; configured: boolean }> {
   const adapter = ADAPTERS[id];
   if (!adapter) return { ok: false, provider: id, reason: `Unknown provider "${id}".`, configured: false };
   if (!adapter.configured()) {
@@ -310,8 +327,8 @@ export async function askProvider(
   const started = Date.now();
   const deadline = Date.now() + (opts.timeoutMs ?? PER_REQUEST_TIMEOUT_MS);
   try {
-    const text = await adapter.complete(req, deadline);
-    return { ok: true, text, provider: id, model: adapter.model(), latencyMs: Date.now() - started };
+    const out = await adapter.complete(req, deadline);
+    return { ok: true, text: out.text, truncated: out.truncated, provider: id, model: adapter.model(), latencyMs: Date.now() - started };
   } catch (e) {
     return { ok: false, provider: id, reason: e instanceof Error ? e.message : String(e), configured: true };
   }
@@ -445,10 +462,11 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
 
     const started = Date.now();
     try {
-      const text = await adapter.complete(req, providerDeadline);
+      const out = await adapter.complete(req, providerDeadline);
       coolingUntil.delete(adapter.id);   // it works again — restore it at once
       return {
-        text,
+        text: out.text,
+        truncated: out.truncated,
         provider: adapter.id,
         model: adapter.model(),
         latencyMs: Date.now() - started,

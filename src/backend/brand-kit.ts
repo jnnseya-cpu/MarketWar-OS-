@@ -64,6 +64,8 @@ export type BrandKitAsset = {
   warnings: ClaimFinding[];
   /** Length checks that were actually measured, not requested. */
   limits: { label: string; used: number; max: number; ok: boolean }[];
+  /** The provider ran out of output budget, so this document stops mid-thought. */
+  truncated: boolean;
   note: string;
 };
 
@@ -89,7 +91,7 @@ type Spec = { title: string; system: string; maxTokens: number };
 const SPECS: Record<BrandKitAssetId, Spec> = {
   guidelines: {
     title: "Brand guidelines — one page",
-    maxTokens: 1400,
+    maxTokens: 1800,
     system: [
       "You are a brand identity specialist. Produce a ONE-PAGE brand guidelines sheet a founder can hand straight to a freelance designer.",
       "Include, as headed sections: colour palette (each colour with its hex code and where to use it), typography (heading and body faces, with weights), logo rules (minimum size in px and mm, clear space expressed in multiples of a logo element), and exactly 3 DOs and 3 DON'Ts.",
@@ -99,7 +101,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   signature: {
     title: "Email signature + business card",
-    maxTokens: 1200,
+    maxTokens: 1600,
     system: [
       "You are a brand collateral designer. Produce two things.",
       "1) An email signature: the exact text, line by line, with the font size in px and the line spacing for each line, and which line carries the accent colour.",
@@ -111,7 +113,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   "social-profiles": {
     title: "Social profile kit",
-    maxTokens: 1200,
+    maxTokens: 1400,
     system: [
       "You are a social brand designer. Produce a complete profile kit.",
       "Write one bio for each of: Instagram, Threads, LinkedIn, X. Put each bio on its own line under a heading naming the platform, and NOTHING else on that line, so the length can be measured.",
@@ -122,7 +124,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   pitch: {
     title: "Spoken pitch — 30s and 10s",
-    maxTokens: 800,
+    maxTokens: 1200,
     system: [
       "You are a brand communication coach. Write a 30-second spoken pitch for a networking event or sales call, and a 10-second version for quick introductions.",
       "Both must sound like a person TALKING. Contractions, short sentences, one idea per breath. If it reads like a website headline it is wrong.",
@@ -132,7 +134,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   "website-copy": {
     title: "Website copy — 4 pages",
-    maxTokens: 2400,
+    maxTokens: 3200,
     system: [
       "You are a web copywriter. Write a complete first draft for four pages: Home, About, Services/Offer, Contact.",
       "Each page: a working headline, a subheadline, the body sections with their own subheadings, and one clear call to action.",
@@ -142,7 +144,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   moodboard: {
     title: "Visual moodboard brief",
-    maxTokens: 900,
+    maxTokens: 1400,
     system: [
       "You are an art director. Write a moodboard brief describing this brand's visual world.",
       "Include: 5 descriptive keywords, the reference imagery style (minimal, bold, organic, editorial…), the lighting and photographic tone, and one sentence describing what a visitor should FEEL in the first three seconds on the site.",
@@ -152,7 +154,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   "content-calendar": {
     title: "Launch week — 7-day content calendar",
-    maxTokens: 1000,
+    maxTokens: 1600,
     system: [
       "You are a content strategist. Build a 7-day calendar to launch this brand's new identity on social media.",
       "Mix announcement posts, behind-the-scenes, and value posts. One line per day: Day N — topic — format (text, carousel, or single image).",
@@ -162,7 +164,7 @@ const SPECS: Record<BrandKitAssetId, Spec> = {
   },
   "launch-post": {
     title: "Launch announcement post",
-    maxTokens: 900,
+    maxTokens: 1400,
     system: [
       "You are a launch copywriter. Write a brand launch announcement post for LinkedIn or Threads.",
       "Structure: an opening line that stops the scroll, a short honest story about why this brand was built, and one clear next step for the reader.",
@@ -243,6 +245,11 @@ export async function buildAsset(
   });
 
   const content = (res.text || "").trim();
+  // Truncation is reported, never hidden. A live run handed a customer a
+  // seven-day calendar containing one row and a moodboard brief that stopped at
+  // a heading, both presented as finished documents. Half a deliverable passed
+  // off as a whole one is the same class of dishonesty as an invented statistic.
+  const truncated = Boolean(res.truncated);
   const report = claimReport(content, supplied);
   // Same escalation as the citation page: these are documents that get printed,
   // published, or built to by a third party. An unbacked figure is not a note
@@ -256,8 +263,11 @@ export async function buildAsset(
   const over = limits.filter((l) => !l.ok);
 
   return {
-    id, title: spec.title, content, needs, blockers, warnings, limits,
+    id, title: spec.title, content, needs, blockers, warnings, limits, truncated,
     note: [
+      truncated
+        ? "THIS DOCUMENT IS INCOMPLETE — the model ran out of output budget and stopped mid-thought. Build this one on its own to give it the whole budget."
+        : "",
       blockers.length
         ? `${blockers.length} claim(s) here are not backed by anything you supplied. Cut them or provide the evidence — this is a document you hand to someone else.`
         : "No unsupported claims found.",

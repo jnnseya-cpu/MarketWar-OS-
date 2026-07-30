@@ -5445,3 +5445,86 @@ test("identity: the email writer actually reads the record", () => {
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/brand_identities\/\{doc\} \{ allow read, write: if false; \}/);
 });
+
+// ---------------------------------------------------------------------------
+// Truncation.
+//
+// A live kit handed a customer a "7-day calendar" containing one row, a
+// moodboard brief that stopped at a heading, a launch post cut off mid-sentence
+// and a signature that ended at "[TO SUPPLY: Title". All four were presented as
+// finished documents with "No unsupported claims found" underneath.
+//
+// Two causes, one class: every provider that THINKS before it writes spends the
+// output budget on thinking first — Anthropic's adaptive thinking as much as
+// OpenAI's reasoning — and none of the three adapters read the field that says
+// "I stopped because I ran out".
+// ---------------------------------------------------------------------------
+
+test("gateway: every thinking provider gets budget on top of the answer size", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  // Anthropic sets thinking:{type:"adaptive"} and bills it out of max_tokens.
+  assert.match(gw, /max_tokens: Math\.max\(2_000, \(req\.maxTokens \?\? DEFAULT_MAX_TOKENS\) \+ REASONING_HEADROOM\)/,
+    "asking Claude for 900 tokens with adaptive thinking on is asking for a truncated document");
+  assert.match(gw, /max_output_tokens: reasoningModel/, "and the same for OpenAI");
+});
+
+test("gateway: all three adapters report truncation instead of hiding it", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /truncated: data\.stop_reason === "max_tokens"/, "anthropic");
+  assert.match(gw, /truncated: data\.incomplete_details\?\.reason === "max_output_tokens"/, "openai");
+  assert.match(gw, /truncated: data\.candidates\?\.\[0\]\?\.finishReason === "MAX_TOKENS"/, "gemini");
+});
+
+test("gateway: truncation survives the trip back to the caller", async () => {
+  const gateway = await import("../src/backend/gateway.ts");
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-real";
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    stop_reason: "max_tokens",
+    content: [{ type: "text", text: "| Day | Topic |\n| Day 1 | Announcing the" }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const res = await gateway.askProvider("anthropic", { system: "s", prompt: "p", maxTokens: 900 });
+    assert.equal(res.ok, true);
+    assert.equal(res.truncated, true,
+      "a one-row calendar reaching the customer as a seven-day one is the failure this flag exists to stop");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = realKey;
+  }
+});
+
+test("brand kit: a cut-off document is flagged, not passed off as finished", async () => {
+  const asset = await kit.buildAsset(
+    "content-calendar",
+    { name: "AxionOS" },
+    { complete: async () => ({ text: "| Day | Topic |\n| Day 1 | Announcing", truncated: true, provider: "anthropic", model: "m", latencyMs: 1, attempts: [] }) },
+  );
+  assert.equal(asset.truncated, true);
+  assert.match(asset.note, /INCOMPLETE/);
+  assert.match(asset.note, /ran out of output budget/i);
+
+  const whole = await kit.buildAsset(
+    "content-calendar", { name: "AxionOS" },
+    { complete: async () => ({ text: "| Day | Topic |\n| Day 1 | Launch |", provider: "anthropic", model: "m", latencyMs: 1, attempts: [] }) },
+  );
+  assert.equal(whole.truncated, false);
+  assert.doesNotMatch(whole.note, /INCOMPLETE/);
+});
+
+test("brand kit: the documents get budgets that fit them", () => {
+  // The moodboard brief and the 7-day calendar both stopped mid-document at the
+  // original figures. A budget too small for the deliverable is a bug, not a
+  // saving — the customer pays for a document either way.
+  const src = readFileSync(new URL("../src/backend/brand-kit.ts", import.meta.url), "utf8");
+  const budgets = [...src.matchAll(/maxTokens: (\d+)/g)].map((m) => Number(m[1]));
+  assert.equal(budgets.length, 8);
+  assert.ok(Math.min(...budgets) >= 1200, `smallest budget is ${Math.min(...budgets)} — a full document does not fit`);
+});
+
+test("brand kit: an incomplete document is refunded", () => {
+  const route = readFileSync(new URL("../src/app/api/brand-kit/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const cut = built\.filter\(\(a\) => a\.truncated\)/);
+  assert.match(route, /refunded \+= back/, "charging for half a calendar is charging for something that was not produced");
+});

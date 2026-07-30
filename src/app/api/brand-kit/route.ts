@@ -133,6 +133,15 @@ export async function POST(req: NextRequest) {
     })).catch(() => null);
   }
 
+  // A cut-off document is not a document. Refund it and say so rather than
+  // charging for half a calendar.
+  const cut = built.filter((a) => a.truncated);
+  if (cut.length && meter.metered && auth.uid) {
+    const back = cut.length * ACTION_COST_ACU.llm;
+    await creditAcus(auth.uid, back).catch(() => null);
+    refunded += back;
+  }
+
   const needsTotal = built.reduce((n, a) => n + a.needs.length, 0);
   const blocked = built.filter((a) => a.blockers.length).length;
 
@@ -149,6 +158,7 @@ export async function POST(req: NextRequest) {
       needsTotal ? `${needsTotal} detail(s) across the kit are marked for you to supply — fill them in and rebuild rather than deleting the markers.` : "",
       blocked ? `${blocked} document(s) contain a claim nothing you supplied backs. Fix those before handing them to anyone.` : "",
       refunded ? `${refunded} ACUs refunded for ${failed.length} document(s) that were not produced.` : "",
+      cut.length ? `${cut.length} document(s) were cut off by the model's output limit and are INCOMPLETE — refunded. Build those on their own.` : "",
       palette?.ok ? `${palette.colours.length} colour(s) were read from your logo rather than asked for.` : "",
       identity ? "Saved as this brand's identity — the email writer, page builder and social publisher now read the same tone, colours and bios." : "",
     ].filter(Boolean).join(" "),

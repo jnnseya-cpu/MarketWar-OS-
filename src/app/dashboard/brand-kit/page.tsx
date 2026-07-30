@@ -18,7 +18,7 @@ type Finding = { excerpt: string; reason: string; fix: string };
 type Limit = { label: string; used: number; max: number; ok: boolean };
 type Asset = {
   id: string; title: string; content: string; needs: string[];
-  blockers: Finding[]; warnings: Finding[]; limits: Limit[]; note: string;
+  blockers: Finding[]; warnings: Finding[]; limits: Limit[]; truncated?: boolean; note: string;
 };
 
 const ASSET_LABEL: Record<string, string> = {
@@ -214,6 +214,13 @@ export default function BrandKitPage() {
                     {copied === a.id ? "Copied" : "Copy"}
                   </button>
                 </div>
+
+                {a.truncated && (
+                  <p className="mt-2 flex items-start gap-1.5 rounded border border-rose-500/30 bg-rose-500/[0.08] px-2.5 py-2 text-[11px] leading-relaxed text-rose-100">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span><strong>Incomplete.</strong> The model ran out of output budget and this stops mid-thought. It has been refunded — rebuild this one on its own to give it the whole budget.</span>
+                  </p>
+                )}
 
                 {Boolean(a.limits.length) && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
