@@ -5840,3 +5840,97 @@ test("email: one-click unsubscribe is set on the BULK path, per RFC 8058", () =>
   assert.match(route, /listUnsubscribe: unsubscribeUrl\(brandId, to, campaign/,
     "and the bulk route must actually pass a URL, or the header is never added");
 });
+
+// ---------------------------------------------------------------------------
+// SEO auto-deploy — apply the fix instead of describing it.
+//
+// The platform already found the issues and wrote the fixes; the customer got a
+// JSON-LD block to paste into a CMS they may not control. This is the missing
+// half. It also writes into a live page a customer is legally responsible for,
+// which is why the rules below are stricter than the feature itself.
+// ---------------------------------------------------------------------------
+const seod = await import("../src/backend/seo-deploy.ts");
+
+const cfg = (over = {}) => ({
+  brandId: "b1", enabled: true, updatedAt: "",
+  allowedHosts: ["veryxjnn.com"],
+  fixes: [{ id: "f1", kind: "description", path: "*", value: "A work-centric CDE.", replace: false, approved: true, source: "crawler", createdAt: "" }],
+  ...over,
+});
+
+test("seo-deploy: an UNAPPROVED fix never leaves the server", () => {
+  // Filtering in the browser would be a suggestion: the snippet is public and
+  // anyone can read it, so an unapproved value must not be written into it.
+  const pending = cfg({ fixes: [{ ...cfg().fixes[0], approved: false }] });
+  assert.deepEqual(seod.deployableFixes(pending), []);
+  const js = seod.buildSnippet(pending);
+  assert.doesNotMatch(js, /work-centric CDE/,
+    "the text of an unapproved fix must not appear in a file anyone can fetch");
+});
+
+test("seo-deploy: nothing runs while auto-deploy is off", () => {
+  assert.deepEqual(seod.deployableFixes(cfg({ enabled: false })), []);
+});
+
+test("seo-deploy: the snippet refuses to run on an unauthorised host", () => {
+  const js = seod.buildSnippet(cfg());
+  assert.match(js, /HOSTS\.indexOf\(host\) === -1\) return/,
+    "without this, anyone could paste another brand's snippet onto their own site");
+  assert.match(js, /\["veryxjnn\.com"\]/);
+  // No hosts authorised = it runs nowhere, rather than everywhere.
+  assert.match(seod.buildSnippet(cfg({ allowedHosts: [] })), /var HOSTS = \[\]/);
+});
+
+test("seo-deploy: a hand-written value is not clobbered unless replace is set", () => {
+  const js = seod.buildSnippet(cfg());
+  assert.match(js, /if \(!replace\) return;/,
+    "someone agonised over that title — improving a page by destroying its best work is not improvement");
+  assert.match(js, /if \(!document\.title \|\| f\.replace\)/,
+    "the title is only set when there is none, or the replacement was approved");
+  assert.match(js, /if \(imgs\[j\]\.getAttribute\("alt"\)\) continue;/, "alt text fills gaps only");
+});
+
+test("seo-deploy: the payload cannot break out of the script tag", () => {
+  // A fix value containing "</script>" would close the tag early and dump the
+  // rest of the payload into the customer's document as markup.
+  const nasty = cfg({ fixes: [{ ...cfg().fixes[0], value: '</script><img src=x onerror=alert(1)>' }] });
+  const js = seod.buildSnippet(nasty);
+  assert.doesNotMatch(js, /<\/script>/i, "the closing tag must be escaped, not emitted");
+  assert.match(js, /\\u003c/, "escaped as unicode so the string still parses back correctly");
+});
+
+test("seo-deploy: a failure can never white-screen the customer's site", () => {
+  const js = seod.buildSnippet(cfg());
+  // Outer guard, plus a per-fix guard so one bad entry does not stop the rest.
+  assert.ok((js.match(/try \{/g) || []).length >= 2);
+  assert.match(js, /\} catch \(e\) \{ \/\* one bad fix must not stop the rest \*\/ \}/);
+  assert.match(js, /"use strict"/);
+});
+
+test("seo-deploy: the snippet tells the truth about being client-side", () => {
+  const js = seod.buildSnippet(cfg());
+  // It lands on someone else's website. They should be able to open the URL and
+  // read what it does — including its limits.
+  assert.match(js, /CLIENT-SIDE/);
+  assert.match(js, /AI assistants that fetch raw HTML will NOT/i,
+    "this is the exact crawler class the visibility module measures — the gap must be stated");
+  assert.match(js, /data-mw-seo/, "every element it creates must be findable in DevTools");
+});
+
+test("seo-deploy: install is MEASURED from the page, not assumed", () => {
+  const tag = seod.installTag("https://www.marketwaros.com", "b1");
+  assert.match(tag, /<script src="https:\/\/www\.marketwaros\.com\/api\/seo\/snippet\/b1\.js" async><\/script>/);
+  assert.equal(seod.snippetInstalled(`<head>${tag}</head>`, "b1"), true);
+  assert.equal(seod.snippetInstalled("<head></head>", "b1"), false);
+  const route = readFileSync(new URL("../src/app/api/seo/deploy/route.ts", import.meta.url), "utf8");
+  assert.match(route, /snippetInstalled\(await res\.text\(\), brandId\)/,
+    "the check fetches the real page rather than trusting a checkbox");
+});
+
+test("seo-deploy: hosts are normalised the way a browser reports them", () => {
+  assert.equal(seod.normaliseHost("https://WWW.VeryXJNN.com/path"), "veryxjnn.com");
+  assert.equal(seod.normaliseHost("veryxjnn.com:443"), "veryxjnn.com");
+  const js = seod.buildSnippet(cfg({ allowedHosts: ["https://WWW.VeryXJNN.com/"] }));
+  assert.match(js, /\["veryxjnn\.com"\]/,
+    "a customer pasting a URL instead of a hostname must still get a working snippet");
+});
