@@ -29,6 +29,7 @@ import {
   Swords,
 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
+import SeoDeployPanel from "@/components/SeoDeployPanel";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { industryPlaceholders } from "@/shared/industry";
@@ -243,6 +244,11 @@ export default function WebsiteIntelPage() {
           </div>
         )}
       </div>
+
+      {/* The crawl above finds the gaps; this closes them on the actual page.
+          Sits directly underneath because the two are one job — a finding the
+          customer has to go and fix by hand somewhere else is homework. */}
+      <SeoDeployPanel brand={activeBrand} crawl={crawl && crawl.ok ? crawl : null} className="mb-6" />
 
       <HowToUse
         does="Turn your business into a full marketing audit + attack plan — works for any industry, no crawler needed."

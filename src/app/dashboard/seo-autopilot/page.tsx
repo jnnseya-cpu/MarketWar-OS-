@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, PenLine, Rocket, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import SeoDeployPanel from "@/components/SeoDeployPanel";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -120,6 +121,11 @@ export default function SeoAutopilotPage() {
           {note && <p className="mt-2 text-[11px] text-slate-500">{note}</p>}
         </div>
       )}
+
+      {/* Autopilot ranks the blog it publishes here. The rest of the site — the
+          pages that actually take the money — needs the same treatment, and
+          this is where its title, description and schema get applied. */}
+      <SeoDeployPanel brand={activeBrand} className="mb-6" />
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Settings */}

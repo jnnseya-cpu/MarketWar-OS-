@@ -3,12 +3,16 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import {
   getDeployConfig, saveDeployConfig, installTag, snippetInstalled, normaliseHost,
-  type SeoFix, type SeoFixKind,
+  draftFixesFromCrawl, crawledPath,
+  type SeoFix, type SeoFixKind, type CrawlSummary,
 } from "@/backend/seo-deploy";
+import type { Brand } from "@/shared/brand";
+import { SEO_FIX_KIND_VALUES } from "@/shared/seo-deploy";
 
 // Manage what the auto-deploy snippet is allowed to do.
 //
 // GET  ?brandId=…            → the config, the install tag, and whether it is live
+// POST { brandId, brand, crawl } → draft fixes from a SiteRaid crawl (saves nothing)
 // PUT  { brandId, … }        → hosts, on/off, and per-fix approval
 //
 // Approval lives here, on the server. The snippet is public — anyone can read
@@ -18,7 +22,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-const KINDS: SeoFixKind[] = ["title", "description", "canonical", "og", "schema", "alt", "robots"];
+// One list, shared with the panel — a kind the UI offers but the route rejects
+// would silently drop a fix the customer thought they had saved.
+const KINDS: SeoFixKind[] = SEO_FIX_KIND_VALUES;
 const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
 
 export async function GET(req: NextRequest) {
@@ -54,6 +60,47 @@ export async function GET(req: NextRequest) {
       config.allowedHosts.length ? "" : "No hosts are authorised yet, so the snippet refuses to run anywhere — that is what stops someone pasting your snippet onto their own site.",
       installed === false ? "The page checked does not contain the tag." : installed === true ? "The tag is present on the page checked." : "",
       "This applies fixes in the browser. Google renders JavaScript and will see them, on a later pass than server-rendered markup — but social unfurlers, non-rendering crawlers and the AI assistants your visibility check asks will NOT. Where you can edit the page template, do it there instead.",
+    ].filter(Boolean).join(" "),
+  });
+}
+
+/**
+ * Draft fixes from a crawl. Deliberately READ-ONLY.
+ *
+ * Nothing is saved and nothing is approved: this hands back candidates for a
+ * person to look at. Saving would mean the act of pressing "crawl" changed what
+ * a customer's live website says.
+ */
+export async function POST(req: NextRequest) {
+  const rl = rateLimit(clientKey(req, "seo-deploy-draft"), 30, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
+
+  const brandId = s(body.brandId);
+  if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
+  const access = await resolveBrandAccess(req, brandId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  const brand = (body.brand && typeof body.brand === "object" ? body.brand : {}) as Brand;
+  if (!s(brand.name)) return NextResponse.json({ error: "brand.name required — fixes are written from your brand's own record, never invented" }, { status: 400 });
+  const crawl = (body.crawl && typeof body.crawl === "object" ? body.crawl : {}) as CrawlSummary;
+
+  const cur = await getDeployConfig(brandId);
+  const { fixes, needsYou } = draftFixesFromCrawl(crawl, brand, cur.fixes);
+  const path = crawledPath(crawl);
+
+  return NextResponse.json({
+    fixes, needsYou, path,
+    note: [
+      fixes.length
+        ? `${fixes.length} draft fix(es) for ${path}, written from your brand record. Nothing is saved or applied until you approve them.`
+        : `Nothing to draft for ${path}${cur.fixes.length ? " that is not already on your list" : ""}.`,
+      needsYou.length ? `${needsYou.length} gap(s) the OS will not fill on its own — see the reasons.` : "",
     ].filter(Boolean).join(" "),
   });
 }

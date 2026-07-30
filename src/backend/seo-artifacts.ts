@@ -31,12 +31,21 @@ const hostedImg = (u?: string) => {
 
 export type Artifact = { key: string; label: string; format: "json-ld" | "text" | "html"; content: string; note: string };
 
-// --- Structured data (JSON-LD) ---
-export function buildStructuredData(brand: Brand): Artifact[] {
+/**
+ * The JSON-LD, unwrapped.
+ *
+ * Same objects `buildStructuredData` renders — separated out because auto-deploy
+ * (seo-deploy.ts) injects the JSON into a script element it creates itself, and
+ * feeding it a value that already contains `<script>` would nest the tag. One
+ * generator, two packagings: a paste-ready artifact and a deployable value.
+ */
+export type StructuredDataBlock = { key: string; label: string; json: string; note: string };
+
+export function structuredDataJson(brand: Brand): StructuredDataBlock[] {
   const site = httpsUrl(brand.website);
   const name = clean(brand.name) || "Your Brand";
   const desc = clean(brand.product) ? `${name} — ${clean(brand.product)}${clean(brand.audience) ? ` for ${clean(brand.audience)}` : ""}.` : clean(brand.goal) || `${name}.`;
-  const out: Artifact[] = [];
+  const out: StructuredDataBlock[] = [];
 
   // Organization (or LocalBusiness when a location is set).
   const isLocal = Boolean(clean(brand.location));
@@ -52,11 +61,11 @@ export function buildStructuredData(brand: Brand): Artifact[] {
     ...(clean(brand.industry) ? { knowsAbout: clean(brand.industry) } : {}),
   };
   const logoNote = !logo && clean(brand.logoUrl) ? " Your logo is stored as an inline image, which Google can't read here — host it at a public https:// URL and add it as \"logo\"." : "";
-  out.push({ key: "organization", label: isLocal ? "LocalBusiness" : "Organization", format: "json-ld", content: jsonLd(org), note: `Your brand's identity for search engines + AI. Paste in the <head> of every page.${logoNote}` });
+  out.push({ key: "organization", label: isLocal ? "LocalBusiness" : "Organization", json: raw(org), note: `Your brand's identity for search engines + AI. Paste in the <head> of every page.${logoNote}` });
 
   // WebSite.
   if (site) {
-    out.push({ key: "website", label: "WebSite", format: "json-ld", content: jsonLd({ "@context": "https://schema.org", "@type": "WebSite", name, url: site }), note: "Helps engines understand your site + enables sitelinks eligibility." });
+    out.push({ key: "website", label: "WebSite", json: raw({ "@context": "https://schema.org", "@type": "WebSite", name, url: site }), note: "Helps engines understand your site + enables sitelinks eligibility." });
   }
 
   // Product/Service — only structural facts we actually have (no invented price/rating).
@@ -69,9 +78,16 @@ export function buildStructuredData(brand: Brand): Artifact[] {
       ...(hostedImg(brand.productImageUrl) ? { image: hostedImg(brand.productImageUrl) } : {}),
       brand: { "@type": "Brand", name },
     };
-    out.push({ key: "product", label: "Product", format: "json-ld", content: jsonLd(product), note: "Add price/availability/AggregateRating ONLY when they're real — the engine never invents them." });
+    out.push({ key: "product", label: "Product", json: raw(product), note: "Add price/availability/AggregateRating ONLY when they're real — the engine never invents them." });
   }
   return out;
+}
+
+// --- Structured data (JSON-LD) ---
+export function buildStructuredData(brand: Brand): Artifact[] {
+  return structuredDataJson(brand).map((b) => ({
+    key: b.key, label: b.label, format: "json-ld" as const, content: wrapLd(b.json), note: b.note,
+  }));
 }
 
 // --- llms.txt (machine-readable brand definition for AI answer engines) ---
@@ -96,15 +112,31 @@ export function buildLlmsTxt(brand: Brand): Artifact {
   return { key: "llms", label: "llms.txt", format: "text", content: lines.join("\n"), note: "Host at /llms.txt — a concise, accurate brand definition AI answer engines can read." };
 }
 
+/**
+ * Title and description as plain text, before they are wrapped in markup.
+ *
+ * Auto-deploy sets `document.title` and a meta `content` attribute, so it needs
+ * the words — not `<title>…</title>`. Kept as the single source both the
+ * copy-paste artifact and the deployed fix read from, so what a customer
+ * approves in the panel is character-for-character what the workbench showed.
+ */
+export function metaValues(brand: Brand, topic?: string): { title: string; description: string } {
+  const name = clean(brand.name) || "Your Brand";
+  const t = clean(topic);
+  const full = t ? `${t} | ${name}` : clean(brand.product) ? `${name} — ${clean(brand.product)}` : name;
+  const descBase = t
+    ? `${t} from ${name}${clean(brand.location) ? ` in ${clean(brand.location)}` : ""}.${clean(brand.offer) ? ` ${clean(brand.offer)}.` : ""}`
+    : `${clean(brand.product) || name}${clean(brand.audience) ? ` for ${clean(brand.audience)}` : ""}${clean(brand.location) ? ` in ${clean(brand.location)}` : ""}.${clean(brand.offer) ? ` ${clean(brand.offer)}.` : ""}`;
+  // 60 / 155 are the widths Google renders before truncating with an ellipsis.
+  return { title: full.slice(0, 60), description: descBase.slice(0, 155).trim() };
+}
+
 // --- Meta tags (title + description + Open Graph) ---
 export function buildMetaTags(brand: Brand, topic?: string): Artifact {
   const name = clean(brand.name) || "Your Brand";
   const t = clean(topic);
   const title = t ? `${t} | ${name}` : clean(brand.product) ? `${name} — ${clean(brand.product)}` : name;
-  const descBase = t
-    ? `${t} from ${name}${clean(brand.location) ? ` in ${clean(brand.location)}` : ""}.${clean(brand.offer) ? ` ${clean(brand.offer)}.` : ""}`
-    : `${clean(brand.product) || name}${clean(brand.audience) ? ` for ${clean(brand.audience)}` : ""}${clean(brand.location) ? ` in ${clean(brand.location)}` : ""}.${clean(brand.offer) ? ` ${clean(brand.offer)}.` : ""}`;
-  const description = descBase.slice(0, 155).trim();
+  const { description } = metaValues(brand, topic);
   const site = httpsUrl(brand.website);
   const html = [
     `<title>${esc(title.slice(0, 60))}</title>`,
@@ -124,8 +156,11 @@ export function buildAllArtifacts(brand: Brand, topic?: string): Artifact[] {
   return [...buildStructuredData(brand), buildLlmsTxt(brand), buildMetaTags(brand, topic)];
 }
 
-function jsonLd(obj: Record<string, unknown>): string {
-  return `<script type="application/ld+json">\n${JSON.stringify(obj, null, 2)}\n</script>`;
+function raw(obj: Record<string, unknown>): string {
+  return JSON.stringify(obj, null, 2);
+}
+function wrapLd(json: string): string {
+  return `<script type="application/ld+json">\n${json}\n</script>`;
 }
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

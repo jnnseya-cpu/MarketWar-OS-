@@ -1469,7 +1469,7 @@ with the platform doctrine. Surfaced at `/dashboard/omnirank`.
 | MW-15 Authority Warfare | 📦 connect | Five white-hat rails + toxic-link firewall; needs backlink/mention data. |
 | MW-16 Answer Capture (GEO/AEO) | ✅ foundation / 📦 | Ties to Search Dominance AI-readiness; live prompt monitoring = connect. |
 | MW-17 Content Velocity Forge | ✅ live | `/dashboard/content` + blog; human-gate publish. |
-| MW-18 Technical Supremacy | 📦 connect | `/dashboard/website-intel` (SiteRaid); CWV/log/schema need site access. |
+| MW-18 Technical Supremacy | ✅ partial / 📦 connect | `/dashboard/website-intel` (SiteRaid) crawls and measures the real page. **Auto-deploy now APPLIES the fix rather than describing it**: `src/backend/seo-deploy.ts` + `/api/seo/deploy` + `/api/seo/snippet/[brand].js`, with the approval screen (`src/components/SeoDeployPanel.tsx`) mounted on SiteRaid AI and SEO Autopilot. `draftFixesFromCrawl()` joins the measured gap to a value generated from the brand's own record (`seo-artifacts.ts`), and refuses to invent one where the record is empty; alt text is never guessed. Every fix is off until a person approves it, fills a gap rather than overwriting, and runs only on hosts the brand authorised. **Honest limit:** client-side injection is seen by Google on a later pass and NOT by social unfurlers, non-rendering crawlers or the AI assistants the visibility module measures — stated on the panel and inside the served snippet. Server-side templating, CWV and log-file analysis still need site access. |
 | MW-19 Social Signal Amplification | ✅ live | `/dashboard/amplify` + creator programme. |
 | MW-20 SERP Feature Sniper | 📦 connect | Needs SERP-feature data. |
 | MW-21 Competitor Displacement | ✅ live | `/dashboard/competitors`. |

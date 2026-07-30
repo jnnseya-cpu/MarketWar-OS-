@@ -5934,3 +5934,156 @@ test("seo-deploy: hosts are normalised the way a browser reports them", () => {
   assert.match(js, /\["veryxjnn\.com"\]/,
     "a customer pasting a URL instead of a hostname must still get a working snippet");
 });
+
+// ---------------------------------------------------------------------------
+// Crawl → draft fixes, and the approval screen on SiteRaid + SEO Autopilot.
+//
+// The engine could already apply a fix; nothing joined it to the crawl that
+// found the gap, so a customer read a finding on one screen and typed the value
+// on another. These tests hold the two rules that make the join safe: a draft is
+// only produced where a gap was MEASURED and a real value EXISTS, and it always
+// arrives switched off.
+// ---------------------------------------------------------------------------
+
+const seoArt = await import("../src/backend/seo-artifacts.ts");
+const shared = await import("../src/shared/seo-deploy.ts");
+
+const BRAND = {
+  id: "b1", name: "VeryX", industry: "Construction software",
+  product: "a work-centric common data environment", audience: "site teams",
+  location: "Paris", offer: "First project free", website: "veryxjnn.com",
+  goal: "", color: "#2E7CF6",
+};
+
+test("seo-deploy: a draft is only written where the crawl MEASURED a gap", () => {
+  const complete = seod.draftFixesFromCrawl(
+    { url: "https://veryxjnn.com/", title: "VeryX — CDE", metaDescription: "A work-centric CDE.", structuredDataTypes: ["LocalBusiness", "WebSite", "Product"] },
+    BRAND,
+  );
+  assert.deepEqual(complete.fixes, [],
+    "a page that already has a title, a description and its schema needs nothing written onto it");
+
+  const bare = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, BRAND);
+  assert.ok(bare.fixes.find((f) => f.kind === "title"));
+  assert.ok(bare.fixes.find((f) => f.kind === "description"));
+  assert.ok(bare.fixes.find((f) => f.kind === "schema"));
+});
+
+test("seo-deploy: a draft is never approved and never a replacement", () => {
+  const { fixes } = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/pricing" }, BRAND);
+  assert.ok(fixes.length > 0);
+  for (const f of fixes) {
+    assert.equal(f.approved, false, "the customer's website is theirs — the default must be no");
+    assert.equal(f.replace, false, "a draft fills a gap; it never proposes to overwrite their words");
+  }
+  // And an unapproved draft is inert even if it reaches the config.
+  assert.deepEqual(seod.deployableFixes({ ...cfg(), fixes }), []);
+});
+
+test("seo-deploy: nothing is invented to fill a slot", () => {
+  // A brand record with only a name would produce the description "VeryX." —
+  // technically filled, actually worthless. It must refuse and say why.
+  const nameOnly = { ...BRAND, product: "", audience: "", location: "", offer: "" };
+  const { fixes, needsYou } = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, nameOnly);
+  assert.equal(fixes.find((f) => f.kind === "description"), undefined);
+  assert.equal(fixes.find((f) => f.kind === "title"), undefined);
+  assert.ok(needsYou.find((g) => /description/i.test(g.label)));
+  assert.ok(needsYou.find((g) => /product, audience, location or offer/.test(g.reason)),
+    "and it must name what to fill in, not just decline");
+});
+
+test("seo-deploy: alt text is never guessed", () => {
+  // The OS has not seen the image. A guessed description is a false statement on
+  // the page and is read aloud to anyone using a screen reader.
+  const { fixes, needsYou } = seod.draftFixesFromCrawl(
+    { url: "https://veryxjnn.com/", title: "t", metaDescription: "d", structuredDataTypes: ["LocalBusiness", "WebSite", "Product"], imagesTotal: 9, imagesNoAlt: 4 },
+    BRAND,
+  );
+  assert.equal(fixes.find((f) => f.kind === "alt"), undefined);
+  const gap = needsYou.find((g) => /4 images/.test(g.label));
+  assert.ok(gap, "the gap is still reported — refusing to guess is not the same as hiding it");
+  assert.match(gap.reason, /screen reader/i);
+});
+
+test("seo-deploy: a schema block the page already carries is not duplicated", () => {
+  // Two Organization blocks is a rich-results error, not an improvement.
+  const { fixes } = seod.draftFixesFromCrawl(
+    { url: "https://veryxjnn.com/", title: "t", metaDescription: "d", structuredDataTypes: ["localbusiness"] },
+    BRAND,
+  );
+  const labels = fixes.filter((f) => f.kind === "schema").map((f) => f.source);
+  assert.equal(labels.find((s) => /LocalBusiness/.test(s)), undefined,
+    "case must not be the thing that decides whether a duplicate ships");
+  assert.ok(labels.find((s) => /WebSite/.test(s)), "the types it does NOT have are still offered");
+});
+
+test("seo-deploy: a fix already on the list is not drafted twice", () => {
+  const first = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, BRAND).fixes;
+  const again = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, BRAND, first).fixes;
+  assert.deepEqual(again, [], "pressing the button twice must not stack duplicate fixes");
+});
+
+test("seo-deploy: a fix measured on one page defaults to that page", () => {
+  // "*" would apply a pricing-page title to every page on the site.
+  assert.equal(seod.crawledPath({ finalUrl: "https://veryxjnn.com/pricing" }), "/pricing");
+  assert.equal(seod.crawledPath({ url: "veryxjnn.com" }), "/");
+  assert.equal(seod.crawledPath({ url: "not a url at all" }), "/");
+  const { fixes } = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/a", finalUrl: "https://veryxjnn.com/b" }, BRAND);
+  assert.ok(fixes.every((f) => f.path === "/b"), "the redirect target is the page that was actually measured");
+});
+
+test("seo-deploy: the deployed value and the copy-paste artifact are the same words", () => {
+  // Two generators would drift, and the customer would approve one thing while
+  // a different one shipped.
+  const arts = seoArt.buildMetaTags(BRAND);
+  const { title, description } = seoArt.metaValues(BRAND);
+  assert.ok(arts.content.includes(`content="${description}"`));
+  assert.ok(arts.content.includes(`<title>${title}</title>`));
+  const drafted = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, BRAND).fixes;
+  assert.equal(drafted.find((f) => f.kind === "description").value, description);
+});
+
+test("seo-deploy: a deployed schema value carries no <script> wrapper", () => {
+  // The snippet creates the script element itself; a value that already contains
+  // one would nest the tag and the JSON-LD would never parse.
+  const { fixes } = seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/" }, BRAND);
+  const schema = fixes.find((f) => f.kind === "schema");
+  assert.doesNotMatch(schema.value, /<script/i);
+  assert.equal(JSON.parse(schema.value)["@type"], "LocalBusiness");
+  // The paste-ready artifact still has its wrapper — both packagings, one source.
+  assert.match(seoArt.buildStructuredData(BRAND)[0].content, /<script type="application\/ld\+json">/);
+});
+
+test("seo-deploy: drafting saves nothing and approves nothing", () => {
+  const route = readFileSync(new URL("../src/app/api/seo/deploy/route.ts", import.meta.url), "utf8");
+  const post = route.slice(route.indexOf("export async function POST"), route.indexOf("export async function PUT"));
+  assert.doesNotMatch(post, /saveDeployConfig/,
+    "pressing crawl must never change what a customer's live website says");
+  assert.match(post, /requireAuth/);
+  assert.match(post, /resolveBrandAccess/);
+});
+
+test("seo-deploy: the panel is on SiteRaid AND SEO Autopilot, and states its limits", () => {
+  const panel = readFileSync(new URL("../src/components/SeoDeployPanel.tsx", import.meta.url), "utf8");
+  for (const page of ["website-intel", "seo-autopilot"]) {
+    const src = readFileSync(new URL(`../src/app/dashboard/${page}/page.tsx`, import.meta.url), "utf8");
+    assert.match(src, /<SeoDeployPanel/, `${page} must mount the approval screen`);
+  }
+  // The crawl feeds the drafting on SiteRaid; Autopilot has no crawl to feed it.
+  assert.match(readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8"),
+    /crawl=\{crawl && crawl\.ok \? crawl : null\}/,
+    "a failed crawl must not be offered as a source of fixes");
+  // The limitation belongs next to the button, not behind a docs link.
+  assert.match(panel, /in the browser/);
+  assert.match(panel, /AI assistants your visibility check asks/);
+  assert.match(panel, /type="checkbox" checked=\{f\.approved\}/, "approval is per fix, visible, and off by default");
+});
+
+test("seo-deploy: the panel and the route agree on which kinds exist", () => {
+  // A kind the UI offers but the route rejects drops a fix the customer thought
+  // they had saved, without an error.
+  const route = readFileSync(new URL("../src/app/api/seo/deploy/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const KINDS: SeoFixKind\[\] = SEO_FIX_KIND_VALUES;/);
+  assert.equal(shared.SEO_FIX_KIND_VALUES.length, shared.SEO_FIX_KINDS.length);
+  assert.ok(shared.SEO_FIX_KIND_VALUES.includes("schema"));
+});
