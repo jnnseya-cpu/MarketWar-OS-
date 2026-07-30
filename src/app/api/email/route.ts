@@ -134,6 +134,41 @@ export async function POST(req: NextRequest) {
     const isTest = body.test === true;
     const cap = isTest ? 1 : Math.max(1, Math.min(500, Number(body.limit) || 250));
 
+    // REPUTATION GUARDRAIL — the platform-level one.
+    //
+    // Warm-up caps VOLUME. This caps DAMAGE. MarketWar sends on shared
+    // infrastructure, so reputation at Gmail and Microsoft attaches to the
+    // sending domain rather than to the customer: one brand blasting a stale
+    // list drags every other brand's mail toward the spam folder with it. Past
+    // Google and Yahoo's published complaint limit, or an obviously dead list,
+    // sending stops until it is cleaned.
+    //
+    // A test send of one message is exempt: it cannot move a rate, and blocking
+    // the way a customer would verify their own fix helps nobody.
+    if (!isTest) {
+      const { brandEvents } = await import("@/backend/email-events");
+      const { reputationVerdict, sendingBlocked } = await import("@/backend/deliverability");
+      const ledger = await brandEvents(brandId).catch(() => []);
+      const seenSent = new Set<string>(), seenBounce = new Set<string>(), seenComplaint = new Set<string>();
+      for (const e of ledger) {
+        const a = (e.email || "").toLowerCase();
+        if (!a) continue;
+        if (e.type === "sent") seenSent.add(a);
+        else if (e.type === "bounce") seenBounce.add(a);
+        else if (e.type === "complaint") seenComplaint.add(a);
+      }
+      const verdict = reputationVerdict({ sent: seenSent.size, bounces: seenBounce.size, complaints: seenComplaint.size });
+      const gate = sendingBlocked(verdict);
+      if (gate.blocked) {
+        return NextResponse.json({
+          error: gate.reason,
+          sent: 0,
+          reputation: verdict,
+          blocked: true,
+        }, { status: 409 });
+      }
+    }
+
     // WARM-UP GOVERNOR: enforce the ramping DAILY limit for this brand so a new
     // sending IP is never over-sent. Test sends bypass the block (but still count).
     const { getWarmup, recordWarmupSends } = await import("@/backend/email-warmup");

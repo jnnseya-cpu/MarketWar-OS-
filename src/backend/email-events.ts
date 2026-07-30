@@ -108,6 +108,15 @@ export async function suppressedEmails(brandId: string, limit = 5000): Promise<S
 }
 
 // Aggregated engagement stats for a brand (for the Email Center dashboard).
+/** The raw ledger for one brand — the same rows eventStats aggregates. */
+export async function brandEvents(brandId: string, limit = 10000): Promise<EmailEvent[]> {
+  if (adminConfigured && adminDb) {
+    const snap = await adminDb.collection("email_events").where("brandId", "==", brandId).limit(limit).get();
+    return snap.docs.map((d) => d.data() as EmailEvent);
+  }
+  return mem.filter((e) => e.brandId === brandId);
+}
+
 export async function eventStats(brandId: string): Promise<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; machineOpen: number; machineClick: number; openRate: number; clickRate: number }> {
   let events: EmailEvent[];
   if (adminConfigured && adminDb) {

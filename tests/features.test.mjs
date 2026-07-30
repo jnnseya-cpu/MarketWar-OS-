@@ -5659,3 +5659,104 @@ test("email: the stats route admits older events cannot be reclassified", () => 
   assert.match(route, /cannot be reclassified after the fact/i,
     "pretending the historical numbers were always filtered would be a quiet rewrite of the past");
 });
+
+// ---------------------------------------------------------------------------
+// Deliverability — and the guardrail that protects every OTHER customer.
+//
+// MarketWar sends on shared infrastructure. Reputation at Gmail and Microsoft
+// attaches to the sending domain, not to the individual brand, so one customer
+// blasting a stale list drags everyone else's mail toward spam. A report is not
+// enough; the platform has to be able to stop the send.
+// ---------------------------------------------------------------------------
+const deliv = await import("../src/backend/deliverability.ts");
+
+test("deliverability: reputation is judged per PROVIDER, not per domain", () => {
+  // googlemail and gmail are one filter; a corporate domain runs its own.
+  assert.equal(deliv.receivingProvider("a@gmail.com"), "Gmail");
+  assert.equal(deliv.receivingProvider("a@googlemail.com"), "Gmail");
+  assert.equal(deliv.receivingProvider("a@hotmail.co.uk"), "Microsoft");
+  assert.equal(deliv.receivingProvider("a@outlook.com"), "Microsoft");
+  assert.equal(deliv.receivingProvider("a@balfourbeatty.com"), "balfourbeatty.com",
+    "a company runs its own filter — a block there is a different problem from a block at Gmail");
+});
+
+test("deliverability: the breakdown names which provider is filtering you", () => {
+  const events = [];
+  // Gmail: 100 sent, 22 opened — normal.
+  for (let i = 0; i < 100; i++) { events.push({ email: `g${i}@gmail.com`, type: "sent" }); if (i < 22) events.push({ email: `g${i}@gmail.com`, type: "open" }); }
+  // Microsoft: 100 sent, 1 opened — being filtered.
+  for (let i = 0; i < 100; i++) { events.push({ email: `m${i}@outlook.com`, type: "sent" }); if (i < 1) events.push({ email: `m${i}@outlook.com`, type: "open" }); }
+  const rows = deliv.byReceivingProvider(events);
+  const gmail = rows.find((r) => r.provider === "Gmail");
+  const ms = rows.find((r) => r.provider === "Microsoft");
+  assert.equal(gmail.openRatePct, 22);
+  assert.equal(ms.openRatePct, 1, "an overall 11.5% would have hidden this entirely");
+  assert.equal(ms.judgeable, true);
+});
+
+test("deliverability: a scanner open does not count as a read in the breakdown", () => {
+  const events = [
+    { email: "a@gmail.com", type: "sent" },
+    { email: "a@gmail.com", type: "open", meta: { machine: "true" } },
+    { email: "b@gmail.com", type: "sent" },
+    { email: "b@gmail.com", type: "open" },
+  ];
+  const gmail = deliv.byReceivingProvider(events, { minVolume: 1 }).find((r) => r.provider === "Gmail");
+  assert.equal(gmail.opened, 1, "the same rule as the headline rate — a scanner is not a reader");
+  assert.equal(gmail.sent, 2);
+});
+
+test("deliverability: sending is BLOCKED past Google's published complaint limit", () => {
+  // 0.3% is the figure Google and Yahoo publish for bulk senders. At that point
+  // they filter the sending DOMAIN, which on shared infrastructure is everyone.
+  const bad = deliv.reputationVerdict({ sent: 1000, bounces: 5, complaints: 4 });
+  assert.equal(bad.complaintRatePct, 0.4);
+  assert.equal(bad.halt, true);
+  assert.equal(bad.level, "danger");
+  assert.equal(deliv.sendingBlocked(bad).blocked, true);
+  assert.match(bad.note, /shared infrastructure/i,
+    "the customer must be told WHY this is not a punishment");
+
+  const watch = deliv.reputationVerdict({ sent: 1000, bounces: 5, complaints: 2 });
+  assert.equal(watch.level, "watch");
+  assert.equal(watch.halt, false, "0.2% is above the target but below the limit — warn, do not block");
+
+  const fine = deliv.reputationVerdict({ sent: 1000, bounces: 5, complaints: 0 });
+  assert.equal(fine.level, "ok");
+  assert.equal(fine.halt, false);
+});
+
+test("deliverability: a dead list is blocked on bounce rate too", () => {
+  const dead = deliv.reputationVerdict({ sent: 1000, bounces: 120, complaints: 0 });
+  assert.equal(dead.bounceRatePct, 12);
+  assert.equal(dead.halt, true);
+  assert.match(dead.reasons.join(" "), /not collected with permission/i);
+});
+
+test("deliverability: rates are NOT judged on a handful of sends", () => {
+  // One complaint in thirty is 3.3% — ten times the limit, and complete noise.
+  // Halting on that would block a customer's first real campaign.
+  const tiny = deliv.reputationVerdict({ sent: 30, bounces: 3, complaints: 1 });
+  assert.equal(tiny.judgeable, false);
+  assert.equal(tiny.halt, false);
+  assert.equal(tiny.level, "ok");
+  assert.match(tiny.note, /too few for these percentages to mean anything/i);
+  assert.ok(deliv.MIN_VOLUME_TO_JUDGE >= 100, "the floor has to be high enough for a percentage to exist");
+});
+
+test("deliverability: the published thresholds are the ones actually used", () => {
+  // Wrong numbers here are worse than no check: a customer would be blocked for
+  // being fine, or allowed to keep damaging the platform.
+  assert.equal(deliv.COMPLAINT_HALT_PCT, 0.3, "Google and Yahoo's published bulk-sender limit");
+  assert.equal(deliv.COMPLAINT_WARN_PCT, 0.1, "and the figure they ask senders to aim under");
+});
+
+test("deliverability: the guardrail actually blocks the send path", () => {
+  // A verdict nothing enforces is a banner, not a guardrail.
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const gate = sendingBlocked\(verdict\);/);
+  assert.match(route, /if \(gate\.blocked\) \{[\s\S]{0,200}status: 409/,
+    "a blocked brand must be refused, not warned");
+  assert.match(route, /if \(!isTest\) \{/,
+    "a single test send cannot move a rate, and blocking the way someone verifies their fix helps nobody");
+});
