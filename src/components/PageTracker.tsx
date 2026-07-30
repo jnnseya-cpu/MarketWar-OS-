@@ -10,6 +10,11 @@
 // are generated, so the set of links is not known up front. sendBeacon is used
 // so the request survives the navigation that immediately follows the click,
 // which a normal fetch would not.
+//
+// CTAs carry data-mw-cta. That matters because the primary button on a
+// lead-form page points at "#lead", and an earlier version of this file treated
+// every "#" href as navigation and discarded it — which silently switched click
+// tracking off for exactly the pages that needed it most.
 
 import { useEffect } from "react";
 
@@ -30,10 +35,20 @@ export default function PageTracker({ brandId, slug }: { brandId: string; slug: 
     };
 
     const onClick = (e: MouseEvent) => {
-      const el = (e.target as HTMLElement | null)?.closest("a");
+      const el = (e.target as HTMLElement | null)?.closest("a, button");
       if (!el) return;
       const href = el.getAttribute("href") || "";
-      // An in-page jump to the form is navigation, not a conversion click.
+      const isCta = Boolean((el as HTMLElement).dataset.mwCta);
+
+      // THE BUG THIS FIXES. Every "#…" href used to be discarded as "navigation,
+      // not a conversion" — but on a page whose call to action IS the on-page
+      // lead form, the primary button's href is exactly "#lead". So the single
+      // most important press on the page was thrown away, and five live pages
+      // reported 160 visitors and one click between them.
+      //
+      // A marked CTA counts wherever it points. An unmarked "#" link is still
+      // just navigation.
+      if (isCta) { send("cta_click"); return; }
       if (!href || href.startsWith("#")) return;
       send("cta_click");
     };

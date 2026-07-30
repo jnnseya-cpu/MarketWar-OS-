@@ -71,6 +71,7 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
           <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
             <a
               href={heroHref}
+              data-mw-cta="primary"
               {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               className="rounded-xl bg-white px-8 py-4 text-base font-black shadow-xl shadow-black/20 transition hover:-translate-y-0.5 hover:shadow-2xl"
               style={{ color: primary }}
@@ -122,6 +123,7 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
                   )}
                   <a
                     href={heroHref}
+                    data-mw-cta="section"
                     {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                     className="mt-7 block rounded-xl px-6 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5"
                     style={{ background: primary }}
@@ -196,7 +198,7 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
           <p className="mb-7 text-center text-lg text-slate-600">{page.offerText}</p>
           {external ? (
             <>
-              <a href={ctaUrl} target="_blank" rel="noopener noreferrer" className="block rounded-xl px-4 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5" style={{ background: primary }}>
+              <a href={ctaUrl} data-mw-cta="final" target="_blank" rel="noopener noreferrer" className="block rounded-xl px-4 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5" style={{ background: primary }}>
                 {page.primaryCta}
               </a>
               {page.formConfig.enabled && page.formConfig.fields.length > 0 && (
@@ -242,6 +244,7 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
         <div className="flex gap-2">
           <a
             href={heroHref}
+            data-mw-cta="sticky"
             {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             className="flex-1 rounded-xl px-4 py-3.5 text-center text-sm font-black text-white"
             style={{ background: primary }}

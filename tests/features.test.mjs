@@ -5528,3 +5528,48 @@ test("brand kit: an incomplete document is refunded", () => {
   assert.match(route, /const cut = built\.filter\(\(a\) => a\.truncated\)/);
   assert.match(route, /refunded \+= back/, "charging for half a calendar is charging for something that was not produced");
 });
+
+// ---------------------------------------------------------------------------
+// "Tracking stopped."
+//
+// Five live pages: 160 visitors, one CTA click between them. Views are counted
+// server-side and were fine; clicks were being thrown away.
+//
+// The tracker discarded every href starting with "#" as "navigation, not a
+// conversion". But when the customer picks "Lead form on the page", the primary
+// button's href IS "#lead" — so the single most important press on the page was
+// dropped, on exactly the pages that depend on it.
+// ---------------------------------------------------------------------------
+
+test("landing pages: every CTA is marked so a '#' target is still a click", () => {
+  const page = readFileSync(new URL("../src/app/b/[brandId]/[slug]/page.tsx", import.meta.url), "utf8");
+  const marks = [...page.matchAll(/data-mw-cta="([a-z]+)"/g)].map((m) => m[1]);
+  // Hero, in-section, final block and the sticky mobile bar. A visitor can press
+  // any of the four, and three of them point at heroHref — which is "#lead"
+  // whenever the page uses its own form.
+  assert.deepEqual(marks.sort(), ["final", "primary", "section", "sticky"],
+    `CTAs found: ${marks.join(", ")}`);
+  assert.match(page, /const heroHref = ctaUrl \|\| "#lead"/,
+    "this is why the marker is needed: with no external URL the CTA is an in-page anchor");
+});
+
+test("landing pages: the tracker counts a marked CTA wherever it points", () => {
+  const tracker = readFileSync(new URL("../src/components/PageTracker.tsx", import.meta.url), "utf8");
+  assert.match(tracker, /const isCta = Boolean\(\(el as HTMLElement\)\.dataset\.mwCta\)/);
+  // The marked-CTA branch MUST come before the "#" bail-out, or the fix does
+  // nothing at all.
+  const ctaAt = tracker.indexOf("if (isCta) { send(\"cta_click\"); return; }");
+  const hashAt = tracker.indexOf('if (!href || href.startsWith("#")) return;');
+  assert.ok(ctaAt > 0 && hashAt > ctaAt,
+    "a marked CTA has to be counted before unmarked '#' links are discarded");
+  // An unmarked in-page jump is still navigation, not a conversion.
+  assert.match(tracker, /href\.startsWith\("#"\)/);
+  assert.match(tracker, /closest\("a, button"\)/, "a submit button is a CTA too");
+});
+
+test("landing pages: the beacon survives the navigation it triggers", () => {
+  const tracker = readFileSync(new URL("../src/components/PageTracker.tsx", import.meta.url), "utf8");
+  assert.match(tracker, /navigator\.sendBeacon/,
+    "a plain fetch is cancelled by the navigation that follows the click it is reporting");
+  assert.match(tracker, /keepalive: true/, "and the fallback needs the same guarantee");
+});
