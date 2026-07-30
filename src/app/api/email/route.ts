@@ -126,7 +126,13 @@ export async function POST(req: NextRequest) {
     const hygienic = filterList(consented).sendable.map((v) => v.email);
     // Persistent suppression: drop anyone the delivery-event feedback loop has
     // flagged (real bounces/complaints/unsubscribes), not just the in-memory set.
-    const { suppressedEmails, injectTracking, recordEvent, unsubscribeUrl } = await import("@/backend/email-events");
+    const { suppressedEmails, injectTracking, recordEvent, unsubscribeUrl, trackingBaseFor } = await import("@/backend/email-events");
+    // Resolved ONCE for the whole send. When this brand has published and
+    // verified its own email.<domain> CNAME, every link and the unsubscribe URL
+    // point at the brand's host instead of the shared platform one — the From
+    // domain and the link domain finally match, and one customer's spam run can
+    // no longer poison the click reputation of every other customer.
+    const trackBase = await trackingBaseFor(brandId).catch(() => undefined);
     const suppressedSet = await suppressedEmails(brandId);
     const sendable = hygienic.filter((e) => !suppressedSet.has(e.toLowerCase()));
     // Cap per call: a test send (first 1) or a bounded batch so a runaway blast
@@ -223,8 +229,8 @@ export async function POST(req: NextRequest) {
       return {
         to,
         subject: mergeTemplate(subject, { contact, brand: brandName }),
-        html: injectTracking(mergeTemplate(html, { contact, brand: brandName }), brandId, to, campaign),
-        listUnsubscribe: unsubscribeUrl(brandId, to, campaign),
+        html: injectTracking(mergeTemplate(html, { contact, brand: brandName }), brandId, to, campaign, trackBase),
+        listUnsubscribe: unsubscribeUrl(brandId, to, campaign, trackBase),
       };
     });
 

@@ -158,8 +158,36 @@ export function trackingBase(): string {
 
 // The one-click unsubscribe URL for a recipient (used both as an in-body link and
 // as the RFC 8058 List-Unsubscribe header).
-export function unsubscribeUrl(brandId: string, email: string, campaign = ""): string {
-  return `${trackingBase()}/api/track/unsubscribe?t=${signToken(brandId, email, campaign)}`;
+/**
+ * The tracking host for ONE brand.
+ *
+ * This used to be per-deployment, and that was a platform defect rather than a
+ * customer task. Mail went out from veryxjnn.com with every link inside it
+ * pointing at marketwaros.com — a From domain and a link domain that do not
+ * match, which filters notice, and worse: every customer's link reputation
+ * pooled onto one hostname, so one brand's spam run poisoned the click domain
+ * for all of them.
+ *
+ * Falls back to the platform host when the brand has not published its CNAME.
+ * Never a broken link — an unverified brand keeps working, it simply shares the
+ * pool until it does the ten minutes of DNS.
+ */
+export async function trackingBaseFor(brandId: string): Promise<string> {
+  try {
+    const { trackingHostFor } = await import("@/backend/sending-domains");
+    const host = await trackingHostFor(brandId);
+    if (host) return `https://${host}`;
+  } catch { /* fall through to the shared host */ }
+  return trackingBase();
+}
+
+/**
+ * `base` is passed in, not looked up here: a send resolves the brand's tracking
+ * host ONCE and reuses it for every recipient. Looking it up per address would
+ * be one datastore read per message.
+ */
+export function unsubscribeUrl(brandId: string, email: string, campaign = "", base = trackingBase()): string {
+  return `${base}/api/track/unsubscribe?t=${signToken(brandId, email, campaign)}`;
 }
 
 // Rewrite an outgoing HTML body to enable open + click tracking for ONE recipient:
@@ -167,8 +195,7 @@ export function unsubscribeUrl(brandId: string, email: string, campaign = ""): s
 //  • wrap every http(s) link through the click redirector (preserving the target),
 //  • append a one-click unsubscribe link (RFC-friendly, honours the ledger).
 // Deterministic and safe: only rewrites href targets, never touches text.
-export function injectTracking(html: string, brandId: string, email: string, campaign = ""): string {
-  const base = trackingBase();
+export function injectTracking(html: string, brandId: string, email: string, campaign = "", base = trackingBase()): string {
   const token = signToken(brandId, email, campaign);
   const pixel = `<img src="${base}/api/track/open?t=${token}" width="1" height="1" alt="" style="display:none" />`;
   const unsub = `<div style="margin-top:24px;font-size:12px;color:#94a3b8">If you'd rather not receive these, <a href="${base}/api/track/unsubscribe?t=${token}" style="color:#94a3b8">unsubscribe</a>.</div>`;

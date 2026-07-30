@@ -186,6 +186,23 @@ export async function removeDomain(brandId: string, domainRaw: string): Promise<
 
 // Live DNS verification — the domain only becomes "verified" when the required
 // records actually resolve to the expected values.
+/**
+ * The verified tracking host for a brand, or null.
+ *
+ * Only returned once the CNAME actually resolves to our host. Using an
+ * unverified hostname would produce links that 404 in a customer's inbox —
+ * far worse than sharing the platform host for another day.
+ */
+export async function trackingHostFor(brandId: string): Promise<string | null> {
+  const domains = await listDomains(brandId).catch(() => []);
+  for (const d of domains) {
+    if (d.status !== "verified") continue;
+    const track = d.records.find((r) => r.purpose === "Tracking");
+    if (track?.verified) return track.host;
+  }
+  return null;
+}
+
 export async function verifyDomain(brandId: string, domainRaw: string): Promise<SendingDomainView | null> {
   const rec = await getDomain(brandId, domainRaw);
   if (!rec) return null;

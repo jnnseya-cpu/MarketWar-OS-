@@ -5760,3 +5760,83 @@ test("deliverability: the guardrail actually blocks the send path", () => {
   assert.match(route, /if \(!isTest\) \{/,
     "a single test send cannot move a rate, and blocking the way someone verifies their fix helps nobody");
 });
+
+// ---------------------------------------------------------------------------
+// Per-brand tracking domains.
+//
+// A platform defect, not a customer task. Mail went out from veryxjnn.com with
+// every link inside it pointing at marketwaros.com: a From domain and a link
+// domain that do not match, which filters notice — and worse, every customer's
+// link reputation pooled onto ONE hostname, so a single brand's spam run
+// poisoned the click domain for everyone else on the platform.
+// ---------------------------------------------------------------------------
+const evts = await import("../src/backend/email-events.ts");
+const sdom = await import("../src/backend/sending-domains.ts");
+
+test("tracking domains: the CNAME a customer must publish is spelled out", () => {
+  const records = sdom.recordsFor({ domain: "VeryXJNN.com", selector: "mw1", publicKey: "AAAA" });
+  const track = records.find((r) => r.purpose === "Tracking");
+  assert.ok(track, "there is no way to align the link domain without telling the customer the record");
+  assert.equal(track.type, "CNAME");
+  assert.equal(track.host, "email.veryxjnn.com", "host is normalised — a customer typing WWW or a URL still gets the right record");
+});
+
+test("tracking domains: links use the brand's host once it is verified", () => {
+  const html = '<a href="https://veryxjnn.com/demo">Book</a>';
+  const branded = evts.injectTracking(html, "b1", "a@b.com", "camp", "https://email.veryxjnn.com");
+  assert.match(branded, /https:\/\/email\.veryxjnn\.com\/api\/track\/click/,
+    "the click redirector must sit on the brand's own domain");
+  assert.match(branded, /https:\/\/email\.veryxjnn\.com\/api\/track\/open/, "and so must the pixel");
+  assert.doesNotMatch(branded, /marketwaros\.com/,
+    "a link pointing at the platform from a customer's mail is the reputation pooling this fixes");
+  assert.match(evts.unsubscribeUrl("b1", "a@b.com", "camp", "https://email.veryxjnn.com"), /email\.veryxjnn\.com/);
+});
+
+test("tracking domains: an unverified brand still gets WORKING links", () => {
+  // Falling back is not a compromise, it is the requirement: a hostname whose
+  // CNAME has not propagated produces links that 404 in a customer's inbox,
+  // which is far worse than sharing the platform host for another day.
+  const html = '<a href="https://veryxjnn.com/demo">Book</a>';
+  const shared = evts.injectTracking(html, "b1", "a@b.com", "camp");
+  assert.match(shared, /\/api\/track\/click\?t=/, "the link still works");
+  assert.ok(shared.includes(evts.trackingBase()), "on the platform host, until the brand publishes its own");
+});
+
+test("tracking domains: only a VERIFIED cname is used", () => {
+  const src = readFileSync(new URL("../src/backend/sending-domains.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(d\.status !== "verified"\) continue;/);
+  assert.match(src, /if \(track\?\.verified\) return track\.host;/,
+    "an unpropagated CNAME would put a dead hostname in front of every recipient");
+});
+
+test("tracking domains: the host is resolved ONCE per send, not per recipient", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const trackBase = await trackingBaseFor\(brandId\)/);
+  assert.match(route, /injectTracking\([\s\S]*?campaign, trackBase\)/,
+    "the call nests mergeTemplate(), so the match has to cross parentheses");
+  assert.match(route, /unsubscribeUrl\(brandId, to, campaign, trackBase\)/);
+  // A lookup inside the per-recipient map would be one datastore read per
+  // message — 1,129 reads for a single campaign. The resolve has to sit above
+  // the map that builds the messages.
+  const mapAt = route.indexOf("const prepared = batch.map(");
+  const resolveAt = route.indexOf("const trackBase = await trackingBaseFor");
+  assert.ok(mapAt > 0, "the per-recipient map should exist");
+  assert.ok(resolveAt > 0 && resolveAt < mapAt,
+    "the tracking host must be resolved once, before the per-recipient map");
+  const insideMap = route.slice(mapAt, route.indexOf("});", mapAt));
+  assert.doesNotMatch(insideMap, /trackingBaseFor/,
+    "resolving inside the map is one datastore read per recipient");
+});
+
+test("email: one-click unsubscribe is set on the BULK path, per RFC 8058", () => {
+  // Google and Yahoo have required this of bulk senders since February 2024.
+  // Missing it means filtering regardless of DNS, content or list quality.
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  const headerPairs = email.split('headers["List-Unsubscribe"]').length - 1;
+  assert.ok(headerPairs >= 2, "both the single-send and the batched send paths must set it");
+  assert.match(email, /headers\["List-Unsubscribe-Post"\] = "List-Unsubscribe=One-Click"/,
+    "List-Unsubscribe alone is the OLD spec — one-click needs the Post header too");
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /listUnsubscribe: unsubscribeUrl\(brandId, to, campaign/,
+    "and the bulk route must actually pass a URL, or the header is never added");
+});
