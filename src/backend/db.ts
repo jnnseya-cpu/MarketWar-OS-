@@ -29,7 +29,10 @@ export async function saveAuditReport(
   if (!adminDb) return null;
   const record = input as unknown as Record<string, string>;
   const doc = await adminDb.collection("audits").add({
-    input: encryptPii(record, tenantId(record)),
+    // adminDb is non-null here (guarded above), so this write is real:
+    // persistenceLive=true makes a missing master key throw instead of
+    // silently storing contact details in plaintext.
+    input: encryptPii(record, tenantId(record), true),
     report,
     createdAt: new Date().toISOString(),
   });
@@ -44,7 +47,7 @@ export async function logAgentRun(
   await adminDb.collection("agent_runs").add({
     agentId: result.agentId,
     mode: result.mode,
-    input: encryptPii(input, tenantId(input)),
+    input: encryptPii(input, tenantId(input), true),
     output: result.output,
     generatedAt: result.generatedAt,
   });

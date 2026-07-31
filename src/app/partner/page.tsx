@@ -9,6 +9,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, Wallet, Users, LinkIcon, Copy, ShieldCheck, TrendingUp, Coins } from "lucide-react";
 
+
 type WalletData = {
   payoutEligible: boolean; followers: number; followersVerified: boolean;
   cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number;

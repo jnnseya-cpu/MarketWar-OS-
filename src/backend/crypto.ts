@@ -12,9 +12,23 @@ if (typeof window !== "undefined") {
 // implementing the inter-tenant isolation rule of docs/ai-os/08 §B.4a —
 // one tenant's key never decrypts another tenant's data.
 //
-// Env-guarded like everything else: without FIELD_ENCRYPTION_MASTER_KEY the
-// helpers are pass-through no-ops, which is safe because without Firebase
-// keys the persistence layer writes nothing at all (demo mode).
+// THE JUSTIFICATION THAT STOPPED BEING TRUE.
+//
+// This said: "without FIELD_ENCRYPTION_MASTER_KEY the helpers are pass-through
+// no-ops, which is safe because without Firebase keys the persistence layer
+// writes nothing at all (demo mode)." That holds only while the two variables
+// move together. They do not. Production REQUIRES Firebase Admin (the ISO2
+// fail-closed guard in brand-access.ts), so persistence is live and writing real
+// contact emails and phone numbers — and if the master key is absent they were
+// written in plaintext, while the Terms of Service tell the customer
+// "Field-level encryption is applied per business."
+//
+// A contract clause that is conditional on an environment variable, asserted as
+// a fact, is a misrepresentation; storing personal data unencrypted after
+// promising otherwise is also a UK GDPR Article 32 problem. So this now fails
+// CLOSED, exactly as ISO2 does for the other half: if real persistence is
+// configured and the key is not, writing PII throws rather than quietly
+// downgrading the protection the customer was promised.
 
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "crypto";
 
@@ -42,6 +56,26 @@ function businessKey(businessId: string): Buffer {
   return Buffer.from(hkdfSync("sha256", MASTER_KEY, "marketwar-os", `field-key:${businessId}`, 32));
 }
 
+/**
+ * Would a PII write silently lose its encryption?
+ *
+ * True only in the dangerous combination: real persistence configured, no key.
+ * Demo mode (no Admin, nothing persisted) is unaffected, so the zero-config
+ * promise still holds.
+ */
+export function encryptionMisconfigured(persistenceLive: boolean): boolean {
+  return persistenceLive && !encryptionConfigured;
+}
+
+export class EncryptionNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "Refusing to store personal data unencrypted. Firebase Admin is configured, so this write is real, but FIELD_ENCRYPTION_MASTER_KEY is not set — the contact details would be written in plaintext while the Terms of Service promise per-business field encryption. Set FIELD_ENCRYPTION_MASTER_KEY (32+ characters) before storing customer data.",
+    );
+    this.name = "EncryptionNotConfiguredError";
+  }
+}
+
 export function encryptField(plaintext: string, businessId: string): string {
   if (!encryptionConfigured) return plaintext;
   const iv = randomBytes(12);
@@ -63,8 +97,14 @@ export function decryptField(value: string, businessId: string): string {
 // Non-PII fields pass through untouched so analytics stay useful.
 export function encryptPii(
   record: Record<string, string>,
-  businessId: string
+  businessId: string,
+  /** True when this write actually persists. Callers pass adminConfigured. */
+  persistenceLive = false,
 ): Record<string, string> {
+  // Fail CLOSED. Returning the record unencrypted here is the exact moment the
+  // customer's contact details would go to disk in the clear under a contract
+  // that says they are encrypted.
+  if (encryptionMisconfigured(persistenceLive)) throw new EncryptionNotConfiguredError();
   if (!encryptionConfigured) return record;
   return Object.fromEntries(
     Object.entries(record).map(([k, v]) => [k, PII_FIELDS.has(k) ? encryptField(v, businessId) : v])

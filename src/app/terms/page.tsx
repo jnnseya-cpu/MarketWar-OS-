@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
+import LegalEntity from "@/components/LegalEntity";
 
 export const metadata: Metadata = {
   title: "Terms of Service · MarketWar OS",
@@ -24,7 +25,7 @@ export default function TermsPage() {
         <p>You will not use the Service to send unlawful, deceptive or non-consensual marketing; to generate content that infringes third-party rights; to impersonate others; to build fabricated reviews, testimonials or endorsements; or to circumvent the platform's consent, frequency-cap, rights or claim-verification safeguards. See the <Link href="/policies" className="text-emerald-400 hover:text-emerald-300">Acceptable Use Policy</Link>.</p>
 
         <H2>5. Your content & data</H2>
-        <p>You retain ownership of the content and data you provide. You grant us the limited licence needed to operate the Service (store, process, and generate outputs on your behalf). We process personal data per the <Link href="/privacy" className="text-emerald-400 hover:text-emerald-300">Privacy Policy</Link>. Field-level encryption is applied per business; one tenant can never access another's data.</p>
+        <p>You retain ownership of the content and data you provide. You grant us the limited licence needed to operate the Service (store, process, and generate outputs on your behalf). We process personal data per the <Link href="/privacy" className="text-emerald-400 hover:text-emerald-300">Privacy Policy</Link>. Personal data fields (contact names, emails, phone numbers) are encrypted at rest with AES-256-GCM under a key derived per business, so one business&rsquo;s key does not decrypt another&rsquo;s records. The platform refuses to store personal data at all if that encryption is not configured.</p>
 
         <H2>6. AI outputs</H2>
         <p>AI-generated outputs are provided as assistance, not guaranteed results. Scores and predictions are labelled estimates. You are responsible for reviewing outputs before publishing, and for ensuring any claims are substantiated. The Service blocks unsubstantiated superlatives and applies compliance checks, but final responsibility for published material is yours.</p>
@@ -44,7 +45,10 @@ export default function TermsPage() {
         <H2>11. Governing law</H2>
         <p>These terms are governed by the laws of England and Wales, unless a mandatory local law applies to you. Disputes are subject to the exclusive jurisdiction of the courts of England and Wales.</p>
 
-        <H2>12. Contact</H2>
+        <H2>12. Who you are contracting with</H2>
+        <LegalEntity />
+
+        <H2>13. Contact</H2>
         <p>Questions about these terms: <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact us</Link>.</p>
       </Prose>
     </MarketingShell>

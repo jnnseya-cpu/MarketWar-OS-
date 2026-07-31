@@ -1,6 +1,18 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
+import type { Metadata } from "next";
+
+// Pages the product tells customers never to ship without a title and
+// description — while shipping several itself. The pricing page is the
+// sharpest: a search result for it had nothing but the site-wide default.
+export const metadata: Metadata = {
+  title: "How MarketWar OS works · From URL to running campaigns",
+  description: "Paste your website. The OS audits the real page, builds your Business DNA, maps where you can win, then writes, publishes and measures the campaigns — with nothing published without your approval.",
+  alternates: { canonical: "/how-it-works" },
+  openGraph: { title: "How MarketWar OS works · From URL to running campaigns", description: "Paste your website. The OS audits the real page, builds your Business DNA, maps where you can win, then writes, publishes and measures the campaigns — with nothing published without your approval.", type: "website" },
+};
+
 const PHASES = [
   {
     phase: "Phase 1 — Brain Sync",

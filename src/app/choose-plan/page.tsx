@@ -11,6 +11,7 @@ import { Check, Loader2, Sparkles } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { BrandLockup } from "@/components/Logo";
 
+
 type Plan = {
   id: string; name: string; monthlyGbp: number; annualGbp: number; annualSavingGbp: number;
   monthlyAcus: number; annualMonthlyReleaseAcus: number;

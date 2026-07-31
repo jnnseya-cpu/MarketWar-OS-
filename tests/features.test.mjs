@@ -7337,6 +7337,18 @@ test("blog cron: a daily spend does not start itself", () => {
 // ---------------------------------------------------------------------------
 
 const spend = await import("../src/backend/ai-spend.ts");
+const crypto_ = await import("../src/backend/crypto.ts");
+
+/**
+ * Source with comments removed.
+ *
+ * Three assertions in this file have now tripped on their own documentation:
+ * a robots test that forbade "GPTBot" matched the comment explaining why we
+ * allow it, and a schema test that forbade "aggregateRating" matched the
+ * comment listing the fields we refuse to publish. Assert against CODE.
+ */
+const codeOnly = (src) => src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+
 
 test("ai-spend: an unknown model is priced as expensive, never as free", () => {
   // Guessing cheap on an unknown model is how a ceiling silently stops working
@@ -7423,4 +7435,105 @@ test("agents: a customer's paid run is marked paid", () => {
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /AI_MONTHLY_CEILING_USD=/);
   assert.match(env, /provider console/, "the console limit is the real backstop and must be named");
+});
+
+// ---------------------------------------------------------------------------
+// The public site, audited against the product's own doctrine.
+//
+// We sell an SEO/AEO product, a Truth Layer that blocks unsubstantiated claims,
+// and per-business encryption written into the Terms. The site has to pass its
+// own rules — an SEO product with no sitemap is not a small irony, it is the
+// clearest signal that the advice is not taken seriously.
+// ---------------------------------------------------------------------------
+
+test("public site: it publishes the files it scores customers on", () => {
+  // geo-readiness weights llms.txt at 15% of a customer's AI-readiness score,
+  // and the crawler checks robots.txt and sitemap.xml. We had none of the three.
+  for (const f of ["sitemap.ts", "robots.ts", "llms.txt/route.ts"]) {
+    assert.ok(existsSync(new URL(`../src/app/${f}`, import.meta.url)), `missing /${f}`);
+  }
+  const robots = codeOnly(readFileSync(new URL("../src/app/robots.ts", import.meta.url), "utf8"));
+  assert.match(robots, /sitemap:/, "robots.txt must point at the sitemap");
+  assert.doesNotMatch(robots, /GPTBot|ClaudeBot|PerplexityBot/,
+    "we must not block the AI crawlers the visibility product measures");
+  assert.match(robots, /disallow: \[[^\]]*"\/dashboard\/"/, "signed-in surfaces stay out of the index");
+
+  const llms = readFileSync(new URL("../src/app/llms.txt/route.ts", import.meta.url), "utf8");
+  assert.match(llms, /publishes no customer results/,
+    "the file must tell assistants not to present our targets as customer results");
+});
+
+test("public site: every public page has its own title and description", () => {
+  // The pricing page had neither, so a search result for it showed only the
+  // site-wide default — on the page where the customer decides.
+  const pages = execSync('find src/app -name "page.tsx" -not -path "*/dashboard/*"', { encoding: "utf8" })
+    .split("\n").filter(Boolean);
+  const exempt = /\/(onboarding|r\/\[code\]|b\/\[brandId\])/;
+  for (const page of pages) {
+    if (exempt.test(page)) continue;
+    const dir = page.replace(/\/page\.tsx$/, "");
+    const own = readFileSync(page, "utf8");
+    const layout = existsSync(`${dir}/layout.tsx`) ? readFileSync(`${dir}/layout.tsx`, "utf8") : "";
+    const hasMeta = /export const metadata|generateMetadata/.test(own + layout) || dir === "src/app";
+    assert.ok(hasMeta, `${dir} has no title/description of its own`);
+  }
+});
+
+test("public site: our own structured data invents nothing", () => {
+  // seo-artifacts refuses to emit a rating, review count or price it cannot
+  // verify for a customer. Our own schema must hold to the same rule.
+  const jsonldRaw = readFileSync(new URL("../src/components/SiteJsonLd.tsx", import.meta.url), "utf8");
+  const jsonld = codeOnly(jsonldRaw);
+  for (const forbidden of [/aggregateRating/, /reviewCount/, /ratingValue/, /foundingDate/, /numberOfEmployees/, /award/]) {
+    assert.doesNotMatch(jsonld, forbidden, "a schema field we cannot substantiate must not be published");
+  }
+  assert.match(jsonld, /legalEntityConfigured && ENTITY/, "a legalName is published only when it is real");
+  assert.match(jsonldRaw, /\\\\u003c/, "the payload must be escaped, like the auto-deploy snippet");
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /<SiteJsonLd \/>/, "and it must actually be rendered");
+});
+
+test("public site: the Terms name who the customer is contracting with", () => {
+  // "MarketWar OS, operated at marketwaros.com" is a product name and a domain.
+  // It identifies nobody, and UK law requires the legal name, registered address
+  // and company number of a business trading online.
+  const entity = readFileSync(new URL("../src/components/LegalEntity.tsx", import.meta.url), "utf8");
+  assert.match(entity, /NEXT_PUBLIC_LEGAL_ENTITY_NAME/);
+  assert.match(entity, /NEXT_PUBLIC_COMPANY_NUMBER/);
+  // Never a plausible placeholder: an invented company number in a contract is
+  // a fabrication in the one document where it is least defensible.
+  assert.doesNotMatch(entity, /\b\d{7,8}\b/, "no invented company number");
+  assert.match(entity, /not yet published here/, "an unconfigured entity says so plainly");
+  const terms = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.match(terms, /<LegalEntity \/>/);
+});
+
+test("crypto: personal data is never written in plaintext under a contract that promises encryption", () => {
+  // The Terms said "Field-level encryption is applied per business". The code
+  // made that conditional on FIELD_ENCRYPTION_MASTER_KEY, and its own comment
+  // justified the fallback with "without Firebase keys nothing is persisted" —
+  // which stopped being true, because production REQUIRES Firebase Admin.
+  assert.equal(crypto_.encryptionMisconfigured(false), false, "demo mode persists nothing and is unaffected");
+  assert.equal(crypto_.encryptionMisconfigured(true), !crypto_.encryptionConfigured);
+
+  if (!crypto_.encryptionConfigured) {
+    assert.throws(
+      () => crypto_.encryptPii({ email: "a@b.com" }, "biz", true),
+      /Refusing to store personal data unencrypted/,
+      "a real write with no key must throw, not silently downgrade",
+    );
+    // And the demo path still works, so zero-config is preserved.
+    assert.deepEqual(crypto_.encryptPii({ email: "a@b.com" }, "biz", false), { email: "a@b.com" });
+  }
+
+  // Both persistence call sites must declare the write is real.
+  const db = readFileSync(new URL("../src/backend/db.ts", import.meta.url), "utf8");
+  assert.equal((db.match(/encryptPii\([\s\S]{0,80}?,\s*true\)/g) || []).length, 2,
+    "every persisted write must pass persistenceLive=true");
+
+  const terms = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(terms, /one tenant can never access/,
+    "'never' is an absolute we cannot prove in a contract");
+  assert.match(terms, /refuses to store personal data at all if that encryption is not configured/,
+    "the clause must describe what the code actually does");
 });

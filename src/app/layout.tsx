@@ -3,6 +3,7 @@ import Script from "next/script";
 import { Space_Grotesk, Inter } from "next/font/google";
 import "./globals.css";
 import PWARegister from "@/components/PWARegister";
+import SiteJsonLd from "@/components/SiteJsonLd";
 
 // Google Tag Manager container. Overridable per-environment via NEXT_PUBLIC_GTM_ID
 // (set it empty to disable, e.g. in a staging build); defaults to the live container.
@@ -49,6 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
       <body className="font-body">
+        <SiteJsonLd />
         {/* Google Tag Manager (noscript) — immediately after <body> */}
         {GTM_ID ? (
           <noscript>
