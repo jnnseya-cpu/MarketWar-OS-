@@ -133,6 +133,37 @@ export default function WebsiteIntelPage() {
   type Crawl = { coveragePct?: number; unreadable?: string[]; scoreNote?: string; ok: boolean; url: string; finalUrl?: string; httpStatus?: number; https: boolean; loadMs?: number; score: number; grade: string; title?: string; metaDescription?: string; h1Count?: number; wordCount?: number; imagesTotal?: number; imagesNoAlt?: number; internalLinks?: number; externalLinks?: number; robotsTxt?: boolean; sitemapXml?: boolean; structuredDataTypes?: string[]; findings: Finding[]; renderGap?: { jsShell?: boolean; framework?: string; words?: number; scriptShare?: number; note?: string }; block?: { kind: string; vendor?: string; message: string; action: string }; error?: string };
   const [crawl, setCrawl] = useState<Crawl | null>(null);
   const [crawling, setCrawling] = useState(false);
+
+  // Deep crawl — several pages, robots-obeying, with extraction.
+  type Deep = {
+    note: string;
+    partial: boolean;
+    robots: { present: boolean; disallowed: string[]; crawlDelayMs: number };
+    pages: { url: string; ok: boolean; skipped?: string }[];
+    extraction: null | {
+      products: { values: string[] }; services: { values: string[] };
+      pricing: { value: string; declared: boolean }[];
+      images: { url: string; label: string }[]; logos: string[]; colours: string[]; fonts: string[];
+      ctas: string[]; trustSignals: string[]; offers: string[];
+      faqs: { q: string }[]; socialLinks: { url: string; label: string }[];
+      contact: { emails: string[]; phones: string[]; address: string };
+      notExtracted: { field: string; reason: string }[];
+      found: number;
+    };
+    error?: string;
+  };
+  const [deep, setDeep] = useState<Deep | null>(null);
+  const [deepBusy, setDeepBusy] = useState(false);
+  async function runDeep() {
+    if (!website.trim()) return;
+    setDeepBusy(true); setDeep(null);
+    try {
+      const r = await authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "deep", url: website }) });
+      const d = await r.json();
+      setDeep(r.ok ? d : { note: d.error || "The deep crawl failed.", partial: false, robots: { present: false, disallowed: [], crawlDelayMs: 0 }, pages: [], extraction: null });
+    } catch { setDeep({ note: "Couldn't reach the crawler.", partial: false, robots: { present: false, disallowed: [], crawlDelayMs: 0 }, pages: [], extraction: null }); }
+    finally { setDeepBusy(false); }
+  }
   async function runCrawl() {
     if (!website.trim()) return;
     setCrawling(true); setCrawl(null);
@@ -331,14 +362,66 @@ export default function WebsiteIntelPage() {
             booking sites
           </span>
         </div>
-        <div className="mb-1.5 flex items-center gap-2">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">Deep crawl extracts</p>
-          <StatusChip status="p1" />
+          <StatusChip status="live" />
+          <button className="btn-primary ml-auto !py-1 text-xs" onClick={runDeep} disabled={deepBusy || !website.trim()}>
+            {deepBusy ? <><Loader2 className="h-3 w-3 animate-spin" /> Reading the site…</> : <><Radar className="h-3 w-3" /> Deep crawl this site</>}
+          </button>
         </div>
         <p className="mb-2 text-[11px] text-slate-500">
-          Auto-extraction from a live URL activates with the robots-respecting crawler soon. Today, describe the business in the
-          <span className="text-emerald-300"> Instant Marketing Audit</span> below and the engine computes the full audit, DNA and attack map now.
+          Reads several pages of your real site — sitemap first, then your own navigation — obeying robots.txt and any Crawl-delay it sets, and pulls the list below out of the HTML. No connector, no third party, no key.
         </p>
+
+        {deep && (
+          <div className="mb-3 rounded-lg border border-white/[0.08] p-3">
+            <p className="text-[11px] leading-relaxed text-slate-300">{deep.note}</p>
+            {deep.robots.disallowed.length > 0 && (
+              <p className="mt-1 text-[11px] text-amber-200/80">
+                Not fetched, because your robots.txt disallows them: {deep.robots.disallowed.join(", ")}
+              </p>
+            )}
+            {deep.extraction && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {([
+                  ["Products", deep.extraction.products.values],
+                  ["Services", deep.extraction.services.values],
+                  ["CTAs", deep.extraction.ctas],
+                  ["Colours", deep.extraction.colours],
+                  ["Fonts", deep.extraction.fonts],
+                  ["Trust signals", deep.extraction.trustSignals],
+                  ["Offers", deep.extraction.offers],
+                  ["FAQs", deep.extraction.faqs.map((f) => f.q)],
+                  ["Social links", deep.extraction.socialLinks.map((l) => l.label || l.url)],
+                  ["Contact", [...deep.extraction.contact.emails, ...deep.extraction.contact.phones, deep.extraction.contact.address].filter(Boolean)],
+                  ["Logos", deep.extraction.logos],
+                  ["Images", deep.extraction.images.map((i) => i.label || i.url)],
+                ] as [string, string[]][]).filter(([, v]) => v.length > 0).map(([label, values]) => (
+                  <div key={label} className="rounded-lg bg-ink-900/50 p-2.5">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{label} <span className="text-slate-600">({values.length})</span></p>
+                    <p className="text-[11px] leading-relaxed text-slate-300">{values.slice(0, 6).map((v) => String(v).slice(0, 60)).join(" · ")}{values.length > 6 ? ` … +${values.length - 6}` : ""}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* What we refused to guess, and why — never quietly omitted. */}
+            {deep.extraction && deep.extraction.notExtracted.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-2.5">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-200">Not extracted</p>
+                {deep.extraction.notExtracted.map((n) => (
+                  <p key={n.field} className="text-[11px] leading-relaxed text-amber-100/80"><strong>{n.field}.</strong> {n.reason}</p>
+                ))}
+              </div>
+            )}
+            {deep.extraction && deep.extraction.pricing.length > 0 && (
+              <p className="mt-2 text-[11px] text-slate-400">
+                <span className="font-semibold text-white">Pricing:</span>{" "}
+                {deep.extraction.pricing.map((p) => `${p.value}${p.declared ? "" : " (seen in text, not declared in structured data)"}`).slice(0, 6).join(" · ")}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-1.5">
           {CRAWL_EXTRACTS.map((c) => (
             <span key={c} className="rounded-full bg-ink-850 px-2.5 py-1 text-[10px] font-semibold text-slate-400">

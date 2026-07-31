@@ -5,6 +5,7 @@ import {
   type Authorisation, type SiteExtract, type Claim,
 } from "@/backend/siteraid";
 import { crawlSite } from "@/backend/crawler";
+import { deepCrawl } from "@/backend/deep-crawl";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 
@@ -18,7 +19,14 @@ import { meterAction } from "@/backend/wallet";
 // POST { action: "attack", site{…} }                       → Competitive Attack Map
 // GET  → doctrine, input types, gap classes, priorities, demo SiteRaid run
 
+// A deep crawl fetches robots.txt, a sitemap, a stylesheet and up to a dozen
+// pages, one at a time and politely. It needs room; overrunning returns a 504
+// with no body, which tells the customer nothing.
+export const maxDuration = 120;
+const DEEP_BUDGET_MS = 105_000;
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   // P1 denial-of-wallet: this route spends real provider budget (AI/search/crawl).
   // Rate-limit always; require auth + meter ACUs once accounts are enforced.
   const _rl = rateLimit(clientKey(req, "siteraid"), 60, 60_000, Date.now());
@@ -43,6 +51,22 @@ export async function POST(req: NextRequest) {
     const target = typeof body.url === "string" ? body.url : "";
     if (!target.trim()) return NextResponse.json({ error: "A website URL is required to crawl." }, { status: 400 });
     return NextResponse.json(await crawlSite(target));
+  }
+
+  // Deep crawl — several pages, robots-obeying, with extraction. This is what
+  // "Activate with a connector" was standing in for; there is no connector.
+  if (action === "deep") {
+    const rl = rateLimit(clientKey(req, "siteraid-deep"), 6, 60_000, Date.now());
+    if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    const target = typeof body.url === "string" ? body.url : "";
+    if (!target.trim()) return NextResponse.json({ error: "A website URL is required to crawl." }, { status: 400 });
+    // Budget anchored at arrival, under maxDuration, so a big site returns a
+    // partial answer that says so rather than a 504 that says nothing.
+    const spent = Date.now() - startedAt;
+    return NextResponse.json(await deepCrawl(target, {
+      maxPages: Math.max(1, Math.min(12, Number(body.maxPages) || 8)),
+      budgetMs: Math.max(10_000, DEEP_BUDGET_MS - spent),
+    }));
   }
 
   if (action === "authorise") {

@@ -6395,3 +6395,268 @@ test("seo-deploy: 'will be applied' is not printed when nothing can be", () => {
   const route = readFileSync(new URL("../src/app/api/seo/deploy/route.ts", import.meta.url), "utf8");
   assert.match(route, /note: saveNote\(config\)/, "the route must use it, not rebuild the wording inline");
 });
+
+// ---------------------------------------------------------------------------
+// Deep crawl — "Works on any URL" and "Activate with a connector" cannot both
+// be true, and they sat one above the other on the same screen. There was no
+// connector: the crawler was fetching the page and discarding almost all of it.
+// ---------------------------------------------------------------------------
+
+const rb = await import("../src/backend/robots.ts");
+const sx = await import("../src/backend/site-extract.ts");
+const dc = await import("../src/backend/deep-crawl.ts");
+
+test("robots: ONE group applies — the most specific, not the union of all", () => {
+  const f = rb.parseRobots([
+    "User-agent: Googlebot", "Disallow: /google-only", "",
+    "User-agent: MarketWarBot", "Disallow: /private", "",
+    "User-agent: *", "Disallow: /",
+  ].join("\n"));
+  // Our own group wins outright: neither the "*" blanket ban nor Googlebot's rule.
+  assert.equal(rb.robotsAllows(f, "/private").allowed, false);
+  assert.equal(rb.robotsAllows(f, "/google-only").allowed, true, "that rule was written for someone else");
+  assert.equal(rb.robotsAllows(f, "/anything").allowed, true, "the * group does not apply once a named group matches");
+});
+
+test("robots: longest match wins, and a tie goes to Allow", () => {
+  const f = rb.parseRobots("User-agent: *\nDisallow: /admin\nAllow: /admin/public");
+  assert.equal(rb.robotsAllows(f, "/admin/secret").allowed, false);
+  assert.equal(rb.robotsAllows(f, "/admin/public/page").allowed, true,
+    "reading top-to-bottom and taking the first hit gets this backwards");
+  const tie = rb.parseRobots("User-agent: *\nDisallow: /x\nAllow: /x");
+  assert.equal(rb.robotsAllows(tie, "/x").allowed, true, "equal length: Allow wins, per RFC 9309");
+});
+
+test("robots: an empty Disallow is permission, and a missing file is too", () => {
+  assert.equal(rb.robotsAllows(rb.parseRobots("User-agent: *\nDisallow:"), "/anything").allowed, true);
+  assert.equal(rb.robotsAllows(rb.parseRobots("User-agent: *\nDisallow: /"), "/anything").allowed, false);
+  const none = rb.parseRobots("", false);
+  assert.equal(rb.robotsAllows(none, "/").allowed, true);
+  assert.match(rb.robotsAllows(none, "/").reason, /permitted by default/);
+});
+
+test("robots: wildcards and the $ anchor", () => {
+  const f = rb.parseRobots("User-agent: *\nDisallow: /*.pdf$\nDisallow: /tmp/*/private");
+  assert.equal(rb.robotsAllows(f, "/files/report.pdf").allowed, false);
+  assert.equal(rb.robotsAllows(f, "/files/report.pdf.html").allowed, true, "the $ anchors the end");
+  assert.equal(rb.robotsAllows(f, "/tmp/a/private").allowed, false);
+  assert.equal(rb.robotsAllows(f, "/tmp/private").allowed, true);
+});
+
+test("robots: an agent group is matched by name, never by substring", () => {
+  // A group for "BadBot" must not capture "MarketWarBot" — we would then be
+  // obeying rules written about somebody else entirely.
+  const f = rb.parseRobots("User-agent: Bot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin");
+  assert.equal(rb.robotsAllows(f, "/pricing").allowed, true);
+  assert.equal(rb.robotsAllows(f, "/admin").allowed, false, "we fall back to the * group instead");
+});
+
+test("robots: the site's Crawl-delay is honoured, and capped", () => {
+  assert.equal(rb.crawlDelayMs(rb.parseRobots("User-agent: *\nCrawl-delay: 2")), 2000);
+  assert.equal(rb.crawlDelayMs(rb.parseRobots("User-agent: *\nCrawl-delay: 9999")), 5000, "one hostile value cannot stall a crawl");
+  assert.equal(rb.crawlDelayMs(rb.parseRobots("User-agent: *\nDisallow: /x")), 0);
+});
+
+// --- extraction ---
+
+const PAGE = `<!doctype html><html lang="en-GB"><head>
+<title>VeryX — a work-centric CDE | VeryX</title>
+<meta property="og:site_name" content="VeryX">
+<meta name="description" content="A work-centric common data environment for site teams.">
+<meta name="theme-color" content="#2E7CF6">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/favicon.png">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+ {"@type":"Organization","name":"VeryX","logo":"https://veryxjnn.com/logo.svg","telephone":"+33 1 23 45 67 89",
+  "address":{"@type":"PostalAddress","streetAddress":"12 Rue de Rivoli","addressLocality":"Paris"},
+  "aggregateRating":{"@type":"AggregateRating","ratingValue":"4.7","reviewCount":"213"}},
+ {"@type":"Product","name":"VeryX Pro","offers":{"@type":"Offer","price":"49","priceCurrency":"EUR"}},
+ {"@type":"Question","name":"Do you offer a trial?","acceptedAnswer":{"@type":"Answer","text":"Yes, 14 days."}}
+]}</script></head><body>
+<nav><a href="/pricing">Pricing</a><a href="/about">About us</a></nav>
+<h1>Built for site teams</h1><h2>Why VeryX</h2>
+<a href="/signup" class="cta">Get a quote</a><button>Add to cart</button>
+<p>30% off until Friday. Money-back guarantee on every plan. Trusted by 400 teams since 2019. Also seen at £99 elsewhere.</p>
+<img src="/hero.jpg" alt="Site team on a project"><img src="/logo-mark.png">
+<iframe src="https://www.youtube.com/embed/abc123" title="Product tour"></iframe>
+<a href="https://www.linkedin.com/company/veryx">LinkedIn</a>
+<a href="/blog/how-to-choose-a-cde">How to choose a CDE</a>
+<a href="mailto:hello@veryxjnn.com">Email us</a>
+</body></html>`;
+const CSS = `:root{--brand:#2e7cf6}body{font-family:"Inter",sans-serif;color:#111827}`;
+
+test("site-extract: it reads the page it was already holding", () => {
+  const x = sx.extractPage(PAGE, "https://veryxjnn.com/", CSS);
+  assert.equal(x.brand.name, "VeryX");
+  assert.equal(x.brand.lang, "en-GB");
+  assert.deepEqual(x.products.values, ["VeryX Pro"]);
+  assert.ok(x.logos.some((l) => l.includes("logo.svg")));
+  assert.ok(x.colours.includes("#2e7cf6"), "theme-color and the stylesheet both feed this");
+  assert.ok(x.fonts.includes("Inter"));
+  assert.ok(x.ctas.includes("Get a quote") && x.ctas.includes("Add to cart"));
+  assert.ok(x.navigation.some((n) => n.label === "About us"), "'About us' is navigation, not a CTA");
+  assert.ok(!x.ctas.includes("About us"));
+  assert.equal(x.reviews[0].rating, "4.7");
+  assert.equal(x.reviews[0].count, "213");
+  assert.equal(x.faqs[0].q, "Do you offer a trial?");
+  assert.ok(x.videos.some((v) => v.url.includes("youtube")));
+  assert.ok(x.socialLinks.some((l) => l.url.includes("linkedin")));
+  assert.ok(x.blogLinks.some((l) => l.url.includes("/blog/")));
+  assert.ok(x.contact.emails.includes("hello@veryxjnn.com"));
+  assert.match(x.contact.address, /Rue de Rivoli/);
+  assert.ok(x.trustSignals.some((t) => /money-back|guarantee/i.test(t)));
+  assert.ok(x.offers.some((o) => /30% off/i.test(o)));
+  assert.ok(x.hierarchy[0].level === 1 && x.hierarchy[0].text === "Built for site teams");
+  assert.ok(x.images.some((i) => i.url.endsWith("/hero.jpg")), "and relative URLs are made absolute");
+});
+
+test("site-extract: a DECLARED price is never merged with one merely seen in prose", () => {
+  // Only one of these is safe to quote back in an advert. The £99 is a sentence
+  // about somebody else's pricing.
+  const x = sx.extractPage(PAGE, "https://veryxjnn.com/", CSS);
+  const declared = x.pricing.filter((p) => p.declared);
+  const seen = x.pricing.filter((p) => !p.declared);
+  assert.equal(declared.length, 1);
+  assert.equal(declared[0].value, "49");
+  assert.equal(declared[0].currency, "EUR");
+  assert.ok(seen.some((p) => p.value.includes("99")));
+  assert.match(seen[0].context, /seen in the page text/);
+});
+
+test("site-extract: audience is refused, with the reason, on every page", () => {
+  // You cannot read who a business sells to off its markup. An inference printed
+  // in a list headed "extracts" is a fabrication with good posture.
+  const x = sx.extractPage(PAGE, "https://veryxjnn.com/", CSS);
+  assert.equal(x.audience, null);
+  const gap = x.notExtracted.find((n) => n.field === "Audience");
+  assert.ok(gap);
+  assert.match(gap.reason, /not written in its markup/i);
+  // And a merge must not quietly lose the refusal.
+  assert.equal(sx.mergeExtractions([x, x]).audience, null);
+  assert.ok(sx.mergeExtractions([x, x]).notExtracted.some((n) => n.field === "Audience"));
+});
+
+test("site-extract: merging keeps declared prices ahead of prose ones", () => {
+  const blog = sx.extractPage(`<html><body><p>Competitors charge $1,299 a seat.</p></body></html>`, "https://veryxjnn.com/blog/x");
+  // Blog FIRST on purpose: if the sort were removed, source order alone would
+  // put the prose price at the top and the test would prove nothing.
+  const merged = sx.mergeExtractions([blog, sx.extractPage(PAGE, "https://veryxjnn.com/", CSS)]);
+  assert.equal(merged.pricing[0].value, "49");
+  assert.equal(merged.pricing[0].declared, true,
+    "a stray number in a blog post must not outrank the price the business published");
+});
+
+// --- the crawl itself ---
+
+const deepWith = async (pages, opts = {}) => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const key = Object.keys(pages).find((k) => String(url).endsWith(k) || String(url) === k);
+    const p = key ? pages[key] : { status: 404, body: "" };
+    return { ok: p.status < 300, status: p.status, url: String(url), headers: { get: () => null },
+      arrayBuffer: async () => new TextEncoder().encode(p.body || "").buffer, text: async () => p.body || "" };
+  };
+  try { return await dc.deepCrawl("https://veryxjnn.com/", { sleep: async () => {}, ...opts }); }
+  finally { globalThis.fetch = real; }
+};
+
+test("deep-crawl: it obeys robots.txt instead of merely detecting it", async () => {
+  const r = await deepWith({
+    "/robots.txt": { status: 200, body: "User-agent: *\nDisallow: /private\nSitemap: https://veryxjnn.com/sitemap.xml" },
+    "/sitemap.xml": { status: 200, body: "<urlset><loc>https://veryxjnn.com/pricing</loc><loc>https://veryxjnn.com/private/deal</loc></urlset>" },
+    "https://veryxjnn.com/": { status: 200, body: PAGE },
+    "/pricing": { status: 200, body: PAGE },
+    "/private/deal": { status: 200, body: "<html><body>secret</body></html>" },
+    "/style.css": { status: 200, body: CSS },
+  });
+  assert.ok(r.robots.present && r.robots.obeyed);
+  assert.ok(r.robots.disallowed.includes("/private/deal"), "the disallowed page must be named, not silently dropped");
+  assert.ok(!r.pages.some((p) => p.ok && p.url.includes("/private/")), "and never fetched");
+  assert.ok(r.pages.some((p) => p.ok && p.url.includes("/pricing")));
+  assert.match(r.note, /read and obeyed/);
+});
+
+test("deep-crawl: it stays on one site", async () => {
+  const urls = dc.discoverUrls({
+    sitemapXml: "<urlset><loc>https://veryxjnn.com/a</loc><loc>https://someone-else.com/b</loc></urlset>",
+    html: '<a href="https://evil.example/x">x</a><a href="/pricing">p</a>',
+    base: "https://veryxjnn.com/", host: "veryxjnn.com", cap: 20,
+  });
+  assert.ok(urls.some((u) => u.includes("veryxjnn.com/a")));
+  assert.ok(urls.some((u) => u.includes("veryxjnn.com/pricing")));
+  assert.ok(!urls.some((u) => u.includes("someone-else.com") || u.includes("evil.example")),
+    "a crawler that wanders off-domain is fetching third parties nobody authorised");
+});
+
+test("deep-crawl: commercially useful pages are reached before the blog archive", () => {
+  const urls = dc.discoverUrls({
+    sitemapXml: "",
+    html: ['<a href="/blog/1">1</a>', '<a href="/blog/2">2</a>', '<a href="/blog/3">3</a>', '<a href="/pricing">p</a>'].join(""),
+    base: "https://veryxjnn.com/", host: "veryxjnn.com", cap: 2,
+  });
+  assert.ok(urls[0].includes("/pricing"), "a pricing page is worth more to an audit than the twelfth blog post");
+});
+
+test("deep-crawl: a partial answer SAYS it is partial", async () => {
+  const many = { "/robots.txt": { status: 404, body: "" },
+    "/sitemap.xml": { status: 200, body: Array.from({ length: 30 }, (_, i) => `<loc>https://veryxjnn.com/p${i}</loc>`).join("") },
+    "https://veryxjnn.com/": { status: 200, body: PAGE }, "/style.css": { status: 200, body: CSS } };
+  for (let i = 0; i < 30; i++) many[`/p${i}`] = { status: 200, body: PAGE };
+  const r = await deepWith(many, { maxPages: 3 });
+  assert.equal(r.partial, true);
+  assert.match(r.note, /sample of the site, not all of it/);
+  assert.ok(r.pages.filter((p) => p.ok).length <= 3, "the cap is real");
+});
+
+test("deep-crawl: the single-page audit still runs, and a blocked site says so", async () => {
+  const r = await deepWith({
+    "/robots.txt": { status: 404, body: "" },
+    "https://veryxjnn.com/": { status: 403, body: "<html><body>cf-browser-verification Attention Required! | Cloudflare</body></html>" },
+  });
+  assert.equal(r.audit.ok, false);
+  assert.equal(r.extraction, null, "there is nothing to extract from a challenge page");
+  assert.match(r.note, /could not be read|Cloudflare/i);
+});
+
+test("deep-crawl: the entry URL is normalised, so the homepage is not read twice", async () => {
+  // "evandeli.com" became "https://evandeli.com" with no trailing slash, while
+  // every URL discovered from the sitemap carried one — so `u !== start` never
+  // matched and the homepage was fetched as itself AND from the site's own
+  // sitemap, burning a slot out of the page cap to re-read what we had.
+  const seen = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    seen.push(String(url));
+    const u = String(url);
+    const body = u.endsWith("/robots.txt") ? "User-agent: *"
+      : u.endsWith("/sitemap.xml") ? "<urlset><loc>https://veryxjnn.com/</loc><loc>https://veryxjnn.com/pricing</loc></urlset>"
+      : PAGE;
+    return { ok: true, status: 200, url: u, headers: { get: () => null },
+      arrayBuffer: async () => new TextEncoder().encode(body).buffer, text: async () => body };
+  };
+  let r;
+  try { r = await dc.deepCrawl("veryxjnn.com", { maxPages: 4, sleep: async () => {} }); }
+  finally { globalThis.fetch = real; }
+
+  const homepageReads = r.pages.filter((p) => p.ok && new URL(p.url).pathname === "/").length;
+  assert.equal(homepageReads, 1, "the homepage must appear once, not once per spelling of its URL");
+  assert.ok(r.pages.some((p) => p.ok && p.url.includes("/pricing")), "and the freed slot goes to a real page");
+});
+
+test("site-extract: an offer is scoped to its own block, not to the whole page", () => {
+  // A live crawl recorded this as an offer: "struction intelligence Pricing
+  // About us Deals Construction intelligence Get a quote Start free trial 20%
+  // off until Friday" — the nav, the H1 and the buttons, swept in because none
+  // of them contains a full stop for a character-window regex to stop at.
+  const html = `<html><body>
+    <nav><a href="/pricing">Pricing</a><a href="/about">About us</a></nav>
+    <h1>Construction intelligence</h1>
+    <button>Start free trial</button>
+    <p>20% off until Friday.</p></body></html>`;
+  const x = sx.extractPage(html, "https://evandeli.com/");
+  assert.ok(x.offers.some((o) => /^20% off until Friday/.test(o)));
+  assert.ok(!x.offers.some((o) => /Pricing|About us|Construction intelligence/.test(o)),
+    "navigation and headings are not part of the promotion");
+  assert.ok(!x.offers.includes("Start free trial"), "that is a call to action, and is already counted as one");
+  assert.ok(x.ctas.includes("Start free trial"));
+});
