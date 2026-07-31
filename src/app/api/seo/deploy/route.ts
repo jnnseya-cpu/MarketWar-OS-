@@ -3,7 +3,7 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import {
   getDeployConfig, saveDeployConfig, installTag, snippetInstalled, normaliseHost,
-  draftFixesFromCrawl, crawledPath,
+  draftFixesFromCrawl, crawledPath, saveNote,
   type SeoFix, type SeoFixKind, type CrawlSummary,
 } from "@/backend/seo-deploy";
 import type { Brand } from "@/shared/brand";
@@ -152,17 +152,13 @@ export async function PUT(req: NextRequest) {
   }
 
   const config = await saveDeployConfig(brandId, patch);
-  const approved = config.fixes.filter((f) => f.approved).length;
 
+  // The wording lives in seo-deploy.ts as a pure function: the ORDER of these
+  // sentences is the part that can be wrong, and order is only testable when it
+  // is not welded into a route handler.
   return NextResponse.json({
     config,
     installTag: installTag(SITE, brandId),
-    note: [
-      `Saved. ${approved} fix(es) will be applied.`,
-      config.enabled && !config.allowedHosts.length
-        ? "Auto-deploy is on but no host is authorised, so nothing runs. Add the domain this snippet should apply to."
-        : "",
-      approved && config.enabled ? "Live within five minutes — the snippet is cached briefly so a change you approve reaches your pages quickly." : "",
-    ].filter(Boolean).join(" "),
+    note: saveNote(config),
   });
 }

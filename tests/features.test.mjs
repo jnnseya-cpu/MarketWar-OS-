@@ -3125,7 +3125,15 @@ test("deliverability: the agent is handed the DNS answer instead of asking for i
   assert.match(src, /liveDnsFacts/, "and put them in the prompt");
   assert.match(src, /do not tell them to send you the domain/i,
     "the model must be told it already has the domain, or it asks again");
-  assert.match(src, /maxDuration = 60/, "an agent route calling the gateway must outlast the gateway");
+  // The invariant is the RELATIONSHIP, not a magic number: the function must
+  // outlast the budget it hands the gateway, or it is killed mid-call and the
+  // customer sees nothing at all. Pinning the literal 60 made raising the budget
+  // (after three providers each timed out at 17s) look like a regression.
+  const maxDuration = Number(/maxDuration = (\d+)/.exec(src)?.[1]);
+  const routeBudgetMs = Number(/ROUTE_BUDGET_MS = ([\d_]+)/.exec(src)?.[1].replace(/_/g, ""));
+  assert.ok(maxDuration >= 60, `an agent needs room to write a document, got ${maxDuration}s`);
+  assert.ok(routeBudgetMs < maxDuration * 1000,
+    "the budget handed to the gateway must leave room to serialise a readable error instead of a 504");
   assert.match(src, /\.\.\.\(domainAuth \? \{ domainAuth \} : \{\}\)/,
     "the records travel beside the prose so the UI can render them");
 });
@@ -6319,4 +6327,71 @@ test("geo-readiness: for AI engines a JS shell is the finding, not an unknown", 
     assert.match(c.evidence, /nothing else/i);
     assert.match(c.fix, /highest-value/i);
   } finally { globalThis.fetch = real; }
+});
+
+// ---------------------------------------------------------------------------
+// Gateway budget — adding a fallback must never make the request impossible.
+//
+// Live failure: "anthropic (timed out after 17s); openai (timed out after 17s);
+// gemini (timed out after 17s)". 50s ÷ 3 providers = 16.6s each. Configuring a
+// third provider had SHORTENED every attempt from 25s to 17s, so a generation
+// that needed more than 17s could not succeed on any of them.
+// ---------------------------------------------------------------------------
+
+test("gateway: the budget is RESERVED for fallbacks, never divided among them", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /const reserved = MIN_PROVIDER_MS \* \(providersLeft - 1\);/);
+  assert.match(gw, /const slice = Math\.min\(perCallMs, Math\.max\(MIN_PROVIDER_MS, remaining - reserved\)\);/);
+  assert.doesNotMatch(gw, /Math\.floor\(remaining \/ providersLeft\)/,
+    "an equal split is what made a third provider shrink every attempt to 17s");
+
+  // The arithmetic itself, at the numbers that failed live.
+  const MIN = 8_000, PER = 45_000;
+  const sliceFor = (remaining, left) => Math.min(PER, Math.max(MIN, remaining - MIN * (left - 1)));
+  assert.equal(sliceFor(105_000, 3), 45_000, "the first provider gets a real attempt, not a third of the budget");
+  assert.ok(sliceFor(105_000, 3) > 16_600, "which is the whole point — 16.6s was unwinnable");
+  assert.ok(sliceFor(60_000, 2) >= MIN, "and a fallback still gets a usable slot");
+});
+
+test("gateway: a caller can state its own budget instead of inheriting a chat default", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /opts: \{ budgetMs\?: number; perCallMs\?: number \} = \{\}/);
+  assert.match(gw, /const deadline = Date\.now\(\) \+ budgetMs;/);
+  // And the agent route must actually use it, anchored at arrival.
+  const route = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const startedAt = Date\.now\(\);/);
+  assert.match(route, /budgetMs: Math\.max\(8_000, ROUTE_BUDGET_MS - spent\)/,
+    "a budget that ignores time already spent is the fiction that returns a 504");
+  assert.match(route, /export const maxDuration = 120;/);
+});
+
+test("seo-deploy: the panel cannot contradict its own save", () => {
+  // Live screenshot: "Saved. 3 fix(es) will be applied." printed directly above
+  // "0 of 0 fix(es) approved. Auto-deploy is OFF" — the second sentence was the
+  // note from the GET before the save, still on screen.
+  const panel = readFileSync(new URL("../src/components/SeoDeployPanel.tsx", import.meta.url), "utf8");
+  const saveFn = panel.slice(panel.indexOf("async function save("), panel.indexOf("async function draftFromCrawl"));
+  assert.match(saveFn, /setNote\(""\)/,
+    "the stale GET note must be cleared, or it argues with the save result");
+});
+
+test("seo-deploy: 'will be applied' is not printed when nothing can be", () => {
+  // Auto-deploy ON + fixes approved + NO authorised host = the snippet refuses
+  // to run anywhere. The live screenshot led with "Saved. 3 fix(es) will be
+  // applied." — true of the stored config, false of the world.
+  const cfg = (over) => ({ brandId: "b1", enabled: true, updatedAt: "", allowedHosts: ["veryxjnn.com"],
+    fixes: [{ id: "f1", kind: "description", path: "*", value: "A CDE.", replace: false, approved: true, source: "x", createdAt: "" }], ...over });
+
+  const blocked = seod.saveNote(cfg({ allowedHosts: [] }));
+  assert.match(blocked, /^Saved, but nothing will be applied yet/,
+    "the blocking condition is the headline, not a footnote under a success line");
+  assert.doesNotMatch(blocked, /will be applied\. Live within/);
+
+  assert.match(seod.saveNote(cfg({ enabled: false })), /switched off, so nothing is applied/);
+  assert.match(seod.saveNote(cfg({ fixes: [] })), /No fixes queued/);
+  assert.match(seod.saveNote(cfg()), /^Saved\. 1 fix\(es\) will be applied\./,
+    "and when it genuinely will apply, it says so plainly");
+
+  const route = readFileSync(new URL("../src/app/api/seo/deploy/route.ts", import.meta.url), "utf8");
+  assert.match(route, /note: saveNote\(config\)/, "the route must use it, not rebuild the wording inline");
 });

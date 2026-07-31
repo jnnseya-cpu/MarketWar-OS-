@@ -210,6 +210,34 @@ export function buildSnippet(cfg: SeoDeployConfig): string {
 `;
 }
 
+/**
+ * What to tell someone after they press Save.
+ *
+ * A pure function rather than a string built in the route, because the ORDER of
+ * these sentences is the thing that can be wrong. A live screenshot showed
+ * "Saved. 3 fix(es) will be applied." — true of the stored config, false of the
+ * world, because no domain was authorised so the snippet would refuse to run
+ * anywhere. Leading with success and appending the reason nothing happens reads
+ * as a footnote on a win. The blocking condition goes first or the headline lies.
+ */
+export function saveNote(cfg: SeoDeployConfig): string {
+  const approved = cfg.fixes.filter((f) => f.approved && f.value.trim()).length;
+  const hosts = (cfg.allowedHosts || []).filter(Boolean).length;
+
+  if (cfg.enabled && approved > 0 && hosts === 0) {
+    return `Saved, but nothing will be applied yet: auto-deploy is on and ${approved} fix(es) are approved, however no domain is authorised, so the snippet refuses to run anywhere. Add the domain in step 2.`;
+  }
+  if (approved > 0 && !cfg.enabled) {
+    return `Saved. ${approved} fix(es) are approved but auto-deploy is switched off, so nothing is applied until you turn it on.`;
+  }
+  if (approved === 0) {
+    return cfg.fixes.length
+      ? `Saved. None of your ${cfg.fixes.length} fix(es) are approved, so nothing is applied.`
+      : "Saved. No fixes queued yet.";
+  }
+  return `Saved. ${approved} fix(es) will be applied. Live within five minutes — the snippet is cached briefly so a change you approve reaches your pages quickly.`;
+}
+
 /** The tag the customer pastes, once, into their site's <head>. */
 export function installTag(base: string, brandId: string): string {
   return `<script src="${base.replace(/\/$/, "")}/api/seo/snippet/${encodeURIComponent(brandId)}.js" async></script>`;

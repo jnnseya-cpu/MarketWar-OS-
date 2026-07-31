@@ -16,7 +16,13 @@ import type { AgentResult } from "@/shared/types";
 export async function runAgent(
   agentId: string,
   input: Record<string, string>,
-  lang?: string
+  lang?: string,
+  /**
+   * How long the caller can still wait. An agent writes a full strategy, not a
+   * chat reply, so the route's remaining budget is passed down rather than left
+   * to the gateway's chat-sized default.
+   */
+  budget?: { budgetMs?: number; perCallMs?: number },
 ): Promise<AgentResult> {
   const agent = AGENTS[agentId];
   if (!agent) {
@@ -38,7 +44,7 @@ export async function runAgent(
       system: withConciseStyle(agent.systemPrompt),
       prompt: userPrompt,
       lang,
-    });
+    }, budget ?? {});
     return {
       agentId: agent.id,
       agentName: agent.name,

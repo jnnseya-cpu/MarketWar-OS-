@@ -15,14 +15,27 @@ import { nextStepFrom } from "@/backend/next-step";
 const AGENT_RATE_LIMIT = 240;
 const AGENT_WINDOW_MS = 60_000;
 
-// Agents call the AI gateway, which budgets up to 50s. A route that calls it must
-// reserve more, or the function is killed mid-call and the customer sees nothing.
-export const maxDuration = 60;
+// An agent writes a full strategy, not a chat reply.
+//
+// This route used to allow 60s and let the gateway apply its 50s chat default,
+// which the gateway then SPLIT across every configured provider. With three
+// configured that was 16.6s each, and the live failure read "anthropic (timed
+// out after 17s); openai (timed out after 17s); gemini (timed out after 17s)" —
+// three attempts none of which could ever have finished.
+//
+// So the route now states a real budget and hands the gateway what is actually
+// left after the pre-flight work, anchored at the moment the request arrived.
+export const maxDuration = 120;
+/** Leave room to serialise and return a readable error instead of a 504. */
+const ROUTE_BUDGET_MS = 105_000;
+/** A single provider attempt at a document-sized answer. */
+const AGENT_PER_CALL_MS = 45_000;
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { agentId: string } }
 ) {
+  const startedAt = Date.now();
   const { agentId } = params;
   if (!AGENTS[agentId]) {
     return NextResponse.json({ error: `Unknown agent: ${agentId}` }, { status: 404 });
@@ -84,7 +97,14 @@ export async function POST(
   }
 
   try {
-    const result = await runAgent(agentId, input, gatewayLangFrom(req));
+    // Anchored at arrival, not here: the pre-flight DNS/domain checks above have
+    // already spent wall-clock, and a budget that ignores that is the fiction
+    // that produces a 504 instead of an answer.
+    const spent = Date.now() - startedAt;
+    const result = await runAgent(agentId, input, gatewayLangFrom(req), {
+      budgetMs: Math.max(8_000, ROUTE_BUDGET_MS - spent),
+      perCallMs: AGENT_PER_CALL_MS,
+    });
     // Persist the run when Firebase is configured; never block the response.
     logAgentRun(result, input).catch(() => {});
     // The report travels beside the prose so the UI can render the records and

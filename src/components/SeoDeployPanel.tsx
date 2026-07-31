@@ -129,6 +129,11 @@ export default function SeoDeployPanel({
       if (!r.ok) { setMsg({ text: d.error || "Couldn't save.", error: true }); return; }
       setConfig(d.config); setTag(d.installTag || tag);
       setHostText((d.config?.allowedHosts || []).join(", "));
+      // The note from the last GET described the state BEFORE this save. Leaving
+      // it on screen is how a panel ends up saying "0 of 0 fix(es) approved.
+      // Auto-deploy is OFF" directly under "Saved. 3 fix(es) will be applied."
+      // Two sentences, both from us, flatly contradicting each other.
+      setNote("");
       setMsg({ text: d.note || "Saved.", error: false });
     } catch { setMsg({ text: "Couldn't reach auto-deploy.", error: true }); }
     finally { setSaving(false); }

@@ -416,7 +416,18 @@ export class GatewayUnconfiguredError extends Error {
   }
 }
 
-export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayResponse> {
+/**
+ * @param opts.budgetMs   How long the WHOLE call may take. A route knows its own
+ *                        maxDuration and how much of it the crawl already spent;
+ *                        the gateway does not. Defaults to OVERALL_TIMEOUT_MS.
+ * @param opts.perCallMs  Ceiling for a single provider attempt. Raise it for work
+ *                        that genuinely takes longer than a chat reply — a full
+ *                        strategy is not a two-sentence answer.
+ */
+export async function gatewayComplete(
+  reqIn: GatewayRequest,
+  opts: { budgetMs?: number; perCallMs?: number } = {},
+): Promise<GatewayResponse> {
   // Language: one central injection point — if a non-English target language is
   // set, instruct the model to answer entirely in it. Every engine that routes
   // through the gateway inherits this automatically.
@@ -433,7 +444,9 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
   const unconfigured = all.filter((a) => !a.configured()).map((a) => a.id);
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 
-  const deadline = Date.now() + OVERALL_TIMEOUT_MS;
+  const budgetMs = Math.max(MIN_PROVIDER_MS, opts.budgetMs ?? OVERALL_TIMEOUT_MS);
+  const perCallMs = Math.max(MIN_PROVIDER_MS, opts.perCallMs ?? PER_REQUEST_TIMEOUT_MS);
+  const deadline = Date.now() + budgetMs;
   const attempts: { provider: ProviderId; error: string }[] = [];
   for (let i = 0; i < candidates.length; i++) {
     const adapter = candidates[i];
@@ -446,18 +459,28 @@ export async function gatewayComplete(reqIn: GatewayRequest): Promise<GatewayRes
       break;
     }
 
-    // Each provider gets a FAIR SLICE, not the whole budget.
+    // RESERVE for the fallbacks — never divide the budget among them.
     //
     // Handing the first provider the entire deadline is why a slow Anthropic
-    // produced "anthropic (timed out after 24s); openai (skipped — overall
-    // gateway deadline reached)": the first adapter timed out, retried, and
-    // spent all 50 seconds, so the fallback that exists precisely for this case
-    // never got to run and the customer saw a total failure. Reserving time for
-    // the providers behind it means a fallback always gets a real attempt.
-    // The last remaining provider gets whatever is left, so nothing is wasted.
-    const slice = providersLeft > 1
-      ? Math.max(MIN_PROVIDER_MS, Math.floor(remaining / providersLeft))
-      : remaining;
+    // once produced "anthropic (timed out after 24s); openai (skipped — overall
+    // gateway deadline reached)": the fallback that exists precisely for this
+    // case never got to run.
+    //
+    // But splitting the budget EQUALLY, which is what replaced it, is worse in
+    // a way that took a live failure to see. With three providers configured,
+    // 50s ÷ 3 gave every attempt 16.6s, and a long generation that needs more
+    // than that now failed on all three: "anthropic (timed out after 17s);
+    // openai (timed out after 17s); gemini (timed out after 17s)". Configuring
+    // a third provider had SHORTENED every attempt from 25s to 17s — adding a
+    // fallback made the request impossible, the exact opposite of the point.
+    //
+    // So: give this provider a real attempt, and hold back only the MINIMUM the
+    // providers behind it need. Three doomed 17s attempts help nobody; one
+    // genuine attempt plus a genuine fallback is what reliability actually
+    // means. If that leaves the last provider too little, it is skipped and
+    // says so, rather than being handed a slot that guarantees a timeout.
+    const reserved = MIN_PROVIDER_MS * (providersLeft - 1);
+    const slice = Math.min(perCallMs, Math.max(MIN_PROVIDER_MS, remaining - reserved));
     const providerDeadline = Math.min(deadline, Date.now() + slice);
 
     const started = Date.now();
