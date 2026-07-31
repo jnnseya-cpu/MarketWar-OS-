@@ -156,6 +156,13 @@ export default function RevenuePage() {
       <div className="mb-8 card p-5">
         <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Create a paid checkout link</h2></div>
         <p className="mb-3 text-xs text-slate-400">Share this link with a customer. When they pay, the revenue attributes to {activeBrand.name} automatically — no manual logging.</p>
+        {/* Whose bank account receives the money was never stated. It is
+            MarketWar's: the session is created on the platform's own Stripe key,
+            so a real sale through this link sends the cash here with no payout
+            path back. Attribution works; settlement does not. */}
+        <p className="mb-3 rounded-md bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+          <strong>This link pays into MarketWar&apos;s Stripe account, not yours.</strong> It exists to prove attribution end-to-end, and there is no payout back to you yet — so use it for testing, not for taking real money. To actually sell, put <strong>your own</strong> payment link (Stripe, PayPal, SumUp, Shopify) on a funnel page: that money goes straight to your account and never passes through us.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-1"><label className="label">Product</label><input className="input" placeholder="e.g. Family platter" value={co.product} onChange={(e) => setCo((c) => ({ ...c, product: e.target.value }))} /></div>
           <div><label className="label">Amount (£)</label><input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={co.amount} onChange={(e) => setCo((c) => ({ ...c, amount: e.target.value }))} /></div>

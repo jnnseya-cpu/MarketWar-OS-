@@ -6660,3 +6660,96 @@ test("site-extract: an offer is scoped to its own block, not to the whole page",
   assert.ok(!x.offers.includes("Start free trial"), "that is a call to action, and is already counted as one");
   assert.ok(x.ctas.includes("Start free trial"));
 });
+
+// ---------------------------------------------------------------------------
+// Funnel → checkout. The join looked like an afternoon until you follow the
+// money: createCheckoutLink mints sessions on the PLATFORM's Stripe key, so a
+// customer selling through it sends their revenue to MarketWar's balance with
+// no payout path back. The button carries THEIR link instead.
+// ---------------------------------------------------------------------------
+
+const fchk = await import("../src/backend/funnel-checkout.ts");
+
+test("funnel-checkout: a payment link must be https, whatever the customer prefers", () => {
+  const bad = fchk.checkCheckoutLink("http://buy.stripe.com/abc");
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /card details travel in the clear/);
+  assert.equal(fchk.checkCheckoutLink("https://buy.stripe.com/abc").ok, true);
+});
+
+test("funnel-checkout: known providers are named, unknown ones are allowed but flagged", () => {
+  // Refusing an unrecognised processor would block a legitimate seller for our
+  // own convenience — there are more payment providers than we can enumerate.
+  const stripe = fchk.checkCheckoutLink("buy.stripe.com/test_123");
+  assert.equal(stripe.provider, "Stripe");
+  assert.equal(stripe.recognised, true);
+  assert.match(stripe.note, /MarketWar never handles this payment/);
+
+  const odd = fchk.checkCheckoutLink("https://pay.some-local-processor.fr/x");
+  assert.equal(odd.ok, true, "an unknown provider is still allowed");
+  assert.equal(odd.recognised, false);
+  assert.match(odd.note, /do not recognise/);
+  assert.match(odd.note, /not to MarketWar/);
+});
+
+test("funnel-checkout: a broken link renders no button at all", () => {
+  // A "Buy now" that goes nowhere costs a real sale and teaches the buyer the
+  // site is broken.
+  assert.equal(fchk.checkoutBlock({ ...fchk.emptyCheckout(), enabled: true, url: "not a url" }), null);
+  assert.equal(fchk.checkoutBlock({ ...fchk.emptyCheckout(), enabled: true, url: "http://buy.stripe.com/x" }), null);
+  assert.equal(fchk.checkoutBlock({ ...fchk.emptyCheckout(), enabled: false, url: "https://buy.stripe.com/x" }), null);
+  const ok = fchk.checkoutBlock({ enabled: true, url: "https://buy.stripe.com/x", buttonLabel: "Get the platter", provider: "", priceLabel: "£24" });
+  assert.equal(ok.url, "https://buy.stripe.com/x");
+  assert.equal(ok.label, "Get the platter");
+  assert.match(ok.sub, /£24 · Secure checkout via Stripe/);
+});
+
+test("funnel-checkout: the funnel is ACU-payable, the checkout is not", () => {
+  // Writing the page is real provider spend and belongs on the plan allowance.
+  // Rendering a button costs us nothing, and metering it would be a payment fee
+  // in a compute costume — inventing a cost we do not bear breaks the pricing
+  // law as badly as underpricing it.
+  const note = fchk.funnelCostNote(25);
+  assert.match(note, /25 ACUs from your plan's monthly allowance/);
+  assert.match(note, /no separate funnel fee/);
+  assert.match(note, /buy button and click tracking cost nothing/);
+  assert.match(note, /no per-sale fee/);
+  assert.match(note, /money lands in your account/);
+});
+
+test("siteraid: the Truth Layer is never handed a rating nobody measured", () => {
+  // It cleared "Rated 4.7 by 213 reviewers" as VERIFIED BUSINESS DATA —
+  // PUBLISHABLE, from useState(213) and useState(4.7) hardcoded in the page.
+  // The one component whose job is blocking unverified claims was certifying an
+  // invented number on a screen telling the customer they may advertise it.
+  const src = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  // Matched against CODE, not prose — the comment explaining the fix names the
+  // old values, and an assertion that trips on its own documentation is useless.
+  assert.doesNotMatch(src, /const \[reviews\]\s*=\s*useState|const \[rating\]\s*=\s*useState/,
+    "the fabricated rating must be gone from the code");
+  assert.doesNotMatch(src, /source: "Google reviews"/, "and so must the source label that certified it");
+  assert.match(src, /const measured = deep\?\.extraction\?\.reviews\?\.\[0\]/,
+    "the rating now comes from AggregateRating in the site's own structured data");
+  assert.match(src, /rating && reviews\s*\n?\s*\?/, "and the claim is omitted entirely when there is none");
+  assert.match(src, /reviews: reviews \?\? 0/, "an absent rating scores zero, not a flattering placeholder");
+});
+
+test("siteraid: the audit says its scores are not measurements", () => {
+  // instantAudit computes every sub-score as sscore(business + area + name) — a
+  // hash of the typed business name. Stable and useful for ranking areas
+  // against each other; not a reading of the website, and the page must say so.
+  const engine = readFileSync(new URL("../src/backend/siteraid.ts", import.meta.url), "utf8");
+  assert.match(engine, /sscore\(x\.business \+ area \+ name\)/, "this test exists because of that line");
+  const src = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /<strong>not measurements of your website<\/strong>/);
+  assert.match(src, /Read the numbers correctly/);
+  assert.match(src, /Live site crawl/, "and it points at where the measured numbers actually are");
+});
+
+test("revenue: the checkout link says whose bank account it pays into", () => {
+  // It mints on the platform's own STRIPE_SECRET_KEY. Attribution works;
+  // settlement goes to MarketWar, and the screen never said so.
+  const src = readFileSync(new URL("../src/app/dashboard/revenue/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /pays into MarketWar&apos;s Stripe account, not yours/);
+  assert.match(src, /use it for testing, not for taking real money/);
+});

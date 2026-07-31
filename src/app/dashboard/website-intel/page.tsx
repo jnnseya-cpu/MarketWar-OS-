@@ -72,7 +72,7 @@ type Suite = { icon: typeof Blocks; title: string; desc: string; status: Status;
 const SUITES: Suite[] = [
   { icon: Blocks, title: "AI Campaign Factory", status: "live", note: "Plans, calendars & sequences generated live by the strategy agent below.", desc: "Social calendars, 30-day content plans, 90-day growth strategies, seasonal campaigns, launches, promotional calendars, email/SMS/WhatsApp/push sequences, nurture funnels." },
   { icon: Palette, title: "AI Creative Generator", status: "p1", cap: "image", note: "On-brand SVG creatives render today in Brand Studio; photoreal graphics/video need an image/video-model key.", liveNote: "On-brand creatives + photoreal graphics (gpt-image-1) and video (Veo/Sora) render live — build them in Brand Studio / Video War Room.", desc: "On-brand social graphics, video ads, display banners, blog graphics, infographics, mockups, hero and website banners, story templates, presentation decks." },
-  { icon: Filter, title: "AI Funnel Builder", status: "p1", note: "Funnel copy & structure generate live; hosted page building + checkout wiring land with connectors.", desc: "Landing pages, lead magnets, sales/webinar/appointment/course/e-commerce funnels, abandoned-cart flows, checkout optimisation, upsell journeys." },
+  { icon: Filter, title: "AI Funnel Builder", status: "live", note: "Copy, structure and the hosted page are live — pages publish to /b/<brand>/<slug>. Add your own payment link (Stripe, PayPal, SumUp, Shopify) and the buy button is wired; money goes straight to your account, never through MarketWar.", desc: "Landing pages, lead magnets, sales/webinar/appointment/course/e-commerce funnels, abandoned-cart flows, checkout optimisation, upsell journeys." },
   { icon: Radar, title: "AI Competitor Intelligence", status: "live", note: "Powered by the Competitive Attack Map engine — run it live below.", desc: "Benchmarks products, pricing, SEO, keywords, advertising, social presence, messaging and sentiment — highlights market gaps and differentiation plays." },
   { icon: Sprout, title: "AI Growth Opportunities", status: "live", note: "Ranked opportunities (revenue impact × effort) come from the live attack map + strategy agent.", desc: "New products, subscriptions, memberships, bundles, geographic expansion, partnerships, affiliate/influencer/marketplace plays — each with revenue impact, effort and ROI." },
   { icon: Gauge, title: "AI Brand Consistency Engine", status: "p1", cap: "image", note: "Enforced at generation time — activates with the creative render pipeline.", liveNote: "Your logo + brand colours (Brand Studio) lock onto every creative at generation time — live.", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
@@ -121,8 +121,6 @@ export default function WebsiteIntelPage() {
   const [location, setLocation] = useState(activeBrand?.location || "");
   const [price, setPrice] = useState<"budget" | "mass" | "premium">("mass");
   const [authorisation, setAuthorisation] = useState("own");
-  const [reviews] = useState(213);
-  const [rating] = useState(4.7);
 
   const [report, setReport] = useState<AuditReport | null>(null);
   const [busy, setBusy] = useState(false);
@@ -146,6 +144,7 @@ export default function WebsiteIntelPage() {
       images: { url: string; label: string }[]; logos: string[]; colours: string[]; fonts: string[];
       ctas: string[]; trustSignals: string[]; offers: string[];
       faqs: { q: string }[]; socialLinks: { url: string; label: string }[];
+      reviews: { rating?: string; count?: string; source: string }[];
       contact: { emails: string[]; phones: string[]; address: string };
       notExtracted: { field: string; reason: string }[];
       found: number;
@@ -154,6 +153,19 @@ export default function WebsiteIntelPage() {
   };
   const [deep, setDeep] = useState<Deep | null>(null);
   const [deepBusy, setDeepBusy] = useState(false);
+  // Reviews and rating are MEASURED or absent — never invented.
+  //
+  // These were hardcoded: useState(213) and useState(4.7). They were passed to
+  // the Truth Layer with the source label "Google reviews", and it cleared
+  // "Rated 4.7 by 213 reviewers" as VERIFIED BUSINESS DATA — PUBLISHABLE. The
+  // one component whose whole job is blocking unverified claims was certifying
+  // a number nobody had measured, on a screen telling the customer they may put
+  // it in an advert. Now they come from the AggregateRating in the site's own
+  // structured data, read by the deep crawl, or they do not exist.
+  const measured = deep?.extraction?.reviews?.[0];
+  const rating = measured?.rating ? Number(measured.rating) : null;
+  const reviews = measured?.count ? Number(measured.count) : null;
+
   async function runDeep() {
     if (!website.trim()) return;
     setDeepBusy(true); setDeep(null);
@@ -199,12 +211,21 @@ export default function WebsiteIntelPage() {
         offers: offers.split(",").map((o) => o.trim()).filter(Boolean),
         pricePosition: price,
         location,
-        reviews,
-        rating,
+        // Zero, not a flattering placeholder: an audit that assumes 213 reviews
+        // scores social proof for a business that may have none.
+        reviews: reviews ?? 0,
+        rating: rating ?? 0,
       };
+      // Every claim carries where it ACTUALLY came from. An offer you typed into
+      // this form is something you told us, not something verified against a
+      // delivery policy we have never seen — mislabelling its source is how an
+      // unchecked sentence ends up marked publishable.
       const claims = [
-        ...site.offers.map((o) => ({ text: o, source: "delivery policy" })),
-        { text: `Rated ${rating} by ${reviews} reviewers`, source: "Google reviews" },
+        ...site.offers.map((o) => ({ text: o, source: "supplied by you in this form" })),
+        // Included only when the site's own structured data actually says so.
+        ...(rating && reviews
+          ? [{ text: `Rated ${rating} by ${reviews} reviewers`, source: `AggregateRating in the structured data on ${website}` }]
+          : []),
         { text: `The best ${category.toLowerCase()} in ${location.split(",")[0]}`, substantiated: false },
       ];
       const post = (body: Record<string, unknown>) =>
@@ -440,7 +461,13 @@ export default function WebsiteIntelPage() {
         </div>
         <p className="mb-4 text-xs text-slate-500">
           Authorisation gate → Business DNA → 6-part audit with sub-scores → Competitive Attack Map → Website Truth Layer.
-          Computed live by the SiteRaid engine; deterministic so it runs with zero keys.
+          Computed by the SiteRaid engine from the fields you fill in below.
+        </p>
+        {/* The sub-scores are a deterministic function of the text in this form,
+            not a measurement of the website. Saying so here is the difference
+            between a structured self-assessment and a fake instrument. */}
+        <p className="mb-4 rounded-md bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+          <strong>Read the numbers correctly.</strong> The sub-scores below are computed deterministically from what you type in this form — the same inputs always give the same scores. They are a structured way to compare areas against each other and to rank what to fix first; they are <strong>not measurements of your website</strong>. The measured numbers are in the <span className="text-sky-300">Live site crawl</span> and <span className="text-sky-300">Deep crawl</span> at the top of this page, and the Truth Layer below only certifies a claim when it has a real source.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
