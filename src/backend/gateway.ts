@@ -15,7 +15,20 @@ if (typeof window !== "undefined") {
 //   errors; a provider that still fails hands over to the next one (failover).
 // - With no keys at all the caller falls back to Demo Intelligence mode.
 
+import { spendVerdict, recordSpend, estimateCost } from "@/backend/ai-spend";
+
 export type ProviderId = "anthropic" | "openai" | "gemini";
+
+/**
+ * The platform's own monthly AI budget is spent.
+ *
+ * A distinct error type so a caller can tell "we chose not to spend more" apart
+ * from "the providers failed" — they need completely different messages, and
+ * conflating them sends the owner hunting for a broken key.
+ */
+export class AiBudgetExceededError extends Error {
+  constructor(message: string) { super(message); this.name = "AiBudgetExceededError"; }
+}
 
 export interface GatewayRequest {
   system: string;
@@ -59,6 +72,9 @@ export interface ProviderStatus {
   model: string;
   cooling?: boolean;
 }
+
+/** What the provider says it billed. Absent when a provider does not report it. */
+export type TokenUsage = { input: number; output: number };
 
 const DEFAULT_MAX_TOKENS = 4096;
 const RETRIES_PER_PROVIDER = 3;
@@ -157,7 +173,7 @@ interface Adapter {
    * back with one row, a moodboard brief stopped mid-heading, and both were
    * handed to the customer as finished documents.
    */
-  complete: (req: GatewayRequest, deadline?: number) => Promise<{ text: string; truncated?: boolean }>;
+  complete: (req: GatewayRequest, deadline?: number) => Promise<{ text: string; truncated?: boolean; usage?: TokenUsage }>;
 }
 
 // Hidden reasoning/thinking tokens are billed and counted against the output
@@ -195,6 +211,7 @@ const anthropic: Adapter = {
     const data = (await res.json()) as {
       stop_reason?: string;
       content: { type: string; text?: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
     };
     if (data.stop_reason === "refusal") {
       throw new Error("anthropic: request declined by safety classifiers");
@@ -205,7 +222,11 @@ const anthropic: Adapter = {
       .join("\n")
       .trim();
     if (!text) throw new Error("anthropic: empty completion");
-    return { text, truncated: data.stop_reason === "max_tokens" };
+    return {
+      text,
+      truncated: data.stop_reason === "max_tokens",
+      usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
+    };
   },
 };
 
@@ -250,6 +271,7 @@ const openai: Adapter = {
       status?: string;
       incomplete_details?: { reason?: string };
       output?: { type: string; content?: { type: string; text?: string }[] }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
     };
     const text = (data.output ?? [])
       .filter((item) => item.type === "message")
@@ -268,7 +290,11 @@ const openai: Adapter = {
       if (data.status === "incomplete") throw new Error(`openai: incomplete response (${why || "no reason given"})`);
       throw new Error("openai: empty completion");
     }
-    return { text, truncated: data.incomplete_details?.reason === "max_output_tokens" };
+    return {
+      text,
+      truncated: data.incomplete_details?.reason === "max_output_tokens",
+      usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
+    };
   },
 };
 
@@ -312,13 +338,18 @@ const gemini: Adapter = {
     }, deadline);
     const data = (await res.json()) as {
       candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     };
     const text = (data.candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? "")
       .join("")
       .trim();
     if (!text) throw new Error("gemini: empty completion");
-    return { text, truncated: data.candidates?.[0]?.finishReason === "MAX_TOKENS" };
+    return {
+      text,
+      truncated: data.candidates?.[0]?.finishReason === "MAX_TOKENS",
+      usage: { input: data.usageMetadata?.promptTokenCount ?? 0, output: data.usageMetadata?.candidatesTokenCount ?? 0 },
+    };
   },
 };
 
@@ -485,8 +516,15 @@ export class GatewayUnconfiguredError extends Error {
  */
 export async function gatewayComplete(
   reqIn: GatewayRequest,
-  opts: { budgetMs?: number; perCallMs?: number; tier?: ModelTier } = {},
+  opts: { budgetMs?: number; perCallMs?: number; tier?: ModelTier; paid?: boolean } = {},
 ): Promise<GatewayResponse> {
+  // The platform's own ceiling. Paid work is exempt and always runs: a customer
+  // spending their own ACUs has covered the provider cost twice over under the
+  // pricing law, and blocking them to protect the owner's budget would be
+  // selling something and then refusing to deliver it.
+  const budgetCheck = spendVerdict(opts.paid === true);
+  if (!budgetCheck.allowed) throw new AiBudgetExceededError(budgetCheck.reason);
+
   // Language: one central injection point — if a non-English target language is
   // set, instruct the model to answer entirely in it. Every engine that routes
   // through the gateway inherits this automatically.
@@ -549,6 +587,17 @@ export async function gatewayComplete(
     try {
       const out = await adapter.complete(req, providerDeadline);
       coolingUntil.delete(adapter.id);   // it works again — restore it at once
+      // Recorded AFTER success, from the counts the provider returned. A failed
+      // call that produced no tokens costs nothing; one that timed out mid-
+      // generation is under-counted, which is stated rather than guessed at.
+      if (out.usage) {
+        recordSpend({
+          provider: adapter.id, model: adapter.model(),
+          inputTokens: out.usage.input, outputTokens: out.usage.output,
+          usd: estimateCost(adapter.model(), out.usage.input, out.usage.output),
+          paid: opts.paid === true,
+        });
+      }
       return {
         text: out.text,
         truncated: out.truncated,

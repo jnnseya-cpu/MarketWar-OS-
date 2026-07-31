@@ -22,7 +22,7 @@ export async function runAgent(
    * chat reply, so the route's remaining budget is passed down rather than left
    * to the gateway's chat-sized default.
    */
-  budget?: { budgetMs?: number; perCallMs?: number },
+  budget?: { budgetMs?: number; perCallMs?: number; paid?: boolean },
 ): Promise<AgentResult> {
   const agent = AGENTS[agentId];
   if (!agent) {

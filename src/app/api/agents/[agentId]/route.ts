@@ -156,6 +156,10 @@ export async function POST(
     const result = await runAgent(agentId, input, gatewayLangFrom(req), {
       budgetMs: Math.max(8_000, ROUTE_BUDGET_MS - spent),
       perCallMs: AGENT_PER_CALL_MS,
+      // meterAction already debited this customer's ACUs above, so the provider
+      // cost is covered twice over under the pricing law. Their work is exempt
+      // from the platform's own ceiling and always runs.
+      paid: (meter.charged ?? 0) > 0,
     });
     // Persist the run when Firebase is configured; never block the response.
     logAgentRun(result, input).catch(() => {});

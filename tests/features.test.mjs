@@ -7330,3 +7330,97 @@ test("blog cron: a daily spend does not start itself", () => {
   assert.match(env, /BLOG_DAILY_ENABLED=/, "and the switch is documented");
   assert.match(env, /AI_GATEWAY_ORDER_FAST=/);
 });
+
+// ---------------------------------------------------------------------------
+// A ceiling on the PLATFORM's own spend. Every other limit in this product
+// guards a customer's ACU balance; nothing guarded the owner's provider bill.
+// ---------------------------------------------------------------------------
+
+const spend = await import("../src/backend/ai-spend.ts");
+
+test("ai-spend: an unknown model is priced as expensive, never as free", () => {
+  // Guessing cheap on an unknown model is how a ceiling silently stops working
+  // the day someone switches to something new.
+  const unknown = spend.priceOf("some-model-nobody-has-heard-of");
+  assert.equal(unknown.inputPerM, 15);
+  assert.equal(unknown.outputPerM, 75);
+  // And a dated id still resolves to its family.
+  assert.equal(spend.priceOf("claude-opus-4-8-20260115").outputPerM, 75);
+  assert.equal(spend.priceOf("claude-haiku-4-5").outputPerM, 4);
+  // Longest match wins: "gpt-5-mini" must not be priced as "gpt-5".
+  assert.equal(spend.priceOf("gpt-5-mini").outputPerM, 2);
+  assert.equal(spend.priceOf("gpt-5").outputPerM, 10);
+  assert.equal(spend.priceOf("gpt-4o-mini").outputPerM, 0.6);
+  assert.equal(spend.priceOf("gemini-2.5-flash").outputPerM, 2.5);
+});
+
+test("ai-spend: the cost gap that caused the bill is visible in the numbers", () => {
+  // The same call on Opus versus the cheap tier. This is the arithmetic behind
+  // routing routine work away from the strongest model.
+  const opus = spend.estimateCost("claude-opus-4-8", 2_000, 1_000);
+  const flash = spend.estimateCost("gemini-2.5-flash", 2_000, 1_000);
+  assert.ok(opus > flash * 20, `Opus $${opus} vs flash $${flash} — the gap is the point`);
+});
+
+test("ai-spend: the ceiling never blocks work a customer paid for", () => {
+  // They have covered the provider cost twice over under the pricing law.
+  // Blocking them to protect the owner's budget would be selling something and
+  // then refusing to deliver it.
+  spend.__resetSpend();
+  for (let i = 0; i < 40; i++) {
+    spend.recordSpend({ provider: "anthropic", model: "claude-opus-4-8", inputTokens: 10_000, outputTokens: 10_000, usd: 0.9, paid: false });
+  }
+  const s = spend.spendThisMonth();
+  assert.ok(s.unpaidUsd > 30, `expected real unpaid spend, got ${s.unpaidUsd}`);
+
+  // With a REAL ceiling in place: unpaid work is stopped, paid work is not.
+  const ceiling = 10;
+  const unpaid = spend.spendVerdict(false, new Date(), ceiling);
+  assert.equal(unpaid.allowed, false, "unpaid work past the ceiling must stop");
+  assert.match(unpaid.reason, /monthly AI budget is spent/);
+  assert.match(unpaid.reason, /still runs/, "and it must say paid work is unaffected");
+
+  const paid = spend.spendVerdict(true, new Date(), ceiling);
+  assert.equal(paid.allowed, true, "a paying customer is never blocked by the owner's budget");
+  spend.__resetSpend();
+});
+
+test("ai-spend: paid and unpaid are counted apart", () => {
+  spend.__resetSpend();
+  spend.recordSpend({ provider: "anthropic", model: "claude-opus-4-8", inputTokens: 1000, outputTokens: 1000, usd: 1, paid: true });
+  spend.recordSpend({ provider: "gemini", model: "gemini-2.5-flash", inputTokens: 1000, outputTokens: 1000, usd: 2, paid: false });
+  const s = spend.spendThisMonth();
+  assert.equal(s.totalUsd, 3);
+  assert.equal(s.unpaidUsd, 2, "the ceiling watches unpaid spend only");
+  assert.equal(s.calls, 2);
+  assert.equal(s.byProvider[0].provider, "gemini", "biggest spender first");
+  assert.match(s.note, /not a substitute for the invoice/, "an estimate must say it is one");
+  spend.__resetSpend();
+});
+
+test("gateway: the ceiling is checked before spending, and paid work is exempt", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  // Checked BEFORE any provider is called, not after the money is gone.
+  const fn = gw.slice(gw.indexOf("export async function gatewayComplete"));
+  const check = fn.indexOf("spendVerdict(opts.paid === true)");
+  const firstCall = fn.indexOf("adapter.complete(");
+  assert.ok(check > -1 && firstCall > -1 && check < firstCall, "the guard must come before the spend");
+  assert.match(gw, /throw new AiBudgetExceededError/);
+  assert.match(gw, /class AiBudgetExceededError/,
+    "a distinct type: 'we chose not to spend' and 'the providers failed' need different messages");
+
+  // Spend is recorded from what the provider REPORTED, after success.
+  assert.match(gw, /if \(out\.usage\) \{[\s\S]*?recordSpend\(/);
+  for (const field of [/input_tokens/, /promptTokenCount/, /candidatesTokenCount/]) {
+    assert.match(gw, field, "every provider's token counts must be read");
+  }
+});
+
+test("agents: a customer's paid run is marked paid", () => {
+  const route = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(route, /paid: \(meter\.charged \?\? 0\) > 0/,
+    "meterAction debited them, so their work is exempt from the platform's ceiling");
+  const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+  assert.match(env, /AI_MONTHLY_CEILING_USD=/);
+  assert.match(env, /provider console/, "the console limit is the real backstop and must be named");
+});
