@@ -89,6 +89,22 @@ const OVERALL_TIMEOUT_MS = Number(process.env.AI_TOTAL_TIMEOUT_MS || 50_000);
 // Backoff is capped: an 8-second sleep inside a 50-second budget is most of the
 // budget spent waiting rather than working.
 const MAX_BACKOFF_MS = 4_000;
+/**
+ * The budget for DOCUMENT-sized work, as opposed to a chat reply.
+ *
+ * The defaults above are sized for a short answer, and every generator inherited
+ * them — including the ones behind routes that allow 120 or 300 seconds. A blog
+ * post generation failed live with "anthropic (timed out after 25s); openai
+ * (timed out after 17s); gemini (skipped)": three attempts inside a 50-second
+ * box, on a route that had 120 seconds it never mentioned.
+ *
+ * A generator writing a 1,200-word post, an eight-asset brand kit or a full
+ * campaign passes this instead. It is stated by the GENERATOR rather than
+ * plumbed through every call site, because the generator is the thing that
+ * knows how much writing it asked for.
+ */
+export const DOCUMENT_BUDGET = { budgetMs: 100_000, perCallMs: 45_000 } as const;
+
 // The least time worth giving a provider. Below this, starting the call only
 // guarantees another timeout, so the slot is better spent on the next one.
 const MIN_PROVIDER_MS = 8_000;

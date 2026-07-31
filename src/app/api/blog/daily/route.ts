@@ -18,7 +18,9 @@ import { requireAuth } from "@/backend/guard";
 // retried or double-fired cron can never publish twice.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Writes a full post via DOCUMENT_BUDGET (100s). A 60s function is killed
+// mid-generation, so the cron silently produced nothing.
+export const maxDuration = 120;
 
 const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
 

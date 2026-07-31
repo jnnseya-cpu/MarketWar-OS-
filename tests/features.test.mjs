@@ -6753,3 +6753,42 @@ test("revenue: the checkout link says whose bank account it pays into", () => {
   assert.match(src, /pays into MarketWar&apos;s Stripe account, not yours/);
   assert.match(src, /use it for testing, not for taking real money/);
 });
+
+// ---------------------------------------------------------------------------
+// A document is not a chat reply, and a route must outlast what it delegates.
+//
+// Live: "Generation failed — your 25 ACUs were refunded. All AI providers
+// failed: anthropic (timed out after 25s); openai (timed out after 17s); gemini
+// (skipped)". The reserve logic worked — the first provider got a real 25s
+// attempt — but the route had 120 seconds and never told the gateway, so a blog
+// post was written inside a 50-second box sized for a chat answer.
+// ---------------------------------------------------------------------------
+
+test("gateway: long-form generators ask for a document budget, not the chat default", () => {
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /export const DOCUMENT_BUDGET = \{ budgetMs: 100_000, perCallMs: 45_000 \}/);
+
+  for (const mod of ["blog-generator", "growth-plan", "organic-dominance", "strategy-run", "copywriter"]) {
+    const src = readFileSync(new URL(`../src/backend/${mod}.ts`, import.meta.url), "utf8");
+    assert.match(src, /DOCUMENT_BUDGET/, `${mod} writes documents and must say so`);
+    assert.match(src, /gatewayComplete\([\s\S]*?,\s*DOCUMENT_BUDGET\)/,
+      `${mod} must pass it, not merely import it`);
+  }
+});
+
+test("routes: every document generator outlasts the budget it delegates", () => {
+  // Four of these had NO maxDuration at all, so they ran on the ~10s platform
+  // default — killed long before any provider could answer. The generation could
+  // never have completed regardless of what the gateway did.
+  const BUDGET_MS = 100_000;
+  for (const route of [
+    "growth-plan/route.ts", "organic-dominance/route.ts", "ai-agents/route.ts",
+    "blog/route.ts", "blog/daily/route.ts", "seo-autopilot/route.ts",
+  ]) {
+    const src = readFileSync(new URL(`../src/app/api/${route}`, import.meta.url), "utf8");
+    const m = /export const maxDuration = (\d+)/.exec(src);
+    assert.ok(m, `${route} has no maxDuration — it runs on the ~10s default`);
+    assert.ok(Number(m[1]) * 1000 > BUDGET_MS,
+      `${route} allows ${m[1]}s but delegates ${BUDGET_MS / 1000}s of work`);
+  }
+});

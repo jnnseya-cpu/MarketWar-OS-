@@ -21,7 +21,7 @@ if (typeof window !== "undefined") {
 // scaffold derived from the user's own inputs (honestly badged), never invented
 // market data.
 
-import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_BUDGET } from "@/backend/gateway";
 import { quoteAcu } from "@/backend/acu";
 import { searchConsoleConfigured } from "@/backend/search-console";
 import { configuredProviders } from "@/backend/gateway";
@@ -243,7 +243,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
 
   let fallbackReason: string | null = null;
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 8000, lang: input.lang });
+    const res = await gatewayComplete({ system: SYSTEM, prompt, maxTokens: 8000, lang: input.lang }, DOCUMENT_BUDGET);
     const parsed = safeJson(res.text);
     if (parsed) return shapeResult(parsed, business, "live");
     // Key IS configured (the call returned) but the JSON didn't parse — do NOT

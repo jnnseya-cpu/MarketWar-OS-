@@ -7,7 +7,7 @@ if (typeof window !== "undefined") {
 // article via the AI Gateway (Claude → OpenAI → Gemini failover). With no
 // provider key it returns a deterministic starter article, clearly flagged.
 
-import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_BUDGET } from "@/backend/gateway";
 
 const SYSTEM = `You are an expert SEO content strategist and writer for MarketWar OS, an AI customer-acquisition platform. Write a complete, publish-ready blog article in Markdown.
 Rules:
@@ -30,7 +30,7 @@ export async function generateArticle(input: { topic: string; category?: string;
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt });
+    const res = await gatewayComplete({ system: SYSTEM, prompt }, DOCUMENT_BUDGET);
     return { ...splitArticle(res.text.trim(), input.topic), mode: "live" };
   } catch (e) {
     if (e instanceof GatewayUnconfiguredError) {

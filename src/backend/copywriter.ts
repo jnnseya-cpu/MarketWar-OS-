@@ -28,7 +28,7 @@ if (typeof window !== "undefined") {
 //   • STRUCTURED. The model returns JSON, so a headline is a headline rather
 //     than a paragraph that must be scraped.
 
-import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_BUDGET } from "@/backend/gateway";
 import { claimReport } from "@/backend/claim-guard";
 
 export type CopyBrief = {
@@ -181,7 +181,7 @@ export async function writeCopy(brief: CopyBrief, opts: { lang?: string } = {}):
       prompt: briefText(brief),
       maxTokens: 1400,
       lang: opts.lang,
-    });
+    }, DOCUMENT_BUDGET);
     raw = res.text;
     provider = res.provider;
   } catch (e) {

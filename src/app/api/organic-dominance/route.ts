@@ -6,6 +6,12 @@ import {
   type OnboardingInput, type OppFactors,
 } from "@/backend/organic-dominance";
 
+// A document generation runs behind this route, and DOCUMENT_BUDGET gives the
+// gateway 100s. Without a maxDuration the function is killed at the platform
+// default of ~10s — long before any provider could answer — so the generation
+// could never have completed no matter what the gateway did.
+export const maxDuration = 120;
+
 // MarketWar Organic Dominance OS API (Phase 1 — Intelligence Foundation).
 // GET  → navigation map, data-source status, command metrics, ACU quote, doctrine.
 // POST { action: "onboard", business, website?, description?, competitors[], location?, country?, languages[] }
