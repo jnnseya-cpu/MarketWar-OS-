@@ -80,9 +80,9 @@ export default function AiVisibilityPage() {
   const [qBusy, setQBusy] = useState(false);
   const [qNote, setQNote] = useState("");
   const [qSources, setQSources] = useState<{ subject: string; from: string }[]>([]);
-  async function readQuestions() {
+  async function readQuestions(opts: { silent?: boolean } = {}) {
     if (!activeBrand || !qSite.trim()) return;
-    setQBusy(true); setQNote(""); setQSources([]);
+    if (!opts.silent) { setQBusy(true); setQNote(""); setQSources([]); }
     try {
       const r = await authedFetch("/api/ai-visibility", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -94,11 +94,11 @@ export default function AiVisibilityPage() {
       const d = await r.json();
       if (!r.ok) { setQNote(d.error || "Couldn't read your site."); return; }
       const qs: { text: string }[] = d.questions || [];
-      if (qs.length) setQuestions(qs.map((q) => q.text).slice(0, 8));
+      if (qs.length) setQuestions(qs.map((q) => q.text).slice(0, 10));
       setQSources(d.pool?.sources || []);
       setQNote(d.note || "");
-    } catch { setQNote("Couldn't reach the crawler."); }
-    finally { setQBusy(false); }
+    } catch { if (!opts.silent) setQNote("Couldn't reach the crawler."); }
+    finally { if (!opts.silent) setQBusy(false); }
   }
   const [run, setRun] = useState<Run | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -154,7 +154,10 @@ export default function AiVisibilityPage() {
     // The server keeps itself under its own ceiling, but a spinner that can never
     // stop is the worst possible failure: it looks like work. Give up here too.
     const ctl = new AbortController();
-    const giveUp = setTimeout(() => ctl.abort(), 75_000);
+    // Ten questions across three assistants is thirty calls; the server budgets
+    // 95s for them, so giving up at 75s would abandon a run that was going to
+    // answer.
+    const giveUp = setTimeout(() => ctl.abort(), 115_000);
     try {
       const r = await authedFetch("/api/ai-visibility", {
         method: "POST",
@@ -176,10 +179,14 @@ export default function AiVisibilityPage() {
         return;
       }
       setRun(d.run); setTrend(d.trend); setRuns(d.runs || []); setNote(d.note || "");
+      // Refill for NEXT time, automatically. The core stays put so the trend
+      // holds; the rotation advances because a run has just been recorded, so
+      // the next check widens coverage without anyone re-typing anything.
+      if (qSite.trim()) void readQuestions({ silent: true });
     } catch (e) {
       const aborted = (e as Error).name === "AbortError";
       setErr(aborted
-        ? "Gave up waiting after 75 seconds. Nothing was recorded. Run it again with fewer questions."
+        ? "Gave up waiting after 115 seconds. Nothing was recorded. Run it again with fewer questions."
         : `Couldn't run the check: ${(e as Error).message || "network error"}.`);
     } finally { clearTimeout(giveUp); setBusy(false); }
   }
@@ -340,7 +347,7 @@ export default function AiVisibilityPage() {
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input className="input min-w-[200px] flex-1" value={qSite} onChange={(e) => setQSite(e.target.value)} placeholder="yourwebsite.com" />
-                <button className="btn-ghost shrink-0" onClick={readQuestions} disabled={qBusy || !qSite.trim()}>
+                <button className="btn-ghost shrink-0" onClick={() => readQuestions()} disabled={qBusy || !qSite.trim()}>
                   {qBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><Radar className="h-4 w-4" /> Read my site</>}
                 </button>
               </div>
@@ -365,11 +372,11 @@ export default function AiVisibilityPage() {
               <input
                 className="input flex-1" value={draft} onChange={(e) => setDraft(e.target.value)}
                 placeholder="Add a question your customers actually ask…"
-                onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { setQuestions((c) => [...c, draft.trim()].slice(0, 8)); setDraft(""); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { setQuestions((c) => [...c, draft.trim()].slice(0, 10)); setDraft(""); } }}
               />
               <button
                 className="btn-ghost"
-                onClick={() => { if (draft.trim()) { setQuestions((c) => [...c, draft.trim()].slice(0, 8)); setDraft(""); } }}
+                onClick={() => { if (draft.trim()) { setQuestions((c) => [...c, draft.trim()].slice(0, 10)); setDraft(""); } }}
               ><Plus className="h-4 w-4" /> Add</button>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">

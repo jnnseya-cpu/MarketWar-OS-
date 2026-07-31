@@ -3903,7 +3903,11 @@ test("ai visibility: the monitor is a LIVE data source now, and metered per call
   const route = readFileSync(new URL("../src/app/api/ai-visibility/route.ts", import.meta.url), "utf8");
   assert.match(route, /questions\.length \* assistants\.length/, "one AI call per question per assistant");
   assert.match(route, /meterAction\(auth, "llm", units\)/, "and charged for what it actually costs");
-  assert.match(route, /maxDuration = 60/);
+  // The invariant is that the function outlasts the run budget it delegates —
+  // not a specific number. Pinning 60 made raising the budget for a ten-question
+  // run (thirty provider calls) look like a regression.
+  const md = Number(/export const maxDuration = (\d+)/.exec(route)[1]);
+  assert.ok(md >= 60, `the run needs room, got ${md}s`);
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/ai_visibility_runs\/\{doc\} \{ allow read, write: if false; \}/);
 });
@@ -6668,6 +6672,7 @@ test("site-extract: an offer is scoped to its own block, not to the whole page",
 // no payout path back. The button carries THEIR link instead.
 // ---------------------------------------------------------------------------
 
+const { execSync } = await import("node:child_process");
 const fchk = await import("../src/backend/funnel-checkout.ts");
 
 test("funnel-checkout: a payment link must be https, whatever the customer prefers", () => {
@@ -7005,4 +7010,99 @@ test("ai-visibility: reading questions off a site costs no ACUs", () => {
   const meterIdx = route.indexOf("await meterAction(");
   assert.ok(meterIdx > -1, "the run path must still meter");
   assert.ok(idx < meterIdx, "but reading questions must return before any of it");
+});
+
+test("funnel-checkout: the label cannot claim a checkout the page does not render", () => {
+  // Written, tested, and imported by nothing — while the card said "the buy
+  // button is wired". A label describing an unwired module is the same fault as
+  // "Activate with a connector" on a feature that needed no connector, except
+  // this one was self-inflicted while removing the others.
+  const page = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  const card = /AI Funnel Builder[^}]*}/.exec(page)?.[0] || "";
+  assert.ok(card, "the card must exist");
+
+  const src = ["src/app/dashboard", "src/app/b", "src/components", "src/backend"]
+    .flatMap((d) => { try { return execSync(`grep -rl "funnel-checkout" ${d} 2>/dev/null || true`, { encoding: "utf8" }).split("\n"); } catch { return []; } })
+    .filter((f) => f && !f.includes("backend/funnel-checkout.ts"));
+
+  if (src.length === 0) {
+    assert.doesNotMatch(card, /buy button is wired|checkout is (live|ready)/i,
+      "nothing imports funnel-checkout.ts, so the card must not say the button is wired");
+    assert.match(card, /NOT on the page yet/, "and it must say so plainly");
+  } else {
+    assert.match(card, /payment link/, "once wired, the card should describe it");
+  }
+});
+
+test("visibility-questions: a landing-page slogan is not a subject", () => {
+  // A live run on veryxjnn.com pulled these out of the headings: "Siloed data ·
+  // Blind spots", "Why projects lose millions silently", "The inevitable
+  // solution", "The enterprise leaders who expose broken processes and
+  // transform them". Every one produces gibberish in the template, and asking
+  // it of an assistant returns nothing — which then reads as a visibility
+  // failure rather than a bad question.
+  for (const slogan of [
+    "Siloed data · Blind spots",
+    "Why projects lose millions silently",
+    "The inevitable solution",
+    "The enterprise leaders who expose broken processes and transform them",
+    "Manual work. More risk",
+    "Stop paying for ten tools",
+    // No article, no punctuation, short, no imperative — the marketing VERB is
+    // the only thing that gives these away.
+    "Complexity slows everyone down",
+    "Projects lose millions silently",
+    "Insight drives growth",
+  ]) {
+    assert.equal(vq.looksLikeASubject(slogan), false, `"${slogan}" is copy, not a subject`);
+  }
+  for (const subject of ["Document control software", "Procurement analytics", "Snagging software", "Governance and control"]) {
+    assert.equal(vq.looksLikeASubject(subject), true, `"${subject}" is a subject`);
+  }
+
+  const sloganSite = {
+    ...EXTRACTION,
+    products: { values: [], source: "structured-data" },
+    services: { values: [], source: "structured-data" },
+    faqs: [],
+    hierarchy: [
+      { level: 2, text: "Why projects lose millions silently" },
+      { level: 3, text: "Siloed data · Blind spots" },
+      { level: 2, text: "Portfolio risk analytics" },
+    ],
+    navigation: [{ url: "/b", label: "Book a 20-min demo" }],
+  };
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: sloganSite, location: "the UK" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text).join(" | ");
+  assert.doesNotMatch(all, /lose millions|siloed data|book a 20/i, "no slogan may reach a question");
+  assert.match(all, /portfolio risk analytics/i, "the one real subject on that page is used");
+});
+
+test("ai-visibility: ten questions fit inside the budget the route allows", () => {
+  // Ten questions × three assistants is thirty provider calls. Each layer has to
+  // outlast the one it delegates to, or the run is killed and reports nothing.
+  const engine = readFileSync(new URL("../src/backend/ai-visibility.ts", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/route.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/dashboard/ai-visibility/page.tsx", import.meta.url), "utf8");
+
+  const budget = Number(/AI_VISIBILITY_BUDGET_MS \|\| ([\d_]+)/.exec(engine)[1].replace(/_/g, ""));
+  const maxDuration = Number(/export const maxDuration = (\d+)/.exec(route)[1]);
+  const clientGiveUp = Number(/ctl\.abort\(\), ([\d_]+)\)/.exec(page)[1].replace(/_/g, ""));
+  const maxQuestions = Number(/const MAX_QUESTIONS = (\d+)/.exec(route)[1]);
+
+  assert.equal(maxQuestions, 10);
+  assert.ok(budget < maxDuration * 1000, `run budget ${budget}ms must fit inside the ${maxDuration}s function`);
+  assert.ok(clientGiveUp > budget,
+    `the browser gives up at ${clientGiveUp}ms, abandoning a run the server budgets ${budget}ms for`);
+});
+
+test("ai-visibility: the next run's questions are refilled without being re-typed", () => {
+  // The rotation only widens coverage if it actually advances. After a run is
+  // recorded, the list refills from the site with the next slice — core intact,
+  // rotation moved on.
+  const page = readFileSync(new URL("../src/app/dashboard/ai-visibility/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /if \(qSite\.trim\(\)\) void readQuestions\(\{ silent: true \}\)/);
+  // Silent, because a background refill must not blank the note the customer is
+  // reading about the run that just finished.
+  assert.match(page, /if \(!opts\.silent\) \{ setQBusy\(true\)/);
 });

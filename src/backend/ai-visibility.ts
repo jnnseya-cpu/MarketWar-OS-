@@ -426,7 +426,11 @@ const MIN_CALL_MS = 6_000;
 // Under the route's own ceiling, so the response is written by us rather than
 // the function being killed with the browser still waiting. The gap between this
 // and maxDuration=60 is the margin for scoring, saving and serialising the run.
-export const RUN_BUDGET_MS = Number(process.env.AI_VISIBILITY_BUDGET_MS || 45_000);
+// Ten questions across three assistants is thirty provider calls. At 45s the
+// run reliably ran out of time and reported half the questions as "never
+// asked"; the route now allows 120s, so the budget can too. Still well under
+// the function ceiling, because a run that overruns returns nothing at all.
+export const RUN_BUDGET_MS = Number(process.env.AI_VISIBILITY_BUDGET_MS || 95_000);
 
 export type RunInput = {
   brandId: string;

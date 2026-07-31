@@ -68,6 +68,57 @@ export function askableOfAnAssistant(text: string): boolean {
   return true;
 }
 
+/**
+ * Is this a SUBJECT a buyer would search for, or a slogan off a landing page?
+ *
+ * A live run on a real site pulled these out of the headings: "Siloed data ·
+ * Blind spots", "Why projects lose millions silently", "The inevitable
+ * solution", "The enterprise leaders who expose broken processes and transform
+ * them". Every one produces gibberish in the template — "who are the best why
+ * projects lose millions silently companies in the UK" — and, worse, asking it
+ * of an assistant returns nothing, which then reads as a visibility failure.
+ *
+ * Marketing copy is a CLAUSE: it has a verb, an article, several clauses, or
+ * punctuation joining two ideas. A subject is a short noun phrase. This keeps
+ * the noun phrases and drops the slogans, and it is applied only to headings —
+ * a Product name in structured data is a subject by construction.
+ */
+export function looksLikeASubject(text: string): boolean {
+  const t = cleanField(text);
+  if (!t) return false;
+  // Two ideas glued together by punctuation is a headline, not a subject.
+  if (/[.!:;·•|]/.test(t)) return false;
+  const words = t.split(/\s+/);
+  if (words.length > 5) return false;
+  // A leading article or "why/how" almost always introduces a sentence of copy.
+  if (/^(the|a|an|our|why|how|when|introducing|meet|built|designed)\b/i.test(t)) return false;
+  // An imperative opener is a call to action, not a subject: "Book a 20-min
+  // demo" reached a live question list and became "who are the best book a
+  // 20-min demo companies in the UK".
+  if (CTA_OPENER.test(t)) return false;
+  if (MARKETING_VERB.test(t)) return false;
+  return true;
+}
+
+/** Imperative openers — a button's words, not a thing anyone searches for. */
+const CTA_OPENER = /^(book|get|start|stop|try|buy|shop|order|request|download|contact|join|claim|see|watch|learn|explore|discover|sign|subscribe|talk|speak|schedule)\b/i;
+
+/** A subject is a thing; a slogan does something. */
+const MARKETING_VERB = /\b(lose|loses|losing|slows?|transform(s|ing)?|expose[sd]?|keeps?|comes?|drives?|driven|unlocks?|delivers?|delivering|empowers?|accelerates?|silently)\b/i;
+
+/**
+ * A rhetorical headline dressed as a question.
+ *
+ * "Why projects lose millions silently" is question-SHAPED and is still copy —
+ * it slipped past the slogan filter because that filter only ran on non-question
+ * headings. Asking an assistant a slogan returns nothing useful and the miss
+ * then reads as a visibility failure.
+ */
+export function isRhetoricalHeadline(text: string): boolean {
+  const t = cleanField(text);
+  return MARKETING_VERB.test(t) || /[.!:;·•|]/.test(t) || t.split(/\s+/).length > 9;
+}
+
 /** Already a question a buyer would type, rather than a noun phrase to wrap. */
 export function isQuestionShaped(text: string): boolean {
   return /^(how|what|what's|why|when|where|which|who|can|do|does|is|are|should)\b/i.test(cleanField(text));
@@ -156,8 +207,21 @@ export function questionsFromSite(input: SiteQuestionInput): QuestionPool {
     for (const p of x.products.values) addSubject(p, "a Product in your structured data");
     for (const s of x.services.values) addSubject(s, "a Service in your structured data");
     for (const f of x.faqs) if (askableOfAnAssistant(f.q)) addSubject(f.q.replace(/\?+$/, ""), "one of your FAQs", "question");
-    for (const h of x.hierarchy) if (h.level === 2 || h.level === 3) addSubject(h.text, `an H${h.level} on your site`);
-    for (const n of x.navigation) addSubject(n.label, "your own navigation");
+    // Headings are the noisiest source on any marketing site, so they are the
+    // only one filtered for slogans. A question-shaped heading is still welcome
+    // — it is a real buyer question — but a slogan is not a subject.
+    for (const h of x.hierarchy) {
+      if (h.level !== 2 && h.level !== 3) continue;
+      // Question-shaped headings are welcome — a real buyer question on the page
+      // is exactly what we want — UNLESS they are rhetorical marketing copy.
+      const ok = isQuestionShaped(h.text) ? !isRhetoricalHeadline(h.text) : looksLikeASubject(h.text);
+      if (!ok) continue;
+      addSubject(h.text, `an H${h.level} on your site`);
+    }
+    for (const n of x.navigation) {
+      if (!looksLikeASubject(n.label)) continue;
+      addSubject(n.label, "your own navigation");
+    }
   }
   if (input.category) addSubject(input.category, "your brand record");
 

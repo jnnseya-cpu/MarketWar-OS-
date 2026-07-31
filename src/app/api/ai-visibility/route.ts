@@ -22,7 +22,10 @@ import { deepCrawl } from "@/backend/deep-crawl";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Questions × assistants, each a real model call. Reserve the full budget.
-export const maxDuration = 60;
+// Thirty provider calls at ten questions × three assistants. The run is
+// deadline-bounded (RUN_BUDGET_MS) so it always answers with what it collected,
+// but the function has to outlast that budget or the answer never arrives.
+export const maxDuration = 120;
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const nowISO = (req: NextRequest) => {
@@ -30,9 +33,11 @@ const nowISO = (req: NextRequest) => {
   return h && !Number.isNaN(Date.parse(h)) ? new Date(h).toISOString() : new Date().toISOString();
 };
 
-// A run costs one AI call per question per assistant. Capped so a mistyped
-// question list cannot spend a month's allowance in one press.
-const MAX_QUESTIONS = 8;
+// A run costs one AI call per question per assistant, so ten questions across
+// three assistants is thirty calls. The cap exists so a mistyped question list
+// cannot spend a month's allowance in one press; the number is the owner's
+// call, and the page states the cost before the button is pressed.
+const MAX_QUESTIONS = 10;
 
 /**
  * Derive the questions from the customer's own website.
