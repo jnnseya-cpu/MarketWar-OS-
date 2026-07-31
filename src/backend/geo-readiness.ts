@@ -19,6 +19,8 @@ if (typeof window !== "undefined") {
 // The score is computed from those facts. What can't be measured is reported as
 // "unknown", never filled in with a number.
 
+import { detectRenderGap } from "@/backend/render-gap";
+
 const UA = "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)";
 
 async function get(url: string, timeoutMs = 10_000): Promise<{ ok: boolean; status: number; text: string }> {
@@ -233,6 +235,27 @@ export async function geoReadiness(rawUrl: string): Promise<GeoReport> {
     evidence: `Title ${title ? `${title.length} chars: "${title.slice(0, 70)}"` : "MISSING"}; meta description ${metaDesc ? `${metaDesc.length} chars` : "MISSING"}.`,
     fix: metaDesc.length >= 70 && metaDesc.length <= 165 && title.length >= 15 ? undefined : "Write a 50–60 char title and a 120–155 char meta description naming the product, audience and offer.",
     autoFixable: true,
+  });
+
+  // Server-rendered content.
+  //
+  // NOTE THE DIFFERENT VERDICT FROM THE SEO CRAWLER. There, a JavaScript-
+  // rendered page means "we cannot tell", because Google runs the script and
+  // will see the finished page. Here it is not an unknown at all — it is THE
+  // finding. AI answer engines fetch raw HTML and do not execute JavaScript, so
+  // whatever is missing from this response is missing from what they know about
+  // this business. Every check above is measuring the same document they get.
+  const render = detectRenderGap(html);
+  checks.push({
+    id: "server-rendered", label: "Content is in the HTML (not JS-rendered)", weight: 20,
+    status: render.jsShell ? "fail" : "pass",
+    score: render.jsShell ? 0 : 100,
+    evidence: render.jsShell
+      ? `The HTML carries ${render.words} word(s) and ${Math.round(render.scriptShare * 100)}% of it is script${render.framework ? ` (${render.framework})` : ""}. An AI assistant fetching this page reads that, and nothing else — your copy, headings and JSON-LD arrive only once a browser runs the bundle, which these crawlers do not do.`
+      : `${render.words} word(s) of content are present in the HTML itself, so an assistant fetching this page can read it without running any JavaScript.`,
+    fix: render.jsShell
+      ? "Server-render (or statically pre-render) the title, the body copy and the JSON-LD. This is the single highest-value fix on this report: every other check above is scored against the same empty document the AI engines receive."
+      : undefined,
   });
 
   const totalWeight = checks.reduce((s, c) => s + c.weight, 0);

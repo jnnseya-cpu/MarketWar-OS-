@@ -244,6 +244,8 @@ export type CrawlSummary = {
   imagesTotal?: number;
   imagesNoAlt?: number;
   structuredDataTypes?: string[];
+  /** From the crawler. True when the HTML could not tell us what is on the page. */
+  renderGap?: { jsShell?: boolean; framework?: string; words?: number };
 };
 
 export type DraftResult = { fixes: SeoFix[]; needsYou: UnfillableGap[] };
@@ -275,6 +277,22 @@ export function draftFixesFromCrawl(crawl: CrawlSummary, brand: Brand, existing:
     if (fixes.some((f) => sameFix(f, { kind, path, value: v }))) return;
     fixes.push({ id: `draft-${kind}-${key}`, kind, path, value: v, replace: false, approved: false, source, createdAt: at });
   };
+
+  // A JavaScript-rendered page returns a mount point and a bundle. "No <title>
+  // in the HTML" there does NOT mean the page has no title — the browser sets
+  // one a moment later. Drafting a replacement from that reading would offer to
+  // fill a gap that does not exist, and approving it would put a second,
+  // generated title onto a page that already had a good one.
+  if (crawl.renderGap?.jsShell) {
+    const fw = crawl.renderGap.framework ? `a ${crawl.renderGap.framework} app` : "a JavaScript app";
+    return {
+      fixes: [],
+      needsYou: [{
+        label: `${path} is rendered in the browser`,
+        reason: `This page is delivered as ${fw}, so its title, description and structured data arrive when the script runs — the HTML we can read carries ${crawl.renderGap.words ?? 0} word(s). We cannot tell what is already on the finished page, and drafting from that reading would offer to fill gaps that may not exist. Render the title, copy and JSON-LD on the server (that is also what makes them visible to AI assistants, which do not run your JavaScript), or write the fixes here yourself if you know what is missing.`,
+      }],
+    };
+  }
 
   const { title, description } = metaValues(brand);
   // A brand record with nothing but a name produces "VeryX." — technically a

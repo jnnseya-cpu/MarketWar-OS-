@@ -129,8 +129,8 @@ export default function WebsiteIntelPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Live crawl — a REAL measured audit of the actual page (no third party).
-  type Finding = { area: string; label: string; severity: "pass" | "warn" | "fail"; detail: string };
-  type Crawl = { ok: boolean; url: string; finalUrl?: string; httpStatus?: number; https: boolean; loadMs?: number; score: number; grade: string; title?: string; metaDescription?: string; h1Count?: number; wordCount?: number; imagesTotal?: number; imagesNoAlt?: number; internalLinks?: number; externalLinks?: number; robotsTxt?: boolean; sitemapXml?: boolean; structuredDataTypes?: string[]; findings: Finding[]; error?: string };
+  type Finding = { area: string; label: string; severity: "pass" | "warn" | "fail"; detail: string; measured?: boolean };
+  type Crawl = { coveragePct?: number; unreadable?: string[]; scoreNote?: string; ok: boolean; url: string; finalUrl?: string; httpStatus?: number; https: boolean; loadMs?: number; score: number; grade: string; title?: string; metaDescription?: string; h1Count?: number; wordCount?: number; imagesTotal?: number; imagesNoAlt?: number; internalLinks?: number; externalLinks?: number; robotsTxt?: boolean; sitemapXml?: boolean; structuredDataTypes?: string[]; findings: Finding[]; renderGap?: { jsShell?: boolean; framework?: string; words?: number; scriptShare?: number; note?: string }; block?: { kind: string; vendor?: string; message: string; action: string }; error?: string };
   const [crawl, setCrawl] = useState<Crawl | null>(null);
   const [crawling, setCrawling] = useState(false);
   async function runCrawl() {
@@ -212,12 +212,45 @@ export default function WebsiteIntelPage() {
           <button className="btn-primary" onClick={runCrawl} disabled={crawling || !website.trim()}>{crawling ? <><Loader2 className="h-4 w-4 animate-spin" /> Crawling…</> : <><Radar className="h-4 w-4" /> Crawl site</>}</button>
         </div>
 
-        {crawl && !crawl.ok && <p className="mt-3 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{crawl.error}</p>}
+        {/* A block is a door with a lock on it, not a broken site — so it names
+            the product doing the blocking and what the owner can do about it. */}
+        {crawl && !crawl.ok && (
+          <div className="mt-3 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            {crawl.block ? (
+              <>
+                <p className="font-semibold">{crawl.block.message}</p>
+                {crawl.block.action && <p className="mt-1 text-xs text-rose-200/80">{crawl.block.action}</p>}
+              </>
+            ) : crawl.error}
+          </div>
+        )}
         {crawl && crawl.ok && (
           <div className="mt-4">
+            {/* The render gap: the most valuable finding on the page, because it
+                is exactly what the AI answer engines cannot see either. */}
+            {crawl.renderGap?.jsShell && (
+              <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3">
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-200">
+                  Rendered by JavaScript{crawl.renderGap.framework ? ` · ${crawl.renderGap.framework}` : ""}
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-100/85">{crawl.renderGap.note}</p>
+                <p className="mt-1.5 text-[11px] text-amber-100/60">
+                  The content checks below are marked <em>not readable</em> rather than failed, and are left out of the score — an absence in this HTML is not proof of an absence on your page.
+                </p>
+              </div>
+            )}
             <div className="mb-4 flex flex-wrap items-center gap-4">
-              <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full text-white ${crawl.score >= 75 ? "bg-emerald-500" : crawl.score >= 60 ? "bg-amber-500" : "bg-rose-500"}`}>
-                <span className="font-display text-xl font-bold leading-none">{crawl.grade}</span><span className="text-[10px]">{crawl.score}/100</span>
+              {/* A grade never travels without the share of the audit it came
+                  from — 89/B computed from a page we mostly could not read
+                  would tell a customer their site is fine when what we
+                  established is that we could not see it. */}
+              <div className="shrink-0">
+                <div className={`flex h-16 w-16 flex-col items-center justify-center rounded-full text-white ${(crawl.coveragePct ?? 100) < 100 ? "bg-slate-600" : crawl.score >= 75 ? "bg-emerald-500" : crawl.score >= 60 ? "bg-amber-500" : "bg-rose-500"}`}>
+                  <span className="font-display text-xl font-bold leading-none">{crawl.grade}</span><span className="text-[10px]">{crawl.score}/100</span>
+                </div>
+                {(crawl.coveragePct ?? 100) < 100 && (
+                  <p className="mt-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">{crawl.coveragePct}% read</p>
+                )}
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
                 <span>Status <span className="font-semibold text-white">{crawl.httpStatus}</span></span>
@@ -230,12 +263,13 @@ export default function WebsiteIntelPage() {
                 <span>sitemap <span className={crawl.sitemapXml ? "text-emerald-300" : "text-slate-500"}>{crawl.sitemapXml ? "✓" : "—"}</span></span>
               </div>
             </div>
+            {crawl.scoreNote && <p className="mb-3 rounded-md bg-white/[0.04] px-3 py-2 text-[11px] leading-relaxed text-slate-400">{crawl.scoreNote}</p>}
             <div className="space-y-1.5">
               {crawl.findings.map((f, i) => (
                 <div key={i} className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-ink-900/40 px-3 py-2">
-                  <span className={`mt-0.5 text-xs font-bold ${f.severity === "pass" ? "text-emerald-400" : f.severity === "warn" ? "text-amber-400" : "text-rose-400"}`}>{f.severity === "pass" ? "✓" : f.severity === "warn" ? "!" : "✕"}</span>
+                  <span className={`mt-0.5 text-xs font-bold ${f.measured === false ? "text-slate-500" : f.severity === "pass" ? "text-emerald-400" : f.severity === "warn" ? "text-amber-400" : "text-rose-400"}`}>{f.measured === false ? "?" : f.severity === "pass" ? "✓" : f.severity === "warn" ? "!" : "✕"}</span>
                   <div className="min-w-0">
-                    <p className="text-sm text-white">{f.label} <span className="text-[10px] uppercase tracking-wide text-slate-600">{f.area}</span></p>
+                    <p className="text-sm text-white">{f.label} <span className="text-[10px] uppercase tracking-wide text-slate-600">{f.area}</span>{f.measured === false && <span className="ml-1.5 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">not readable</span>}</p>
                     <p className="text-xs text-slate-400">{f.detail}</p>
                   </div>
                 </div>

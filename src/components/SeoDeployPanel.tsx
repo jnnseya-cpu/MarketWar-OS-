@@ -41,6 +41,8 @@ export type PanelCrawl = {
   imagesTotal?: number;
   imagesNoAlt?: number;
   structuredDataTypes?: string[];
+  /** Passed straight through: drafting refuses on a page whose HTML we could not read. */
+  renderGap?: { jsShell?: boolean; framework?: string; words?: number };
 };
 
 const KIND_LABEL = new Map(SEO_FIX_KINDS.map((k) => [k.kind, k.label]));

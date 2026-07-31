@@ -6077,6 +6077,15 @@ test("seo-deploy: the panel is on SiteRaid AND SEO Autopilot, and states its lim
   assert.match(panel, /in the browser/);
   assert.match(panel, /AI assistants your visibility check asks/);
   assert.match(panel, /type="checkbox" checked=\{f\.approved\}/, "approval is per fix, visible, and off by default");
+
+  // The crawl card must SHOW what the crawl could not read. A number computed
+  // from a partial audit that renders as a plain grade is the lie this whole
+  // change exists to stop.
+  const siteraid = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  assert.match(siteraid, /\{crawl\.scoreNote &&/, "the coverage caveat has to reach the screen, not just the payload");
+  assert.match(siteraid, /crawl\.coveragePct/, "and the grade badge has to say how much of the audit it came from");
+  assert.match(siteraid, /crawl\.renderGap\?\.jsShell &&/, "the render gap gets its own banner");
+  assert.match(siteraid, /crawl\.block \?/, "a block is reported as a block, with the action, not as a generic error");
 });
 
 test("seo-deploy: the panel and the route agree on which kinds exist", () => {
@@ -6086,4 +6095,228 @@ test("seo-deploy: the panel and the route agree on which kinds exist", () => {
   assert.match(route, /const KINDS: SeoFixKind\[\] = SEO_FIX_KIND_VALUES;/);
   assert.equal(shared.SEO_FIX_KIND_VALUES.length, shared.SEO_FIX_KINDS.length);
   assert.ok(shared.SEO_FIX_KIND_VALUES.includes("schema"));
+});
+
+// ---------------------------------------------------------------------------
+// Render gap + block classification — "we could not see it" vs "it is not there"
+//
+// Every crawl in this platform reads raw HTML. Two responses look like a page
+// and are not one: a JavaScript app that has not run yet, and a bot-protection
+// challenge. Auditing either as if it were the customer's site produces a
+// confident, entirely fictional report — and, since yesterday, invites the SEO
+// auto-deploy to write a title onto a page that already has one.
+// ---------------------------------------------------------------------------
+
+const rg = await import("../src/backend/render-gap.ts");
+
+const bundle = (n) => `<script src="/_next/static/chunk.js">${"a".repeat(n)}</script>`;
+const prose = (words) => Array.from({ length: words }, (_, i) => `word${i}`).join(" ");
+
+test("render-gap: an empty mount point plus a bundle is a shell", () => {
+  const html = `<html><head><title>VeryX</title></head><body><div id="root"></div>${bundle(20000)}</body></html>`;
+  const g = rg.detectRenderGap(html);
+  assert.equal(g.jsShell, true);
+  assert.ok(g.words < 40);
+  assert.match(g.note, /AI assistants/i, "the note must name who cannot run the JavaScript");
+});
+
+test("render-gap: a SERVER-rendered page is not a shell, marker or no marker", () => {
+  // __NEXT_DATA__ is present on every Next.js page including fully rendered
+  // ones. Treating the marker as the verdict would silence real findings on
+  // most of the modern web.
+  const html = `<html><body><h1>Roofing in Leeds</h1><p>${prose(400)}</p>` +
+    `<script id="__NEXT_DATA__" type="application/json">{"props":{}}</script>${bundle(50000)}</body></html>`;
+  const g = rg.detectRenderGap(html);
+  assert.equal(g.jsShell, false, "there are 400 words of prose right there in the HTML");
+  assert.ok(g.markers.includes("__NEXT_DATA__"), "the marker is still reported, it just does not decide");
+  assert.equal(g.framework, "Next.js");
+});
+
+test("render-gap: a genuinely thin page is still called thin", () => {
+  // The damaging error is the other direction: a false "shell" verdict SILENCES
+  // a real finding on a page that really is empty.
+  const html = "<html><body><h1>Home</h1><p>Call us.</p></body></html>";
+  assert.equal(rg.detectRenderGap(html).jsShell, false);
+});
+
+test("render-gap: a block is named, and the fix is allowlisting rather than evasion", () => {
+  const cf = rg.classifyBlock(403, "<html><body>Attention Required! | Cloudflare<br>cf-browser-verification</body></html>",
+    { get: (n) => (n === "server" ? "cloudflare" : n === "cf-ray" ? "8a1b2c3d" : null) });
+  assert.equal(cf.blocked, true);
+  assert.equal(cf.kind, "bot-protection");
+  assert.equal(cf.vendor, "Cloudflare");
+  assert.match(cf.action, /MarketWarBot\/1\.0/, "the customer owns the site — tell them what to allowlist");
+  assert.match(cf.action, /do not solve CAPTCHAs/,
+    "the refusal has to be stated, not implied");
+  assert.doesNotMatch(cf.action, /proxy|rotate|bypass|solve the (captcha|challenge)|residential/i,
+    "the platform must not offer to defeat a control the owner deliberately put up");
+});
+
+test("render-gap: mentioning Cloudflare on a working page is not a block", () => {
+  const ok = rg.classifyBlock(200, "<html><body>We host with Cloudflare and love it. Just a moment...</body></html>",
+    { get: () => null });
+  assert.equal(ok.blocked, false);
+  assert.equal(ok.kind, "none");
+  assert.equal(ok.vendor, "", "prose on a working page is not evidence of what sits in front of it");
+});
+
+test("render-gap: each failure is a different sentence", () => {
+  assert.equal(rg.classifyBlock(429, "", null).kind, "rate-limited");
+  assert.equal(rg.classifyBlock(0, "", null).kind, "unreachable");
+  assert.equal(rg.classifyBlock(503, "", null).kind, "server-error");
+  assert.match(rg.classifyBlock(404, "", null).action, /does not exist/);
+  assert.equal(rg.classifyBlock(200, "<html><body>fine</body></html>", null).blocked, false);
+  const cap = rg.classifyBlock(403, '<div class="g-recaptcha">verify you are human</div>', null);
+  assert.equal(cap.kind, "captcha");
+});
+
+// --- the crawler, driven through a stubbed fetch ---
+
+const crawlWith = async (pages) => {
+  const crawler = await import("../src/backend/crawler.ts");
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const key = Object.keys(pages).find((k) => String(url).includes(k));
+    const p = key ? pages[key] : { status: 404, body: "" };
+    return {
+      ok: p.status >= 200 && p.status < 300,
+      status: p.status,
+      url: String(url),
+      headers: { get: (n) => (p.headers || {})[n.toLowerCase()] ?? null },
+      arrayBuffer: async () => new TextEncoder().encode(p.body || "").buffer,
+      text: async () => p.body || "",
+    };
+  };
+  try { return await crawler.crawlSite("https://veryxjnn.com/"); }
+  finally { globalThis.fetch = real; }
+};
+
+test("crawler: a bot-protection challenge is not audited as if it were the site", async () => {
+  const report = await crawlWith({
+    "veryxjnn.com": { status: 403, body: "<html><head><title>Attention Required! | Cloudflare</title></head><body>cf-browser-verification</body></html>", headers: { server: "cloudflare" } },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.block.vendor, "Cloudflare");
+  assert.deepEqual(report.findings, [], "every finding would have described the interstitial, not the customer's page");
+  assert.match(report.error, /Cloudflare/);
+});
+
+test("crawler: on a JS-rendered page an absence is unknown, but a presence still counts", async () => {
+  const shell = `<html lang="en"><head><title>VeryX — a work-centric CDE</title><meta name="viewport" content="width=device-width"></head>` +
+    `<body><div id="root"></div>${bundle(40000)}</body></html>`;
+  const report = await crawlWith({ "veryxjnn.com/": { status: 200, body: shell }, "robots.txt": { status: 200, body: "User-agent: *" }, "sitemap.xml": { status: 200, body: "<urlset/>" } });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.renderGap.jsShell, true);
+
+  const by = (l) => report.findings.find((f) => f.label === l);
+  // Absent from the HTML → unknown, and kept out of the score.
+  assert.equal(by("Single H1").measured, false);
+  assert.equal(by("Content depth").measured, false);
+  assert.equal(by("Schema.org").measured, false);
+  assert.match(by("Content depth").detail, /Not in the HTML/);
+  // Present in the HTML → we genuinely saw it, so it stands as a pass.
+  assert.equal(by("Title tag").severity, "pass");
+  assert.equal(by("Title tag").measured, undefined);
+  assert.equal(by("Viewport meta").severity, "pass", "the viewport is in the served document either way");
+  assert.ok(by("Rendered by JavaScript"), "and the root cause is stated as its own finding");
+});
+
+test("crawler: a shell does not turn a measured flaw into an unknown, or an empty body into a pass", async () => {
+  const shell = `<html lang="en"><head><title>Hi</title><meta name="viewport" content="width=device-width"></head>` +
+    `<body><div id="root"></div>${bundle(40000)}</body></html>`;
+  const report = await crawlWith({ "veryxjnn.com/": { status: 200, body: shell }, "robots.txt": { status: 200, body: "User-agent: *" }, "sitemap.xml": { status: 200, body: "<urlset/>" } });
+  const by = (l) => report.findings.find((f) => f.label === l);
+  // A 2-character title IS in the HTML. "Too short" is a real measurement.
+  assert.equal(by("Title tag").measured, undefined);
+  assert.match(by("Title tag").detail, /aim 15-65/);
+  // And an empty document must not earn credit for having no images to fix.
+  assert.equal(by("Image alt text").measured, false,
+    "'No images.' is not a pass on a page whose body has not been built yet");
+});
+
+test("crawler: unknown checks are excluded from the score, not counted as failures", async () => {
+  const shell = `<html lang="en"><head><title>VeryX — a work-centric CDE</title><meta name="viewport" content="width=device-width"></head>` +
+    `<body><div id="root"></div>${bundle(40000)}</body></html>`;
+  const thin = `<html lang="en"><head><title>VeryX — a work-centric CDE</title><meta name="viewport" content="width=device-width"></head>` +
+    `<body><p>Call us.</p></body></html>`;
+  const pages = { "robots.txt": { status: 200, body: "User-agent: *" }, "sitemap.xml": { status: 200, body: "<urlset/>" } };
+  const a = await crawlWith({ "veryxjnn.com/": { status: 200, body: shell }, ...pages });
+  const b = await crawlWith({ "veryxjnn.com/": { status: 200, body: thin }, ...pages });
+  assert.ok(a.score > b.score,
+    "a page we could not read must not be scored below a page we read and found empty");
+
+  // Pinned exactly: the score is computed over the measured checks ONLY.
+  const at = (fs) => {
+    const earned = fs.reduce((s, f) => s + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
+    const total = fs.reduce((s, f) => s + f.weight, 0);
+    return Math.round((earned / total) * 100);
+  };
+  const measured = a.findings.filter((f) => f.measured !== false);
+  assert.ok(measured.length < a.findings.length, "this page must actually have unknowns, or the test proves nothing");
+  assert.equal(a.score, at(measured));
+  assert.notEqual(a.score, at(a.findings),
+    "and counting the unknowns in must give a different answer, or the exclusion is doing nothing");
+});
+
+test("crawler: the grade never travels without the share of the audit it came from", async () => {
+  // A shell scored 89/B in testing while a fully-readable page scored 77 — the
+  // average of the handful of checks we COULD read comes out high. Publishing a
+  // bare "B" there tells a customer their site is fine when what we actually
+  // established is that we could not see it.
+  const shell = `<html lang="en"><head><title>VeryX — a work-centric CDE</title><meta name="viewport" content="width=device-width"></head>` +
+    `<body><div id="root"></div>${bundle(40000)}</body></html>`;
+  const pages = { "robots.txt": { status: 200, body: "User-agent: *" }, "sitemap.xml": { status: 200, body: "<urlset/>" } };
+  const a = await crawlWith({ "veryxjnn.com/": { status: 200, body: shell }, ...pages });
+  assert.ok(a.coveragePct < 100 && a.coveragePct > 0, `coverage should be partial, got ${a.coveragePct}`);
+  assert.ok(a.unreadable.includes("Content depth"));
+  assert.match(a.scoreNote, new RegExp(`${a.coveragePct}% of the audit`));
+  assert.match(a.scoreNote, /of what was readable/, "the number must say what it is not");
+
+  // A page we could read completely carries no caveat — the note is not boilerplate.
+  const full = `<html lang="en"><head><title>Roofing services in Leeds — VeryX</title>` +
+    `<meta name="description" content="${"x".repeat(90)}"><meta name="viewport" content="width=device-width">` +
+    `<link rel="canonical" href="https://veryxjnn.com/"><meta property="og:title" content="a"><meta property="og:image" content="b">` +
+    `<meta name="twitter:card" content="summary"><script type="application/ld+json">{"@type":"Organization"}</script></head>` +
+    `<body><h1>Roofing in Leeds</h1><p>${prose(400)}</p></body></html>`;
+  const b = await crawlWith({ "veryxjnn.com/": { status: 200, body: full }, ...pages });
+  assert.equal(b.coveragePct, 100);
+  assert.equal(b.scoreNote, "");
+});
+
+test("seo-deploy: no fix is drafted from a page whose HTML we could not read", () => {
+  // The bug this closes: "no <title> in the HTML" on a React app is not "this
+  // page has no title" — the browser sets one a moment later. Drafting from
+  // that reading offers to fill a gap that does not exist.
+  const { fixes, needsYou } = seod.draftFixesFromCrawl(
+    { url: "https://veryxjnn.com/pricing", renderGap: { jsShell: true, framework: "React", words: 12 } },
+    BRAND,
+  );
+  assert.deepEqual(fixes, []);
+  assert.equal(needsYou.length, 1);
+  assert.match(needsYou[0].reason, /React app/);
+  assert.match(needsYou[0].reason, /do not run your JavaScript|does not exist|may not exist/i);
+  // And the same brand on a page we COULD read still drafts normally.
+  assert.ok(seod.draftFixesFromCrawl({ url: "https://veryxjnn.com/pricing" }, BRAND).fixes.length > 0);
+});
+
+test("geo-readiness: for AI engines a JS shell is the finding, not an unknown", async () => {
+  // Deliberately the opposite verdict from the SEO crawler: Google renders,
+  // GPTBot and ClaudeBot do not. Same page, two honest answers.
+  const geo = await import("../src/backend/geo-readiness.ts");
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const shell = `<html><head><title>VeryX</title></head><body><div id="root"></div>${bundle(40000)}</body></html>`;
+    const is = (s) => String(url).includes(s);
+    return { ok: is("veryxjnn.com/") && !is("llms") && !is("robots") && !is("sitemap"), status: 200,
+      text: async () => (is("llms") || is("robots") || is("sitemap") ? "" : shell) };
+  };
+  try {
+    const r = await geo.geoReadiness("https://veryxjnn.com/");
+    const c = r.checks.find((x) => x.id === "server-rendered");
+    assert.ok(c, "the check must exist");
+    assert.equal(c.status, "fail", "not 'unknown' — this IS what the AI crawler receives");
+    assert.match(c.evidence, /nothing else/i);
+    assert.match(c.fix, /highest-value/i);
+  } finally { globalThis.fetch = real; }
 });
