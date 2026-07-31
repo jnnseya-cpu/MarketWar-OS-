@@ -8,7 +8,7 @@
 // verdict came from.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText, Search, ExternalLink, Check, PenLine, CalendarClock } from "lucide-react";
+import { Loader2, Bot, Play, CheckCircle2, XCircle, AlertTriangle, TrendingUp, TrendingDown, Minus, Plus, X, Target, Wrench, FileText, Search, ExternalLink, Check, PenLine, CalendarClock, Radar } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -74,6 +74,32 @@ export default function AiVisibilityPage() {
   const { activeBrand, ready } = useActiveBrand();
   const [questions, setQuestions] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
+
+  // Questions read from the customer's own site, rather than six templates.
+  const [qSite, setQSite] = useState("");
+  const [qBusy, setQBusy] = useState(false);
+  const [qNote, setQNote] = useState("");
+  const [qSources, setQSources] = useState<{ subject: string; from: string }[]>([]);
+  async function readQuestions() {
+    if (!activeBrand || !qSite.trim()) return;
+    setQBusy(true); setQNote(""); setQSources([]);
+    try {
+      const r = await authedFetch("/api/ai-visibility", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "questions", brandId: activeBrand.id, business: activeBrand.name,
+          website: qSite, location: activeBrand.location || "", category: activeBrand.industry || "",
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setQNote(d.error || "Couldn't read your site."); return; }
+      const qs: { text: string }[] = d.questions || [];
+      if (qs.length) setQuestions(qs.map((q) => q.text).slice(0, 8));
+      setQSources(d.pool?.sources || []);
+      setQNote(d.note || "");
+    } catch { setQNote("Couldn't reach the crawler."); }
+    finally { setQBusy(false); }
+  }
   const [run, setRun] = useState<Run | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [trend, setTrend] = useState<Trend | null>(null);
@@ -305,6 +331,26 @@ export default function AiVisibilityPage() {
             <p className="mt-1 text-xs text-slate-500">
               Written as a customer would type them — not as questions about you. Asking &ldquo;tell me about {activeBrand.name}&rdquo; proves nothing: an assistant will discuss whatever it is handed. Being named unprompted is the thing worth measuring.
             </p>
+
+            {/* Read the subjects off the real site instead of six templates. */}
+            <div className="mt-3 rounded-lg border border-sky-500/25 bg-sky-500/[0.05] p-3">
+              <p className="text-xs font-semibold text-white">Read them from your website</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                Crawls your site and builds the questions from what it actually says — your products, services, FAQs, headings and navigation. Costs no ACUs: it is an HTTP fetch, not an AI call.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input className="input min-w-[200px] flex-1" value={qSite} onChange={(e) => setQSite(e.target.value)} placeholder="yourwebsite.com" />
+                <button className="btn-ghost shrink-0" onClick={readQuestions} disabled={qBusy || !qSite.trim()}>
+                  {qBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><Radar className="h-4 w-4" /> Read my site</>}
+                </button>
+              </div>
+              {qNote && <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{qNote}</p>}
+              {qSources.length > 0 && (
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  Subjects found: {qSources.slice(0, 8).map((x) => `${x.subject} (${x.from})`).join(" · ")}{qSources.length > 8 ? ` … +${qSources.length - 8}` : ""}
+                </p>
+              )}
+            </div>
             <div className="mt-3 space-y-1.5">
               {questions.map((q, i) => (
                 <div key={i} className="flex items-center gap-2 rounded-lg border border-ink-700 bg-ink-850/40 px-3 py-1.5">

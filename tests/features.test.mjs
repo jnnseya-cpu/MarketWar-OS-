@@ -6792,3 +6792,217 @@ test("routes: every document generator outlasts the budget it delegates", () => 
       `${route} allows ${m[1]}s but delegates ${BUDGET_MS / 1000}s of work`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// AI Visibility questions read from the customer's own website.
+//
+// suggestQuestions() built six templates from four typed fields, so every
+// business in a category got the same six, every run, forever. The deep crawl
+// already reads the real subjects off the site — but "ask different ones each
+// time" has a trap in it, and these tests hold both halves.
+// ---------------------------------------------------------------------------
+
+const vq = await import("../src/backend/visibility-questions.ts");
+const aiv = await import("../src/backend/ai-visibility.ts");
+
+const EXTRACTION = {
+  url: "https://veryxjnn.com/",
+  brand: { name: "VeryX", tagline: "", lang: "en", siteName: "VeryX" },
+  products: { values: ["common data environment"], source: "structured-data" },
+  services: { values: ["document control"], source: "structured-data" },
+  pricing: [{ value: "199", declared: true, context: "Pro" }],
+  images: [], videos: [], logos: [], colours: [], fonts: [],
+  ctas: [], trustSignals: [], reviews: [],
+  faqs: [{ q: "How long does a construction handover take?", a: "" }, { q: "Do you offer a free trial?", a: "" }],
+  // "Why VeryX" is a real heading on a real site, and it must NOT become a
+  // subject: "who are the best why veryx providers" measures nothing.
+  // Long enough to survive the length filter, so the brand-name guard is the
+  // thing under test rather than an incidental minimum-length rule.
+  hierarchy: [{ level: 2, text: "Site diaries and progress tracking" }, { level: 2, text: "Why VeryX beats spreadsheets" }],
+  navigation: [{ url: "/x", label: "Snagging software" }, { url: "/a", label: "About" }, { url: "/p", label: "VeryX Pro for enterprise teams" }],
+  offers: [], blogLinks: [], contact: { emails: [], phones: [], address: "" }, socialLinks: [],
+  audience: null, notExtracted: [], found: 9,
+};
+
+test("visibility-questions: the subjects come off the site, not a template", () => {
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text).join(" | ");
+  assert.match(all, /common data environment/, "a Product in the structured data");
+  assert.match(all, /document control/, "a Service");
+  assert.match(all, /construction handover/, "a real FAQ subject");
+  assert.match(all, /snagging software/i, "their own navigation");
+  assert.match(all, /site diaries/i, "an H2");
+  // And every subject is traceable back to where we read it.
+  assert.ok(pool.sources.some((x) => /structured data/.test(x.from)));
+  assert.ok(pool.sources.some((x) => /FAQ/.test(x.from)));
+});
+
+test("visibility-questions: a question the assistant cannot answer is never asked", () => {
+  // "Do you offer a free trial?" makes sense on the site and is incoherent
+  // asked of ChatGPT, which has no idea who "you" is. A non-answer to that
+  // looks like a visibility failure and is nothing of the kind.
+  assert.equal(vq.askableOfAnAssistant("Do you offer a free trial?"), false);
+  assert.equal(vq.askableOfAnAssistant("How long does a construction handover take?"), true);
+  assert.equal(vq.askableOfAnAssistant("About"), false);
+  assert.equal(vq.askableOfAnAssistant("Hi"), false);
+
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text).join(" | ");
+  assert.doesNotMatch(all, /free trial/i, "the second-person FAQ must not survive into the pool");
+  // The brand-name question is the ONE place the name is allowed to appear.
+  const withoutBrandQ = all.replace(/What is VeryX and would you recommend them\?/g, "");
+  assert.doesNotMatch(withoutBrandQ, /VeryX/i,
+    "no subject may contain the brand's own name — 'best VeryX Pro providers' measures nothing");
+  assert.equal(pool.sources.some((x) => /veryx/i.test(x.subject)), false,
+    "and it must be rejected at the subject stage, not filtered out later");
+});
+
+test("visibility-questions: an FAQ is asked as written, not wrapped in a noun template", () => {
+  // A live run produced "Who are the best how long does enterprise PMO rollout
+  // take companies in the UK?" — a question stuffed into a slot built for a
+  // noun phrase. An FAQ IS the buyer's question; it gets asked, not wrapped.
+  assert.equal(vq.isQuestionShaped("how long does a handover take"), true);
+  assert.equal(vq.isQuestionShaped("document control"), false);
+
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text);
+  assert.ok(all.some((t) => /^How long does a construction handover take\?$/.test(t)),
+    "the FAQ is asked in the buyer's own words");
+  assert.ok(!all.some((t) => /best how long|option for how long/i.test(t)),
+    "and never wrapped into nonsense");
+
+  // The templated core needs a NOUN, so a question-shaped subject cannot fill it.
+  assert.ok(pool.core.every((q) => !/best how long|choosing a how long/i.test(q.text)));
+});
+
+test("visibility-questions: a question never fills the templated core", () => {
+  // The core is "who are the best ___ providers", which needs a noun. A site
+  // whose first readable subject is an FAQ must not produce "who are the best
+  // how do i migrate from spreadsheets providers".
+  const questionsFirst = {
+    ...EXTRACTION,
+    products: { values: [], source: "structured-data" },
+    services: { values: [], source: "structured-data" },
+    faqs: [{ q: "How do I migrate from spreadsheets to a shared system?", a: "" }],
+    hierarchy: [], navigation: [{ url: "/d", label: "Document control software" }],
+  };
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: questionsFirst, location: "London" });
+  const templated = pool.core.filter((q) => q.intent !== "brand").map((q) => q.text).join(" | ");
+  assert.doesNotMatch(templated, /how do i migrate/i, "a question cannot fill a noun slot");
+  assert.match(templated, /document control software/i, "the first NOUN subject fills it instead");
+  // And the FAQ is still asked — just in the rotation, in its own words.
+  assert.ok(pool.rotating.some((q) => /^How do I migrate from spreadsheets/.test(q.text)));
+});
+
+test("visibility-questions: only subjects we actually used are reported as found", () => {
+  // Listing a rejected subject as "found on your site" invites the customer to
+  // look for a question that was never asked.
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text.toLowerCase()).join(" | ");
+  for (const src of pool.sources) {
+    assert.ok(all.includes(src.subject.toLowerCase()), `"${src.subject}" is listed as found but never asked`);
+  }
+  assert.equal(pool.sources.some((x) => x.subject.toLowerCase() === "about"), false, "nav chrome is not a subject");
+});
+
+test("visibility-questions: case survives, because these are read aloud to a model", () => {
+  // Lower-casing every subject produced "how do i migrate from spreadsheets"
+  // and "enterprise pmo rollout" — a bare "i" and a mangled acronym, in text
+  // shown to the customer and sent verbatim to an assistant.
+  const acronyms = {
+    ...EXTRACTION,
+    products: { values: ["PMO governance tooling"], source: "structured-data" },
+    services: { values: ["ERP integration"], source: "structured-data" },
+    faqs: [{ q: "How do I migrate from spreadsheets to a shared system?", a: "" }],
+    hierarchy: [], navigation: [],
+  };
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: acronyms, location: "London" });
+  const all = [...pool.core, ...pool.rotating].map((q) => q.text).join(" | ");
+  assert.match(all, /PMO governance tooling/, "an acronym must not be lower-cased mid-sentence");
+  assert.match(all, /ERP integration/);
+  assert.ok(pool.rotating.some((q) => /^How do I migrate/.test(q.text)), "nor the pronoun I");
+  // But an ordinary Title Case nav label still reads as a sentence.
+  const nav = vq.questionsFromSite({
+    business: "VeryX", location: "London",
+    extraction: { ...EXTRACTION, products: { values: [], source: "structured-data" }, services: { values: [], source: "structured-data" }, faqs: [], hierarchy: [], navigation: [{ url: "/d", label: "Document control software" }] },
+  });
+  assert.match(nav.core.map((q) => q.text).join(" | "), /best document control software providers/);
+});
+
+test("visibility-questions: the core repeats every run, the rotation moves", () => {
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  const r0 = vq.selectRunQuestions(pool, { runIndex: 0, rotateCount: 2 });
+  const r1 = vq.selectRunQuestions(pool, { runIndex: 1, rotateCount: 2 });
+
+  const coreOf = (r) => r.questions.filter((q) => q.core).map((q) => q.text);
+  assert.deepEqual(coreOf(r0), coreOf(r1), "the core is what makes a trend a trend");
+  assert.ok(coreOf(r0).length > 0);
+
+  const rotOf = (r) => r.questions.filter((q) => !q.core).map((q) => q.text);
+  assert.notDeepEqual(rotOf(r0), rotOf(r1), "and the rotation must actually rotate");
+
+  // Deterministic: re-running run 0 asks run 0's questions, so a result can be
+  // reproduced instead of leaving the customer wondering what changed.
+  assert.deepEqual(
+    vq.selectRunQuestions(pool, { runIndex: 0, rotateCount: 2 }).questions.map((q) => q.text),
+    r0.questions.map((q) => q.text),
+  );
+});
+
+test("visibility-questions: the run never exceeds the cap it was given", () => {
+  const pool = vq.questionsFromSite({ business: "VeryX", extraction: EXTRACTION, location: "London" });
+  for (const max of [1, 4, 8]) {
+    const r = vq.selectRunQuestions(pool, { runIndex: 3, rotateCount: 5, maxTotal: max });
+    assert.ok(r.questions.length <= max, `asked ${r.questions.length} with a cap of ${max}`);
+  }
+});
+
+test("ai-visibility: the trend compares the CORE only, so rotation cannot fake movement", () => {
+  // Two runs whose CORE result is identical, but whose rotating questions went
+  // from all-miss to all-hit. The raw rate jumps; the real answer is "flat".
+  const mk = (rotMentioned) => ({
+    brand: "VeryX", askedCount: 4,
+    results: [
+      { question: { id: "c1", text: "Who are the best CDE providers in London?", intent: "buying", core: true },
+        verdicts: [{ asked: true, mentioned: true }] },
+      { question: { id: "c2", text: "What should someone look for when choosing a CDE provider?", intent: "problem", core: true },
+        verdicts: [{ asked: true, mentioned: false }] },
+      { question: { id: "r1", text: "Who are the best snagging software companies?", intent: "buying", core: false },
+        verdicts: [{ asked: true, mentioned: rotMentioned }] },
+      { question: { id: "r2", text: "What is the best option for document control?", intent: "buying", core: false },
+        verdicts: [{ asked: true, mentioned: rotMentioned }] },
+    ],
+  });
+  const latest = mk(true), previous = mk(false);
+
+  assert.equal(aiv.coreScore(latest).rate, 50);
+  assert.equal(aiv.coreScore(previous).rate, 50, "the core did not move at all");
+  assert.ok(aiv.unpromptedScore(latest).rate > aiv.unpromptedScore(previous).rate,
+    "while the raw rate did — which is the trap");
+
+  const t = aiv.trend([latest, previous]);
+  assert.equal(t.direction, "flat", "a score moving because the questions changed is not a score moving");
+});
+
+test("ai-visibility: a run recorded before rotation still trends", () => {
+  // No question carries `core`, so coreScore returns null and the whole-run
+  // score is used — which for those runs is the same thing, because every
+  // question was asked every time.
+  const old = { brand: "VeryX", askedCount: 1, results: [
+    { question: { id: "q", text: "Who are the best CDE providers?", intent: "buying" }, verdicts: [{ asked: true, mentioned: true }] },
+  ] };
+  assert.equal(aiv.coreScore(old), null);
+  assert.equal(aiv.unpromptedScore(old).rate, 100);
+});
+
+test("ai-visibility: reading questions off a site costs no ACUs", () => {
+  // A crawl plus string assembly spends no provider budget, and charging for it
+  // would be inventing a cost we do not bear.
+  const route = readFileSync(new URL("../src/app/api/ai-visibility/route.ts", import.meta.url), "utf8");
+  const idx = route.indexOf('if (s(body.action) === "questions") return siteQuestions');
+  assert.ok(idx > -1, "the action must exist");
+  // The CALL, not the import at the top of the file.
+  const meterIdx = route.indexOf("await meterAction(");
+  assert.ok(meterIdx > -1, "the run path must still meter");
+  assert.ok(idx < meterIdx, "but reading questions must return before any of it");
+});

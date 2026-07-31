@@ -39,6 +39,15 @@ export type VisibilityQuestion = {
   text: string;
   /** Why it matters — shown so the customer can judge whether it is worth tracking. */
   intent: "buying" | "comparison" | "problem" | "brand";
+  /**
+   * Asked in EVERY run, so the week-on-week trend compares like with like.
+   *
+   * Questions derived from the site rotate to widen coverage, and a score that
+   * moves because the questions changed is not a score that moved. Undefined on
+   * runs recorded before rotation existed — those are treated as all-core,
+   * which is what they were.
+   */
+  core?: boolean;
 };
 
 export type AnswerVerdict = {
@@ -606,6 +615,36 @@ export function unpromptedScore(run: VisibilityRun): { mentions: number; answers
   return { mentions, answers, rate: answers ? Math.round((mentions / answers) * 100) : 0 };
 }
 
+/**
+ * The same score, restricted to the CORE questions.
+ *
+ * Once questions are derived from the customer's site they rotate, so coverage
+ * widens run after run. That is good for finding gaps and fatal for a trend
+ * line: comparing a run to one that asked different questions measures the
+ * questions, not the visibility. The core is the set asked every time, and it
+ * is the only fair basis for "up 12 points since last week".
+ *
+ * Returns null when the run predates rotation (no question is flagged), so the
+ * caller falls back to the whole-run score — which for those runs is the same
+ * thing, because every question was asked every time.
+ */
+export function coreScore(run: VisibilityRun): { mentions: number; answers: number; rate: number } | null {
+  const results = Array.isArray(run.results) ? run.results : [];
+  if (!results.some((r) => r.question.core === true)) return null;
+
+  let mentions = 0, answers = 0;
+  for (const r of results) {
+    if (r.question.core !== true) continue;
+    if (classifyIntent(r.question.text, run.brand) === "brand") continue;
+    for (const v of r.verdicts) {
+      if (!v.asked) continue;
+      answers++;
+      if (v.mentioned) mentions++;
+    }
+  }
+  return { mentions, answers, rate: answers ? Math.round((mentions / answers) * 100) : 0 };
+}
+
 // ---------------------------------------------------------------------------
 // History. A trend only means anything if the earlier runs are real.
 // ---------------------------------------------------------------------------
@@ -642,7 +681,11 @@ export async function listRuns(brandId: string, limit = 30): Promise<VisibilityR
 export function trend(runs: VisibilityRun[]): { direction: "up" | "down" | "flat" | "unknown"; delta: number; note: string } {
   // Scored on buying answers only — a trend in "does it repeat the name I gave
   // it" is not a trend in visibility.
-  const scored = runs.map((r) => ({ run: r, s: unpromptedScore(r) })).filter((x) => x.s.answers > 0);
+  // Prefer the core questions when BOTH runs carry them: comparing a rotating
+  // question against a different rotating question is comparing two tests.
+  const bothCore = runs.length >= 2 && coreScore(runs[0]) !== null && coreScore(runs[1]) !== null;
+  const scoreOf = (r: VisibilityRun) => (bothCore ? coreScore(r) ?? unpromptedScore(r) : unpromptedScore(r));
+  const scored = runs.map((r) => ({ run: r, s: scoreOf(r) })).filter((x) => x.s.answers > 0);
   if (scored.length < 2) {
     return { direction: "unknown", delta: 0, note: "One run so far. A second gives you something to compare — the number on its own is a sample, not a position." };
   }
@@ -657,9 +700,12 @@ export function trend(runs: VisibilityRun[]): { direction: "up" | "down" | "flat
       note: `Effectively unchanged (${delta > 0 ? "+" : ""}${delta} points across ${sample} answers). A swing this size is what these models do on their own — it is not movement you caused.`,
     };
   }
+  const basis = bothCore
+    ? " Measured on the core questions only — the ones asked in every run — so this compares like with like."
+    : "";
   return {
     direction: delta > 0 ? "up" : "down", delta,
-    note: `${delta > 0 ? "Up" : "Down"} ${Math.abs(delta)} points on the previous run (${sample} answers each). Worth acting on, but confirm it holds over a third run before spending against it.`,
+    note: `${delta > 0 ? "Up" : "Down"} ${Math.abs(delta)} points on the previous run (${sample} answers each). Worth acting on, but confirm it holds over a third run before spending against it.${basis}`,
   };
 }
 

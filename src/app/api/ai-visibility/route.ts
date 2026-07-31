@@ -7,6 +7,8 @@ import {
   runVisibilityCheck, suggestQuestions, saveRun, listRuns, trend, RUN_BUDGET_MS, classifyIntent,
   type VisibilityQuestion,
 } from "@/backend/ai-visibility";
+import { questionsFromSite, selectRunQuestions } from "@/backend/visibility-questions";
+import { deepCrawl } from "@/backend/deep-crawl";
 
 // AI Visibility monitor — are you named when a buyer asks an assistant?
 //
@@ -31,6 +33,47 @@ const nowISO = (req: NextRequest) => {
 // A run costs one AI call per question per assistant. Capped so a mistyped
 // question list cannot spend a month's allowance in one press.
 const MAX_QUESTIONS = 8;
+
+/**
+ * Derive the questions from the customer's own website.
+ *
+ * POST { action: "questions", brandId, website } — crawls the site, reads the
+ * products, services, FAQs, headings and navigation off it, and builds the
+ * question pool from those subjects. Costs no AI: the crawl is HTTP and the
+ * question assembly is string work, so pressing this never spends ACUs.
+ */
+async function siteQuestions(req: NextRequest, body: Record<string, unknown>, startedAt: number) {
+  const website = typeof body.website === "string" ? body.website.trim() : "";
+  if (!website) return NextResponse.json({ error: "A website URL is required to read questions from your site." }, { status: 400 });
+
+  const spent = Date.now() - startedAt;
+  const crawl = await deepCrawl(website, {
+    maxPages: 6,
+    budgetMs: Math.max(10_000, 40_000 - spent),
+  });
+
+  const pool = questionsFromSite({
+    business: typeof body.business === "string" ? body.business : "",
+    extraction: crawl.extraction,
+    location: typeof body.location === "string" ? body.location : "",
+    category: typeof body.category === "string" ? body.category : "",
+  });
+  const runIndex = (await listRuns(brandIdOf(body))).length;
+  const selected = selectRunQuestions(pool, { runIndex, rotateCount: 2, maxTotal: MAX_QUESTIONS });
+
+  return NextResponse.json({
+    ...selected,
+    pool: { core: pool.core, rotating: pool.rotating, sources: pool.sources },
+    crawl: { host: crawl.host, pagesRead: crawl.pages.filter((x) => x.ok).length, partial: crawl.partial, note: crawl.note },
+    note: [
+      pool.note,
+      selected.note,
+      crawl.extraction ? "" : "Nothing could be read from that site, so these fall back to your brand record — the questions are only as specific as what your pages actually say.",
+    ].filter(Boolean).join(" "),
+  });
+}
+
+const brandIdOf = (body: Record<string, unknown>) => (typeof body.brandId === "string" ? body.brandId : "");
 
 export async function GET(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";
@@ -82,6 +125,11 @@ export async function POST(req: NextRequest) {
 
   const brand = s(body.business);
   if (!brand) return NextResponse.json({ error: "Pick a brand first — there is nothing to look for without a name." }, { status: 400 });
+
+  // Reading questions off the site costs no AI, so it runs BEFORE the provider
+  // check and is not metered: a crawl plus string assembly spends no provider
+  // budget, and charging for it would be inventing a cost we do not bear.
+  if (s(body.action) === "questions") return siteQuestions(req, body, startedAt);
 
   const assistants = configuredProviders();
   if (!assistants.length) {
