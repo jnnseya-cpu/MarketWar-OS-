@@ -84,6 +84,14 @@ export default async function HostedLandingPage({ params }: { params: Params }) 
               </a>
             )}
           </div>
+          {/* Who the buyer is paying. The money goes to the owner's own payment
+              account and never through MarketWar, so naming the processor is
+              the honest reassurance — not a badge we invented. */}
+          {external && (page as { checkoutProvider?: string }).checkoutProvider && (
+            <p className="mt-3 text-center text-xs text-white/70">
+              Secure checkout via {(page as { checkoutProvider?: string }).checkoutProvider}
+            </p>
+          )}
 
           {/* Reassurance, not fabricated proof: these are facts about the FORM,
               true of every page, never invented numbers or reviews. */}

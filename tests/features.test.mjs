@@ -7106,3 +7106,172 @@ test("ai-visibility: the next run's questions are refilled without being re-type
   // reading about the run that just finished.
   assert.match(page, /if \(!opts\.silent\) \{ setQBusy\(true\)/);
 });
+
+// ---------------------------------------------------------------------------
+// The seven open items, closed.
+// ---------------------------------------------------------------------------
+
+const tw = await import("../src/backend/trend-watch.ts");
+const sr = await import("../src/backend/siteraid.ts");
+
+test("site-extract: a tracking pixel is not one of your images", () => {
+  // A live crawl reported "Images (1)" and the image was
+  // facebook.com/tr?id=…&ev=PageView — a 1×1 counting beacon presented to the
+  // customer as their site's only picture.
+  assert.equal(sx.isTrackingPixel("https://www.facebook.com/tr?id=979943514805459&ev=PageView"), true);
+  assert.equal(sx.isTrackingPixel("https://x.com/a.png", '<img src="/a.png" width="1" height="1">'), true);
+  assert.equal(sx.isTrackingPixel("https://x.com/a.png", '<img src="/a.png" style="display:none">'), true);
+  assert.equal(sx.isTrackingPixel("https://veryxjnn.com/team-photo.jpg"), false);
+
+  const x = sx.extractPage(
+    `<body><img src="https://www.facebook.com/tr?id=1&ev=PageView" width="1" height="1"><img src="/team.jpg" alt="Our team"></body>`,
+    "https://veryxjnn.com/",
+  );
+  assert.deepEqual(x.images.map((i) => i.url), ["https://veryxjnn.com/team.jpg"]);
+});
+
+test("site-extract: a font is named, not hashed", () => {
+  // A live crawl reported __Inter_f367f3 and __JetBrains_Mono_Fallback_3c557b —
+  // Next.js font-optimisation internals — as the brand's typefaces.
+  assert.deepEqual(
+    sx.cleanFonts(["__Inter_f367f3", "__Inter_Fallback_f367f3", "__JetBrains_Mono_3c557b", "system-ui", "sans-serif", "Inter"], 10),
+    ["Inter", "JetBrains Mono"],
+  );
+  // A generic family names no typeface anyone chose.
+  assert.deepEqual(sx.cleanFonts(["serif", "monospace", "ui-sans-serif"], 10), []);
+});
+
+test("site-extract: the brand's colours come before the framework's greys", () => {
+  // A live crawl returned thirty colours whose first six were Tailwind's default
+  // grey ramp — which every Tailwind site has, and which says nothing about
+  // anyone's brand. The customer's red was somewhere below.
+  const raw = ["#fff", "#e5e7eb", "#9ca3af", "#f1f5f9", "#94a3b8", "#d6112b", "#2b1eeb"];
+  const ranked = sx.rankColours(raw, 8, "#d6112b");
+  assert.equal(ranked[0], "#d6112b", "theme-color is the one colour the site nominated as its own");
+  assert.equal(ranked[1], "#2b1eeb", "then the next most chromatic");
+  assert.ok(ranked.indexOf("#ffffff") > 2, "greys sink");
+  // Three- and six-digit forms of one colour are one colour.
+  assert.equal(sx.rankColours(["#fff", "#ffffff"], 8).length, 1);
+
+  // theme-color wins even when it is NOT the most vivid colour on the page —
+  // it is the one the site explicitly nominated as its own, and a brighter
+  // accent somewhere in the stylesheet does not outrank that.
+  const muted = sx.rankColours(["#ff0000", "#556b2f", "#cccccc"], 8, "#556b2f");
+  assert.equal(muted[0], "#556b2f", "the nominated colour leads");
+  assert.equal(muted[1], "#ff0000", "the vivid one still ranks above the grey");
+});
+
+test("siteraid: the Business DNA sentence is built, not glued", () => {
+  // A customer pasted their tagline into the category field and got "The mass
+  // choice for the enterprise execution operating system. in United Kingdom ."
+  const dna = sr.businessDNA({
+    business: "VERYX", category: "The Enterprise Execution Operating System.",
+    offers: ["Governance"], pricePosition: "mass", location: " United Kingdom ",
+  });
+  assert.equal(dna.valueProposition, "The mainstream choice for the Enterprise Execution Operating System in United Kingdom.");
+  assert.doesNotMatch(dna.valueProposition, /\. in |\s\.$/, "no full stop mid-sentence, no trailing space");
+  // And with no location it still ends cleanly.
+  const noLoc = sr.businessDNA({ business: "V", category: "Roofing", offers: [], pricePosition: "premium" });
+  assert.equal(noLoc.valueProposition, "The premium choice for roofing.");
+});
+
+test("siteraid: the DNA invents no rating and no review count", () => {
+  // These read `${x.rating ?? 4.6}★` and `${x.reviews ?? 120} reviews`, so a
+  // business with neither was handed "4.6★ social proof" and "120 reviews" as
+  // its own competitive advantages — one panel away from the Truth Layer.
+  const bare = sr.businessDNA({ business: "V", category: "Roofing", offers: [], pricePosition: "mass" });
+  assert.ok(!bare.competitiveAdvantages.some((a) => /★/.test(a)), "no invented rating");
+  assert.ok(!bare.proofAssets.some((a) => /\d+ reviews/.test(a)), "no invented review count");
+  // When they ARE real, they are used.
+  const real = sr.businessDNA({ business: "V", category: "Roofing", offers: [], pricePosition: "mass", rating: 4.7, reviews: 213 });
+  assert.ok(real.competitiveAdvantages.some((a) => a.includes("4.7★")));
+  assert.ok(real.proofAssets.some((a) => a.includes("213 reviews")));
+});
+
+test("agents: the site-aware agent is handed the crawl instead of asking for it", () => {
+  // A live run ended "zero verified facts about what VeryX actually sells or to
+  // whom" and asked four questions — minutes after the deep crawl read 544
+  // things off that same site.
+  const route = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(route, /SITE_AWARE_AGENTS\.has\(agentId\)/);
+  assert.match(route, /"website-intelligence"/);
+  assert.match(route, /input\.liveSiteFacts =/);
+  assert.match(route, /Do NOT ask the user what the business sells/);
+  assert.match(route, /do NOT quote as their price/, "an undeclared price must not be quoted back as theirs");
+  assert.match(route, /No rating is published on the site\. Do not state one/);
+  assert.match(route, /must not be invented: who the audience is/,
+    "audience stays an inference and is labelled as one");
+});
+
+test("funnel-checkout: a payment link on a live page is validated, not just tidied", () => {
+  // normalizeUrl passed "http://..." through unchanged, which would put a
+  // checkout collecting card details in the clear onto a published page.
+  const landing = readFileSync(new URL("../src/backend/landing.ts", import.meta.url), "utf8");
+  assert.match(landing, /checkCheckoutLink\(input\.ctaUrl!\)/);
+  assert.match(landing, /const primaryCtaUrl = ctaCheck\?\.ok \? ctaCheck\.url : ""/,
+    "a refused link must not become the button's href");
+  const hosted = readFileSync(new URL("../src/app/b/[brandId]/[slug]/page.tsx", import.meta.url), "utf8");
+  assert.match(hosted, /Secure checkout via \{/, "the buyer is told who they are paying");
+  const builder = readFileSync(new URL("../src/app/dashboard/landing-builder/page.tsx", import.meta.url), "utf8");
+  assert.match(builder, /checkoutNote/, "and the owner is told if their link was refused");
+  assert.match(builder, /never passes through MarketWar/);
+});
+
+test("trend-watch: relevance is MEASURED against the brand's own words", () => {
+  // trendHijackGate scores fit as seed(trend + business + factor) — a checksum of
+  // the customer's own name. Scheduling that would mail them a weekly
+  // recommendation derived from a hash.
+  const vocab = tw.vocabulary(EXTRACTION);
+  assert.ok(vocab.includes("snagging"), "read off the site");
+  assert.ok(!vocab.includes("the"), "stopwords carry no signal");
+
+  const hit = tw.relevanceOf("New snagging software rules for construction handover", vocab);
+  assert.ok(hit.score > 0);
+  assert.ok(hit.matched.includes("snagging"), "the reason is shown, not asserted");
+  assert.match(hit.note, /not a judgement of strategic fit/);
+
+  const miss = tw.relevanceOf("Interest rates hold steady", vocab);
+  assert.equal(miss.score, 0);
+
+  // No crawl, no score — never a number pretending to be one.
+  const blind = tw.relevanceOf("anything at all", []);
+  assert.equal(blind.score, null);
+  assert.match(blind.note, /No relevance score/);
+});
+
+test("trend-watch: the risk gate still overrules a relevant trend", async () => {
+  const vocab = ["snagging", "construction"];
+  const r = tw.relevanceOf("Construction site disaster kills snagging contractor", vocab);
+  assert.ok(r.score > 0, "it is textually relevant");
+  const gate = (await import("../src/backend/campaign-architect.ts")).trendHijackGate({
+    trend: "Construction site disaster kills snagging contractor", business: "VeryX",
+  });
+  assert.equal(gate.verdict, "reject", "and must still be rejected — relevance never overrides harm");
+});
+
+test("trend-watch: a weekly digest reports only what is new", () => {
+  // A digest that re-sends last week's headlines teaches people to ignore it,
+  // and then the one that matters goes unread.
+  const mk = (titles) => ({ brandId: "b", checkedAt: "", subjects: [], note: "",
+    findings: titles.map((t) => ({ title: t, snippet: "", link: "", relevance: { score: 100, matched: [], note: "" }, gate: {}, action: "join", why: "" })) });
+  assert.deepEqual(tw.newSince(mk(["A", "B"]), mk(["A"])).map((f) => f.title), ["B"]);
+  assert.deepEqual(tw.newSince(mk(["A"]), mk(["A"])), []);
+  assert.deepEqual(tw.newSince(mk(["A"]), null).map((f) => f.title), ["A"], "the first run is all new");
+});
+
+test("trends cron: scheduled, authenticated, budgeted, and free", () => {
+  const route = readFileSync(new URL("../src/app/api/trends/scheduled/route.ts", import.meta.url), "utf8");
+  assert.match(route, /cron === "1"|cron"\) === "1"/, "Vercel's own cron call is recognised");
+  assert.match(route, /Bearer \$\{secret\}/, "anything else needs the secret");
+  assert.match(route, /status: 401/);
+  const md = Number(/export const maxDuration = (\d+)/.exec(route)[1]);
+  const budget = Number(/RUN_BUDGET_MS = ([\d_]+)/.exec(route)[1].replace(/_/g, ""));
+  assert.ok(budget < md * 1000, "a sweep must fit inside its function");
+  assert.match(route, /skipped\.push/, "a brand that is skipped says why");
+  assert.match(route, /costs no ACUs/, "a news search and word overlap are not provider calls");
+
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.ok(vercel.crons.some((c) => c.path.startsWith("/api/trends/scheduled")), "it must actually be scheduled");
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  assert.match(rules, /match \/trend_watches\/\{doc\} \{ allow read, write: if false; \}/);
+});

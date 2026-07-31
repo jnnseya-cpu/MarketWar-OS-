@@ -19,7 +19,7 @@ type ABVariant = { variant: string; focus: string; headline: string; subheadline
 type FormField = { key: string; label: string; type: string; required: boolean };
 type Page = {
   pageType: string; title: string; slug: string; headline: string; subheadline: string; offerText: string;
-  primaryCta: string; primaryCtaUrl?: string; secondaryCta: string; sections: Section[]; formConfig: { enabled: boolean; fields: FormField[]; submitAction: string };
+  primaryCta: string; primaryCtaUrl?: string; checkoutProvider?: string; checkoutNote?: string; secondaryCta: string; sections: Section[]; formConfig: { enabled: boolean; fields: FormField[]; submitAction: string };
   whatsappConfig: { enabled: boolean; prefilledMessage: string }; scores: Scores; abVariants: ABVariant[];
   optimisationRecommendations: string[]; publishUrl: string;
 };
@@ -107,7 +107,10 @@ export default function LandingBuilderPage() {
           </div>
           <div>
             <label className="label">Product / CTA link <span className="text-slate-500">— optional</span></label>
-            <input className="input" placeholder="e.g. veryx.com/start or your checkout URL" value={form.ctaUrl} onChange={set("ctaUrl")} />
+            <input className="input" placeholder="e.g. veryx.com/start or your Stripe / PayPal / SumUp checkout URL" value={form.ctaUrl} onChange={set("ctaUrl")} />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Use <strong>your own</strong> payment link. The buyer pays you directly and the money never passes through MarketWar, so there is no cut and no per-sale fee. Must be https — over plain http your buyer&apos;s card details travel in the clear, and the link is refused.
+            </p>
             <p className="mt-1 text-[11px] text-slate-500">Add your real product, checkout or booking link and the button sends visitors straight there. Blank = built-in lead form.</p>
           </div>
         </div>
@@ -159,6 +162,13 @@ export default function LandingBuilderPage() {
               )}
             </div>
             {!page.primaryCtaUrl && <p className="mt-2 text-[11px] text-slate-500">Button opens the built-in lead form. Add a Product / CTA link above to send visitors to your own product or checkout instead.</p>}
+            {/* If a pasted link was refused, say why — silently falling back to
+                the lead form looks like the checkout is live when it is not. */}
+            {(page as { checkoutNote?: string }).checkoutNote && (
+              <p className={`mt-2 rounded-md px-3 py-2 text-[11px] leading-relaxed ${page.primaryCtaUrl ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
+                {(page as { checkoutNote?: string }).checkoutNote}
+              </p>
+            )}
             <div className="mt-4 grid gap-2 sm:grid-cols-4">
               {Object.entries(page.scores).map(([k, v]) => <StatCard key={k} label={SCORE_LABELS[k] || k} value={`${v}`} tone={tone(v)} />)}
             </div>

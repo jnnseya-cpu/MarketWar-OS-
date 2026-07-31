@@ -69,6 +69,21 @@ const SOCIAL_HOSTS = [
   "whatsapp.com", "wa.me", "t.me", "telegram.me", "vimeo.com", "github.com", "medium.com",
 ];
 
+// Analytics beacons served as <img>. A live crawl of a real site reported
+// "Images (1)" and the one image was facebook.com/tr?id=…&ev=PageView — a 1×1
+// counting pixel presented to the customer as their site's only picture, while
+// the actual photography was lazy-loaded and invisible to us.
+const PIXEL_HOSTS = /(facebook\.com\/tr|google-analytics\.com|googletagmanager\.com|doubleclick\.net|\/pixel|analytics|\.gif\?|linkedin\.com\/px|bat\.bing\.com|hotjar|segment\.io|matomo|plausible|clarity\.ms)/i;
+
+export function isTrackingPixel(url: string, tag = ""): boolean {
+  if (PIXEL_HOSTS.test(url)) return true;
+  // Declared 1×1, or hidden — either way it is a beacon, not a picture.
+  const w = Number(attrOf(tag, "width")), h = Number(attrOf(tag, "height"));
+  if (w && h && w <= 2 && h <= 2) return true;
+  if (/display\s*:\s*none|visibility\s*:\s*hidden/i.test(tag)) return true;
+  return false;
+}
+
 const VIDEO_HOSTS = ["youtube.com", "youtu.be", "vimeo.com", "wistia", "loom.com", "dailymotion.com"];
 
 // Words that make a link a call to action rather than navigation. Deliberately
@@ -80,6 +95,82 @@ const TRUST_WORDS = /\b(money[- ]back|guarantee|guaranteed|certified|accredited|
 const OFFER_WORDS = /(?:\d+%\s*off|save \d+|half price|bogof|buy one get|limited time|ends \w+day|discount|free (?:trial|month|delivery|shipping|returns))/i;
 
 const CURRENCY = /(?:[£$€¥]|\b(?:GBP|USD|EUR|CAD|AUD)\b)\s?\d[\d,]*(?:\.\d{2})?/g;
+
+/** #abc → #aabbcc, so three- and six-digit forms of one colour are one colour. */
+function expandHex(hex: string): string {
+  const h = hex.replace("#", "");
+  return h.length === 3 ? `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}` : `#${h}`;
+}
+
+/** How far from grey, 0–1. A brand colour has chroma; a border does not. */
+function chromaOf(hex: string): number {
+  const h = expandHex(hex).slice(1);
+  if (!/^[0-9a-f]{6}$/i.test(h)) return 0;
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  return max === 0 ? 0 : (max - min) / max;
+}
+
+/**
+ * The brand's colours first, the framework's greys last.
+ *
+ * A live crawl returned thirty colours of which the first six were #fff,
+ * #e5e7eb, #9ca3af, #f1f5f9, #94a3b8 — Tailwind's default grey ramp, which every
+ * site using Tailwind has and which says nothing about anyone's brand. The
+ * customer's actual red was in there somewhere below the fold of the list.
+ *
+ * theme-color is honoured first when present: it is the one colour the site
+ * explicitly nominated as its own.
+ */
+export function rankColours(raw: string[], cap: number, themeColour = ""): string[] {
+  const seen = new Set<string>();
+  const items: { value: string; chroma: number }[] = [];
+  for (const c of raw) {
+    const v = (c || "").trim().toLowerCase();
+    if (!v) continue;
+    const key = v.startsWith("#") ? expandHex(v) : v;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Fully transparent is a layout trick, not a colour.
+    if (/rgba\([^)]*,\s*0\s*\)/.test(v)) continue;
+    items.push({ value: v.startsWith("#") ? key : v, chroma: v.startsWith("#") ? chromaOf(v) : 0.5 });
+  }
+  const theme = themeColour ? expandHex(themeColour) : "";
+  return items
+    .sort((a, b) => {
+      if (theme) {
+        if (a.value === theme) return -1;
+        if (b.value === theme) return 1;
+      }
+      return b.chroma - a.chroma;
+    })
+    .map((x) => x.value)
+    .slice(0, cap);
+}
+
+/**
+ * Font names a human would recognise.
+ *
+ * Next.js font optimisation emits CSS variables like `__Inter_f367f3` and
+ * `__Inter_Fallback_f367f3`, and a live crawl reported those verbatim as the
+ * brand's typefaces. The build hash is noise; the family name is the answer.
+ */
+export function cleanFonts(raw: string[], cap: number): string[] {
+  const out: string[] = [];
+  for (const f of raw) {
+    let name = (f || "").trim();
+    if (!name) continue;
+    // __Inter_f367f3 / __JetBrains_Mono_Fallback_3c557b → Inter / JetBrains Mono
+    const gen = /^__(.+?)(?:_Fallback)?_[0-9a-f]{4,}$/i.exec(name);
+    if (gen) name = gen[1].replace(/_/g, " ");
+    if (/^(inherit|initial|unset|revert)$/i.test(name) || name.startsWith("var(")) continue;
+    // A stack always ends in a generic; it names no typeface anyone chose.
+    if (/^(sans-serif|serif|monospace|cursive|fantasy|system-ui|ui-(sans-serif|serif|monospace|rounded))$/i.test(name)) continue;
+    if (!out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
 
 const dedupe = (xs: string[], cap: number) => [...new Set(xs.map((x) => x.trim()).filter(Boolean))].slice(0, cap);
 const decode = (s: string) =>
@@ -200,7 +291,8 @@ export function extractPage(html: string, baseUrl: string, css = ""): SiteExtrac
   const images: LinkFinding[] = [];
   for (const tag of doc.match(/<img\b[^>]*>/gi) || []) {
     const src = absolute(attrOf(tag, "src") || attrOf(tag, "data-src"), baseUrl);
-    if (src) images.push({ url: src, label: attrOf(tag, "alt") });
+    if (!src || isTrackingPixel(src, tag)) continue;
+    images.push({ url: src, label: attrOf(tag, "alt") });
   }
   const videos: LinkFinding[] = [];
   for (const tag of doc.match(/<(?:iframe|video|source)\b[^>]*>/gi) || []) {
@@ -221,18 +313,22 @@ export function extractPage(html: string, baseUrl: string, css = ""): SiteExtrac
 
   // --- colours & fonts (mostly in the stylesheet, not the markup) --------
   const styleText = `${css} ${(doc.match(/<style[\s\S]*?<\/style>/gi) || []).join(" ")} ${(doc.match(/style\s*=\s*"[^"]*"/gi) || []).join(" ")}`;
-  const colours = dedupe([
-    metaOf(doc, "theme-color"),
-    ...(styleText.match(/#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi) || []),
-    ...(styleText.match(/rgba?\([^)]*\)/gi) || []),
-  ].map((c) => c.toLowerCase()), 24);
-  const fonts = dedupe([
+  const colours = rankColours(
+    [
+      metaOf(doc, "theme-color"),
+      ...(styleText.match(/#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi) || []),
+      ...(styleText.match(/rgba?\([^)]*\)/gi) || []),
+    ].map((c) => c.toLowerCase()),
+    16,
+    metaOf(doc, "theme-color").toLowerCase(),
+  );
+  const fonts = cleanFonts([
     // The value nearly always starts with a quote — font-family:"Inter",sans-serif
     // — so a character class excluding quotes matched the empty string and found
     // no fonts on any site that quotes its font names, which is most of them.
     ...(styleText.match(/font-family\s*:\s*([^;}]+)/gi) || []).map((d) => d.replace(/font-family\s*:\s*/i, "")),
     ...(doc.match(/fonts\.googleapis\.com\/css2?\?[^"']+/gi) || []).map((u) => decodeURIComponent(u).replace(/.*family=/, "").split(/[&:]/)[0].replace(/\+/g, " ")),
-  ].flatMap((f) => f.split(",")).map((f) => f.replace(/["']/g, "").trim()).filter((f) => f && !/^(inherit|initial|unset|var\()/i.test(f)), 12);
+  ].flatMap((f) => f.split(",")).map((f) => f.replace(/["']/g, "").trim()), 12);
 
   // --- links: CTAs, navigation, social, blog -----------------------------
   const ctas: string[] = [];

@@ -8,10 +8,17 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 import { checkDomainAuth, normaliseDomain, type DomainAuthReport } from "@/backend/dns-auth";
 import { nextStepFrom } from "@/backend/next-step";
+import { deepCrawl } from "@/backend/deep-crawl";
 
 // Denial-of-wallet defence: every AI call can spend real provider budget once
 // keys are live, so cap requests per caller. 240/min is generous for genuine
 // use (and for the smoke suite's ~39 sequential calls) but stops a runaway.
+/** Agents whose whole job is about a website, and which therefore get its facts. */
+const SITE_AWARE_AGENTS = new Set([
+  "website-intelligence", "seo-strategist", "conversion-architect",
+  "content-factory", "local-growth", "organic-dominance",
+]);
+
 const AGENT_RATE_LIMIT = 240;
 const AGENT_WINDOW_MS = 60_000;
 
@@ -92,6 +99,51 @@ export async function POST(
           domainAuth.blockers.length ? `Blocking: ${domainAuth.blockers.join(" | ")}` : "",
           "Build the plan around this ACTUAL state. End with the next action the user takes in this product, never with a request for information already given.",
         ].filter(Boolean).join("\n");
+      } catch { /* the agent still runs; it just has less to work with */ }
+    }
+  }
+
+  // The same treatment for the SITE, and for exactly the same reason.
+  //
+  // The website-intelligence agent ended a live run with "Can't run SiteRaid
+  // yet — I have your logo, colours and URL, but zero verified facts about what
+  // VeryX actually sells or to whom", then asked the customer four questions.
+  // The deep crawl had already read 544 things off that site minutes earlier —
+  // the products, the services, the prices, the FAQs, the trust signals. The
+  // agent was never shown any of it, so it asked for what the platform held.
+  //
+  // The facts are handed over, and what is NOT known is named as unknown rather
+  // than left for the model to guess at or demand.
+  if (SITE_AWARE_AGENTS.has(agentId)) {
+    const site = (input.website || input.url || "").trim();
+    if (site) {
+      try {
+        const spent = Date.now() - startedAt;
+        const crawl = await deepCrawl(site, { maxPages: 5, budgetMs: Math.max(8_000, 35_000 - spent) });
+        const x = crawl.extraction;
+        if (x) {
+          const list = (label: string, xs: string[]) => (xs.length ? `- ${label}: ${xs.slice(0, 10).join("; ")}` : "");
+          input.liveSiteFacts = [
+            `LIVE CRAWL of ${crawl.host} — read from the real pages just now, ${crawl.pages.filter((p) => p.ok).length} page(s). These are FACTS. Do NOT ask the user what the business sells, who it sells to, or what it charges: read it here. Do NOT end by requesting information that appears below.`,
+            x.brand.name ? `- Business name on the site: ${x.brand.name}` : "",
+            x.brand.tagline ? `- How the site describes itself: ${x.brand.tagline}` : "",
+            list("Products (from their structured data)", x.products.values),
+            list("Services", x.services.values),
+            list("Calls to action on the page", x.ctas),
+            list("Trust signals they publish", x.trustSignals),
+            list("Questions their own FAQ answers", x.faqs.map((f) => f.q)),
+            list("Section headings", x.hierarchy.filter((h) => h.level <= 2).map((h) => h.text)),
+            x.pricing.length
+              ? `- Prices: ${x.pricing.map((pr) => `${pr.value}${pr.currency ? ` ${pr.currency}` : ""}${pr.declared ? " (declared in structured data — quotable)" : " (seen in the page text only — do NOT quote as their price)"}`).slice(0, 8).join("; ")}`
+              : "",
+            x.reviews.length ? `- Rating published on the site: ${x.reviews.map((r) => `${r.rating ?? "?"} from ${r.count ?? "?"} reviews`).join("; ")}` : "- No rating is published on the site. Do not state one.",
+            "",
+            "WHAT IS NOT KNOWN, and must not be invented: who the audience is (it is not written in the markup — infer it if useful and LABEL it as an inference), and any figure not listed above.",
+            crawl.partial ? "This is a sample of the site, not all of it." : "",
+          ].filter(Boolean).join("\n");
+        } else {
+          input.liveSiteFacts = `A live crawl of ${site} returned nothing readable (${crawl.note}). Say so plainly. Do not invent what the business sells, and do not ask the user to paste their homepage — tell them the page could not be read and why.`;
+        }
       } catch { /* the agent still runs; it just has less to work with */ }
     }
   }

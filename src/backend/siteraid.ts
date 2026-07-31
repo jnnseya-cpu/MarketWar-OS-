@@ -101,6 +101,19 @@ export type BusinessDNA = {
   referralOpportunities: string[];
 };
 
+/** "mass" is a price tier, not an adjective anyone would write. */
+const PRICE_WORD: Record<string, string> = { budget: "affordable", mass: "mainstream", premium: "premium" };
+
+const clean = (v: string) => (v || "").replace(/\s+/g, " ").trim().replace(/[.,;:\s]+$/, "");
+/** Lower-case for mid-sentence use, but never mangle an acronym. */
+const lower = (v: string) => {
+  const c = clean(v);
+  const first = c.split(/\s+/)[0] || "";
+  return first.length > 1 && first === first.toUpperCase() ? c : c.charAt(0).toLowerCase() + c.slice(1);
+};
+/** Join the parts, drop the empties, and end with exactly one full stop. */
+const sentence = (...parts: string[]) => `${parts.map(clean).filter(Boolean).join(" ")}.`;
+
 export function businessDNA(x: SiteExtract): BusinessDNA {
   const cat = x.category;
   const price = x.pricePosition ?? "mass";
@@ -110,14 +123,31 @@ export function businessDNA(x: SiteExtract): BusinessDNA {
     revenueModel: price === "premium" ? "High-margin, lower-volume" : price === "budget" ? "Low-margin, high-volume" : "Balanced volume/margin",
     coreOffers: x.offers,
     customerSegments: [`${cat} buyers`, "Repeat customers", "Referral-sourced customers"],
-    valueProposition: `The ${price} choice for ${cat.toLowerCase()} in ${x.location ?? "the local area"}.`,
+    // Built with a helper rather than raw interpolation. A customer pasted their
+    // tagline into the category field and got "The mass choice for the
+    // enterprise execution operating system. in United Kingdom ." — a full stop
+    // mid-sentence and a trailing space, because the parts were glued together
+    // without ever being tidied.
+    valueProposition: sentence(`The ${PRICE_WORD[price]} choice for ${lower(cat)}`, x.location ? `in ${clean(x.location)}` : ""),
     brandPersonality: price === "premium" ? "Refined, confident, expert" : "Warm, dependable, local",
     pricePosition: price,
     geographicCoverage: x.location ?? "Local / regional",
     salesCycle: cat.toLowerCase().includes("service") ? "Considered (quote → decision)" : "Short (impulse → purchase)",
     mainConversionAction: x.offers.length && /book|appointment|reservation/i.test(x.offers.join(" ")) ? "Booking" : "Purchase / enquiry",
-    competitiveAdvantages: [`${x.rating ?? 4.6}★ social proof`, "Owned customer relationship", "Fast local fulfilment"],
-    proofAssets: [`${x.reviews ?? 120} reviews`, "Before/after evidence", "Verified credentials"],
+    // NO INVENTED PROOF. These read `${x.rating ?? 4.6}★` and `${x.reviews ?? 120}
+    // reviews`, so a business with no rating was handed "4.6★ social proof" and
+    // "120 reviews" as its own competitive advantages — the same fabrication the
+    // Truth Layer exists to block, printed as fact one panel away from it.
+    competitiveAdvantages: [
+      ...(x.rating ? [`${x.rating}★ social proof`] : []),
+      "Owned customer relationship",
+      "Fast local fulfilment",
+    ],
+    proofAssets: [
+      ...(x.reviews ? [`${x.reviews} reviews`] : []),
+      "Before/after evidence",
+      "Verified credentials",
+    ],
     customerObjections: ["Is it worth the price?", "Will it work for me?", "Can I trust them?"],
     trustGaps: ["No visible guarantee", "Thin about-us / credentials"],
     contentGaps: ["No demonstration content", "Missing FAQs", "Weak comparison pages"],

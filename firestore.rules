@@ -187,6 +187,8 @@ service cloud.firestore {
     // What the SEO auto-deploy snippet is permitted to inject. Admin-SDK only:
     // it is written into pages a customer is legally responsible for.
     match /seo_deployments/{doc} { allow read, write: if false; }
+    // Written by the weekly trend cron on the server; never by a browser.
+    match /trend_watches/{doc} { allow read, write: if false; }
 
     // Email delivery events + suppression ledger (src/backend/email-events.ts):
     // opens/clicks/bounces/complaints/unsubscribes and the do-not-send list.

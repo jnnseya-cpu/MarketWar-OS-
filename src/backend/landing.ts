@@ -55,6 +55,8 @@ const clean = (s?: string): string => {
 // booking, WhatsApp, Calendly…). Adds https:// when the scheme is missing but it
 // looks like a domain, so an owner can paste "veryx.com/start". Returns "" when
 // there's nothing usable — the CTA then falls back to the in-page lead form.
+import { checkCheckoutLink } from "@/backend/funnel-checkout";
+
 const normalizeUrl = (s?: string): string => {
   const t = (s || "").trim();
   if (!t) return "";
@@ -304,6 +306,10 @@ export type GeneratedLandingPage = {
   abVariants: ABVariant[];
   optimisationRecommendations: string[];
   publishUrl: string;
+  /** Named under the button so a buyer knows who they are paying. "" when unrecognised. */
+  checkoutProvider?: string;
+  /** Why a pasted link was refused, or what it was recognised as. Shown to the owner. */
+  checkoutNote?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -390,7 +396,14 @@ export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
     ? `${offer} — for ${who}${locSuffix}.`
     : `${product} for ${who}${locSuffix}. Straight answers, quick replies.`;
   const primaryCta = primaryCtaFor(pageType, profile, input);
-  const primaryCtaUrl = normalizeUrl(input.ctaUrl);
+  // The CTA link is a PAYMENT link on most funnels, so it goes through the
+  // checkout validator rather than a URL tidy-up. normalizeUrl accepted
+  // "http://..." unchanged, which would put a checkout collecting card details
+  // in the clear onto a live page.
+  const ctaCheck = clean(input.ctaUrl) ? checkCheckoutLink(input.ctaUrl!) : null;
+  const primaryCtaUrl = ctaCheck?.ok ? ctaCheck.url : "";
+  const checkoutProvider = ctaCheck?.ok && ctaCheck.recognised ? ctaCheck.provider : "";
+  const checkoutNote = ctaCheck && !ctaCheck.ok ? (ctaCheck.error || "") : (ctaCheck?.note || "");
   const { fields, submitAction } = formFields(pageType);
   const sections = buildSections(input, pageType);
   const scores = scoreLanding(input, pageType, fields.length);
@@ -400,7 +413,7 @@ export function generateLandingPage(input: LandingInput): GeneratedLandingPage {
     pageType, title: `${business} — ${objective}`, slug, status: "draft",
     objective, targetAudience: who, targetLocation: where || "your market",
     headline, subheadline,
-    offerText: offer || `Tell us what you need${locSuffix} and we'll help.`, primaryCta, primaryCtaUrl, secondaryCta: pageType === "order" ? "See what's on" : "Learn More",
+    offerText: offer || `Tell us what you need${locSuffix} and we'll help.`, primaryCta, primaryCtaUrl, checkoutProvider, checkoutNote, secondaryCta: pageType === "order" ? "See what's on" : "Learn More",
     sections,
     // When the CTA points to the owner's own product/checkout link, the built-in
     // lead form is optional (the button already does the job). We keep it enabled
