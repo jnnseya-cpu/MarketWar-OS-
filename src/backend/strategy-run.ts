@@ -8,7 +8,7 @@ if (typeof window !== "undefined") {
 // provider key; deterministic preview otherwise (honest "activating" error
 // under REQUIRE_LIVE).
 
-import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_BUDGET } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP } from "@/backend/gateway";
 import { withConciseStyle } from "@/backend/agent-style";
 import { STRATEGY_BY_ID } from "@/shared/strategy-agents";
 
@@ -33,7 +33,7 @@ export async function runStrategyAgent(
   ].join("\n");
 
   try {
-    const res = await gatewayComplete({ system: withConciseStyle(agent.systemPrompt), prompt: userPrompt, lang }, DOCUMENT_BUDGET);
+    const res = await gatewayComplete({ system: withConciseStyle(agent.systemPrompt), prompt: userPrompt, lang }, DOCUMENT_DEEP);
     return { agentId: agent.id, agentName: agent.name, mode: "live", output: res.text };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {

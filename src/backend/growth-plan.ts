@@ -9,7 +9,7 @@ if (typeof window !== "undefined") {
 // KPIs to watch. Owned-channels-first doctrine (cheap/fast money before paid).
 // Live through the AI gateway; deterministic preview when no provider key.
 
-import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_BUDGET } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP } from "@/backend/gateway";
 
 export type GrowthPlanInput = {
   business: string;
@@ -61,7 +61,7 @@ export async function generateGrowthPlan(input: GrowthPlanInput): Promise<Growth
   ].join("\n");
 
   try {
-    const res = await gatewayComplete({ system: SYSTEM, prompt, lang: input.lang }, DOCUMENT_BUDGET);
+    const res = await gatewayComplete({ system: SYSTEM, prompt, lang: input.lang }, DOCUMENT_DEEP);
     return { mode: "live", plan: res.text, business: biz };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {

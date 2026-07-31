@@ -6359,7 +6359,9 @@ test("gateway: the budget is RESERVED for fallbacks, never divided among them", 
 
 test("gateway: a caller can state its own budget instead of inheriting a chat default", () => {
   const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
-  assert.match(gw, /opts: \{ budgetMs\?: number; perCallMs\?: number \} = \{\}/);
+  // The invariant is that a caller CAN state a budget — not the exact shape of
+  // the options object, which now also carries the cost tier.
+  assert.match(gw, /opts: \{ budgetMs\?: number; perCallMs\?: number;[^}]*\} = \{\}/);
   assert.match(gw, /const deadline = Date\.now\(\) \+ budgetMs;/);
   // And the agent route must actually use it, anchored at arrival.
   const route = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
@@ -6773,12 +6775,15 @@ test("gateway: long-form generators ask for a document budget, not the chat defa
   const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
   assert.match(gw, /export const DOCUMENT_BUDGET = \{ budgetMs: 100_000, perCallMs: 45_000 \}/);
 
+  // Either budget is a document budget — DOCUMENT_DEEP is DOCUMENT_BUDGET plus a
+  // quality-first provider order. What matters here is that a document-sized
+  // generator never inherits the chat-sized default.
   for (const mod of ["blog-generator", "growth-plan", "organic-dominance", "strategy-run", "copywriter"]) {
     const src = readFileSync(new URL(`../src/backend/${mod}.ts`, import.meta.url), "utf8");
-    assert.match(src, /DOCUMENT_BUDGET/, `${mod} writes documents and must say so`);
-    assert.match(src, /gatewayComplete\([\s\S]*?,\s*DOCUMENT_BUDGET\)/,
-      `${mod} must pass it, not merely import it`);
+    assert.match(src, /gatewayComplete\([\s\S]*?,\s*DOCUMENT_(BUDGET|DEEP)\)/,
+      `${mod} writes documents and must pass a document budget, not merely import one`);
   }
+  assert.match(gw, /DOCUMENT_DEEP = \{ \.\.\.DOCUMENT_BUDGET/, "deep must inherit the document budget");
 });
 
 test("routes: every document generator outlasts the budget it delegates", () => {
@@ -7274,4 +7279,54 @@ test("trends cron: scheduled, authenticated, budgeted, and free", () => {
   assert.ok(vercel.crons.some((c) => c.path.startsWith("/api/trends/scheduled")), "it must actually be scheduled");
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   assert.match(rules, /match \/trend_watches\/\{doc\} \{ allow read, write: if false; \}/);
+});
+
+// ---------------------------------------------------------------------------
+// Cost control. One live month came to $33.45 on Anthropic alone, with no
+// revenue against it, because the expensive path was the DEFAULT path.
+// ---------------------------------------------------------------------------
+
+test("gateway: routine work does not default to the most expensive provider", () => {
+  // The Anthropic adapter defaults to claude-opus-4-8 and Anthropic sat first in
+  // the order, so a meta description, an intent classification and a subject
+  // line all went to the strongest model — while gpt-5-mini and gemini flash,
+  // both already configured, sat behind it as fallbacks that rarely ran.
+  const gw = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.match(gw, /const FAST_ORDER: ProviderId\[\] = \["gemini", "openai", "anthropic"\]/);
+  assert.match(gw, /routingOrder\(opts\.tier \?\? "fast"\)/,
+    "the expensive path must be the deliberate one, not the one you get by forgetting to choose");
+  assert.match(gw, /export const DOCUMENT_DEEP/);
+
+  // Reliability is unchanged: fast still falls through EVERY configured provider.
+  assert.match(gw, /\.\.\.DEFAULT_ORDER\.filter\(\(id\) => !pref\.includes\(id\)\)/);
+});
+
+test("gateway: a document a customer reads is still quality-first", () => {
+  // Cheap for a classification, best for a blog post. The distinction has to be
+  // in the code, or "save money" quietly becomes "make it worse".
+  for (const mod of ["blog-generator", "growth-plan", "organic-dominance", "strategy-run"]) {
+    const src = readFileSync(new URL(`../src/backend/${mod}.ts`, import.meta.url), "utf8");
+    // The CALL, not the import — leaving DOCUMENT_DEEP imported while passing
+    // the cheap budget would satisfy a looser match and change nothing.
+    assert.match(src, /gatewayComplete\([\s\S]*?,\s*DOCUMENT_DEEP\)/,
+      `${mod} writes something read end to end and must pass DOCUMENT_DEEP`);
+  }
+  // Short copy stays cheap.
+  const copy = readFileSync(new URL("../src/backend/copywriter.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(copy, /DOCUMENT_DEEP/, "a headline does not need the top model");
+});
+
+test("blog cron: a daily spend does not start itself", () => {
+  // It wrote a post every day on the strongest model, billed whether or not a
+  // single customer was paying.
+  const route = readFileSync(new URL("../src/app/api/blog/daily/route.ts", import.meta.url), "utf8");
+  assert.match(route, /BLOG_DAILY_ENABLED === "1"/);
+  assert.match(route, /if \(!BLOG_CRON_ENABLED && \(vercelCron \|\| cronSecret\)\)/,
+    "the SCHEDULE is gated, not the feature");
+  // A person pressing the button deliberately still works.
+  const guard = route.slice(route.indexOf("BLOG_CRON_ENABLED &&"), route.indexOf("try {"));
+  assert.doesNotMatch(guard, /requireAuth/, "an admin running it by hand is unaffected");
+  const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+  assert.match(env, /BLOG_DAILY_ENABLED=/, "and the switch is documented");
+  assert.match(env, /AI_GATEWAY_ORDER_FAST=/);
 });

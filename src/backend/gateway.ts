@@ -105,6 +105,15 @@ const MAX_BACKOFF_MS = 4_000;
  */
 export const DOCUMENT_BUDGET = { budgetMs: 100_000, perCallMs: 45_000 } as const;
 
+/**
+ * A document the customer reads end to end and judges the product by.
+ *
+ * Quality-first ORDER, still cheap-capable if the strong provider is down.
+ * Everything else defaults to fast — a blog post is worth the better model, an
+ * intent classification is not.
+ */
+export const DOCUMENT_DEEP = { ...DOCUMENT_BUDGET, tier: "deep" as ModelTier } as const;
+
 // The least time worth giving a provider. Below this, starting the call only
 // guarantees another timeout, so the slot is better spent on the next one.
 const MIN_PROVIDER_MS = 8_000;
@@ -385,7 +394,41 @@ export function unknownProvidersInOrder(raw = process.env.AI_GATEWAY_ORDER || ""
  * or an extra space still parses. Unknown words are ignored for routing and
  * reported by unknownProvidersInOrder() so a typo is visible instead of silent.
  */
-function routingOrder(): Adapter[] {
+/**
+ * COST TIERS. The single largest lever on the provider bill.
+ *
+ * The Anthropic adapter defaults to claude-opus-4-8 and Anthropic sits first in
+ * the order, so essentially EVERY call — a meta description, an intent
+ * classification, a subject line — went to the most expensive model available,
+ * while the two cheap providers already configured (gpt-5-mini, gemini flash)
+ * sat behind it as fallbacks that almost never ran. One live month came to
+ * $33.45 on Anthropic alone with no revenue against it.
+ *
+ * The fix routes by tier rather than by changing model IDs, because a wrong
+ * model ID is a hard failure and an ordering change cannot be:
+ *
+ *   FAST — the default. Cheap providers first. Correct for classification,
+ *   short copy, extraction cleanup, summaries: work where the difference
+ *   between models is not worth a 15× price.
+ *
+ *   DEEP — quality-first order, for work a customer reads end to end and
+ *   judges the product by. Asked for explicitly, never inherited.
+ *
+ * Both still fall through every configured provider, so reliability is
+ * unchanged — only the order in which money is spent.
+ */
+export type ModelTier = "fast" | "deep";
+
+/** Cheapest-capable first. Overridden by AI_GATEWAY_ORDER_FAST when set. */
+const FAST_ORDER: ProviderId[] = ["gemini", "openai", "anthropic"];
+
+function routingOrder(tier: ModelTier = "deep"): Adapter[] {
+  if (tier === "fast") {
+    const rawFast = process.env.AI_GATEWAY_ORDER_FAST || FAST_ORDER.join(",");
+    const namedFast = rawFast.split(/[\s,]+/).map((x) => x.trim().toLowerCase()).filter((x): x is ProviderId => x in ADAPTERS);
+    const pref = [...new Set(namedFast)];
+    return [...pref, ...DEFAULT_ORDER.filter((id) => !pref.includes(id))].map((id) => ADAPTERS[id]);
+  }
   const raw = process.env.AI_GATEWAY_ORDER || "";
   const named = raw
     .split(/[\s,]+/)
@@ -442,7 +485,7 @@ export class GatewayUnconfiguredError extends Error {
  */
 export async function gatewayComplete(
   reqIn: GatewayRequest,
-  opts: { budgetMs?: number; perCallMs?: number } = {},
+  opts: { budgetMs?: number; perCallMs?: number; tier?: ModelTier } = {},
 ): Promise<GatewayResponse> {
   // Language: one central injection point — if a non-English target language is
   // set, instruct the model to answer entirely in it. Every engine that routes
@@ -452,7 +495,10 @@ export async function gatewayComplete(
     ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
     : reqIn;
 
-  const all = routingOrder();
+  // Default FAST. A caller that genuinely needs the strongest model says so;
+  // the expensive path should be the deliberate one, not the one you get by
+  // forgetting to choose.
+  const all = routingOrder(opts.tier ?? "fast");
   const candidates = preferHealthy(all.filter((a) => a.configured()));
   // Providers that were never eligible. Naming them is the difference between
   // "All AI providers failed: anthropic…; openai…" — which invites the fair

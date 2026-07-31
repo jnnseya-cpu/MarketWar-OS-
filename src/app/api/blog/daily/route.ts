@@ -22,6 +22,16 @@ export const dynamic = "force-dynamic";
 // mid-generation, so the cron silently produced nothing.
 export const maxDuration = 120;
 
+/**
+ * OFF unless switched on. It writes a post EVERY DAY on the strongest model.
+ *
+ * Thirty generated posts a month is a real provider bill, and it was billed
+ * whether or not a single customer was paying — the marketing blog kept writing
+ * itself through a month with no revenue against it. It is worth running; it is
+ * not worth running by default, unwatched.
+ */
+const BLOG_CRON_ENABLED = process.env.BLOG_DAILY_ENABLED === "1";
+
 const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
 
 // The rotating plan. Each day takes the next topic, so coverage compounds
@@ -125,6 +135,15 @@ export async function GET(req: NextRequest) {
   if (!cronOk) {
     const auth = await requireAuth(req, { scope: "platform_admin" });
     if (!auth.ok) return NextResponse.json({ error: "Unauthorised" }, { status: auth.status });
+  }
+  // A scheduled firing is refused unless the schedule is switched on. A person
+  // with admin rights pressing it deliberately still works — the guard is
+  // against thirty unwatched Opus posts a month, not against using the feature.
+  if (!BLOG_CRON_ENABLED && (vercelCron || cronSecret)) {
+    return NextResponse.json({
+      ran: false,
+      note: "The daily blog cron is off. It writes a post every day on the strongest model, which is a real provider bill whether or not anyone is paying — set BLOG_DAILY_ENABLED=1 to switch it on. Writing a post by hand from the dashboard is unaffected.",
+    });
   }
   try {
     return NextResponse.json(await runDaily(false));
