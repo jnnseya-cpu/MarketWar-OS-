@@ -9,15 +9,25 @@ if (typeof window !== "undefined") {
 // module is the deterministic decision core:
 //   • Automatic genre detection → clipping behaviour.
 //   • Moment ranking (score candidate moments from cheap metadata signals).
+//   • FINDING the moments in the first place lives in clip-finder.ts, which
+//     reads real Whisper segments. Until it existed, everything here waited on
+//     a caller to hand it timestamps it had no way to produce.
 //   • MULTI-DIMENSIONAL virality scoring — NOT one vanity number, but 8
 //     separate commercial scores so attention is never mistaken for revenue.
 //   • Reframe / caption / B-roll spec builders (deterministic recommendations).
 //
-// Pure + deterministic (seeded) so it runs in demo mode and unit-checks. Scores
-// are labelled ESTIMATES; the engine never fabricates view counts or results.
+// Pure + deterministic so it runs in demo mode and unit-checks. Scores are
+// labelled ESTIMATES; the engine never fabricates view counts or results — and
+// as of the clip-finder work it no longer fabricates the SCORES either: a
+// dimension whose inputs were never measured returns null and says so.
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
-const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
+
+// The seeded FNV helper is gone from this file. It fed three things: the eight
+// commercial clip scores (from a hash of the clip id), up to fifteen points of
+// a moment's rank, and the genre tie-breaker. All three now come from counted
+// evidence or return nothing. Left out rather than kept unused — a score
+// generator in arm's reach is how the next one gets written.
 
 // ---------------------------------------------------------------------------
 // Automatic genre detection.
@@ -55,8 +65,11 @@ export function detectGenre(input: { title?: string; transcript?: string }): { g
   const scored = GENRES.map((g) => {
     let hits = 0;
     for (const h of GENRE_HINTS[g]) if (text.includes(h)) hits++;
-    // Seeded tie-breaker keeps it deterministic when there are no hits.
-    return { genre: g, score: hits * 10 + (seed(text + g) % 5) };
+    return { genre: g, score: hits * 10 };
+    // Ties break by GENRES order, which is stable and explainable. The old
+    // `+ seed(text + g) % 5` tie-breaker was also deterministic, but it decided
+    // between two genres with equal evidence using the video's title text — so
+    // renaming a file changed what the platform thought the video was.
   }).sort((a, b) => b.score - a.score);
   const top = scored[0];
   const confidence = clamp(top.score >= 10 ? 60 + top.score : 30 + top.score);
@@ -84,7 +97,11 @@ export function rankMoments(moments: Moment[]): RankedMoment[] {
   return moments.map((m) => {
     const t = (m.transcript ?? "").toLowerCase();
     const reasons: string[] = [];
-    let s = 40 + (seed(m.id + t) % 15);
+    // Was `40 + (seed(m.id + t) % 15)` — up to fifteen points of a moment's
+    // rank came from a hash of its own id, enough to reorder two moments whose
+    // real signals were level. The base is now flat, so every point of
+    // separation between two moments is a signal one of them actually has.
+    let s = 40;
     if (m.hasFace) { s += 8; reasons.push("on-camera face (retention)"); }
     if (m.hasProduct) { s += 10; reasons.push("product visible (commercial)"); }
     if ((m.emotionIntensity ?? 0) >= 60) { s += 12; reasons.push("high emotional intensity"); }
@@ -120,38 +137,63 @@ export type ClipScoreInput = {
 
 export type ClipScores = {
   clipId: string;
-  scores: { dimension: ClipScoreDimension; score: number }[];
+  /** null where the signals that dimension needs were never measured. */
+  scores: { dimension: ClipScoreDimension; score: number | null }[];
   headline: string; // the single most-relevant score for the clip's goal
   note: string;
 };
 
 export function scoreClip(input: ClipScoreInput): ClipScores {
-  const s = (salt: string) => seed(input.clipId + salt) % 30; // 0–29 deterministic base
-  const hook = input.hookStrength ?? 50 + s("hook");
-  const emo = input.emotionalIntensity ?? 45 + s("emo");
-  const buyer = input.buyerIntent ?? 40 + s("buyer");
-  const risk = input.reputationRisk ?? 10 + s("risk");
+  // THESE DEFAULTS WERE A HASH OF THE CLIP ID:
+  //
+  //   const s    = (salt) => seed(input.clipId + salt) % 30;
+  //   const hook = input.hookStrength ?? 50 + s("hook");
+  //
+  // So a clip with no measured signals still produced eight confident
+  // "commercial scores" — reach, conversion, profitability — from the
+  // characters of its own identifier. Rename the clip and its business case
+  // changed. clip-finder.ts now measures hook strength off the actual opening
+  // line, so the honest answer when nothing was measured is to say so and score
+  // only what we have.
+  const measured = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) ? clamp(v) : null);
+  const hook = measured(input.hookStrength);
+  const emo = measured(input.emotionalIntensity);
+  const buyer = measured(input.buyerIntent);
+  const risk = measured(input.reputationRisk);
   const cta = input.ctaPresent ? 20 : 0;
   const product = input.productVisible ? 15 : 0;
 
-  const raw: Record<ClipScoreDimension, number> = {
-    organic_reach: clamp(hook * 0.6 + emo * 0.4),
-    paid_ad: clamp(hook * 0.4 + buyer * 0.3 + product + cta),
-    engagement: clamp(emo * 0.6 + hook * 0.3),
-    retention: clamp(hook * 0.5 + 40 + s("ret") * 0.3),
-    lead_generation: clamp(buyer * 0.5 + cta + product * 0.5),
-    conversion: clamp(buyer * 0.5 + cta + product),
-    brand_safety: clamp(100 - risk),
-    profitability: clamp(buyer * 0.4 + product + cta - risk * 0.3 + 30),
+  // A dimension is scored only when every input it depends on was measured.
+  // Missing means null, and null is never averaged in as if it were a zero.
+  const need = (...vals: (number | null)[]) => (vals.every((v) => v !== null) ? (vals as number[]) : null);
+
+  const raw: Record<ClipScoreDimension, number | null> = {
+    organic_reach: need(hook, emo) && clamp(hook! * 0.6 + emo! * 0.4),
+    paid_ad: need(hook, buyer) && clamp(hook! * 0.4 + buyer! * 0.3 + product + cta),
+    engagement: need(emo, hook) && clamp(emo! * 0.6 + hook! * 0.3),
+    // Retention used to carry `+ s("ret") * 0.3` — a hash term inside an
+    // arithmetic expression, which is the hardest kind to notice.
+    retention: need(hook) && clamp(hook! * 0.5 + 40),
+    lead_generation: need(buyer) && clamp(buyer! * 0.5 + cta + product * 0.5),
+    conversion: need(buyer) && clamp(buyer! * 0.5 + cta + product),
+    brand_safety: need(risk) && clamp(100 - risk!),
+    profitability: need(buyer, risk) && clamp(buyer! * 0.4 + product + cta - risk! * 0.3 + 30),
   };
-  const scores = CLIP_SCORE_DIMENSIONS.map((d) => ({ dimension: d, score: raw[d] }));
-  // The headline is the profitability-aware winner, not the biggest reach.
-  const headlineDim = [...scores].filter((x) => x.dimension !== "brand_safety").sort((a, b) => b.score - a.score)[0];
+  const scores = CLIP_SCORE_DIMENSIONS.map((d) => ({ dimension: d, score: raw[d] === null || raw[d] === undefined ? null : (raw[d] as number) }));
+  const measuredScores = scores.filter((x) => x.score !== null) as { dimension: ClipScoreDimension; score: number }[];
+  const missing = CLIP_SCORE_DIMENSIONS.filter((d) => raw[d] === null || raw[d] === undefined);
+  // The headline is the profitability-aware winner, not the biggest reach — and
+  // there is no headline at all when nothing was measured.
+  const headlineDim = [...measuredScores].filter((x) => x.dimension !== "brand_safety").sort((a, b) => b.score - a.score)[0];
   return {
     clipId: input.clipId,
     scores,
-    headline: `${headlineDim.dimension.replace(/_/g, " ")} ${headlineDim.score}/100`,
-    note: "Eight separate commercial scores (reach/ad/engagement/retention/lead/conversion/brand-safety/profitability) — never one vanity number. All ESTIMATES; brand-safety gates publishing.",
+    headline: headlineDim ? `${headlineDim.dimension.replace(/_/g, " ")} ${headlineDim.score}/100` : "not scored",
+    note: missing.length === CLIP_SCORE_DIMENSIONS.length
+      ? "Nothing was measured for this clip, so nothing is scored. Run it through the clip finder — it reads hook strength, payoff, pace and calls to action off the actual transcript — or supply the signals yourself."
+      : missing.length
+        ? `${measuredScores.length} of ${CLIP_SCORE_DIMENSIONS.length} commercial scores. The other ${missing.length} (${missing.join(", ")}) need signals nobody measured for this clip and are left blank rather than filled in. Never one vanity number; brand-safety gates publishing.`
+        : "Eight separate commercial scores (reach/ad/engagement/retention/lead/conversion/brand-safety/profitability) — never one vanity number. Estimates from measured signals; brand-safety gates publishing.",
   };
 }
 

@@ -876,3 +876,258 @@ test("passedCount counts passes, not not-runs", () => {
   assert.equal(r.passedCount, r.checks.filter((c) => c.pass === true).length);
   assert.ok(r.passedCount < r.checks.length, "an unrun check must not inflate the score");
 });
+
+// ---------------------------------------------------------------------------
+// The step that was missing: a long video in, clips out.
+//
+// video-intelligence.ts calls itself "the clip-intelligence brain (OpusClip
+// class)" and it does rank moments and score them across eight commercial
+// dimensions — but rankMoments() takes moments SOMEBODY ELSE produced. Grep the
+// repo: the only callers pass straight through from the request body. So the
+// Clip Lab was a scoring form. A customer had to watch their own two-hour
+// recording, write down the timestamps of the good bits and type them in, which
+// is the job they came here to have done.
+// ---------------------------------------------------------------------------
+const cf = await import("../src/backend/clip-finder.ts");
+
+// A transcript shaped like Whisper's real output: fragments that break wherever
+// the model felt like breaking, several sentences to a segment, mid-sentence
+// splits. This is the input that makes naive clipping cut through words.
+const SEGMENTS = [
+  { start: 0, end: 6, text: "Hello and welcome back to the show." },
+  { start: 6, end: 12, text: "So then he told me the same thing again." },
+  { start: 12, end: 20, text: "Here's the mistake most people make with pricing." },
+  { start: 20, end: 27, text: "They set a number and never test it." },
+  { start: 27, end: 35, text: "We raised ours by 40% and lost two customers out of ninety." },
+  { start: 35, end: 44, text: "So that's the lesson: your price is a hypothesis, not a fact." },
+  { start: 44, end: 52, text: "Subscribe if you want the rest of the pricing series." },
+  { start: 52, end: 61, text: "Anyway, that reminds me of something else entirely." },
+];
+
+test("sentences are rebuilt so a clip never starts mid-word", () => {
+  // Whisper segments are 5-15s fragments, not sentences. Cutting on one starts
+  // the clip halfway through a word — the single clearest tell of automated
+  // clipping.
+  const merged = cf.sentencesFrom([
+    { start: 0, end: 5, text: "Here is the first half of a" },
+    { start: 5, end: 9, text: "sentence that spans two segments." },
+  ]);
+  assert.equal(merged.length, 1, "one sentence, not two fragments");
+  assert.equal(merged[0].text, "Here is the first half of a sentence that spans two segments.");
+  assert.equal(merged[0].startSec, 0, "it starts when the first fragment started");
+  assert.equal(merged[0].endSec, 9, "and ends when the last one ended");
+});
+
+test("several sentences inside one segment are split with interpolated times", () => {
+  const out = cf.sentencesFrom([{ start: 10, end: 20, text: "First one. Second one here." }]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].startSec, 10);
+  assert.equal(out[1].endSec, 20);
+  assert.ok(out[0].endSec > 10 && out[0].endSec < 20, "the internal boundary falls inside the segment");
+  assert.ok(out[1].startSec >= out[0].endSec - 0.01, "and the second starts where the first ended");
+});
+
+test("every clip begins and ends on a sentence boundary", () => {
+  const r = cf.findClips(SEGMENTS, { minSec: 15, maxSec: 60, limit: 5 });
+  assert.ok(r.clips.length > 0, r.note);
+  const sentences = cf.sentencesFrom(SEGMENTS);
+  const starts = new Set(sentences.map((s) => Math.round(s.startSec * 100)));
+  const ends = new Set(sentences.map((s) => Math.round(s.endSec * 100)));
+  for (const c of r.clips) {
+    assert.ok(starts.has(Math.round(c.startSec * 100)), `clip starts at ${c.startSec}, not on a sentence boundary`);
+    assert.ok(ends.has(Math.round(c.endSec * 100)), `clip ends at ${c.endSec}, not on a sentence boundary`);
+  }
+});
+
+test("a clip that opens mid-thought is marked down for it", () => {
+  // "So then he told me the same thing" is a fine sentence and a terrible
+  // opening line: "he" and "the same thing" are in the ninety minutes the
+  // viewer did not watch.
+  const dangling = cf.hookSignals("So then he told me the same thing again.");
+  const standalone = cf.hookSignals("Here's the mistake most people make with pricing.");
+  const alone = (sig) => sig.find((s) => s.name === "Stands alone").score;
+  assert.ok(alone(dangling) < alone(standalone), `${alone(dangling)} should be below ${alone(standalone)}`);
+  assert.match(dangling.find((s) => s.name === "Stands alone").evidence, /points at something the viewer has not seen/);
+});
+
+test("the hook score counts what is in the opening line and names it", () => {
+  const strong = cf.hookSignals("Here's the mistake most people make with your pricing.");
+  const flat = cf.hookSignals("The weather was quite mild that afternoon.");
+  const hookOf = (sig) => sig.find((s) => s.name === "Hook");
+  assert.ok(hookOf(strong).score > hookOf(flat).score);
+  assert.match(hookOf(strong).evidence, /curiosity phrase/);
+  assert.match(hookOf(flat).evidence, /nothing in the opening line asks the viewer to stay/);
+});
+
+test("pace is measured off the real timestamps, not guessed", () => {
+  const brisk = cf.bodySignals("word ".repeat(60).trim(), 20, 60);   // 3.0 w/s
+  const deadAir = cf.bodySignals("word ".repeat(10).trim(), 20, 10); // 0.5 w/s
+  const paceOf = (sig) => sig.find((s) => s.name === "Pace");
+  assert.ok(paceOf(brisk).score > paceOf(deadAir).score);
+  assert.match(paceOf(brisk).evidence, /60 words in 20s — 3\.0 words\/second/);
+});
+
+test("every signal on every clip carries the count it came from", () => {
+  const r = cf.findClips(SEGMENTS, { minSec: 15, maxSec: 60, limit: 5 });
+  for (const c of r.clips) {
+    assert.equal(c.signals.length, 7, "seven signals: hook, stands-alone, payoff, pace, length, buying, ask");
+    for (const s of c.signals) {
+      assert.ok(s.evidence && s.evidence.length > 10, `${c.id}/${s.name} has no evidence — a score nobody can check`);
+      assert.ok(s.score >= 0 && s.score <= 100);
+    }
+    // The headline score is the plain average of the six, so anyone can redo it.
+    const expected = Math.round(c.signals.reduce((n, s) => n + s.score, 0) / c.signals.length);
+    assert.equal(c.score, expected, "the score must be reproducible from the signals shown");
+  }
+});
+
+test("clips are not ten variations of the same forty seconds", () => {
+  const r = cf.findClips(SEGMENTS, { minSec: 15, maxSec: 60, limit: 10 });
+  for (let i = 0; i < r.clips.length; i++) {
+    for (let j = i + 1; j < r.clips.length; j++) {
+      const share = cf.overlapShare(r.clips[i], r.clips[j]);
+      assert.ok(share <= 0.5, `clips ${i} and ${j} share ${Math.round(share * 100)}% of the same footage`);
+    }
+  }
+});
+
+test("no transcript means no clips, and it says why", () => {
+  const r = cf.findClips([]);
+  assert.deepEqual(r.clips, []);
+  assert.match(r.note, /no transcript to cut/);
+  assert.match(r.note, /nothing here guesses where the good bits are/);
+});
+
+test("a source shorter than a clip returns nothing rather than something", () => {
+  const r = cf.findClips([{ start: 0, end: 4, text: "Very short." }], { minSec: 15, maxSec: 60 });
+  assert.equal(r.clips.length, 0);
+  assert.match(r.note, /No clip fits between 15s and 60s/);
+});
+
+test("the clip's own subtitles start at zero, not at 42 minutes", () => {
+  // An .srt whose first cue is at 00:42:17 is useless against a clip that is
+  // forty seconds long. This is what makes the output usable with no renderer.
+  const srt = cf.srtForClip(SEGMENTS, 12, 44);
+  assert.match(srt, /^1\n00:00:00,000 --> /, "the first cue must start at zero");
+  assert.ok(!/00:00:4[5-9]|00:00:5\d/.test(srt), "nothing past the clip's own end may appear");
+  assert.match(srt, /mistake most people make/, "and the clip's actual words are in it");
+});
+
+test("subtitle cues are clipped to the clip, not just shifted", () => {
+  // A segment straddling the out-point must be truncated, or the last caption
+  // hangs past the end of the video.
+  const srt = cf.srtForClip([{ start: 0, end: 30, text: "Long segment." }], 5, 15);
+  assert.match(srt, /00:00:00,000 --> 00:00:10,000/);
+});
+
+test("the ranking moves when the words move — it is not a checksum", () => {
+  // The whole point. Two transcripts of the same length and shape must rank
+  // differently when one of them actually says something.
+  const flat = cf.findClips([
+    { start: 0, end: 12, text: "The weather was mild. It was quite pleasant." },
+    { start: 12, end: 24, text: "We walked around for a while. Then we went home." },
+    { start: 24, end: 36, text: "It was an ordinary day. Nothing much happened." },
+  ], { minSec: 15, maxSec: 60, limit: 1 });
+  const sharp = cf.findClips([
+    { start: 0, end: 12, text: "Here's the mistake most people make with your pricing." },
+    { start: 12, end: 24, text: "We raised ours 40% and lost two customers out of ninety." },
+    { start: 24, end: 36, text: "So that's the lesson: your price is a hypothesis, not a fact." },
+  ], { minSec: 15, maxSec: 60, limit: 1 });
+  assert.ok(sharp.clips[0].score > flat.clips[0].score,
+    `a clip that says something must beat one that does not (${sharp.clips[0].score} vs ${flat.clips[0].score})`);
+});
+
+// ---------------------------------------------------------------------------
+// The eight commercial scores were a hash of the clip id.
+//
+//   const s    = (salt) => seed(input.clipId + salt) % 30;
+//   const hook = input.hookStrength ?? 50 + s("hook");
+//
+// A clip with no measured signals still produced eight confident numbers —
+// reach, conversion, profitability — from the characters of its own
+// identifier. Rename the clip and its business case changed.
+// ---------------------------------------------------------------------------
+const vi = await import("../src/backend/video-intelligence.ts");
+
+test("a clip nobody measured is not given eight commercial scores", () => {
+  const r = vi.scoreClip({ clipId: "clip_0_2000" });
+  for (const s of r.scores) assert.equal(s.score, null, `${s.dimension} was scored from nothing`);
+  assert.equal(r.headline, "not scored");
+  assert.match(r.note, /Nothing was measured for this clip/);
+});
+
+test("renaming a clip no longer changes its business case", () => {
+  const a = vi.scoreClip({ clipId: "aaaa", hookStrength: 70, ctaPresent: true });
+  const b = vi.scoreClip({ clipId: "zzzzzzzzzzzz", hookStrength: 70, ctaPresent: true });
+  assert.deepEqual(a.scores, b.scores);
+});
+
+test("dimensions whose inputs were measured are scored; the rest stay blank", () => {
+  // hookStrength IS measurable from a transcript. Emotional intensity, buyer
+  // intent and reputation risk are not, so those dimensions must stay empty.
+  const r = vi.scoreClip({ clipId: "c1", hookStrength: 80, ctaPresent: true });
+  const by = Object.fromEntries(r.scores.map((s) => [s.dimension, s.score]));
+  assert.ok(by.retention !== null, "retention needs only hook strength");
+  assert.equal(by.conversion, null, "conversion needs buyer intent, which no transcript reveals");
+  assert.equal(by.brand_safety, null, "brand safety needs a risk reading nobody took");
+  assert.match(r.note, /left blank rather than filled in/);
+});
+
+test("a fully measured clip still gets all eight", () => {
+  const r = vi.scoreClip({ clipId: "c1", hookStrength: 80, emotionalIntensity: 60, buyerIntent: 70, reputationRisk: 5, ctaPresent: true, productVisible: true });
+  assert.ok(r.scores.every((s) => s.score !== null));
+  assert.match(r.headline, /\d+\/100/);
+});
+
+test("a moment's rank no longer carries points from a hash of its id", () => {
+  const [a, b] = vi.rankMoments([
+    { id: "aaaaaaaaaaaaaaaa", startSec: 0, endSec: 20, transcript: "the same words" },
+    { id: "b", startSec: 30, endSec: 50, transcript: "the same words" },
+  ]);
+  assert.equal(a.momentScore, b.momentScore, "identical signals must rank identically whatever the ids are");
+});
+
+test("renaming a file no longer changes what genre the platform thinks it is", () => {
+  const one = vi.detectGenre({ title: "recording-2024-final-v3", transcript: "" });
+  const two = vi.detectGenre({ title: "zzz", transcript: "" });
+  assert.equal(one.genre, two.genre, "with no evidence either way, the answer must not come from the filename");
+});
+
+test("video-intelligence has no score generator left in it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const code = readFileSync(new URL("../src/backend/video-intelligence.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/\bseed\s*\(/.test(code), "seed() must not exist here");
+  assert.ok(!/Math\.imul\(/.test(code), "nor the hash it was built on");
+});
+
+test("clip-finder never had one and must never grow one", async () => {
+  const { readFileSync } = await import("node:fs");
+  const code = readFileSync(new URL("../src/backend/clip-finder.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/Math\.imul\(|Math\.random\(/.test(code), "a clip score decides what a customer publishes under their own name");
+});
+
+test("buying language is counted, and the dimensions it feeds stop being blank", () => {
+  // buyerIntent used to default to a hash of the clip id. Commercial vocabulary
+  // IS countable from a transcript, so it is measured — while emotional
+  // intensity and reputation risk stay out, because a transcript records that
+  // someone said "worth every penny", not how they said it or whether the claim
+  // behind it holds up.
+  const sells = cf.bodySignals("Our price is £40 and the ROI pays for itself. Customers save money.", 30, 90);
+  const chat = cf.bodySignals("It was a nice afternoon and we walked along the river for a while.", 30, 90);
+  const buy = (sig) => sig.find((s) => s.name === "Buying signal");
+  assert.ok(buy(sells).score > buy(chat).score);
+  assert.match(buy(sells).evidence, /commercial term\(s\)/);
+  assert.match(buy(chat).evidence, /will not sell anything by itself/);
+});
+
+test("the clip route hands on only signals it actually measured", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync("src/app/api/video/clips/route.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(src, /scoreClip\(\{[^}]*hookStrength: hook[^}]*buyerIntent: buying/,
+    "hook and buyer intent are measured and must be passed");
+  assert.ok(!/emotionalIntensity:/.test(src), "a transcript does not reveal emotional intensity");
+  assert.ok(!/reputationRisk:/.test(src), "nor whether the claim behind the words is defensible");
+});

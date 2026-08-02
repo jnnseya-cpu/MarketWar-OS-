@@ -1568,3 +1568,46 @@ customer would actually DO on the strength of the number:
 The three remaining rows are recorded rather than rushed: each needs either a
 data source or a rewrite of the surface, and shipping a half-measured score is
 how the first one got written.
+
+---
+
+## §54 — Clip Finder: the OpusClip step the platform did not have (2026-08-02)
+
+Owner: *"we failed to have options of OpusClip: #1 AI video clipping and editing tool"*.
+
+**What was actually missing.** `video-intelligence.ts` calls itself "the
+clip-intelligence brain (OpusClip class)", and it does rank moments, score them
+across eight commercial dimensions, and build reframe and caption specs. But
+`rankMoments()` takes `Moment[]` — start times, end times and transcript text
+that somebody else has to have produced. Grep the repo: the only callers pass
+straight through from the request body. So the Clip Intelligence Lab was a
+scoring form. A customer had to watch their own two-hour recording, write down
+the timestamps of the good bits and type them in — which is the job they came
+here to have done. Every other piece was already real: Whisper transcription
+with timestamps, an FFmpeg job queue with a `clips` recipe that cuts to 9:16,
+ACU charging with refund on failure. Only the brain in the middle was absent.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A long video in, scored clips out | ✅ **new** | `src/backend/clip-finder.ts` + `/api/video/clips` + `src/components/ClipFinder.tsx` on `/dashboard/video`. Transcribe → rebuild sentences → sweep boundary-anchored windows → score → dedupe → per-clip `.srt`. Measured at **185ms for a two-hour transcript** (1,200 segments), well inside the route's 120s. |
+| A clip never starts mid-word | ✅ | Whisper segments are 5–15s fragments that break wherever the model felt like breaking; cutting on one starts the clip halfway through a word, which is the clearest tell of automated clipping. `sentencesFrom()` rebuilds sentences first (including several inside one segment, with the internal boundary interpolated by character share), and every candidate begins and ends on a sentence boundary. |
+| A clip makes sense on its own | ✅ | "So then he told me the same thing" is a fine sentence and a terrible opening line: "he" and "the same thing" are in the ninety minutes the viewer did not watch. Opening lines are checked for conjunction openers and bare pronouns, and it costs 45 points each. |
+| Every score is counted, and shows its count | ✅ | Seven signals per clip — Hook, Stands alone, Payoff, Pace, Length, Buying signal, Ask — each with the count it came from ("2 curiosity phrases, 1 direct address", "53 words in 40s — 1.3 words/second"). The headline is their flat average, so anyone can reproduce it. A weighted blend nobody can redo is how a score stops being checkable. |
+| Usable with no render worker | ✅ | Each clip returns exact in/out timestamps, its quotable text, and its own `.srt` **rebased to start at zero and clipped to the clip's own bounds** — a subtitle file whose first cue is at 42:17 is useless against a forty-second clip. YouTube, LinkedIn, Meta and TikTok all accept an uploaded `.srt`. With `render:true` and a worker configured it also queues the 9:16 cuts on the existing queue; without one it says so instead of queueing a job that can only fail. |
+| No transcript → no clips | ✅ | Says so, and says nothing here guesses where the good bits are. A source shorter than the length band returns nothing rather than something. |
+| Money order matches the captions route | ✅ | Every check that can fail runs before the wallet; a provider failure after the charge refunds it; `maxDuration = 120` so the function cannot be killed mid-flight holding a debit. A caller who already has a transcript passes `segments` and is not charged twice for the same audio. |
+
+### The hashes this removed
+
+| Was | Now |
+|---|---|
+| `scoreClip` defaulted `hookStrength`/`emotionalIntensity`/`buyerIntent`/`reputationRisk` to `50 + seed(clipId + salt) % 30`, so a clip with no measured signals still produced **eight confident commercial scores from the characters of its own identifier** — rename the clip and its business case changed. `retention` additionally carried `+ s("ret") * 0.3`, a hash term inside an arithmetic expression. | A dimension is scored only when every input it depends on was measured; the rest return `null` and the note says which and why. The Clip Finder supplies **hook strength** (counted off the opening line) and **buyer intent** (counted commercial vocabulary). Emotional intensity and reputation risk stay unmeasured on purpose: a transcript records that someone said "worth every penny", not how they said it or whether the claim holds up. |
+| `rankMoments` started at `40 + seed(m.id + t) % 15` — up to fifteen points of rank from a hash of the id, enough to reorder two moments whose real signals were level. | Flat base. Every point of separation is a signal one of them actually has. |
+| `detectGenre` broke ties with `seed(text + g) % 5`, so **renaming a file changed what the platform thought the video was**. | Ties break by declaration order — stable and explainable. |
+| The seeded FNV helper itself. | Deleted from the module. A test fails if `seed`/`Math.imul` reappear in either `video-intelligence.ts` or `clip-finder.ts`. |
+
+**Still connector-gated, and labelled as such:** auto-reframe that *tracks* the
+active speaker (the recipe centre-crops to 9:16 today), B-roll insertion, and
+burned-in animated captions all need the FFmpeg worker. The queue, recipes and
+pricing for those already exist; what this adds is the decision of *what to
+cut*, which nothing in the platform could make before.

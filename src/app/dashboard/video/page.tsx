@@ -41,6 +41,7 @@ import ScreenRecorder from "@/components/ScreenRecorder";
 import VideoEditor from "@/components/VideoEditor";
 import RenderFarm from "@/components/RenderFarm";
 import CaptionEngine from "@/components/CaptionEngine";
+import ClipFinder from "@/components/ClipFinder";
 import AudioStudio from "@/components/AudioStudio";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -102,7 +103,10 @@ const TABS = [
 // ---- Live engine response types (mirror src/backend/video-intelligence.ts) ----
 type GenreResult = { genre: string; confidence: number; runnerUp: string };
 type RankedMoment = { id: string; startSec: number; endSec: number; transcript?: string; momentScore: number; reasons: string[] };
-type ClipScores = { clipId: string; scores: { dimension: string; score: number }[]; headline: string; note: string };
+// A dimension whose inputs nobody measured comes back null. Drawing that as an
+// empty bar would read as "zero out of a hundred", which is a different and
+// much worse claim than "we did not measure this".
+type ClipScores = { clipId: string; scores: { dimension: string; score: number | null }[]; headline: string; note: string };
 type FoundMoment = RankedMoment & { matchReason: string };
 type FindResult = { query: string; results: FoundMoment[]; note: string };
 
@@ -290,6 +294,11 @@ export default function VideoWarRoomPage() {
           captions, watermarks, B-roll, keying and upscales. Actual files out. */}
       <div id="render-farm"><RenderFarm presetSrt={srtForBurn} presetMoments={cutList} /></div>
 
+      {/* Clip Finder — the step that was missing. Everything below it could
+          SCORE a moment; nothing could find one, so a customer had to watch
+          their own recording and type the timestamps in first. */}
+      <ClipFinder onCutList={setCutList} />
+
       {/* LIVE Clip Intelligence Lab — wired to the real VideoDominance engine */}
       <div className="mb-8 card border-emerald-500/30 p-6">
         <div className="mb-1 flex items-center gap-2">
@@ -298,9 +307,10 @@ export default function VideoWarRoomPage() {
           <StatusChip status="live" />
         </div>
         <p className="mb-4 text-xs text-slate-500">
-          Genre detection → moment ranking → 8 separate commercial scores (reach/ad/engagement/retention/lead/conversion/
-          brand-safety/profitability), never one vanity number. Computed live by the engine; the sample timeline is ranked and
-          searched — moments are never fabricated.
+          For moments you already have timestamps for. Genre detection → moment ranking → 8 separate commercial scores
+          (reach/ad/engagement/retention/lead/conversion/brand-safety/profitability), never one vanity number, and a
+          dimension whose inputs nobody measured stays blank rather than being filled in. To find the moments in the first
+          place, use the Clip Finder above — it reads the video.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -366,7 +376,14 @@ export default function VideoWarRoomPage() {
               <h3 className="mb-1 font-display text-sm font-bold text-white">Multi-dimensional virality scoring — clip {clip.clipId}</h3>
               <p className="mb-3 text-xs text-slate-500">{clip.note}</p>
               <div className="grid gap-2.5 sm:grid-cols-2">
-                {clip.scores.map((d) => <ScoreBar key={d.dimension} label={pretty(d.dimension)} score={d.score} />)}
+                {clip.scores.map((d) => (
+                  d.score === null ? (
+                    <div key={d.dimension} className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs text-slate-400">{pretty(d.dimension)}</span>
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">not measured</span>
+                    </div>
+                  ) : <ScoreBar key={d.dimension} label={pretty(d.dimension)} score={d.score} />
+                ))}
               </div>
             </div>
           </div>
