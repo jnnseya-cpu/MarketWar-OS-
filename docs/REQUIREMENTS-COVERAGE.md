@@ -1532,3 +1532,19 @@ disagreeing is worse than either alone, so §3 now defers to §4 and the stronge
 consumer term governs. The previous position is recorded here rather than
 deleted. No other billing term changed: allowance rate, annual discount and the
 consumption-rate adjustment clause are untouched.
+
+### §53b — SiteRaid: the audit measured nothing, then measured a refusal
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The Instant Marketing Audit measures the site, not the business name | ✅ | Every one of the 36 sub-scores was `sscore(business + area + name)` — an FNV hash of the customer's own company name turned into a 45–90 number, feeding the six area scores, the overall, and the sentence naming their weakest area. Type a different name and the diagnosis changed; change the site and it did not move. Each dimension now either reads something the crawl found (CTAs counted, FAQs counted, title present, schema types seen, load time recorded) and shows that count as its `basis`, or returns `score: null` with what it would need. 24 of 36 are measurable from a crawl; the 12 that are not — visual quality, differentiation, mobile experience, abandonment risk, posting consistency, upsells — say so. Area scores average only the measured dimensions and report `measured/total`. |
+| The Competitive Attack Map ranks by evidence, not by a checksum | ✅ | `opportunity` was `sscore(business + gap, 30, 95)`, deciding which of sixteen moves to do FIRST. Six gaps are visible in a crawl and are now scored from the measured absence (0 trust signals = an open trust gap), each carrying the count. The other ten need competitor data, review corpora or ad history that no crawl of one site can supply: they keep the play and lose the number. |
+| `seed`/`sscore` deleted, not left in the file | ✅ | No callers remain. A convincing-looking score generator sitting unused is an invitation for the next person in a hurry; a test now fails if either reappears in SiteRaid. |
+| **A site that refuses the crawl is not scored as a bad site** | ✅ | Found on the first live run of the measured audit, against **evandeli.com** — one of the two brands this platform is being tested with. The host answered **403**; the audit scored it anyway: **16/100, "urgent" in all six areas**, "0 words on the entry page", "title tag missing", "0 product(s) named", "no way to make contact published". Every sentence false, and shaped exactly like a measurement. `crawler.ts` had already classified the refusal correctly and the audit was not asking. A blocked fetch, a failed fetch or a JavaScript shell now scores nothing content-derived, and the headline says we could not read the site plus how to let us in (allowlist `MarketWarBot/1.0`) — never a number. The Attack Map takes the same gate, so an empty extraction from a 403 cannot rank every gap wide open. |
+| A readable page is still scored | ✅ | The gate is conditional, not a blanket refusal — mutation-verified in both directions. |
+
+**Container limitation, stated rather than hidden:** outbound HTTP from this
+build environment is proxied and returns 403 for arbitrary hosts, so the
+positive live-crawl path could not be exercised here. It is covered by unit
+tests against a readable `CrawlReport`, and the blocked path was verified end
+to end against the running production build.

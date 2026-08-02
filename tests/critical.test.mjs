@@ -527,3 +527,280 @@ test("every AI surface that has a canned fallback goes through the one predicate
       `${mod} still decides for itself instead of asking the one predicate`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The Instant Marketing Audit measured nothing.
+//
+//   dims.map((name) => ({ name, score: sscore(x.business + area + name) }))
+//
+// sscore is a hash. "Message clarity: 72/100" was a stable pseudo-random number
+// derived from the letters of the customer's own business name — as were all
+// thirty-six sub-scores, the six area scores, the overall, and the sentence
+// naming their weakest area. Type a different name and the diagnosis changes;
+// change the site and it does not move at all.
+//
+// Same defect as the "Rated 4.7 by 213 reviewers" that came out of useState,
+// and worse in one respect: a customer can check a review count, and cannot
+// check a marketing-health index.
+// ---------------------------------------------------------------------------
+const sr = await import("../src/backend/siteraid.ts");
+
+const SITE = { business: "AxionOS", category: "construction intelligence", offers: ["CDE platform"] };
+
+const emptyExtraction = () => ({
+  url: "https://evandeli.com/", brand: { name: "AxionOS", tagline: "", lang: "en", siteName: "AxionOS" },
+  products: { values: [], source: "markup" }, services: { values: [], source: "markup" },
+  pricing: [], images: [], videos: [], logos: [], colours: [], fonts: [], ctas: [],
+  trustSignals: [], reviews: [], faqs: [], hierarchy: [], navigation: [], offers: [],
+  blogLinks: [], contact: { emails: [], phones: [], address: "" }, socialLinks: [],
+  audience: null, notExtracted: [], found: 0,
+});
+
+test("with nothing crawled, the audit refuses to produce a score", () => {
+  const a = sr.instantAudit(SITE);
+  assert.equal(a.overall, null, "a number here would be a number about the business NAME");
+  assert.equal(a.coverage.measured, 0);
+  for (const s of a.sections) {
+    assert.equal(s.overall, null);
+    assert.equal(s.verdict, "not measured");
+    for (const d of s.dimensions) assert.equal(d.score, null, `${s.area}/${d.name} invented a score`);
+  }
+  assert.match(a.headline, /No marketing health score/);
+  assert.match(a.headline, /derived from the business name/);
+});
+
+test("the business name no longer moves a single score", () => {
+  // The exact defect: two businesses with identical sites must audit identically.
+  const evidence = {
+    audit: { ok: true, url: "https://a.com", https: true, score: 0, grade: "C", title: "A", metaDescription: "d", h1Count: 1, wordCount: 900, imagesNoAlt: 0, robotsTxt: true, sitemapXml: true, structuredDataTypes: ["Organization"], loadMs: 700, findings: [] },
+    extraction: { ...emptyExtraction(), ctas: ["Book a demo", "Start free trial"], faqs: [{ q: "Q", a: "A" }] },
+  };
+  const one = sr.instantAudit({ ...SITE, business: "AxionOS" }, evidence);
+  const two = sr.instantAudit({ ...SITE, business: "Completely Different Ltd" }, evidence);
+  assert.deepEqual(
+    one.sections.map((s) => [s.area, s.overall, s.dimensions.map((d) => d.score)]),
+    two.sections.map((s) => [s.area, s.overall, s.dimensions.map((d) => d.score)]),
+    "the same site must audit the same however the business is named",
+  );
+});
+
+test("the same business audits differently when the site changes", () => {
+  // The other half: a real measurement has to MOVE when the thing it measures does.
+  const base = { audit: { ok: true, url: "https://a.com", https: true, score: 0, grade: "C", findings: [] }, extraction: emptyExtraction() };
+  const rich = {
+    audit: { ...base.audit, title: "A", metaDescription: "d", h1Count: 1, wordCount: 1400, imagesNoAlt: 0, robotsTxt: true, sitemapXml: true, structuredDataTypes: ["Organization", "FAQPage", "Product", "LocalBusiness"], loadMs: 600 },
+    extraction: {
+      ...emptyExtraction(),
+      ctas: ["Book a demo", "Get a quote", "Start free trial", "Contact us"],
+      faqs: [1, 2, 3, 4, 5, 6].map((i) => ({ q: `Q${i}`, a: `A${i}` })),
+      trustSignals: ["ISO 27001", "Money-back guarantee", "Trusted by 400 firms", "GDPR", "10 years"],
+      contact: { emails: ["a@b.c"], phones: ["+44"], address: "1 Street, London" },
+    },
+  };
+  const poor = sr.instantAudit(SITE, base);
+  const good = sr.instantAudit(SITE, rich);
+  assert.ok(good.overall > poor.overall, `a better site must score better (${good.overall} vs ${poor.overall})`);
+  assert.ok(good.coverage.measured >= poor.coverage.measured);
+});
+
+test("a dimension the crawl cannot read stays null and says what it would need", () => {
+  const a = sr.instantAudit(SITE, { audit: { ok: true, url: "u", https: true, score: 0, grade: "C", findings: [] }, extraction: emptyExtraction() });
+  const all = a.sections.flatMap((s) => s.dimensions);
+  const unreadable = ["Visual quality", "Differentiation", "Mobile experience", "Abandonment risk", "Posting consistency", "Upsells/cross-sells"];
+  for (const name of unreadable) {
+    const d = all.find((x) => x.name === name);
+    assert.ok(d, `${name} missing`);
+    assert.equal(d.score, null, `${name} cannot be read from HTML and must not carry a number`);
+    assert.match(d.basis, /^Not scored — /);
+  }
+});
+
+test("every dimension shows the count its score came from", () => {
+  const a = sr.instantAudit(SITE, {
+    audit: { ok: true, url: "u", https: true, score: 0, grade: "C", title: "T", h1Count: 1, wordCount: 500, loadMs: 900, findings: [] },
+    extraction: { ...emptyExtraction(), ctas: ["Buy now", "Book"], trustSignals: ["Guarantee"] },
+  });
+  for (const s of a.sections) for (const d of s.dimensions) {
+    assert.ok(d.basis && d.basis.length > 20, `${s.area}/${d.name} has no basis — a score nobody can check`);
+  }
+  const cta = a.sections.find((s) => s.area === "conversion").dimensions.find((d) => d.name === "CTA clarity");
+  assert.match(cta.basis, /2 call\(s\) to action/, "the basis must name the actual count");
+  assert.match(cta.basis, /Buy now/, "and show what was found, so it can be checked");
+});
+
+test("an area score averages only what was measured", () => {
+  const a = sr.instantAudit(SITE, {
+    audit: { ok: true, url: "u", https: true, score: 0, grade: "C", findings: [] },
+    extraction: emptyExtraction(),
+  });
+  for (const s of a.sections) {
+    const scored = s.dimensions.filter((d) => d.score !== null);
+    assert.equal(s.measured, scored.length);
+    assert.equal(s.total, s.dimensions.length);
+    if (scored.length) {
+      const expected = Math.round(scored.reduce((n, d) => n + d.score, 0) / scored.length);
+      assert.equal(s.overall, expected, `${s.area} averaged unmeasured dimensions into its score`);
+    }
+  }
+  assert.ok(a.coverage.measured < a.coverage.total, "some dimensions are genuinely unreadable and must stay so");
+});
+
+test("SiteRaid has no score generator left in it at all", async () => {
+  // The strongest form of this guarantee: seed/sscore have no callers, so they
+  // are gone. A convincing-looking score generator sitting unused in the file
+  // is an invitation for the next person in a hurry.
+  const fs = await import("node:fs");
+  const code = fs.readFileSync("src/backend/siteraid.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/\bsscore\b/.test(code), "sscore must not exist in SiteRaid");
+  assert.ok(!/Math\.imul\(/.test(code), "nor the hash it was built on");
+});
+
+test("images and videos are counted, not measured by a function's arity", () => {
+  // SiteExtraction.images is a plain array. `images.values` is
+  // Array.prototype.values, and `.length` on a FUNCTION is its arity — zero.
+  // TypeScript accepts it happily and every count silently reads nothing.
+  const a = sr.instantAudit(SITE, {
+    audit: { ok: true, url: "u", https: true, score: 0, grade: "C", findings: [] },
+    extraction: {
+      ...emptyExtraction(),
+      images: [1, 2, 3, 4].map((i) => ({ url: `i${i}.jpg`, label: "" })),
+      videos: [{ url: "https://youtube.com/x", label: "" }],
+    },
+  });
+  const demo = a.sections.find((s) => s.area === "content").dimensions.find((d) => d.name === "Demonstrations");
+  assert.match(demo.basis, /1 video\(s\) and 4 real image\(s\)/, "the counts must be the array lengths");
+  assert.ok(demo.score > 15, "and must move the score");
+});
+
+// ---------------------------------------------------------------------------
+// The Attack Map's ranking was the same hash.
+//
+//   const opportunity = sscore(x.business + gap, 30, 95);
+//
+// It decided which of sixteen moves a customer should do FIRST. "Your biggest
+// opportunity is trust gaps" was a sentence about the spelling of their company
+// name. The plays are real advice and are untouched; the ORDER was a checksum.
+// ---------------------------------------------------------------------------
+
+test("with no crawl, no move is ranked", () => {
+  const m = sr.attackMap(SITE);
+  assert.equal(m.ranked, 0);
+  for (const move of m.moves) {
+    assert.equal(move.opportunity, null);
+    assert.ok(move.play.length > 10, "the advice must survive losing the number");
+    assert.match(move.evidence, /Not ranked/);
+  }
+  assert.match(m.note, /an order derived from the business name would be an order derived from nothing/);
+});
+
+test("the business name no longer decides what to do first", () => {
+  const ev = { extraction: { ...emptyExtraction(), trustSignals: ["ISO 9001"], faqs: [{ q: "a", a: "b" }] } };
+  const a = sr.attackMap({ ...SITE, business: "AxionOS" }, ev);
+  const b = sr.attackMap({ ...SITE, business: "Zzz Holdings Incorporated" }, ev);
+  assert.deepEqual(a.moves.map((m) => [m.gap, m.opportunity]), b.moves.map((m) => [m.gap, m.opportunity]));
+});
+
+test("a measured gap ranks higher when it is actually more open", () => {
+  const bare = sr.attackMap(SITE, { extraction: emptyExtraction() });
+  const covered = sr.attackMap(SITE, {
+    extraction: { ...emptyExtraction(), trustSignals: ["ISO", "Guarantee", "Insured", "GDPR", "10 years"] },
+  });
+  const gapOf = (m) => m.moves.find((x) => x.gap === "trust_gaps").opportunity;
+  assert.ok(gapOf(bare) > gapOf(covered), `a site with no trust signals has the bigger trust gap (${gapOf(bare)} vs ${gapOf(covered)})`);
+  assert.ok(gapOf(covered) >= 0);
+});
+
+test("a gap a crawl cannot see keeps its play and loses its number", () => {
+  const m = sr.attackMap(SITE, { extraction: emptyExtraction() });
+  const rival = m.moves.find((x) => x.gap === "competitor_strengths");
+  assert.equal(rival.opportunity, null, "one site is not a market");
+  assert.ok(rival.play.length > 10);
+  assert.match(rival.evidence, /competitor data|review corpora|ad-platform/);
+  assert.ok(m.ranked > 0 && m.ranked < m.moves.length, "some ranked, some honestly not");
+});
+
+test("every ranked move shows the count it was ranked on", () => {
+  const m = sr.attackMap(SITE, { extraction: { ...emptyExtraction(), faqs: [{ q: "a", a: "b" }, { q: "c", a: "d" }] } });
+  const objections = m.moves.find((x) => x.gap === "unaddressed_objections");
+  assert.ok(objections.opportunity > 0);
+  assert.match(objections.evidence, /2 question\(s\) answered/);
+});
+
+// ---------------------------------------------------------------------------
+// "We could not see it" is not "it is not there".
+//
+// The first live run of the MEASURED audit was against evandeli.com, one of the
+// two brands this platform is being tested with. The host answered 403 — a bot
+// rule in front of the site refused us — and the audit scored it anyway:
+// 16/100, "urgent" in all six areas, "0 words on the entry page", "title tag
+// missing", "0 product(s) named", "no way to make contact published".
+//
+// Every one of those sentences was false about a real customer's real website,
+// and they read as measurements because that is exactly what they were shaped
+// like. The old hash was obviously arbitrary once you knew. This was
+// confidently, specifically wrong, which is worse.
+//
+// crawler.ts had already classified the refusal correctly. The audit was not
+// asking.
+// ---------------------------------------------------------------------------
+
+const blockedCrawl = {
+  ok: false, url: "https://evandeli.com", https: true, score: 0, grade: "F", httpStatus: 403, loadMs: 226, findings: [],
+  block: { blocked: true, kind: "forbidden", vendor: "", status: 403,
+    message: "The host refused the request (HTTP 403). Something in front of your site is turning away automated requests.",
+    action: 'If this is your site, allowlist the user agent "MarketWarBot/1.0" in whatever sits in front of it — a WAF, a bot-protection rule, or a rate limit.' },
+};
+
+test("a site that refused the crawl is not scored as a bad site", () => {
+  const a = sr.instantAudit(SITE, { audit: blockedCrawl, extraction: emptyExtraction() });
+  assert.equal(a.overall, null, "a 403 must never become a marketing-health score");
+  assert.equal(a.coverage.measured, 0);
+  for (const s of a.sections) {
+    assert.equal(s.overall, null, `${s.area} scored a site it never read`);
+    for (const d of s.dimensions) assert.equal(d.score, null, `${s.area}/${d.name} scored a page we were refused`);
+  }
+});
+
+test("the blocked headline says we were refused, and how to let us in", () => {
+  const a = sr.instantAudit(SITE, { audit: blockedCrawl, extraction: emptyExtraction() });
+  assert.match(a.headline, /could not read the site/);
+  assert.match(a.headline, /HTTP 403/);
+  assert.match(a.headline, /MarketWarBot/, "the customer needs the fix, not just the diagnosis");
+  assert.ok(!/\d+\/100/.test(a.headline), "no score may appear in a headline about an unread site");
+  assert.match(a.coverage.note, /fact about the crawl, not a finding about the website/);
+});
+
+test("a blocked crawl leaves no gap ranked either", () => {
+  // An empty extraction from a 403 would otherwise rank EVERY gap wide open and
+  // tell the customer their site is missing everything.
+  const m = sr.attackMap(SITE, { audit: blockedCrawl, extraction: emptyExtraction() });
+  assert.equal(m.ranked, 0);
+  for (const move of m.moves) assert.equal(move.opportunity, null);
+  assert.match(m.moves[0].evidence, /could not read the site/);
+  assert.match(m.note, /could not be read/);
+});
+
+test("a JavaScript shell is a reading problem, not a content problem", () => {
+  // The other half of the same mistake: a React app serves an empty <div> and a
+  // bundle. Scoring that describes our crawler, not their website.
+  const shell = {
+    ok: true, url: "https://x.com", https: true, score: 0, grade: "C", httpStatus: 200, loadMs: 300, wordCount: 12, findings: [],
+    renderGap: { jsShell: true, framework: "Next.js", markers: ["__NEXT_DATA__"], words: 12, scriptBytes: 90000, htmlBytes: 100000, scriptShare: 0.9,
+      note: "The HTML holds 12 visible words and is 90% script — this is a JavaScript shell, so the page's real content is not in what we can read." },
+  };
+  const a = sr.instantAudit(SITE, { audit: shell, extraction: emptyExtraction() });
+  assert.equal(a.overall, null);
+  assert.match(a.headline, /JavaScript shell/);
+  assert.match(a.headline, /almost certainly fine/, "the customer must not read this as a fault");
+});
+
+test("a page that WAS readable is still scored — the gate is not a blanket refusal", () => {
+  const fine = {
+    ok: true, url: "https://x.com", https: true, score: 0, grade: "B", httpStatus: 200, loadMs: 500,
+    title: "T", metaDescription: "d", h1Count: 1, wordCount: 900, imagesNoAlt: 0, findings: [],
+  };
+  const a = sr.instantAudit(SITE, { audit: fine, extraction: { ...emptyExtraction(), ctas: ["Buy now"] } });
+  assert.ok(a.overall !== null, "a readable page must still produce a score");
+  assert.ok(a.coverage.measured > 0);
+});

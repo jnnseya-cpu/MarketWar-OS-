@@ -83,21 +83,27 @@ const SUITES: Suite[] = [
 
 // ---- Live engine response types (mirror src/backend/siteraid.ts exports) ----
 type IngestionDecision = { allowed: boolean; mode: string; reason: string };
-type AuditSection = { area: string; overall: number; verdict: "strong" | "improve" | "urgent"; dimensions: { name: string; score: number }[] };
-type SiteAudit = { sections: AuditSection[]; overall: number; headline: string };
+// A dimension the crawl could not read reports null and says why. It is drawn
+// as a stated absence rather than an empty bar, because an empty bar reads as
+// "zero out of a hundred" and that is a different, much worse, claim.
+type AuditDimension = { name: string; score: number | null; basis: string };
+type AuditSection = { area: string; overall: number | null; verdict: "strong" | "improve" | "urgent" | "not measured"; dimensions: AuditDimension[]; measured: number; total: number };
+type SiteAudit = { sections: AuditSection[]; overall: number | null; headline: string; coverage: { measured: number; total: number; note: string } };
 type BusinessDNA = {
   marketCategory: string; businessModel: string; revenueModel: string; valueProposition: string;
   brandPersonality: string; mainConversionAction: string; competitiveAdvantages: string[];
   trustGaps: string[]; contentGaps: string[]; conversionGaps: string[]; seoGaps: string[]; geoGaps: string[]; socialGaps: string[];
 };
-type AttackMove = { gap: string; opportunity: number; priority: string; play: string };
-type AttackMap = { moves: AttackMove[]; note: string };
+// An unranked move keeps its advice and loses its number — the ordering used
+// to come from a hash of the business name, which is not a priority.
+type AttackMove = { gap: string; opportunity: number | null; priority: string; play: string; evidence: string };
+type AttackMap = { moves: AttackMove[]; ranked: number; note: string };
 type ClaimVerdict = { text: string; classification: string; publishable: boolean; reason: string; source?: string };
 type TruthReport = { verdicts: ClaimVerdict[]; publishable: ClaimVerdict[]; blocked: ClaimVerdict[] };
 
 type AuditReport = { ingestion: IngestionDecision; audit: SiteAudit; dna: BusinessDNA; attack: AttackMap; truth: TruthReport };
 
-const VERDICT_TONE: Record<AuditSection["verdict"], "good" | "warn" | "bad"> = { strong: "good", improve: "warn", urgent: "bad" };
+const VERDICT_TONE: Record<AuditSection["verdict"], "good" | "warn" | "bad" | "neutral"> = { strong: "good", improve: "warn", urgent: "bad", "not measured": "neutral" };
 const CLASS_TONE: Record<string, "good" | "warn" | "bad" | "info"> = {
   verified_website: "good", verified_business_data: "good", user_confirmed: "info", inferred_pending: "warn", prohibited: "bad",
 };
@@ -527,9 +533,9 @@ export default function WebsiteIntelPage() {
             {/* Overall health */}
             <div>
               <div className="mb-3 grid gap-3 sm:grid-cols-3">
-                <StatCard label="Marketing health" value={`${report.audit.overall}/100`} tone={report.audit.overall >= 75 ? "good" : report.audit.overall >= 55 ? "warn" : "bad"} />
-                <StatCard label="Audit areas" value={`${report.audit.sections.length}`} sub="each with 6 sub-scores" />
-                <StatCard label="Attack moves" value={`${report.attack.moves.length}`} sub="gaps → prioritised fixes" />
+                <StatCard label="Marketing health" value={report.audit.overall === null ? "not measured" : `${report.audit.overall}/100`} tone={report.audit.overall === null ? "neutral" : report.audit.overall >= 75 ? "good" : report.audit.overall >= 55 ? "warn" : "bad"} />
+                <StatCard label="Checks measured" value={`${report.audit.coverage.measured}/${report.audit.coverage.total}`} sub="the rest say what they would need" />
+                <StatCard label="Attack moves" value={`${report.attack.moves.length}`} sub={`${report.attack.ranked} ranked from the crawl`} />
               </div>
               <p className="text-xs text-slate-400">{report.audit.headline}</p>
             </div>
@@ -541,12 +547,28 @@ export default function WebsiteIntelPage() {
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h3 className="font-display text-sm font-bold capitalize text-white">{s.area}</h3>
                     <div className="flex items-center gap-2">
-                      <span className="font-display text-sm font-bold text-white">{s.overall}</span>
+                      <span className="font-display text-sm font-bold text-white">{s.overall ?? "—"}</span>
                       <Pill tone={VERDICT_TONE[s.verdict]}>{s.verdict}</Pill>
+                      <span className="text-[10px] text-slate-500">{s.measured}/{s.total} measured</span>
                     </div>
                   </div>
                   <div className="space-y-2.5">
-                    {s.dimensions.map((d) => <ScoreBar key={d.name} label={d.name} score={d.score} />)}
+                    {s.dimensions.map((d) => (
+                      <div key={d.name}>
+                        {d.score === null ? (
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-xs text-slate-400">{d.name}</span>
+                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">not measured</span>
+                          </div>
+                        ) : (
+                          <ScoreBar label={d.name} score={d.score} />
+                        )}
+                        {/* The count the score came from, or the reason there is
+                            none. A number you can check beats a better number
+                            you cannot. */}
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">{d.basis}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -583,10 +605,15 @@ export default function WebsiteIntelPage() {
                       <span className="text-sm font-semibold text-white">{pretty(m.gap)}</span>
                       <div className="flex items-center gap-2">
                         <Pill tone="info">{pretty(m.priority)}</Pill>
-                        <Pill tone={m.opportunity >= 75 ? "good" : m.opportunity >= 55 ? "warn" : "neutral"}>opportunity {m.opportunity}</Pill>
+                        {m.opportunity === null
+                          ? <Pill tone="neutral">not ranked</Pill>
+                          : <Pill tone={m.opportunity >= 75 ? "good" : m.opportunity >= 55 ? "warn" : "neutral"}>opportunity {m.opportunity}</Pill>}
                       </div>
                     </div>
                     <p className="mt-1 text-xs text-slate-400">{m.play}</p>
+                    {/* Why it sits where it sits, or why it has no place in the
+                        order. The ranking is the claim; this is the receipt. */}
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{m.evidence}</p>
                   </div>
                 ))}
               </div>

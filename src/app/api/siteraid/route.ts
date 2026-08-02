@@ -77,8 +77,34 @@ export async function POST(req: NextRequest) {
     const claims = Array.isArray(body.claims) ? (body.claims as Claim[]) : [];
     return NextResponse.json(truthLayer(claims));
   }
-  if (action === "audit") return NextResponse.json(instantAudit(site!));
-  if (action === "attack") return NextResponse.json(attackMap(site!));
+  if (action === "audit") {
+    // The audit scores what a crawl found. Given a URL it fetches one, because
+    // an audit handed nothing but a business name can only honestly answer
+    // "not measured" — which is what it now does rather than hashing the name
+    // into a plausible-looking 72/100.
+    const target = typeof body.url === "string" ? body.url.trim() : "";
+    if (!target) return NextResponse.json(instantAudit(site!));
+    const spent = Date.now() - startedAt;
+    const deep = await deepCrawl(target, {
+      maxPages: Math.max(1, Math.min(12, Number(body.maxPages) || 6)),
+      budgetMs: Math.max(10_000, DEEP_BUDGET_MS - spent),
+    });
+    return NextResponse.json({
+      ...instantAudit(site!, { audit: deep.audit, extraction: deep.extraction }),
+      crawl: { pages: deep.pages.length, partial: deep.partial, note: deep.note },
+    });
+  }
+  if (action === "attack") {
+    // Ranked from a crawl when there is one, honestly unranked when there is not.
+    const target = typeof body.url === "string" ? body.url.trim() : "";
+    if (!target) return NextResponse.json(attackMap(site!));
+    const spent = Date.now() - startedAt;
+    const deep = await deepCrawl(target, {
+      maxPages: Math.max(1, Math.min(12, Number(body.maxPages) || 6)),
+      budgetMs: Math.max(10_000, DEEP_BUDGET_MS - spent),
+    });
+    return NextResponse.json(attackMap(site!, { audit: deep.audit, extraction: deep.extraction }));
+  }
 
   return NextResponse.json({ error: "Unknown action — use authorise, dna, truth, audit or attack" }, { status: 400 });
 }
