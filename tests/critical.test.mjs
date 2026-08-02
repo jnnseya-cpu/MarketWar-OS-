@@ -474,3 +474,56 @@ test("every finding says what breaks AND how to fix it", () => {
   }
   assert.equal(r.goPublic, false);
 });
+
+// ---------------------------------------------------------------------------
+// A hosted production build never serves the canned narrative.
+//
+// The demo fallbacks are not neutral placeholders. growth-strategist returns
+// "AxionOS has a proven winner (7.3x ROAS), £1,240 of dormant revenue in the
+// vault... confirm the £190 catering booking in WhatsApp" — invented financials
+// about a REAL business, with the only warning a small "Demo intelligence" pill
+// beside a page of confident prose. A customer who believes one of those
+// numbers is worse off than one who sees an error.
+//
+// The guard for this was REQUIRE_LIVE, set in apphosting.yaml — a Firebase App
+// Hosting file, on a platform this project has since left. On Vercel it applies
+// only if someone remembered to add it, and a safety net that depends on being
+// remembered is not one.
+// ---------------------------------------------------------------------------
+const { demoFallbackAllowed, LIVE_AI_UNAVAILABLE } = await import("../src/backend/gateway.ts");
+
+test("a hosted production build refuses the canned fallback with no env var set", () => {
+  assert.equal(demoFallbackAllowed({ NODE_ENV: "production" }), false);
+});
+
+test("local, dev and CI keep working with no keys at all", () => {
+  // The zero-config promise is to developers, and it is untouched.
+  assert.equal(demoFallbackAllowed({ NODE_ENV: "development" }), true);
+  assert.equal(demoFallbackAllowed({}), true, "an unset NODE_ENV is a local run");
+  assert.equal(demoFallbackAllowed({ NODE_ENV: "test" }), true);
+});
+
+test("REQUIRE_LIVE still forces live-only anywhere", () => {
+  assert.equal(demoFallbackAllowed({ NODE_ENV: "development", REQUIRE_LIVE: "1" }), false);
+});
+
+test("the refusal message says nothing was charged", () => {
+  // The route refunds on failure. A customer reading an error mid-run needs to
+  // know that before they decide whether to retry.
+  assert.match(LIVE_AI_UNAVAILABLE, /Nothing was charged/);
+  assert.match(LIVE_AI_UNAVAILABLE, /retry/i);
+});
+
+test("every AI surface that has a canned fallback goes through the one predicate", async () => {
+  // Four modules invent prose a customer could act on or publish. A fifth added
+  // later must not quietly reintroduce the hole.
+  const fs = await import("node:fs");
+  for (const mod of ["provider", "strategy-run", "growth-plan", "blog-generator"]) {
+    const src = fs.readFileSync(`src/backend/${mod}.ts`, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    assert.match(src, /if \(!demoFallbackAllowed\(\)\) throw new Error\(LIVE_AI_UNAVAILABLE\)/,
+      `${mod} can still serve invented content to a paying customer`);
+    assert.ok(!/process\.env\.REQUIRE_LIVE/.test(src),
+      `${mod} still decides for itself instead of asking the one predicate`);
+  }
+});

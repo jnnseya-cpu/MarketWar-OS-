@@ -9,7 +9,7 @@ if (typeof window !== "undefined") {
 // KPIs to watch. Owned-channels-first doctrine (cheap/fast money before paid).
 // Live through the AI gateway; deterministic preview when no provider key.
 
-import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
 
 export type GrowthPlanInput = {
   business: string;
@@ -65,7 +65,7 @@ export async function generateGrowthPlan(input: GrowthPlanInput): Promise<Growth
     return { mode: "live", plan: res.text, business: biz };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
-      if (process.env.REQUIRE_LIVE) throw new Error("Live AI is activating — retry in a moment.");
+      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
       return { mode: "demo", plan: demoPlan(biz), business: biz };
     }
     throw err;

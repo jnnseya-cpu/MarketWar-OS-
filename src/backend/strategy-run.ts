@@ -8,7 +8,7 @@ if (typeof window !== "undefined") {
 // provider key; deterministic preview otherwise (honest "activating" error
 // under REQUIRE_LIVE).
 
-import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
 import { withConciseStyle } from "@/backend/agent-style";
 import { STRATEGY_BY_ID } from "@/shared/strategy-agents";
 
@@ -37,9 +37,7 @@ export async function runStrategyAgent(
     return { agentId: agent.id, agentName: agent.name, mode: "live", output: res.text };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
-      if (process.env.REQUIRE_LIVE) {
-        throw new Error("Live AI is activating — the AI provider key isn't reachable yet. Please retry in a moment.");
-      }
+      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
       return { agentId: agent.id, agentName: agent.name, mode: "demo", output: demoOutput(agent.name, input) };
     }
     throw err;

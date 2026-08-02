@@ -116,7 +116,7 @@ export default function OmnirankPage() {
           <span className="font-semibold text-white">Need customers sooner?</span> SEO is the long game — it will not produce a sale this week.
           For revenue in days, use <Link href="/dashboard/customers" className="font-semibold text-emerald-400 hover:text-emerald-300">Customer Vault</Link> (win back past buyers),{" "}
           <Link href="/dashboard/email" className="font-semibold text-emerald-400 hover:text-emerald-300">Email</Link> and{" "}
-          <Link href="/dashboard/landing" className="font-semibold text-emerald-400 hover:text-emerald-300">Landing Pages</Link>. Run both: fast channels now, SEO compounding behind them.
+          <Link href="/dashboard/landing-pages" className="font-semibold text-emerald-400 hover:text-emerald-300">Landing Pages</Link>. Run both: fast channels now, SEO compounding behind them.
         </p>
       </div>
 

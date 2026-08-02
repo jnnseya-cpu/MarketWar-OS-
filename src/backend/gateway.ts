@@ -507,6 +507,37 @@ export class GatewayUnconfiguredError extends Error {
 }
 
 /**
+ * May a caller fall back to its canned demo output?
+ *
+ * Demo output exists so the repo runs with no keys: `npm run dev`, CI, a
+ * contributor's first five minutes. That promise is about DEVELOPERS, and it is
+ * kept — nothing here changes what happens locally.
+ *
+ * It was never a promise to a paying customer, and the fallbacks are not
+ * harmless placeholders. `growth-strategist` returns "AxionOS has a proven
+ * winner (7.3x ROAS), £1,240 of dormant revenue in the vault... confirm the
+ * £190 catering booking" — invented financials about a REAL business, with the
+ * only warning a small "Demo intelligence" pill beside a page of confident
+ * prose. A customer who believes one of those numbers is worse off than one who
+ * sees an error.
+ *
+ * The existing guard was REQUIRE_LIVE, an opt-in variable set in
+ * apphosting.yaml — a Firebase App Hosting config, on a platform this project
+ * has since moved off. On Vercel it is set only if someone remembered, and a
+ * safety net that depends on being remembered is not one. So a hosted
+ * production build refuses the fallback whether or not the variable is there,
+ * and REQUIRE_LIVE still forces the same behaviour anywhere else.
+ */
+export function demoFallbackAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.REQUIRE_LIVE) return false;
+  return env.NODE_ENV !== "production";
+}
+
+/** The honest thing to say when the fallback is refused. */
+export const LIVE_AI_UNAVAILABLE =
+  "Live AI is activating — the AI provider key isn't reachable for this request yet. This runs on the real model the moment the key is live; please retry in a moment. (Nothing was charged.)";
+
+/**
  * @param opts.budgetMs   How long the WHOLE call may take. A route knows its own
  *                        maxDuration and how much of it the crawl already spent;
  *                        the gateway does not. Defaults to OVERALL_TIMEOUT_MS.

@@ -5,7 +5,7 @@ if (typeof window !== "undefined") {
 
 import { claimReport } from "@/backend/claim-guard";
 import { AGENTS } from "@/shared/agents";
-import { gatewayComplete, GatewayUnconfiguredError } from "@/backend/gateway";
+import { gatewayComplete, GatewayUnconfiguredError, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
 import { withConciseStyle } from "@/backend/agent-style";
 import type { AgentResult } from "@/shared/types";
 
@@ -58,14 +58,11 @@ export async function runAgent(
     };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
-      // Strict live-only (production): with REQUIRE_LIVE set, NEVER return the
-      // deterministic demo output — surface an honest "activating" error instead,
-      // so a real user only ever sees live-model output, never a canned fallback.
-      if (process.env.REQUIRE_LIVE) {
-        throw new Error(
-          "Live AI is activating — the AI provider key isn't reachable for this request yet. This agent runs on the real model the moment the key is live; please retry in a moment."
-        );
-      }
+      // A hosted production build NEVER returns the canned narrative: it is
+      // invented financials about a real business, and a small "Demo
+      // intelligence" pill does not undo a page of confident prose. See
+      // demoFallbackAllowed() for why this is no longer left to an env var.
+      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
       // Zero-config demo (local/dev/no-key): deterministic output so nothing breaks.
       const demoText = agent.demoOutput(input);
       return {
