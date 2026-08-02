@@ -155,6 +155,24 @@ export async function enqueueVideoJob(input: {
     return { ok: false, error: e instanceof RecipeError ? e.message : "Those render settings are not usable." };
   }
 
+  // AND CHECK THAT SOMETHING CAN ACTUALLY RUN THIS PARTICULAR KIND.
+  //
+  // renderingAvailable() answers "can we render at all", which is not the same
+  // question. With the hosted API configured and no self-hosted worker — the
+  // most likely production setup, and the one this platform is deployed in —
+  // `brand` and `broll` need FFmpeg's filter_complex, which the hosted service
+  // does not support. The old flow charged for them anyway: buildRecipe
+  // succeeded (the recipe is valid FFmpeg), the wallet was debited, the
+  // hosted-submit block was SKIPPED because the kind is unsupported, and the
+  // job was written to the queue as `queued` on `provider: "worker"` — a queue
+  // with no worker reading it. The customer paid 18 ACUs for a render that
+  // could never start, and nothing ever errored: the job simply sat there.
+  //
+  // Same shape as every other money defect found this week — charged, nothing
+  // delivered, no error on either side. Refuse before the debit instead.
+  const runnable = canRenderKind(input.kind);
+  if (!runnable.ok) return { ok: false, error: runnable.reason };
+
   const debit = await debitAcus(input.brandId, cost);
   if (!debit.ok) {
     return { ok: false, balanceAcu: debit.balanceAcu, error: `Not enough ACUs — this render costs ${cost} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing.` };
@@ -203,6 +221,36 @@ export function renderingAvailable(): { ok: boolean; via: ("cloud" | "worker")[]
   if (ffmpegCloudConfigured()) via.push("cloud");
   if (workerConfigured()) via.push("worker");
   return { ok: via.length > 0, via };
+}
+
+/**
+ * Can THIS KIND actually be rendered on what is configured?
+ *
+ * The distinction matters because the two executors are not interchangeable.
+ * The hosted API takes a flat list of FFmpeg options and cannot run
+ * filter_complex, so anything compositing a second source over the frame —
+ * `brand` (a logo) and `broll` (picture-in-picture) — only ever runs on the
+ * self-hosted worker. "We can render" and "we can render this" are different
+ * questions, and charging on the first one is how a customer pays for a job
+ * that never starts.
+ */
+export function canRenderKind(kind: VideoJobKind): { ok: boolean; via: "cloud" | "worker" | null; reason: string } {
+  const hosted = ffmpegCloudConfigured();
+  const worker = workerConfigured();
+  const hostedCannot = hostedApiUnsupportedReason(kind);
+
+  if (worker) return { ok: true, via: "worker", reason: "" };
+  if (hosted && !hostedCannot) return { ok: true, via: "cloud", reason: "" };
+  if (hosted && hostedCannot) {
+    return {
+      ok: false, via: null,
+      reason: `${hostedCannot} This deployment has the hosted renderer but no self-hosted worker, so this particular job cannot run and you have not been charged for it. Everything else on the Render Farm works. To enable this one, deploy worker/ to Cloud Run on the Google Cloud account this platform already uses and set VIDEO_WORKER_SECRET on both sides — that is your own container, not a new supplier.`,
+    };
+  }
+  return {
+    ok: false, via: null,
+    reason: "No renderer is configured on this deployment, so nothing was charged. Cutting clips to 9:16 with captions burned in does not need one — the Clip Finder does that in your browser.",
+  };
 }
 
 // Submit every pass of a job to the hosted API. One hosted job per pass, which

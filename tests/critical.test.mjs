@@ -1131,3 +1131,102 @@ test("the clip route hands on only signals it actually measured", async () => {
   assert.ok(!/emotionalIntensity:/.test(src), "a transcript does not reveal emotional intensity");
   assert.ok(!/reputationRisk:/.test(src), "nor whether the claim behind the words is defensible");
 });
+
+// ---------------------------------------------------------------------------
+// "We can render" is not "we can render THIS".
+//
+// The hosted FFmpeg API takes a flat list of options and cannot run
+// filter_complex, so anything compositing a second source over the frame —
+// `brand` (a logo) and `broll` (picture-in-picture) — only ever runs on the
+// self-hosted worker. With the hosted key set and no worker, which is exactly
+// how this platform is deployed, enqueueVideoJob charged anyway: buildRecipe
+// succeeded because the recipe is valid FFmpeg, the wallet was debited, the
+// hosted-submit block was skipped because the kind is unsupported, and the job
+// was written to the queue as "queued" on a worker queue with no worker.
+//
+// The customer paid 18 ACUs for a render that could never start, and nothing
+// errored — the job just sat there. Charged, nothing delivered, no error on
+// either side: the same shape as every other money defect found this week.
+// ---------------------------------------------------------------------------
+const vj = await import("../src/backend/video-jobs.ts");
+
+const withEnv = async (env, fn) => {
+  const saved = { ...process.env };
+  for (const [k, v] of Object.entries(env)) {
+    if (v === null) delete process.env[k]; else process.env[k] = v;
+  }
+  try { return await fn(); } finally { process.env = saved; }
+};
+
+test("a render the hosted API cannot do is refused BEFORE the wallet is touched", async () => {
+  await withEnv({ FFMPEG_CLOUD_API_KEY: "test-key", VIDEO_WORKER_SECRET: null }, async () => {
+    const org = "render-guard-org";
+    await wallet.creditAcus(org, 500);
+    const before = (await wallet.getWallet(org)).balanceAcu;
+
+    const res = await vj.enqueueVideoJob({
+      brandId: org, kind: "brand",
+      sourceUrl: "https://example.com/v.mp4",
+      params: { logoUrl: "https://example.com/logo.png" },
+    });
+
+    assert.equal(res.ok, false, "a job nothing can run must not be accepted");
+    assert.equal((await wallet.getWallet(org)).balanceAcu, before, "not one ACU may be taken");
+    assert.match(res.error, /you have not been charged/);
+    assert.match(res.error, /filter_complex/, "and it must say why, not just refuse");
+  });
+});
+
+test("the kinds the hosted API CAN do still go through", async () => {
+  // The guard must not have switched off the five that work.
+  await withEnv({ FFMPEG_CLOUD_API_KEY: "test-key", VIDEO_WORKER_SECRET: null }, () => {
+    for (const kind of ["trim", "clips", "captions_burn", "bg_remove", "upscale"]) {
+      assert.equal(vj.canRenderKind(kind).ok, true, `${kind} runs on the hosted API and must stay available`);
+      assert.equal(vj.canRenderKind(kind).via, "cloud");
+    }
+  });
+});
+
+test("a self-hosted worker can run everything, including the composites", async () => {
+  await withEnv({ VIDEO_WORKER_SECRET: "s", FFMPEG_CLOUD_API_KEY: null }, () => {
+    for (const kind of ["trim", "clips", "captions_burn", "brand", "broll", "bg_remove", "upscale"]) {
+      assert.equal(vj.canRenderKind(kind).ok, true, `${kind} must run on the worker`);
+      assert.equal(vj.canRenderKind(kind).via, "worker");
+    }
+  });
+});
+
+test("with no renderer at all, nothing is charged and the browser is offered instead", async () => {
+  await withEnv({ FFMPEG_CLOUD_API_KEY: null, VIDEO_WORKER_SECRET: null }, async () => {
+    const org = "no-renderer-org";
+    await wallet.creditAcus(org, 500);
+    const before = (await wallet.getWallet(org)).balanceAcu;
+    const res = await vj.enqueueVideoJob({ brandId: org, kind: "clips", sourceUrl: "https://x/v.mp4", params: { moments: [{ startSec: 0, endSec: 20 }] } });
+    assert.equal(res.ok, false);
+    assert.equal((await wallet.getWallet(org)).balanceAcu, before);
+    assert.match(res.error, /does not need one — the Clip Finder does that in your browser/);
+  });
+});
+
+test("the render guard runs before the debit, not after", async () => {
+  // Order is the whole fix. A check after debitAcus would still take the money
+  // and then hand it back, which is a refund, not a refusal — and refunds only
+  // work when the code that issues them actually runs.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync("src/backend/video-jobs.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const guard = src.indexOf("canRenderKind(input.kind)");
+  const debit = src.indexOf("await debitAcus(input.brandId, cost)");
+  assert.ok(guard > 0 && debit > 0, "both must exist");
+  assert.ok(guard < debit, "the guard must come first");
+});
+
+test("every render kind still clears the owner's 2x margin floor", async () => {
+  // The hosted renderer bills per processing minute, so this is now a real
+  // provider cost on a live path rather than a hypothetical one.
+  for (const [kind, acu] of Object.entries(vj.JOB_COST_ACU)) {
+    const cost = vj.RENDER_PROVIDER_COST_GBP[kind];
+    const revenue = acu / 100; // £1 = 100 ACUs
+    assert.ok(revenue >= cost * 2, `${kind}: charges £${revenue} against £${cost} cost — under the 2x floor`);
+  }
+});

@@ -495,7 +495,18 @@ test("captions: short lines pass through untouched", () => {
 
 // ---------------------------------------------------------------------------
 // Video job queue — the money and reliability contract with the FFmpeg worker.
+//
+// These exercise the WORKER path: claiming, a worker dying mid-render, the
+// refund after three failures. So a worker is declared configured, which is
+// what the tests were always implicitly assuming.
+//
+// They started failing the moment enqueueVideoJob learned to refuse a render
+// nothing can perform — a guard added because with the hosted API configured
+// and no worker, `brand` and `broll` were charged for and then parked on a
+// queue no worker was reading. That guard is correct and these tests were
+// leaning on its absence, so they say out loud what they need instead.
 // ---------------------------------------------------------------------------
+process.env.VIDEO_WORKER_SECRET = process.env.VIDEO_WORKER_SECRET || "test-worker-secret";
 const vj = await import("../src/backend/video-jobs.ts");
 const w5 = await import("../src/backend/wallet.ts");
 
@@ -7839,7 +7850,12 @@ test("the platform never says a new supplier is needed to cut a clip", () => {
   assert.match(health, /Clip cutting to 9:16 with burned captions/);
   assert.match(health, /ready: true/, "clip cutting is live with no key at all");
   assert.match(health, /no new supplier/, "the self-hosted worker must be distinguished from the vendor");
-  assert.match(health, /IS a new supplier and a new bill/, "and the vendor must be named as one");
+  assert.match(health, /is a supplier and a per-minute bill/, "and the vendor must be named as one");
+  // And when the hosted key IS set, it must report what that deployment can
+  // actually do rather than repeat advice the owner has already acted on.
+  assert.match(health, /Logo overlay and B-roll do NOT/,
+    "an owner who already pays for the hosted renderer needs to know its two gaps");
+  assert.match(health, /refused before anything is charged/);
 
   const farm = readFileSync(new URL("../src/components/RenderFarm.tsx", import.meta.url), "utf8");
   assert.match(farm, /You probably do not need one/);

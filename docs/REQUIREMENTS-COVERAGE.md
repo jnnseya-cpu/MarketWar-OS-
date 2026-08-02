@@ -1647,3 +1647,46 @@ make the output a *short* rather than a trimmed landscape file.
 batches, and the heavier jobs the browser genuinely cannot do — background
 removal, upscaling, B-roll compositing. It is optional, and the self-hosted
 route involves no new supplier.
+
+### §54c — The hosted renderer is live, and it was charging for jobs it cannot run
+
+Owner: *"FFMPEG_CLOUD_API_KEY is already there in vercel."*
+
+That turns the server-side render queue from an optional extra into a code path
+customers reach tomorrow — and it had never been exercised in that exact
+configuration. Tracing it found a live money defect.
+
+**The two executors are not interchangeable.** The hosted API takes a flat list
+of FFmpeg options and cannot run `filter_complex`, so anything compositing a
+second source over the frame — `brand` (a logo) and `broll` (picture-in-picture)
+— only ever runs on the self-hosted worker. `hostedApiUnsupportedReason()`
+already knew this. `enqueueVideoJob` did not ask it.
+
+With the hosted key set and no worker, which is precisely how this platform is
+deployed:
+
+1. `buildRecipe` succeeded — the recipe is valid FFmpeg.
+2. **The wallet was debited** (18 ACUs for `brand`, 30 for `broll`).
+3. The hosted-submit block was *skipped*, because the kind is unsupported — so
+   the refund branch inside it never ran either.
+4. The job was written as `status: "queued"`, `provider: "worker"` — onto a
+   queue with no worker reading it.
+
+The customer paid for a render that could never start, and nothing errored: the
+job simply sat at "queued" forever. Reproduced against the real module before
+the fix — *"balance after: 582 (charged 18 ACUs)"*.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A render nothing can perform is refused before the wallet is touched | ✅ | New `canRenderKind(kind)` answers "can we render **this**", which is a different question from `renderingAvailable()`'s "can we render at all". Called before `debitAcus`, and a test asserts that ordering — a check placed after the debit would be a refund, not a refusal, and refunds only work when the code issuing them runs. |
+| The five kinds the hosted API *can* do still work | ✅ | trim, clips, captions_burn, bg_remove, upscale all run on `cloud`; mutation-verified that the guard does not switch them off. |
+| A self-hosted worker still runs everything | ✅ | Including the two composites. |
+| Nothing configured → no charge, and the browser is offered instead | ✅ | "…does not need one — the Clip Finder does that in your browser." |
+| The margin law holds on a now-live provider cost | ✅ | All seven kinds charge exactly 4× the hosted per-minute cost; asserted in a test, since this is real money on a live path rather than a hypothetical. |
+| Health reports the deployment's real state | ✅ | With the hosted key present it names what runs and what does not, rather than repeating advice the owner has already acted on: *"Logo overlay and B-roll do NOT … refused before anything is charged."* |
+
+**Note on the existing worker-queue tests.** Six of them started failing when
+the guard landed, because they enqueue in an environment with no renderer — they
+were leaning on the absence of the check. They exercise the *worker* path
+(claiming, a worker dying mid-render, the refund after three failures), so they
+now declare `VIDEO_WORKER_SECRET`, which is what they always implicitly assumed.
