@@ -63,7 +63,8 @@ export type ContactRecord = {
   sector: string;
   department: string;
   contactType: "generic" | "personal";
-  confidence: number;     // 0–100
+  /** 0–100 from the verification engine, or null when nothing measured it. */
+  confidence: number | null;
   lawfulBasisStatus: "consent" | "legitimate_interest" | "pending" | "none";
   outreachEligibility: "eligible" | "review" | "blocked";
   suppressionStatus: "clear" | "suppressed";
@@ -81,7 +82,17 @@ export function buildContactRecord(input: Partial<ContactRecord> & { email: stri
     sector: input.sector ?? "",
     department: input.department ?? (cls.contactType === "generic" ? cls.local : "unknown"),
     contactType: cls.contactType,
-    confidence: input.confidence ?? clamp(60 + (seed(cls.email) % 35)),
+    // NOT `clamp(60 + seed(email) % 35)`. That produced a 60–95 "confidence"
+    // from the letters of the address, and a customer decides whether to email
+    // a real human being on the strength of it — a stranger who never asked to
+    // hear from them. A number nobody measured is the worst possible input to
+    // that decision, and 60–95 reads as "probably fine" for every address ever
+    // harvested, including the ones that are not.
+    //
+    // Null means "we did not measure this". The verification engine below runs
+    // twelve real checks and produces a real verdict; that is what a confidence
+    // figure should come from, and callers who have run it pass it in.
+    confidence: input.confidence ?? null,
     lawfulBasisStatus: input.lawfulBasisStatus ?? "pending",
     outreachEligibility: input.outreachEligibility ?? "review",
     suppressionStatus: input.suppressionStatus ?? "clear",
@@ -91,14 +102,36 @@ export function buildContactRecord(input: Partial<ContactRecord> & { email: stri
 // ---------------------------------------------------------------------------
 // 3. Verification engine — 12 checks → risk + bounce probability + verdict.
 // ---------------------------------------------------------------------------
-export type Check = { name: string; pass: boolean; detail: string };
+/**
+ * A check either passed, failed, or was never run.
+ *
+ * `pass: null` is the third state, and it exists because two of these twelve
+ * used to be decided by a hash of the address.
+ */
+export type Check = { name: string; pass: boolean | null; detail: string };
 export type VerificationResult = {
   email: string; checks: Check[]; passedCount: number;
   riskScore: number; bounceProbability: number;
   verdict: "safe" | "risky" | "reject";
+  /** Checks that were never performed. Never silently counted as passes. */
+  notRun: string[];
+  note: string;
 };
 
-export type VerifyContext = { suppressed?: Set<string>; blacklistedDomains?: Set<string>; complained?: Set<string>; seenEmails?: Set<string> };
+export type VerifyContext = {
+  suppressed?: Set<string>;
+  blacklistedDomains?: Set<string>;
+  complained?: Set<string>;
+  seenEmails?: Set<string>;
+  /**
+   * Does this domain have a mail exchanger? Only a DNS lookup knows. Pass the
+   * answer in when you have done one; leave it undefined and the check reports
+   * "not run" instead of inventing a result.
+   */
+  mxByDomain?: Map<string, boolean>;
+  /** Same for catch-all, which needs an SMTP probe nobody can do from here. */
+  catchAllByDomain?: Map<string, boolean>;
+};
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -107,10 +140,26 @@ export function verifyEmail(email: string, ctx: VerifyContext = {}): Verificatio
   const s = seed(cls.email);
   const syntax = EMAIL_RE.test(email);
   const domainOk = syntax && cls.domain.includes(".") && !cls.domain.endsWith(".");
-  const mx = domainOk && (s % 100) > 8;               // ~8% no-MX (deterministic)
+  // A HASH USED TO DECIDE WHETHER A REAL DOMAIN HAD A MAIL SERVER.
+  //
+  //   const mx      = domainOk && (s % 100) > 8;   // "~8% no-MX (deterministic)"
+  //   const catchAll = domainOk && (s % 100) > 82; // "~18% catch-all"
+  //
+  // s is seed(email). So "MX present" was a statement about the spelling of
+  // the address, and roughly one address in twelve was declared undeliverable
+  // — hard-failing to `reject` — for no reason at all, while the other eleven
+  // were declared deliverable on the same non-evidence. The verdict this feeds
+  // is what a customer reads before emailing a stranger who never asked to
+  // hear from them, and it is also what protects the sending domain's
+  // reputation, so a fabricated pass costs the owner as well as the recipient.
+  //
+  // Neither can be answered without a network lookup: MX needs DNS, catch-all
+  // needs an SMTP probe. Undefined means NOT RUN, and a check that did not run
+  // reports that rather than guessing.
+  const mx = domainOk ? ctx.mxByDomain?.get(cls.domain) : false;
+  const catchAll = domainOk ? ctx.catchAllByDomain?.get(cls.domain) : false;
   const disposable = DISPOSABLE_DOMAINS.includes(cls.domain);
   const roleBased = cls.contactType === "generic";
-  const catchAll = domainOk && (s % 100) > 82;        // ~18% catch-all
   const duplicate = Boolean(ctx.seenEmails?.has(cls.email));
   const suppressed = Boolean(ctx.suppressed?.has(cls.email));
   const blacklisted = Boolean(ctx.blacklistedDomains?.has(cls.domain));
@@ -119,22 +168,23 @@ export function verifyEmail(email: string, ctx: VerifyContext = {}): Verificatio
   // Risk + bounce estimates (deterministic; labelled estimates, never certainties).
   let risk = 10;
   if (!syntax) risk += 60;
-  if (!mx) risk += 40;
+  // Only a MEASURED absence adds risk. "Not looked up" is not "not there".
+  if (mx === false) risk += 40;
   if (disposable) risk += 50;
-  if (catchAll) risk += 20;
+  if (catchAll === true) risk += 20;
   if (blacklisted) risk += 45;
   if (priorComplaint) risk += 60;
   if (roleBased) risk += 5;
   const riskScore = clamp(risk);
-  const bounceProbability = Math.round((clamp((!mx ? 55 : 0) + (disposable ? 40 : 0) + (catchAll ? 22 : 0) + (!syntax ? 90 : 4)) / 100) * 100) / 100;
+  const bounceProbability = Math.round((clamp((mx === false ? 55 : 0) + (disposable ? 40 : 0) + (catchAll === true ? 22 : 0) + (!syntax ? 90 : 4)) / 100) * 100) / 100;
 
   const checks: Check[] = [
     { name: "syntax", pass: syntax, detail: syntax ? "Valid format" : "Malformed address" },
     { name: "domain", pass: domainOk, detail: domainOk ? cls.domain : "Invalid domain" },
-    { name: "mx_record", pass: mx, detail: mx ? "MX present" : "No mail exchanger" },
+    { name: "mx_record", pass: mx ?? null, detail: mx === undefined ? "Not run — checking for a mail exchanger needs a DNS lookup, which has not been done for this address." : mx ? "MX present" : "No mail exchanger" },
     { name: "not_disposable", pass: !disposable, detail: disposable ? "Disposable provider" : "Not disposable" },
     { name: "role_based_flag", pass: true, detail: roleBased ? "Role-based (generic mailbox)" : "Named mailbox" },
-    { name: "catch_all", pass: !catchAll, detail: catchAll ? "Catch-all domain (unverifiable)" : "Not catch-all" },
+    { name: "catch_all", pass: catchAll === undefined ? null : !catchAll, detail: catchAll === undefined ? "Not run — detecting a catch-all needs an SMTP probe, which has not been done for this domain." : catchAll ? "Catch-all domain (unverifiable)" : "Not catch-all" },
     { name: "risk_score", pass: riskScore < 50, detail: `Risk ${riskScore}/100` },
     { name: "bounce_probability", pass: bounceProbability < 0.3, detail: `~${Math.round(bounceProbability * 100)}% bounce` },
     { name: "duplicate", pass: !duplicate, detail: duplicate ? "Already in list" : "Unique" },
@@ -142,11 +192,22 @@ export function verifyEmail(email: string, ctx: VerifyContext = {}): Verificatio
     { name: "blacklist", pass: !blacklisted, detail: blacklisted ? "Domain blacklisted" : "Clean" },
     { name: "prior_complaint", pass: !priorComplaint, detail: priorComplaint ? "Prior spam complaint" : "No complaints" },
   ];
-  const passedCount = checks.filter((c) => c.pass).length;
-  // Hard-fail checks force a reject regardless of the count.
-  const hardFail = !syntax || !mx || disposable || suppressed || blacklisted || priorComplaint;
-  const verdict: VerificationResult["verdict"] = hardFail ? "reject" : riskScore >= 35 || catchAll ? "risky" : "safe";
-  return { email: cls.email, checks, passedCount, riskScore, bounceProbability, verdict };
+  const passedCount = checks.filter((c) => c.pass === true).length;
+  const notRun = checks.filter((c) => c.pass === null).map((c) => c.name);
+  // A hard fail needs a MEASURED failure. `mx === false` rejects; `undefined`
+  // does not, because rejecting on a lookup nobody performed is the same
+  // fabrication in the other direction.
+  const hardFail = !syntax || mx === false || disposable || suppressed || blacklisted || priorComplaint;
+  // "Safe" is a claim, and it needs the deliverability checks to have actually
+  // run. Without them the honest verdict is "risky", not a green light.
+  const verdict: VerificationResult["verdict"] =
+    hardFail ? "reject" : riskScore >= 35 || catchAll === true || notRun.length ? "risky" : "safe";
+  return {
+    email: cls.email, checks, passedCount, riskScore, bounceProbability, verdict, notRun,
+    note: notRun.length
+      ? `${checks.length - notRun.length} of ${checks.length} checks ran. ${notRun.join(" and ")} need a network lookup that has not been done, so this address is 'risky' rather than 'safe' — not because anything failed, but because nothing confirmed it.`
+      : `All ${checks.length} checks ran.`,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -8,9 +8,17 @@ if (typeof window !== "undefined") {
 //
 // PURE, DETERMINISTIC, DEMO-SAFE. Every volume/difficulty/authority number is
 // derived by seeding an FNV-1a hash off the keyword/domain string — there is NO
-// external SEO API call in demo mode, and NO Date/Math.random anywhere. Because
-// these numbers are synthesised, they are ESTIMATES ONLY: we never claim exact
-// Google search volumes, and every payload carries an explicit disclaimer.
+// external SEO API call in demo mode, and NO Date/Math.random anywhere.
+//
+// THESE ARE PLACEHOLDERS, NOT ESTIMATES, AND THE DISCLAIMER NOW SAYS SO.
+// It used to call them "relative proxies (0–100)", which implies the ORDERING
+// means something. It does not. A hash of "plumber london" and a hash of
+// "emergency plumber london" have no relationship to how those two terms
+// actually behave, so the term this screen calls easiest may be the hardest one
+// on the list. An "estimate" that is uncorrelated with the thing it estimates
+// is not an estimate; naming it accurately is the difference between a
+// scaffold and a lie. They exist so the interface is complete and testable
+// before a data source is wired in.
 //
 // Scope note: GEO / AI-visibility (does ChatGPT recommend you?) lives in
 // src/backend/geo.ts. This engine is deliberately the *classic* SEO surface —
@@ -113,7 +121,7 @@ export type KeywordResearchOpts = {
 };
 
 const ESTIMATE_DISCLAIMER =
-  "Estimate only — deterministic model, not live Google data. Volume/difficulty/authority are relative proxies (0–100), never exact search counts. Validate against a live data source before spending budget.";
+  "PLACEHOLDER NUMBERS, NOT ESTIMATES. Every volume, difficulty and authority figure on this screen is derived from the letters of the keyword or domain itself — an FNV hash — because no SEO data source is connected. They are not approximations of the real values and their ORDER carries no information either: the keyword shown as easiest may be the hardest. They exist so the interface is complete and testable before a data source is wired in. Do not choose keywords, judge a domain or spend budget on them. Connect a live SEO data source and these become measurements.";
 
 // ---------------------------------------------------------------------------
 // Keyword research

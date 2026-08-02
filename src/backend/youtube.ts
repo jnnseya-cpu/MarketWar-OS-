@@ -32,7 +32,7 @@ const seed = (s: string): number => {
 const pct = (s: string): number => seed(s) % 101;
 
 const ESTIMATE_DISCLAIMER =
-  "Estimate only — deterministic heuristic model, not live YouTube Data API results. Search-volume/competition/opportunity/score are relative proxies (0–100), never real view, subscriber or ranking counts. Validate against a live source before spending budget.";
+  "PLACEHOLDER NUMBERS, NOT ESTIMATES. Search volume, competition, opportunity and score are derived from the letters of the topic itself — an FNV hash — because the YouTube Data API is not connected. They are not approximations of the real values, and their ORDER carries no information: the topic shown as least competitive may be the most. They exist so the interface is complete and testable before a data source is wired in. Do not pick topics or spend budget on them. Connect the YouTube Data API and these become measurements.";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -804,3 +804,75 @@ test("a page that WAS readable is still scored — the gate is not a blanket ref
   assert.ok(a.overall !== null, "a readable page must still produce a score");
   assert.ok(a.coverage.measured > 0);
 });
+
+// ---------------------------------------------------------------------------
+// A hash decided whether a real domain had a mail server.
+//
+//   const mx       = domainOk && (s % 100) > 8;   // "~8% no-MX (deterministic)"
+//   const catchAll = domainOk && (s % 100) > 82;  // "~18% catch-all"
+//
+// s is seed(email). "MX present" was therefore a statement about the SPELLING
+// of the address. Roughly one address in twelve was declared undeliverable and
+// hard-failed to "reject" for no reason at all, and the other eleven were
+// declared deliverable on the same non-evidence. That verdict is what a
+// customer reads before emailing a stranger who never asked to hear from them,
+// and it is what protects the owner's own sending reputation.
+// ---------------------------------------------------------------------------
+const lh = await import("../src/backend/lead-harvest.ts");
+
+test("an unchecked mail server is reported as unchecked, not as present", () => {
+  const r = lh.verifyEmail("hello@example.com");
+  const mx = r.checks.find((c) => c.name === "mx_record");
+  assert.equal(mx.pass, null, "nothing looked this up, so it cannot pass");
+  assert.match(mx.detail, /Not run/);
+  assert.match(mx.detail, /DNS lookup/);
+  assert.ok(r.notRun.includes("mx_record"));
+});
+
+test("an address is never called safe on checks that never ran", () => {
+  const r = lh.verifyEmail("hello@example.com");
+  assert.equal(r.verdict, "risky", "'safe' is a claim and needs the deliverability checks to have happened");
+  assert.match(r.note, /not because anything failed, but because nothing confirmed it/);
+});
+
+test("a real DNS answer is used when the caller has one", () => {
+  const good = lh.verifyEmail("hello@example.com", {
+    mxByDomain: new Map([["example.com", true]]),
+    catchAllByDomain: new Map([["example.com", false]]),
+  });
+  assert.equal(good.checks.find((c) => c.name === "mx_record").pass, true);
+  assert.equal(good.notRun.length, 0);
+  assert.equal(good.verdict, "safe", "everything measured and clean must be able to reach safe");
+
+  const bad = lh.verifyEmail("hello@example.com", { mxByDomain: new Map([["example.com", false]]) });
+  assert.equal(bad.verdict, "reject", "a MEASURED missing MX still hard-fails");
+});
+
+test("a spelling no longer decides deliverability", () => {
+  // Under the hash, these two addresses at the same domain could disagree about
+  // whether that domain had a mail server.
+  const a = lh.verifyEmail("aaaaaaaa@same-domain.com");
+  const b = lh.verifyEmail("zz@same-domain.com");
+  assert.equal(
+    a.checks.find((c) => c.name === "mx_record").pass,
+    b.checks.find((c) => c.name === "mx_record").pass,
+    "MX is a property of the domain, not of the mailbox name",
+  );
+  assert.equal(a.verdict, b.verdict);
+});
+
+test("a harvested contact carries no confidence nobody measured", () => {
+  // It was clamp(60 + seed(email) % 35) — a 60–95 figure from the letters of
+  // the address, which reads as "probably fine" for every address ever
+  // harvested, including the ones that are not.
+  const rec = lh.buildContactRecord({ email: "hello@example.com", sourceUrl: "https://example.com/contact" });
+  assert.equal(rec.confidence, null);
+  const measured = lh.buildContactRecord({ email: "hello@example.com", sourceUrl: "https://x", confidence: 82 });
+  assert.equal(measured.confidence, 82, "a caller that DID measure can still supply one");
+});
+
+test("passedCount counts passes, not not-runs", () => {
+  const r = lh.verifyEmail("hello@example.com");
+  assert.equal(r.passedCount, r.checks.filter((c) => c.pass === true).length);
+  assert.ok(r.passedCount < r.checks.length, "an unrun check must not inflate the score");
+});

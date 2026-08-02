@@ -1548,3 +1548,23 @@ build environment is proxied and returns 403 for arbitrary hosts, so the
 positive live-crawl path could not be exercised here. It is covered by unit
 tests against a readable `CrawlReport`, and the blocked path was verified end
 to end against the running production build.
+
+### §53c — The rest of the hash-as-score sweep
+
+SiteRaid was not the only place an FNV hash was dressed as a measurement. A
+sweep of every module using the seeded helper found seven more that assign it to
+something named like a score, a confidence or a percentage. Ranked by what a
+customer would actually DO on the strength of the number:
+
+| Module | What was fabricated | Status |
+|---|---|---|
+| `lead-harvest.ts` — mail server + catch-all | `mx = domainOk && (s % 100) > 8` and `catchAll = … > 82`, where `s = seed(email)`. **A hash decided whether a real domain had a mail server**, so roughly one address in twelve was hard-failed to `reject` for no reason and the rest were passed on the same non-evidence — and two addresses at the SAME domain could disagree. That verdict is read before emailing a stranger, and it guards the owner's own sending reputation. | ✅ fixed — MX needs DNS and catch-all needs an SMTP probe, so both are now injectable (`mxByDomain` / `catchAllByDomain`) and report **not run** when nothing looked them up. Only a *measured* absence adds risk or rejects. `safe` is refused while any deliverability check has not run — "risky, because nothing confirmed it", not because anything failed. |
+| `lead-harvest.ts` — contact confidence | `clamp(60 + seed(email) % 35)` — a 60–95 figure from the letters of an address, which reads as "probably fine" for every address ever harvested. | ✅ fixed — `null` unless a caller that actually ran the verification engine supplies one. |
+| `seo.ts` / `youtube.ts` | Volume, difficulty, competition, domain authority, referring domains, toxic links — all hashed. A disclaimer existed and called them "relative proxies (0–100)", which implies the ORDER means something. It does not: the term shown as easiest may be the hardest. | ✅ fixed wording — now "PLACEHOLDER NUMBERS, NOT ESTIMATES … their ORDER carries no information … do not choose keywords, judge a domain or spend budget on them." The surfaces are unchanged and still complete; they no longer describe themselves as approximations of anything. |
+| `campaign-architect.ts` — trend fit | `fit = 40 + seed(trend + business + factor) % 55`. | ⚠️ **superseded, not yet removed** — `trend-watch.ts` already replaced this with measured vocabulary overlap and is what the scheduled monitoring uses. The older gate is still reachable through `/api/campaign-architect`. Its RISK side is real and must be kept. |
+| `reporting.ts` | `score = clamp(40 + seed(business + ":" + id) % 60)`. | ⚠️ open |
+| `buyer-psychology.ts`, `video-intelligence.ts` | `hits * 22 + (seed % 8)` and `hits * 10 + (seed % 5)` — the score is dominated by real keyword hits; the hash contributes ≤7 points of tie-breaking jitter. | ℹ️ low — not a fabrication, but pointless noise that makes the number look more precise than the rule behind it. |
+
+The three remaining rows are recorded rather than rushed: each needs either a
+data source or a rewrite of the surface, and shipping a half-measured score is
+how the first one got written.

@@ -7690,3 +7690,38 @@ test("terms: the sections are numbered once each, in order", () => {
   const nums = [...src.matchAll(/<H2>(\d+)\. /g)].map((m) => Number(m[1]));
   assert.deepEqual(nums, nums.map((_, i) => i + 1), `section numbers must run 1..n with no gaps or repeats, got ${nums}`);
 });
+
+// ---------------------------------------------------------------------------
+// An "estimate" uncorrelated with the thing it estimates is not an estimate.
+//
+// seo.ts and youtube.ts derive every volume, difficulty, competition and
+// authority number from an FNV hash of the keyword or domain string. Both
+// carried a disclaimer, and both called the numbers "relative proxies (0–100)"
+// — which implies the ORDERING means something. It does not: the hash of
+// "plumber london" bears no relationship to the hash of "emergency plumber
+// london", so the term the screen shows as easiest may be the hardest on the
+// list. A customer reads a ranked table and picks the top row.
+// ---------------------------------------------------------------------------
+
+test("seo + youtube call their hashed numbers placeholders, not estimates", async () => {
+  const seo = await import("../src/backend/seo.ts");
+  const yt = await import("../src/backend/youtube.ts");
+  const research = seo.keywordResearch("plumber london");
+  const topics = yt.keywordResearch("van life");
+  for (const [label, d] of [["seo", research.disclaimer], ["youtube", topics.disclaimer]]) {
+    assert.ok(d, `${label} carries no disclaimer at all`);
+    assert.match(d, /PLACEHOLDER NUMBERS, NOT ESTIMATES/, label);
+    assert.match(d, /ORDER carries no information/i, `${label} must not imply the ranking is meaningful`);
+    assert.ok(!/relative prox/i.test(d), `${label} still calls a hash a proxy`);
+    assert.ok(/Do not (choose|pick)/.test(d), `${label} must say plainly not to act on them`);
+  }
+});
+
+test("the backlink profile carries the same warning", async () => {
+  // "1,847 referring domains, 45 toxic links" about the customer's own site is
+  // a specific factual claim shaped exactly like real data.
+  const seo = await import("../src/backend/seo.ts");
+  const p = seo.backlinkProfile("evandeli.com");
+  assert.match(p.disclaimer, /PLACEHOLDER NUMBERS, NOT ESTIMATES/);
+  assert.match(p.disclaimer, /judge a domain/);
+});
