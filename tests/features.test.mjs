@@ -6753,12 +6753,41 @@ test("siteraid: the audit says its scores are not measurements", () => {
   assert.match(src, /Live site crawl/, "and it points at where the measured numbers actually are");
 });
 
-test("revenue: the checkout link says whose bank account it pays into", () => {
-  // It mints on the platform's own STRIPE_SECRET_KEY. Attribution works;
-  // settlement goes to MarketWar, and the screen never said so.
+test("revenue: the checkout link settles to the seller, and offers them the way to do it", () => {
+  // It used to mint on the platform's own STRIPE_SECRET_KEY, and the page
+  // carried a warning saying so. A warning is not a control: the server now
+  // refuses a real-money link that would pay us, so the page's job is to hand
+  // the seller the field that makes the money theirs.
   const src = readFileSync(new URL("../src/app/dashboard/revenue/page.tsx", import.meta.url), "utf8");
-  assert.match(src, /pays into MarketWar&apos;s Stripe account, not yours/);
-  assert.match(src, /use it for testing, not for taking real money/);
+  assert.match(src, /stripeAccountId: co\.account\.trim\(\)/, "the seller's account must actually be sent");
+  assert.match(src, /The money goes to you, not to us/);
+  assert.match(src, /never enters MarketWar&apos;s balance/);
+  assert.ok(!/use it for testing, not for taking real money/.test(src),
+    "that caveat described the old behaviour and would now be a lie");
+});
+
+test("first-customer: step 4 can reach a real first sale, not just a test link", () => {
+  // The sprint's whole promise is a paying customer. With the platform key live
+  // and no connected account the server refuses to mint, so without this field
+  // the fourth step would dead-end on an error the page gave no way to fix.
+  const src = readFileSync(new URL("../src/app/dashboard/first-customer/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /stripeAccountId: form\.stripeAccountId\.trim\(\)/);
+  assert.match(src, /required to take real money/);
+});
+
+test("checkout: the seller's account is passed through the route, not dropped", () => {
+  const src = readFileSync(new URL("../src/app/api/checkout/route.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(src, /stripeAccountId:\s*typeof body\.stripeAccountId/);
+});
+
+test("checkout: a connected account is sent to Stripe as the account to charge on", () => {
+  // Without the Stripe-Account header the session is created on OUR account and
+  // the seller's id is decoration.
+  const src = readFileSync(new URL("../src/backend/checkout.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(src, /"Stripe-Account":\s*seller\.account/);
+  assert.match(src, /seller\.route === "refuse"/, "the refusal must be wired into the mint path");
 });
 
 // ---------------------------------------------------------------------------
@@ -7536,4 +7565,40 @@ test("crypto: personal data is never written in plaintext under a contract that 
     "'never' is an absolute we cannot prove in a contract");
   assert.match(terms, /refuses to store personal data at all if that encryption is not configured/,
     "the clause must describe what the code actually does");
+});
+
+// ---------------------------------------------------------------------------
+// A route that takes the customer's ACUs must outlive the work it charged for.
+//
+// Vercel's default function timeout is about ten seconds. meterAction debits
+// BEFORE the work runs, so on a platform timeout the customer has paid, has
+// received nothing, and no code is left alive to refund them — the route was
+// killed mid-flight. Four routes shipped in exactly that state: /api/geo,
+// /api/landing, /api/prospecting and /api/visualstrike each charged ACUs and
+// then reached a crawl or a provider on the ten-second default.
+//
+// Fixing those four by hand fixes today. This asserts the rule, so the fifth
+// one cannot ship: if a route bills for work, it declares how long that work is
+// allowed to take.
+// ---------------------------------------------------------------------------
+
+test("every route that charges ACUs declares a maxDuration", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const offenders = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (e.name !== "route.ts") continue;
+      const code = fs.readFileSync(p, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      if (!/\bmeterAction\s*\(/.test(code)) continue;
+      const m = code.match(/export const maxDuration\s*=\s*(\d+)/);
+      if (!m) offenders.push(`${p} (no maxDuration — dies on the ~10s default)`);
+      else if (Number(m[1]) < 30) offenders.push(`${p} (maxDuration ${m[1]}s is too short for paid work)`);
+    }
+  };
+  walk("src/app/api");
+  assert.deepEqual(offenders, [], `these routes debit ACUs and can be killed before delivering:\n${offenders.join("\n")}`);
 });

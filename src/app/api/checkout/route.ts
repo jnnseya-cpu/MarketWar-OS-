@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
     source: typeof body.source === "string" ? body.source : "",
     amountGbp: typeof body.amountGbp === "number" ? body.amountGbp : Number(body.amountGbp) || 0,
     productName: typeof body.productName === "string" ? body.productName : undefined,
+    // The seller's own Stripe account, if they have connected one. Safe to take
+    // from the body: the caller has already been proven to own this brand, and
+    // Stripe rejects any account that is not connected to our platform — so the
+    // worst a wrong value can do is fail loudly, never misroute someone's money.
+    stripeAccountId: typeof body.stripeAccountId === "string" ? body.stripeAccountId : undefined,
   });
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

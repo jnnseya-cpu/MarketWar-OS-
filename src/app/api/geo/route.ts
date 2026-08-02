@@ -5,6 +5,15 @@ import { citationRadar, geoAudit, MAGNET_TOOLS } from "@/backend/geo";
 import { geoReadiness } from "@/backend/geo-readiness";
 import { measureCitations, defaultPrompts } from "@/backend/citation-measure";
 
+// The customer is charged for this route's work BEFORE the work runs, so a
+// platform timeout is not a slow page — it is a debit with nothing delivered
+// and no code left alive to refund it. Vercel's default is about ten seconds;
+// a live crawl plus a provider round-trip does not fit in ten seconds, and this
+// route reaches both. maxDuration is the only thing that keeps the function
+// alive long enough for the paid-for work to finish or fail honestly.
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
 // Strike-phase API (MW-04 / MW-02 / MW-09).
 // POST { action: "audit", business, website, signals? } → GEO Readiness Score
 // POST { action: "citation", business, competitors[], prompts[] } → Citation SoV

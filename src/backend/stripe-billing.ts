@@ -76,12 +76,35 @@ export type WebhookOutcome = {
   note: string;
 };
 
-function planFromEvent(obj: Record<string, unknown> | undefined): string {
-  // Plan id is carried in metadata (checkout session / subscription).
+/**
+ * Which plan did this event pay for — or NOTHING, if it did not say.
+ *
+ * This used to default to "growth" when the metadata was missing or unknown,
+ * described as "a sensible default for demo". On a live endpoint it is not a
+ * default, it is a giveaway: any checkout.session.completed or invoice.paid
+ * that reached us without metadata.planId allocated a full month of Growth
+ * ACUs, and a Starter customer whose metadata got dropped would be topped up
+ * at the Growth rate every month for as long as the subscription ran.
+ *
+ * A payment that does not name its plan is a payment we do not understand, and
+ * the safe response to not understanding a payment is to allocate nothing and
+ * say so loudly. Our own checkout stamps planId in two places (session metadata
+ * and subscription_data metadata), so a missing one means something is wrong
+ * and wants looking at — not papering over.
+ *
+ * `invoice.paid` also carries the subscription's metadata under
+ * subscription_details, which is where every RENEWAL after the first month
+ * finds its plan.
+ */
+function planFromEvent(obj: Record<string, unknown> | undefined): string | null {
   const meta = (obj?.metadata as Record<string, unknown> | undefined) ?? {};
-  const fromMeta = typeof meta.planId === "string" ? meta.planId : undefined;
-  const known = PLANS.find((p) => p.id === (fromMeta ?? ""));
-  return known ? known.id : "growth"; // sensible default for demo
+  const subMeta = ((obj?.subscription_details as Record<string, unknown> | undefined)?.metadata as Record<string, unknown> | undefined) ?? {};
+  for (const candidate of [meta.planId, subMeta.planId]) {
+    if (typeof candidate !== "string") continue;
+    const known = PLANS.find((p) => p.id === candidate.trim());
+    if (known) return known.id;
+  }
+  return null;
 }
 
 export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
@@ -103,6 +126,12 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
 
   if (event.type === "checkout.session.completed" || event.type === "invoice.paid") {
     const planId = planFromEvent(obj);
+    if (!planId) {
+      return {
+        ...base, handled: false, action: "ignored",
+        note: "Payment received but it does not name a plan (no metadata.planId on the session or the subscription), so no ACUs were allocated — guessing a plan would hand out an allowance nobody paid for. Every checkout MarketWar creates stamps planId; an event without it came from somewhere else, or the metadata was lost. Check the session in the Stripe dashboard and allocate by hand if it was a genuine subscription.",
+      };
+    }
     const plan = PLANS.find((p) => p.id === planId)!;
     const acus = planEconomics(plan).monthlyAcus;
     return {
@@ -121,6 +150,12 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
   }
   if (event.type === "customer.subscription.updated") {
     const planId = planFromEvent(obj);
+    // Same rule as a payment: a subscription that does not name its plan is not
+    // one we can sync. Writing a guessed plan onto a wallet would change what
+    // the customer is entitled to on the strength of nothing.
+    if (!planId) {
+      return { ...base, handled: false, action: "ignored", note: "Subscription updated, but it carries no recognised metadata.planId, so the wallet's plan was left as it is rather than changed to a guess." };
+    }
     return { ...base, handled: true, action: "renew", planId, note: `Subscription updated → sync plan (${planId}); next allocation follows the new plan.` };
   }
   return { ...base, handled: false, action: "ignored", note: "Event acknowledged (200) but not actioned — MarketWar only acts on a small allowlist of billing events." };
@@ -157,6 +192,8 @@ export function demoStripe() {
       handleStripeEvent({ id: "evt_demo_2", type: "invoice.payment_failed" }),
       handleStripeEvent({ id: "evt_demo_3", type: "customer.subscription.deleted" }),
       handleStripeEvent({ id: "evt_demo_4", type: "charge.refunded" }),
+      // A payment with no plan on it: allocates nothing, on purpose.
+      handleStripeEvent({ id: "evt_demo_5", type: "checkout.session.completed", data: { object: {} } }),
     ],
   };
 }

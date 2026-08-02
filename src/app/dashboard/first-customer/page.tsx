@@ -36,6 +36,10 @@ export default function FirstCustomerPage() {
     amount: "",
     targetCustomer: d.audience || "",
     location: d.location || "",
+    // The seller's own Stripe account. Without it a real-money link would settle
+    // into MarketWar's balance, so the server refuses to mint one — this is how
+    // the sprint's fourth step reaches an actual first sale.
+    stripeAccountId: "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -169,7 +173,7 @@ export default function FirstCustomerPage() {
       const amt = Number(form.amount) || Number((form.price.match(/[\d.]+/) || [])[0]) || 25;
       const res = await authedFetch("/api/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId: activeBrand.id, source: "First Customer — direct outreach", amountGbp: amt, productName: form.product || "First order" }),
+        body: JSON.stringify({ brandId: activeBrand.id, source: "First Customer — direct outreach", amountGbp: amt, productName: form.product || "First order", stripeAccountId: form.stripeAccountId.trim() }),
       });
       setCheckout(await res.json());
     } catch { setCheckout({ ok: false, mode: "demo", url: null, note: "Network error" }); } finally { setBusy(null); }
@@ -274,6 +278,11 @@ export default function FirstCustomerPage() {
       <div className="mb-6 card p-5">
         <Step n={4} done={Boolean(checkout?.url)} icon={Link2} title="Mint the payment link" sub="A self-attributing Stripe link — send it the moment they say yes. This is the money." />
         {!activeBrand && <p className="mb-2 text-xs text-amber-300">Add a brand in the sidebar so the sale attributes to it.</p>}
+        <div className="mb-3">
+          <label className="label">Your Stripe account id <span className="text-slate-500">(starts with acct_ — required to take real money)</span></label>
+          <input className="input" placeholder="acct_1A2b3C4d5E6f7G8h" value={form.stripeAccountId} onChange={(e) => set("stripeAccountId", e.target.value)} />
+          <p className="mt-1 text-[11px] text-slate-500">With it, the payment is taken on <em>your</em> Stripe account and is yours from the first second — it never enters MarketWar&apos;s balance. Leave it blank and you get a test-mode link for a dry run; a real-money link that would pay us is refused, not created.</p>
+        </div>
         <button className="btn-primary" onClick={step4Checkout} disabled={!activeBrand || busy === "checkout"}>{busy === "checkout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} {checkout?.url ? "New link" : "Create payment link"}</button>
         {checkout && (
           <div className="mt-3 rounded-lg border border-white/[0.07] bg-ink-900/60 p-3">

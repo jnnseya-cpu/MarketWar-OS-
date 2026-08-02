@@ -37,7 +37,25 @@ const ADMIN_EMAILS = new Set(
 type Bucket = { count: number; resetAt: number };
 const buckets = new Map<string, Bucket>();
 
+// The limiter keys on IP, and nothing ever removed a spent bucket. A caller
+// rotating source addresses therefore grew the map for as long as the instance
+// lived — the defence against a flood was itself the thing the flood consumed.
+// Expired buckets are swept whenever the map gets large; the sweep is O(n) but
+// runs rarely, and every entry it touches is already past its window.
+const MAX_BUCKETS = 10_000;
+function sweepExpired(now: number): void {
+  for (const [k, v] of buckets) if (now >= v.resetAt) buckets.delete(k);
+  // Still full of live windows: drop the oldest so memory stays bounded. Those
+  // callers get a fresh allowance, which is the safe direction to fail — a
+  // limiter that runs the instance out of memory blocks everyone.
+  if (buckets.size >= MAX_BUCKETS) {
+    const oldest = [...buckets.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt).slice(0, Math.floor(MAX_BUCKETS / 2));
+    for (const [k] of oldest) buckets.delete(k);
+  }
+}
+
 export function rateLimit(key: string, limit: number, windowMs: number, now: number): { ok: boolean; remaining: number; retryAfterSec: number } {
+  if (buckets.size >= MAX_BUCKETS) sweepExpired(now);
   const b = buckets.get(key);
   if (!b || now >= b.resetAt) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });
@@ -86,7 +104,15 @@ export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promi
   let role = (decoded.role as Role | undefined) ?? null;
   // Bootstrap admin by verified-email allowlist — grants executive even without
   // a custom claim. Owner-controlled env var; never widens access on its own.
-  if (decoded.email && ADMIN_EMAILS.has(String(decoded.email).toLowerCase())) {
+  //
+  // email_verified IS PART OF THE CHECK, not decoration. Firebase will happily
+  // mint a token for an email/password account created with an address the
+  // registrant has never proved they can read. If the owner's address were on
+  // this list before the owner had signed up with it, whoever registered it
+  // first would be handed `executive` — which reads every org's admin surface
+  // AND skips metering entirely, so it also spends the owner's provider keys
+  // without limit. An address nobody has proved they own grants nothing.
+  if (decoded.email && decoded.email_verified && ADMIN_EMAILS.has(String(decoded.email).toLowerCase())) {
     role = "executive";
   }
   if (opts?.scope) {

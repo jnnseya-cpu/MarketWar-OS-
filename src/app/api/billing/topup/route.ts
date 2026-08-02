@@ -29,9 +29,16 @@ export async function POST(req: NextRequest) {
   }
   const acus = typeof body.acus === "number" && body.acus > 0 ? Math.round(body.acus) : Math.round(amountGbp * ACU_PER_GBP);
 
+  // WHOSE WALLET GETS THE ACUs is decided by the session, never by the request.
+  // This used to read body.orgId, so the client chose the wallet the webhook
+  // would credit — a customer could pay and have the ACUs land anywhere, and a
+  // typo'd id would strand a real payment in a wallet nobody owns. The
+  // authenticated uid is the only identity we have actually verified. (In demo
+  // there is no Admin SDK and uid is null; the checkout still works, and the
+  // wallet only activates once accounts are enforced.)
   const result = await createTopupCheckout({
     amountGbp, acus,
-    orgId: typeof body.orgId === "string" ? body.orgId : undefined,
+    orgId: auth.uid ?? undefined,
     planId: typeof body.planId === "string" ? body.planId : undefined,
   });
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });

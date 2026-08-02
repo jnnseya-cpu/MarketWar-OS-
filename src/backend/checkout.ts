@@ -20,7 +20,30 @@ const APP_URL = (process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.NEXT_PUBL
 
 export const checkoutConfigured = Boolean(STRIPE_SECRET_KEY);
 
-export type CheckoutInput = { brandId: string; source: string; amountGbp: number; productName?: string; currency?: string };
+/** Is the platform key one that moves real money? */
+export function keyIsLive(secret = STRIPE_SECRET_KEY): boolean {
+  return /^(sk|rk)_live/.test(secret);
+}
+
+/** A Stripe connected-account id, or "" if the value is not one. */
+export function connectedAccount(id: string | undefined | null): string {
+  const v = (id || "").trim();
+  return /^acct_[A-Za-z0-9]+$/.test(v) ? v : "";
+}
+
+export type CheckoutInput = {
+  brandId: string;
+  source: string;
+  amountGbp: number;
+  productName?: string;
+  currency?: string;
+  /**
+   * The SELLER's own Stripe connected account (`acct_…`). When present the
+   * session is created ON that account, so the buyer's money lands in the
+   * seller's balance and never enters MarketWar's.
+   */
+  stripeAccountId?: string;
+};
 export type CheckoutResult = {
   ok: boolean;
   mode: "live" | "demo";
@@ -138,6 +161,54 @@ export async function createSubscriptionCheckout(input: { planId: string; planNa
   }
 }
 
+// WHOSE MONEY IS THIS?
+//
+// createCheckoutLink builds a checkout for something the CUSTOMER is selling —
+// their platter, their consultancy day, their £199 course. Every other function
+// in this file sells MarketWar's own product (a plan, a top-up) and rightly
+// charges on MarketWar's key. This one does not, and for a long time it used
+// that same key anyway. The consequence was not theoretical: a customer shares
+// the link, a buyer pays £199, and the £199 lands in MarketWar's Stripe balance
+// with no payout path back — MarketWar holding a stranger's takings, and the
+// seller with a receipt naming the wrong company.
+//
+// A warning under the button was not a control. This is:
+//
+//   1. Seller has a connected account (`acct_…`)  → mint ON their account. The
+//      money is theirs from the first second and never touches our balance.
+//   2. No connected account, platform key is TEST → mint as before. Test cards
+//      only, no real money exists to misroute, so the attribution loop stays
+//      provable end to end.
+//   3. No connected account, platform key is LIVE → REFUSE, and say where to
+//      sell instead (their own payment link on a funnel page, which already
+//      works and never passes through us).
+//
+// Nothing was removed to achieve this. The demo path is intact, the attribution
+// metadata is unchanged, and the capability grew a way to sell for real.
+export function sellerRoute(stripeAccountId: string | undefined, live = keyIsLive()): {
+  route: "connected" | "test" | "refuse";
+  account: string;
+  note: string;
+} {
+  const account = connectedAccount(stripeAccountId);
+  if (account) {
+    return {
+      route: "connected", account,
+      note: `Paid straight into your own Stripe account (${account}). MarketWar creates the link and reads the payment for attribution, but never holds the money — there is nothing for us to pay out because it was never ours.`,
+    };
+  }
+  if (!live) {
+    return {
+      route: "test", account: "",
+      note: "Test mode: this link takes Stripe test cards only, so no real money moves. It exists to prove the attribution loop end to end. To sell for real, either connect your own Stripe account or put your own payment link on a funnel page.",
+    };
+  }
+  return {
+    route: "refuse", account: "",
+    note: "This would take a real payment into MarketWar's Stripe account rather than yours, and there is no payout path back to you — so we will not create it. Two ways to actually get paid: connect your own Stripe account (the money is then yours from the first second), or put your own payment link — Stripe, PayPal, SumUp, Shopify — on a funnel page, which never passes through us at all.",
+  };
+}
+
 export async function createCheckoutLink(input: CheckoutInput): Promise<CheckoutResult> {
   const brandId = (input.brandId || "").trim();
   const source = (input.source || "").trim() || "Checkout";
@@ -148,6 +219,11 @@ export async function createCheckoutLink(input: CheckoutInput): Promise<Checkout
 
   if (!brandId) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, note: "brandId is required", error: "brandId is required" };
   if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, note: "amount must be greater than zero", error: "amount must be > 0" };
+
+  const seller = sellerRoute(input.stripeAccountId);
+  if (checkoutConfigured && seller.route === "refuse") {
+    return { ok: false, mode: "live", url: null, sessionId: null, metadata, note: seller.note, error: "This sale would be paid to MarketWar rather than to you — connect your own Stripe account, or use your own payment link on a funnel page." };
+  }
 
   if (!checkoutConfigured) {
     return {
@@ -175,12 +251,17 @@ export async function createCheckoutLink(input: CheckoutInput): Promise<Checkout
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        // Direct charge on the seller's own account: Stripe settles to THEM.
+        ...(seller.account ? { "Stripe-Account": seller.account } : {}),
+      },
       body,
     });
     const data = (await res.json()) as { url?: string; id?: string; error?: { message?: string } };
     if (!res.ok) return { ok: false, mode: "live", url: null, sessionId: null, metadata, note: "Stripe rejected the checkout request", error: data?.error?.message || `HTTP ${res.status}` };
-    return { ok: true, mode: "live", url: data.url ?? null, sessionId: data.id ?? null, metadata, note: "Live Stripe Checkout link — share it; the payment auto-attributes to this brand + source." };
+    return { ok: true, mode: "live", url: data.url ?? null, sessionId: data.id ?? null, metadata, note: `Share this link; the payment auto-attributes to this brand + source. ${seller.note}` };
   } catch (e) {
     return { ok: false, mode: "live", url: null, sessionId: null, metadata, note: "Network error contacting Stripe", error: e instanceof Error ? e.message : "unknown" };
   }

@@ -25,7 +25,7 @@ export default function RevenuePage() {
   const { events, summary, logEvent, removeEvent } = useResults();
   const [form, setForm] = useState<{ type: ResultType; source: string; amount: string; note: string }>({ type: "order", source: "", amount: "", note: "" });
   // Tagged checkout link (payments self-attribute)
-  const [co, setCo] = useState({ product: "", amount: "", source: "" });
+  const [co, setCo] = useState({ product: "", amount: "", source: "", account: "" });
   const [coResult, setCoResult] = useState<CheckoutResult | null>(null);
   const [coBusy, setCoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -69,7 +69,7 @@ export default function RevenuePage() {
     try {
       const res = await authedFetch("/api/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId: activeBrand!.id, source: co.source.trim() || "Checkout link", amountGbp: Number(co.amount), productName: co.product }),
+        body: JSON.stringify({ brandId: activeBrand!.id, source: co.source.trim() || "Checkout link", amountGbp: Number(co.amount), productName: co.product, stripeAccountId: co.account.trim() }),
       });
       setCoResult(await res.json());
     } catch { setCoResult({ ok: false, mode: "demo", url: null, metadata: { marketwar_brand_id: activeBrand!.id, marketwar_source: co.source }, note: "Network error", error: "network" }); }
@@ -156,14 +156,15 @@ export default function RevenuePage() {
       <div className="mb-8 card p-5">
         <div className="mb-1 flex items-center gap-2"><Link2 className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Create a paid checkout link</h2></div>
         <p className="mb-3 text-xs text-slate-400">Share this link with a customer. When they pay, the revenue attributes to {activeBrand.name} automatically — no manual logging.</p>
-        {/* Whose bank account receives the money was never stated. It is
-            MarketWar's: the session is created on the platform's own Stripe key,
-            so a real sale through this link sends the cash here with no payout
-            path back. Attribution works; settlement does not. */}
-        <p className="mb-3 rounded-md bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
-          <strong>This link pays into MarketWar&apos;s Stripe account, not yours.</strong> It exists to prove attribution end-to-end, and there is no payout back to you yet — so use it for testing, not for taking real money. To actually sell, put <strong>your own</strong> payment link (Stripe, PayPal, SumUp, Shopify) on a funnel page: that money goes straight to your account and never passes through us.
+        {/* Whose bank account receives the money used to go unstated, and the
+            answer was MarketWar's. The server now refuses to mint a real-money
+            link that pays us for a customer's sale, so this box explains the
+            two routes that actually settle to the seller. */}
+        <p className="mb-3 rounded-md bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-slate-300">
+          <strong className="text-white">The money goes to you, not to us.</strong> Paste your Stripe account id below and the payment is taken <em>on your account</em> — it is yours from the first second and never enters MarketWar&apos;s balance. Leave it blank and you get a test-mode link for proving the attribution loop with Stripe test cards; a real-money link that would pay us is refused rather than created. You can also skip this entirely and put your own payment link (Stripe, PayPal, SumUp, Shopify) on a funnel page.
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="lg:col-span-4"><label className="label">Your Stripe account id <span className="text-slate-500">(optional — starts with acct_; leave blank for a test link)</span></label><input className="input" placeholder="acct_1A2b3C4d5E6f7G8h" value={co.account} onChange={(e) => setCo((c) => ({ ...c, account: e.target.value }))} /></div>
           <div className="lg:col-span-1"><label className="label">Product</label><input className="input" placeholder="e.g. Family platter" value={co.product} onChange={(e) => setCo((c) => ({ ...c, product: e.target.value }))} /></div>
           <div><label className="label">Amount (£)</label><input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={co.amount} onChange={(e) => setCo((c) => ({ ...c, amount: e.target.value }))} /></div>
           <div><label className="label">Source / campaign</label><input className="input" placeholder="e.g. Friday Platter — Meta" value={co.source} onChange={(e) => setCo((c) => ({ ...c, source: e.target.value }))} /></div>

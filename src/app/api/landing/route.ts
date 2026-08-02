@@ -15,6 +15,13 @@ import { auditPageAnatomy } from "@/backend/page-anatomy";
 //   → persists the page and returns a REAL live URL (/b/{brandId}/{slug}).
 // GET → the 10 page types + doctrine.
 export const runtime = "nodejs";
+// The customer is charged for this route's work BEFORE the work runs, so a
+// platform timeout is not a slow page — it is a debit with nothing delivered
+// and no code left alive to refund it. Vercel's default is about ten seconds;
+// a live crawl plus a provider round-trip does not fit in ten seconds, and this
+// route reaches both. maxDuration is the only thing that keeps the function
+// alive long enough for the paid-for work to finish or fail honestly.
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 function inputFrom(body: Record<string, unknown>): LandingInput {
