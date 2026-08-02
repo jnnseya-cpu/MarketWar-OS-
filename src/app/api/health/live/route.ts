@@ -88,7 +88,24 @@ export async function GET() {
   const envPresent: Record<string, boolean> = {};
   for (const k of KEYS) envPresent[k] = env(k);
 
+  // The capability list above answers "is this wired", one variable at a time.
+  // Every state that actually hurts someone is a COMBINATION — a live Stripe
+  // key with no webhook secret charges the card and credits nothing; Firebase
+  // Admin with no encryption key refuses every PII write in silence. This
+  // reports those as consequences. Dynamically imported and caught, like every
+  // other backend module here, so a launch pre-flight can never itself 500.
+  const launch = await (async () => {
+    try {
+      const m = await import("@/backend/launch-check");
+      return m.launchReport(m.readLaunchEnv());
+    } catch (e) {
+      errors["launch-check"] = (e as Error).message;
+      return undefined;
+    }
+  })();
+
   return NextResponse.json({
+    launch,
     service: "MarketWar OS",
     deploymentTimeUTC: process.env.VERCEL_DEPLOYMENT_ID ? undefined : undefined, // (informational placeholder)
     vercelEnv: process.env.VERCEL_ENV || "unknown", // "production" | "preview" | "development"

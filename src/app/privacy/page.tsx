@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
+import CookieSettingsLink from "@/components/CookieSettingsLink";
 
 export const metadata: Metadata = {
   title: "Privacy Policy · MarketWar OS",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <MarketingShell kicker="Legal" title="Privacy Policy" subtitle="Last updated 20 July 2026. How we collect, use, protect and share personal data — written to align with UK GDPR and equivalent regimes.">
+    <MarketingShell kicker="Legal" title="Privacy Policy" subtitle="Last updated 2 August 2026. How we collect, use, protect and share personal data — written to align with UK GDPR and equivalent regimes.">
       <Prose>
         <H2>1. Who we are</H2>
         <p>MarketWar OS (marketwaros.com) is the data controller for account and marketing data, and a data processor for the customer data you upload and process through the platform. Contact our privacy team via the <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact page</Link>.</p>
@@ -46,7 +47,9 @@ export default function PrivacyPage() {
         <p>Subject to law, you may access, correct, delete, restrict, port or object to processing of your personal data, and withdraw consent at any time. To exercise these rights, <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact us</Link>. You may also complain to your supervisory authority (in the UK, the ICO).</p>
 
         <H2>10. Cookies</H2>
-        <p>We use essential cookies for authentication and security, and limited analytics to improve the product. See the Cookie Policy in <Link href="/policies" className="text-emerald-400 hover:text-emerald-300">All policies</Link>.</p>
+        <p><strong>Essential cookies</strong> — authentication and security — are always on. They are what makes staying signed in possible, so there is no version of the product that works without them, and we do not ask for consent we would not honour a refusal of.</p>
+        <p><strong>Analytics cookies</strong> are set only if you accept them. We use Google Tag Manager to understand which pages help and which do not. Nothing analytical loads until you choose: not on page load, not while the banner is open, and not if you ignore the banner and carry on reading. No choice means no analytics. Rejecting is a single click, in a button the same size and prominence as the one that accepts, and rejecting changes nothing about how the product behaves for you.</p>
+        <p>You can <CookieSettingsLink /> at any time. See also the Cookie Policy in <Link href="/policies" className="text-emerald-400 hover:text-emerald-300">All policies</Link>.</p>
 
         <H2>11. Changes</H2>
         <p>We will post updates here and, for material changes, notify you. Continued use after an update means you accept it.</p>

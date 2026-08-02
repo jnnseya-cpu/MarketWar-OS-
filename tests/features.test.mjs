@@ -7602,3 +7602,91 @@ test("every route that charges ACUs declares a maxDuration", async () => {
   walk("src/app/api");
   assert.deepEqual(offenders, [], `these routes debit ACUs and can be killed before delivering:\n${offenders.join("\n")}`);
 });
+
+// ---------------------------------------------------------------------------
+// Consent before tracking, because that is the order the law puts them in.
+//
+// Google Tag Manager loaded in the root layout for every visitor on every
+// route, from the first render. GTM's job is to set and read cookies that are
+// not necessary for the site to work; PECR regulation 6 requires consent BEFORE
+// that happens. A UK site selling to the public with an ungated container is a
+// plain breach, and it is also the first thing anyone technical checks.
+// ---------------------------------------------------------------------------
+
+test("no analytics container loads from the root layout", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  assert.ok(!/googletagmanager/.test(layout), "the container must not load before a choice is made");
+  assert.ok(!/gtm\.start/.test(layout));
+  assert.match(layout, /<CookieConsent \/>/, "the gate must actually be mounted");
+});
+
+test("the container loads only on an explicit grant", () => {
+  const src = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  // Both the script and the noscript pixel sit inside the granted branch.
+  const granted = src.slice(src.indexOf('choice === "granted"'));
+  assert.ok(granted.includes("gtm.start"), "the script belongs behind the grant");
+  assert.ok(granted.includes("googletagmanager.com/ns.html"), "so does the noscript pixel");
+  // Not knowing yet is not a grant, and neither is a refusal.
+  assert.match(src, /analytics_storage: "denied"/, "consent mode starts denied for everyone");
+});
+
+test("refusing is as easy as accepting", () => {
+  // The ICO is explicit: a 'Reject' that is smaller, greyer, or one level
+  // deeper than 'Accept' is not a free choice, so the consent is not valid.
+  const src = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8");
+  const reject = src.match(/onClick=\{\(\) => decide\("denied"\)\}[\s\S]*?className="([^"]+)"/);
+  const accept = src.match(/onClick=\{\(\) => decide\("granted"\)\}[\s\S]*?className="([^"]+)"/);
+  assert.ok(reject && accept, "both buttons must exist");
+  assert.equal(reject[1], accept[1],
+    "the two buttons must be styled identically — any visual pull towards 'Accept' invalidates the consent");
+});
+
+test("silence is not consent", () => {
+  const src = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  // An unreadable localStorage (private mode, hardened browser) must resolve to
+  // "not asked", which renders the banner and loads nothing — never to a grant.
+  assert.match(src, /catch \{[\s\S]{0,200}return null;/, "a storage failure must not be read as consent");
+  assert.ok(!/return "granted"/.test(src), "nothing may synthesise a grant");
+});
+
+test("the privacy policy describes the mechanism that exists, and can change it", () => {
+  const src = readFileSync(new URL("../src/app/privacy/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /No choice means no analytics/);
+  assert.match(src, /<CookieSettingsLink \/>/, "the withdrawal right needs a mechanism, not a sentence");
+  assert.ok(!/limited analytics to improve the product\./.test(src),
+    "that wording predated the gate and understated what GTM does");
+});
+
+// ---------------------------------------------------------------------------
+// A consumer's 14-day cancellation right, and the contradiction it exposed.
+// ---------------------------------------------------------------------------
+
+test("terms: the consumer cancellation right is stated with its real limits", () => {
+  const src = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /Consumer Contracts \(Information, Cancellation and Additional Charges\) Regulations 2013/);
+  assert.match(src, /<strong>14 days<\/strong>/);
+  assert.match(src, /proportionate to what was actually supplied/,
+    "starting supply inside the window has a consequence and it must be stated, not buried");
+  assert.match(src, /original payment method within 14 days/);
+});
+
+test("terms: the billing section no longer contradicts the refund section", () => {
+  // §3 said top-ups are non-refundable once partially used; §4 now refunds the
+  // unused balance pro rata. Two clauses of the same contract disagreeing is
+  // worse than either of them alone.
+  const src = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.ok(!/Top-ups are non-refundable once partially used/.test(src));
+  assert.match(src, /Partially used top-ups are refunded pro rata/);
+});
+
+test("terms: the sections are numbered once each, in order", () => {
+  // Inserting a section renumbers everything after it, and a Terms of Service
+  // with two section 5s is the kind of detail that costs trust at exactly the
+  // moment someone is deciding whether to enter a card.
+  const src = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  const nums = [...src.matchAll(/<H2>(\d+)\. /g)].map((m) => Number(m[1]));
+  assert.deepEqual(nums, nums.map((_, i) => i + 1), `section numbers must run 1..n with no gaps or repeats, got ${nums}`);
+});

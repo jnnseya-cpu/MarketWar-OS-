@@ -1488,3 +1488,47 @@ ES-05 §7 states a **66% gross-margin** target. The MarketWar **OWNER PRICING LA
 kept per Additive-Only Law; **resolution: the ≥100% floor governs** — ACU→£ prices
 are set so every action clears the 2× floor, overriding the 66% figure. The ACU
 *consumption* table (action→ACU) is unchanged.
+
+---
+
+## §53 — Public-launch hardening (2026-08-02)
+
+Ordered by the owner ahead of going fully public: a deep pass over code,
+features, functions and the **full real-payment cycle**, with every blocker
+fixed rather than documented. Everything below is a defect that was live in the
+shipped platform, not a new feature request.
+
+### Money path — end to end
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A customer's sale settles to the CUSTOMER, never to MarketWar | ✅ | `createCheckoutLink` minted on the platform's own `STRIPE_SECRET_KEY`, so a £199 sale through the Revenue page or the First Customer Sprint landed in MarketWar's balance with no payout path back and a receipt naming the wrong company. `sellerRoute()` (`src/backend/checkout.ts`) now decides: a seller's connected account (`acct_…`) is sent as the `Stripe-Account` header so the money is theirs from the first second; with a TEST platform key it still mints, because no real money can be misrouted and the attribution loop must stay provable; with a LIVE key and no connected account it **refuses** and names the two ways to actually get paid. Both minting surfaces ask for the account, so the refusal never dead-ends the flow. |
+| A payment that does not name its plan allocates nothing | ✅ | `planFromEvent` returned `"growth"` for any missing or unrecognised `metadata.planId` — so any `checkout.session.completed` reaching the endpoint bought a month of Growth ACUs, and a Starter subscriber whose invoice metadata was dropped was topped up at the Growth rate for the life of the subscription. Now returns `null`, and `handleStripeEvent` reports `ignored` with the reason. Renewals additionally read `subscription_details.metadata`, which is where every month after the first actually carries the plan. |
+| The wallet a payment credits is chosen by the session | ✅ | `/api/billing/topup` passed `body.orgId` to the checkout, so the client chose whose wallet the webhook would credit. Now `auth.uid`. |
+| A route that debits ACUs outlives the work it charged for | ✅ | `/api/geo`, `/api/landing`, `/api/prospecting`, `/api/visualstrike` debited and then ran on Vercel's ~10s default — a debit with nothing delivered and no code alive to refund it. All four sized to their work, and a standing test fails any future route that meters without declaring `maxDuration`. |
+| Webhook signature, replay window, idempotency | ✅ (unchanged, re-verified) | Production fails closed without `STRIPE_WEBHOOK_SECRET`; timestamp tolerance enforced with the caller's clock; `processed_events` written in the same transaction as the credit. |
+
+### Access, abuse and the platform's own exposure
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The admin allowlist requires a **verified** address | ✅ | `PLATFORM_ADMIN_EMAILS` promoted any matching address to `executive`. Firebase mints a valid token for an email/password account created with an address the registrant has never opened, so an allowlisted address not yet claimed by its owner handed executive — every org's admin surface, plus `isStaff()` skipping metering, so unlimited spend on the owner's provider keys — to whoever registered it first. `decoded.email_verified` is now part of the check. |
+| The rate limiter is not what a flood consumes | ✅ | One bucket per IP, never evicted, so a caller rotating addresses grew the map for the life of the instance. Expired buckets are swept once the map passes 10,000. |
+| A launch pre-flight that reports consequences, not variables | ✅ **new** | `src/backend/launch-check.ts` + `/api/health/live` + the Go-Live page. Every dangerous state here is a *combination* whose halves each look fine: a live Stripe key with no webhook secret charges the card and credits nothing; Firebase Admin with no encryption key refuses every PII write in total silence (the callers are fire-and-forget). Blockers name what a real person suffers; warnings name what the owner should know. Reads booleans only — never a value — and makes no network calls. |
+
+### Law and the public site
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Consent before analytics (PECR reg. 6) | ✅ | Google Tag Manager loaded from the root layout for every visitor on every route, from first render. `src/components/CookieConsent.tsx` gates it: the container loads only on an explicit grant, Consent Mode v2 starts denied, refusing is one click in a button styled identically to Accept, silence resolves to denied, and an unreadable `localStorage` resolves to "not asked" rather than to a grant. `/privacy` §10 describes the mechanism that exists and links to a control that reopens it. |
+| Consumer 14-day cancellation right | ✅ | New Terms §4 states the right under the Consumer Contracts Regulations 2013, and states its real limits plainly rather than burying them: supply beginning inside the window means a proportionate deduction, and ACUs already spent are genuine provider cost and are not refundable. Unused balance and unused period are refunded to the original method within 14 days. Businesses keep the cancel-any-time term. |
+| Trader identity published | ⚠️ owner action | `NEXT_PUBLIC_LEGAL_ENTITY_NAME` + `…_REGISTERED_ADDRESS` are unset, so Terms §13 renders "not yet published here" — honest, but not compliance for a UK site selling to the public. The launch pre-flight raises this as a **blocker** on a production deployment. Only the owner has these details. |
+
+### §Gaps — Terms refund conflict (Additive-Only resolution)
+
+Terms §3 stated **"Top-ups are non-refundable once partially used."** The new §4
+refunds the unused balance **pro rata**. Two clauses of the same contract
+disagreeing is worse than either alone, so §3 now defers to §4 and the stronger
+consumer term governs. The previous position is recorded here rather than
+deleted. No other billing term changed: allowance rate, annual discount and the
+consumption-rate adjustment clause are untouched.

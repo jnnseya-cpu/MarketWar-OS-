@@ -328,3 +328,149 @@ test("the limiter still refuses a caller over its limit", () => {
   assert.ok(last.retryAfterSec > 0);
   assert.equal(rateLimit("limit-test:same-ip", 5, 60_000, now + 61_000).ok, true, "and allowed again after the window");
 });
+
+// ---------------------------------------------------------------------------
+// The launch pre-flight reports CONSEQUENCES, not variables.
+//
+// Every dangerous state in this platform has two halves that each look fine on
+// their own. A live Stripe key is good; a missing webhook secret is survivable;
+// together they charge the card and credit nothing. Firebase Admin configured
+// is good; no encryption key is fine in demo; together every PII write is
+// refused in total silence. A per-variable checklist cannot see either.
+// ---------------------------------------------------------------------------
+const { launchReport, readLaunchEnv } = await import("../src/backend/launch-check.ts");
+
+const baseEnv = {
+  stripeSecretKey: "sk_live_x", stripeWebhookSecret: "whsec_x",
+  firebaseAdminConfigured: true, fieldEncryptionKey: "x".repeat(32),
+  platformAdminEmails: "owner@example.com",
+  aiKeys: { anthropic: true, openai: true, gemini: false },
+  cronSecret: "c", humanCheckSecret: "h", aiMonthlyCeilingUsd: "50",
+  legalEntityName: "Example Ltd", legalEntityAddress: "1 Example Street, London",
+  vercelEnv: "production",
+};
+const idsOf = (r) => r.findings.map((f) => f.id);
+
+test("a fully configured production deployment is clear to launch", () => {
+  const r = launchReport(baseEnv);
+  assert.equal(r.goPublic, true, `expected no blockers, got: ${JSON.stringify(idsOf(r))}`);
+  assert.equal(r.blockers, 0);
+  assert.equal(r.warnings, 0, "a clean config must not invent warnings either");
+});
+
+test("a live Stripe key with no webhook secret is a blocker, not a note", () => {
+  const r = launchReport({ ...baseEnv, stripeWebhookSecret: "" });
+  const hit = r.findings.find((f) => f.id === "stripe-webhook-missing");
+  assert.equal(hit.severity, "blocker");
+  assert.equal(r.goPublic, false);
+  assert.match(hit.consequence, /charged and served nothing/);
+});
+
+test("a TEST Stripe key on a production deployment is a blocker", () => {
+  const r = launchReport({ ...baseEnv, stripeSecretKey: "sk_test_x" });
+  assert.ok(idsOf(r).includes("stripe-test-in-production"));
+  assert.equal(r.goPublic, false);
+});
+
+test("a TEST Stripe key on a preview deployment is not a blocker", () => {
+  // A rehearsal is supposed to use test keys. Crying wolf there teaches the
+  // owner to ignore the panel that matters on launch morning.
+  const r = launchReport({ ...baseEnv, stripeSecretKey: "sk_test_x", vercelEnv: "preview" });
+  assert.ok(!idsOf(r).includes("stripe-test-in-production"));
+});
+
+test("real persistence with no encryption key is a blocker", () => {
+  const r = launchReport({ ...baseEnv, fieldEncryptionKey: "" });
+  const hit = r.findings.find((f) => f.id === "encryption-key-missing");
+  assert.equal(hit.severity, "blocker");
+  assert.match(hit.consequence, /silent/i, "the danger is that it fails invisibly");
+});
+
+test("a short encryption key is treated as no key at all", () => {
+  // encryptionConfigured requires 32+ chars, so a 10-character value configures
+  // nothing while looking set in a presence check.
+  const r = launchReport({ ...baseEnv, fieldEncryptionKey: "tooshort" });
+  assert.ok(idsOf(r).includes("encryption-key-missing"));
+});
+
+test("demo mode is never told to set an encryption key it does not need", () => {
+  const r = launchReport({ ...baseEnv, firebaseAdminConfigured: false, fieldEncryptionKey: "" });
+  assert.ok(!idsOf(r).includes("encryption-key-missing"), "nothing is persisted, so nothing is at risk");
+});
+
+test("one AI provider is a warning about failover, not silence", () => {
+  const solo = launchReport({ ...baseEnv, aiKeys: { anthropic: true, openai: false, gemini: false } });
+  assert.ok(idsOf(solo).includes("single-ai-provider"));
+  assert.equal(solo.goPublic, true, "one provider still works — it is not a blocker");
+
+  const none = launchReport({ ...baseEnv, aiKeys: { anthropic: false, openai: false, gemini: false } });
+  assert.ok(idsOf(none).includes("no-ai"));
+  assert.equal(none.goPublic, false);
+  assert.ok(!idsOf(none).includes("single-ai-provider"), "no providers is not 'one provider'");
+});
+
+test("an unnamed trader blocks a public launch but not a preview", () => {
+  const prod = launchReport({ ...baseEnv, legalEntityName: "", legalEntityAddress: "" });
+  assert.ok(idsOf(prod).includes("no-legal-entity"));
+  assert.equal(prod.goPublic, false);
+  const prev = launchReport({ ...baseEnv, legalEntityName: "", legalEntityAddress: "", vercelEnv: "preview" });
+  assert.ok(!idsOf(prev).includes("no-legal-entity"));
+});
+
+test("a half-named trader is still an unnamed trader", () => {
+  const r = launchReport({ ...baseEnv, legalEntityAddress: "" });
+  assert.ok(idsOf(r).includes("no-legal-entity"), "a name with no address does not identify a trader");
+});
+
+test("the spend ceiling and scheduled work are warnings, never blockers", () => {
+  const r = launchReport({ ...baseEnv, aiMonthlyCeilingUsd: "", cronSecret: "", humanCheckSecret: "" });
+  for (const id of ["no-spend-ceiling", "no-cron-secret", "no-human-check-secret"]) {
+    assert.equal(r.findings.find((f) => f.id === id).severity, "warning", id);
+  }
+  assert.equal(r.goPublic, true, "these cost the owner or annoy a user — they do not take money for nothing");
+});
+
+test("a zero ceiling counts as no ceiling", () => {
+  assert.ok(idsOf(launchReport({ ...baseEnv, aiMonthlyCeilingUsd: "0" })).includes("no-spend-ceiling"));
+});
+
+test("the pre-flight reads only booleans out of the environment, never a value", () => {
+  const e = readLaunchEnv({
+    STRIPE_SECRET_KEY: "sk_live_SUPERSECRET", FIELD_ENCRYPTION_MASTER_KEY: "k".repeat(40),
+    FIREBASE_CLIENT_EMAIL: "a@b.c", FIREBASE_PRIVATE_KEY: "PRIVATE", VERCEL_ENV: "production",
+    ANTHROPIC_API_KEY: "sk-ant-SECRET", OPENAI_API_KEY: "sk-SECRET",
+  });
+  const r = launchReport(e);
+  const serialised = JSON.stringify(r);
+  for (const secret of ["SUPERSECRET", "sk-ant-SECRET", "PRIVATE", "kkkkkkkk"]) {
+    assert.ok(!serialised.includes(secret), `the report leaked ${secret}`);
+  }
+  // And it still did its job on that input.
+  assert.ok(idsOf(r).includes("stripe-webhook-missing"));
+});
+
+test("firebase admin needs BOTH halves of its credential to count as configured", () => {
+  const half = readLaunchEnv({ FIREBASE_CLIENT_EMAIL: "a@b.c" });
+  assert.equal(half.firebaseAdminConfigured, false, "a lone client email sends the owner looking in the wrong place");
+  const whole = readLaunchEnv({ FIREBASE_CLIENT_EMAIL: "a@b.c", FIREBASE_PRIVATE_KEY: "x" });
+  assert.equal(whole.firebaseAdminConfigured, true);
+});
+
+test("every finding says what breaks AND how to fix it", () => {
+  // A pre-flight that names a problem without a fix is a source of panic on
+  // launch morning, not a tool.
+  const r = launchReport({
+    stripeSecretKey: "", stripeWebhookSecret: "", firebaseAdminConfigured: true,
+    fieldEncryptionKey: "", platformAdminEmails: "",
+    aiKeys: { anthropic: false, openai: false, gemini: false },
+    cronSecret: "", humanCheckSecret: "", aiMonthlyCeilingUsd: "",
+    legalEntityName: "", legalEntityAddress: "", vercelEnv: "production",
+  });
+  assert.ok(r.findings.length >= 7, "the worst possible config must surface most rules");
+  for (const x of r.findings) {
+    assert.ok(x.consequence.length > 60, `${x.id}: consequence must describe real harm`);
+    assert.ok(x.fix.length > 20, `${x.id}: every finding needs an actionable fix`);
+    assert.ok(["blocker", "warning", "ok"].includes(x.severity));
+  }
+  assert.equal(r.goPublic, false);
+});

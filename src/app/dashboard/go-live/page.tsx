@@ -13,6 +13,8 @@ import { useIsAdmin } from "@/frontend/use-is-admin";
 
 type Status = "green" | "amber" | "red" | "loading";
 type Check = { key: string; title: string; group: "Money path — required to charge" | "Content hosting" | "Premium providers — optional upsells"; status: Status; detail: string; fix?: string };
+type LaunchFinding = { id: string; severity: "blocker" | "warning" | "ok"; title: string; consequence: string; fix: string };
+type LaunchReport = { goPublic: boolean; blockers: number; warnings: number; findings: LaunchFinding[]; note: string };
 
 const badge = (s: Status) =>
   s === "green" ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300"><CheckCircle2 className="h-3 w-3" /> ready</span>
@@ -25,6 +27,10 @@ const fromVerdict = (v: string): Status => (v.startsWith("GREEN") ? "green" : v.
 export default function GoLivePage() {
   const { isAdmin, ready: adminReady } = useIsAdmin();
   const [checks, setChecks] = useState<Check[]>([]);
+  // The consequence view: what a real person suffers if we open the doors in
+  // this exact configuration. Computed server-side from combinations of env
+  // vars, because every dangerous state here has two halves that each look fine.
+  const [launch, setLaunch] = useState<LaunchReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [googleMsg, setGoogleMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
@@ -123,6 +129,7 @@ export default function GoLivePage() {
           status: c.ready ? "green" : "amber", detail: c.ready ? "Live." : (c.note || "Activates when its provider key is set."), });
       }
     }
+    setLaunch((live?.launch as LaunchReport | undefined) ?? null);
     setChecks(out); setBusy(false);
   }, []);
 
@@ -189,6 +196,36 @@ export default function GoLivePage() {
           </div>
         </div>
       </div>
+
+      {/* Before the doors open: what happens to a real person in THIS config.
+          Kept above every other panel because a blocker here is not a missing
+          nice-to-have — it is money taken with nothing delivered, data lost, or
+          a promise in the Terms the running code does not keep. */}
+      {launch && (
+        <div className={`mb-6 card p-5 ${launch.blockers ? "border-rose-500/30 bg-rose-500/[0.05]" : launch.warnings ? "border-amber-500/25 bg-amber-500/[0.04]" : "border-emerald-500/30 bg-emerald-500/[0.05]"}`}>
+          <div className="mb-1 flex items-center gap-2">
+            {launch.blockers ? <XCircle className="h-4 w-4 text-rose-400" /> : <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+            <h2 className="font-display text-sm font-bold text-white">
+              {launch.blockers ? `${launch.blockers} thing${launch.blockers === 1 ? "" : "s"} that would hurt a real customer` : "Safe to open the doors"}
+            </h2>
+          </div>
+          <p className="mb-3 text-xs text-slate-400">{launch.note}</p>
+          {launch.findings.length > 0 && (
+            <ul className="space-y-2">
+              {launch.findings.map((x) => (
+                <li key={x.id} className={`rounded-lg border p-3 ${x.severity === "blocker" ? "border-rose-500/25 bg-rose-500/[0.06]" : "border-amber-500/20 bg-amber-500/[0.04]"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${x.severity === "blocker" ? "bg-rose-500/15 text-rose-300" : "bg-amber-500/15 text-amber-300"}`}>{x.severity}</span>
+                    <span className="text-sm font-semibold text-white">{x.title}</span>
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-300">{x.consequence}</p>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-emerald-300/90"><span className="font-semibold">Fix:</span> {x.fix}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* One-click Google connect — no OAuth Playground, no client-mismatch. */}
       <div className="mb-6 card border-sky-500/25 p-5">
