@@ -66,7 +66,14 @@ export async function GET() {
     { capability: "Payments (Stripe)", ready: env("STRIPE_SECRET_KEY"), activates: "STRIPE_SECRET_KEY (+ STRIPE_WEBHOOK_SECRET)" },
     { capability: "Live prospect + market search", ready: env("SERPER_API_KEY"), activates: "SERPER_API_KEY — without it LeadWar Room and market research return nothing rather than inventing prospects" },
     { capability: "Voiceovers & dubbing", ready: env("ELEVENLABS_API_KEY"), activates: "ELEVENLABS_API_KEY" },
-    { capability: "Video rendering (trim, clips, captions, upscale)", ready: env("FFMPEG_CLOUD_API_KEY") || env("VIDEO_WORKER_SECRET"), activates: "FFMPEG_CLOUD_API_KEY (hosted, no container) or VIDEO_WORKER_SECRET (self-hosted worker)" },
+    // Two different things were listed together here as if they were the same
+    // kind of dependency. FFMPEG_CLOUD_API_KEY is a THIRD PARTY
+    // (api.ffmpeg-micro.com, a new supplier and a new bill). VIDEO_WORKER_SECRET
+    // is a shared secret for the container in worker/ that MarketWar runs
+    // itself, on infrastructure the stack already uses — not a vendor at all.
+    // And clip cutting needs neither: the browser does it (clip-render.ts).
+    { capability: "Clip cutting to 9:16 with burned captions", ready: true, activates: "Already live — the customer's browser cuts it, so there is no upload, no queue and no render bill. Chrome, Edge or Firefox on a desktop." },
+    { capability: "Server-side batch rendering (queued trim/clips/captions/brand/B-roll/upscale)", ready: env("FFMPEG_CLOUD_API_KEY") || env("VIDEO_WORKER_SECRET"), activates: "OPTIONAL. Either run worker/ yourself (a container on the Google Cloud account this stack already uses) and set VIDEO_WORKER_SECRET on both sides — no new supplier — or set FFMPEG_CLOUD_API_KEY to use the hosted service, which IS a new supplier and a new bill." },
   ];
   const readyCount = caps.filter((c) => c.ready).length;
 

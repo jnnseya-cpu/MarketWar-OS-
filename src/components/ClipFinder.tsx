@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Check, Copy, Download, Loader2, Scissors, Upload } from "lucide-react";
+import { Check, Copy, Download, Film, Loader2, Scissors, Upload } from "lucide-react";
 import { Pill, ScoreBar } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
+import { extFor, parseSrt, renderClip, renderSupported } from "@/frontend/clip-render";
 
 // Paste one long video, get the clips out.
 //
@@ -66,6 +67,39 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
   const [result, setResult] = useState<Result | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ---- cutting the clips, here, on this machine ---------------------------
+  // No vendor and no queue: the browser already has the video, so it does the
+  // work. The source is picked locally on purpose — drawing a cross-origin
+  // video onto a canvas taints it and the recording fails, and a local file
+  // also sidesteps the 25MB transcription limit, because only the audio ever
+  // needed to be small.
+  const [source, setSource] = useState<File | null>(null);
+  const [focusX, setFocusX] = useState(0.5);
+  const [burn, setBurn] = useState(true);
+  const [cutting, setCutting] = useState<string | null>(null);
+  const [cutPct, setCutPct] = useState(0);
+  const [cutErr, setCutErr] = useState<string | null>(null);
+  const [cut, setCut] = useState<Record<string, { url: string; ext: string }>>({});
+  const sourceRef = useRef<HTMLInputElement>(null);
+  const canRender = typeof window !== "undefined" && renderSupported();
+
+  async function cutOne(clip: Clip) {
+    if (!source) return;
+    setCutErr(null); setCutting(clip.id); setCutPct(0);
+    try {
+      const out = await renderClip(source, {
+        startSec: clip.startSec, endSec: clip.endSec,
+        cues: parseSrt(clip.srt), burnCaptions: burn, focusX,
+        onProgress: setCutPct,
+      });
+      setCut((c) => ({ ...c, [clip.id]: { url: URL.createObjectURL(out.blob), ext: extFor(out.mimeType) } }));
+    } catch (e) {
+      setCutErr(e instanceof Error ? e.message : "The cut failed.");
+    } finally {
+      setCutting(null);
+    }
+  }
 
   async function run(file?: File) {
     setBusy(true); setResult(null); setCopied(null);
@@ -167,6 +201,56 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
             )}
           </div>
 
+          {/* Cut them here. Nothing is uploaded and nothing is queued — the
+              machine that already has the video does the work, which is why
+              this costs neither of us anything. */}
+          <div className="rounded-lg border border-white/[0.07] bg-ink-900/40 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Film className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs font-semibold text-white">Cut them to 9:16, here in your browser</span>
+              <Pill tone={canRender ? "good" : "warn"}>{canRender ? "no upload, no vendor" : "not supported in this browser"}</Pill>
+            </div>
+            {canRender ? (
+              <>
+                <p className="mb-2 text-[11px] leading-relaxed text-slate-400">
+                  Pick the same video file from your machine. It never leaves it — the cropping, the captions and the
+                  recording all happen here, so there is no render bill and no queue. It runs in real time, so a
+                  40-second clip takes about 40 seconds.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/[0.06]" onClick={() => sourceRef.current?.click()}>
+                    <Upload className="mr-1 inline h-3.5 w-3.5" />{source ? "Change file" : "Choose the video file"}
+                  </button>
+                  <input ref={sourceRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setSource(f); e.target.value = ""; }} />
+                  {source && <span className="text-[11px] text-slate-400">{source.name}</span>}
+                  <label className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-400">
+                    <input type="checkbox" checked={burn} onChange={(e) => setBurn(e.target.checked)} /> burn captions in
+                  </label>
+                </div>
+                {source && (
+                  <div className="mt-2">
+                    <label className="text-[11px] text-slate-400">
+                      Where the 9:16 column sits: <span className="text-slate-300">{focusX === 0.5 ? "centre" : focusX < 0.5 ? "left" : "right"}</span>
+                    </label>
+                    <input type="range" min={0} max={1} step={0.05} value={focusX} onChange={(e) => setFocusX(Number(e.target.value))} className="w-full" />
+                    {/* Said plainly rather than sold as tracking. */}
+                    <p className="text-[10px] leading-relaxed text-slate-500">
+                      You place this, we do not guess it. Following a speaker automatically needs per-frame face
+                      detection, and a guess that crops someone out of their own video is worse than a crop that never
+                      pretended to be clever.
+                    </p>
+                  </div>
+                )}
+                {cutErr && <p className="mt-2 text-[11px] text-rose-300">{cutErr}</p>}
+              </>
+            ) : (
+              <p className="text-[11px] leading-relaxed text-slate-400">
+                This browser cannot record a canvas. Chrome, Edge or Firefox on a desktop can. The timecodes and
+                subtitle files below work in any editor either way.
+              </p>
+            )}
+          </div>
+
           {clips.map((c, i) => (
             <div key={c.id} className="rounded-lg border border-white/[0.07] bg-ink-900/50 p-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -217,12 +301,32 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
                 >
                   {copied === c.id ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />} Copy timecode + text
                 </button>
+                {canRender && source && (
+                  cut[c.id] ? (
+                    <a
+                      className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/15"
+                      href={cut[c.id].url} download={`${c.id}.${cut[c.id].ext}`}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download the 9:16 clip
+                    </a>
+                  ) : (
+                    <button
+                      className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-white/[0.06] disabled:opacity-50"
+                      onClick={() => cutOne(c)} disabled={Boolean(cutting)}
+                    >
+                      {cutting === c.id
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cutting… {cutPct}%</>
+                        : <><Film className="h-3.5 w-3.5" /> Cut this to 9:16</>}
+                    </button>
+                  )
+                )}
                 {onCutList && (
                   <button
                     className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-white/[0.06]"
                     onClick={() => onCutList([{ startSec: c.startSec, endSec: c.endSec }])}
+                    title="Send to the Render Farm queue instead — needs a render worker"
                   >
-                    <Scissors className="h-3.5 w-3.5" /> Cut this one
+                    <Scissors className="h-3.5 w-3.5" /> Queue on the farm
                   </button>
                 )}
               </div>

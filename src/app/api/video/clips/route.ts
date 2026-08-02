@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
     if (!brandId) {
       renderJob = { queued: false, error: "Rendering needs a brandId — the clips are cut against that brand's wallet and land in its library." };
     } else if (!render.ok) {
-      renderJob = { queued: false, error: "No render worker is configured, so the cuts cannot be made here. The timestamps and .srt files below work in any editor in the meantime — set FFMPEG_CLOUD_API_KEY or VIDEO_WORKER_SECRET to have MarketWar cut them for you." };
+      renderJob = { queued: false, error: "No render worker is configured, so the cuts were not queued on the server — and they do not need to be. Cut them in your browser from the Clip Finder screen: nothing is uploaded, nothing is queued, and there is no render bill. The queue is only worth configuring for unattended batches; it needs either worker/ running on your own Google Cloud (VIDEO_WORKER_SECRET, no new supplier) or the hosted FFMPEG_CLOUD_API_KEY, which is one." };
     } else if (!clips.length) {
       renderJob = { queued: false, error: "Nothing to render — no clip fitted the length range." };
     } else if (!sourceUrl) {
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
     renderJob,
     renderingAvailable: render.ok,
     chargedAcu,
-    note: `${found.note} Each clip carries a .srt already rebased to start at zero, so it is usable in any editor right now${render.ok ? " — or set render:true and MarketWar cuts them to 9:16 for you." : ". Connect a render worker and MarketWar cuts them to 9:16 for you as well."}`,
+    note: `${found.note} Each clip carries a .srt already rebased to start at zero, so it is usable in any editor right now — and the Clip Finder screen cuts them to 9:16 with the captions burned in, in your own browser, with no upload and no render bill${render.ok ? ". A render worker is also configured, so render:true can queue them server-side for an unattended batch." : "."}`,
   });
 }
 

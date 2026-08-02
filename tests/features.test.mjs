@@ -7725,3 +7725,123 @@ test("the backlink profile carries the same warning", async () => {
   assert.match(p.disclaimer, /PLACEHOLDER NUMBERS, NOT ESTIMATES/);
   assert.match(p.disclaimer, /judge a domain/);
 });
+
+// ---------------------------------------------------------------------------
+// Cutting a clip needs no vendor.
+//
+// The render step was described as needing FFMPEG_CLOUD_API_KEY or
+// VIDEO_WORKER_SECRET, and those are not the same kind of thing: the first is a
+// third party (api.ffmpeg-micro.com), the second is a shared secret for a
+// container in worker/ that MarketWar runs itself. Neither is required, because
+// the machine that already has the video is the customer's own — VideoEditor
+// has cut segments in-browser for a while. What was missing was the 9:16 crop
+// and the burned captions, which is canvas geometry.
+// ---------------------------------------------------------------------------
+const cr = await import("../src/frontend/clip-render.ts");
+
+test("a landscape source is cropped to a full-height 9:16 column", () => {
+  const c = cr.cropRect(1920, 1080, 0.5);
+  assert.equal(c.sh, 1080, "the full height is kept");
+  assert.equal(Math.round(c.sw), Math.round(1080 * 9 / 16), "the width is a 9:16 column");
+  assert.equal(Math.round(c.sx), Math.round((1920 - 1080 * 9 / 16) / 2), "centred by default");
+});
+
+test("the column slides where the person put it, and never off the frame", () => {
+  const left = cr.cropRect(1920, 1080, 0);
+  const right = cr.cropRect(1920, 1080, 1);
+  assert.equal(left.sx, 0);
+  assert.equal(Math.round(right.sx + right.sw), 1920, "hard right must end exactly at the edge");
+  // Out-of-range and nonsense values must not push the crop outside the source,
+  // which would draw black bars or throw.
+  for (const v of [-5, 9, NaN, undefined]) {
+    const c = cr.cropRect(1920, 1080, v);
+    assert.ok(c.sx >= 0 && c.sx + c.sw <= 1920, `focusX ${v} escaped the frame`);
+  }
+});
+
+test("phone footage taller than 9:16 is cropped top and bottom, not pillarboxed", () => {
+  // A 9:19.5 phone video cropped left-and-right would come out narrower than
+  // the frame and get black bars down each side.
+  const c = cr.cropRect(1080, 2340, 0.5);
+  assert.equal(c.sw, 1080, "the full width is kept");
+  assert.ok(c.sh < 2340, "and height is trimmed instead");
+  assert.ok(Math.abs(c.sw / c.sh - 9 / 16) < 0.001, `the result must be 9:16, got ${(c.sw / c.sh).toFixed(3)}`);
+  assert.ok(c.sy > 0, "taken from the middle, not the top");
+  assert.ok(c.sy + c.sh <= 2340, "and stays inside the source");
+});
+
+test("an already-9:16 source is left alone", () => {
+  const c = cr.cropRect(1080, 1920, 0.5);
+  assert.equal(c.sx, 0);
+  assert.equal(c.sy, 0);
+  assert.equal(c.sw, 1080);
+  assert.equal(Math.round(c.sh), 1920);
+});
+
+test("srt cues are parsed back out, so captions can be burned in", () => {
+  const srt = "1\n00:00:00,000 --> 00:00:03,500\nHere is the mistake\n\n2\n00:00:03,500 --> 00:00:07,000\nmost people make.\n";
+  const cues = cr.parseSrt(srt);
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].start, 0);
+  assert.equal(cues[0].end, 3.5);
+  assert.equal(cues[1].text, "most people make.");
+  assert.deepEqual(cr.parseSrt(""), [], "an empty file is not an error");
+  assert.deepEqual(cr.parseSrt("not an srt at all"), []);
+});
+
+test("the caption on screen is the one whose time it is", () => {
+  const cues = [{ start: 0, end: 3, text: "first" }, { start: 3, end: 6, text: "second" }];
+  assert.equal(cr.cueAt(cues, 1), "first");
+  assert.equal(cr.cueAt(cues, 4), "second");
+  assert.equal(cr.cueAt(cues, 99), "", "past the end there is no caption, not the last one stuck on screen");
+  assert.equal(cr.cueAt([], 1), "");
+});
+
+test("a caption is wrapped to two lines and never buries the video", () => {
+  // A caption that fills half the screen covers the thing the viewer came to
+  // see, and every platform puts its own UI over the bottom fifth.
+  const ctx = { measureText: (s) => ({ width: s.length * 10 }) };
+  const long = "This is a very long caption line that would otherwise run straight off the side of the frame entirely";
+  const rows = cr.wrapCaption(ctx, long, 300);
+  assert.equal(rows.length, 2, "two lines maximum");
+  for (const r of rows) assert.ok(ctx.measureText(r).width <= 300 || r.split(" ").length === 1);
+  // A single word wider than the line must still be emitted rather than dropped.
+  assert.deepEqual(cr.wrapCaption(ctx, "Supercalifragilistic", 50), ["Supercalifragilistic"]);
+});
+
+test("the recording container is whatever the browser actually supports", () => {
+  // Safari records MP4, Chrome and Firefox record WebM. Insisting on one gives
+  // an empty file on the other.
+  assert.equal(cr.extFor("video/mp4;codecs=avc1,mp4a.40.2"), "mp4");
+  assert.equal(cr.extFor("video/webm;codecs=vp9,opus"), "webm");
+});
+
+test("the render path is client-side and imports no backend module", () => {
+  const src = readFileSync(new URL("../src/frontend/clip-render.ts", import.meta.url), "utf8");
+  assert.ok(!/@\/backend\//.test(src), "nothing here may reach a server module");
+  assert.ok(!/fetch\(/.test(src), "and nothing is uploaded — the file never leaves the machine");
+});
+
+test("the Clip Finder offers the browser cut without demanding a worker", () => {
+  const src = readFileSync(new URL("../src/components/ClipFinder.tsx", import.meta.url), "utf8");
+  assert.match(src, /renderClip\(source, \{/, "the local cut must actually be wired");
+  assert.match(src, /no upload, no vendor/);
+  assert.match(src, /You place this, we do not guess it/,
+    "the reframe is manual and must say so rather than being sold as tracking");
+});
+
+test("the platform never says a new supplier is needed to cut a clip", () => {
+  // FFMPEG_CLOUD_API_KEY is a third party (api.ffmpeg-micro.com).
+  // VIDEO_WORKER_SECRET is a shared secret for a container in worker/ that we
+  // run ourselves. Listing them together as one dependency told the owner they
+  // had to take on a supplier for something the browser already does.
+  const health = readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8");
+  assert.match(health, /Clip cutting to 9:16 with burned captions/);
+  assert.match(health, /ready: true/, "clip cutting is live with no key at all");
+  assert.match(health, /no new supplier/, "the self-hosted worker must be distinguished from the vendor");
+  assert.match(health, /IS a new supplier and a new bill/, "and the vendor must be named as one");
+
+  const farm = readFileSync(new URL("../src/components/RenderFarm.tsx", import.meta.url), "utf8");
+  assert.match(farm, /You probably do not need one/);
+  assert.match(farm, /your own container, not a new supplier/);
+});

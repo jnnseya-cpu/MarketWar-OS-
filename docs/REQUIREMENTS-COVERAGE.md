@@ -1611,3 +1611,39 @@ active speaker (the recipe centre-crops to 9:16 today), B-roll insertion, and
 burned-in animated captions all need the FFmpeg worker. The queue, recipes and
 pricing for those already exist; what this adds is the decision of *what to
 cut*, which nothing in the platform could make before.
+
+### §54b — Cutting a clip needs no supplier
+
+Owner: *"these are new vendors — FFMPEG_CLOUD_API_KEY or VIDEO_WORKER_SECRET."*
+
+**Two corrections were owed.** Those two were listed together as though they
+were the same kind of dependency, and they are not:
+
+- `FFMPEG_CLOUD_API_KEY` **is** a third party — `api.ffmpeg-micro.com`. A new
+  supplier, a new contract, a new bill.
+- `VIDEO_WORKER_SECRET` **is not a vendor at all.** It is a shared secret
+  between the app and `worker/`, a container in this repo, deployable to Cloud
+  Run on the Google Cloud account the adopted stack already runs on. Calling it
+  a vendor was wrong.
+
+**And neither is needed to cut a clip.** `VideoEditor.tsx` has cut segments
+in-browser for a while — `captureStream()` on a `<video>` into a
+`MediaRecorder`, nothing uploaded. What was missing was the two things that
+make the output a *short* rather than a trimmed landscape file.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Cut a clip to 9:16 with captions burned in, with no supplier | ✅ **new** | `src/frontend/clip-render.ts` draws each frame to a 1080×1920 canvas — cropped to 9:16, caption drawn from the clip's own cues — and records the canvas plus the element's audio. Wired into the Clip Finder: pick the source file, cut, download. |
+| Nothing is uploaded | ✅ | The source is a locally-picked `File`. Deliberate: drawing a cross-origin video onto a canvas taints it and the recording fails. It also sidesteps the 25MB transcription cap — only the *audio* ever had to be small, while the cutting runs against the full-quality original. A test asserts the module imports nothing from `@/backend` and never calls `fetch`. |
+| Correct geometry, not black bars | ✅ | A source wider than 9:16 gives a full-height column that slides horizontally; a source *taller* than 9:16 (phone footage) is cropped top-and-bottom instead, because cropping it sideways would pillarbox it. Focus is clamped so no value — including `NaN` — can push the crop off the frame. |
+| Captions that stay readable and do not bury the video | ✅ | Two lines maximum, held off the bottom fifth where every platform puts its own UI, stroked behind the fill so white text survives white footage. |
+| Whatever container the browser records | ✅ | Safari records MP4, Chrome and Firefox record WebM. Insisting on one produces an empty file on the other. |
+| The reframe is honest about being manual | ✅ | A slider the person moves, labelled *"You place this, we do not guess it."* Following a speaker needs per-frame face detection; a guess that crops someone out of their own video is worse than a centre crop that never pretended to be clever. |
+| Cost | ✅ | Zero, to both sides. No upload, no queue, no per-minute render bill, and the file never leaves the machine it was already on. Under the pricing law that is a nominal-charge action, not a metered one — we do not pass on a cost we do not bear. |
+| Honest limit, stated on screen | ✅ | `MediaRecorder` records a playing element, so a 40-second clip takes about 40 seconds. Said up front rather than discovered. Desktop Chrome/Edge/Firefox; where the API is missing, the panel says so and the timecodes plus `.srt` still work in any editor. |
+
+**What the render worker is still for**, now stated that way everywhere
+(`/api/health/live`, the Render Farm panel, the clips route): unattended
+batches, and the heavier jobs the browser genuinely cannot do — background
+removal, upscaling, B-roll compositing. It is optional, and the self-hosted
+route involves no new supplier.
