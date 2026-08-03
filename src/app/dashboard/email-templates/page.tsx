@@ -12,6 +12,7 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { MERGE_VARS, mergeTokens, tokenWarnings } from "@/shared/merge-tokens";
+import EmailPreview from "@/components/EmailPreview";
 
 type Template = { id: string; brandId: string; name: string; subject: string; html: string; updatedAt: string };
 
@@ -461,6 +462,23 @@ export default function EmailTemplatesPage() {
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {w}
                   </p>
                 ))}
+              </div>
+            )}
+
+            {/* The design preview above shows the layout as you type. This one
+                shows the FINISHED article: merged, tracked, with the unsubscribe
+                line the send appends, and the pre-send checks run against it —
+                the same panel and the same pipeline the Email Centre uses, so a
+                template cannot pass here and fail there. */}
+            {activeBrand && (form.subject.trim() || form.html.trim()) && (
+              <div className="mt-4">
+                <EmailPreview
+                  brandId={activeBrand.id}
+                  business={activeBrand.name}
+                  subject={form.subject}
+                  html={form.html}
+                  source="template"
+                />
               </div>
             )}
 
