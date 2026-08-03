@@ -1800,3 +1800,28 @@ place campaigns are actually sent from — had no preview at all.
 | **It found a live defect on its first run** | ✅ fixed | `shared/merge-tokens` defines a default fallback for every token that can plausibly be missing — but those are applied by `fixTokens()`, which rewrites template text. **The send path calls `mergeTemplate` directly and never sees them.** So a hand-typed `{{ firstName }}` merges to nothing and *"Hi ,"* goes out. The preview now counts it across the whole eligible list and names the one-keystroke fix: *"{{ firstName }} has no fallback and 1 contact(s) on this list have no value for it — they receive the sentence with a gap in it. Write {{ firstName \| there }}."* |
 | The inbox line, not just the body | ✅ | Subject plus the grey preheader beside it — the whole of what most people read before deciding. `htmlToText` strips `display:none` blocks and the tracking pixel so a hidden preheader hack cannot become the first line a recipient sees. |
 | Desktop / phone / plain-text views | ✅ | Rendered in a `sandbox=""` iframe: the message is the customer's own HTML and it is shown rather than described, but it cannot run anything against the dashboard around it. |
+
+### §57 — The mobile menu was clipped to the height of its own header
+
+Owner: *"the menu is not visible and accessible in the pwa"* (screenshot: the
+drawer open as a strip under the status bar, no nav items, the page behind
+undimmed).
+
+**Not a PWA bug — every phone.** `MobileNav` renders inside the dashboard's
+mobile header, and that header carries `backdrop-blur-xl`. An element with a
+`backdrop-filter` becomes the **containing block for its `position: fixed`
+descendants**, so the drawer's `fixed inset-0` resolved against the header's own
+box rather than the viewport. Measured in a real mobile Chromium at 412×915:
+
+| | drawer panel |
+|---|---|
+| before | **288 × 60** — clipped to the header's height |
+| after | **288 × 915** — full viewport, all 58 nav links reachable |
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The drawer escapes any ancestor that traps it | ✅ | `createPortal` to `document.body`. Pinning the header instead would fix today and break again the first time anyone adds a `transform`, `filter` or `will-change` above it. Portalled only after mount, since `document` does not exist during the server render. |
+| It clears the phone's own chrome | ✅ | `pt-[var(--safe-top)]` so the first group is not under the status bar, and `pb-[calc(1rem+var(--safe-bottom))]` so the last item is not under the gesture bar — in the installed app both are real. |
+| It can be closed without touching it | ✅ | Escape, plus `aria-modal` and an `aria-label`. A full-screen drawer with no keyboard exit is a trap. |
+| The class of bug, not the instance | ✅ | A test enumerates every component mounted inside the blurred header and fails any that renders `fixed inset-0` without a portal. |
+| Verified, not reasoned | ✅ | Driven in headless Chromium at phone size: the fix measured at full height, and the bug **reproduced at 60px** by reverting the portal — so the cause is confirmed rather than assumed. |

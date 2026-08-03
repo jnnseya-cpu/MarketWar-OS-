@@ -7957,3 +7957,74 @@ test("the Clip Finder offers the logo and B-roll without a worker", () => {
   assert.match(src, /the same placement the server-side render uses/,
     "the customer should know it matches, not wonder whether it does");
 });
+
+// ---------------------------------------------------------------------------
+// A full-screen overlay must not be trapped inside a blurred ancestor.
+//
+// The mobile nav drawer opened as a strip the height of the header: the nav was
+// clipped out of existence and the dimming overlay did not cover the page,
+// because it was not over it. On every phone, not only in the installed app.
+//
+// The cause is a CSS rule with no visible symptom until it bites: an element
+// with a backdrop-filter becomes the CONTAINING BLOCK for its position:fixed
+// descendants. MobileNav renders inside the dashboard header, and that header
+// carries `backdrop-blur-xl` — so `fixed inset-0` resolved against the header's
+// own box rather than the viewport.
+//
+// A portal is the fix that stays fixed. Pinning the header instead would work
+// today and break again the first time anyone adds a transform, a filter or
+// will-change anywhere above it.
+// ---------------------------------------------------------------------------
+
+test("the mobile nav drawer is portalled out of the header that traps it", () => {
+  const nav = readFileSync(new URL("../src/components/MobileNav.tsx", import.meta.url), "utf8");
+  assert.match(nav, /createPortal\(/, "the overlay must leave its ancestor");
+  assert.match(nav, /document\.body,\s*\)/, "and land on the body");
+  // Portalling before mount would throw on the server render.
+  assert.match(nav, /open && mounted && createPortal/, "the portal target only exists after mount");
+});
+
+test("the header that traps it still has the blur, so the test is about the real thing", () => {
+  // If someone removes the backdrop-blur the portal is still correct, but this
+  // records WHY it is there — a comment saying "fixes a bug" outlives the bug
+  // and nobody dares touch it.
+  const layout = readFileSync(new URL("../src/app/dashboard/layout.tsx", import.meta.url), "utf8");
+  const header = layout.split("\n").find((l) => l.includes("<header"));
+  assert.ok(header, "the mobile header must exist");
+  assert.match(header, /backdrop-blur/, "this is the containing block the drawer had to escape");
+  assert.match(header, /<MobileNav|lg:hidden/);
+});
+
+test("no other full-screen overlay is rendered inside a blurred or transformed ancestor", async () => {
+  // The class of bug, not the instance. Any component with `fixed inset-0` that
+  // is mounted inside the dashboard header has the same problem.
+  const fs = await import("node:fs");
+  const layout = fs.readFileSync("src/app/dashboard/layout.tsx", "utf8");
+  const headerBlock = layout.slice(layout.indexOf("<header"), layout.indexOf("</header>"));
+  const mountedInHeader = [...headerBlock.matchAll(/<([A-Z][A-Za-z0-9]*)\b/g)].map((m) => m[1]);
+
+  const offenders = [];
+  for (const name of new Set(mountedInHeader)) {
+    const path = `src/components/${name}.tsx`;
+    if (!fs.existsSync(path)) continue;
+    const src = fs.readFileSync(path, "utf8");
+    if (/fixed inset-0/.test(src) && !/createPortal/.test(src)) offenders.push(name);
+  }
+  assert.deepEqual(offenders, [], `these render a full-screen overlay inside the blurred header without a portal: ${offenders.join(", ")}`);
+});
+
+test("the drawer clears the phone's own chrome at both ends", () => {
+  // In the installed app there is a status bar above and a gesture bar below.
+  // Without these the first nav group sits under the clock and the last item
+  // cannot be tapped at all.
+  const nav = readFileSync(new URL("../src/components/MobileNav.tsx", import.meta.url), "utf8");
+  assert.match(nav, /pt-\[var\(--safe-top\)\]/);
+  assert.match(nav, /pb-\[calc\(1rem\+var\(--safe-bottom\)\)\]/);
+});
+
+test("the drawer can be closed without touching it", () => {
+  const nav = readFileSync(new URL("../src/components/MobileNav.tsx", import.meta.url), "utf8");
+  assert.match(nav, /e\.key === "Escape"/, "a full-screen drawer with no keyboard exit is a trap");
+  assert.match(nav, /aria-modal="true"/);
+  assert.match(nav, /aria-label="Navigation"/);
+});
