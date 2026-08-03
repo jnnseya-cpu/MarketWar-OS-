@@ -8204,3 +8204,92 @@ test("the diagnosis reaches the screen instead of being computed and dropped", (
     assert.ok(panel.includes(field), `the panel drops ${field}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Public pages: a number on the marketing site must come from the list it
+// describes
+//
+// The landing page headed a grid of AGENT_LIST cards with "A 26-agent revenue
+// army" while rendering 39 of them — the 26 belongs to the Command Centre's
+// roster, a different list. The pricing table on the same page said "Full
+// 19-agent AI workforce". Three numbers for one thing, on one page, all
+// countable by any visitor. The status page and the developers page's meta
+// description both said "37 engines" against a registry of 38.
+//
+// Hardcoding is the defect, not the wrong digit — a corrected constant drifts
+// again the next time an agent is added. These are derived, and this test fails
+// if a literal count comes back.
+// ---------------------------------------------------------------------------
+const PUBLIC_PAGES = [
+  "src/app/page.tsx",
+  "src/app/choose-plan/page.tsx",
+  "src/app/status/page.tsx",
+  "src/app/developers/page.tsx",
+  "src/app/how-it-works/page.tsx",
+  "src/app/about/page.tsx",
+  "src/app/industries/page.tsx",
+];
+
+test("no public page hardcodes a count of agents or engines", () => {
+  const offenders = [];
+  for (const rel of PUBLIC_PAGES) {
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+    // Comments explain the history and are allowed to quote the old numbers.
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+    for (const m of codeOnly.matchAll(/\b\d+[\s-](agents?|engines?)\b/gi)) {
+      offenders.push(`${rel}: "${m[0]}"`);
+    }
+  }
+  assert.deepEqual(offenders, [], `hardcoded counts drift the moment the list changes — derive them: ${offenders.join(", ")}`);
+});
+
+test("the agent count on the landing page is the length of the grid it labels", async () => {
+  const { AGENT_LIST } = await import("../src/shared/agents.ts");
+  const { ARMY, DIVISIONS } = await import("../src/shared/warlord-roster.ts");
+  const src = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  // The heading counts the same list the grid maps over.
+  assert.match(src, /\{AGENT_LIST\.length\}-agent revenue army/);
+  assert.match(src, /\{AGENT_LIST\.map\(/);
+  // And the Command Centre's own numbers are attributed to the Command Centre.
+  assert.match(src, /\{ARMY\.length\} front-line units/);
+  assert.match(src, /\{DIVISIONS\.length - 1\} divisions/);
+  // The two rosters really are different lists — which is why the old copy was wrong.
+  assert.notEqual(AGENT_LIST.length, ARMY.length);
+  assert.ok(DIVISIONS.includes("Supreme Command"), "the -1 excludes the commander's own division");
+});
+
+test("the engine count on the public pages is the registry's own length", async () => {
+  const { ENGINE_REGISTRY } = await import("../src/shared/engine-registry.ts");
+  assert.ok(ENGINE_REGISTRY.length > 0);
+  for (const rel of ["src/app/status/page.tsx", "src/app/developers/page.tsx"]) {
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+    assert.match(src, /ENGINE_REGISTRY\.length/, `${rel} must derive its engine count`);
+  }
+  // The developers page's META DESCRIPTION is the one a search result shows,
+  // and it was the copy that had gone stale.
+  const dev = readFileSync(new URL("../src/app/developers/page.tsx", import.meta.url), "utf8");
+  assert.match(dev, /description: `Build on MarketWar OS: \$\{ENGINE_REGISTRY\.length\}/);
+});
+
+test("email open and click tracking is disclosed in the privacy notice", () => {
+  // The platform injects a per-recipient 1x1 pixel, rewrites every link through
+  // a redirector and stores the user agent. None of that was in the notice.
+  const src = readFileSync(new URL("../src/app/privacy/page.tsx", import.meta.url), "utf8");
+  for (const phrase of ["Email delivery events", "1&times;1 image", "user agent", "one-click unsubscribe", "suppression ledger"]) {
+    assert.ok(src.includes(phrase), `the privacy notice does not mention: ${phrase}`);
+  }
+  // And it says who the controller is when a customer mails their own list.
+  assert.match(src, /you are the controller for that tracking/);
+});
+
+test("the public site describes the capabilities that actually shipped", () => {
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const how = readFileSync(new URL("../src/app/how-it-works/page.tsx", import.meta.url), "utf8");
+  // Clip Lab — nothing on the public site mentioned it at all.
+  assert.match(landing, /Clip Lab/);
+  assert.match(landing, /9:16/);
+  assert.ok(/browser/i.test(landing), "the clip render happens in the browser and that is the selling point");
+  // Target market, and the honest email reporting.
+  assert.match(how, /countries and cities you actually sell to/);
+  assert.match(how, /open rate is shown as a floor/);
+});

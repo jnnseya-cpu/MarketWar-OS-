@@ -5,7 +5,7 @@ import { ENGINE_REGISTRY } from "@/shared/engine-registry";
 
 export const metadata: Metadata = {
   title: "Developers · MarketWar OS",
-  description: "Build on MarketWar OS: 37 deterministic AI engines behind one internal API, the ModelGate provider-neutral gateway, ACU billing and webhooks.",
+  description: `Build on MarketWar OS: ${ENGINE_REGISTRY.length} deterministic AI engines behind one internal API, the ModelGate provider-neutral gateway, ACU billing and webhooks.`,
 };
 
 export default function DevelopersPage() {

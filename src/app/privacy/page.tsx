@@ -22,8 +22,19 @@ export default function PrivacyPage() {
             "Billing data: plan, ACU ledger, payment metadata (card details are held by our payment processor, not us).",
             "Usage data: features used, AI jobs, request/idempotency ids, audit logs, device/IP for security and rate limiting.",
             "Customer data you upload: contacts, campaigns, assets, website/product inputs — processed on your behalf.",
+            "Email delivery events: when a message you send is opened or a link in it is clicked, plus the requesting user agent — recorded per recipient so the platform can report your campaign results and stop sending to addresses that bounce or complain.",
           ].map((x) => <li key={x} className="flex items-start gap-2 text-[14px] text-slate-300"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" /> {x}</li>)}
         </ul>
+        <p className="text-[14px] text-slate-400">
+          <strong className="text-slate-200">How email tracking works, stated plainly.</strong> Campaigns sent through the
+          platform carry a 1&times;1 image that records an open, and every link is rewritten through a redirector that
+          records a click before forwarding to the original address. Both are keyed to the individual recipient, and the
+          user agent is stored so that automated security scanners can be told apart from people. Where you send to your
+          own contacts you are the controller for that tracking and are responsible for disclosing it in your own privacy
+          notice; we are your processor. The same mechanism is used on the marketing email we send you, under the consent
+          or opt-out described above. Every message carries a one-click unsubscribe, and bounces, complaints and
+          unsubscribes are added to a suppression ledger that is never re-sent to.
+        </p>
 
         <H2>3. Lawful bases</H2>
         <p>We process account and billing data to perform our contract with you; usage/security data under legitimate interests; and marketing communications under consent or legitimate interests, with an easy opt-out. Where you use the platform to market to your own contacts, you are the controller and are responsible for your lawful basis (consent or a completed Legitimate Interest Assessment) — the platform records lawful-basis status per contact and enforces suppression and frequency caps.</p>

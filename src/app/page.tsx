@@ -15,6 +15,7 @@ import {
   Radar,
   RefreshCcw,
   Rocket,
+  Scissors,
   Sparkles,
   TrendingUp,
   Users,
@@ -26,6 +27,7 @@ import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
+import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
 import { BrandLockup } from "@/components/Logo";
 
 const PILLARS = [
@@ -49,7 +51,7 @@ const PILLARS = [
     icon: Crosshair,
     color: SERIES[2],
     title: "AI Marketing Engine",
-    desc: "Generate ads, landing pages, emails, social campaigns, videos, images, and brand content that convert — in minutes, not days.",
+    desc: "Generate ads, landing pages, emails, social campaigns, images and brand content that convert — plus vertical clips cut straight out of your long videos, captioned and branded in the browser.",
     cta: "Create Campaigns",
     href: "/signup",
   },
@@ -113,7 +115,7 @@ const SCENARIOS = [
 const PLANS = [
   { name: "Free", price: "£0", period: "", desc: "Diagnose + try the whole OS.", features: ["1 brand · 1 user", "100 AI credits to start", "Every module + AI agent to explore", "Business DNA + Marketing Audit", "1 campaign + 1 landing page"], cta: "Start free", href: "/signup", featured: false },
   { name: "Starter", price: "£19", period: "/mo", desc: "Your first real campaigns.", features: ["1 brand · 2 users · 3 socials", "380 AI credits/mo", "First-Customer sprint to real sales", "Email from your own domain", "WhatsApp funnel + on-brand content"], cta: "Start", href: "/signup", featured: false },
-  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users · 10 socials", "980 AI credits/mo", "Full 19-agent AI workforce", "Search Dominance + SEO workbench", "Competitor intel + lead recovery", "Revenue Autopilot + own email sending"], cta: "Start 14-day trial", href: "/signup", featured: true },
+  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users · 10 socials", "980 AI credits/mo", `Full ${AGENT_LIST.length}-agent AI workforce`, "Search Dominance + SEO workbench", "Competitor intel + lead recovery", "Revenue Autopilot + own email sending"], cta: "Start 14-day trial", href: "/signup", featured: true },
   { name: "Scale", price: "£149", period: "/mo", desc: "Multi-brand operators.", features: ["10 brands · 15 users · 30 socials", "2,980 AI credits/mo", "Approvals + collaboration workflow", "Per-brand wallets + white-label", "OMNIRANK + dedicated sending domains"], cta: "Choose Scale", href: "/signup", featured: false },
   { name: "Business", price: "£399", period: "/mo", desc: "Agencies + franchises.", features: ["30 brands · 40 users · 100 socials", "7,980 AI credits/mo", "White-label included", "ROI + revenue-attribution ledger", "Priority support"], cta: "Choose Business", href: "/signup", featured: false },
   { name: "Enterprise", price: "£999", period: "/mo", desc: "Large multi-location.", features: ["100 brands · 100 users", "19,980 AI credits/mo", "Unlimited campaigns", "Controlled wallets + org hierarchy", "API access + SSO", "Onboarding + training"], cta: "Talk to us", href: "/contact", featured: false },
@@ -424,6 +426,59 @@ export default function LandingPage() {
               />
             </div>
           </div>
+
+          {/* Clip Lab — one long video in, vertical clips out */}
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div className="glass order-2 rounded-2xl p-5 shadow-2xl shadow-black/40 lg:order-1">
+              <p className="mb-1 text-sm font-bold text-white">Clips found in a 68-minute recording</p>
+              <p className="mb-4 text-[11px] text-slate-500">Example of the output shape — your clips come from your own video.</p>
+              <div className="space-y-2.5">
+                {[
+                  { at: "12:04 → 12:51", quote: "The reason your quotes go cold is nobody follows up on day two.", signals: ["Hook", "Stands alone", "Payoff", "Ask"] },
+                  { at: "31:20 → 32:09", quote: "We stopped running ads for a month and sales went up. Here's why.", signals: ["Hook", "Payoff", "Pace"] },
+                  { at: "47:55 → 48:32", quote: "If you only fix one thing this week, fix the first reply.", signals: ["Stands alone", "Buying signal", "Ask"] },
+                ].map((c) => (
+                  <div key={c.at} className="rounded-xl border border-white/5 bg-ink-900/80 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-mono text-[11px] text-emerald-300">{c.at}</p>
+                      <span className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-400">9:16 · captions burned in</span>
+                    </div>
+                    <p className="mt-1.5 text-sm text-slate-200">&ldquo;{c.quote}&rdquo;</p>
+                    <p className="mt-2 flex flex-wrap gap-1.5">
+                      {c.signals.map((s) => (
+                        <span key={s} className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">{s}</span>
+                      ))}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="order-1 lg:order-2">
+              <p className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">
+                <Scissors className="h-4 w-4" /> Clip Lab
+              </p>
+              <h3 className="font-display text-3xl font-bold text-white sm:text-4xl">
+                One long video in. <span className="text-gradient">Vertical clips out.</span>
+              </h3>
+              <p className="mt-4 text-lg text-slate-400">
+                Point it at a recording — a webinar, a podcast, a walkthrough — and it transcribes the audio, reads
+                the transcript and returns the moments worth posting, with the exact in and out points and a caption
+                file already rebased to start at zero. Every clip shows the signals it was picked on, so you can
+                disagree with it.
+              </p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
+                {[
+                  "Seven counted signals per clip — hook, stands alone, payoff, pace, length, buying signal, ask",
+                  "Cropped to 9:16 with captions burned in, your logo and a B-roll overlay",
+                  "Rendered in your browser: nothing uploaded to a render service, no render bill",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -431,13 +486,19 @@ export default function LandingPage() {
       <section id="agents" className="relative mx-auto max-w-6xl px-5 py-24">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_50%_40%_at_50%_0%,rgba(144,133,233,0.08),transparent_70%)]" />
         <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The revenue army</p>
+        {/* The count is DERIVED from the list rendered below it. It used to read
+            "26-agent" above a grid of 39 cards anybody could count, because the
+            26 belongs to a different roster — the Command Centre's front-line
+            units. Both numbers are now taken from their own source. */}
         <h2 className="text-center font-display text-3xl font-bold text-white sm:text-5xl">
-          A 26-agent revenue army. Zero generic advice.
+          A {AGENT_LIST.length}-agent revenue army. Zero generic advice.
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
-          Six divisions under one commander (WARLORD), each agent carrying a revenue KPI — money
-          first, blunt verdicts, local fidelity. Every pound it makes you is stamped in a live
-          Money Ledger with your ROI. No agent exists for &ldquo;activity.&rdquo;
+          Money first, blunt verdicts, local fidelity — and never a number about your business that
+          you did not give it. In the Command Centre, {ARMY.length} front-line units are grouped
+          into {DIVISIONS.length - 1} divisions under one commander (WARLORD), each carrying a
+          revenue KPI. Every pound they make you is stamped in a live Money Ledger with your ROI.
+          No agent exists for &ldquo;activity.&rdquo;
         </p>
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {AGENT_LIST.map((a, i) => (

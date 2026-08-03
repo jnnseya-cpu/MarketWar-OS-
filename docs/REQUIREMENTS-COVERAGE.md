@@ -1882,3 +1882,42 @@ the open count at all. The most engaged readers on the list were invisible.
 | **No predicted lift, no hashed score** | ✅ | A test greps the module for `+N%`, "uplift", "expected lift" and for any `seed(` call. Every figure a customer reads came from their own ledger. |
 | Machine hits excluded from the floor too | ✅ | The same `meta.machine` flag the bot filter writes; scanners are kept in the ledger as evidence of delivery and excluded from every rate. Verified against the real tracking handlers: 25 Proofpoint fetches flagged, 25 excluded. |
 | Mutation-verified | ✅ | Eight mutations — pixel-only opens, forcing click trust, grading small samples, counting engaged contacts as dead weight, dropping the significance gate, counting scanners as readers, dropping the report from the API response, and re-hardcoding the green tile — each caught by a test. |
+
+## §60 — Public pages: what the site claims vs what ships (2026-08-03)
+
+Owner: *"see if public pages and information required update on any news"* — the
+last public-site audit was §f069fa5, and ten feature commits landed after it.
+
+**Three numbers for one thing, on one page.** The landing page headed its agent
+grid *"A 26-agent revenue army"* while the grid immediately below it mapped over
+`AGENT_LIST` and rendered **39 cards** — a visitor could count them. The 26
+belongs to a different list: `ARMY`, the Command Centre's front-line roster. And
+the pricing table on the same page said *"Full 19-agent AI workforce"*, a third
+number matching neither.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A count on the marketing site comes from the list it describes | ✅ **fixed** | The heading is `{AGENT_LIST.length}`, the same list the grid maps over. The Command Centre's numbers are attributed to the Command Centre: `{ARMY.length}` front-line units in `{DIVISIONS.length - 1}` divisions under one commander. Verified against the running build: heading **39**, cards rendered **39**, plan feature **39**, Command Centre line **26 units / 6 divisions**. |
+| The engine count is the registry's own length | ✅ **fixed** | The status page said *"37 engines"* and the developers page's **meta description** — the text a search result shows — said *"37 deterministic AI engines"*, against a registry of 38. Both derive from `ENGINE_REGISTRY.length` now; served pages confirm **38**. |
+| Hardcoding is treated as the defect, not the wrong digit | ✅ | A test scans the public pages for any `N agents` / `N engines` literal and fails on it. A corrected constant drifts again the next time an agent is added. |
+
+**Email open and click tracking was not disclosed.** The platform injects a
+per-recipient 1×1 image, rewrites every link through a redirector, and stores the
+requesting user agent so scanners can be told from people. None of that appeared
+in the privacy notice's "Data we collect".
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The tracking is described in plain terms | ✅ **new** | Privacy §2 lists email delivery events, then explains the pixel, the link redirector and why the user agent is kept. |
+| Controllership is stated | ✅ | Where a customer mails their own contacts they are the controller for that tracking and must disclose it in their own notice; MarketWar is the processor. The same mechanism on our own marketing mail is named separately. |
+| The opt-out is named where the tracking is | ✅ | One-click unsubscribe, and the suppression ledger that is never re-sent to. |
+
+**The site did not mention capabilities that shipped.** Nothing on any public
+page referred to the Clip Lab, target-market targeting, or the email preview and
+honest engagement reporting.
+
+| Addition | Where | What it says — and it is all checkable |
+|---|---|---|
+| Clip Lab | Landing deep-dive + the AI Marketing Engine pillar | Long video in, vertical clips out: seven counted signals per clip, exact in/out points, an `.srt` rebased to zero, 9:16 with captions burned in, logo and B-roll — **rendered in the browser**, so nothing is uploaded to a render service and there is no render bill. The example panel is labelled as an example. |
+| Target market | How it works, phases 1 and 4 | The countries and cities you actually sell to, and the fact that ad targeting, localisation and trend watching all read the same market. |
+| Email preview + honest rates | How it works, phase 5 | Previewed through the real send path; sending windows per market; and the open rate shown **as a floor**, with the platform naming what holds it down rather than colouring it green. |

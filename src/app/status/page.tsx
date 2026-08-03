@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
+import { ENGINE_REGISTRY } from "@/shared/engine-registry";
 
 export const metadata: Metadata = {
   title: "Platform status · MarketWar OS",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
 
 const COMPONENTS: { name: string; status: "operational" | "degraded" | "maintenance"; note: string }[] = [
   { name: "Web app & dashboard (Vercel)", status: "operational", note: "All regions" },
-  { name: "AI Engines API", status: "operational", note: "37 engines · demo + live" },
+  { name: "AI Engines API", status: "operational", note: `${ENGINE_REGISTRY.length} engines · demo + live` },
   { name: "ModelGate AI gateway", status: "operational", note: "Routing + reservations healthy" },
   { name: "OpenAI provider", status: "operational", note: "Circuit closed" },
   { name: "Anthropic Claude provider", status: "operational", note: "Circuit closed" },

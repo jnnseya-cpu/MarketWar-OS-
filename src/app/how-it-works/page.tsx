@@ -18,7 +18,7 @@ const PHASES = [
     phase: "Phase 1 — Brain Sync",
     title: "Tell the OS what you sell, who you want and where you operate",
     detail:
-      "Ten questions build your Business Brain: product, pricing, margins, location, target customer, past spend and results. You never need to be a marketer — the OS carries the strategy from here.",
+      "Ten questions build your Business Brain: product, pricing, margins, location, target customer, past spend and results — including the countries and cities you actually sell to. That target market is not decoration: it is what stops a report counting eleven thousand impressions as a result when most of them came from somewhere you cannot deliver to. You never need to be a marketer — the OS carries the strategy from here.",
   },
   {
     phase: "Phase 2 — Failure Diagnosis",
@@ -36,13 +36,13 @@ const PHASES = [
     phase: "Phase 4 — Campaign Warfare",
     title: "Launch small-budget experiments with kill criteria locked",
     detail:
-      "The Campaign Commander designs £15/day test plans: one offer, three hooks, a WhatsApp destination — with exact kill and scale numbers set before launch, so no losing ad survives on hope. Connect your ad accounts and it launches and manages them for you.",
+      "The Campaign Commander designs £15/day test plans: one offer, three hooks, a WhatsApp destination — with exact kill and scale numbers set before launch, so no losing ad survives on hope. Ad targeting, content localisation and trend watching all read the same target market, so a campaign is aimed where you sell rather than wherever reach is cheapest. Connect your ad accounts and it launches and manages them for you.",
   },
   {
     phase: "Phase 5 — Capture & Conversion",
     title: "Every click lands somewhere that converts",
     detail:
-      "Generated landing pages and the WhatsApp Sales Center are built to qualify leads, present offers and take orders — with follow-up sequences timed at 1h, 24h and 48h so no lead dies of silence. Email runs on the platform's own sending infrastructure: send from your authenticated domain (DKIM/SPF/DMARC), DKIM-signed and tracked (opens, clicks, one-click unsubscribe), with no third-party provider. WhatsApp capture switches on when you connect WhatsApp.",
+      "Generated landing pages and the WhatsApp Sales Center are built to qualify leads, present offers and take orders — with follow-up sequences timed at 1h, 24h and 48h so no lead dies of silence. Email runs on the platform's own sending infrastructure: send from your authenticated domain (DKIM/SPF/DMARC), DKIM-signed and tracked (opens, clicks, one-click unsubscribe), with no third-party provider. Nothing goes out unseen — every campaign is previewed through the real send path, merged for real contacts, and anything that would embarrass you blocks the send. Sending windows are computed per market, so nine in the morning is nine in the morning where the recipient is. And the result is reported honestly: the open rate is shown as a floor, because somebody who clicked without loading images opened the message whatever the tracking pixel says, and the platform names what is holding the number down instead of colouring it green. WhatsApp capture switches on when you connect WhatsApp.",
   },
   {
     phase: "Phase 6 — Budget Protection",

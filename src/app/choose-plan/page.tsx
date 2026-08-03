@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { BrandLockup } from "@/components/Logo";
+import { AGENT_LIST } from "@/shared/agents";
 
 
 type Plan = {
@@ -28,7 +29,7 @@ const BLURB: Record<string, string> = {
 const HIGHLIGHTS: Record<string, string[]> = {
   free: ["Every module + AI agent to explore", "Business DNA + marketing audit", "1 campaign + 1 landing page", "Real output before you pay"],
   starter: ["First-Customer sprint to real sales", "Email from your own domain", "WhatsApp funnel + on-brand content", "3 social accounts · 5 campaigns"],
-  growth: ["Full 19-agent AI workforce", "SEO + Search-Dominance workbench", "Competitor intel + lead recovery", "Publish to 10 socials · 20 campaigns", "Optional API package"],
+  growth: [`Full ${AGENT_LIST.length}-agent AI workforce`, "SEO + Search-Dominance workbench", "Competitor intel + lead recovery", "Publish to 10 socials · 20 campaigns", "Optional API package"],
   scale: ["Approvals + collaboration workflow", "Per-brand wallets + budget control", "White-label option", "Autonomy dial · 30 socials · 100 campaigns"],
   business: ["White-label included", "Priority support", "ROI + revenue-attribution ledger", "100 socials · 500 campaigns"],
   enterprise: ["Unlimited campaigns", "Controlled wallets + org hierarchy", "White-label + priority support", "Onboarding, training + integrations"],
