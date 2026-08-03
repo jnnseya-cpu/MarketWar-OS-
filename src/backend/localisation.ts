@@ -16,6 +16,25 @@ if (typeof window !== "undefined") {
 // adaptations — we never fabricate metrics or claim guaranteed lift, and we
 // flag religion/legal-sensitive markets for human review before send.
 
+import { localisationTargets, type TargetMarket } from "@/shared/market";
+
+/**
+ * Which markets to adapt content for — read off the brand, not typed in again.
+ *
+ * The engine took a list of market names as an argument, so a customer had to
+ * restate on every run something the platform already knows. Worse, the two
+ * could disagree: content localised for markets the business does not sell in,
+ * while the ones it does go unadapted.
+ *
+ * The spelling split is the cheapest mistake here and the easiest to miss. A
+ * market containing both the UK and the US cannot have one article: "optimise"
+ * reads as a typo to an American exactly as "optimize" does to a Briton, and
+ * splitting the difference produces something that looks wrong in both.
+ */
+export function localesFromMarket(market: TargetMarket | null | undefined) {
+  return localisationTargets(market);
+}
+
 // ---------------------------------------------------------------------------
 // Seeded pseudo-random (FNV-1a) — deterministic, never Math.random / Date.
 // ---------------------------------------------------------------------------

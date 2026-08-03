@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listEnabled } from "@/backend/visibility-schedule";
 import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
+import { brandMarket } from "@/backend/brand-market";
 
 // Weekly trend monitoring — the schedule the Trend Hijack card was waiting for.
 //
@@ -48,7 +49,12 @@ export async function GET(req: NextRequest) {
       if (!s.domain) { skipped.push({ brandId: s.brandId, why: "no domain on the schedule — nothing to read subjects from" }); continue; }
 
       const crawl = await deepCrawl(s.domain, { maxPages: 3, budgetMs: 20_000 });
-      const result = await watchTrends({ brandId: s.brandId, business: s.business, extraction: crawl.extraction });
+      // Searched in the brand's own region: a story breaking somewhere this
+      // business does not sell is not an opportunity for it, however large.
+      const result = await watchTrends({
+        brandId: s.brandId, business: s.business, extraction: crawl.extraction,
+        market: await brandMarket(s.brandId),
+      });
       const previous = (await listWatches(s.brandId, 1))[0] ?? null;
       const fresh = newSince(result, previous);
       await saveWatch(result);

@@ -29,6 +29,7 @@ import { webSearch } from "@/backend/search";
 import { trendHijackGate, type TrendVerdict } from "@/backend/campaign-architect";
 import type { SiteExtraction } from "@/backend/site-extract";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { trendRegion, type TargetMarket } from "@/shared/market";
 
 const STOP = new Set([
   "the", "and", "for", "with", "that", "this", "from", "your", "you", "our", "are", "was", "were",
@@ -119,6 +120,8 @@ export async function watchTrends(input: {
   business: string;
   extraction: SiteExtraction | null;
   subjects?: string[];
+  /** Where this business sells. A story breaking elsewhere is not its story. */
+  market?: TargetMarket | null;
   now?: () => number;
 }): Promise<TrendWatchResult> {
   const vocab = vocabulary(input.extraction);
@@ -136,7 +139,17 @@ export async function watchTrends(input: {
     };
   }
 
-  const results = await Promise.all(subjects.map((s) => webSearch({ query: s, type: "news" }).catch(() => ({ results: [] }))));
+  // WHERE the news is from. Searching "common data environment" globally
+  // returns whatever is loudest anywhere; a business selling in one country
+  // needs the stories its own customers are reading. The region is appended to
+  // the query rather than filtering afterwards, because a search that never
+  // returns the wrong region beats one that discards it after paying for it.
+  const region = trendRegion(input.market ?? null);
+  const results = await Promise.all(
+    subjects.map((s) =>
+      webSearch({ query: region.query ? `${s} ${region.query}` : s, type: "news" }).catch(() => ({ results: [] })),
+    ),
+  );
   const seen = new Set<string>();
   const findings: TrendFinding[] = [];
 

@@ -1375,3 +1375,151 @@ test("the search modules take the market instead of hardcoding a country", async
   assert.match(helper, /if \(typed\) return typed;/, "an explicit location must always win");
   assert.ok(!/"United Kingdom"/.test(helper), "no hardcoded country fallback in the code");
 });
+
+// ---------------------------------------------------------------------------
+// What a market implies: a clock, a currency, a spelling, an ad-targeting spec.
+//
+// The four remaining modules each solved this badly on their own — or, in one
+// case, with a hash. `bestSendTime` was
+// `hours[seed(sent + ":" + delivered) % hours.length]`: the recommended hour to
+// email a list, drawn from a checksum of that list's own delivery counts. A
+// customer schedules a campaign on it.
+// ---------------------------------------------------------------------------
+
+test("a send time is arithmetic, and it survives daylight saving", () => {
+  // London is UTC+0 in January and UTC+1 in July. A lookup table would send the
+  // summer campaign an hour early for six months and nobody would connect the
+  // two, so the offset is read out of Intl at the actual date.
+  const uk = { countries: [{ code: "GB", tier: "primary" }], cities: [] };
+  const winter = mk.sendWindows(uk, 9, new Date("2026-01-15T00:00:00Z"));
+  const summer = mk.sendWindows(uk, 9, new Date("2026-07-15T00:00:00Z"));
+  assert.equal(winter.windows[0].utcHour, 9, "09:00 London in January is 09:00 UTC");
+  assert.equal(summer.windows[0].utcHour, 8, "09:00 London in July is 08:00 UTC");
+  assert.equal(summer.windows[0].tz, "Europe/London");
+});
+
+test("a market spanning countries gets one window each, not an average", () => {
+  const spread = { countries: [{ code: "GB", tier: "primary" }, { code: "AU", tier: "primary" }], cities: [] };
+  const r = mk.sendWindows(spread, 9, new Date("2026-07-15T00:00:00Z"));
+  assert.equal(r.windows.length, 2);
+  assert.notEqual(r.windows[0].utcHour, r.windows[1].utcHour, "London and Sydney cannot share a UTC hour");
+  assert.match(r.note, /a single time cannot be 09:00 in all of them/);
+});
+
+test("a country spanning time zones says so instead of pretending", () => {
+  const us = { countries: [{ code: "US", tier: "primary" }], cities: [] };
+  const r = mk.sendWindows(us, 9, new Date("2026-07-15T00:00:00Z"));
+  assert.equal(r.windows[0].multiZone, true);
+  assert.match(r.windows[0].note, /spans several time zones/);
+  assert.match(r.windows[0].note, /receives it earlier or later/);
+});
+
+test("with no market, no send time is recommended at all", () => {
+  const r = mk.sendWindows({ countries: [], cities: [] }, 9, new Date("2026-07-15T00:00:00Z"));
+  assert.deepEqual(r.windows, []);
+  assert.match(r.note, /nobody has said where this list is/);
+});
+
+test("the campaign report no longer hashes its send time", async () => {
+  const eng = await import("../src/backend/engagement.ts");
+  const base = { sent: 4200, delivered: 4083, opens: 1755, clicks: 421 };
+  // Same list, different market → different advice. Under the hash the two were
+  // identical, because the hash never looked at where anyone was.
+  const uk = eng.campaignAnalytics({ ...base, market: { countries: [{ code: "GB", tier: "primary" }], cities: [] }, now: new Date("2026-07-15T00:00:00Z") });
+  const au = eng.campaignAnalytics({ ...base, market: { countries: [{ code: "AU", tier: "primary" }], cities: [] }, now: new Date("2026-07-15T00:00:00Z") });
+  assert.notEqual(uk.bestSendTime, au.bestSendTime);
+  assert.match(uk.bestSendTime, /08:00 UTC \(09:00 in Europe\/London\)/);
+
+  // And with no market it declines rather than producing something that reads
+  // like advice.
+  const blind = eng.campaignAnalytics({ ...base });
+  assert.equal(blind.bestSendTime, "");
+  assert.match(blind.sendTimeNote, /nobody has said where this list is/);
+
+  const { readFileSync } = await import("node:fs");
+  const code = readFileSync("src/backend/engagement.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/const bestSendTime = hours\[/.test(code), "the hashed hour must be gone");
+});
+
+test("ad targeting names where to spend and insists on excluding the rest", () => {
+  const uk = { countries: [{ code: "GB", tier: "primary" }, { code: "IE", tier: "secondary" }], cities: [] };
+  const t = mk.adTargeting(uk);
+  assert.deepEqual(t.includeCountries.map((c) => c.code), ["GB", "IE"]);
+  assert.deepEqual(t.currencies, ["GBP", "EUR"]);
+  assert.match(t.note, /exclude everywhere else/);
+  assert.match(t.note, /Prices appear in GBP, EUR/, "one hardcoded currency will be wrong for someone");
+  assert.match(t.note, /buys the cheapest impressions available/);
+});
+
+test("a city market targets the city, not the country around it", () => {
+  const t = mk.adTargeting({ countries: [{ code: "GB", tier: "primary" }], cities: ["Croydon"] });
+  assert.deepEqual(t.includeCities, ["Croydon"]);
+  assert.match(t.note, /Target Croydon specifically/);
+});
+
+test("with no market, no ad targeting is written and it says what that costs", () => {
+  const t = mk.adTargeting({ countries: [], cities: [] });
+  assert.deepEqual(t.includeCountries, []);
+  assert.match(t.note, /spends wherever impressions are cheapest, which is rarely where the customers are/);
+});
+
+test("the ad batch plan carries its targeting", async () => {
+  const ba = await import("../src/backend/batch-ads.ts");
+  const plan = ba.planBatch({
+    business: "AxionOS", product: "CDE platform",
+    market: { countries: [{ code: "GB", tier: "primary" }], cities: [] },
+  });
+  assert.ok(plan.variants.length > 0);
+  assert.deepEqual(plan.targeting.includeCountries.map((c) => c.code), ["GB"]);
+});
+
+test("a mixed British/American market is told it cannot have one article", () => {
+  // The cheapest localisation mistake to make and the easiest to miss.
+  const mixed = mk.localisationTargets({ countries: [{ code: "GB", tier: "primary" }, { code: "US", tier: "secondary" }], cities: [] });
+  assert.equal(mixed.spellingSplit, true);
+  assert.match(mixed.note, /optimise.*reads as a typo|optimize/);
+
+  const single = mk.localisationTargets({ countries: [{ code: "GB", tier: "primary" }], cities: [] });
+  assert.equal(single.spellingSplit, false);
+});
+
+test("localisation targets carry the locale and currency, not just a name", () => {
+  const t = mk.localisationTargets({ countries: [{ code: "DE", tier: "primary" }], cities: [] });
+  assert.equal(t.targets[0].locale, "de-DE");
+  assert.equal(t.targets[0].currency, "EUR");
+  assert.equal(t.targets[0].spelling, null, "Germany has no English spelling expectation");
+});
+
+test("trends are searched where the business sells", () => {
+  const r = mk.trendRegion({ countries: [{ code: "GB", tier: "primary" }], cities: [] });
+  assert.equal(r.query, "United Kingdom");
+  assert.match(r.note, /is not an opportunity for it, however large it is elsewhere/);
+
+  const local = mk.trendRegion({ countries: [{ code: "GB", tier: "primary" }], cities: ["Croydon"] });
+  assert.equal(local.query, "Croydon", "a local business wants local news");
+
+  const none = mk.trendRegion({ countries: [], cities: [] });
+  assert.equal(none.query, "", "empty, so the query is never appended with a dangling region");
+  assert.match(none.note, /searched globally/);
+});
+
+test("the region reaches the actual news query", async () => {
+  const { readFileSync: rf } = await import("node:fs");
+  const src = rf("src/backend/trend-watch.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(src, /region\.query \? `\$\{s\} \$\{region\.query\}` : s/,
+    "the region must be in the search, not filtered afterwards");
+});
+
+test("all four modules take the market rather than asking for it again", async () => {
+  const { readFileSync: rf } = await import("node:fs");
+  for (const [file, needle] of [
+    ["src/app/api/batch-ads/route.ts", /brandMarket\(/],
+    ["src/app/api/engagement/route.ts", /brandMarket\(/],
+    ["src/app/api/trends/scheduled/route.ts", /market: await brandMarket\(s\.brandId\)/],
+    ["src/backend/localisation.ts", /localesFromMarket/],
+  ]) {
+    assert.match(rf(file, "utf8"), needle, `${file} does not read the brand's market`);
+  }
+});

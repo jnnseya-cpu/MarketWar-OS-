@@ -1756,3 +1756,21 @@ The market is defined, stored and read by the five surfaces above. The modules
 that do not yet consult it — ads targeting, email sending windows, the trend
 watch's region, content localisation — take the same `TargetMarket` and are a
 mechanical follow-on rather than a design question.
+
+### §55b — The other four modules, on the same market
+
+Owner: *"do — ads targeting, email sending windows, the trend watch's region,
+content localisation."*
+
+Called a mechanical follow-on. Three of the four were; the fourth was hiding
+another hash.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| **Email sending windows** | ✅ | `bestSendTime` was `hours[seed(sent + ":" + delivered) % hours.length]` — the recommended hour to email a list, drawn from a checksum of that list's own delivery counts, and a customer schedules a campaign on it. The honest answer needs no model: a UK list is emailed at nine in the morning **in London**, and what that is in UTC depends on the date. `sendWindows()` reads the offset out of `Intl` at the actual date, so **09:00 London is 09:00 UTC in January and 08:00 UTC in July** — a lookup table would have sent the summer campaign an hour early for six months and nobody would have connected the two. A market spanning countries gets one window each (`United Kingdom 08:00 UTC | Australia 23:00 UTC`) rather than an average that suits neither; a country spanning zones says so. With no market set it returns nothing and says why, instead of producing an hour that reads like advice. |
+| **Ad targeting** | ✅ | `adTargeting()` on the batch plan — the block to paste into Meta or Google Ads: countries with their tiers, cities, locales, currencies. The exclusion side is stated as firmly as the inclusion side, because *"an open campaign buys the cheapest impressions available, which is not the same as the most valuable"* — the same mechanism that filled the organic numbers with out-of-market traffic, doing it with money. Flags a multi-locale market (separate ad sets, or one carries copy written for somewhere else) and a multi-currency one (a single hardcoded price will be wrong for someone). |
+| **Trend watch region** | ✅ | The region is appended to the news query rather than filtering results afterwards — a search that never returns the wrong region beats one that discards it after paying for it. A local business searches its city, not its country. With no market it searches globally and says so: *"a story trending somewhere this business does not sell counts the same as one at home."* |
+| **Content localisation** | ✅ | `localisationTargets()` derives locale, currency and spelling from the market instead of the customer restating on every run something the platform already knows — which could also disagree, localising for markets the business does not sell in while the ones it does go unadapted. It flags the **spelling split**, the cheapest mistake here and the easiest to miss: *"'optimise' in front of a US reader reads as a typo exactly as 'optimize' does to a British one — write the main market's spelling and adapt, rather than splitting the difference into something that looks wrong everywhere."* |
+
+All four read the brand's stored market through the same resolver; explicit
+values still win, and nothing is guessed where the market is unset.

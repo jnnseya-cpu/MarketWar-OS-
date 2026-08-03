@@ -26,6 +26,7 @@ if (typeof window !== "undefined") {
 // inspecting each one, which is the entire point of generating a batch.
 
 import { generateImage } from "@/backend/image-gateway";
+import { adTargeting, type AdTargeting, type TargetMarket } from "@/shared/market";
 import { verifyIdentityByUrl, type IdentityVerdict } from "@/backend/identity-lock";
 import {
   DEFAULT_CREATIVE_OPTIONS,
@@ -77,6 +78,8 @@ export type BatchRequest = {
   formats?: AdFormat[];
   treatments?: AdTreatment[];
   quality?: "draft" | "standard" | "premium";
+  /** Where the spend should go. Drives the targeting block on the plan. */
+  market?: TargetMarket | null;
 };
 
 export type BatchVariant = {
@@ -99,6 +102,15 @@ export type BatchPlan = {
   variants: Omit<BatchVariant, "url" | "identity" | "status" | "note">[];
   skipped: { angle: AdAngle; reason: string }[];
   count: number;
+  /**
+   * Where to run them, ready to paste into Meta or Google Ads.
+   *
+   * Creative without geography is half a campaign. An ad set left unrestricted
+   * spends wherever impressions are cheapest, which is exactly the mechanism
+   * that fills a UK business's organic numbers with traffic from countries it
+   * does not sell to — except here it is doing it with money.
+   */
+  targeting: AdTargeting;
 };
 
 // Plan the batch WITHOUT generating anything. Cheap, instant, and it lets the
@@ -143,7 +155,7 @@ export function planBatch(req: BatchRequest): BatchPlan {
       i++;
     }
   }
-  return { variants, skipped, count: variants.length };
+  return { variants, skipped, count: variants.length, targeting: adTargeting(req.market ?? null) };
 }
 
 function headlineFor(angle: AdAngle, req: BatchRequest): string {

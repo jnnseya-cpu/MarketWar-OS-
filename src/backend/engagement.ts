@@ -3,6 +3,8 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import { sendWindows, type SendWindow, type TargetMarket } from "@/shared/market";
+
 // MarketWar Customer Engagement Engine (Brevo-class CRM + CDP + lifecycle).
 //
 // A deterministic, demo-safe engagement platform: a CDP contact model, AI smart
@@ -73,7 +75,11 @@ export type CampaignMetrics = {
   conversionRate: number; // %
   bestSubject: string;
   bestSegment: string;
+  /** "09:00 UTC (09:00 in Europe/London)", or "" when no market is set. */
   bestSendTime: string;
+  /** One window per main market — a single time cannot suit several countries. */
+  sendWindows: SendWindow[];
+  sendTimeNote: string;
   roi: string; // labelled estimate
 };
 
@@ -102,6 +108,12 @@ export type CampaignInput = {
   costGbp?: number;
   subjects?: string[];
   segments?: string[];
+  /** Where this list is. Without it no send time can honestly be recommended. */
+  market?: TargetMarket | null;
+  /** The local hour to aim for. Nine in the morning unless told otherwise. */
+  preferredLocalHour?: number;
+  /** Injectable so the DST-dependent answer is testable on a fixed date. */
+  now?: Date;
 };
 
 // --- 12 lifecycle automation templates ---
@@ -201,11 +213,24 @@ export function campaignAnalytics(input?: CampaignInput): CampaignMetrics {
   const subjects = d.subjects && d.subjects.length ? d.subjects : ["(no subject supplied)"];
   const segs = d.segments && d.segments.length ? d.segments : ["(no segment supplied)"];
 
-  // bestSubject / bestSegment / bestSendTime chosen deterministically by seed.
+  // bestSubject / bestSegment: a seeded pick from what the caller supplied.
+  // Deterministic and clearly labelled, but still a pick rather than a result —
+  // a real winner needs per-variant open data, which this input does not carry.
   const bestSubject = subjects[seed(subjects.join("|")) % subjects.length];
   const bestSegment = segs[seed(segs.join("|")) % segs.length];
-  const hours = ["08:00", "09:00", "11:00", "13:00", "17:00", "19:00", "20:00"];
-  const bestSendTime = hours[seed(sent + ":" + delivered) % hours.length];
+
+  // bestSendTime WAS `hours[seed(sent + ":" + delivered) % hours.length]` — the
+  // recommended hour to email a list, drawn from a checksum of that list's own
+  // delivery counts. A customer schedules a campaign on it.
+  //
+  // The honest answer needs no model. A list in the UK should be emailed at
+  // nine in the morning IN LONDON, and what that is in UTC depends on the date
+  // because of daylight saving. Where no market is set we say we cannot know,
+  // rather than producing an hour that looks like advice.
+  const send = sendWindows(d.market ?? null, d.preferredLocalHour ?? 9, d.now ?? new Date());
+  const bestSendTime = send.windows.length
+    ? `${String(send.windows[0].utcHour).padStart(2, "0")}:${String(send.windows[0].utcMinute).padStart(2, "0")} UTC (${String(send.windows[0].localHour).padStart(2, "0")}:00 in ${send.windows[0].tz})`
+    : "";
 
   const roiRatio = costGbp > 0 ? Math.round((revenueGbp / costGbp) * 10) / 10 : 0;
 
@@ -223,6 +248,8 @@ export function campaignAnalytics(input?: CampaignInput): CampaignMetrics {
     bestSubject,
     bestSegment,
     bestSendTime,
+    sendWindows: send.windows,
+    sendTimeNote: send.note,
     roi: costGbp > 0 ? `${roiRatio}x (estimate)` : "n/a — supply costGbp",
   };
 }

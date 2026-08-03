@@ -318,3 +318,282 @@ export function geoQualifier(market: TargetMarket | null | undefined): string {
   const primary = market!.countries.filter((c) => c.tier === "primary").map((c) => countryName(c.code));
   return primary.slice(0, 3).join(", ");
 }
+
+// ---------------------------------------------------------------------------
+// What a market implies: a clock, a currency, a spelling, an ad-targeting spec.
+//
+// These four are what the remaining modules were each solving badly on their
+// own — or, in one case, with a hash. `bestSendTime` in engagement.ts was
+// `hours[seed(sent + ":" + delivered) % hours.length]`: the recommended hour to
+// email a list, picked from a checksum of that list's own delivery counts. A
+// customer schedules a campaign on it.
+//
+// The honest version needs no model and no guess. A UK list should be emailed
+// at nine in the morning IN LONDON, and what that is in UTC depends on the date
+// because of daylight saving. Intl knows; we ask it.
+// ---------------------------------------------------------------------------
+
+type Locale = {
+  /** IANA zone for the country's main commercial centre. */
+  tz: string;
+  /** True where the country spans several zones, so one clock is a simplification. */
+  multiZone?: boolean;
+  /** BCP-47, for content adaptation. */
+  locale: string;
+  currency: string;
+  /** Which English a reader expects. Silent on countries that do not use it. */
+  spelling?: "en-GB" | "en-US";
+};
+
+const LOCALES: Record<CountryCode, Locale> = {
+  GB: { tz: "Europe/London", locale: "en-GB", currency: "GBP", spelling: "en-GB" },
+  IE: { tz: "Europe/Dublin", locale: "en-IE", currency: "EUR", spelling: "en-GB" },
+  US: { tz: "America/New_York", multiZone: true, locale: "en-US", currency: "USD", spelling: "en-US" },
+  CA: { tz: "America/Toronto", multiZone: true, locale: "en-CA", currency: "CAD", spelling: "en-US" },
+  AU: { tz: "Australia/Sydney", multiZone: true, locale: "en-AU", currency: "AUD", spelling: "en-GB" },
+  NZ: { tz: "Pacific/Auckland", locale: "en-NZ", currency: "NZD", spelling: "en-GB" },
+  DE: { tz: "Europe/Berlin", locale: "de-DE", currency: "EUR" },
+  FR: { tz: "Europe/Paris", locale: "fr-FR", currency: "EUR" },
+  ES: { tz: "Europe/Madrid", locale: "es-ES", currency: "EUR" },
+  IT: { tz: "Europe/Rome", locale: "it-IT", currency: "EUR" },
+  NL: { tz: "Europe/Amsterdam", locale: "nl-NL", currency: "EUR" },
+  BE: { tz: "Europe/Brussels", locale: "nl-BE", currency: "EUR" },
+  PT: { tz: "Europe/Lisbon", locale: "pt-PT", currency: "EUR" },
+  SE: { tz: "Europe/Stockholm", locale: "sv-SE", currency: "SEK" },
+  NO: { tz: "Europe/Oslo", locale: "nb-NO", currency: "NOK" },
+  DK: { tz: "Europe/Copenhagen", locale: "da-DK", currency: "DKK" },
+  FI: { tz: "Europe/Helsinki", locale: "fi-FI", currency: "EUR" },
+  PL: { tz: "Europe/Warsaw", locale: "pl-PL", currency: "PLN" },
+  CH: { tz: "Europe/Zurich", locale: "de-CH", currency: "CHF" },
+  AT: { tz: "Europe/Vienna", locale: "de-AT", currency: "EUR" },
+  AE: { tz: "Asia/Dubai", locale: "ar-AE", currency: "AED" },
+  SA: { tz: "Asia/Riyadh", locale: "ar-SA", currency: "SAR" },
+  QA: { tz: "Asia/Qatar", locale: "ar-QA", currency: "QAR" },
+  ZA: { tz: "Africa/Johannesburg", locale: "en-ZA", currency: "ZAR", spelling: "en-GB" },
+  NG: { tz: "Africa/Lagos", locale: "en-NG", currency: "NGN", spelling: "en-GB" },
+  KE: { tz: "Africa/Nairobi", locale: "en-KE", currency: "KES", spelling: "en-GB" },
+  GH: { tz: "Africa/Accra", locale: "en-GH", currency: "GHS", spelling: "en-GB" },
+  EG: { tz: "Africa/Cairo", locale: "ar-EG", currency: "EGP" },
+  IN: { tz: "Asia/Kolkata", locale: "en-IN", currency: "INR", spelling: "en-GB" },
+  PK: { tz: "Asia/Karachi", locale: "en-PK", currency: "PKR", spelling: "en-GB" },
+  BD: { tz: "Asia/Dhaka", locale: "bn-BD", currency: "BDT" },
+  PH: { tz: "Asia/Manila", locale: "en-PH", currency: "PHP", spelling: "en-US" },
+  ID: { tz: "Asia/Jakarta", multiZone: true, locale: "id-ID", currency: "IDR" },
+  MY: { tz: "Asia/Kuala_Lumpur", locale: "ms-MY", currency: "MYR" },
+  SG: { tz: "Asia/Singapore", locale: "en-SG", currency: "SGD", spelling: "en-GB" },
+  HK: { tz: "Asia/Hong_Kong", locale: "zh-HK", currency: "HKD" },
+  JP: { tz: "Asia/Tokyo", locale: "ja-JP", currency: "JPY" },
+  KR: { tz: "Asia/Seoul", locale: "ko-KR", currency: "KRW" },
+  CN: { tz: "Asia/Shanghai", locale: "zh-CN", currency: "CNY" },
+  VN: { tz: "Asia/Ho_Chi_Minh", locale: "vi-VN", currency: "VND" },
+  TH: { tz: "Asia/Bangkok", locale: "th-TH", currency: "THB" },
+  TR: { tz: "Europe/Istanbul", locale: "tr-TR", currency: "TRY" },
+  BR: { tz: "America/Sao_Paulo", multiZone: true, locale: "pt-BR", currency: "BRL" },
+  MX: { tz: "America/Mexico_City", multiZone: true, locale: "es-MX", currency: "MXN" },
+  AR: { tz: "America/Argentina/Buenos_Aires", locale: "es-AR", currency: "ARS" },
+  CL: { tz: "America/Santiago", locale: "es-CL", currency: "CLP" },
+  CO: { tz: "America/Bogota", locale: "es-CO", currency: "COP" },
+  RO: { tz: "Europe/Bucharest", locale: "ro-RO", currency: "RON" },
+  CZ: { tz: "Europe/Prague", locale: "cs-CZ", currency: "CZK" },
+  GR: { tz: "Europe/Athens", locale: "el-GR", currency: "EUR" },
+  IL: { tz: "Asia/Jerusalem", locale: "he-IL", currency: "ILS" },
+  UA: { tz: "Europe/Kyiv", locale: "uk-UA", currency: "UAH" },
+  RU: { tz: "Europe/Moscow", multiZone: true, locale: "ru-RU", currency: "RUB" },
+};
+
+export function localeFor(code: CountryCode): Locale | null {
+  return LOCALES[String(code).toUpperCase()] ?? null;
+}
+
+/**
+ * A zone's offset from UTC, in minutes, at a given instant.
+ *
+ * Read out of Intl rather than a table, because the answer changes twice a
+ * year. London is UTC+0 in January and UTC+1 in July; a table would send the
+ * summer campaign an hour early for six months and nobody would connect the
+ * two.
+ */
+export function offsetMinutesAt(tz: string, at: Date): number {
+  try {
+    const dtf = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz, hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    const p = Object.fromEntries(dtf.formatToParts(at).map((x) => [x.type, x.value]));
+    // What the wall clock in that zone reads, treated as if it were UTC. The
+    // gap between that and the real instant IS the offset.
+    const asUtc = Date.UTC(
+      Number(p.year), Number(p.month) - 1, Number(p.day),
+      Number(p.hour) === 24 ? 0 : Number(p.hour), Number(p.minute), Number(p.second),
+    );
+    return Math.round((asUtc - at.getTime()) / 60000);
+  } catch {
+    return 0; // an unknown zone is UTC rather than an exception mid-campaign
+  }
+}
+
+export type SendWindow = {
+  code: CountryCode;
+  country: string;
+  tz: string;
+  /** The local hour asked for, e.g. 9. */
+  localHour: number;
+  /** That hour expressed in UTC on the date given — what a scheduler needs. */
+  utcHour: number;
+  utcMinute: number;
+  /** True where the country spans zones and one clock cannot serve all of it. */
+  multiZone: boolean;
+  note: string;
+};
+
+/**
+ * When to send, per primary market, for a given local hour.
+ *
+ * A list in one country has one right answer and it is not a hash. A list
+ * across several has several, which is why this returns one window per country
+ * rather than a single time pretending to suit everyone.
+ */
+export function sendWindows(
+  market: TargetMarket | null | undefined,
+  localHour = 9,
+  onDate: Date = new Date(),
+): { windows: SendWindow[]; note: string } {
+  if (!marketDefined(market)) {
+    return {
+      windows: [],
+      note: "No send time can be recommended: nobody has said where this list is. Set a target market and the right local hour becomes arithmetic rather than a guess.",
+    };
+  }
+  const hour = Math.max(0, Math.min(23, Math.round(localHour)));
+  const primaries = market!.countries.filter((c) => c.tier === "primary");
+  const use = primaries.length ? primaries : market!.countries;
+
+  const windows = use.map(({ code }) => {
+    const loc = localeFor(code);
+    const tz = loc?.tz ?? "UTC";
+    const offset = offsetMinutesAt(tz, onDate);
+    const totalUtcMinutes = ((hour * 60 - offset) % 1440 + 1440) % 1440;
+    return {
+      code, country: countryName(code), tz, localHour: hour,
+      utcHour: Math.floor(totalUtcMinutes / 60),
+      utcMinute: totalUtcMinutes % 60,
+      multiZone: Boolean(loc?.multiZone),
+      note: loc?.multiZone
+        ? `${countryName(code)} spans several time zones; this is ${tz}, so the rest of the country receives it earlier or later.`
+        : `${String(hour).padStart(2, "0")}:00 in ${tz}.`,
+    };
+  });
+
+  return {
+    windows,
+    note: windows.length > 1
+      ? `${windows.length} send windows, one per main market — a single time cannot be ${String(hour).padStart(2, "0")}:00 in all of them. Schedule per country, or pick the market that matters most.`
+      : windows[0]?.note ?? "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ad targeting — the block a customer pastes into Meta or Google Ads.
+// ---------------------------------------------------------------------------
+
+export type AdTargeting = {
+  includeCountries: { code: CountryCode; name: string; tier: MarketTier }[];
+  includeCities: string[];
+  /** Locales worth running separate creative for. */
+  locales: string[];
+  currencies: string[];
+  note: string;
+};
+
+/**
+ * Where the money should be spent, and where it should not.
+ *
+ * The exclusion side matters as much as the inclusion side: an unrestricted
+ * campaign is how a UK business ends up paying for impressions in the countries
+ * that already dominate its organic numbers for the same reason — cheap
+ * inventory, no intent.
+ */
+export function adTargeting(market: TargetMarket | null | undefined): AdTargeting {
+  if (!marketDefined(market)) {
+    return {
+      includeCountries: [], includeCities: [], locales: [], currencies: [],
+      note: "No targeting can be written: nobody has said where this business sells. An ad set with no geography spends wherever impressions are cheapest, which is rarely where the customers are.",
+    };
+  }
+  const includeCountries = market!.countries.map((c) => ({ code: c.code, name: countryName(c.code), tier: c.tier }));
+  const locales = [...new Set(includeCountries.map((c) => localeFor(c.code)?.locale).filter(Boolean) as string[])];
+  const currencies = [...new Set(includeCountries.map((c) => localeFor(c.code)?.currency).filter(Boolean) as string[])];
+  const cities = market!.cities;
+
+  return {
+    includeCountries, includeCities: cities, locales, currencies,
+    note: [
+      cities.length
+        ? `Target ${cities.join(", ")} specifically — a city radius beats a whole country for a business that serves one.`
+        : `Target ${includeCountries.filter((c) => c.tier === "primary").map((c) => c.name).join(", ") || "your main market"} and exclude everywhere else.`,
+      locales.length > 1 ? `${locales.length} locales here (${locales.join(", ")}) — separate ad sets, or one of them carries copy written for somewhere else.` : "",
+      currencies.length > 1 ? `Prices appear in ${currencies.join(", ")}; a single hardcoded currency will be wrong for someone.` : "",
+      "Everywhere outside this list should be excluded rather than left unset: an open campaign buys the cheapest impressions available, which is not the same as the most valuable.",
+    ].filter(Boolean).join(" "),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Content localisation
+// ---------------------------------------------------------------------------
+
+export type LocalisationTarget = {
+  code: CountryCode;
+  country: string;
+  locale: string;
+  currency: string;
+  spelling: "en-GB" | "en-US" | null;
+  tier: MarketTier;
+};
+
+/** Which locales content should actually be adapted for, from the market. */
+export function localisationTargets(market: TargetMarket | null | undefined): {
+  targets: LocalisationTarget[];
+  /** True when the market mixes British and American spelling expectations. */
+  spellingSplit: boolean;
+  note: string;
+} {
+  if (!marketDefined(market)) {
+    return { targets: [], spellingSplit: false, note: "No localisation targets: set the countries this business sells to and the locales, currencies and spelling follow from them." };
+  }
+  const targets = market!.countries.map((c) => {
+    const loc = localeFor(c.code);
+    return {
+      code: c.code, country: countryName(c.code), tier: c.tier,
+      locale: loc?.locale ?? "", currency: loc?.currency ?? "",
+      spelling: loc?.spelling ?? null,
+    };
+  });
+  const spellings = new Set(targets.map((t) => t.spelling).filter(Boolean));
+  const spellingSplit = spellings.size > 1;
+  return {
+    targets, spellingSplit,
+    note: spellingSplit
+      // The cheapest localisation mistake to make and the easiest to avoid.
+      ? "This market mixes British and American spelling. One article cannot be written in both, and 'optimise' in front of a US reader reads as a typo exactly as 'optimize' does to a British one — write the main market's spelling and adapt, rather than splitting the difference into something that looks wrong everywhere."
+      : targets.length > 1
+        ? `${targets.length} locales to adapt for: ${targets.map((t) => t.locale).filter(Boolean).join(", ")}.`
+        : `One locale: ${targets[0]?.locale || targets[0]?.country}.`,
+  };
+}
+
+/** A region hint for a news or trend search, from the market. */
+export function trendRegion(market: TargetMarket | null | undefined): { query: string; locale: string; note: string } {
+  if (!marketDefined(market)) {
+    return { query: "", locale: "", note: "Trends are searched globally: no market is set, so a story trending somewhere this business does not sell counts the same as one at home." };
+  }
+  const primary = market!.countries.filter((c) => c.tier === "primary");
+  const first = primary[0] ?? market!.countries[0];
+  const where = market!.cities.length ? market!.cities[0] : countryName(first.code);
+  return {
+    query: where,
+    locale: localeFor(first.code)?.locale ?? "",
+    note: `Trends searched for ${where}. A story breaking somewhere this business does not sell is not an opportunity for it, however large it is elsewhere.`,
+  };
+}

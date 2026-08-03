@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { brandMarket } from "@/backend/brand-market";
 import {
   aiSegment,
   campaignAnalytics,
@@ -41,7 +42,14 @@ export async function POST(req: NextRequest) {
 
     case "analytics": {
       const campaign = body.campaign ? (body.campaign as CampaignInput) : undefined;
-      return NextResponse.json({ metrics: campaignAnalytics(campaign) });
+      // Where the list is decides when to send to it. bestSendTime used to be
+      // a hash of this campaign's own delivery counts.
+      return NextResponse.json({
+        metrics: campaignAnalytics({
+          ...campaign,
+          market: (await brandMarket(typeof body.brandId === "string" ? body.brandId : "")) ?? (body.targetMarket as never) ?? null,
+        }),
+      });
     }
 
     case "suggest-reply": {

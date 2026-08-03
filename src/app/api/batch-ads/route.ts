@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { planBatch, renderBatch, AD_FORMATS, AD_ANGLES, type BatchRequest } from "@/backend/batch-ads";
+import { brandMarket } from "@/backend/brand-market";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction, ACTION_COST_ACU, creditAcus } from "@/backend/wallet";
@@ -57,7 +58,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Tell us the business and what it sells — a batch built on neither is a batch of generic pictures." }, { status: 400 });
   }
 
-  const plan = planBatch(brief);
+  // The brand's own market decides where the spend goes. Without it the plan
+  // would ship creative with no geography, and an unrestricted ad set buys the
+  // cheapest impressions rather than the most valuable ones.
+  const market = await brandMarket(typeof body.brandId === "string" ? body.brandId : "");
+  const plan = planBatch({ ...brief, market: market ?? (body.targetMarket as never) ?? null });
   if (!plan.count) {
     return NextResponse.json({
       error: "Nothing to build. Every angle needs material we do not have — add an offer, the customer's problem, or a real customer quote.",
