@@ -8028,3 +8028,179 @@ test("the drawer can be closed without touching it", () => {
   assert.match(nav, /aria-modal="true"/);
   assert.match(nav, /aria-label="Navigation"/);
 });
+
+// ---------------------------------------------------------------------------
+// Improving the open and click rates — the panel behind the tiles
+//
+// From a live screenshot: 2,129 sent, OPEN RATE 5.9% (125 opened), CLICK RATE
+// 4.3% (92 clicked), both painted green. Two things were wrong. The click
+// figure and the open figure could not both be true — 92 clicks from 125
+// openers is 74% of openers clicking, where real people run 10–15% — and the
+// platform had already computed that verdict server-side and dropped it before
+// the screen. And an open counted only by a 1x1 image cannot see a reader who
+// clicked without loading images, who is the most engaged reader on the list.
+// ---------------------------------------------------------------------------
+const imp = await import("../src/backend/email-improve.ts");
+
+const ledger = (spec) => {
+  const out = [];
+  for (const [type, list] of Object.entries(spec)) {
+    for (const e of list) out.push(typeof e === "string" ? { email: e, type } : { ...e, type });
+  }
+  return out;
+};
+
+test("a click proves an open, even when the tracking pixel never fired", () => {
+  // Two addresses clicked. Only one of them loaded the image.
+  const events = ledger({
+    sent: ["a@x.com", "b@x.com", "c@x.com", "d@x.com"],
+    open: ["a@x.com"],
+    click: ["a@x.com", "b@x.com"],
+  });
+  const r = imp.reach(events);
+  assert.equal(r.pixelOpeners, 1, "only one pixel fired");
+  assert.equal(r.clickers, 2);
+  assert.equal(r.knownOpeners, 2, "b clicked, so b opened — the union, not the pixel count");
+  assert.equal(r.silentOpeners, 1, "b is invisible to a pixel-only open count");
+  assert.equal(r.openFloorPct, 50, "2 of 4, not 1 of 4");
+});
+
+test("the open figure is named as a floor everywhere it is produced", () => {
+  const src = readFileSync(new URL("../src/backend/email-improve.ts", import.meta.url), "utf8");
+  // A field called openRate invites being read as a measurement; it is not one.
+  assert.match(src, /openFloorPct/);
+  assert.ok(!/\bopenRatePct:\s/.test(src.replace(/import[\s\S]*?from "@\/backend\/deliverability";/, "")),
+    "this module must not mint a plain open-rate field — the number it computes is a floor");
+  const r = imp.improvements({ events: ledger({ sent: ["a@x.com"], open: ["a@x.com"] }) });
+  assert.match(r.measurementNote, /FLOOR/);
+  assert.match(r.measurementNote, /Apple Mail Privacy Protection/);
+});
+
+test("machine hits are excluded from the floor as well as from the rate", () => {
+  const events = [
+    { email: "a@x.com", type: "sent" }, { email: "b@x.com", type: "sent" },
+    { email: "a@x.com", type: "click", meta: { machine: "true" } },
+    { email: "b@x.com", type: "open" },
+  ];
+  const r = imp.reach(events);
+  assert.equal(r.clickers, 0, "a scanner fetching the link is not a reader, on either count");
+  assert.equal(r.knownOpeners, 1);
+});
+
+test("an implausible click-to-open makes the click grade unknown, never good", () => {
+  // The screenshot's own shape: a click rate that would grade well on its own,
+  // sitting on a click-to-open that says the clicks were scanners.
+  const events = [];
+  for (let i = 0; i < 600; i++) events.push({ email: `c${i}@x.com`, type: "sent" });
+  for (let i = 0; i < 50; i++) events.push({ email: `c${i}@x.com`, type: "open" });
+  for (let i = 0; i < 45; i++) events.push({ email: `c${i}@x.com`, type: "click" });
+  const r = imp.improvements({ events, domains: [{ domain: "x.com", status: "verified" }] });
+  assert.ok(r.reach.clickPct >= imp.CLICK_GOOD_PCT, "7.5% would grade good in isolation");
+  assert.equal(r.clickGrade, "unknown", "the report calls this number unreliable — it must not also grade it good");
+  assert.ok(r.findings.some((f) => f.id === "click-to-open-implausible"));
+});
+
+test("a trustworthy click rate is still graded on its merits", () => {
+  const events = [];
+  for (let i = 0; i < 600; i++) events.push({ email: `c${i}@x.com`, type: "sent" });
+  for (let i = 0; i < 200; i++) events.push({ email: `c${i}@x.com`, type: "open" });
+  for (let i = 0; i < 24; i++) events.push({ email: `c${i}@x.com`, type: "click" });
+  const r = imp.improvements({ events, domains: [{ domain: "x.com", status: "verified" }] });
+  assert.equal(r.clickGrade, "good");
+  assert.equal(r.openGrade, "good");
+});
+
+test("a small sample is graded unknown, not good", () => {
+  assert.equal(imp.grade(45, "open", 30), "unknown", "45% of twenty messages is noise");
+  assert.equal(imp.grade(45, "open", 400), "good");
+  assert.equal(imp.grade(4, "open", 400), "poor");
+  assert.equal(imp.grade(12, "open", 400), "fair");
+});
+
+test("an unauthenticated domain is the blocking finding and leads the list", () => {
+  const events = [];
+  for (let i = 0; i < 400; i++) events.push({ email: `c${i}@x.com`, type: "sent" });
+  for (let i = 0; i < 20; i++) events.push({ email: `c${i}@x.com`, type: "open" });
+  const r = imp.improvements({ events, domains: [{ domain: "x.com", status: "pending" }], platformFrom: "os@mw.test" });
+  assert.equal(r.findings[0].id, "no-authenticated-domain");
+  assert.equal(r.findings[0].severity, "blocking");
+  assert.match(r.findings[0].evidence, /400/, "the evidence quotes the customer's own count");
+  assert.equal(r.headline, r.findings[0].title);
+  // And it goes away once a domain is verified.
+  const ok = imp.improvements({ events, domains: [{ domain: "x.com", status: "verified" }] });
+  assert.ok(!ok.findings.some((f) => f.id === "no-authenticated-domain"));
+});
+
+test("contacts that have never engaged are counted, with the arithmetic shown", () => {
+  const events = [];
+  // 50 addresses received four messages and opened one of them. 50 received four
+  // and never opened. The send counts are IDENTICAL, so the only thing that can
+  // separate the two groups is whether they ever engaged.
+  for (let i = 0; i < 50; i++) {
+    for (let k = 0; k < 4; k++) events.push({ email: `y${i}@x.com`, type: "sent" });
+    events.push({ email: `y${i}@x.com`, type: "open" });
+  }
+  for (let i = 0; i < 50; i++) for (let k = 0; k < 4; k++) events.push({ email: `n${i}@x.com`, type: "sent" });
+  const d = imp.deadWeight(events);
+  assert.equal(d.count, 50);
+  assert.equal(d.messages, 200);
+  // 50 openers over 400 sends is 12.5%; over the 200 that remain it is 25%.
+  const r = imp.reach(events);
+  assert.equal(r.openFloorPct, 12.5);
+  assert.equal(d.openFloorWithoutPct, 25);
+  // Someone who opened even once is never in this group.
+  assert.ok(!d.addresses.some((a) => a.startsWith("y")));
+});
+
+test("two campaigns are only called different when the difference beats chance", () => {
+  // 12% against 8% on sixty each is the classic false finding.
+  const noise = imp.separated({ hits: 7, of: 60 }, { hits: 5, of: 60 });
+  assert.equal(noise.separated, false);
+  assert.match(noise.note, /inside what chance produces/);
+  // The same gap on two thousand each is real.
+  const real = imp.separated({ hits: 240, of: 2000 }, { hits: 160, of: 2000 });
+  assert.equal(real.separated, true);
+  assert.match(real.note, /not chance/);
+});
+
+test("no finding predicts a lift", () => {
+  // "+18% expected" is the shape of invented number this codebase keeps finding
+  // in itself. Every figure a customer reads here came from their own ledger.
+  const src = readFileSync(new URL("../src/backend/email-improve.ts", import.meta.url), "utf8");
+  const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+  assert.ok(!/\+\d+%/.test(codeOnly), "a promised percentage lift is a fabrication");
+  assert.ok(!/uplift|expected lift|will increase by|boost.{0,12}by \d/i.test(codeOnly));
+  // And no hash-as-score.
+  assert.ok(!/\bseed\s*\(/.test(codeOnly), "nothing here may be derived from a hash");
+});
+
+test("nothing is judged below the volume that makes a percentage mean anything", () => {
+  const events = [];
+  for (let i = 0; i < 40; i++) events.push({ email: `c${i}@x.com`, type: "sent" });
+  events.push({ email: "c0@x.com", type: "open" });
+  const r = imp.improvements({ events, domains: [{ domain: "x.com", status: "verified" }] });
+  assert.equal(r.openGrade, "unknown");
+  assert.equal(r.clickGrade, "unknown");
+  assert.match(r.headline, /too few/);
+});
+
+test("the tiles grade the rate instead of painting it green", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  const tiles = page.slice(page.indexOf("Open rate (floor)"), page.indexOf("Open rate (floor)") + 1400);
+  assert.ok(!/label="Open rate[^"]*"[\s\S]{0,200}?tone="good"/.test(tiles), "the open tile must not hardcode a good tone");
+  assert.match(tiles, /GRADE_TONE\[stats\.improve\?\.openGrade/);
+  assert.match(tiles, /GRADE_TONE\[stats\.improve\?\.clickGrade/);
+  assert.match(page, /unknown: "neutral"/, "an unjudged rate renders white, not green");
+});
+
+test("the diagnosis reaches the screen instead of being computed and dropped", () => {
+  const route = readFileSync(new URL("../src/app/api/email-events/route.ts", import.meta.url), "utf8");
+  assert.match(route, /improvements\(/);
+  assert.match(route, /improve,/, "the report must be in the response body");
+  const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<EmailImprove report=\{stats\.improve\}/);
+  const panel = readFileSync(new URL("../src/components/EmailImprove.tsx", import.meta.url), "utf8");
+  for (const field of ["headline", "measurementNote", "evidence", "fix"]) {
+    assert.ok(panel.includes(field), `the panel drops ${field}`);
+  }
+});

@@ -3,6 +3,8 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { eventStats, suppressedEmails, brandEvents } from "@/backend/email-events";
 import { engagementSanity } from "@/backend/email-bot-filter";
 import { byReceivingProvider, reputationVerdict } from "@/backend/deliverability";
+import { improvements } from "@/backend/email-improve";
+import { listDomains } from "@/backend/sending-domains";
 import { getWarmup } from "@/backend/email-warmup";
 
 // Engagement stats for a brand's Email Center — opens/clicks/bounces/complaints
@@ -17,8 +19,9 @@ export async function GET(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const today = new Date().toISOString().slice(0, 10);
-  const [stats, suppressed, warmup, ledger] = await Promise.all([
+  const [stats, suppressed, warmup, ledger, domains] = await Promise.all([
     eventStats(brandId), suppressedEmails(brandId), getWarmup(brandId, today), brandEvents(brandId).catch(() => []),
+    listDomains(brandId).catch(() => []),
   ]);
 
   // Where the mail actually went. An 8.7% open rate across the board is a
@@ -33,11 +36,25 @@ export async function GET(req: NextRequest) {
     sent: stats.sent, opens: stats.open, clicks: stats.click,
     machineOpens: stats.machineOpen, machineClicks: stats.machineClick,
   });
+  // Why the rates are what they are, and the one thing to change. The tiles used
+  // to show 5.9% in green with nothing behind it; this is the "behind it".
+  const improve = improvements({
+    events: ledger,
+    domains: domains.map((d) => ({ domain: d.domain, status: d.status })),
+    machineOpens: stats.machineOpen,
+    machineClicks: stats.machineClick,
+    bounces: stats.bounce,
+    complaints: stats.complaint,
+    unsubscribes: stats.unsubscribe,
+    platformFrom: process.env.EMAIL_FROM || "",
+  });
+
   return NextResponse.json({
     ...stats,
     suppressed: suppressed.size,
     warmup,
     engagement: sanity,
+    improve,
     providers,
     reputation,
     note: [

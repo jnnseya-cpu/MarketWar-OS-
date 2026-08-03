@@ -1825,3 +1825,60 @@ box rather than the viewport. Measured in a real mobile Chromium at 412×915:
 | It can be closed without touching it | ✅ | Escape, plus `aria-modal` and an `aria-label`. A full-screen drawer with no keyboard exit is a trap. |
 | The class of bug, not the instance | ✅ | A test enumerates every component mounted inside the blurred header and fails any that renders `fixed inset-0` without a portal. |
 | Verified, not reasoned | ✅ | Driven in headless Chromium at phone size: the fix measured at full height, and the bug **reproduced at 60px** by reverting the portal — so the cause is confirmed rather than assumed. |
+
+### §58 — The three sender fields, filled in (2026-08-03)
+
+Owner: *"the from name section, From address section and reply to inbox to be
+pre-filled"* (screenshot: three empty boxes with placeholders).
+
+The platform knew all three. The brand's name was on the screen, the signed-in
+account's address signed the request, and any authenticated domain was already
+in Sending Domains. `src/shared/email-identity.ts` supplies the defaults and
+`applyDefaults()` fills **only empty fields**, so a value the customer typed is
+never overwritten by a brand switch.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| From name and Reply-to prefilled | ✅ | Brand name, and the signed-in account address — the one inbox a person is known to read. |
+| From address prefilled **only from a verified domain** | ✅ | Prefilling `hello@theirdomain.com` because it looks right produces mail that spam-folders, and the field *looks* correct so nobody investigates. With nothing verified the field stays empty and `fromNote` says why, naming the platform address the send falls back to. |
+| A hand-typed address gets the same check | ✅ | `fromAddressWarning()` runs against the same verified list, so an address typed by hand cannot skip the check the prefilled one never needed. |
+
+## §59 — "Improve the open and click rates" (2026-08-03)
+
+Owner sent one screenshot of the Email Centre tiles: **2,129 sent · OPEN RATE
+5.9% (125 opened) · CLICK RATE 4.3% (92 clicked)** — both painted green.
+
+**Two defects in one picture.**
+
+*The tiles were lying about the result.* `tone="good"` was hardcoded on both, so
+5.9% rendered in the same green a 40% open rate would. A platform that tells a
+customer a poor result is a good one is worse than a platform with no tiles.
+
+*And the diagnosis was computed and thrown away.* `/api/email-events` already
+returned `engagement`, `providers`, `reputation` and a `note` — including the
+verdict that 92 clicks from 125 openers is **74% of openers clicking**, where
+real people run 10–15%, which is what corporate link-scanning looks like. The
+client's `stats` type listed ten fields and none of them were those. Every one
+of those objects was discarded before it reached the screen.
+
+*The open number was also mis-measured.* An open is recorded by a 1×1 image.
+Anyone who **clicked** necessarily opened — a link cannot be pressed inside an
+unopened message — but a clicker whose client blocked images never appeared in
+the open count at all. The most engaged readers on the list were invisible.
+
+**New: `src/backend/email-improve.ts`** (ledger in, ranked findings out) and
+`src/components/EmailImprove.tsx` (the panel). Wired through the existing
+`/api/email-events` route; nothing was removed.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The open figure is a **floor**, not a measurement | ✅ **new** | `reach()` returns `knownOpeners` = pixel openers ∪ clickers, and the field is called `openFloorPct` so it cannot be read as a measurement. Verified end-to-end through the real `/api/track/open` and `/api/track/click` handlers: a run with 40 pixel opens and 15 image-blocked clickers reads **13.3% pixel-only, 18.3% as a floor**. |
+| The tile grades instead of flattering | ✅ | `openGrade` / `clickGrade` → `GRADE_TONE`. Below `MIN_VOLUME_TO_JUDGE` (200) a rate grades `unknown` and renders **white, not green** — an unjudged number is not a good one. |
+| A number the report calls unreliable is never graded good | ✅ | When click-to-open is outside what people produce, `clickGrade` is forced to `unknown`. A tile cannot say "good" three inches above the paragraph saying "treat this as an upper bound". Mutation-tested. |
+| The grading lines are **ours**, and said to be | ✅ | 20% / 2.5% are declared operating lines, not an industry standard — since Apple Mail Privacy Protection began fetching pixels on readers' behalf, published open-rate benchmarks measure that relay as much as they measure people. Google and Yahoo's complaint/bounce limits remain quoted as theirs in `deliverability.ts`. |
+| Findings are **counted**, in the customer's own numbers | ✅ | Unauthenticated sending domain (blocking); click-to-open outside human range; a receiving provider filtering you; contacts that have never engaged; openers who do not click; unsubscribe rate; reputation halt. Each carries the arithmetic that produced it. |
+| Contacts that never engage, with the counterfactual shown | ✅ | `deadWeight()` — addresses sent to 3+ times that have never opened or clicked, the share of total sends they consume, and what the floor would read without them, described as *"the same arithmetic, not a forecast"*. It is the only lever that moves both rates **and** the sending reputation together. |
+| No campaign is called a winner on noise | ✅ | `separated()` is a two-proportion z-test at the conventional 1.96. "Your best subject line" is the easiest place in an email product to publish a coincidence as a finding: 12% against 8% on sixty recipients each is nothing, and a customer who rewrites their copy around it has been misled by their own tool. |
+| **No predicted lift, no hashed score** | ✅ | A test greps the module for `+N%`, "uplift", "expected lift" and for any `seed(` call. Every figure a customer reads came from their own ledger. |
+| Machine hits excluded from the floor too | ✅ | The same `meta.machine` flag the bot filter writes; scanners are kept in the ledger as evidence of delivery and excluded from every rate. Verified against the real tracking handlers: 25 Proofpoint fetches flagged, 25 excluded. |
+| Mutation-verified | ✅ | Eight mutations — pixel-only opens, forcing click trust, grading small samples, counting engaged contacts as dead weight, dropping the significance gate, counting scanners as readers, dropping the report from the API response, and re-hardcoding the green tile — each caught by a test. |

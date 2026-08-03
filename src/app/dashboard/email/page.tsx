@@ -24,6 +24,7 @@ import { AreaChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import EmailPreview from "@/components/EmailPreview";
+import EmailImprove, { type ImproveReportView } from "@/components/EmailImprove";
 import { authedFetch } from "@/frontend/api-client";
 import { useAuthUser } from "@/frontend/use-auth-user";
 import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike } from "@/shared/email-identity";
@@ -62,6 +63,14 @@ const CAPABILITIES = [
   { icon: MailCheck, title: "Zero-bounce doctrine", desc: "Bounces are prevented before send (hygiene pipeline) and never repeated (suppression ledger). Target bounce rate < 0.5% — 6× inside the Gmail/Yahoo bulk-sender threshold." },
 ];
 
+// A rate is graded on the server against published operating lines; the tile
+// only colours it. "unknown" means the sample is too small to judge, or the
+// report has just called the number unreliable — either way it stays white
+// rather than green, because an unjudged number is not a good one.
+const GRADE_TONE: Record<"good" | "fair" | "poor" | "unknown", "good" | "warn" | "bad" | "neutral"> = {
+  good: "good", fair: "warn", poor: "bad", unknown: "neutral",
+};
+
 export default function EmailPage() {
   const { activeBrand } = useActiveBrand();
   const { user } = useAuthUser();
@@ -96,7 +105,7 @@ export default function EmailPage() {
   const [fromNote, setFromNote] = useState("");
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
-  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number } } | null>(null);
+  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number }; improve?: ImproveReportView } | null>(null);
   // The preview's verdict, so the Send buttons and the preview cannot disagree
   // about whether this campaign is safe to send.
   const [previewBlockers, setPreviewBlockers] = useState(0);
@@ -475,13 +484,32 @@ export default function EmailPage() {
       {activeBrand && stats && stats.sent > 0 && (
         <div className="mb-8 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label="Sent" value={stats.sent.toLocaleString()} sub="tracked messages" />
-          <StatCard label="Open rate" value={`${stats.openRate}%`} tone="good" sub={`${stats.open.toLocaleString()} opened`} />
-          <StatCard label="Click rate" value={`${stats.clickRate}%`} tone="good" sub={`${stats.click.toLocaleString()} clicked`} />
+          {/* The open rate is shown as a FLOOR and graded, not painted green.
+              A pixel-only count misses every reader who clicked without loading
+              images, and a tile that calls 5.9% "good" is the platform lying to
+              the customer about their own result. */}
+          <StatCard
+            label="Open rate (floor)"
+            value={`${stats.improve ? stats.improve.reach.openFloorPct : stats.openRate}%`}
+            tone={GRADE_TONE[stats.improve?.openGrade ?? "unknown"]}
+            sub={stats.improve
+              ? `${stats.improve.reach.knownOpeners.toLocaleString()} known to have opened${stats.improve.reach.silentOpeners ? ` (${stats.improve.reach.silentOpeners.toLocaleString()} clicked without loading images)` : ""}`
+              : `${stats.open.toLocaleString()} opened`}
+          />
+          <StatCard
+            label="Click rate"
+            value={`${stats.clickRate}%`}
+            tone={GRADE_TONE[stats.improve?.clickGrade ?? "unknown"]}
+            sub={`${stats.click.toLocaleString()} clicked${stats.improve?.reach.clickToOpenPct ? ` · ${stats.improve.reach.clickToOpenPct}% of openers` : ""}`}
+          />
           <StatCard label="Bounces" value={stats.bounce.toLocaleString()} tone={stats.bounce ? "warn" : "neutral"} sub="auto-suppressed" />
           <StatCard label="Complaints" value={stats.complaint.toLocaleString()} tone={stats.complaint ? "warn" : "neutral"} sub="auto-suppressed" />
           <StatCard label="Suppressed" value={stats.suppressed.toLocaleString()} sub="never re-sent" />
         </div>
       )}
+
+      {/* Why those rates are what they are, and the one thing to change. */}
+      {activeBrand && stats?.improve && <EmailImprove report={stats.improve} />}
 
       {/* REAL campaign send — to the brand's consented Customer Vault */}
       <div className="mb-8 card border-emerald-500/30 p-5">
