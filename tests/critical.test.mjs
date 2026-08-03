@@ -1678,3 +1678,113 @@ test("all three sources go through one preview, and the send is gated on it", as
   const editor = readFileSync("src/app/dashboard/email-templates/page.tsx", "utf8");
   assert.match(editor, /<EmailPreview/, "the template editor uses the same panel");
 });
+
+// ---------------------------------------------------------------------------
+// Who the email is from — filled in, because the platform already knows.
+//
+// Three empty boxes with placeholders on every campaign: a From name the brand
+// record holds, a Reply-to the signed-in account holds, and a From address that
+// Sending Domains holds. The platform was asking a question it could answer.
+//
+// EXCEPT one of the three is not safe to guess, and that is the whole design.
+// A From address only works if its domain is DKIM-authenticated. Prefilling
+// hello@theirdomain.com because it LOOKS right produces mail that spam-folders,
+// and the customer has no idea why — the field looked filled in, so it looked
+// correct.
+// ---------------------------------------------------------------------------
+const ident = await import("../src/shared/email-identity.ts");
+
+test("a verified domain is prefilled as the From address", () => {
+  const d = ident.emailIdentityDefaults({
+    brandName: "VeryX", userEmail: "Justin@Gmail.com",
+    domains: [{ domain: "veryx.com", status: "verified" }],
+  });
+  assert.equal(d.fromName, "VeryX");
+  assert.equal(d.fromEmail, "hello@veryx.com");
+  assert.equal(d.replyTo, "justin@gmail.com", "normalised, because addresses are not case-sensitive");
+  assert.match(d.fromNote, /your own verified domain \(veryx\.com\)/);
+});
+
+test("an UNVERIFIED domain is never prefilled, and the blank says why", () => {
+  // The one that matters. A filled-in field that spam-folders is worse than an
+  // empty one, because it looks correct.
+  const d = ident.emailIdentityDefaults({
+    brandName: "VeryX", userEmail: "justin@gmail.com",
+    domains: [{ domain: "veryx.com", status: "pending" }],
+    platformFrom: "MarketWar OS <info@marketwaros.com>",
+  });
+  assert.equal(d.fromEmail, "", "an unauthenticated domain must not be suggested");
+  assert.match(d.fromNote, /not verified yet, so this is left blank on purpose/);
+  assert.match(d.fromNote, /lands in spam/);
+  assert.match(d.fromNote, /info@marketwaros\.com/, "and it must say what goes out instead");
+  // The other two are still filled: they carry no deliverability risk.
+  assert.equal(d.fromName, "VeryX");
+  assert.equal(d.replyTo, "justin@gmail.com");
+});
+
+test("no domains at all is a different sentence from an unverified one", () => {
+  const d = ident.emailIdentityDefaults({ brandName: "VeryX", userEmail: "a@b.com", domains: [] });
+  assert.equal(d.fromEmail, "");
+  assert.match(d.fromNote, /have not authenticated a domain of your own yet/);
+  assert.ok(!/not verified yet/.test(d.fromNote), "telling someone to finish DNS they never started is a dead end");
+});
+
+test("the platform's own address is explained but never prefilled", () => {
+  // It is MarketWar's address, not the customer's. Putting it in their From
+  // field would make their campaign look like it came from us.
+  const d = ident.emailIdentityDefaults({
+    brandName: "VeryX", userEmail: "a@b.com", domains: [],
+    platformFrom: "MarketWar OS <info@marketwaros.com>",
+  });
+  assert.equal(d.fromEmail, "");
+  assert.match(d.fromNote, /info@marketwaros\.com/);
+});
+
+test("only the first verified domain is used, and only a verified one", () => {
+  const d = ident.emailIdentityDefaults({
+    brandName: "B", userEmail: "a@b.com",
+    domains: [
+      { domain: "pending.com", status: "pending" },
+      { domain: "good.com", status: "verified" },
+      { domain: "other.com", status: "verified" },
+    ],
+  });
+  assert.equal(d.fromEmail, "hello@good.com");
+});
+
+test("a prefill never overwrites something the customer typed", () => {
+  // Type a From name, switch brand to check something, come back — the text
+  // must still be there.
+  const typed = { fromName: "Justin at VeryX", fromEmail: "sales@veryx.com", replyTo: "me@work.com" };
+  const out = ident.applyDefaults(typed, {
+    fromName: "VeryX", fromEmail: "hello@veryx.com", replyTo: "other@gmail.com", fromNote: "",
+  });
+  assert.deepEqual(out, typed);
+
+  // …but an empty field is filled.
+  const half = ident.applyDefaults({ fromName: "", fromEmail: "  ", replyTo: "me@work.com" }, {
+    fromName: "VeryX", fromEmail: "hello@veryx.com", replyTo: "other@gmail.com", fromNote: "",
+  });
+  assert.deepEqual(half, { fromName: "VeryX", fromEmail: "hello@veryx.com", replyTo: "me@work.com" });
+});
+
+test("a hand-typed address gets the check the prefilled one never needed", () => {
+  const domains = [{ domain: "veryx.com", status: "verified" }, { domain: "half.com", status: "pending" }];
+  assert.equal(ident.fromAddressWarning("hello@veryx.com", domains), "", "a verified domain is fine");
+  assert.equal(ident.fromAddressWarning("", domains), "", "blank means the platform sender — not a problem");
+  assert.match(ident.fromAddressWarning("hi@half.com", domains), /added but not verified yet/);
+  assert.match(ident.fromAddressWarning("hi@stranger.com", domains), /not authenticated for sending here/);
+  assert.match(ident.fromAddressWarning("not-an-address", domains), /does not look like an email address/);
+});
+
+test("the Email Centre actually applies the defaults, and shows the reason", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync("src/app/dashboard/email/page.tsx", "utf8");
+  assert.match(page, /emailIdentityDefaults\(\{/);
+  assert.match(page, /applyDefaults\(\{ fromName, fromEmail, replyTo \}, defaults\)/,
+    "it must merge rather than overwrite");
+  assert.match(page, /userEmail: user\?\.email/, "the reply-to comes from the signed-in account");
+  assert.match(page, /brandName: activeBrand\.name/);
+  assert.match(page, /\{fromNote &&/, "a blank field must say it was left blank on purpose");
+  assert.match(page, /fromAddressWarning\(fromEmail, domains\)/);
+});

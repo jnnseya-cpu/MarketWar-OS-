@@ -25,6 +25,8 @@ import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import EmailPreview from "@/components/EmailPreview";
 import { authedFetch } from "@/frontend/api-client";
+import { useAuthUser } from "@/frontend/use-auth-user";
+import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike } from "@/shared/email-identity";
 
 // Headline deliverability posture is COMPUTED per brand by the Email
 // Deliverability Posture Engine (/api/email-metrics) — every figure is a
@@ -62,6 +64,7 @@ const CAPABILITIES = [
 
 export default function EmailPage() {
   const { activeBrand } = useActiveBrand();
+  const { user } = useAuthUser();
   const [posture, setPosture] = useState<Posture | null>(null);
   const [raw, setRaw] = useState(
     "marcus@gmail.com\nleah.simmons@outlook.com\ninfo@somecompany.co.uk\nbad-address@@nowhere\npromo@mailinator.com\namara.okafor@yahoo.com"
@@ -86,6 +89,11 @@ export default function EmailPage() {
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
   const [replyTo, setReplyTo] = useState(""); // where replies land (your real inbox)
+  // This brand's sending domains. Needed to decide whether a From address can
+  // be prefilled at all — an unauthenticated one lands in spam, so a field that
+  // LOOKS filled in would be worse than an empty one.
+  const [domains, setDomains] = useState<SendingDomainLike[]>([]);
+  const [fromNote, setFromNote] = useState("");
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
   const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number } } | null>(null);
@@ -127,6 +135,40 @@ export default function EmailPage() {
       .catch(() => setStats(null));
   }, [activeBrand]);
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  // Fill in who this is from — the platform already knows all three.
+  //
+  // Only empty fields are filled: someone who typed a From name, switched brand
+  // to check something and came back must not find their text replaced.
+  useEffect(() => {
+    if (!activeBrand) return;
+    let off = false;
+    (async () => {
+      let list: SendingDomainLike[] = [];
+      try {
+        const r = await authedFetch(`/api/sending-domains?brandId=${encodeURIComponent(activeBrand.id)}`);
+        const d = await r.json();
+        list = Array.isArray(d?.domains) ? d.domains : [];
+      } catch { /* no domains is a normal state, not an error to show */ }
+      if (off) return;
+      setDomains(list);
+      const defaults = emailIdentityDefaults({
+        brandName: activeBrand.name,
+        userEmail: user?.email ?? "",
+        domains: list,
+        platformFrom: engineInfo.from ?? "",
+      });
+      setFromNote(defaults.fromNote);
+      const next = applyDefaults({ fromName, fromEmail, replyTo }, defaults);
+      setFromName(next.fromName);
+      setFromEmail(next.fromEmail);
+      setReplyTo(next.replyTo);
+    })();
+    return () => { off = true; };
+    // Re-runs when the brand or the signed-in account changes; the current field
+    // values are deliberately NOT dependencies, or every keystroke would refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrand?.id, user?.email, engineInfo.from]);
 
   const canSend = Boolean(activeBrand) && (templateId ? true : Boolean(subject.trim() && message.trim()));
 
@@ -473,6 +515,14 @@ export default function EmailPage() {
             <input className="input max-w-[180px]" value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="From name (e.g. VeryX)" />
             <input className="input flex-1 min-w-[200px]" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="From address (hello@yourdomain.com)" />
           </div>
+          {/* Why the From address is what it is. The empty case is the one that
+              needs explaining: a blank field looks like something forgotten
+              unless it says it was left blank on purpose. */}
+          {fromNote && <p className="text-[11px] leading-relaxed text-slate-500">{fromNote}</p>}
+          {/* A hand-typed address gets the check the prefilled one never needed. */}
+          {fromAddressWarning(fromEmail, domains) && (
+            <p className="rounded-md bg-amber-500/[0.07] px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-200">{fromAddressWarning(fromEmail, domains)}</p>
+          )}
           <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Leave blank to use the platform sender.</p>
           <div className="flex flex-wrap items-center gap-2">
             <input className="input flex-1 min-w-[200px]" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="Reply-to inbox (where replies land, e.g. you@gmail.com)" />
