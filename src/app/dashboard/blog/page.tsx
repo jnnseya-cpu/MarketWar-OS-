@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Loader2, Sparkles, Trash2, Send, EyeOff, Copy, Check, ExternalLink } from "lucide-react";
+import { Loader2, Sparkles, Trash2, Send, EyeOff, Copy, Check, ExternalLink, Link as LinkIcon } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 import { useIsAdmin } from "@/frontend/use-is-admin";
@@ -20,12 +20,26 @@ export default function BlogStudioPage() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // Link health per post. Three articles existed and none of them linked
+  // anywhere, which nothing in this studio would have told anybody.
+  const [audits, setAudits] = useState<Record<string, { internal: number; external: number; broken: string[]; level: "ok" | "thin" | "none"; note: string }>>({});
+  const [lastRun, setLastRun] = useState<{ created: number; skipped: { topic: string; reason: string }[]; links: { slug: string; note: string }[] } | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await authedFetch("/api/blog?admin=1");
       const data = await res.json();
       setPosts(Array.isArray(data.posts) ? data.posts : []);
+    } catch { /* ignore */ }
+    try {
+      const res = await authedFetch("/api/blog", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "audit-links" }),
+      });
+      const data = await res.json();
+      const map: Record<string, { internal: number; external: number; broken: string[]; level: "ok" | "thin" | "none"; note: string }> = {};
+      for (const a of Array.isArray(data.audits) ? data.audits : []) map[a.slug] = a;
+      setAudits(map);
     } catch { /* ignore */ }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -48,11 +62,33 @@ export default function BlogStudioPage() {
     }
   }
 
+  // One topic per line. A single line behaves exactly as it always did; several
+  // produce a run in one action, each article able to link to the ones written
+  // before it in the same run.
   async function generate(e: React.FormEvent) {
     e.preventDefault();
-    if (!topic.trim()) return;
-    await act("generate", undefined, { topic, category, keywords });
-    setTopic(""); setKeywords("");
+    const topics = topic.split("\n").map((t) => t.trim()).filter(Boolean);
+    if (!topics.length) return;
+    setBusy(true); setError(null); setLastRun(null);
+    try {
+      const res = await authedFetch("/api/blog", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate", topics, category, keywords }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Generation failed"); return; }
+      setLastRun({
+        created: Array.isArray(data.posts) ? data.posts.length : 1,
+        skipped: Array.isArray(data.skipped) ? data.skipped : [],
+        links: Array.isArray(data.links) ? data.links : [],
+      });
+      setTopic(""); setKeywords("");
+      await load();
+    } catch {
+      setError("Could not reach the blog engine.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function copyLink(slug: string) {
@@ -93,8 +129,9 @@ export default function BlogStudioPage() {
       <form onSubmit={generate} className="card mb-8 p-5">
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs font-semibold text-slate-400">Topic</span>
-            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. How local businesses win with WhatsApp-first funnels"
+            <span className="mb-1 block text-xs font-semibold text-slate-400">Topic — one per line for a run of articles</span>
+            <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={4}
+              placeholder={"How local businesses win with WhatsApp-first funnels\nWhy your open rate is not your open rate\nCutting shorts out of a two-hour webinar"}
               className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500/60" />
           </label>
           <label className="block">
@@ -109,9 +146,18 @@ export default function BlogStudioPage() {
             className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500/60" />
         </label>
         <button type="submit" disabled={busy || !topic.trim()} className="btn-primary mt-4 justify-center disabled:opacity-60">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Generate article
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {topic.split("\n").filter((t) => t.trim()).length > 1 ? `Generate ${topic.split("\n").filter((t) => t.trim()).length} articles` : "Generate article"}
         </button>
+        <p className="mt-2 text-[11px] text-slate-500">Each article is written against a menu of pages that exist on this site, so it links to real destinations. Anything it links that is not on the menu is unlinked before the draft is saved, and said so below.</p>
         {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
+        {lastRun && (
+          <div className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-xs text-emerald-100/90">
+            <p className="font-semibold text-white">{lastRun.created} draft(s) written.</p>
+            {lastRun.links.map((l) => <p key={l.slug} className="mt-1 text-slate-300"><span className="font-mono text-[11px] text-emerald-300">{l.slug}</span> — {l.note}</p>)}
+            {lastRun.skipped.map((s2) => <p key={s2.topic} className="mt-1 text-amber-200">Not written: &ldquo;{s2.topic}&rdquo; — {s2.reason}</p>)}
+          </div>
+        )}
       </form>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -134,6 +180,12 @@ export default function BlogStudioPage() {
             </div>
             <h3 className="font-display text-sm font-bold text-white">{p.title}</h3>
             <p className="mt-1 line-clamp-2 text-xs text-slate-400">{p.excerpt}</p>
+            {audits[p.slug] && (
+              <p className={`mt-2 flex items-start gap-1.5 text-[11px] ${audits[p.slug].broken.length || audits[p.slug].level === "none" ? "text-amber-300" : audits[p.slug].level === "thin" ? "text-slate-400" : "text-slate-500"}`}>
+                <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{audits[p.slug].note}</span>
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {p.status === "published" ? (
                 <>

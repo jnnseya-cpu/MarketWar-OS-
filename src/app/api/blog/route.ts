@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPosts, getPost, savePost, incrementViews, deletePost } from "@/backend/blog-store";
 import { generateArticle } from "@/backend/blog-generator";
+import { linkAudit, linkMenu } from "@/backend/blog-links";
 import { slugify, readMinutes, type BlogPost } from "@/shared/blog";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 
@@ -8,7 +9,13 @@ import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 // gateway 100s. Without a maxDuration the function is killed at the platform
 // default of ~10s — long before any provider could answer — so the generation
 // could never have completed no matter what the gateway did.
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+// A run of articles, bounded by the clock rather than by hope. Each generation
+// is a deep document call; the deadline leaves room to finish the one in flight,
+// save it and answer, so a batch never dies holding work nobody sees.
+const MAX_BATCH = 10;
+const BATCH_DEADLINE_MS = 200_000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +25,8 @@ export const dynamic = "force-dynamic";
 // GET  ?admin=1   → all posts incl. drafts (platform_admin only)
 // GET             → published posts (public)
 // POST { action: "view", slug }                              → public view counter
-// POST { action: "generate", topic, category?, keywords? }   → AI draft (admin)
+// POST { action: "generate", topic | topics[], category?, keywords? } → AI draft(s) (admin)
+// POST { action: "audit-links" }                             → per-post link report (admin)
 // POST { action: "publish"|"unpublish"|"delete", slug }      → admin
 export async function GET(req: NextRequest) {
   try {
@@ -61,21 +69,69 @@ export async function POST(req: NextRequest) {
 
   try {
     if (action === "generate") {
-      const topic = typeof body.topic === "string" ? body.topic.trim() : "";
-      if (!topic) return NextResponse.json({ error: "topic required" }, { status: 400 });
+      // ONE TOPIC OR SEVERAL. Three articles existed because writing one meant
+      // typing one topic and waiting, ten times over. A list produces a run in
+      // a single action — and stops on the clock rather than being killed
+      // mid-generation, reporting the topics it did not reach by name.
+      const single = typeof body.topic === "string" ? body.topic.trim() : "";
+      const many = Array.isArray(body.topics)
+        ? body.topics.map((t) => (typeof t === "string" ? t.trim() : "")).filter(Boolean)
+        : [];
+      const topics = (many.length ? many : single ? [single] : []).slice(0, MAX_BATCH);
+      if (!topics.length) return NextResponse.json({ error: "topic required" }, { status: 400 });
       const category = typeof body.category === "string" && body.category.trim() ? body.category.trim() : "Growth";
-      const gen = await generateArticle({ topic, category, keywords: typeof body.keywords === "string" ? body.keywords : undefined });
-      const now = new Date().toISOString();
-      let s = slugify(gen.title);
-      if (await getPost(s)) s = `${s}-${now.slice(11, 19).replace(/:/g, "")}`;
-      const post: BlogPost = {
-        id: s, slug: s, title: gen.title, excerpt: gen.excerpt, category,
-        readMinutes: readMinutes(gen.content), content: gen.content,
-        author: "MarketWar OS", status: "draft", mode: gen.mode, views: 0,
-        createdAt: now, publishedAt: null,
-      };
-      await savePost(post);
-      return NextResponse.json({ post });
+      const keywords = typeof body.keywords === "string" ? body.keywords : undefined;
+
+      const started = Date.now();
+      const created: BlogPost[] = [];
+      const linkNotes: { slug: string; note: string }[] = [];
+      const skipped: { topic: string; reason: string }[] = [];
+
+      for (const [i, topic] of topics.entries()) {
+        // The wall clock is the real constraint: this function is killed at
+        // maxDuration and a generation cut off halfway leaves nothing behind.
+        // Stop while there is time to save and answer.
+        if (i > 0 && Date.now() - started > BATCH_DEADLINE_MS) {
+          for (const t of topics.slice(i)) skipped.push({ topic: t, reason: "ran out of time in this request — run it again for the rest" });
+          break;
+        }
+        // Rebuilt each time so article two may link to article one.
+        const menu = linkMenu(await listPosts().catch(() => []));
+        try {
+          const gen = await generateArticle({ topic, category, keywords, menu });
+          const now = new Date().toISOString();
+          let s = slugify(gen.title);
+          if (await getPost(s)) s = `${s}-${now.slice(11, 19).replace(/:/g, "")}`;
+          const post: BlogPost = {
+            id: s, slug: s, title: gen.title, excerpt: gen.excerpt, category,
+            readMinutes: readMinutes(gen.content), content: gen.content,
+            author: "MarketWar OS", status: "draft", mode: gen.mode, views: 0,
+            createdAt: now, publishedAt: null,
+          };
+          await savePost(post);
+          created.push(post);
+          linkNotes.push({ slug: s, note: gen.links.note });
+        } catch (e) {
+          // One bad topic must not lose the articles already written.
+          skipped.push({ topic, reason: e instanceof Error ? e.message : "generation failed" });
+        }
+      }
+
+      if (!created.length) {
+        return NextResponse.json({ error: skipped[0]?.reason || "Blog engine error", skipped }, { status: 502 });
+      }
+      // `post` stays for the single-topic caller that has always read it.
+      return NextResponse.json({ post: created[0], posts: created, links: linkNotes, skipped });
+    }
+
+    if (action === "audit-links") {
+      const posts = await listPosts({ includeDrafts: true });
+      return NextResponse.json({
+        audits: posts.map((p) => ({
+          slug: p.slug, title: p.title, status: p.status,
+          ...linkAudit(p.content || "", linkMenu(posts, p.slug)),
+        })),
+      });
     }
 
     if (action === "publish" || action === "unpublish") {

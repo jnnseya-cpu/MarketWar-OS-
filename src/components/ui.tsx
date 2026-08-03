@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 import type { CampaignVerdict } from "@/shared/types";
+// A link scheme whitelist, kept in shared so it can be tested on its own — this
+// renderer draws model output, and `javascript:` is a url a model can be talked
+// into producing.
+import { safeHref } from "@/shared/safe-link";
 
 export function PageHeader({
   kicker,
@@ -243,6 +247,36 @@ export function AgentMarkdown({ text }: { text: string }) {
 }
 
 function Inline({ text }: { text: string }) {
+  // Links are split out first so a link's own text can still carry bold.
+  // One level of balanced parentheses in the url, so `(1)` inside a link target
+  // does not end the match early and leave a stray bracket in the sentence.
+  const parts = text.split(/(\[[^\]\n]*\]\([^()\s]+(?:\([^()]*\)[^()\s]*)*\))/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const link = part.match(/^\[([^\]\n]*)\]\(([^()\s]+(?:\([^()]*\)[^()\s]*)*)\)$/);
+        if (link) {
+          const safe = safeHref(link[2]);
+          const label = link[1] || link[2];
+          if (!safe) return <span key={i}>{label}</span>;
+          return (
+            <a
+              key={i}
+              href={safe.href}
+              className="font-medium text-emerald-400 underline decoration-emerald-500/40 underline-offset-2 transition hover:text-emerald-300"
+              {...(safe.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            >
+              <Bold text={label} />
+            </a>
+          );
+        }
+        return <Bold key={i} text={part} />;
+      })}
+    </>
+  );
+}
+
+function Bold({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return (
     <>

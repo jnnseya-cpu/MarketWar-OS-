@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, PenLine, Rocket, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { Loader2, PenLine, Rocket, CheckCircle2, XCircle, ExternalLink, Link2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import SeoDeployPanel from "@/components/SeoDeployPanel";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -19,6 +19,8 @@ import { authedFetch } from "@/frontend/api-client";
 type Settings = { enabled: boolean; cadence: "daily" | "weekly"; topics: string[]; keywords: string; autoPublish: boolean; lastRunAt?: string | null };
 type PlanInfo = { name: string; monthlyAcus: number; includedPostsPerMonth: number; balanceAcu: number; postsAffordableNow: number };
 type Post = { slug: string; title: string; status: string; createdAt: string; url: string };
+type Opportunity = { kind: string; title: string; url: string; domain: string; evidence: string; why: string; difficulty: string; priority: number; pitchAngle: string };
+type OppReport = { mode: "live" | "demo"; opportunities: Opportunity[]; compliance: string; note: string };
 
 export default function SeoAutopilotPage() {
   const { activeBrand } = useActiveBrand();
@@ -31,6 +33,10 @@ export default function SeoAutopilotPage() {
   const [busy, setBusy] = useState(false);
   const [writing, setWriting] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  // Backlinks. The engine has existed since the SEO work landed and nothing in
+  // the product ever called it, so a customer had no way to reach it.
+  const [opps, setOpps] = useState<OppReport | null>(null);
+  const [findingLinks, setFindingLinks] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeBrand) return;
@@ -50,6 +56,25 @@ export default function SeoAutopilotPage() {
   }, [activeBrand]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Real pages where a link can be EARNED — found in live search, pitched by a
+  // human from their own mailbox. Nothing here is placed, bought or injected:
+  // that breaches Google's link spam policy and the penalty lands on the
+  // customer's own domain, not ours.
+  async function findBacklinks() {
+    if (!activeBrand) return;
+    setFindingLinks(true); setMsg(null);
+    try {
+      const r = await authedFetch("/api/link-opportunities", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand: activeBrand.name, website: activeBrand.website || "", category: activeBrand.industry || "" }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setMsg({ text: d.error || "Couldn't search for link opportunities.", error: true }); return; }
+      setOpps(d);
+    } catch { setMsg({ text: "Couldn't reach the link engine.", error: true }); }
+    finally { setFindingLinks(false); }
+  }
 
   async function save(patch: Partial<Settings>) {
     if (!activeBrand) return;
@@ -204,6 +229,41 @@ export default function SeoAutopilotPage() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* Backlinks — earn, never place */}
+        <div className="card p-5 lg:col-span-3">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-display font-bold text-white"><Link2 className="h-4 w-4 text-emerald-400" /> Backlinks worth earning</h2>
+            <button onClick={findBacklinks} disabled={findingLinks || !activeBrand} className="btn-primary text-xs disabled:opacity-60">
+              {findingLinks ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />} Find pages that would link to you
+            </button>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            Real pages found in live search — sites already naming you without a link, lists that exist to include businesses like yours, and publications already covering your category. Each comes with the evidence and what to say. <span className="text-slate-400">You send the message from your own mailbox.</span>
+          </p>
+          {!opps && <p className="text-xs text-slate-500">Nothing searched yet.</p>}
+          {opps && opps.opportunities.length === 0 && (
+            <p className="text-xs text-amber-300">{opps.note || "No opportunities came back for this brand yet."}</p>
+          )}
+          {opps && opps.opportunities.length > 0 && (
+            <>
+              <div className="space-y-2">
+                {opps.opportunities.map((o) => (
+                  <div key={o.url} className="rounded-lg border border-white/[0.08] p-3">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-bold text-emerald-300">{o.kind.replace(/_/g, " ")}</span>
+                      <span className="text-slate-500">{o.domain} · {o.difficulty} · priority {o.priority}</span>
+                    </div>
+                    <a href={o.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm font-semibold text-white hover:text-emerald-300">{o.title}</a>
+                    <p className="mt-1 text-xs text-slate-400">{o.evidence}</p>
+                    <p className="mt-1.5 text-xs text-slate-300"><span className="font-semibold text-white">Say this: </span>{o.pitchAngle}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 border-t border-white/[0.06] pt-2 text-[11px] text-slate-500">{opps.compliance || opps.note}</p>
+            </>
           )}
         </div>
       </div>

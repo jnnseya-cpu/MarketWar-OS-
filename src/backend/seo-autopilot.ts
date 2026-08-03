@@ -19,6 +19,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { generateArticle } from "@/backend/blog-generator";
+import { brandLinkMenu } from "@/backend/blog-links";
 import { savePost, getPost, listPostsForBrand } from "@/backend/blog-store";
 import { debitAcus, getWallet } from "@/backend/wallet";
 import type { BlogPost } from "@/shared/blog";
@@ -99,6 +100,8 @@ export type BrandPostResult = {
   charged: number;
   balanceAcu?: number;
   post?: { slug: string; title: string; status: string; url: string };
+  /** How many links the article carries, and anything that was unlinked. */
+  links?: { internal: number; external: number; removed: { url: string; text: string; reason: string }[]; note: string };
   error?: string;
 };
 
@@ -134,7 +137,15 @@ export async function runBrandSeoPost(input: {
   }
 
   try {
-    const gen = await generateArticle({ topic, category: input.category || "Growth", keywords: settings.keywords || undefined });
+    // THE BRAND'S OWN MENU, not the platform's. A customer's article linking to
+    // marketwaros.com is our marketing on their page; what earns them rankings
+    // is their blog pointing at their own service, pricing and booking pages.
+    // Taken from their sitemap and their own navigation, so every destination
+    // is a page that exists. A failure here costs links, never the post.
+    const menu = await brandLinkMenu({
+      posts: existing, brandId: input.brandId, website: input.website, cap: 40,
+    }).catch(() => []);
+    const gen = await generateArticle({ topic, category: input.category || "Growth", keywords: settings.keywords || undefined, menu });
     const now = new Date().toISOString();
     let slug = slugify(`${input.brandName}-${gen.title}`);
     if (await getPost(slug)) slug = `${slug}-${now.slice(0, 10).replace(/-/g, "")}`;
@@ -151,6 +162,7 @@ export async function runBrandSeoPost(input: {
     return {
       ok: true, charged: ACU_PER_POST, balanceAcu: wallet.balanceAcu,
       post: { slug, title: post.title, status, url: `${input.siteBase}/blog/${slug}` },
+      links: gen.links,
     };
   } catch (e) {
     // Generation failed after the debit — refund, so a customer is never charged

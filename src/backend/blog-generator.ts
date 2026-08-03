@@ -8,6 +8,7 @@ if (typeof window !== "undefined") {
 // provider key it returns a deterministic starter article, clearly flagged.
 
 import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
+import { enforceLinks, extractLinks, isExternal, linkAudit, menuForPrompt, verifyExternal, type LinkTarget } from "@/backend/blog-links";
 
 const SYSTEM = `You are an expert SEO content strategist and writer for MarketWar OS, an AI customer-acquisition platform. Write a complete, publish-ready blog article in Markdown.
 Rules:
@@ -16,32 +17,87 @@ Rules:
 - Then the full body: H2/H3 sections, practical and specific, scannable, 700-1100 words.
 - SEO-optimised around the topic and any target keywords; British English; expert, honest tone.
 - NEVER fabricate statistics or testimonials. End with a short call-to-action.
+
+LINKS. An article that links nowhere is a dead end for the reader and for search.
+- Place 3 to 6 internal links, in the flow of a sentence, where they genuinely help.
+- Use ONLY the destinations listed under "Link menu" below, exactly as written.
+- NEVER invent a URL. If the page you want is not on the menu, write the sentence without a link.
+- Anchor text must describe the destination; never "click here" or a bare URL.
+- Outbound links to other sites are optional. Only link a page you are certain exists, and never a competitor's marketing page. Every external URL is checked before publication and removed if it does not answer.
 Return ONLY the Markdown article - no preamble, no code fences.`;
 
-export type GeneratedArticle = { title: string; excerpt: string; content: string; mode: "live" | "demo" };
+export type GeneratedArticle = {
+  title: string;
+  excerpt: string;
+  content: string;
+  mode: "live" | "demo";
+  /** What the link enforcement did — surfaced, never silent. */
+  links: { internal: number; external: number; removed: { url: string; text: string; reason: string }[]; note: string };
+};
 
-export async function generateArticle(input: { topic: string; category?: string; keywords?: string }): Promise<GeneratedArticle> {
+export async function generateArticle(input: {
+  topic: string;
+  category?: string;
+  keywords?: string;
+  /** Everywhere this article is allowed to point. Empty menu = no links asked for. */
+  menu?: LinkTarget[];
+}): Promise<GeneratedArticle> {
+  const menu = input.menu ?? [];
   const prompt = [
     `Topic: ${input.topic}`,
     input.category ? `Category: ${input.category}` : "",
     input.keywords ? `Target keywords: ${input.keywords}` : "",
+    menu.length ? `\nLink menu — the only internal destinations that exist. Use the exact paths:\n${menuForPrompt(menu)}` : "",
     "",
     "Write the article now.",
   ].filter(Boolean).join("\n");
 
   try {
     const res = await gatewayComplete({ system: SYSTEM, prompt }, DOCUMENT_DEEP);
-    return { ...splitArticle(res.text.trim(), input.topic), mode: "live" };
+    const article = splitArticle(res.text.trim(), input.topic);
+    const checked = await applyLinkPolicy(article.content, menu);
+    return { ...article, content: checked.content, links: checked.links, mode: "live" };
   } catch (e) {
     if (e instanceof GatewayUnconfiguredError) {
       // A canned article is something a customer may publish under their own
       // name, on their own domain, as their own opinion. Hosted production
       // refuses it for the same reason the agents do.
       if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
-      return { ...demoArticle(input.topic, input.category), mode: "demo" };
+      const demo = demoArticle(input.topic, input.category);
+      const checked = await applyLinkPolicy(demo.content, menu);
+      return { ...demo, content: checked.content, links: checked.links, mode: "demo" };
     }
     throw e;
   }
+}
+
+/**
+ * Hold the finished article to the menu.
+ *
+ * Runs whatever the model did, because "please only use these URLs" is a
+ * request and this is the check. External links are verified over the network
+ * first: a citation that 404s is worse than no citation, and neither we nor the
+ * model can know without asking.
+ */
+export async function applyLinkPolicy(
+  markdown: string,
+  menu: LinkTarget[],
+): Promise<{ content: string; links: GeneratedArticle["links"] }> {
+  const external = extractLinks(markdown).map((l) => l.url).filter(isExternal);
+  const alive = external.length ? await verifyExternal(external).catch(() => new Set<string>()) : new Set<string>();
+  const result = enforceLinks(markdown, menu, alive);
+  const audit = linkAudit(result.markdown, menu);
+  return {
+    content: result.markdown,
+    links: {
+      internal: result.internalCount,
+      external: result.externalCount,
+      removed: result.removed,
+      note: result.removed.length
+        ? `${result.removed.length} link(s) were removed and their words left in place: ${result.removed.map((r) => `${r.url} (${r.reason})`).join("; ")}. ${audit.note}`
+        : audit.note,
+    },
+  };
 }
 
 function splitArticle(md: string, fallbackTitle: string): { title: string; excerpt: string; content: string } {
@@ -69,6 +125,8 @@ function demoArticle(topic: string, category?: string): { title: string; excerpt
     `1. Define the offer around real price, cost and stock.`,
     `2. Reach buyers on channels you own - email, WhatsApp links, your own site.`,
     `3. Measure attributed revenue, not impressions.`,
+    ``,
+    `The same sequence is set out phase by phase in [how the platform works](/how-it-works), and the other playbooks are [on the blog](/blog).`,
     ``,
     `## Next steps`,
     `Add an AI provider key to generate full, live ${cat.toLowerCase()} articles like this on demand.`,

@@ -1921,3 +1921,50 @@ honest engagement reporting.
 | Clip Lab | Landing deep-dive + the AI Marketing Engine pillar | Long video in, vertical clips out: seven counted signals per clip, exact in/out points, an `.srt` rebased to zero, 9:16 with captions burned in, logo and B-roll — **rendered in the browser**, so nothing is uploaded to a render service and there is no render bill. The example panel is labelled as an example. |
 | Target market | How it works, phases 1 and 4 | The countries and cities you actually sell to, and the fact that ad targeting, localisation and trend watching all read the same market. |
 | Email preview + honest rates | How it works, phase 5 | Previewed through the real send path; sending windows per market; and the open rate shown **as a floor**, with the platform naming what holds it down rather than colouring it green. |
+
+## §61 — The blog had no links in it, and could not have had (2026-08-03)
+
+Owner: *"blogs have no hyperlinks, backlinks and only 3 created so far"*, then
+*"with the SEO ai agent blogs have many dynamic hyperlinks and backlinks to best
+any SEO and have SEO autopilot"*.
+
+**Three separate causes, all true at once.**
+
+*Nothing could have linked.* `AgentMarkdown`'s inline renderer understood exactly
+one construct — `**bold**`. A `[text](url)` reached the page as the literal
+characters, brackets and all. No article could have shown a hyperlink however it
+was written, and this affected every agent output in the dashboard as well.
+
+*Nothing was asked to link.* The generator's brief never mentioned links, so
+every post was a dead end: nothing to the product pages, nothing to the other
+posts, nothing out.
+
+*And a model asked for links invents them.* `/pricing` is a page this site does
+not have. Asking politely is not a control.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The renderer can draw a link | ✅ **fixed** | `Inline` splits Markdown links out before bold, so bold still works inside link text. Verified by rendering the real component: `<a href="/how-it-works">`, external links carrying `target="_blank" rel="noopener noreferrer"`, and no raw brackets left in the HTML. One level of balanced parentheses is allowed in a URL, so `https://example.com/a(1)` survives intact. |
+| Only schemes that cannot execute become links | ✅ | `src/shared/safe-link.ts` — a whitelist of relative paths, http(s) and mailto. It is in `shared` and tested directly because a security decision that cannot be tested is one nobody checks: this renderer displays model output on a public page, and `javascript:` is a URL a model can be talked into producing. `//evil.test` is refused too — a protocol-relative jump wearing a relative link's clothes. |
+| The writer is given destinations rather than asked to think of them | ✅ **new** | `linkMenu()` — the real public routes plus the real published posts. A test walks `src/app` and fails if any menu route has no page file. |
+| An invented link never ships | ✅ | `enforceLinks()` runs after generation whatever the model did: anything off the menu is **unlinked with the sentence kept**, and the removal is reported by URL and reason. On both paths out of the generator, live and demo. |
+| An outbound citation is checked before it is published | ✅ | `verifyExternal()` — HEAD then GET, and a URL that does not answer is unlinked. A citation nobody can load is worse than no citation. |
+| Every article links out of itself, including the ones already written | ✅ **new** | `relatedPosts()` on the article page — word overlap on title, excerpt and category, with the shared words shown. Below two shared words the posts are unrelated and the block does not render, because a "related" list padded with filler teaches readers to skip it. |
+| An article is citable | ✅ **new** | `BlogPosting` JSON-LD (headline, author, dates, `mainEntityOfPage`), a canonical URL — without which every tracking parameter on a shared link looks like a separate page competing with the article — plus the author and date on the page itself. |
+| Only three posts existed because writing one meant typing one | ✅ **fixed** | The studio takes one topic per line and the route generates the run, rebuilding the link menu between articles so post two can link to post one. It stops on the clock with time left to save, and names the topics it did not reach instead of dying holding them. A topic that fails does not lose the articles already written. |
+| The studio says when a post links nowhere | ✅ **new** | `linkAudit()` per post — `none` / `thin` / `ok`, with any broken internal link named. Three articles linked nowhere and nothing in the product would have told anybody. |
+
+### §61b — The customer's SEO blog links to the CUSTOMER's pages
+
+SEO Autopilot already existed and already charged correctly (debit before
+generation, refund on failure). What it did not do was give the writer anywhere
+to link. And the platform menu would have been the wrong fix: a customer's
+article linking to marketwaros.com is our marketing on their page.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The menu is the brand's own site | ✅ **new** | `brandLinkMenu()` — their sitemap first (the site telling us which pages it considers important), then their own navigation, via the existing `discoverUrls`. Their money pages become link destinations; another brand's posts never do. |
+| Their absolute URLs survive enforcement | ✅ | A customer's blog is hosted here and their shop is not, so their pages arrive as absolute URLs. Anything **on the menu** is known-good in either form — it came from their sitemap. |
+| A crawl failure costs links, never a paid-for post | ✅ | The menu lookup is `.catch(() => [])`; the article is still written, still charged once, still refunded if generation itself fails. |
+| Backlinks are reachable from the product | ✅ **fixed** | The Link Opportunity Engine has existed since the SEO work landed and **nothing in the product ever called it**. The SEO Autopilot page now does: real pages from live search — sites already naming the brand without a link, lists that exist to include businesses like theirs, publications already covering the category — each with the evidence snippet and the pitch. The doctrine travels with the results: links are **earned, never placed**, because buying, exchanging or injecting them breaches Google's link spam policy and the penalty lands on the customer's domain. |
+| Mutation-verified | ✅ | Nine mutations — shipping invented internal links, shipping unverified external ones, padding the related list, allowing a protocol-relative jump, allowing any scheme, bypassing the whitelist in the renderer, skipping the policy on the live path, skipping it on the demo path, and dropping the brand menu — each caught by a test. |

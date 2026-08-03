@@ -8293,3 +8293,256 @@ test("the public site describes the capabilities that actually shipped", () => {
   assert.match(how, /countries and cities you actually sell to/);
   assert.match(how, /open rate is shown as a floor/);
 });
+
+// ---------------------------------------------------------------------------
+// The blog had no links in it, and could not have had
+//
+// Owner: "blogs have no hyperlinks, backlinks and only 3 created so far."
+// Three separate causes, all true at once:
+//
+//   The renderer understood **bold** and nothing else, so `[text](url)` reached
+//   the page as the literal characters. No article could have shown a link
+//   however it was written.
+//
+//   The generator's brief never asked for one, so every post was a dead end —
+//   nothing to the product pages, nothing to the other posts, nothing out.
+//
+//   And a model asked for links invents them. `/pricing` is a page this site
+//   does not have. So the generator is given a MENU of destinations that exist
+//   and anything off it is unlinked after the fact, whatever the model did.
+// ---------------------------------------------------------------------------
+const bl = await import("../src/backend/blog-links.ts");
+
+const draft = (over = {}) => ({
+  id: "x", slug: "x", title: "T", excerpt: "E", category: "Growth", readMinutes: 3,
+  content: "", author: "MarketWar OS", status: "published", mode: "live", views: 0,
+  createdAt: "2026-01-01T00:00:00.000Z", publishedAt: "2026-01-01T00:00:00.000Z", ...over,
+});
+
+test("every route the generator may link to is a real page", () => {
+  // The whole point of the menu is that a link taken from it cannot 404, so
+  // the menu itself is checked against the filesystem.
+  const missing = [];
+  for (const r of bl.PUBLIC_ROUTES) {
+    const rel = r.path === "/" ? "../src/app/page.tsx" : `../src/app${r.path}/page.tsx`;
+    if (!existsSync(new URL(rel, import.meta.url))) missing.push(`${r.path} → ${rel}`);
+  }
+  assert.deepEqual(missing, [], `these menu entries have no page: ${missing.join(", ")}`);
+});
+
+test("a link the model invented is unlinked, and the sentence survives", () => {
+  const menu = bl.linkMenu([]);
+  const md = "See our [pricing page](/pricing) and [how it works](/how-it-works) today.";
+  const r = bl.enforceLinks(md, menu);
+  assert.ok(!r.markdown.includes("(/pricing)"), "the false link must not ship");
+  assert.match(r.markdown, /See our pricing page and \[how it works\]\(\/how-it-works\) today\./);
+  assert.equal(r.removed.length, 1);
+  assert.match(r.removed[0].reason, /does not exist/);
+  assert.equal(r.internalCount, 1);
+});
+
+test("published posts join the menu; drafts and the post itself do not", () => {
+  const posts = [draft({ slug: "a", title: "A" }), draft({ slug: "b", title: "B", status: "draft" })];
+  const menu = bl.linkMenu(posts, "a");
+  const urls = menu.map((m) => m.url);
+  assert.ok(!urls.includes("/blog/a"), "a post must not be offered itself");
+  assert.ok(!urls.includes("/blog/b"), "linking a draft slug is a 404 with extra steps");
+  assert.ok(bl.linkMenu(posts).map((m) => m.url).includes("/blog/a"));
+});
+
+test("an external link that does not answer is dropped, not published", () => {
+  const menu = bl.linkMenu([]);
+  const md = 'Read [the study](https://example.invalid/study) for more.';
+  // Nothing verified — the empty allow-set is what an unreachable page produces.
+  const r = bl.enforceLinks(md, menu, new Set());
+  assert.ok(!r.markdown.includes("https://example.invalid"));
+  assert.match(r.removed[0].reason, /did not answer/);
+  // And a verified one survives untouched.
+  const ok = bl.enforceLinks(md, menu, new Set(["https://example.invalid/study"]));
+  assert.equal(ok.markdown, md);
+  assert.equal(ok.externalCount, 1);
+});
+
+test("a javascript: url never becomes a link", () => {
+  // This renderer displays model output on a public page.
+  const r = bl.enforceLinks("Click [here](javascript:alert(1)) now.", bl.linkMenu([]));
+  assert.ok(!/javascript:/.test(r.markdown));
+  assert.match(r.markdown, /Click here now\./);
+});
+
+test("an image is not treated as a link", () => {
+  const md = "![a chart](/images/chart.png) and [about](/about).";
+  const r = bl.enforceLinks(md, bl.linkMenu([]));
+  assert.ok(r.markdown.includes("![a chart](/images/chart.png)"), "the image survived");
+  assert.equal(r.internalCount, 1);
+});
+
+test("related posts are chosen by real overlap, and an unrelated post gets none", () => {
+  const mine = draft({ slug: "m", title: "WhatsApp funnels for local trades", excerpt: "Turning ad clicks into WhatsApp conversations that close." });
+  const close = draft({ slug: "c", title: "WhatsApp follow-up sequences that recover cold quotes", excerpt: "Follow-up timing for WhatsApp conversations." });
+  const far = draft({ slug: "f", title: "Choosing a payment processor", excerpt: "Fees, payouts and chargebacks.", category: "Finance" });
+  const rel = bl.relatedPosts(mine, [close, far]);
+  assert.equal(rel.length, 1, "only the one with genuine overlap");
+  assert.equal(rel[0].post.slug, "c");
+  assert.ok(rel[0].shared.includes("whatsapp"));
+  // A post with nothing in common returns an EMPTY list rather than filler.
+  assert.deepEqual(bl.relatedPosts(far, [mine]), []);
+});
+
+test("the audit says plainly when an article links nowhere", () => {
+  const menu = bl.linkMenu([]);
+  const none = bl.linkAudit("# Title\n\nA whole article with no links at all.", menu);
+  assert.equal(none.level, "none");
+  assert.match(none.note, /links nowhere/);
+  const thin = bl.linkAudit("See [about](/about).", menu);
+  assert.equal(thin.level, "thin");
+  const ok = bl.linkAudit("[a](/about) [b](/blog) [c](/how-it-works) [d](/contact)", menu);
+  assert.equal(ok.level, "ok");
+  assert.equal(ok.internal, 4);
+  // A broken internal link is named, not counted as fine.
+  const broken = bl.linkAudit("[x](/nope) [a](/about) [b](/blog) [c](/contact)", menu);
+  assert.deepEqual(broken.broken, ["/nope"]);
+  assert.match(broken.note, /404/);
+});
+
+test("the renderer can actually draw a link now", () => {
+  const ui = readFileSync(new URL("../src/components/ui.tsx", import.meta.url), "utf8");
+  // The bug: Inline split only on **bold**, so a markdown link was plain text.
+  assert.ok(ui.includes("const link = part.match("), "Inline must recognise a markdown link");
+  assert.match(ui, /<a\n/, "and render an anchor");
+  assert.match(ui, /safeHref\(link\[2\]\)/, "and run every href through the whitelist");
+  assert.match(ui, /rel: "noopener noreferrer"/);
+});
+
+test("only schemes that cannot execute become links", async () => {
+  // Behaviour, not a grep: this is the check that stops a model-authored
+  // `javascript:` url becoming a live link on a public page.
+  const { safeHref } = await import("../src/shared/safe-link.ts");
+  assert.deepEqual(safeHref("/about"), { href: "/about", external: false });
+  assert.deepEqual(safeHref("https://x.test/a"), { href: "https://x.test/a", external: true });
+  assert.deepEqual(safeHref("mailto:a@b.test"), { href: "mailto:a@b.test", external: false });
+  for (const bad of ["javascript:alert(1)", "JavaScript:alert(1)", "data:text/html,<script>", "vbscript:x", "//evil.test/x", "", "   "]) {
+    assert.equal(safeHref(bad), null, `${JSON.stringify(bad)} must never become a link`);
+  }
+});
+
+test("the generator is told to use the menu and nothing else", () => {
+  const src = readFileSync(new URL("../src/backend/blog-generator.ts", import.meta.url), "utf8");
+  assert.match(src, /NEVER invent a URL/);
+  assert.match(src, /Use ONLY the destinations/);
+  // And the instruction is backed by a check that runs whatever the model does —
+  // on BOTH paths out of the generator, live and demo.
+  assert.equal((src.match(/await applyLinkPolicy\(/g) || []).length, 2, "every path that produces an article must be checked");
+  assert.match(src, /enforceLinks\(/);
+});
+
+test("the link policy strips what the model invented, whatever it wrote", async () => {
+  const { applyLinkPolicy } = await import("../src/backend/blog-generator.ts");
+  const menu = bl.linkMenu([]);
+  const md = "Try [our pricing](/pricing), read [how it works](/how-it-works), see [a source](https://nowhere.invalid/x).";
+  const out = await applyLinkPolicy(md, menu);
+  assert.ok(!out.content.includes("(/pricing)"), "a page that does not exist must not be linked");
+  assert.ok(out.content.includes("(/how-it-works)"), "a real one survives");
+  assert.equal(out.links.internal, 1);
+  assert.match(out.links.note, /removed/);
+});
+
+test("a batch keeps the articles it wrote when one topic fails", () => {
+  const route = readFileSync(new URL("../src/app/api/blog/route.ts", import.meta.url), "utf8");
+  assert.match(route, /body\.topics/, "several topics in one action — three posts existed because it was one at a time");
+  assert.match(route, /skipped\.push\(\{ topic/, "a failed topic is named, not swallowed");
+  assert.match(route, /BATCH_DEADLINE_MS/, "the batch stops on the clock with time left to save");
+  assert.match(route, /posts: created/);
+  // The menu is rebuilt inside the loop so article two can link to article one.
+  const loop = route.slice(route.indexOf("for (const [i, topic]"), route.indexOf("if (!created.length)"));
+  assert.match(loop, /linkMenu\(await listPosts\(\)/);
+});
+
+test("an article carries the structured data that makes it citable", () => {
+  const page = readFileSync(new URL("../src/app/blog/[slug]/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /"@type": "BlogPosting"/);
+  assert.match(page, /datePublished/);
+  assert.match(page, /mainEntityOfPage/);
+  assert.match(page, /alternates: \{ canonical/, "without a canonical the article competes with copies of itself");
+  assert.match(page, /relatedPosts\(/, "internal links out of every article, even the ones already written");
+});
+
+// ---------------------------------------------------------------------------
+// The customer's SEO blog links to the CUSTOMER's pages
+//
+// Owner: "with the SEO ai agent blogs have many dynamic hyperlinks and
+// backlinks to best any SEO and have SEO autopilot."
+//
+// SEO Autopilot already existed and already charged correctly. What it did not
+// do was give the writer anywhere to link — so a customer's article was the
+// same dead end the platform blog was. And the platform's own menu would be the
+// wrong fix: a customer's post linking to marketwaros.com is our marketing on
+// their page. Their menu is built from THEIR sitemap and their own navigation.
+// ---------------------------------------------------------------------------
+
+test("a brand's menu is its own pages, never the platform's", async () => {
+  const posts = [
+    { ...draft({ slug: "b1", title: "Ours", brandId: "brand-a" }) },
+    { ...draft({ slug: "b2", title: "Someone else's", brandId: "brand-b" }) },
+  ];
+  const menu = await bl.brandLinkMenu({
+    posts, brandId: "brand-a", website: "https://veryxjnn.com",
+    fetchPages: async () => ["https://veryxjnn.com/services/repairs", "https://veryxjnn.com/pricing"],
+  });
+  const urls = menu.map((m) => m.url);
+  assert.ok(urls.includes("https://veryxjnn.com/pricing"), "their money page is a destination");
+  assert.ok(urls.includes("/blog/b1"), "and their other posts");
+  assert.ok(!urls.includes("/blog/b2"), "another brand's post is not theirs to link");
+  assert.ok(!urls.includes("/how-it-works"), "the platform's pages are OUR marketing, not their SEO");
+});
+
+test("a brand's own page survives enforcement even though it is an absolute url", async () => {
+  const menu = await bl.brandLinkMenu({
+    posts: [], brandId: "b", website: "https://veryxjnn.com",
+    fetchPages: async () => ["https://veryxjnn.com/pricing"],
+  });
+  const md = "See [our prices](https://veryxjnn.com/pricing) and [a rival](https://rival.test/x).";
+  // Nothing verified over the network: the menu alone must carry their page.
+  const r = bl.enforceLinks(md, menu, new Set());
+  assert.ok(r.markdown.includes("(https://veryxjnn.com/pricing)"), "a page from their own sitemap is known-good");
+  assert.ok(!r.markdown.includes("rival.test"), "and an unverified outside link is not published");
+  assert.equal(r.externalCount, 1);
+});
+
+test("a brand with no reachable website still gets its own posts to link to", async () => {
+  const posts = [draft({ slug: "p1", brandId: "b", title: "First" })];
+  const boom = await bl.brandLinkMenu({
+    posts, brandId: "b", website: "https://down.test",
+    fetchPages: async () => { throw new Error("dns"); },
+  });
+  assert.deepEqual(boom.map((m) => m.url), ["/blog/p1"], "a crawl failure costs links, never the post");
+  const none = await bl.brandLinkMenu({ posts, brandId: "b" });
+  assert.deepEqual(none.map((m) => m.url), ["/blog/p1"]);
+});
+
+test("a path becomes a readable label a writer can choose from", () => {
+  assert.equal(bl.pathLabel("https://x.com/services/boiler-repair"), "Services · boiler repair");
+  assert.equal(bl.pathLabel("https://x.com/"), "Home page");
+  assert.equal(bl.pathLabel("not a url"), "not a url");
+});
+
+test("SEO autopilot hands the writer the brand's menu", () => {
+  const src = readFileSync(new URL("../src/backend/seo-autopilot.ts", import.meta.url), "utf8");
+  assert.match(src, /brandLinkMenu\(\{/);
+  assert.match(src, /website: input\.website/, "their site is what the menu is built from");
+  assert.match(src, /\.catch\(\(\) => \[\]\)/, "a crawl failure must not lose a paid-for post");
+  // The charge order that was already right must stay right.
+  assert.ok(src.indexOf("await debitAcus(") < src.indexOf("await generateArticle("), "still charged before generation");
+  assert.match(src, /creditAcus/, "and refunded when generation fails");
+});
+
+test("the backlink engine is reachable from the product, not just the API", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/seo-autopilot/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /\/api\/link-opportunities/, "the engine existed and nothing in the product called it");
+  assert.match(page, /pitchAngle/, "the pitch is shown — the human sends it");
+  assert.match(page, /evidence/);
+  // The compliance line travels with the results.
+  assert.match(page, /opps\.compliance/);
+  const engine = readFileSync(new URL("../src/backend/link-opportunities.ts", import.meta.url), "utf8");
+  assert.match(engine, /EARN links, never place them/, "placement breaches the link spam policy and the penalty lands on the customer");
+});

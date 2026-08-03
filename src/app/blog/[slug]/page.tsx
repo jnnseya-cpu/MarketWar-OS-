@@ -1,29 +1,72 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getPost } from "@/backend/blog-store";
+import { getPost, listPosts } from "@/backend/blog-store";
+import { relatedPosts } from "@/backend/blog-links";
 import { AgentMarkdown } from "@/components/ui";
 import { SiteHeader, SiteFooter } from "@/components/marketing";
 import BlogArticleClient from "@/components/BlogArticleClient";
 
 export const dynamic = "force-dynamic";
 
+const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
+
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const post = await getPost(params.slug).catch(() => null);
   if (!post) return { title: "Article · MarketWar OS" };
+  const url = `${SITE}/blog/${post.slug}`;
   return {
     title: `${post.title} · MarketWar OS`,
     description: post.excerpt,
-    openGraph: { title: post.title, description: post.excerpt, type: "article" },
+    // Without a canonical, every tracking parameter a shared link picks up
+    // looks like a separate page to a crawler and the article competes with
+    // copies of itself for the ranking it earned.
+    alternates: { canonical: `/blog/${post.slug}` },
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+      type: "article",
+      url,
+      publishedTime: post.publishedAt || post.createdAt,
+      authors: [post.author || "MarketWar OS"],
+    },
+    twitter: { card: "summary_large_image", title: post.title, description: post.excerpt },
   };
 }
 
 export default async function BlogArticlePage({ params }: { params: { slug: string } }) {
   const post = await getPost(params.slug).catch(() => null);
   if (!post || post.status !== "published") notFound();
+  const all = await listPosts().catch(() => []);
+  // Only genuinely overlapping posts. An empty list renders nothing rather than
+  // padding the block with whatever went out most recently — a "related" list
+  // full of unrelated things teaches a reader to skip the block entirely.
+  const related = relatedPosts(post, all);
+
+  // Article structured data. Without it a post is a wall of text to a crawler:
+  // no author, no dates, no headline, and no chance of the rich result that
+  // makes a link worth clicking in the first place.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.excerpt,
+    articleSection: post.category,
+    datePublished: post.publishedAt || post.createdAt,
+    dateModified: post.publishedAt || post.createdAt,
+    author: { "@type": "Organization", name: post.author || "MarketWar OS", url: SITE },
+    publisher: { "@type": "Organization", name: "MarketWar OS", url: SITE },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE}/blog/${post.slug}` },
+    url: `${SITE}/blog/${post.slug}`,
+    inLanguage: "en-GB",
+  };
+
+  const published = post.publishedAt || post.createdAt;
+
   return (
     <div className="min-h-screen">
       <SiteHeader />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <article className="mx-auto max-w-3xl px-5 py-16">
         <Link href="/blog" className="text-sm font-semibold text-emerald-400 hover:text-emerald-300">← All articles</Link>
         <div className="mb-3 mt-5 flex items-center gap-2 text-[11px]">
@@ -32,9 +75,40 @@ export default async function BlogArticlePage({ params }: { params: { slug: stri
         </div>
         <h1 className="font-display text-3xl font-bold leading-tight text-white sm:text-4xl">{post.title}</h1>
         <div className="mb-8 mt-4 border-b border-ink-700/60 pb-6">
+          <p className="mb-3 text-[13px] text-slate-500">
+            By {post.author || "MarketWar OS"}
+            {published && (
+              <>
+                {" · "}
+                <time dateTime={published}>
+                  {new Date(published).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                </time>
+              </>
+            )}
+          </p>
           <BlogArticleClient slug={post.slug} initialViews={post.views} />
         </div>
         <AgentMarkdown text={post.content} />
+
+        {related.length > 0 && (
+          <aside className="mt-14 border-t border-ink-700/60 pt-8">
+            <h2 className="font-display text-lg font-bold text-white">Related playbooks</h2>
+            <p className="mt-1 text-[13px] text-slate-500">
+              Chosen by what these articles actually have in common, and the shared words are shown.
+            </p>
+            <ul className="mt-4 space-y-3">
+              {related.map((r) => (
+                <li key={r.post.slug}>
+                  <Link href={`/blog/${r.post.slug}`} className="group block rounded-xl border border-ink-800 bg-ink-900/50 p-4 transition hover:border-emerald-500/40">
+                    <p className="text-sm font-bold text-white group-hover:text-emerald-300">{r.post.title}</p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{r.post.excerpt}</p>
+                    <p className="mt-2 text-[11px] text-slate-500">Shares: {r.shared.slice(0, 5).join(", ")}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
       </article>
       <SiteFooter />
     </div>
