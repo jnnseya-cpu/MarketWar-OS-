@@ -1244,3 +1244,134 @@ test("a refused queued render points at the browser, not at a container to deplo
     assert.match(r.reason, /same size and position/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Where a business actually sells, and what that makes of its numbers.
+//
+// The brand carried `location: string` — free text, used as a prompt hint.
+// Nothing could answer "is this traffic from somewhere I sell to", so nothing
+// did. A customer's impressions climb, most of them from Pakistan, and they
+// sell in the UK: the headline moved, the business did not, and the platform
+// reported the rise as a win. That is a metric pointing the opposite way to
+// reality, and someone who trusts it keeps making the content that caused it.
+// ---------------------------------------------------------------------------
+const mk = await import("../src/shared/market.ts");
+
+test("every spelling of a country resolves to the same code", () => {
+  // Search Console returns lower-case alpha-3; ad platforms return alpha-2;
+  // humans type names. A mismatch silently reads as "out of market", which
+  // would tell a UK business that none of its traffic is from the UK.
+  for (const v of ["GB", "gb", "GBR", "gbr", "United Kingdom", "uk", "U.K.", "Britain", "england", "Scotland"]) {
+    assert.equal(mk.normaliseCountry(v), "GB", `${v} must resolve to GB`);
+  }
+  assert.equal(mk.normaliseCountry("pak"), "PK");
+  assert.equal(mk.normaliseCountry("USA"), "US");
+  assert.equal(mk.normaliseCountry("america"), "US");
+});
+
+test("an unrecognised country resolves to nothing rather than to a guess", () => {
+  // A wrong code would move traffic into or out of the market and change a
+  // number the customer acts on, with nothing on screen to say it happened.
+  for (const v of ["", "  ", "Zorbia", "XX", "ZZZ", null, undefined, "123"]) {
+    assert.equal(mk.normaliseCountry(v), "", `${v} must not resolve to a country`);
+  }
+});
+
+const UK_FIRST = { countries: [{ code: "GB", tier: "primary" }, { code: "IE", tier: "secondary" }], cities: [] };
+
+test("the case that started this: the total is up and the business is not", () => {
+  const rows = [
+    { country: "pak", value: 6000 },   // Search Console spelling
+    { country: "ind", value: 2000 },
+    { country: "gbr", value: 1500 },
+    { country: "irl", value: 500 },
+  ];
+  const fit = mk.marketFit(rows, UK_FIRST, "impressions");
+  assert.equal(fit.total, 10000);
+  assert.equal(fit.primary, 1500, "only the UK counts as the main market");
+  assert.equal(fit.secondary, 500);
+  assert.equal(fit.outside, 8000);
+  assert.equal(fit.inMarketPct, 20);
+  // The headline must lead with the real number, not the flattering one.
+  assert.match(fit.headline, /^1,500 impressions from your main market — not 10,000/);
+  assert.match(fit.headline, /60% of it from Pakistan alone|Pakistan/);
+  assert.equal(fit.topOutside[0].name, "Pakistan");
+});
+
+test("out-of-market traffic is never added to the headline, and never called worthless", () => {
+  const fit = mk.marketFit([{ country: "gbr", value: 100 }, { country: "pak", value: 900 }], UK_FIRST);
+  assert.ok(!fit.headline.includes("1,000 impressions from your main market"));
+  assert.match(fit.note, /not necessarily worthless/, "a country that keeps appearing may be a market worth entering");
+  assert.match(fit.note, /never be added to a number you use to judge/);
+});
+
+test("a country we cannot identify is its own bucket, not folded into either side", () => {
+  // Folding it into "outside" overstates the problem; folding it into "in
+  // market" hides it. Both are ways of being confidently wrong.
+  const fit = mk.marketFit([{ country: "gbr", value: 100 }, { country: "zzz", value: 50 }], UK_FIRST);
+  assert.equal(fit.primary, 100);
+  assert.equal(fit.outside, 0);
+  assert.equal(fit.unknown, 50);
+  assert.match(fit.note, /could not identify and are excluded from both sides rather than guessed/);
+});
+
+test("with no market set, the number is reported as a total and says why", () => {
+  const fit = mk.marketFit([{ country: "gbr", value: 100 }], { countries: [], cities: [] });
+  assert.equal(fit.primary, 0);
+  assert.match(fit.headline, /no target market is set/);
+  assert.match(fit.note, /It is a total, not a result/i);
+});
+
+test("a healthy split does not manufacture an alarm", () => {
+  const fit = mk.marketFit([{ country: "gbr", value: 950 }, { country: "fra", value: 50 }], UK_FIRST);
+  assert.ok(!/not 1,000/.test(fit.headline), "5% leakage is not the Pakistan case");
+  assert.match(fit.headline, /95% of 1,000 total/);
+});
+
+test("tiers are the customer's, and no country is built in as important", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync("src/shared/market.ts", "utf8");
+  // A shipped ranking of countries would be an opinion applied to every
+  // customer who never asked for it.
+  assert.ok(!/third.world|developing|first.world|tier.?1 countr/i.test(src),
+    "no built-in ranking of countries may exist");
+  assert.equal(mk.tierOf("GB", UK_FIRST), "primary");
+  assert.equal(mk.tierOf("IE", UK_FIRST), "secondary");
+  assert.equal(mk.tierOf("PK", UK_FIRST), null, "outside the market is null, not a lower tier");
+});
+
+test("presets are a starting point and every one is editable", () => {
+  const ukThen = mk.MARKET_PRESETS.find((p) => p.id === "uk-then-english").build();
+  assert.deepEqual(ukThen.countries.filter((c) => c.tier === "primary").map((c) => c.code), ["GB"]);
+  assert.ok(ukThen.countries.filter((c) => c.tier === "secondary").length >= 4);
+  for (const p of mk.MARKET_PRESETS) {
+    const m = p.build();
+    assert.ok(m.countries.length > 0, `${p.id} builds an empty market`);
+    assert.ok(m.countries.every((c) => mk.normaliseCountry(c.code) === c.code), `${p.id} has an unresolvable code`);
+  }
+});
+
+test("a city market beats a country market when searching", () => {
+  // "plumber in Croydon" returns something useful; "plumber in the United
+  // Kingdom" does not.
+  assert.equal(mk.geoQualifier({ countries: [{ code: "GB", tier: "primary" }], cities: ["Croydon"] }), "Croydon");
+  assert.equal(mk.geoQualifier(UK_FIRST), "United Kingdom", "secondary markets are not searched by default");
+  assert.equal(mk.geoQualifier({ countries: [], cities: [] }), "", "empty, so a caller concatenating it never makes a dangling 'in '");
+});
+
+test("the search modules take the market instead of hardcoding a country", async () => {
+  const { readFileSync: rf } = await import("node:fs");
+  // prospecting fell back to a literal "United Kingdom" for every customer on
+  // earth, whoever they were and wherever they sold.
+  for (const route of ["prospecting", "search", "ai-visibility"]) {
+    const src = rf(`src/app/api/${route}/route.ts`, "utf8");
+    assert.match(src, /marketLocation\(/, `${route} must resolve the brand's market`);
+  }
+  // Comments stripped: this file DISCUSSES the hardcoded "United Kingdom" it
+  // replaced, and an assertion that matched prose would fail on the
+  // explanation rather than on the code.
+  const helper = rf("src/backend/brand-market.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(helper, /if \(typed\) return typed;/, "an explicit location must always win");
+  assert.ok(!/"United Kingdom"/.test(helper), "no hardcoded country fallback in the code");
+});

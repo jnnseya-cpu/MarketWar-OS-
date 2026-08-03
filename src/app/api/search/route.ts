@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, discoverOpportunity, findLocalLeads, keywordResearch, type SearchType } from "@/backend/search";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { marketLocation } from "@/backend/brand-market";
 import { meterAction } from "@/backend/wallet";
 
 // Real-Time Search & Opportunity Intelligence API (Serper-inspired).
@@ -31,6 +32,12 @@ export async function POST(req: NextRequest) {
   const action = typeof body.action === "string" ? body.action : "search";
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : undefined);
 
+  // Explicit location wins; otherwise the brand's own market answers.
+  // Empty when neither is set — a hardcoded country fallback is how a
+  // business in one place gets results from another.
+  const geo = async (explicit: string | undefined) =>
+    await marketLocation(str("brandId"), explicit, (body.targetMarket as never) ?? null);
+
   // Meter the actions that hit the external search provider (keywords is local).
   if (action === "search" || action === "opportunity" || action === "leads") {
     const meter = await meterAction(auth, "search");
@@ -46,17 +53,17 @@ export async function POST(req: NextRequest) {
   if (action === "opportunity") {
     const niche = str("niche");
     if (!niche) return NextResponse.json({ error: "niche is required" }, { status: 400 });
-    return NextResponse.json(await discoverOpportunity({ niche, location: str("location"), currency: str("currency") }));
+    return NextResponse.json(await discoverOpportunity({ niche, location: await geo(str("location")), currency: str("currency") }));
   }
   if (action === "leads") {
-    const category = str("category"); const location = str("location");
+    const category = str("category"); const location = await geo(str("location"));
     if (!category || !location) return NextResponse.json({ error: "category and location are required" }, { status: 400 });
     return NextResponse.json(await findLocalLeads({ category, location }));
   }
   if (action === "keywords") {
     const s = str("seed");
     if (!s) return NextResponse.json({ error: "seed is required" }, { status: 400 });
-    return NextResponse.json(keywordResearch({ seed: s, location: str("location") }));
+    return NextResponse.json(keywordResearch({ seed: s, location: await geo(str("location")) }));
   }
   return NextResponse.json({ error: "Unknown action — use search, opportunity, leads or keywords" }, { status: 400 });
 }

@@ -12,7 +12,13 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
 type SCRow = { keys: string[]; clicks: number; impressions: number; ctr: number; position: number };
-type SCResp = { connected: boolean; sites: { siteUrl: string }[]; siteUrl?: string; report?: { mode: string; rows: SCRow[]; totals?: { clicks: number; impressions: number; avgPosition: number }; note: string } | null; note?: string };
+type MarketFit = {
+  total: number; primary: number; secondary: number; outside: number; unknown: number;
+  inMarketPct: number;
+  topOutside: { code: string; name: string; value: number; pct: number }[];
+  headline: string; note: string;
+};
+type SCResp = { connected: boolean; sites: { siteUrl: string }[]; siteUrl?: string; report?: { mode: string; rows: SCRow[]; totals?: { clicks: number; impressions: number; avgPosition: number }; note: string } | null; note?: string; geo?: { fit: MarketFit } | null; marketDefined?: boolean };
 type GBPResp = { connected: boolean; locations?: { name: string; title: string; address?: string; website?: string }[]; locationName?: string; reviews?: { averageRating: number; totalReviewCount: number; recent: { rating: number; comment: string; reviewer: string }[] } | null; note?: string };
 
 export default function GoogleInsightsPanel({ kind }: { kind: "search-console" | "business-profile" }) {
@@ -69,10 +75,41 @@ export default function GoogleInsightsPanel({ kind }: { kind: "search-console" |
               </select>
             </div>
           )}
+          {/* WHERE THE IMPRESSIONS CAME FROM — above the totals, because the
+              totals are the number that misleads. A count that rose because a
+              country you do not sell to found you is not a result, and putting
+              the split underneath would let someone read the headline and
+              stop. */}
+          {sc?.geo?.fit && (
+            <div className={`mb-3 rounded-lg border p-3 ${sc.geo.fit.outside > sc.geo.fit.total * 0.3 ? "border-amber-500/30 bg-amber-500/[0.05]" : "border-white/[0.07] bg-ink-900/50"}`}>
+              <p className="text-xs font-semibold leading-relaxed text-white">{sc.geo.fit.headline}</p>
+              {sc.marketDefined && sc.geo.fit.total > 0 && (
+                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-ink-800">
+                  {/* Primary, secondary, outside, unknown — a 2px surface gap
+                      between fills so the segments read as separate. */}
+                  <div style={{ width: `${(sc.geo.fit.primary / sc.geo.fit.total) * 100}%` }} className="bg-emerald-400" title={`Main market: ${sc.geo.fit.primary.toLocaleString()}`} />
+                  <div style={{ width: `${(sc.geo.fit.secondary / sc.geo.fit.total) * 100}%` }} className="border-l-2 border-ink-950 bg-sky-400" title={`Secondary: ${sc.geo.fit.secondary.toLocaleString()}`} />
+                  <div style={{ width: `${(sc.geo.fit.outside / sc.geo.fit.total) * 100}%` }} className="border-l-2 border-ink-950 bg-slate-600" title={`Outside your market: ${sc.geo.fit.outside.toLocaleString()}`} />
+                  <div style={{ width: `${(sc.geo.fit.unknown / sc.geo.fit.total) * 100}%` }} className="border-l-2 border-ink-950 bg-slate-700" title={`Country unknown: ${sc.geo.fit.unknown.toLocaleString()}`} />
+                </div>
+              )}
+              {sc.geo.fit.topOutside.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {sc.geo.fit.topOutside.slice(0, 5).map((o) => (
+                    <span key={o.code} className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-slate-300">
+                      {o.name} {o.pct}%
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-500">{sc.geo.fit.note}</p>
+            </div>
+          )}
+
           {sc?.report?.totals && (
             <div className="mb-3 grid grid-cols-3 gap-2">
               <div className="rounded-lg bg-ink-900/60 p-2.5 text-center"><p className="font-display text-lg font-bold text-white">{sc.report.totals.clicks.toLocaleString()}</p><p className="text-[10px] uppercase text-slate-500">clicks</p></div>
-              <div className="rounded-lg bg-ink-900/60 p-2.5 text-center"><p className="font-display text-lg font-bold text-white">{sc.report.totals.impressions.toLocaleString()}</p><p className="text-[10px] uppercase text-slate-500">impressions</p></div>
+              <div className="rounded-lg bg-ink-900/60 p-2.5 text-center"><p className="font-display text-lg font-bold text-white">{sc.report.totals.impressions.toLocaleString()}</p><p className="text-[10px] uppercase text-slate-500">impressions{sc.geo?.fit && sc.marketDefined ? " (all countries)" : ""}</p></div>
               <div className="rounded-lg bg-ink-900/60 p-2.5 text-center"><p className="font-display text-lg font-bold text-emerald-300">{sc.report.totals.avgPosition}</p><p className="text-[10px] uppercase text-slate-500">avg position</p></div>
             </div>
           )}

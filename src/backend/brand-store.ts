@@ -28,6 +28,25 @@ export async function listBrandsForOwner(uid: string): Promise<Brand[]> {
     .filter((b): b is Brand => Boolean(b && b.id && b.name));
 }
 
+/**
+ * One brand, by id — for server-side code that needs a brand's own settings
+ * (its target market, above all) rather than trusting the request body for
+ * them. Access is the caller's job: resolveBrandAccess has already run by the
+ * time anything asks for this.
+ *
+ * Returns null in demo, where there is no Admin SDK and the client holds the
+ * brand in localStorage. Callers fall back to what the client sent, which is
+ * safe there precisely because there are no accounts to confuse.
+ */
+export async function getBrandById(brandId: string): Promise<Brand | null> {
+  const id = (brandId || "").trim();
+  if (!id || !adminConfigured || !adminDb) return null;
+  const snap = await adminDb.collection(COLLECTION).doc(id).get();
+  if (!snap.exists) return null;
+  const b = stripMeta(snap.data() as Record<string, unknown>);
+  return b && b.id && b.name ? (b as Brand) : null;
+}
+
 export async function saveBrandForOwner(uid: string, brand: Brand): Promise<Verdict> {
   if (!adminConfigured || !adminDb) return { ok: true }; // demo / no persistence — client keeps localStorage
   if (!brand?.id || !brand?.name) return { ok: false, status: 400, error: "brand id + name required" };

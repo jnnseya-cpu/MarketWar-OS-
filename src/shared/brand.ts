@@ -6,6 +6,8 @@
 // AI call is filled from the ACTIVE brand. No third-party key is involved —
 // differentiation comes from the brand's own inputs + AI + persistence.
 
+import type { TargetMarket } from "@/shared/market";
+
 export type Brand = {
   id: string;
   name: string;        // the business name (maps to the "business" field)
@@ -13,6 +15,17 @@ export type Brand = {
   product: string;     // what they sell
   audience: string;    // who they want
   location: string;
+  /**
+   * Where this business actually SELLS — countries in tiers, and cities for a
+   * business whose market is smaller than a country.
+   *
+   * `location` above is free text used as a hint in prompts. It cannot answer
+   * "is this traffic from somewhere I sell to", which is the question that
+   * decides whether a rising impressions count is a result or a distraction.
+   * Optional so every existing brand keeps working; the modules that read it
+   * say when it is unset rather than assuming a market.
+   */
+  targetMarket?: TargetMarket;
   offer: string;       // current promotion/offer
   website: string;
   goal: string;        // current objective

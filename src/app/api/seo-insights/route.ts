@@ -4,6 +4,8 @@ import { rateLimit, clientKey } from "@/backend/guard";
 import { listSites, searchAnalytics, searchConsoleConfigured } from "@/backend/search-console";
 import { listAccounts, listLocations, locationReviews, businessProfileConfigured } from "@/backend/business-profile";
 import { getGoogleMapping, setGoogleMapping, matchSite } from "@/backend/google-mapping";
+import { getBrandById } from "@/backend/brand-store";
+import { marketFit, marketDefined, EMPTY_MARKET, type TargetMarket } from "@/shared/market";
 
 // Real SEO/local data for the SEO + Local modules.
 //   POST { action:"search-console", brandId, siteUrl?, dimension?, days? }
@@ -26,6 +28,14 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
+  // The brand's own record is the authority on where it sells. In demo there is
+  // no Admin SDK and the client holds the brand, so what it sent stands — safe
+  // there precisely because there are no accounts to confuse.
+  const stored = await getBrandById(brandId);
+  const market: TargetMarket =
+    stored?.targetMarket ??
+    (typeof body.targetMarket === "object" && body.targetMarket ? (body.targetMarket as TargetMarket) : EMPTY_MARKET);
+
   if (action === "search-console") {
     if (!searchConsoleConfigured()) return NextResponse.json({ connected: false, note: "Search Console not connected — set a Google credential to see real rankings.", sites: [], report: null });
     const sitesRes = await listSites();
@@ -46,12 +56,44 @@ export async function POST(req: NextRequest) {
     // chosen, previously saved for this brand, or matched to this brand's own
     // website by hostname — otherwise nothing is shown.
     else siteUrl = mapping?.siteUrl || matchSite(sitesRes.sites, website) || "";
-    const report = siteUrl ? await searchAnalytics(siteUrl, { days: Number(body.days) || 28, dimension: typeof body.dimension === "string" ? body.dimension : "query", rowLimit: 25 }) : null;
+    const days = Number(body.days) || 28;
+    const report = siteUrl ? await searchAnalytics(siteUrl, { days, dimension: typeof body.dimension === "string" ? body.dimension : "query", rowLimit: 25 }) : null;
+
+    // WHERE THE IMPRESSIONS CAME FROM, ALWAYS — not only when someone thinks to
+    // switch the dimension to "country".
+    //
+    // A customer's impressions climb and the platform reports a win. Most of
+    // them are from a country they do not sell to. The headline moved, the
+    // business did not, and nothing on the screen could tell them apart because
+    // impressions were impressions and nobody asked where they came from. That
+    // is a metric pointing the opposite way to reality, and a customer who
+    // trusts it keeps making the content that produced it.
+    //
+    // So the country split is fetched alongside whatever dimension was asked
+    // for, and the real headline — in-market only — is computed from it.
+    let geo: { fit: ReturnType<typeof marketFit>; rows: { country: string; impressions: number; clicks: number }[] } | null = null;
+    if (siteUrl) {
+      const byCountry = await searchAnalytics(siteUrl, { days, dimension: "country", rowLimit: 50 });
+      const rows = (byCountry.rows || []).map((r) => ({
+        // Search Console returns the dimension value in keys[0], and for the
+        // country dimension that is lower-case ISO alpha-3 ("gbr", "pak").
+        country: String(r.keys?.[0] ?? ""),
+        impressions: Number(r.impressions ?? 0),
+        clicks: Number(r.clicks ?? 0),
+      }));
+      geo = {
+        rows,
+        fit: marketFit(rows.map((r) => ({ country: r.country, value: r.impressions, secondary: r.clicks })), market, "impressions"),
+      };
+    }
+
     return NextResponse.json({
       connected: sitesRes.mode === "live",
       sites: sitesRes.sites,
       siteUrl,
       report,
+      geo,
+      marketDefined: marketDefined(market),
       needsSelection: sitesRes.mode === "live" && !siteUrl,
       note: siteUrl
         ? sitesRes.note

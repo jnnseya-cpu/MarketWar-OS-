@@ -9,8 +9,13 @@
 import { useState } from "react";
 import { Building2, Check, ChevronsUpDown, Plus, X, Pencil, Trash2 } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
+import MarketPicker from "@/components/MarketPicker";
+import { EMPTY_MARKET, type TargetMarket } from "@/shared/market";
 
 const BLANK = { name: "", industry: "", product: "", audience: "", location: "", offer: "", website: "", goal: "" };
+// Kept beside the text fields rather than inside them: a market is structured
+// data every module reads, not another free-text hint.
+const BLANK_MARKET: TargetMarket = EMPTY_MARKET;
 
 export default function BrandSwitcher() {
   const { brands, activeBrand, setActive, addBrand, updateBrand, removeBrand } = useActiveBrand();
@@ -19,12 +24,14 @@ export default function BrandSwitcher() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [form, setForm] = useState({ ...BLANK });
+  const [market, setMarket] = useState<TargetMarket>({ ...BLANK_MARKET, countries: [], cities: [] });
 
   const active = activeBrand ?? brands[0];
 
   function startAdd() {
     setEditingId(null);
     setForm({ ...BLANK });
+    setMarket({ countries: [], cities: [] });
     setAdding(true);
   }
 
@@ -36,6 +43,7 @@ export default function BrandSwitcher() {
       audience: b.audience || "", location: b.location || "", offer: b.offer || "",
       website: b.website || "", goal: b.goal || "",
     });
+    setMarket(b.targetMarket ?? { countries: [], cities: [] });
     setEditingId(id);
     setAdding(true);
   }
@@ -43,11 +51,12 @@ export default function BrandSwitcher() {
   function submit() {
     if (!form.name.trim()) return;
     if (editingId) {
-      updateBrand(editingId, form);
+      updateBrand(editingId, { ...form, targetMarket: market });
     } else {
-      addBrand(form);
+      addBrand({ ...form, targetMarket: market });
     }
     setForm({ ...BLANK });
+    setMarket({ countries: [], cities: [] });
     setEditingId(null);
     setAdding(false);
     setOpen(false);
@@ -149,6 +158,7 @@ export default function BrandSwitcher() {
                     className="w-full rounded-md border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs text-white outline-none focus:border-emerald-500/50"
                   />
                 ))}
+                <div className="pt-1"><MarketPicker value={market} onChange={setMarket} /></div>
                 <button type="button" onClick={submit} disabled={!form.name.trim()} className="mt-1 w-full rounded-md bg-emerald-500 px-2.5 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-40">
                   {editingId ? "Save changes" : "Create brand"}
                 </button>

@@ -9,6 +9,7 @@ import {
 } from "@/backend/ai-visibility";
 import { questionsFromSite, selectRunQuestions } from "@/backend/visibility-questions";
 import { deepCrawl } from "@/backend/deep-crawl";
+import { marketLocation } from "@/backend/brand-market";
 
 // AI Visibility monitor — are you named when a buyer asks an assistant?
 //
@@ -60,7 +61,14 @@ async function siteQuestions(req: NextRequest, body: Record<string, unknown>, st
   const pool = questionsFromSite({
     business: typeof body.business === "string" ? body.business : "",
     extraction: crawl.extraction,
-    location: typeof body.location === "string" ? body.location : "",
+    // Which market the assistants are asked about. "Who are the best X" and
+    // "who are the best X in the UK" are different questions with different
+    // answers, and the second is the one the customer actually competes in.
+    location: await marketLocation(
+      typeof body.brandId === "string" ? body.brandId : "",
+      typeof body.location === "string" ? body.location : "",
+      (body.targetMarket as never) ?? null,
+    ),
     category: typeof body.category === "string" ? body.category : "",
   });
   const runIndex = (await listRuns(brandIdOf(body))).length;

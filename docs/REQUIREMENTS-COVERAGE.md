@@ -1718,3 +1718,41 @@ drawing the 9:16 crop and the burned captions.
 **background removal and upscaling** — the two jobs a browser genuinely cannot
 do. Nothing in the clip pipeline is gated behind it, and no capability is
 missing from this deployment.
+
+---
+
+## §55 — Target market: countries and cities, across the modules (2026-08-02)
+
+Owner: *"in all our modules and customer acquisition, user should be able to
+target countries or city — e.g. one user SEO has more impressions in Pakistan
+while the market is mainly the UK."*
+
+**What was there.** `Brand.location: string` — one line of free text, used as a
+hint in prompts. Nothing in the platform could answer *"is this from somewhere I
+sell to"*, so nothing did. Impressions climb, most of them from a country the
+customer does not sell to, and the dashboard reports the rise as a win. That is
+not a reporting nicety: it is a metric moving opposite to reality, and a
+customer who trusts it keeps making the content that produced it.
+
+Run through the real module on the owner's example — **11,000 impressions
+becomes 1,490.**
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A market is structured data, not a text hint | ✅ **new** | `src/shared/market.ts`: `TargetMarket = { countries: {code, tier}[], cities: [] }` with tiers `primary` / `secondary`; everything else is outside. On `Brand.targetMarket`, optional so every existing brand keeps working. |
+| Countries resolve however a source spells them | ✅ | Search Console returns lower-case **alpha-3** (`gbr`, `pak`); ad platforms return alpha-2; humans type "UK", "Britain", "England", "America". All resolve to one code. A mismatch here would tell a UK business that none of its traffic is from the UK. An unrecognised value returns `""` — a wrong code silently moves traffic across the market line and changes a number the customer acts on. |
+| The headline is the in-market number | ✅ | `marketFit()` splits any measure — impressions, clicks, sessions, leads — into primary / secondary / outside / **unknown**. Unknown is its own bucket: folding it into "outside" overstates the problem, folding it into "in market" hides it. |
+| Out-of-market traffic is separated, not dismissed | ✅ | *"not necessarily worthless — a country that keeps appearing may be a market worth entering — but they must never be added to a number you use to judge whether the work is paying off."* The largest out-of-market sources are listed, so an expansion signal is visible rather than buried. |
+| No alarm where there is no problem | ✅ | 5% leakage reads as a normal split; the "not 11,000" framing only fires past 30% outside. |
+| **No country ranking is built in** | ✅ | Which countries matter is a fact about a particular business; a shipped ranking would be an opinion applied to every customer who never asked for it. Tiers are set by the customer. Presets ("UK & Ireland", "UK first, English-speaking second", "Gulf") are conveniences with plain names, all editable. A test fails if a built-in ranking ever appears. |
+| Cities, for a business smaller than a country | ✅ | A restaurant does not sell to "the UK". `geoQualifier()` prefers cities: `"plumber in Croydon"` returns something useful, `"plumber in the United Kingdom"` does not. |
+| Wired across the modules | ✅ | `src/backend/brand-market.ts` resolves it once and every module reads the same answer: **SEO / Search Console** (country split fetched alongside whatever dimension was asked for, so the split is never something you have to think to look for), **prospecting**, **local + opportunity + keyword search**, **AI Visibility** (assistants asked about the market the customer actually competes in). An explicit value always wins — typing "Manchester" into a box means Manchester. |
+| No hardcoded country fallback | ✅ | Prospecting fell back to a literal `"United Kingdom"` for every customer on earth. It resolves the brand's market now, and returns empty rather than guessing — a search that returns the wrong country is worse than one that asks where to look. |
+| Reachable | ✅ | `MarketPicker` in the brand editor (presets, per-country tier, city list), and the split rendered **above** the totals on the SEO panel — putting it underneath would let someone read the misleading headline and stop. |
+
+### Still to extend
+
+The market is defined, stored and read by the five surfaces above. The modules
+that do not yet consult it — ads targeting, email sending windows, the trend
+watch's region, content localisation — take the same `TargetMarket` and are a
+mechanical follow-on rather than a design question.

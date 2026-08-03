@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildICP, searchProspects, scoreDeal, buildSequence, PIPELINE_STAGES, type ICP, type ICPInput, type Prospect } from "@/backend/prospecting";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
+import { marketLocation } from "@/backend/brand-market";
 
 // B2B Prospecting Engine API (Apollo-inspired LeadWar Room).
 // POST { action: "icp", product, ... }            → ideal customer profile
@@ -46,7 +47,13 @@ export async function POST(req: NextRequest) {
     const found = await searchProspects(icp, {
       count: typeof body.count === "number" ? body.count : 8,
       industry: typeof body.industry === "string" ? body.industry : undefined,
-      location: typeof body.location === "string" ? body.location : undefined,
+      // Explicit first, then the brand's own market. Without this the engine
+      // fell back to a hardcoded "United Kingdom" for every customer on earth.
+      location: await marketLocation(
+        typeof body.brandId === "string" ? body.brandId : "",
+        typeof body.location === "string" ? body.location : "",
+        (body.targetMarket as never) ?? null,
+      ) || undefined,
     });
     const prospects = found.prospects.map((p) => ({ ...p, dealScore: scoreDeal(p, icp, dealSize) }))
       .sort((a, b) => b.dealScore.dealProbability - a.dealScore.dealProbability);
