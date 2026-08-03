@@ -1968,3 +1968,26 @@ article linking to marketwaros.com is our marketing on their page.
 | A crawl failure costs links, never a paid-for post | ✅ | The menu lookup is `.catch(() => [])`; the article is still written, still charged once, still refunded if generation itself fails. |
 | Backlinks are reachable from the product | ✅ **fixed** | The Link Opportunity Engine has existed since the SEO work landed and **nothing in the product ever called it**. The SEO Autopilot page now does: real pages from live search — sites already naming the brand without a link, lists that exist to include businesses like theirs, publications already covering the category — each with the evidence snippet and the pitch. The doctrine travels with the results: links are **earned, never placed**, because buying, exchanging or injecting them breaches Google's link spam policy and the penalty lands on the customer's domain. |
 | Mutation-verified | ✅ | Nine mutations — shipping invented internal links, shipping unverified external ones, padding the related list, allowing a protocol-relative jump, allowing any scheme, bypassing the whitelist in the renderer, skipping the policy on the live path, skipping it on the demo path, and dropping the brand menu — each caught by a test. |
+
+### §61c — The same linking, for every user (2026-08-03)
+
+Owner: *"all users and paid customers using this platform where appropriate to
+benefit from features or functions or functionalities."*
+
+**Two engines had an API and no way in.** The Link Opportunity Engine and the
+Programmatic SEO Builder were both fully built, both reachable only by someone
+writing a POST by hand. A capability a customer cannot find is not a capability.
+
+**And the builder emitted orphans.** It produced hundreds of page specs — unique
+title, meta, slug and JSON-LD on each — that pointed at nothing. Three hundred
+pages nobody links to are three hundred pages nobody reaches.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A generated page set is a network, not a pile | ✅ **new** | `interlink()` joins the batch on the axis values the customer supplied: same service across places, same place across services, same left-hand side across comparisons. 12 pages from 3 services × 4 towns carry **60 internal links**. |
+| No link in the mesh can break | ✅ | Every target is a slug generated in the same batch — there is no model inventing a URL and no network call needed to check. Asserted page by page. |
+| A page nothing points at is named | ✅ | `orphans` in the result and on screen: one service in one town produces one page, zero links, and the note says which page is stranded and how to join it up. |
+| The mesh is deterministic | ✅ | Sorted by slug, so regenerating does not silently reshuffle a page's own navigation. Mutation-tested against an ordering change. |
+| Both engines are reachable in the product | ✅ **fixed** | The SEO Autopilot page now carries the **service × place builder** (services and places, one per line — the OS invents neither) and **Backlinks worth earning**, each with the evidence and the pitch. |
+| The builder is signed in and rate limited | ✅ **fixed** | `POST /api/programmatic-seo` had neither. GET stays open — it is the doctrine and a fixed demo with no input. |
+| Nothing is gated to a plan | ✅ | Reach does not depend on tier: the ACU allowance already meters what an action costs, and a plan gate on top would charge twice for one decision. A test fails any of these three routes that starts gating by plan, and asserts SEO Autopilot is in the navigation for everyone. |

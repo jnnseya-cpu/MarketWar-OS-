@@ -8546,3 +8546,93 @@ test("the backlink engine is reachable from the product, not just the API", () =
   const engine = readFileSync(new URL("../src/backend/link-opportunities.ts", import.meta.url), "utf8");
   assert.match(engine, /EARN links, never place them/, "placement breaches the link spam policy and the penalty lands on the customer");
 });
+
+// ---------------------------------------------------------------------------
+// Every user gets the linking, not just the platform blog
+//
+// Owner: "all users and paid customers using this platform where appropriate to
+// benefit from features or functions or functionalities."
+//
+// Two engines existed with an API and no way in: the Link Opportunity Engine
+// and the Programmatic SEO Builder. And the builder emitted hundreds of page
+// specs that pointed at nothing — three hundred orphans is not an SEO asset.
+// ---------------------------------------------------------------------------
+const pseo = await import("../src/backend/programmatic-seo.ts");
+
+test("a generated page set is joined together, and every link lands in the set", () => {
+  const r = pseo.generateBatch({
+    brand: "VeryX", type: "location",
+    services: ["Boiler repair", "Drain clearance"],
+    locations: ["Croydon", "Bromley", "Sutton"],
+  });
+  assert.equal(r.generated, 6);
+  assert.ok(r.interlinks > 0, "a batch that links to nothing is a pile of orphans");
+  const slugs = new Set(r.pages.map((p) => p.slug));
+  for (const page of r.pages) {
+    assert.ok(page.links.length > 0, `${page.slug} points nowhere`);
+    for (const l of page.links) {
+      assert.ok(slugs.has(l.slug), `${page.slug} links to ${l.slug}, which is not in the batch`);
+      assert.notEqual(l.slug, page.slug, "a page must not link to itself");
+    }
+    // Linked once even when a sibling qualifies on two axes.
+    assert.equal(new Set(page.links.map((l) => l.slug)).size, page.links.length);
+  }
+  assert.deepEqual(r.orphans, [], "with two services across three towns nothing is stranded");
+});
+
+test("the links join on a real shared axis, not on being nearby in the list", () => {
+  const r = pseo.generateBatch({
+    brand: "VeryX", type: "location",
+    services: ["Boiler repair", "Drain clearance", "Emergency plumbing"],
+    locations: ["Croydon", "Bromley", "Sutton"],
+  });
+  const page = r.pages.find((p) => p.slug === "boiler-repair-in-croydon");
+  const byGroup = (g) => page.links.filter((l) => l.group === g).map((l) => l.slug);
+  // Same service, other places — and in a fixed order, so a page regenerated
+  // tomorrow does not silently reshuffle its own navigation.
+  assert.deepEqual(byGroup("Also covering"), ["boiler-repair-in-bromley", "boiler-repair-in-sutton"]);
+  assert.deepEqual(byGroup("Other services here"), ["drain-clearance-in-croydon", "emergency-plumbing-in-croydon"]);
+});
+
+test("a page nothing points at is named rather than hidden", () => {
+  const solo = pseo.generateBatch({ brand: "VeryX", type: "location", services: ["Boiler repair"], locations: ["Croydon"] });
+  assert.equal(solo.interlinks, 0);
+  assert.deepEqual(solo.orphans, ["boiler-repair-in-croydon"]);
+  assert.match(solo.note, /nothing pointing at them/);
+});
+
+test("the mesh is deterministic — regenerating does not reshuffle a page's own navigation", () => {
+  const input = { brand: "VeryX", type: "location", services: ["A", "B"], locations: ["X", "Y", "Z"] };
+  const a = pseo.generateBatch(input);
+  const b = pseo.generateBatch(input);
+  assert.deepEqual(a.pages.map((p) => p.links), b.pages.map((p) => p.links));
+});
+
+test("the builder is signed in and rate limited like every other builder", () => {
+  const route = readFileSync(new URL("../src/app/api/programmatic-seo/route.ts", import.meta.url), "utf8");
+  const post = route.slice(route.indexOf("export async function POST"), route.indexOf("export async function GET"));
+  assert.match(post, /requireAuth\(req\)/);
+  assert.match(post, /rateLimit\(/);
+  // GET is the doctrine and a fixed demo with no input — it stays open.
+  const get = route.slice(route.indexOf("export async function GET"));
+  assert.ok(!/requireAuth/.test(get));
+});
+
+test("both engines are reachable from the product, not only from the API", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/seo-autopilot/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /\/api\/programmatic-seo/, "hundreds of pages with no way in is not a feature");
+  assert.match(page, /\/api\/link-opportunities/);
+  // And the page states what the customer has to supply, rather than inventing it.
+  assert.match(page, /will not invent either/);
+});
+
+test("nothing here is gated to a plan — the cost is the ACUs it uses", () => {
+  // Reach must not depend on tier: the allowance already meters what an action
+  // costs, and a second gate on top would charge twice for one decision.
+  for (const f of ["src/app/api/seo-autopilot/route.ts", "src/app/api/link-opportunities/route.ts", "src/app/api/programmatic-seo/route.ts"]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    assert.ok(!/planId === "|plan !== "|upgrade to unlock/i.test(src), `${f} gates by plan instead of by cost`);
+  }
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /\/dashboard\/seo-autopilot/, "and it is in the navigation for everyone");
+});

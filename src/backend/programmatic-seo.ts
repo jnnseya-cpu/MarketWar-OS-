@@ -69,7 +69,16 @@ export type PageSpec = {
   keywords: string[];
   structuredData: Record<string, unknown>; // JSON-LD
   variationSignature: string; // fingerprint used to detect near-duplicates
+  /** The axis values this page was built from — what interlinking joins on. */
+  axes: { service?: string; location?: string; industry?: string; a?: string; b?: string };
+  /**
+   * Internal links to OTHER PAGES IN THIS BATCH, added by `interlink`.
+   * Every target is a slug generated alongside it, so none of them can 404.
+   */
+  links: PageLink[];
 };
+
+export type PageLink = { slug: string; label: string; group: string };
 
 function structuredDataFor(type: PageType, fields: Record<string, string>): Record<string, unknown> {
   const base = { "@context": "https://schema.org" };
@@ -110,6 +119,14 @@ export function buildPage(type: PageType, fields: { brand: string; service?: str
     keywords,
     structuredData: structuredDataFor(type, { ...f, title: patternTitle }),
     variationSignature: `${type}:${slugify(patternTitle)}:${seed(intro) % 1000}`,
+    axes: {
+      ...(f.service ? { service: f.service } : {}),
+      ...(f.location ? { location: f.location } : {}),
+      ...(f.industry ? { industry: f.industry } : {}),
+      ...(f.a ? { a: f.a } : {}),
+      ...(f.b ? { b: f.b } : {}),
+    },
+    links: [],
   };
 }
 
@@ -131,8 +148,71 @@ export type BatchResult = {
   pages: PageSpec[];
   generated: number;
   duplicatesAvoided: number;
+  /** Internal links placed across the batch, and any page nothing points at. */
+  interlinks: number;
+  orphans: string[];
   note: string;
 };
+
+// How many siblings one page links to per group. Enough to build a mesh a
+// crawler can walk; few enough that the block is still a navigation aid rather
+// than a footer of two hundred links, which is what gets a page ignored.
+const LINKS_PER_GROUP = 6;
+
+/**
+ * Join the batch together.
+ *
+ * THREE HUNDRED PAGES THAT LINK TO NOTHING ARE THREE HUNDRED ORPHANS. A
+ * programmatic set only works when the pages hold each other up: a crawler that
+ * reaches one page must be able to walk to the rest, and a reader on
+ * "Boiler repair in Croydon" is genuinely served by "Boiler repair in Bromley"
+ * and by "Drain clearance in Croydon".
+ *
+ * Joined on the axis values the caller supplied, so the relationship is real:
+ * same service across locations, same location across services, same left-hand
+ * side across comparisons. Every target is a slug in this same batch, which is
+ * why none of these links can 404 — there is no model inventing a URL here and
+ * no network call to check.
+ *
+ * Deterministic: alphabetical by slug, so the same input produces the same mesh
+ * and a regenerated page does not silently reshuffle its own navigation.
+ */
+export function interlink(pages: PageSpec[], perGroup = LINKS_PER_GROUP): { pages: PageSpec[]; interlinks: number; orphans: string[] } {
+  const linkedTo = new Set<string>();
+  let total = 0;
+
+  const siblings = (page: PageSpec, on: "service" | "location" | "industry" | "a", label: (p: PageSpec) => string, group: string): PageLink[] => {
+    const mine = page.axes[on];
+    if (!mine) return [];
+    return pages
+      .filter((p) => p.slug !== page.slug && p.axes[on] === mine)
+      .sort((x, y) => x.slug.localeCompare(y.slug))
+      .slice(0, perGroup)
+      .map((p) => ({ slug: p.slug, label: label(p), group }));
+  };
+
+  const out = pages.map((page) => {
+    const links: PageLink[] = [];
+    // Same service, other places. The strongest of the three: somebody looking
+    // for this service in one town often works in the next one.
+    for (const l of siblings(page, "service", (p) => p.axes.location || p.axes.industry || p.h1, "Also covering")) links.push(l);
+    // Same place, other services — the local hub.
+    for (const l of siblings(page, "location", (p) => p.axes.service || p.h1, "Other services here")) links.push(l);
+    // Same left-hand side of a comparison.
+    for (const l of siblings(page, "a", (p) => p.axes.b || p.h1, "Compare with")) links.push(l);
+
+    // A page may qualify twice (same service AND same location) — link once.
+    const seen = new Set<string>();
+    const unique = links.filter((l) => (seen.has(l.slug) ? false : (seen.add(l.slug), true)));
+    for (const l of unique) linkedTo.add(l.slug);
+    total += unique.length;
+    return { ...page, links: unique };
+  });
+
+  // A page nothing points at is invisible however good it is. Named, not hidden.
+  const orphans = out.filter((p) => !linkedTo.has(p.slug)).map((p) => p.slug);
+  return { pages: out, interlinks: total, orphans };
+}
 
 export function generateBatch(input: BatchInput): BatchResult {
   const cap = Math.max(1, Math.min(500, input.cap ?? 200));
@@ -161,11 +241,14 @@ export function generateBatch(input: BatchInput): BatchResult {
     }
   }
 
+  const mesh = interlink(pages);
   return {
-    pages,
-    generated: pages.length,
+    pages: mesh.pages,
+    generated: mesh.pages.length,
     duplicatesAvoided,
-    note: `Generated ${pages.length} unique ${input.type} page spec(s); ${duplicatesAvoided} near-duplicate(s) skipped by variation control. Each carries a unique title/meta/slug + JSON-LD. Emits specs for the landing engine to render — no fabricated data, only your supplied axis values recombined.`,
+    interlinks: mesh.interlinks,
+    orphans: mesh.orphans,
+    note: `Generated ${mesh.pages.length} unique ${input.type} page spec(s); ${duplicatesAvoided} near-duplicate(s) skipped by variation control. Each carries a unique title/meta/slug + JSON-LD, and ${mesh.interlinks} internal link(s) join the set together so it is a network a crawler can walk rather than a pile of orphans — every link points at a page in this batch, so none of them can break.${mesh.orphans.length ? ` ${mesh.orphans.length} page(s) have nothing pointing at them: ${mesh.orphans.slice(0, 5).join(", ")}${mesh.orphans.length > 5 ? "…" : ""} — add another value on the shared axis and they join up.` : ""} No fabricated data, only your supplied axis values recombined.`,
   };
 }
 

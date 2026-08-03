@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, PenLine, Rocket, CheckCircle2, XCircle, ExternalLink, Link2 } from "lucide-react";
+import { Loader2, PenLine, Rocket, CheckCircle2, XCircle, ExternalLink, Link2, Layers } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import SeoDeployPanel from "@/components/SeoDeployPanel";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -21,6 +21,8 @@ type PlanInfo = { name: string; monthlyAcus: number; includedPostsPerMonth: numb
 type Post = { slug: string; title: string; status: string; createdAt: string; url: string };
 type Opportunity = { kind: string; title: string; url: string; domain: string; evidence: string; why: string; difficulty: string; priority: number; pitchAngle: string };
 type OppReport = { mode: "live" | "demo"; opportunities: Opportunity[]; compliance: string; note: string };
+type PageSpec = { slug: string; h1: string; title: string; metaDescription: string; links: { slug: string; label: string; group: string }[] };
+type Batch = { pages: PageSpec[]; generated: number; duplicatesAvoided: number; interlinks: number; orphans: string[]; note: string };
 
 export default function SeoAutopilotPage() {
   const { activeBrand } = useActiveBrand();
@@ -37,6 +39,11 @@ export default function SeoAutopilotPage() {
   // the product ever called it, so a customer had no way to reach it.
   const [opps, setOpps] = useState<OppReport | null>(null);
   const [findingLinks, setFindingLinks] = useState(false);
+  // The page builder. It has had an API since the SEO work landed and no way in.
+  const [services, setServices] = useState("");
+  const [places, setPlaces] = useState("");
+  const [batch, setBatch] = useState<Batch | null>(null);
+  const [building, setBuilding] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeBrand) return;
@@ -56,6 +63,27 @@ export default function SeoAutopilotPage() {
   }, [activeBrand]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Services x places → one page each, joined to one another. Every link points
+  // at a page in the same batch, so the set is a network a crawler can walk and
+  // not one of them can 404.
+  async function buildPages() {
+    if (!activeBrand) return;
+    const svc = services.split("\n").map((t) => t.trim()).filter(Boolean);
+    const loc = places.split("\n").map((t) => t.trim()).filter(Boolean);
+    if (!svc.length || !loc.length) { setMsg({ text: "Add at least one service and one place — the OS will not invent either.", error: true }); return; }
+    setBuilding(true); setMsg(null);
+    try {
+      const r = await authedFetch("/api/programmatic-seo", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "batch", brand: activeBrand.name, type: "location", services: svc, locations: loc, cap: 200 }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setMsg({ text: d.error || "Couldn't build the pages.", error: true }); return; }
+      setBatch(d);
+    } catch { setMsg({ text: "Couldn't reach the page builder.", error: true }); }
+    finally { setBuilding(false); }
+  }
 
   // Real pages where a link can be EARNED — found in live search, pitched by a
   // human from their own mailbox. Nothing here is placed, bought or injected:
@@ -228,6 +256,55 @@ export default function SeoAutopilotPage() {
                   </a>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Location pages, joined together */}
+        <div className="card p-5 lg:col-span-3">
+          <div className="mb-1 flex items-center gap-2">
+            <Layers className="h-4 w-4 text-emerald-400" />
+            <h2 className="font-display font-bold text-white">Service &times; place pages</h2>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            One page per service in each place you cover, each with its own title, meta description and structured data &mdash; and <span className="text-slate-300">linked to one another</span>, so the set is a network a crawler can walk instead of a pile of orphans. Nothing is invented: the pages come from the words you type here.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-400">Services &mdash; one per line</span>
+              <textarea value={services} onChange={(e) => setServices(e.target.value)} rows={4} placeholder={"Boiler repair\nDrain clearance\nEmergency plumbing"}
+                className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500/60" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-400">Places you cover &mdash; one per line</span>
+              <textarea value={places} onChange={(e) => setPlaces(e.target.value)} rows={4} placeholder={"Croydon\nBromley\nSutton"}
+                className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500/60" />
+            </label>
+          </div>
+          <button onClick={buildPages} disabled={building} className="btn-primary mt-3 text-xs disabled:opacity-60">
+            {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />} Build the pages
+          </button>
+          {batch && (
+            <div className="mt-4">
+              <div className="mb-2 flex flex-wrap gap-2">
+                <Pill tone="good">{batch.generated} pages</Pill>
+                <Pill tone="info">{batch.interlinks} internal links</Pill>
+                {batch.orphans.length > 0 && <Pill tone="warn">{batch.orphans.length} with nothing pointing at them</Pill>}
+              </div>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {batch.pages.slice(0, 25).map((pg) => (
+                  <div key={pg.slug} className="rounded-lg border border-white/[0.08] p-3">
+                    <p className="text-sm font-semibold text-white">{pg.h1}</p>
+                    <p className="font-mono text-[11px] text-emerald-300">/{pg.slug}</p>
+                    <p className="mt-1 text-xs text-slate-400">{pg.metaDescription}</p>
+                    {pg.links.length > 0 && (
+                      <p className="mt-1.5 text-[11px] text-slate-500">Links to {pg.links.length}: {pg.links.map((l) => l.label).join(", ")}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {batch.pages.length > 25 && <p className="mt-2 text-[11px] text-slate-500">Showing the first 25 of {batch.pages.length}.</p>}
+              <p className="mt-2 text-[11px] text-slate-500">{batch.note}</p>
             </div>
           )}
         </div>

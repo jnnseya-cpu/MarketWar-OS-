@@ -3,6 +3,7 @@ import {
   buildPage, generateBatch, demoProgrammaticSeo, PAGE_TYPES,
   type PageType, type BatchInput,
 } from "@/backend/programmatic-seo";
+import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
 // Programmatic SEO Builder API — generate hundreds of SEO page specs at scale
 // with duplicate-content variation control. Emits page specs (title/meta/slug/
@@ -11,7 +12,19 @@ import {
 // POST { action: "batch", brand, type, services?, locations?, industries?, comparisons?, cap? }
 // GET  → doctrine, page types, demo batch
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
+  // Pure computation, no provider call and nothing to charge — but it is still
+  // an endpoint that takes a body and does work, and every other builder in the
+  // product is signed in and rate limited. GET stays open: it is the doctrine
+  // and a fixed demo, with no input of any kind.
+  const rl = rateLimit(clientKey(req, "programmatic-seo"), 30, 60_000, Date.now());
+  if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "batch";
