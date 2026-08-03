@@ -72,6 +72,10 @@ export type RenderOptions = {
   /** Burn the captions into the frame. Off keeps the .srt as a sidecar file. */
   burnCaptions?: boolean;
   captionStyle?: { fontPx?: number; bottomPad?: number };
+  /** A logo composited over the frame — the `brand` render, done here. */
+  watermark?: Watermark;
+  /** Picture-in-picture over the opening seconds — the `broll` render, done here. */
+  broll?: Broll;
   onProgress?: (pct: number) => void;
   signal?: AbortSignal;
 };
@@ -156,6 +160,78 @@ export function wrapCaption(ctx: CanvasRenderingContext2D, text: string, maxWidt
   return lines;
 }
 
+// ---------------------------------------------------------------------------
+// Overlays: the last two things that needed a render worker.
+//
+// `brand` (a logo) and `broll` (picture-in-picture) were the only render kinds
+// the hosted FFmpeg API cannot do, because both need filter_complex. That made
+// them the one capability gated behind deploying a container.
+//
+// But compositing a second source over the frame is exactly what a canvas does
+// for a living, and the canvas is already here drawing the crop and the
+// captions. So these two match the worker's recipes rather than being gated
+// behind it:
+//
+//   brand — logo at 14% of frame width, inset 30px from the bottom-right
+//   broll — second video at 35% of frame width, inset 40px from the top-right,
+//           visible from the clip's start until `untilSec`, silent (the
+//           worker's recipe keeps the main audio with `-c:a copy`)
+//
+// The numbers are lifted from ffmpeg-recipes.ts on purpose: a clip cut here and
+// a clip cut on the worker should look the same, or the "same" feature has two
+// different meanings depending on infrastructure the customer cannot see.
+// ---------------------------------------------------------------------------
+
+export type OverlayCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/**
+ * Where an overlay of a given native size lands on the output frame.
+ *
+ * Width is a share of the frame; height follows the asset's own aspect ratio,
+ * so a wide logo and a tall one both come out undistorted. An asset with no
+ * usable dimensions returns zero size rather than dividing by zero and drawing
+ * an invisible or infinite box.
+ */
+export function overlayRect(
+  frameW: number, frameH: number,
+  assetW: number, assetH: number,
+  opts: { widthPct: number; corner: OverlayCorner; inset: number },
+): { x: number; y: number; w: number; h: number } {
+  if (!(assetW > 0) || !(assetH > 0)) return { x: 0, y: 0, w: 0, h: 0 };
+  const w = frameW * Math.max(0.01, Math.min(1, opts.widthPct));
+  const h = w * (assetH / assetW);
+  const i = Math.max(0, opts.inset);
+  const right = opts.corner === "top-right" || opts.corner === "bottom-right";
+  const bottom = opts.corner === "bottom-left" || opts.corner === "bottom-right";
+  return {
+    x: right ? Math.max(0, frameW - w - i) : i,
+    y: bottom ? Math.max(0, frameH - h - i) : i,
+    w, h,
+  };
+}
+
+export type Watermark = {
+  /** The logo. A local file, for the same canvas-tainting reason as the video. */
+  file: File;
+  /** Share of frame width. Defaults to the worker recipe's 0.14. */
+  widthPct?: number;
+  corner?: OverlayCorner;
+  /** Pixels in from the edges. Defaults to the recipe's 30. */
+  inset?: number;
+  /** 0–1. Full opacity by default, because a logo nobody can see is not a logo. */
+  opacity?: number;
+};
+
+export type Broll = {
+  file: File;
+  /** Share of frame width. Defaults to the worker recipe's 0.35. */
+  widthPct?: number;
+  corner?: OverlayCorner;
+  inset?: number;
+  /** Seconds from the clip's start that the B-roll stays up. Recipe default 8. */
+  untilSec?: number;
+};
+
 const OUT_W = 1080, OUT_H = 1920;
 
 export async function renderClip(file: File, opts: RenderOptions): Promise<RenderResult> {
@@ -184,10 +260,12 @@ export async function renderClip(file: File, opts: RenderOptions): Promise<Rende
   if (!ctx) { URL.revokeObjectURL(url); throw new Error("Could not open a drawing surface."); }
 
   let raf = 0;
+  const overlayUrls: string[] = [];
   const cleanup = () => {
     if (raf) cancelAnimationFrame(raf);
     video.pause();
     URL.revokeObjectURL(url);
+    for (const u of overlayUrls) URL.revokeObjectURL(u);
   };
 
   try {
@@ -201,6 +279,52 @@ export async function renderClip(file: File, opts: RenderOptions): Promise<Rende
     }
 
     const crop = cropRect(video.videoWidth || 1920, video.videoHeight || 1080, opts.focusX ?? 0.5);
+
+    // ---- overlays -------------------------------------------------------
+    // Loaded before recording starts. An asset that arrives halfway through
+    // would pop into the middle of the clip, which looks like a glitch rather
+    // than a brand.
+    let logo: HTMLImageElement | null = null;
+    let logoRect = { x: 0, y: 0, w: 0, h: 0 };
+    if (opts.watermark) {
+      const wm = opts.watermark;
+      const logoUrl = URL.createObjectURL(wm.file);
+      overlayUrls.push(logoUrl);
+      logo = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("That logo could not be read as an image. PNG with a transparent background works best."));
+        img.src = logoUrl;
+      });
+      logoRect = overlayRect(OUT_W, OUT_H, logo.naturalWidth, logo.naturalHeight, {
+        widthPct: wm.widthPct ?? 0.14, corner: wm.corner ?? "bottom-right", inset: wm.inset ?? 30,
+      });
+    }
+
+    let pip: HTMLVideoElement | null = null;
+    let pipRect = { x: 0, y: 0, w: 0, h: 0 };
+    let pipUntil = 0;
+    if (opts.broll) {
+      const br = opts.broll;
+      const pipUrl = URL.createObjectURL(br.file);
+      overlayUrls.push(pipUrl);
+      pip = document.createElement("video");
+      pip.src = pipUrl;
+      pip.playsInline = true;
+      pip.preload = "auto";
+      // Silent, matching the worker recipe's `-c:a copy`: the B-roll is
+      // something to look at while the speaker keeps talking.
+      pip.muted = true;
+      pip.loop = true;
+      await new Promise<void>((resolve, reject) => {
+        pip!.onloadedmetadata = () => resolve();
+        pip!.onerror = () => reject(new Error("That B-roll file could not be decoded as video in this browser."));
+      });
+      pipRect = overlayRect(OUT_W, OUT_H, pip.videoWidth || 1920, pip.videoHeight || 1080, {
+        widthPct: br.widthPct ?? 0.35, corner: br.corner ?? "top-right", inset: br.inset ?? 40,
+      });
+      pipUntil = Math.max(0, br.untilSec ?? 8);
+    }
 
     // Video comes from the canvas (cropped, captioned); audio comes from the
     // element. Combining them is what makes the recording a clip rather than a
@@ -222,6 +346,7 @@ export async function renderClip(file: File, opts: RenderOptions): Promise<Rende
     });
 
     rec.start(200);
+    if (pip) await pip.play().catch(() => { /* a B-roll that will not play is dropped, not fatal */ });
     await video.play();
 
     const draw = () => {
@@ -251,10 +376,23 @@ export async function renderClip(file: File, opts: RenderOptions): Promise<Rende
         }
       }
 
+      // B-roll first, then the logo: a watermark that a picture-in-picture can
+      // cover is not a watermark.
+      if (pip && t - start <= pipUntil && pipRect.w > 0) {
+        try { ctx.drawImage(pip, pipRect.x, pipRect.y, pipRect.w, pipRect.h); } catch { /* a frame not ready yet is skipped, not fatal */ }
+      }
+      if (logo && logoRect.w > 0) {
+        const prev = ctx.globalAlpha;
+        ctx.globalAlpha = Math.max(0, Math.min(1, opts.watermark?.opacity ?? 1));
+        ctx.drawImage(logo, logoRect.x, logoRect.y, logoRect.w, logoRect.h);
+        ctx.globalAlpha = prev;
+      }
+
       opts.onProgress?.(Math.min(100, Math.round(((t - start) / span) * 100)));
 
       if (opts.signal?.aborted || t >= end || video.ended) {
         video.pause();
+        pip?.pause();
         if (rec.state !== "inactive") rec.stop();
         return;
       }

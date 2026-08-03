@@ -244,7 +244,7 @@ export function canRenderKind(kind: VideoJobKind): { ok: boolean; via: "cloud" |
   if (hosted && hostedCannot) {
     return {
       ok: false, via: null,
-      reason: `${hostedCannot} This deployment has the hosted renderer but no self-hosted worker, so this particular job cannot run and you have not been charged for it. Everything else on the Render Farm works. To enable this one, deploy worker/ to Cloud Run on the Google Cloud account this platform already uses and set VIDEO_WORKER_SECRET on both sides — that is your own container, not a new supplier.`,
+      reason: `${hostedCannot} This deployment has the hosted renderer but no self-hosted worker, so this QUEUED job cannot run and you have not been charged for it. The capability itself is not missing: the Clip Finder does logo overlays and picture-in-picture B-roll in your browser, at the same size and position this render would have used, with no upload and no render bill. The worker is only worth deploying if you want these queued in unattended batches.`,
     };
   }
   return {

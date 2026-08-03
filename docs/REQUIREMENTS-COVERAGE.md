@@ -1690,3 +1690,31 @@ the guard landed, because they enqueue in an environment with no renderer — th
 were leaning on the absence of the check. They exercise the *worker* path
 (claiming, a worker dying mid-render, the refund after three failures), so they
 now declare `VIDEO_WORKER_SECRET`, which is what they always implicitly assumed.
+
+### §54d — Nothing is gated any more: logo and B-roll moved to the browser
+
+Owner: *"complete"* — close the last open decision rather than leave it as one.
+
+The decision on the table was whether to deploy `worker/` to Cloud Run so that
+logo overlay (`brand`) and picture-in-picture B-roll (`broll`) would work. Those
+were the only two render kinds the hosted FFmpeg API cannot do, because both
+need `filter_complex`.
+
+The better answer was not to deploy anything. Compositing a second source over
+a frame is what a canvas does for a living, and the canvas was already in place
+drawing the 9:16 crop and the burned captions.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A logo composited over the clip, with no worker | ✅ **new** | `overlayRect()` + the draw loop in `clip-render.ts`. **14% of frame width, inset 30px from the bottom-right** — the exact numbers from the worker's own recipe (`[1]scale=iw*0.14:-1[wm];[0][wm]overlay=W-w-30:H-h-30`), so a clip cut in the browser and one cut on the worker look the same. Height follows the logo's own aspect ratio, so a tall logo is not squashed into a wide box. |
+| Picture-in-picture B-roll, with no worker | ✅ **new** | **35% of frame width, inset 40px from the top-right, visible from the clip's start until `untilSec` (default 8)** — again lifted from the recipe. Silent, matching the recipe's `-c:a copy`: the speaker keeps talking underneath. |
+| Draw order | ✅ | B-roll first, logo last. A watermark a picture-in-picture can cover is not a watermark. |
+| Degenerate assets cannot break a frame | ✅ | A broken image or a video whose metadata never arrived has no usable dimensions; `overlayRect` returns a zero rect rather than dividing by zero and drawing NaN geometry. An oversized `widthPct` is clamped inside the frame. |
+| No leaked object URLs | ✅ | The overlays add two more blob URLs per render; all three are revoked in `cleanup()`. A leaked one pins the whole file in memory for the life of the tab, and someone cutting ten clips would pin ten videos. |
+| Reachable | ✅ | Optional logo and B-roll pickers on the Clip Finder, with the placement stated ("the same placement the server-side render uses") so nobody has to wonder whether the two paths agree. |
+| Reporting matches reality | ✅ | The health capability is now *"Clip cutting to 9:16 — captions burned in, logo, B-roll … needs no key at all"*. The refusal from `canRenderKind` no longer sends anyone to deploy a container: *"The capability itself is not missing… the Clip Finder does logo overlays and picture-in-picture B-roll in your browser, at the same size and position this render would have used."* |
+
+**What a render worker is now for, and only for:** unattended batches, and
+**background removal and upscaling** — the two jobs a browser genuinely cannot
+do. Nothing in the clip pipeline is gated behind it, and no capability is
+missing from this deployment.

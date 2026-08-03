@@ -81,7 +81,14 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
   const [cutPct, setCutPct] = useState(0);
   const [cutErr, setCutErr] = useState<string | null>(null);
   const [cut, setCut] = useState<Record<string, { url: string; ext: string }>>({});
+  // The last two capabilities that used to need a render worker. Same numbers
+  // as the worker's own recipes, so a clip cut here matches one cut there.
+  const [logo, setLogo] = useState<File | null>(null);
+  const [broll, setBroll] = useState<File | null>(null);
+  const [brollSec, setBrollSec] = useState(8);
   const sourceRef = useRef<HTMLInputElement>(null);
+  const logoRef = useRef<HTMLInputElement>(null);
+  const brollRef = useRef<HTMLInputElement>(null);
   const canRender = typeof window !== "undefined" && renderSupported();
 
   async function cutOne(clip: Clip) {
@@ -91,6 +98,8 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
       const out = await renderClip(source, {
         startSec: clip.startSec, endSec: clip.endSec,
         cues: parseSrt(clip.srt), burnCaptions: burn, focusX,
+        watermark: logo ? { file: logo } : undefined,
+        broll: broll ? { file: broll, untilSec: brollSec } : undefined,
         onProgress: setCutPct,
       });
       setCut((c) => ({ ...c, [clip.id]: { url: URL.createObjectURL(out.blob), ext: extFor(out.mimeType) } }));
@@ -239,6 +248,33 @@ export default function ClipFinder({ onCutList }: { onCutList?: (moments: { star
                       detection, and a guess that crops someone out of their own video is worse than a crop that never
                       pretended to be clever.
                     </p>
+                  </div>
+                )}
+                {source && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <button className="w-full rounded-lg border border-white/15 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/[0.06]" onClick={() => logoRef.current?.click()}>
+                        {logo ? `Logo: ${logo.name}` : "Add your logo (optional)"}
+                      </button>
+                      <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setLogo(f); e.target.value = ""; }} />
+                      {logo && <button className="mt-1 text-[10px] text-slate-500 hover:text-slate-300" onClick={() => setLogo(null)}>remove</button>}
+                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">Bottom-right, 14% of the frame — the same placement the server-side render uses. A PNG with a transparent background looks best.</p>
+                    </div>
+                    <div>
+                      <button className="w-full rounded-lg border border-white/15 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/[0.06]" onClick={() => brollRef.current?.click()}>
+                        {broll ? `B-roll: ${broll.name}` : "Add B-roll (optional)"}
+                      </button>
+                      <input ref={brollRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setBroll(f); e.target.value = ""; }} />
+                      {broll && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <label className="text-[10px] text-slate-400">for first</label>
+                          <input className="w-14 rounded border border-white/15 bg-transparent px-1.5 py-0.5 text-[11px] text-white" type="number" min={1} max={60} value={brollSec} onChange={(e) => setBrollSec(Number(e.target.value) || 8)} />
+                          <span className="text-[10px] text-slate-400">seconds</span>
+                          <button className="text-[10px] text-slate-500 hover:text-slate-300" onClick={() => setBroll(null)}>remove</button>
+                        </div>
+                      )}
+                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">Picture-in-picture, top-right, 35% of the frame, silent — your speaker keeps talking underneath it.</p>
+                    </div>
                   </div>
                 )}
                 {cutErr && <p className="mt-2 text-[11px] text-rose-300">{cutErr}</p>}

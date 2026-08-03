@@ -72,7 +72,7 @@ export async function GET() {
     // is a shared secret for the container in worker/ that MarketWar runs
     // itself, on infrastructure the stack already uses — not a vendor at all.
     // And clip cutting needs neither: the browser does it (clip-render.ts).
-    { capability: "Clip cutting to 9:16 with burned captions", ready: true, activates: "Already live — the customer's browser cuts it, so there is no upload, no queue and no render bill. Chrome, Edge or Firefox on a desktop." },
+    { capability: "Clip cutting to 9:16 — captions burned in, logo, B-roll", ready: true, activates: "Already live and needs no key at all. The customer's browser does the cropping, the captions, the logo overlay and the picture-in-picture B-roll, so there is no upload, no queue and no render bill. Chrome, Edge or Firefox on a desktop." },
     // Reports the state this deployment is ACTUALLY in rather than generic
     // advice. The two executors are not interchangeable: the hosted API takes a
     // flat list of FFmpeg options and cannot run filter_complex, so a logo
@@ -86,7 +86,7 @@ export async function GET() {
       activates: env("VIDEO_WORKER_SECRET")
         ? "Live on your own worker container — every render kind is available, including the logo and B-roll composites."
         : env("FFMPEG_CLOUD_API_KEY")
-          ? "Live on the hosted renderer: trim, clips, burned captions, background removal and upscale all run. Logo overlay and B-roll do NOT — they need FFmpeg's filter_complex, which the hosted API cannot do, so those two are refused before anything is charged. To add them, deploy worker/ to Cloud Run on the Google Cloud account this platform already uses and set VIDEO_WORKER_SECRET — your own container, not another supplier."
+          ? "Live on the hosted renderer: trim, clips, burned captions, background removal and upscale all run QUEUED here. The queued versions of logo overlay and B-roll do not — they need FFmpeg's filter_complex — and are refused before anything is charged. That is no longer a missing capability: both are available in the browser from the Clip Finder, at no cost and with no key. The worker is only worth adding for unattended batches of those two."
           : "OPTIONAL, and not needed for clip cutting — the browser does that. For unattended batches: either run worker/ yourself (a container on the Google Cloud account this stack already uses, no new supplier) or set FFMPEG_CLOUD_API_KEY for the hosted service, which is a supplier and a per-minute bill.",
     },
   ];

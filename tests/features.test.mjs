@@ -7847,17 +7847,113 @@ test("the platform never says a new supplier is needed to cut a clip", () => {
   // run ourselves. Listing them together as one dependency told the owner they
   // had to take on a supplier for something the browser already does.
   const health = readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8");
-  assert.match(health, /Clip cutting to 9:16 with burned captions/);
+  assert.match(health, /Clip cutting to 9:16 — captions burned in, logo, B-roll/,
+    "the browser path must name every overlay it actually does");
   assert.match(health, /ready: true/, "clip cutting is live with no key at all");
   assert.match(health, /no new supplier/, "the self-hosted worker must be distinguished from the vendor");
   assert.match(health, /is a supplier and a per-minute bill/, "and the vendor must be named as one");
   // And when the hosted key IS set, it must report what that deployment can
   // actually do rather than repeat advice the owner has already acted on.
-  assert.match(health, /Logo overlay and B-roll do NOT/,
+  assert.match(health, /queued versions of logo overlay and B-roll do not/,
     "an owner who already pays for the hosted renderer needs to know its two gaps");
   assert.match(health, /refused before anything is charged/);
+  // And the gap is a QUEUEING gap, not a missing capability — the browser does
+  // both. Saying otherwise would send the owner to deploy a container for
+  // something the platform already does.
+  assert.match(health, /no longer a missing capability/);
+  assert.match(health, /logo overlay and the picture-in-picture B-roll/,
+    "the browser path must claim both, since it now does both");
 
   const farm = readFileSync(new URL("../src/components/RenderFarm.tsx", import.meta.url), "utf8");
   assert.match(farm, /You probably do not need one/);
   assert.match(farm, /your own container, not a new supplier/);
+});
+
+// ---------------------------------------------------------------------------
+// The last two capabilities that needed a render worker, done in the browser.
+//
+// `brand` (a logo) and `broll` (picture-in-picture) were the ONLY render kinds
+// the hosted FFmpeg API cannot do, because both need filter_complex — which
+// made them the one thing gated behind deploying a container. Compositing a
+// second source over a frame is what a canvas does for a living, and the canvas
+// was already there drawing the crop and the captions.
+//
+// The geometry is lifted from the worker's own recipes on purpose: a clip cut
+// in the browser and one cut on the worker must look the same, or the feature
+// means two different things depending on infrastructure nobody can see.
+// ---------------------------------------------------------------------------
+
+test("a logo lands where the server-side recipe puts it: 14% wide, 30px off the bottom-right", () => {
+  // ffmpeg-recipes.ts: [1]scale=iw*0.14:-1[wm];[0][wm]overlay=W-w-30:H-h-30
+  const r = cr.overlayRect(1080, 1920, 400, 200, { widthPct: 0.14, corner: "bottom-right", inset: 30 });
+  assert.equal(Math.round(r.w), Math.round(1080 * 0.14));
+  assert.equal(Math.round(r.h), Math.round(1080 * 0.14 * (200 / 400)), "height follows the logo's own aspect ratio");
+  assert.equal(Math.round(r.x + r.w), 1080 - 30, "30px in from the right edge");
+  assert.equal(Math.round(r.y + r.h), 1920 - 30, "30px up from the bottom");
+});
+
+test("B-roll lands where its recipe puts it: 35% wide, 40px off the top-right", () => {
+  // ffmpeg-recipes.ts: [1]scale=iw*0.35:-1[pip];[0][pip]overlay=W-w-40:40
+  const r = cr.overlayRect(1080, 1920, 1920, 1080, { widthPct: 0.35, corner: "top-right", inset: 40 });
+  assert.equal(Math.round(r.w), Math.round(1080 * 0.35));
+  assert.equal(Math.round(r.x + r.w), 1080 - 40);
+  assert.equal(Math.round(r.y), 40);
+});
+
+test("a tall logo is not squashed into a wide box", () => {
+  const tall = cr.overlayRect(1080, 1920, 100, 400, { widthPct: 0.14, corner: "bottom-right", inset: 30 });
+  assert.ok(Math.abs(tall.h / tall.w - 4) < 0.001, "a 1:4 logo must stay 1:4");
+});
+
+test("all four corners are honoured", () => {
+  const at = (corner) => cr.overlayRect(1000, 1000, 100, 100, { widthPct: 0.1, corner, inset: 20 });
+  assert.deepEqual([at("top-left").x, at("top-left").y], [20, 20]);
+  assert.deepEqual([at("top-right").x, at("top-right").y], [880, 20]);
+  assert.deepEqual([at("bottom-left").x, at("bottom-left").y], [20, 880]);
+  assert.deepEqual([at("bottom-right").x, at("bottom-right").y], [880, 880]);
+});
+
+test("an asset with no readable size draws nothing rather than dividing by zero", () => {
+  // A broken image or a video whose metadata never arrived would otherwise
+  // produce NaN geometry and either an invisible overlay or a thrown frame.
+  for (const [w, h] of [[0, 0], [100, 0], [0, 100], [NaN, NaN]]) {
+    const r = cr.overlayRect(1080, 1920, w, h, { widthPct: 0.14, corner: "bottom-right", inset: 30 });
+    assert.deepEqual(r, { x: 0, y: 0, w: 0, h: 0 }, `${w}x${h} must be a no-op`);
+  }
+});
+
+test("an oversized overlay is clamped inside the frame", () => {
+  const r = cr.overlayRect(1080, 1920, 100, 100, { widthPct: 5, corner: "bottom-right", inset: 30 });
+  assert.ok(r.w <= 1080, "never wider than the frame");
+  assert.ok(r.x >= 0 && r.y >= 0, "and never pushed off the top-left corner");
+});
+
+test("the browser renderer composites both overlays and keeps only the main audio", () => {
+  const src = readFileSync(new URL("../src/frontend/clip-render.ts", import.meta.url), "utf8");
+  // B-roll under the logo: a watermark a picture-in-picture can cover is not one.
+  const pipAt = src.indexOf("ctx.drawImage(pip");
+  const logoAt = src.indexOf("ctx.drawImage(logo");
+  assert.ok(pipAt > 0 && logoAt > 0, "both must be drawn");
+  assert.ok(pipAt < logoAt, "the logo must be drawn last so nothing covers it");
+  assert.match(src, /pip\.muted = true/, "the B-roll is silent, matching the recipe's -c:a copy");
+  assert.match(src, /t - start <= pipUntil/, "and only shows for its window");
+});
+
+test("every object URL the renderer makes is revoked", () => {
+  // Overlays add two more; a leaked blob URL pins the whole file in memory for
+  // the life of the tab, and a customer cutting ten clips would pin ten videos.
+  const src = readFileSync(new URL("../src/frontend/clip-render.ts", import.meta.url), "utf8");
+  const created = (src.match(/URL\.createObjectURL\(/g) || []).length;
+  assert.ok(created >= 3, "video, logo and B-roll all create one");
+  assert.match(src, /for \(const u of overlayUrls\) URL\.revokeObjectURL\(u\)/);
+  assert.match(src, /overlayUrls\.push\(logoUrl\)/);
+  assert.match(src, /overlayUrls\.push\(pipUrl\)/);
+});
+
+test("the Clip Finder offers the logo and B-roll without a worker", () => {
+  const src = readFileSync(new URL("../src/components/ClipFinder.tsx", import.meta.url), "utf8");
+  assert.match(src, /watermark: logo \? \{ file: logo \} : undefined/);
+  assert.match(src, /broll: broll \? \{ file: broll, untilSec: brollSec \} : undefined/);
+  assert.match(src, /the same placement the server-side render uses/,
+    "the customer should know it matches, not wonder whether it does");
 });

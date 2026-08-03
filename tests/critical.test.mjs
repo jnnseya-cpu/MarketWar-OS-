@@ -1230,3 +1230,17 @@ test("every render kind still clears the owner's 2x margin floor", async () => {
     assert.ok(revenue >= cost * 2, `${kind}: charges £${revenue} against £${cost} cost — under the 2x floor`);
   }
 });
+
+test("a refused queued render points at the browser, not at a container to deploy", async () => {
+  await withEnv({ FFMPEG_CLOUD_API_KEY: "test-key", VIDEO_WORKER_SECRET: null }, () => {
+  // brand and broll are no longer gated capabilities — clip-render.ts does both
+  // at the same size and position. The queued version is what is unavailable,
+  // and telling someone to stand up infrastructure for something the product
+  // already does is the kind of advice that gets acted on and wastes a day.
+    const r = vj.canRenderKind("brand");
+    assert.equal(r.ok, false, "the hosted API still cannot queue a composite");
+    assert.match(r.reason, /The capability itself is not missing/);
+    assert.match(r.reason, /in your browser/);
+    assert.match(r.reason, /same size and position/);
+  });
+});

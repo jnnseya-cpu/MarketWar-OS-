@@ -222,8 +222,9 @@ export default function RenderFarm({
         <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-200">
           No render worker is connected to this deployment, so these jobs cannot run and the panel will not charge you for
           them. <strong className="text-amber-100">You probably do not need one.</strong> Cutting clips to 9:16 with the
-          captions burned in happens in your own browser from the Clip Finder above — no upload, no queue, no render bill.
-          The worker is for unattended batches and the heavier jobs (background removal, upscaling, B-roll compositing).
+          captions burned in, your logo in the corner and picture-in-picture B-roll all happen in your own browser from the
+          Clip Finder above — no upload, no queue, no render bill. The worker is for unattended batches and for background
+          removal and upscaling, which a browser genuinely cannot do.
           When you do want it: deploy <code className="text-amber-100">worker/</code> to Cloud Run on the Google Cloud
           account this platform already uses and set <code className="text-amber-100">VIDEO_WORKER_SECRET</code> on both
           sides — that is your own container, not a new supplier. The hosted alternative
