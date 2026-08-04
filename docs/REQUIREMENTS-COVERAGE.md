@@ -2228,3 +2228,54 @@ the reporting call, and a grep passes just as happily when the call is
 short-circuited behind a falsy guard. It now pins the call to the start of the
 effect body, and a second test drives the real route handler, because source can
 lie about whether a line is reached.
+
+---
+
+## §66 — Reviews, followers, flyers and local groups (2026-08-04)
+
+The owner offered to supply four things for every user on the platform and every
+social platform: **Facebook positive reviews with time difference**, **local page
+followers with English names**, **business flyers**, and **local group posting** —
+on the reasoning that more reviews, likes and followers put a page at the top of
+searches and bring more clients.
+
+**Two of the four are built. Two are not, and will not be.**
+
+### What is not built, and why the reason is commercial rather than squeamish
+
+| | |
+|---|---|
+| **It is illegal where our customers trade** | UK **DMCC Act 2024** makes commissioning, submitting or hosting fake reviews a banned practice, CMA-enforceable to **10% of global turnover**. The US **FTC rule on fake reviews and testimonials** (16 CFR Part 465) does the same with civil penalties per violation. The liability lands on the **trader whose page carries them**. |
+| **The penalty lands on the customer's page, not ours** | Meta, Google and Trustpilot all class purchased reviews and purchased followers as inauthentic behaviour. The outcomes are review-stripping, a **public "suspected fake activity" notice** on a Trustpilot profile, and Business Profile suspension. A suspended profile ranks nowhere — the opposite of what was being bought. |
+| **It does not survive our own detector** | `fakeReviewRisk()` in `src/backend/reputation.ts` already flags near-duplicate text, unverified authors and incentivised language. A supplied batch staggered over time is exactly that shape, so the platform we sell would mark the customer's own reviews as manipulated. |
+| **Bought followers make reach worse** | Every feed ranks by engagement **rate**. Adding accounts that never engage divides the same engagement across a bigger denominator, so the page is shown to **fewer** real people afterwards than before. This is arithmetic, not policy. |
+
+That doctrine was already in the repo — `reputation.ts` has said *"reviews are
+EARNED, never fabricated"* since it was written. §66 is the first time the
+platform offers the **legitimate mechanism** the doctrine implied.
+
+### What is built
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Ask real customers, on every platform that permits it | ✅ **new** | `src/backend/review-requests.ts` — `REVIEW_PLATFORMS` covers Google Business Profile, Facebook Recommendations, Trustpilot, Tripadvisor, Yelp, Amazon, G2, Capterra, Checkatrade, each with its **own published asking policy**: encouraged / allowed-with-rules / restricted / prohibited. |
+| **Yelp is refused, not silently included** | ✅ | Yelp's *Don't Ask for Reviews* policy prohibits soliciting at all, and its filter suppresses reviews it believes were solicited — so an ask can *remove* reviews you already had. `reviewLink("yelp", …)` returns an error and `planCampaign` refuses. Amazon is `restricted` — their own Request a Review button only. |
+| Review links are built or validated, never invented | ✅ | Google from a Place ID, Trustpilot from the domain, Facebook from the Page name; everything else is pasted and host-checked on a dot boundary (`nottrustpilot.com` fails, `uk.trustpilot.com` passes) through `safeHref`. A guessed URL that 404s costs a review. |
+| **No review gating** — enforced, not stated | ✅ | Screening for happy customers first is itself banned under the DMCC Act and the FTC rule. `RequestCandidate` carries what somebody bought and when and has **nowhere to put an opinion**; `gatingCheck()` rejects `minRating`, `happyOnly`, `sentimentAbove`, `excludeUnhappy` and 13 more at the route door **before metering**. Tested: two identical customers, one flagged delighted and one furious, come out identically. |
+| Nobody is asked who did not buy | ✅ | `eligibleForRequest()` excludes zero-order contacts — *"a review from a non-customer is a fake review"* — plus too-soon, too-stale, no-channel, already-asked-inside-cool-off, and withdrawn consent, each with the reason named. |
+| The burst is paced | ✅ | 50 reviews onto a profile that has had 9 in two years is the exact signal the filters exist to catch. `pacingPlan()` scales the daily rate to the profile that already exists, floor 3 / ceiling 50 — and says out loud that **no platform publishes a safe rate**, so the pace is a *convention*, not a measurement. |
+| The message asks for the truth | ✅ | `incentiveRisk()` flags both incentives (banned everywhere, and by both statutes) and positive-steering (*"5 stars"*). Our own draft passes our own check — asserted in test. The Facebook draft says *recommendation*, because Facebook removed star ratings in 2018 and asking for stars there asks for something that no longer exists. |
+| SMS is costed | ✅ | `smsSegments()` implements GSM-03.38 vs UCS-2: one emoji drops a segment from 160 characters to 70 and triples the per-recipient bill. |
+| **Business flyers** | ✅ **new** | `src/backend/local-outreach.ts` — specified in **millimetres**, the unit a printer works in. A6/DL/A5/A4/A3 at 300 DPI with 3mm bleed **added to** the artboard and a 5mm safe box; the existing 1080×1350 social sizes are 130 DPI at A5 and come back fuzzy. Copy budgets derived from the readable width, QR floor of 20mm with the reason, and a proof-copy checklist. |
+| **Local group posting** | ✅ **new** | `draftGroupPost()` for Facebook groups, Nextdoor, WhatsApp communities, local subreddits, physical noticeboards and local forums — each with the rules those groups actually enforce, an honest cadence, and advert-language detection (*"limited time"*, *"best in town"*) flagged rather than silently rewritten. |
+| Nothing claims to post on your behalf | ✅ | Meta's Groups API only permits posting into a group that **installed the app**; Nextdoor has no third-party neighbourhood posting API; every group's rules require a member to post. Tools that claim otherwise drive an unofficial session and get the account restricted. Stated on the panel, not buried. |
+| Followers, answered honestly | ✅ | `FOLLOWER_DOCTRINE` + `followerPlays()` — the QR on the flyer and receipt, the review requests already due, answering questions in groups without selling, posting the business rather than the catalogue, and asking at the counter. **No projected follower counts**: a forecast for a business we have not measured is the same defect as a bought follower — a number that was invented. |
+| Metered like everything else | ✅ | `/api/review-requests` and `/api/local-outreach` both charge `report` (§63: no free AI action regardless). Gating is rejected **before** the charge, so a refused request costs nobody an ACU. |
+| Wired to screens | ✅ | `ReviewRequests` on `/dashboard/reputation`, `LocalOutreach` on `/dashboard/local`. Both list the platform's own rules beside the draft, and the review panel shows the excluded list with the reason each person was not asked. |
+
+Tests **885 → 902**, all passing; typecheck, layer check and build green.
+
+**Gap recorded.** The engine plans and drafts the requests; it does not yet
+*send* them — sending goes through the Email Centre / WhatsApp by hand for now,
+and the "already asked" record is passed in rather than stored. A `review_asks`
+ledger and one-click send are the next increment.

@@ -12,6 +12,7 @@ import { Loader2, MapPin, ListChecks, Building2 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill } from "@/components/ui";
 import GoogleInsightsPanel from "@/components/GoogleInsightsPanel";
+import LocalOutreach from "@/components/LocalOutreach";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type ProfileStatus = "present" | "weak" | "missing";
@@ -73,6 +74,10 @@ export default function LocalDominationPage() {
 
       {/* Real Google Business Profile listing + reviews when connected */}
       <GoogleInsightsPanel kind="business-profile" />
+
+      {/* The two local plays that happen off the screen: a flyer that prints
+          properly, and a group post that survives the admins. */}
+      <LocalOutreach brandName={business || activeBrand?.name} town={location || activeBrand?.location} />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">

@@ -9367,3 +9367,267 @@ test("the crash report route records what the boundary sends it", async () => {
   assert.equal(row.count, 2);
   assert.equal(row.route, "/dashboard/inbox");
 });
+
+// ---------------------------------------------------------------------------
+// Review Request Engine — the legitimate half of "more reviews and followers".
+// The fabricated half is not built; these tests hold the line that separates
+// them, because a doctrine that only exists in a comment is a doctrine that
+// gets quietly relaxed.
+// ---------------------------------------------------------------------------
+const rr = await import("../src/backend/review-requests.ts");
+
+test("reviews: eligibility cannot see what anybody thought", () => {
+  // The no-gating rule as a type: two identical customers, one flagged happy and
+  // one flagged furious, must come out the same — there is nowhere to put the
+  // opinion. Screening for the happy ones first is a banned practice under the
+  // DMCC Act 2024 and the FTC rule, not a setting.
+  const base = { email: "a@example.com", orderCount: 2, lastOrderDaysAgo: 7 };
+  const res = rr.eligibleForRequest({
+    candidates: [
+      { id: "happy", ...base, rating: 5, sentiment: 100, satisfaction: "delighted" },
+      { id: "angry", ...base, rating: 1, sentiment: -100, satisfaction: "furious" },
+    ],
+    config: rr.DEFAULT_REQUEST_CONFIG,
+  });
+  assert.equal(res.eligible.length, 2, "both are asked, or the campaign is gated");
+  assert.deepEqual(res.eligible.map((c) => c.id).sort(), ["angry", "happy"]);
+});
+
+test("reviews: a request that tries to gate is refused with the reason", () => {
+  for (const key of ["minRating", "happyOnly", "excludeUnhappy", "sentimentAbove", "MINRATING"]) {
+    const g = rr.gatingCheck({ platformId: "google", [key]: 4 });
+    assert.equal(g.ok, false, `${key} must be rejected`);
+    assert.match(g.error, /gating is not available/i);
+  }
+  assert.equal(rr.gatingCheck({ platformId: "google", channel: "email" }).ok, true);
+});
+
+test("reviews: nobody is asked who did not buy anything", () => {
+  const res = rr.eligibleForRequest({
+    candidates: [
+      { id: "never", email: "n@example.com", orderCount: 0, lastOrderDaysAgo: 3 },
+      { id: "real", email: "r@example.com", orderCount: 1, lastOrderDaysAgo: 3 },
+    ],
+    config: rr.DEFAULT_REQUEST_CONFIG,
+  });
+  assert.deepEqual(res.eligible.map((c) => c.id), ["real"]);
+  assert.match(res.excluded.find((e) => e.id === "never").reason, /never bought/);
+});
+
+test("reviews: too soon, too long ago, no channel and already-asked are all excluded", () => {
+  const cfg = { ...rr.DEFAULT_REQUEST_CONFIG, minDaysSinceOrder: 2, maxDaysSinceOrder: 60, cooloffDays: 180 };
+  const res = rr.eligibleForRequest({
+    candidates: [
+      { id: "soon", email: "s@e.com", orderCount: 1, lastOrderDaysAgo: 0 },
+      { id: "stale", email: "t@e.com", orderCount: 1, lastOrderDaysAgo: 400 },
+      { id: "nochannel", orderCount: 1, lastOrderDaysAgo: 5 },
+      { id: "recent", email: "r@e.com", orderCount: 1, lastOrderDaysAgo: 5 },
+      { id: "nodate", email: "d@e.com", orderCount: 1 },
+      { id: "ok", email: "o@e.com", orderCount: 1, lastOrderDaysAgo: 5 },
+    ],
+    config: cfg,
+    askedDaysAgo: { recent: 30 },
+  });
+  assert.deepEqual(res.eligible.map((c) => c.id), ["ok"]);
+  const why = Object.fromEntries(res.excluded.map((e) => [e.id, e.reason]));
+  assert.match(why.soon, /too soon/);
+  assert.match(why.stale, /too long ago/);
+  assert.match(why.nochannel, /no email address/);
+  assert.match(why.recent, /already asked 30d ago/);
+  assert.match(why.nodate, /no order date/);
+});
+
+test("reviews: withdrawn consent is honoured unless the setting is turned off", () => {
+  const c = [{ id: "x", email: "x@e.com", orderCount: 1, lastOrderDaysAgo: 5, consent: false }];
+  assert.equal(rr.eligibleForRequest({ candidates: c, config: rr.DEFAULT_REQUEST_CONFIG }).eligible.length, 0);
+  assert.equal(rr.eligibleForRequest({ candidates: c, config: { ...rr.DEFAULT_REQUEST_CONFIG, requireConsent: false } }).eligible.length, 1);
+});
+
+test("reviews: a review link is built or validated, never invented", () => {
+  const g = rr.reviewLink("google", { identifier: "ChIJN1t_tDeuEmsRUsoyG83frY4" });
+  assert.equal(g.ok, true);
+  assert.equal(g.url, "https://search.google.com/local/writereview?placeid=ChIJN1t_tDeuEmsRUsoyG83frY4");
+
+  const t = rr.reviewLink("trustpilot", { identifier: "https://www.evandeli.com/shop?x=1" });
+  assert.equal(t.url, "https://www.trustpilot.com/evaluate/evandeli.com", "the domain is normalised out of whatever they paste");
+
+  // Tripadvisor's review URLs carry internal ids we will not guess.
+  const ta = rr.reviewLink("tripadvisor", { identifier: "The Grill House" });
+  assert.equal(ta.ok, false);
+  assert.match(ta.error, /do not construct/i);
+
+  // A pasted link must actually be on that platform, on a dot boundary.
+  assert.equal(rr.reviewLink("trustpilot", { pastedUrl: "https://nottrustpilot.com/evaluate/x" }).ok, false);
+  assert.equal(rr.reviewLink("trustpilot", { pastedUrl: "https://uk.trustpilot.com/evaluate/x" }).ok, true);
+  assert.equal(rr.reviewLink("google", { pastedUrl: "javascript:alert(1)" }).ok, false);
+});
+
+test("reviews: Yelp forbids asking, so no request is produced for it", () => {
+  const y = rr.reviewLink("yelp", { pastedUrl: "https://www.yelp.com/writeareview/biz/abc" });
+  assert.equal(y.ok, false);
+  assert.match(y.error, /forbids asking/i);
+  const plan = rr.planCampaign({
+    platformId: "yelp", channel: "email", brandName: "B",
+    candidates: [{ id: "a", email: "a@e.com", orderCount: 1, lastOrderDaysAgo: 5 }],
+    pastedUrl: "https://www.yelp.com/writeareview/biz/abc",
+  });
+  assert.equal(plan.ok, false);
+  assert.equal(rr.askablePlatforms().some((p) => p.id === "yelp"), false);
+  assert.equal(rr.askablePlatforms().some((p) => p.id === "amazon"), false, "Amazon permits only its own button");
+});
+
+test("reviews: the draft asks for the truth, never for five stars or a reward", () => {
+  const d = rr.draftRequest({
+    platformId: "google", channel: "email", brandName: "Ev&Deli",
+    link: "https://search.google.com/local/writereview?placeid=X", contactName: "Ann Smith",
+  });
+  assert.match(d.body, /Hi Ann,/);
+  assert.match(d.body, /Honest/);
+  assert.ok(d.body.includes("https://search.google.com/local/writereview?placeid=X"));
+  assert.deepEqual(rr.incentiveRisk(d.body).flags, [], "our own draft must pass our own check");
+
+  // Facebook has no stars any more, so the wording changes.
+  const fb = rr.draftRequest({ platformId: "facebook", channel: "email", brandName: "B", link: "https://www.facebook.com/b/reviews" });
+  assert.match(fb.body, /recommendation/);
+  assert.ok(!/leave a review on Facebook/i.test(fb.body));
+
+  // And a customer's own wording is checked rather than trusted.
+  const bad = rr.incentiveRisk("Leave us a 5-star review and get 10% off your next order");
+  assert.equal(bad.blocking, true);
+  assert.equal(bad.flags.length, 2, "both the incentive and the steer are named");
+});
+
+test("reviews: SMS segments are counted, because an emoji triples the bill", () => {
+  assert.equal(rr.smsSegments("a".repeat(160)), 1);
+  assert.equal(rr.smsSegments("a".repeat(161)), 2);
+  assert.equal(rr.smsSegments("a".repeat(70) + "🙂"), 2, "one emoji forces UCS-2 at 70 chars a segment");
+  assert.equal(rr.smsSegments(""), 0);
+});
+
+test("reviews: a burst is paced, and the pace is called a convention", () => {
+  const p = rr.pacingPlan({ total: 120, existingReviews: 40 });
+  assert.equal(p.perDay, 4, "4/day for a profile with 40 reviews");
+  assert.equal(p.days, 30);
+  assert.equal(p.batches.reduce((a, b) => a + b.count, 0), 120, "nobody is dropped by the pacing");
+  assert.match(p.note, /convention rather than a measured threshold/);
+  assert.equal(rr.suggestedPerDay(0), 3, "a new profile still gets a floor");
+  assert.equal(rr.suggestedPerDay(100000), 50, "and an established one still gets a ceiling");
+});
+
+test("reviews: the campaign refuses to call itself sendable when it is not", () => {
+  const ok = rr.planCampaign({
+    platformId: "google", identifier: "ChIJabcdef", channel: "email", brandName: "Ev&Deli",
+    candidates: [{ id: "a", name: "Ann", email: "a@e.com", orderCount: 2, lastOrderDaysAgo: 4 }],
+    existingReviews: 30,
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.campaign.sendable, true);
+  assert.equal(ok.campaign.eligibility.eligible.length, 1);
+  assert.match(ok.campaign.doctrine, /banned practice/);
+
+  const nobody = rr.planCampaign({
+    platformId: "google", identifier: "ChIJabcdef", channel: "email", brandName: "Ev&Deli",
+    candidates: [{ id: "a", email: "a@e.com", orderCount: 0 }],
+  });
+  assert.equal(nobody.campaign.sendable, false);
+  assert.ok(nobody.campaign.findings.some((f) => f.severity === "blocking"));
+});
+
+test("reviews: the route rejects gating before it charges anybody", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/review-requests/route.ts");
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/review-requests", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const gated = await post({ action: "plan", platformId: "google", identifier: "ChIJabc", minRating: 4, candidates: [] });
+  assert.equal(gated.status, 400);
+  assert.equal((await gated.json()).gatingKey, "minRating");
+
+  const good = await post({
+    action: "plan", platformId: "google", identifier: "ChIJabcdef", channel: "email", brandName: "Ev&Deli",
+    candidates: [{ id: "a", name: "Ann", email: "a@e.com", orderCount: 2, lastOrderDaysAgo: 4 }],
+  });
+  const c = await good.json();
+  assert.equal(good.status, 200);
+  assert.equal(c.link, "https://search.google.com/local/writereview?placeid=ChIJabcdef");
+  assert.equal(c.eligibility.eligible.length, 1);
+
+  const listed = await (await route.GET()).json();
+  assert.match(listed.notBuilt, /banned practice|not available on this platform/i);
+  assert.ok(listed.platforms.find((p) => p.id === "yelp").ask === "prohibited");
+});
+
+// ---------------------------------------------------------------------------
+// Local outreach — flyers and local-group posts
+// ---------------------------------------------------------------------------
+const lo = await import("../src/backend/local-outreach.ts");
+
+test("flyers: the file is specified in the units a printer works in", () => {
+  const spec = lo.printSpec("a5");
+  assert.equal(spec.trimPixels.w, 1748, "148mm at 300 DPI");
+  assert.equal(spec.trimPixels.h, 2480, "210mm at 300 DPI");
+  // Bleed is ADDED to the artboard, not taken out of it — the commonest way a
+  // print file comes back with a white sliver on the cut edge.
+  assert.equal(spec.pixels.w, 1748 + 2 * lo.mmToPx(3));
+  assert.ok(spec.safeBoxPixels.w < spec.trimPixels.w);
+  assert.equal(lo.printSpec("a4").trimPixels.w, 2480);
+  assert.equal(lo.printSpec("nope"), null);
+});
+
+test("flyers: a flyer that cannot be acted on is flagged, not shipped", () => {
+  const bare = lo.flyerPlan({ sizeId: "a5", headline: "Hot food, fast" });
+  assert.equal(bare.ok, true);
+  const w = bare.plan.warnings.join(" | ");
+  assert.match(w, /call to action/i);
+  assert.match(w, /no way to act on this flyer/i);
+
+  const over = lo.flyerPlan({ sizeId: "a5", headline: "H".repeat(200), cta: "Call us", contact: "020 7000 0000" });
+  assert.ok(over.plan.blocks.find((b) => b.role === "headline").over);
+  assert.match(over.plan.warnings.join(" "), /readable size/);
+});
+
+test("flyers: a QR code below the scannable floor is called out", () => {
+  const tiny = lo.flyerPlan({ sizeId: "a5", headline: "Hi", cta: "Scan", qrTarget: "https://evandeli.com", qrSizeMm: 8 });
+  assert.equal(tiny.plan.qr.ok, false);
+  assert.match(tiny.plan.warnings.join(" "), /phone cameras start failing/);
+
+  const fine = lo.flyerPlan({ sizeId: "a5", headline: "Hi", cta: "Scan", qrTarget: "https://evandeli.com" });
+  assert.equal(fine.plan.qr.ok, true);
+  assert.equal(fine.plan.qr.sizePx, lo.mmToPx(lo.QR_RECOMMENDED_MM));
+});
+
+test("group posts: advert language is flagged, and nothing claims to post for you", () => {
+  const p = lo.draftGroupPost({
+    kindId: "facebook-group", brandName: "Ev&Deli", town: "Brixton",
+    what: "We cook West African food and deliver within three miles.",
+    offer: "Limited time — cheapest in town!",
+  });
+  assert.equal(p.ok, true);
+  assert.match(p.post.warnings.join(" "), /advert language/i);
+  assert.match(p.post.automation, /Groups API only permits posting into a group that has installed/);
+  assert.ok(p.post.post.includes("Ev&Deli") && p.post.post.includes("Brixton"));
+
+  const clean = lo.draftGroupPost({ kindId: "nextdoor", brandName: "B", what: "We fix boilers." });
+  assert.deepEqual(clean.post.warnings, []);
+  assert.equal(lo.draftGroupPost({ kindId: "nope", brandName: "B", what: "x" }).ok, false);
+});
+
+test("followers: none are sold, and the reason is the arithmetic", () => {
+  assert.match(lo.FOLLOWER_DOCTRINE, /engagement RATE/);
+  assert.match(lo.FOLLOWER_DOCTRINE, /fewer real people/);
+  const plays = lo.followerPlays({ hasFlyer: false });
+  assert.match(plays[0].play, /Make the flyer first/);
+  assert.ok(plays.every((p) => !/buy|purchase|bot/i.test(p.play)));
+});
+
+test("reviews: a gating filter nested inside config is caught too", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/review-requests/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/review-requests", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "plan", platformId: "google", identifier: "ChIJabc", config: { happyOnly: true }, candidates: [] }),
+  }));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).gatingKey, "happyOnly");
+});

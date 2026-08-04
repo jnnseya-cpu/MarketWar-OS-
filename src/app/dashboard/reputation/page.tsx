@@ -8,7 +8,9 @@
 import { useState } from "react";
 import { Loader2, ShieldCheck, MessageSquare, Sparkles, AlertTriangle, Star } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
+import ReviewRequests from "@/components/ReviewRequests";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { useActiveBrand } from "@/frontend/brand-context";
 
 type Trust = { business: string; trustScore: number; averageRating: number; reviewCount: number; starDistribution: Record<string, number>; verifiedShare: number; positiveShare: number; negativeShare: number; aiVisibilityReadiness: number; verdict: string };
 type Sentiment = { topicSentiment: { topic: string; mentions: number; sentiment: number }[]; painPoints: string[]; churnRiskSignals: string[]; customerHappiness: number; operationalPlan: string[] };
@@ -16,6 +18,7 @@ type Sentiment = { topicSentiment: { topic: string; mentions: number; sentiment:
 const tone = (n: number): "good" | "warn" | "bad" => (n >= 70 ? "good" : n >= 50 ? "warn" : "bad");
 
 export default function ReputationPage() {
+  const { activeBrand } = useActiveBrand();
   const [business, setBusiness] = useState("");
   const [trust, setTrust] = useState<Trust | null>(null);
   const [sentiment, setSentiment] = useState<Sentiment | null>(null);
@@ -41,6 +44,10 @@ export default function ReputationPage() {
         subtitle="Compute your TrustScore, draft brand-aligned responses, extract operational intelligence from feedback, flag manipulation, and turn real reviews into social proof — plus ready them for AI-search visibility. Reviews are earned, never fabricated. Works on sample data with zero config; live review sources plug in at go-live."
         actions={<Pill tone="info">TrustScore · CX intel · social proof · AI authority</Pill>}
       />
+
+      {/* Getting MORE reviews, which is the question behind every reputation
+          score. Real customers, real links, everyone eligible asked the same. */}
+      <ReviewRequests brandId={activeBrand?.id} brandName={business || activeBrand?.name} />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <label className="label">Business</label>
