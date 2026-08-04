@@ -2529,3 +2529,28 @@ fails the build.
 Tests **942 → 949**; typecheck, layer check and build green. Six mutations —
 the newest ask no longer winning, an always-due digest, any string accepted as
 an address, unsubscribe ignored, and two on the ledger ordering — all caught.
+
+### §67g — The public site catches up with what shipped (2026-08-04)
+
+Six sessions of engines had gone in without the outside of the building
+changing. The gap that mattered was not marketing: the platform now runs agents
+while nobody is watching and spends a customer's ACUs doing it, and **none of
+the public pages said so**. Somebody deciding whether to sign up could not find
+out what runs unattended, what it will never do, or what it can cost.
+
+| Surface | Change | Why |
+|---|---|---|
+| `/terms` §8 (new) | **Automation, schedules and unattended work** — nothing is sent, published or spent unattended; automated work is metered and additionally capped per brand per day, reserved before each step; every schedule is off by default and can be switched off. | This is a promise about the customer's money and their customers' inboxes. It belongs somewhere binding, not only in marketing copy. Sections 8–14 renumbered to 9–15; a test now asserts the numbering stays sequential. |
+| `/policies` | Two cards: **Automation & Human Approval**, **Reviews & Social Proof**. | The trust centre listed ten policies and neither of the two things a buyer now asks about. |
+| `/` landing FAQs | Three new: *"Will it email my customers or post publicly without me?"*, *"How much can it spend while I am not watching?"*, *"Can you get me more reviews and followers?"* | These are the questions the product's own capabilities now provoke. The third answers the owner's own question in public, including the part that is refused and why. |
+| `/` landing pillars | Acquisition gains review requests and print-ready flyers; Business Automation gains chains, schedules and the approval boundary. | Two shipped capability families appeared nowhere on the public site. |
+| `/how-it-works` | Phase 7 gains the review-request flow and local outreach; **Phase 8 — Working while you are not** added. | The seven-phase story ended before the most significant new capability began. |
+| `/developers` + `ENGINE_REGISTRY` | Five engines registered: Agent Chains, Brand Memory, Growth Hubs & Missions, Review Requests, Flyers & Local Groups. New category *Autonomy & Orchestration*. **38 → 43.** | The developers page prints the registry count, so an unregistered engine understates the platform in public. `docs/COMPETITIVE-POSITION.md` carries the same figure and is asserted against the registry. |
+
+Every claim added is one the code enforces: the approval boundary is in the
+runner, the ceiling is reserved before the work, the no-gating rule is a type
+with no field to filter on, and the review links are built or host-validated
+rather than guessed. The public-copy test was extended to assert each of them,
+so the day a claim stops being true the build fails rather than the page lying.
+
+Tests **949**, all passing; typecheck, layer check and build green.

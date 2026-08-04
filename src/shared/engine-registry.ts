@@ -16,7 +16,8 @@ export type EngineCategory =
   | "Local & Marketplace"
   | "Engagement & Retention"
   | "Content & Reporting"
-  | "Video Intelligence";
+  | "Video Intelligence"
+  | "Autonomy & Orchestration";
 
 export type EngineEntry = {
   id: string;        // maps to /api/<id>
@@ -79,6 +80,15 @@ export const ENGINE_REGISTRY: EngineEntry[] = [
 
   // ── Video Intelligence ────────────────────────────────────────────────────
   { id: "video-intelligence", name: "VideoDominance AI", category: "Video Intelligence", blurb: "Genre detection, moment ranking, 8 separate clip scores, NL find-moments.", actions: ["genre", "rank", "score", "find"], dashboard: "/dashboard/video" },
+
+  // ── Autonomy & Orchestration ──────────────────────────────────────────────
+  { id: "orchestrator", name: "Agent Chains", category: "Autonomy & Orchestration", blurb: "Several agents on one job, in order, each handed what the earlier ones produced. Drafts run; anything that would spend, send or publish queues for approval. Unattended spend capped per brand per day.", actions: ["run", "save", "delete", "schedule"], dashboard: "/dashboard/chains" },
+  { id: "brand-memory", name: "Brand Memory", category: "Autonomy & Orchestration", blurb: "The shared context agents read from. Every fact records where it came from, and a model's inference is never promoted to a measurement.", actions: ["remember", "sync"] },
+  { id: "genz", name: "Growth Hubs & Missions", category: "Autonomy & Orchestration", blurb: "Create/Grow/Earn/Play/Connect/Build over the whole OS, plus daily challenges and money missions completed from work the platform recorded — never self-declared.", actions: ["play"], dashboard: "/dashboard/hubs" },
+
+  // ── Reputation & Local ────────────────────────────────────────────────────
+  { id: "review-requests", name: "Review Requests", category: "Local & Marketplace", blurb: "Ask real customers for real reviews across nine platforms — eligibility from your own vault, correct review links, paced sending, and no review gating.", actions: ["plan", "draft", "send", "record"], dashboard: "/dashboard/reputation" },
+  { id: "local-outreach", name: "Flyers & Local Groups", category: "Local & Marketplace", blurb: "Print-ready flyers specified in millimetres with bleed and a scannable QR, plus community-group posts with each group's real rules beside them.", actions: ["flyer", "group-post", "followers"], dashboard: "/dashboard/local" },
 ];
 
 export const ENGINE_CATEGORIES: EngineCategory[] = [
@@ -89,6 +99,7 @@ export const ENGINE_CATEGORIES: EngineCategory[] = [
   "Engagement & Retention",
   "Content & Reporting",
   "Video Intelligence",
+
 ];
 
 export function enginesByCategory(): Record<EngineCategory, EngineEntry[]> {

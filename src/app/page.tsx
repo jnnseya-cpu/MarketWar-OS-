@@ -59,7 +59,7 @@ const PILLARS = [
     icon: Workflow,
     color: SERIES[4],
     title: "Customer Acquisition System",
-    desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies — including email sent from your own authenticated domain on the platform's own infrastructure, DKIM-signed and tracked, with no third-party provider.",
+    desc: "Attract, convert, retarget, and retain customers across all major channels with AI-optimised strategies — including email sent from your own authenticated domain on the platform's own infrastructure, DKIM-signed and tracked, with no third-party provider. Plus the two local plays that happen off the screen: review requests to customers you really served, on the platforms that permit asking, and print-ready flyers specified in millimetres rather than in social-post pixels.",
     cta: "Acquire Customers",
     href: "/signup",
   },
@@ -75,7 +75,7 @@ const PILLARS = [
     icon: Globe2,
     color: SERIES[7],
     title: "Business Automation",
-    desc: "Automate workflows, operations, customer support, reporting, and growth execution from one central dashboard.",
+    desc: "Automate workflows, operations, customer support, reporting, and growth execution from one central dashboard — including chains of agents that work one job in order, on a schedule you set, sharing what they already know about your business. They draft; anything that would spend, send or publish waits for you.",
     cta: "Automate Everything",
     href: "/signup",
   },
@@ -139,6 +139,18 @@ const FAQS = [
   {
     q: "Do I need a big ad budget?",
     a: "No. The OS starts with money you already own: your existing customer list. Import it and dormant customers — people who bought before and stopped — are surfaced and ranked, which is the cheapest sale any business can make. Local SEO and referral loops cost nothing but time. If you do run paid ads, tests start small and only scale on evidence you can see.",
+  },
+  {
+    q: "Will it email my customers or post publicly without me?",
+    a: "No, and that is enforced in the code rather than promised in the copy. Agents can run in chains, on a schedule, overnight — but every step declares what it does, and only the ones that DRAFT are allowed to run on their own. Anything that would send a message, publish a page or spend money becomes an item waiting for your approval, with the draft attached. That holds for scheduled runs too: you wake up to work you can read, not to messages you did not see go out.",
+  },
+  {
+    q: "How much can it spend while I am not watching?",
+    a: "A fixed ceiling per brand per day, reserved before each step rather than counted afterwards, so a job that gets stuck cannot run up a bill on the grounds that failing is free. When the ceiling is reached the remaining steps stop and say so rather than disappearing quietly. It only limits what the platform does on its own initiative — anything you run yourself is governed by your own ACU balance, which is shown next to every action before you click it.",
+  },
+  {
+    q: "Can you get me more reviews and followers?",
+    a: "More reviews, yes — from people you actually served. The platform reads your customer list, works out who is eligible (a real order, finished long enough ago to have an opinion, not asked recently, consent intact), builds the correct review link for the platform you choose, and paces the sending so a sudden burst does not trip the filters. Everyone eligible gets the same link, because screening for the happy ones first is illegal under the UK DMCC Act 2024 and the US FTC rule. Supplied reviews and bought followers are not available here at any price: the penalty for them lands on your page, not ours, and bought followers make your reach worse because every feed ranks by engagement rate.",
   },
   {
     q: "Which AI powers the agents, and do I need my own account?",

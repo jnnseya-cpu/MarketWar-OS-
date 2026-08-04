@@ -31,7 +31,7 @@ against a two-figure pound subscription does not turn on the spot rate.
 |---|---|---|
 | Dashboard surfaces | **59** | directories under `src/app/dashboard` |
 | API routes | **147** | `route.ts` files under `src/app/api` |
-| Documented engines (each with its own API + zero-config demo) | **38** | `ENGINE_REGISTRY` |
+| Documented engines (each with its own API + zero-config demo) | **43** | `ENGINE_REGISTRY` |
 | Runnable AI agents | **39** | `AGENT_LIST` |
 | Command-Centre front-line units | **26** in 6 divisions under one commander | `ARMY` / `DIVISIONS` |
 | Of those 26, live with no external key | **23** | `armyStats()` |

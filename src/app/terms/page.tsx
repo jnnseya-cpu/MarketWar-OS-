@@ -37,25 +37,31 @@ export default function TermsPage() {
         <H2>7. AI outputs</H2>
         <p>AI-generated outputs are provided as assistance, not guaranteed results. Scores and predictions are labelled estimates. You are responsible for reviewing outputs before publishing, and for ensuring any claims are substantiated. The Service blocks unsubstantiated superlatives and applies compliance checks, but final responsibility for published material is yours.</p>
 
-        <H2>8. Third-party services</H2>
+        <H2>8. Automation, schedules and unattended work</H2>
+        <p>Parts of the Service can run without you present: agent chains on a cadence you set, and scheduled reports. Three things govern that, and we state them here because they are promises about your money and your customers, not features.</p>
+        <p><strong>Nothing is sent, published or spent unattended.</strong> Every step of an automated run declares what performing it would do. Only steps that produce a draft for you to read are permitted to run on their own. A step that would contact a person, publish something publicly or commit spend is converted into an item awaiting your approval, with the draft attached — and this applies equally to runs that happen overnight.</p>
+        <p><strong>Unattended usage is metered and capped.</strong> Work the platform performs on its own initiative consumes ACUs from your balance in the same way work you start yourself does, and is additionally subject to a fixed daily ceiling per brand, reserved before each step rather than reconciled afterwards. When the ceiling is reached the remaining steps do not run and are reported as skipped. The ceiling limits only automated work; anything you start yourself is governed by your balance alone.</p>
+        <p><strong>You can switch it off.</strong> Schedules are per brand and per chain, off by default, and can be disabled at any time from the dashboard. Email digests are opt-in and go only to the address on your own account.</p>
+
+        <H2>9. Third-party services</H2>
         <p>The Service may connect to third-party providers (AI models, payment, messaging, advertising). Your use of those is subject to their terms. External platforms are optional; the Service remains functional without them.</p>
 
-        <H2>9. Availability & changes</H2>
+        <H2>10. Availability & changes</H2>
         <p>We aim for high availability (see <Link href="/status" className="text-emerald-400 hover:text-emerald-300">Platform status</Link>) but do not guarantee uninterrupted service. We may modify or discontinue features with reasonable notice.</p>
 
-        <H2>10. Suspension & termination</H2>
+        <H2>11. Suspension & termination</H2>
         <p>We may suspend or terminate access for breach, non-payment (after a grace period), or unlawful use. On termination your data is retained per the retention policy, then deleted. Purchased top-up ACUs remain valid within their validity window.</p>
 
-        <H2>11. Warranties & liability</H2>
+        <H2>12. Warranties & liability</H2>
         <p>The Service is provided &quot;as is&quot; to the extent permitted by law. To the maximum extent permitted, our aggregate liability is limited to the fees you paid in the twelve months preceding the claim. We are not liable for indirect or consequential losses.</p>
 
-        <H2>12. Governing law</H2>
+        <H2>13. Governing law</H2>
         <p>These terms are governed by the laws of England and Wales, unless a mandatory local law applies to you. Disputes are subject to the exclusive jurisdiction of the courts of England and Wales.</p>
 
-        <H2>13. Who you are contracting with</H2>
+        <H2>14. Who you are contracting with</H2>
         <LegalEntity />
 
-        <H2>14. Contact</H2>
+        <H2>15. Contact</H2>
         <p>Questions about these terms: <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact us</Link>.</p>
       </Prose>
     </MarketingShell>

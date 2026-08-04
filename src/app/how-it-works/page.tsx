@@ -54,7 +54,13 @@ const PHASES = [
     phase: "Phase 7 — Recovery & Compounding",
     title: "Mine the revenue you already own, then scale",
     detail:
-      "The Customer Vault scores every contact for recovery probability. Reactivation waves, referral loops and local domination compound growth, while Revenue Intelligence forecasts next month's money (base/push/stretch) from your own attributed-revenue ledger.",
+      "The Customer Vault scores every contact for recovery probability. Reactivation waves, referral loops and local domination compound growth, while Revenue Intelligence forecasts next month's money (base/push/stretch) from your own attributed-revenue ledger. This is also where reviews come from: the OS works out which of your real customers is eligible to be asked — a genuine order, finished long enough ago to have an opinion, not asked recently, consent intact — builds the correct review link for Google, Trustpilot, Facebook or your trade directory, and paces the asks so a sudden burst does not trip the platforms' own filters. Everyone eligible gets the same link, because filtering for the happy ones first is a banned practice under the UK DMCC Act 2024. And for the parts of local growth that happen off the screen, it produces flyers specified in millimetres at print resolution, with bleed and a QR code big enough to scan, plus posts written for the community groups you are actually a member of.",
+  },
+  {
+    phase: "Phase 8 — Working while you are not",
+    title: "Agents that run in order, on a schedule, and stop where they should",
+    detail:
+      "Several agents on one job, in sequence — each handed what the earlier ones produced and what the platform already knows about your business, so the result is one connected answer rather than five unrelated ones. Anything the OS has MEASURED is labelled as measured and anything an agent inferred is labelled as a guess, so one model's assumption never quietly becomes the next model's premise. Chains run when you press the button or on a cadence you choose, and here is the part that matters: they draft. Every step declares what it would do, and only drafting steps run unattended — a step that would send a message, publish a page or spend money becomes an approval item with the draft attached, including at three in the morning. Unattended spend has a fixed daily ceiling per brand, reserved before the work rather than counted after it, and any step that does not fit says so instead of vanishing. You can also compose your own chain from the agent list; what a step DOES is decided by the platform, not by the chain, so you can ask for more oversight but never less.",
   },
 ];
 

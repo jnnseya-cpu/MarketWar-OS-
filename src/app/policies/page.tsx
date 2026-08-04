@@ -18,6 +18,8 @@ const POLICIES: { name: string; href: string; blurb: string; live?: boolean }[] 
   { name: "Refund & Cancellation Policy", href: "/contact", blurb: "Subscription cancellation, downgrade protection; top-up ACUs non-refundable once partially used." },
   { name: "Service Level & Support", href: "/status", blurb: "Availability targets, support tiers, and the live status page." },
   { name: "Responsible AI Policy", href: "/terms", blurb: "Estimates labelled, unsubstantiated claims blocked, restricted categories human-gated." },
+  { name: "Automation & Human Approval", href: "/terms", blurb: "Agents may draft unattended; nothing is sent, published or spent without your approval. Automated spend is metered and capped per brand per day, and every schedule can be switched off." },
+  { name: "Reviews & Social Proof", href: "/terms", blurb: "Review requests go to real customers, everyone eligible gets the same link, and no supplied reviews or purchased followers are available at any price — the DMCC Act 2024 and the FTC rule make the trader liable, not us." },
 ];
 
 export default function PoliciesPage() {

@@ -8298,6 +8298,33 @@ test("the public site describes the capabilities that actually shipped", () => {
   assert.ok(/browser/i.test(landing), "the clip render happens in the browser and that is the selling point");
   // Target market, and the honest email reporting.
   assert.match(how, /countries and cities you actually sell to/);
+
+  // The autonomy contract. The platform now runs agents while nobody is
+  // watching, and a prospect deciding whether to buy needs to know what that
+  // does and does not include BEFORE they sign up, not after.
+  assert.match(how, /Phase 8 — Working while you are not/);
+  assert.match(how, /only drafting steps run unattended/);
+  assert.match(how, /daily ceiling per brand/);
+  assert.match(landing, /Will it email my customers or post publicly without me\?/);
+  assert.match(landing, /How much can it spend while I am not watching\?/);
+
+  // And the reviews answer, since that is the question the owner was asked.
+  assert.match(landing, /Supplied reviews and bought followers are not available here/);
+  assert.match(how, /filtering for the happy ones first is a banned practice/);
+
+  // The terms carry it too — this is a promise about money and customers, so
+  // it belongs somewhere binding rather than only in marketing copy.
+  const terms = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.match(terms, /Automation, schedules and unattended work/);
+  assert.match(terms, /Nothing is sent, published or spent unattended/);
+  assert.match(terms, /reserved before each step rather than reconciled afterwards/);
+  assert.match(terms, /You can switch it off/);
+  // Inserting a section must not leave two sections with the same number.
+  const numbers = [...terms.matchAll(/<H2>(\d+)\./g)].map((m) => Number(m[1]));
+  assert.deepEqual(numbers, numbers.map((_, i) => i + 1), "the terms sections must stay in order");
+  const policies = readFileSync(new URL("../src/app/policies/page.tsx", import.meta.url), "utf8");
+  assert.match(policies, /Automation & Human Approval/);
+  assert.match(policies, /Reviews & Social Proof/);
   assert.match(how, /open rate is shown as a floor/);
 });
 
