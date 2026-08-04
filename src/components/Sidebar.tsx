@@ -70,6 +70,7 @@ export const NAV = [
       { href: "/dashboard/money-ledger", label: "Money Ledger", icon: Receipt },
       { href: "/dashboard/first-customer", label: "First Customer", icon: Banknote },
       { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
+      { href: "/dashboard/chains", label: "Agent Chains", icon: Workflow },
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
       { href: "/dashboard/ai-agents", label: "Strategy Agents", icon: Sparkles },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },

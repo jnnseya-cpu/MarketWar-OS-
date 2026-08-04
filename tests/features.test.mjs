@@ -9947,3 +9947,152 @@ test("memory: the agent runner hands the slice to the model", () => {
   const provider = readFileSync(new URL("../src/backend/provider.ts", import.meta.url), "utf8");
   assert.match(provider, /Object\.entries\(input\)/, "the prompt is built from every supplied input key");
 });
+
+// ---------------------------------------------------------------------------
+// The orchestrator — the agent network generalised, with the two rules that
+// make an always-on network safe: nothing acts unattended, and the unattended
+// spend has a ceiling.
+// ---------------------------------------------------------------------------
+const orch = await import("../src/backend/orchestrator.ts");
+const budget = await import("../src/backend/agent-budget.ts");
+
+test("orchestrator: every chain names agents that exist", () => {
+  // A chain naming a deleted agent fails HALFWAY — after it has spent the ACUs
+  // for the steps before it. So it is checked here rather than at runtime.
+  for (const c of orch.CHAINS) {
+    const v = orch.validateChain(c);
+    assert.equal(v.ok, true, v.ok ? "" : `${c.id}: ${v.errors.join("; ")}`);
+  }
+  assert.ok(orch.CHAINS.length >= 4);
+  assert.equal(orch.chain("nope"), null);
+  const bad = orch.validateChain({ id: "x", label: "x", goal: "x", steps: [{ id: "a", agentId: "not-an-agent", effect: "draft", purpose: "", costAcu: 1 }] });
+  assert.equal(bad.ok, false);
+  assert.match(bad.errors[0], /unknown agent/);
+});
+
+// A recorder that stands in for the provider, the approvals store and the
+// budget, so the rules can be tested with no key, no Firestore and no network.
+function spyDeps({ remaining = 1000, cap = 1000, fail = null } = {}) {
+  const calls = { ran: [], queued: [], reserved: [] };
+  let left = remaining;
+  return {
+    calls,
+    deps: {
+      memoryFor: async (step) => `MEMORY FOR ${step.agentId}`,
+      reserve: async (acus) => {
+        calls.reserved.push(acus);
+        if (acus > left) return { ok: false, remainingAcu: left, capAcu: cap, error: "daily ceiling reached" };
+        left -= acus;
+        return { ok: true, remainingAcu: left, capAcu: cap };
+      },
+      runStep: async (step, context) => {
+        calls.ran.push({ id: step.id, context });
+        if (fail === step.id) throw new Error("provider exploded");
+        return `output of ${step.id}`;
+      },
+      queueApproval: async (step) => { calls.queued.push(step.id); return `ap_${step.id}`; },
+    },
+  };
+}
+
+test("orchestrator: a step that would send or publish is never executed", async () => {
+  const spy = spyDeps();
+  const res = await orch.runChain({ chainId: "reactivation", brandId: "b1", nowISO: "2026-08-04T10:00:00Z", deps: spy.deps });
+  assert.equal(res.ok, true);
+
+  // "send" is the last step of this chain and it must not have run.
+  assert.ok(!spy.calls.ran.some((c) => c.id === "send"), "the chain ran a step that contacts real people");
+  assert.deepEqual(spy.calls.queued, ["send"]);
+
+  const sendStep = res.run.steps.find((s) => s.stepId === "send");
+  assert.equal(sendStep.status, "queued_for_approval");
+  assert.equal(sendStep.costAcu, 0, "queuing costs nothing because nothing happened");
+  assert.equal(sendStep.approvalId, "ap_send");
+  assert.match(sendStep.reason, /contact real people/);
+  assert.equal(res.run.queued, 1);
+  assert.equal(res.run.ran, 3);
+
+  // And the same for a publishing step in a different chain.
+  const spy2 = spyDeps();
+  const viral = await orch.runChain({ chainId: "viral-launch", brandId: "b1", nowISO: "2026-08-04T10:00:00Z", deps: spy2.deps });
+  assert.deepEqual(spy2.calls.queued, ["publish"]);
+  assert.match(viral.run.steps.find((s) => s.stepId === "publish").reason, /publish something in public/);
+});
+
+test("orchestrator: each step is handed the memory and what came before", async () => {
+  const spy = spyDeps();
+  await orch.runChain({ chainId: "revenue-review", brandId: "b1", nowISO: "2026-08-04T10:00:00Z", deps: spy.deps });
+
+  // Step one gets memory and nothing else — there is no "before" yet.
+  assert.match(spy.calls.ran[0].context, /MEMORY FOR business-diagnosis/);
+  assert.ok(!/Earlier steps/.test(spy.calls.ran[0].context));
+
+  // Step two gets its OWN agent's memory slice plus step one's output.
+  assert.match(spy.calls.ran[1].context, /MEMORY FOR growth-roi-strategist/);
+  assert.match(spy.calls.ran[1].context, /Earlier steps in this chain/);
+  assert.match(spy.calls.ran[1].context, /output of diagnose/);
+
+  // By the last step everything before it is present — this is the "one
+  // coordinated intelligence" the spec asked for.
+  const last = spy.calls.ran[spy.calls.ran.length - 1].context;
+  for (const id of ["diagnose", "roi", "opportunity"]) assert.match(last, new RegExp(`output of ${id}`));
+});
+
+test("orchestrator: the daily ceiling skips steps out loud and never silently", async () => {
+  // Room for two 5-ACU steps out of four.
+  const spy = spyDeps({ remaining: 10, cap: 10 });
+  const res = await orch.runChain({ chainId: "revenue-review", brandId: "b1", nowISO: "2026-08-04T10:00:00Z", deps: spy.deps });
+  assert.equal(res.run.ran, 2);
+  assert.equal(res.run.skipped, 2);
+  assert.equal(spy.calls.ran.length, 2, "no work was done past the ceiling");
+  const skipped = res.run.steps.filter((s) => s.status === "skipped_daily_cap");
+  assert.equal(skipped.length, 2);
+  assert.ok(skipped.every((s) => s.costAcu === 0 && /ceiling/.test(s.reason)));
+  assert.equal(res.run.spentAcu, 10);
+});
+
+test("orchestrator: a failed step still costs what it spent", async () => {
+  // The provider was called; the money is gone whether or not an answer came
+  // back. Pretending otherwise makes a retry loop free.
+  const spy = spyDeps({ fail: "roi" });
+  const res = await orch.runChain({ chainId: "revenue-review", brandId: "b1", nowISO: "2026-08-04T10:00:00Z", deps: spy.deps });
+  const failed = res.run.steps.find((s) => s.stepId === "roi");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.costAcu, 5);
+  assert.match(failed.reason, /provider exploded/);
+  assert.equal(res.run.ran, 3, "the chain carries on past a failed step");
+  assert.equal(res.run.spentAcu, 20);
+});
+
+test("orchestrator: the planned cost counts only what will actually run", () => {
+  const react = orch.chain("reactivation");
+  assert.equal(react.steps.length, 4);
+  assert.equal(orch.plannedCostAcu(react), 15, "the send step is queued, so it is not in the bill");
+  assert.match(orch.ORCHESTRATOR_DOCTRINE, /never spends, sends or publishes on its own/);
+});
+
+test("budget: the unattended ceiling is reserved before the work, not after", async () => {
+  budget.__resetAgentBudget();
+  const now = "2026-08-04T10:00:00Z";
+  const before = await budget.headroom("b-cap", now);
+  assert.equal(before.spentAcu, 0);
+  assert.equal(before.capAcu, budget.DEFAULT_DAILY_CAP_ACU);
+  assert.equal(before.day, "2026-08-04");
+
+  const r1 = await budget.reserve("b-cap", now, 200);
+  assert.equal(r1.ok, true);
+  assert.equal(r1.headroom.remainingAcu, budget.DEFAULT_DAILY_CAP_ACU - 200);
+
+  const r2 = await budget.reserve("b-cap", now, 100);
+  assert.equal(r2.ok, false, "the ceiling holds");
+  assert.match(r2.error, /daily ceiling/);
+  assert.match(r2.error, /anything you run yourself is unaffected/i);
+
+  // What is left still fits.
+  assert.equal((await budget.reserve("b-cap", now, 50)).ok, true);
+  assert.equal((await budget.headroom("b-cap", now)).exhausted, true);
+
+  // A new day is a new ceiling, and another brand has its own.
+  assert.equal((await budget.headroom("b-cap", "2026-08-05T00:00:00Z")).spentAcu, 0);
+  assert.equal((await budget.headroom("b-other", now)).spentAcu, 0);
+});

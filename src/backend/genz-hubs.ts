@@ -77,6 +77,7 @@ export const HUBS: Hub[] = [
       { href: "/dashboard/amplify", label: "Reach Amplifier", does: "Earned virality and consent-based retargeting, capped and opt-out-able." },
       { href: "/dashboard/local", label: "Local Domination", does: "Your postcode: profile gaps, citations, flyers and local group posts." },
       { href: "/dashboard/briefing", label: "Daily Briefing", does: "What changed since yesterday, and the one thing to do about it." },
+      { href: "/dashboard/chains", label: "Agent Chains", does: "Several agents on one job, in order, sharing what they know — and stopping at anything that would spend, send or publish.", isNew: true },
     ],
     notYet: [
       "Trend prediction across TikTok, Snapchat, Discord and Twitch. Trend monitoring today reads news and search — the short-form platforms need connectors we do not have, and a 'trend score' invented without them would be a number nobody measured.",

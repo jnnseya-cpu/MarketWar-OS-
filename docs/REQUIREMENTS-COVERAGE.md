@@ -2378,3 +2378,30 @@ generalised beyond `strategy-run`'s seven agents, the approval boundary wired
 into the orchestrator so nothing spends or publishes unattended, and the per-brand
 daily cost cap without which "continuously observes, learns, predicts" is an
 unbounded invoice.
+
+### §67c — The orchestrator: chains, the approval boundary, the daily ceiling (2026-08-04)
+
+The three items doc 14 §3.1 left open, built.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The chain generalised beyond `strategy-run`'s seven | ✅ **new** | `src/backend/orchestrator.ts` — a chain is **data**, the runner is one function, and any of the 39 agents can appear in one. Four shipped chains: *Trend to offer*, *Where the money is*, *Wake the quiet list*, *Reputation round*. `strategy-run.ts` is untouched and still runs its seven. |
+| Each step gets the memory and what came before | ✅ | Every step is handed the §67b memory slice **for its own agent** — not the whole store, or a ten-step chain hands every agent everything and the prompt grows with tenure — plus the earlier steps' outputs. Asserted step by step: step one has memory and no "earlier steps"; the last has all three predecessors. |
+| **Nothing spends, sends or publishes unattended** | ✅ | Every step declares its `effect`. Only `draft` steps execute; `spend` / `send` / `publish` become approval items through the existing `approvals` state machine and the chain moves on. Enforced **in the runner**, not by the chain author remembering — the execute path is unreachable for a non-draft step. Tested: the reactivation chain's send step is queued, never run, and costs 0 because nothing happened. |
+| A full ceiling cannot turn "needs your approval" into "skipped" | ✅ | Queuing happens **before** the cost check, since queuing costs nothing. Otherwise an exhausted budget would silently drop the step that most needed a human. |
+| **Per-brand daily cost cap** | ✅ **new** | `src/backend/agent-budget.ts` — 250 ACUs (£2.50) of unattended spend per brand per UTC day, `AGENT_DAILY_CAP_ACU` to override. Reserved **before** the work, so a failing loop cannot run forever on the grounds that failure is free. |
+| The cap governs the machine, not the customer | ✅ | It applies only to `unattended: true` runs — the scheduler, not a person pressing a button. Someone who asked for forty agents has paid for forty agents and must not be refused a limit they never set; their spend is governed by the wallet and §63 metering as before. Stated on the screen, not buried. |
+| Skipped steps are reported, never dropped | ✅ | A chain that quietly ran six of ten steps is a chain that lies about its output. Each skipped step returns its reason and the remaining ceiling. |
+| A failed step still costs what it spent | ✅ | The provider was called; the money is gone whether or not the answer arrived. Pretending otherwise makes a retry loop free. |
+| A chain cannot name an agent that does not exist | ✅ | `validateChain` runs before the first step, because a bad agent id otherwise fails halfway — after the ACUs for the earlier steps are gone. Every shipped chain is asserted valid. |
+| **A chain does not write facts** | ✅ | The runner deliberately does not parse prose into memory. An extractor turns "the audience is probably students" into `audience.segment = students` with the hedge stripped, and two agents later that is indistinguishable from a measurement. The only thing recorded is that the chain ran, as `source: "agent"`. |
+| Wired to a screen | ✅ | `/dashboard/chains` — each step shows what it would DO before you run it, and the run shows drafted / waiting-for-you / skipped separately. Listed in the sidebar and in the Grow hub. |
+
+Tests **923 → 930**; typecheck, layer check and build green. Six mutations —
+approval gate removed, cap result ignored, failed step billed nothing, prior
+outputs not passed, reserve never refusing, unknown-agent check removed — all
+six caught.
+
+**Still ahead on the network:** the scheduler that calls the orchestrator
+unattended (the cap and the approval boundary are the preconditions, and both
+now exist), and per-brand chain authoring so a customer can compose their own.
