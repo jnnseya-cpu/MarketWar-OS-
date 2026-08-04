@@ -8907,3 +8907,90 @@ test("a refusal names the price and the balance, so it can be acted on", () => {
     assert.match(src, /balanceAcu: meter\.balanceAcu/, `${f} drops the balance from the refusal`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The competitive analysis must stay true to the code it describes
+//
+// docs/COMPETITIVE-POSITION.md states counts and prices for our own platform
+// and then argues from them. Competitor prices are cited and dated and will go
+// stale — that is unavoidable and the document says so. What is NOT acceptable
+// is our own numbers drifting: an analysis claiming 39 agents after somebody
+// adds a fortieth is a document that quietly stops being true, and it is exactly
+// the kind of drift that put three different agent counts on the landing page.
+// ---------------------------------------------------------------------------
+test("the competitive analysis quotes our own platform accurately", async () => {
+  const doc = readFileSync(new URL("../docs/COMPETITIVE-POSITION.md", import.meta.url), "utf8");
+  const sub = await import("../src/backend/subscription.ts");
+  const wal = await import("../src/backend/wallet.ts");
+  const reg = await import("../src/shared/engine-registry.ts");
+  const agents = await import("../src/shared/agents.ts");
+  const army = await import("../src/shared/warlord-roster.ts");
+
+  const stats = army.armyStats();
+  const growth = sub.PLANS.find((p) => p.id === "growth");
+  const growthAcus = Math.round(growth.monthlyGbp * sub.ACU_ALLOCATION_RATE * sub.ACU_PER_GBP);
+
+  const claims = [
+    [`| Documented engines (each with its own API + zero-config demo) | **${reg.ENGINE_REGISTRY.length}** |`, "engine count"],
+    [`| Runnable AI agents | **${agents.AGENT_LIST.length}** |`, "agent count"],
+    [`| Command-Centre front-line units | **${stats.total}** in ${army.DIVISIONS.length - 1} divisions`, "army roster"],
+    [`| Of those ${stats.total}, live with no external key | **${stats.live}** |`, "live units"],
+    [`Needing a connector before they act | **${stats.activate}**`, "connector-gated units"],
+    [`\`ACU_PER_GBP = ${sub.ACU_PER_GBP}\``, "ACU rate"],
+    [`\`ACU_ALLOCATION_RATE = ${sub.ACU_ALLOCATION_RATE}\``, "allocation rate"],
+    [`\`STANDARD_MARKUP = ${sub.STANDARD_MARKUP}\``, "markup"],
+    [`\`MARKUP_FLOOR = ${sub.MARKUP_FLOOR}\``, "margin floor"],
+    [`| **Growth** | **${growth.monthlyGbp}** | **${growthAcus.toLocaleString()}** |`, "Growth plan row"],
+    [`${growthAcus.toLocaleString()} ACUs is **${growthAcus / wal.ACTION_COST_ACU.llm} LLM actions**`, "what Growth buys"],
+  ];
+  const wrong = claims.filter(([text]) => !doc.includes(text)).map(([, what]) => what);
+  assert.deepEqual(wrong, [], `these claims no longer match the code: ${wrong.join(", ")}`);
+});
+
+test("the stack totals in the analysis are arithmetic, not assertions", () => {
+  // I got this wrong on the first pass — $962.95 by hand against $961.95 by
+  // machine — which is why the figure is recomputed here rather than trusted.
+  const doc = readFileSync(new URL("../docs/COMPETITIVE-POSITION.md", import.meta.url), "utf8");
+  const entry = { semrush: 139.95, surfer: 99, mailchimp: 100, hootsuite: 99, unbounce: 99, jasper: 69, opusclip: 29, apollo: 59, wati: 149, profound: 99, hubspot: 20 };
+  const serious = { semrush: 249.95, ahrefs: 249, surfer: 219, mailchimp: 100, hootsuite: 249, unbounce: 249, jasper: 69, opusclip: 29, apollo: 99, wati: 149, profound: 399, hubspot: 890 };
+  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0).toFixed(2);
+  assert.equal(sum(entry), "961.95");
+  assert.equal(sum(serious), "2950.95");
+  assert.ok(doc.includes("$961.95"), "the entry-stack total in the document is not the sum of its own table");
+  assert.ok(doc.includes("$2,950.95"), "the serious-stack total does not add up");
+  assert.ok(!doc.includes("962.95"), "the arithmetic slip is back");
+});
+
+test("the analysis states its own limits rather than only its case", () => {
+  const doc = readFileSync(new URL("../docs/COMPETITIVE-POSITION.md", import.meta.url), "utf8");
+  // A comparison that only flatters us is worthless, so the honest-gaps section
+  // is load-bearing and must not be quietly trimmed.
+  for (const gap of [
+    "We have no proprietary index",
+    "Deliverability reputation is earned in calendar time",
+    "No contact database",
+    "Breadth is not depth",
+  ]) {
+    assert.ok(doc.includes(gap), `the honest-gaps section lost: ${gap}`);
+  }
+  assert.match(doc, /No currency conversion is applied anywhere/);
+  assert.match(doc, /Compiled 4 August 2026/, "an undated price comparison is a misleading one");
+});
+
+test("the unpriced-action finding matches what the routes actually charge", async () => {
+  // Section 7.1 claims seven priced action kinds are never charged. That is a
+  // commercial claim about the code, so it is checked against the code.
+  const wal = await import("../src/backend/wallet.ts");
+  const kinds = Object.keys(wal.ACTION_COST_ACU);
+  const routes = readdirSync(new URL("../src/app/api", import.meta.url), { recursive: true, withFileTypes: true })
+    .filter((d) => d.name === "route.ts")
+    .map((d) => readFileSync(`${d.parentPath || d.path}/${d.name}`, "utf8"))
+    .join("\n");
+  const unused = kinds.filter((k) => !routes.includes(`"${k}"`));
+  const doc = readFileSync(new URL("../docs/COMPETITIVE-POSITION.md", import.meta.url), "utf8");
+  for (const k of unused) {
+    assert.ok(doc.includes(`\`${k}\``), `${k} is priced and never charged, and the analysis does not say so`);
+  }
+  // The headline one: sending is priced per recipient and no send path charges it.
+  assert.ok(unused.includes("email_send"), "email_send is charged now — section 7.1 needs rewriting");
+});
