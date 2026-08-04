@@ -9,6 +9,8 @@ import { meterAction } from "@/backend/wallet";
 import { checkDomainAuth, normaliseDomain, type DomainAuthReport } from "@/backend/dns-auth";
 import { nextStepFrom } from "@/backend/next-step";
 import { deepCrawl } from "@/backend/deep-crawl";
+import { contextFor } from "@/backend/brand-memory";
+import { resolveBrandAccess } from "@/backend/brand-access";
 
 // Denial-of-wallet defence: every AI call can spend real provider budget once
 // keys are live, so cap requests per caller. 240/min is generous for genuine
@@ -101,6 +103,27 @@ export async function POST(
         ].filter(Boolean).join("\n");
       } catch { /* the agent still runs; it just has less to work with */ }
     }
+  }
+
+  // What the OTHER AGENTS already learned about this brand.
+  //
+  // This is the shared memory the agent-network spec asks for. Every agent used
+  // to start from nothing, so the customer answered the same questions in every
+  // engine and no agent could build on what the last one worked out. The slice
+  // handed over is scoped to what this agent cares about, and every item states
+  // where it came from: MEASURED by a named module, stated by the customer, or
+  // inferred by another model. That labelling is the whole safety property —
+  // without it, one agent's guess quietly becomes the next agent's premise.
+  const memoryBrandId = (input.brandId || "").trim();
+  if (memoryBrandId) {
+    try {
+      const access = await resolveBrandAccess(req, memoryBrandId);
+      if (access.ok) {
+        const ctx = await contextFor(memoryBrandId, agentId);
+        // Nothing known yet is not worth a paragraph telling the model so.
+        if (ctx.facts.length) input.brandMemory = ctx.preamble;
+      }
+    } catch { /* the agent still runs; it just starts from less */ }
   }
 
   // The same treatment for the SITE, and for exactly the same reason.

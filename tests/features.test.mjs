@@ -9802,3 +9802,148 @@ test("missions: the whole play state assembles without inventing a reward", () =
   assert.ok(state.missions.every((m) => m.rewardAcu === 0));
   assert.match(state.doctrine, /never by a user pressing|work the platform recorded/i);
 });
+
+// ---------------------------------------------------------------------------
+// Brand Memory — the shared context the agent network reads from. The whole
+// safety property is provenance: a fact produced by a model must never be
+// readable as a measurement, or a chain of agents ends up building a budget on
+// a guess made ten hops earlier.
+// ---------------------------------------------------------------------------
+const bm = await import("../src/backend/brand-memory.ts");
+
+test("memory: an agent cannot stamp its guess as a measurement", async () => {
+  bm.__resetBrandMemory();
+  const bad = await bm.remember({
+    brandId: "t-mem-1", key: "audience.age-band", value: "18-24",
+    source: "measured", sourceRef: "customer-avatar", confidence: 1,
+  });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /not a measuring module/);
+
+  // The same claim, honestly labelled, is accepted.
+  const ok = await bm.remember({
+    brandId: "t-mem-1", key: "audience.age-band", value: "18-24",
+    source: "agent", sourceRef: "customer-avatar", confidence: 0.4,
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.fact.source, "agent");
+
+  // And a module that actually counts something may write a measurement.
+  const measured = await bm.remember({
+    brandId: "t-mem-1", key: "audience.vault-size", value: "412",
+    source: "measured", sourceRef: "contacts", confidence: 1,
+  });
+  assert.equal(measured.ok, true);
+});
+
+test("memory: a fact with no provenance or no namespace is refused", async () => {
+  bm.__resetBrandMemory();
+  const base = { brandId: "t-mem-2", value: "x", source: "agent", sourceRef: "growth-strategist" };
+  assert.match((await bm.remember({ ...base, key: "audience" })).error, /dotted namespace/);
+  assert.match((await bm.remember({ ...base, key: "audience.age", sourceRef: "" })).error, /provenance/);
+  assert.match((await bm.remember({ ...base, key: "audience.age", value: "" })).error, /value required/);
+});
+
+test("memory: a new value supersedes the old one and the old one is kept", async () => {
+  bm.__resetBrandMemory();
+  const brand = "t-mem-3";
+  const first = await bm.remember({ brandId: brand, key: "offer.winner", value: "Free trial", source: "agent", sourceRef: "offer-builder", observedAt: "2026-01-01T00:00:00Z" });
+  const second = await bm.remember({ brandId: brand, key: "offer.winner", value: "20% first order", source: "agent", sourceRef: "offer-builder", observedAt: "2026-06-01T00:00:00Z" });
+  assert.equal(second.superseded.value, "Free trial");
+  // The chain is an explicit link, not something inferred from timestamps —
+  // facts arrive out of order (a backfill, a late sync) and ordering alone
+  // would then pick the wrong current value.
+  assert.equal(second.fact.supersedesId, first.fact.id);
+
+  const live = await bm.currentFact(brand, "offer.winner");
+  assert.equal(live.value, "20% first order");
+
+  // Additive-only: "why does the plan think that?" stays answerable.
+  const chain = await bm.history(brand, "offer.winner");
+  assert.equal(chain.length, 2);
+  assert.equal(chain[0].value, "20% first order", "newest first");
+  assert.equal(chain[1].value, "Free trial");
+});
+
+test("memory: old facts are marked stale, never dropped", async () => {
+  bm.__resetBrandMemory();
+  const brand = "t-mem-4";
+  await bm.remember({ brandId: brand, key: "reach.open-floor", value: "18%", source: "measured", sourceRef: "email-improve", observedAt: "2026-01-01T00:00:00Z" });
+  await bm.remember({ brandId: brand, key: "brand.tone", value: "warm, direct", source: "customer", sourceRef: "customer", observedAt: "2026-01-01T00:00:00Z" });
+  const now = "2026-08-04T00:00:00Z";
+  const live = await bm.currentMemory(brand, now);
+  const reach = live.find((f) => f.key === "reach.open-floor");
+  const tone = live.find((f) => f.key === "brand.tone");
+  assert.equal(reach.stale, true, "a reach figure from seven months ago is history, not current");
+  assert.equal(tone.stale, false, "brand tone does not go off in seven months");
+  assert.ok(reach.ageDays > 200);
+});
+
+test("memory: an agent is handed its own slice, labelled by standing", async () => {
+  bm.__resetBrandMemory();
+  const brand = "t-mem-5";
+  await bm.remember({ brandId: brand, key: "audience.vault-size", value: "412", source: "measured", sourceRef: "contacts" });
+  await bm.remember({ brandId: brand, key: "audience.age-band", value: "25-34", source: "agent", sourceRef: "customer-avatar", confidence: 0.4 });
+  await bm.remember({ brandId: brand, key: "revenue.orders", value: "37", source: "measured", sourceRef: "ledger" });
+  await bm.remember({ brandId: brand, key: "reputation.trust", value: "78", source: "measured", sourceRef: "reputation" });
+
+  const ctx = await bm.contextFor(brand, "customer-avatar");
+  assert.deepEqual(ctx.namespaces, ["audience", "goal", "brand"]);
+  assert.equal(ctx.facts.length, 2, "only the audience facts — the bill must not grow with tenure");
+  assert.ok(ctx.facts.every((f) => f.key.startsWith("audience.")));
+  assert.equal(ctx.measuredCount, 1);
+  assert.equal(ctx.agentCount, 1);
+
+  // The preamble is what the model reads, and it must distinguish the two.
+  assert.match(ctx.preamble, /MEASURED by contacts/);
+  assert.match(ctx.preamble, /inferred by customer-avatar/);
+  assert.match(ctx.preamble, /must not present one as a measurement/);
+
+  // An agent with no declared interests gets everything rather than nothing.
+  const all = await bm.contextFor(brand, "some-new-agent");
+  assert.equal(all.facts.length, 4);
+  assert.match(bm.contextPreamble([]), /Do not invent any/);
+});
+
+test("memory: a model contradicting a measurement is surfaced, not silently kept", async () => {
+  bm.__resetBrandMemory();
+  const brand = "t-mem-6";
+  await bm.remember({ brandId: brand, key: "revenue.orders", value: "37", source: "measured", sourceRef: "ledger", observedAt: "2026-07-01T00:00:00Z" });
+  await bm.remember({ brandId: brand, key: "revenue.orders", value: "about 200", source: "agent", sourceRef: "growth-strategist", observedAt: "2026-07-02T00:00:00Z" });
+  const cs = await bm.conflicts(brand);
+  assert.equal(cs.length, 1);
+  assert.equal(cs[0].measured.value, "37");
+  assert.equal(cs[0].claimed.value, "about 200");
+
+  // Agreement is not a conflict.
+  await bm.remember({ brandId: brand, key: "reputation.trust", value: "78", source: "measured", sourceRef: "reputation", observedAt: "2026-07-01T00:00:00Z" });
+  await bm.remember({ brandId: brand, key: "reputation.trust", value: "78", source: "agent", sourceRef: "reputation-guardian", observedAt: "2026-07-02T00:00:00Z" });
+  assert.equal((await bm.conflicts(brand)).length, 1);
+});
+
+test("memory: the route will not write a measured fact for a caller", async () => {
+  bm.__resetBrandMemory();
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/brand-memory/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/brand-memory", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "remember", brandId: "t-mem-7", key: "revenue.orders", value: "9000",
+      // A caller claiming the standing of a measuring module. It must not work.
+      source: "measured", sourceRef: "ledger",
+    }),
+  }));
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.fact.source, "customer", "a caller does not choose its own standing");
+  assert.equal(data.fact.sourceRef, "customer");
+});
+
+test("memory: the agent runner hands the slice to the model", () => {
+  // Behaviour through the prompt builder: every input key reaches the model, so
+  // proving brandMemory is set on `input` proves it is delivered.
+  const route = readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8");
+  assert.match(route, /input\.brandMemory = ctx\.preamble/);
+  const provider = readFileSync(new URL("../src/backend/provider.ts", import.meta.url), "utf8");
+  assert.match(provider, /Object\.entries\(input\)/, "the prompt is built from every supplied input key");
+});

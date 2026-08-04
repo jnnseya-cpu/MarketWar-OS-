@@ -2350,3 +2350,31 @@ engines, second front door.
 
 Tests **902 → 915**, all passing; typecheck, layer check and build green; seven
 mutations applied to the new engines and every one caught.
+
+### §67b — The shared memory, built (2026-08-04)
+
+Doc 14 §3.1 named the shared memory as the one genuinely new architectural idea
+in the agent-network spec. It is now built rather than blueprinted.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Agents share context instead of starting from nothing | ✅ **new** | `src/backend/brand-memory.ts` + `/api/brand-memory`, wired into the agent runner: a run that supplies `brandId` receives its slice of the memory as `input.brandMemory`, and `provider.ts` builds the prompt from every input key, so it reaches the model. |
+| **A model's guess can never be read as a measurement** | ✅ | `source: "measured"` is reserved to a whitelist of modules that actually count something (`contacts`, `ledger`, `email-events`, `posting-time`, `reputation`, `search-console`…). An agent naming itself as the source is refused with the reason. Without this, agent one guesses the audience is 18–24, agent three prices against it, and by agent ten the guess is the premise of a budget — the hash-score defect laundered through enough hops that its origin is invisible. |
+| A caller cannot choose its own standing | ✅ | `/api/brand-memory` never reads `source` or `sourceRef` from the body. Client writes are `customer` — their belief, recorded as their belief. Measured facts come only from `action: "sync"`, which runs the measuring modules server-side and passes their own module names as provenance. Tested behaviourally: a POST claiming `source: "measured", sourceRef: "ledger"` is stored as `customer`. |
+| A measurement that is not one is not recorded | ✅ | `sync` writes `posting.best-windows` **only** when `bestPostingTimes` reports `basis: "measured"`. Its market-hours fallback is a starting point, not a finding, and storing it as measured would be exactly the laundering this module exists to stop. |
+| Nothing is overwritten | ✅ | A new value **supersedes** by explicit link — not by timestamp ordering, because facts arrive out of order — and the prior is kept. `history(key)` answers "why does the plan think that?". The additive-only law applies to memory too. |
+| Old facts age instead of vanishing | ✅ | Per-namespace staleness (reach 30d, revenue 30d, offer 90d, audience 180d, brand 365d). A stale fact is labelled `STALE` in the preamble, never dropped. |
+| The context bill does not grow with tenure | ✅ | `contextFor()` hands an agent only the namespaces it declared an interest in. A prompt that grows every month means the same action costs more every month, with the oldest facts crowding out the newest. |
+| The model is told what it is reading | ✅ | The preamble labels each item `MEASURED by <module>` / `stated by the customer` / `inferred by <agent>`, and instructs: treat measured as fact, customer-stated as belief, inferred as another model's guess — *and never present one as a measurement*. |
+| Disagreement is surfaced | ✅ | `conflicts()` returns any key where a model asserts something different from the measurement. The measurement wins on standing, but a model believing otherwise is itself information. |
+
+Tests **915 → 923**; typecheck, layer check and build green. Five mutations
+applied — whitelist removed, supersede link dropped, staleness disabled, the
+slice widened to everything, and the route trusting the caller's claimed source
+— and all five caught.
+
+**Still ahead on the agent network** (unchanged from doc 14 §3.1): the chain
+generalised beyond `strategy-run`'s seven agents, the approval boundary wired
+into the orchestrator so nothing spends or publishes unattended, and the per-brand
+daily cost cap without which "continuously observes, learns, predicts" is an
+unbounded invoice.
