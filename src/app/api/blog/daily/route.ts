@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateArticle } from "@/backend/blog-generator";
 import { savePost, getPost, listPosts } from "@/backend/blog-store";
 import type { BlogPost } from "@/shared/blog";
-import { requireAuth } from "@/backend/guard";
+import { requireAuth, cronAuthorised } from "@/backend/guard";
 
 // SEO autopilot — the DAILY branded post, published while you sleep.
 //
@@ -109,9 +109,10 @@ async function runDaily(force: boolean) {
 }
 
 export async function POST(req: NextRequest) {
-  const cronSecret = req.headers.get("x-cron-secret") || "";
-  const cronOk = Boolean(process.env.CRON_SECRET) && cronSecret === process.env.CRON_SECRET;
-  // Vercel Cron sends its own bearer; accept it too when CRON_SECRET matches.
+  // Vercel sends `Authorization: Bearer $CRON_SECRET`, not a custom header —
+  // the comment here used to claim the bearer was accepted while the code only
+  // read `x-cron-secret`, so every real firing 401'd.
+  const cronOk = cronAuthorised(req).ok;
   if (!cronOk) {
     const auth = await requireAuth(req, { scope: "platform_admin" });
     if (!auth.ok) {
@@ -129,9 +130,9 @@ export async function POST(req: NextRequest) {
 
 // Vercel Cron issues GET requests.
 export async function GET(req: NextRequest) {
-  const cronSecret = req.headers.get("x-cron-secret") || "";
-  const vercelCron = (req.headers.get("user-agent") || "").includes("vercel-cron");
-  const cronOk = (Boolean(process.env.CRON_SECRET) && cronSecret === process.env.CRON_SECRET) || vercelCron;
+  // Credential only. The user-agent check that used to sit here let anybody
+  // with curl trigger a paid post on the strongest model.
+  const cronOk = cronAuthorised(req).ok;
   if (!cronOk) {
     const auth = await requireAuth(req, { scope: "platform_admin" });
     if (!auth.ok) return NextResponse.json({ error: "Unauthorised" }, { status: auth.status });
@@ -139,7 +140,7 @@ export async function GET(req: NextRequest) {
   // A scheduled firing is refused unless the schedule is switched on. A person
   // with admin rights pressing it deliberately still works — the guard is
   // against thirty unwatched Opus posts a month, not against using the feature.
-  if (!BLOG_CRON_ENABLED && (vercelCron || cronSecret)) {
+  if (!BLOG_CRON_ENABLED && cronOk) {
     return NextResponse.json({
       ran: false,
       note: "The daily blog cron is off. It writes a post every day on the strongest model, which is a real provider bill whether or not anyone is paying — set BLOG_DAILY_ENABLED=1 to switch it on. Writing a post by hand from the dashboard is unaffected.",

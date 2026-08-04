@@ -128,3 +128,32 @@ export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promi
     emailVerified: Boolean(decoded.email_verified),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Is this request the scheduler?
+//
+// WHY THIS EXISTS AS ONE FUNCTION. Five cron routes each answered this question
+// their own way, and the three answers were not equivalent:
+//
+//   • `x-cron-secret` only — correct, but Vercel does not send that header, so
+//     the job 401s on every real firing. The route is armed and never fires.
+//   • `user-agent` contains "vercel-cron" — a header anyone can set. On a route
+//     that runs agents for every due brand, that is an anonymous button for
+//     spending the platform's provider budget.
+//   • `Authorization: Bearer $CRON_SECRET` — what Vercel actually sends when
+//     CRON_SECRET is set on the project, and the only one of the three that is
+//     both correct and unforgeable.
+//
+// So: the bearer, or the explicit header for a non-Vercel scheduler. Nothing
+// else. FAILS CLOSED when CRON_SECRET is unset — a scheduled route with no
+// secret configured is not "open to the scheduler", it is open.
+export function cronAuthorised(req: Request): { ok: boolean; reason: string } {
+  const secret = process.env.CRON_SECRET || "";
+  if (!secret) {
+    return { ok: false, reason: "CRON_SECRET is not set on this deployment, so no caller can be recognised as the scheduler." };
+  }
+  const bearer = (req.headers.get("authorization") || "").trim();
+  if (bearer === `Bearer ${secret}`) return { ok: true, reason: "vercel cron bearer" };
+  if ((req.headers.get("x-cron-secret") || "") === secret) return { ok: true, reason: "x-cron-secret header" };
+  return { ok: false, reason: "no valid scheduler credential on the request" };
+}

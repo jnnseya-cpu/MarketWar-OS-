@@ -4,7 +4,7 @@ import { validateChain } from "@/backend/orchestrator";
 import { executeChain } from "@/backend/chain-exec";
 import { headroom } from "@/backend/agent-budget";
 import { brandOwnerId } from "@/backend/brand-access";
-import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth, cronAuthorised } from "@/backend/guard";
 import type { AuthResult } from "@/backend/guard";
 
 // The scheduler — chains that run without anybody pressing a button.
@@ -39,10 +39,12 @@ export const maxDuration = 300;
 const MAX_PER_TICK = 10;
 
 async function authorise(req: NextRequest): Promise<{ ok: true; who: string } | { ok: false; status: number; error: string }> {
-  const secret = req.headers.get("x-cron-secret") || "";
-  if (process.env.CRON_SECRET && secret === process.env.CRON_SECRET) return { ok: true, who: "scheduler" };
+  // Vercel sends `Authorization: Bearer $CRON_SECRET`, NOT a custom header. A
+  // route that only checks `x-cron-secret` is armed and never fires.
+  const cron = cronAuthorised(req);
+  if (cron.ok) return { ok: true, who: "scheduler" };
   const auth = await requireAuth(req);
-  if (!auth.ok) return { ok: false, status: auth.status, error: "Unauthorised — set the x-cron-secret header (scheduler) or sign in." };
+  if (!auth.ok) return { ok: false, status: auth.status, error: `Unauthorised — ${cron.reason}. Sign in, or call it as the scheduler.` };
   return { ok: true, who: auth.uid || "operator" };
 }
 

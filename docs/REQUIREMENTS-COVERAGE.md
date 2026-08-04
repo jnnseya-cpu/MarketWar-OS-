@@ -2440,3 +2440,37 @@ scheduler that respects all of it. What remains is content rather than
 architecture — the individual agents named in doc 14 §3 that have no engine yet
 (Community Manager, Learning Companion, Collaboration Engine), each blocked on
 the connector or the policy question recorded there.
+
+### §67e — The schedulers were not actually reachable, and one was reachable by anyone (2026-08-04)
+
+Prompted by the owner confirming `CRON_SECRET` was already set. That is exactly
+the fact worth checking against, and checking found two defects — one in the
+scheduler shipped an hour earlier, one much older.
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| **`/api/trends/scheduled` was open to the internet** | 🔴 spend | The guard read *"if it is NOT marked `?cron=1` and has no secret, refuse"* — and `vercel.json` calls that path **with** `?cron=1`, so the marker alone satisfied it. Anyone who read the public cron config could fire a deep crawl plus three paid news searches for every enabled brand, as often as they liked, on the platform's bill. **A query parameter is not a credential.** The secret is now the gate; `?cron=1` is a label. |
+| **The new orchestrator cron would never have fired** | 🟠 broken | It checked only `x-cron-secret`. Vercel sends `Authorization: Bearer $CRON_SECRET`. The job was armed and would have 401'd on every firing — silently, since a failing cron is invisible until somebody asks why nothing ran. |
+| `/api/blog/daily`, `/api/seo-autopilot`, `/api/ai-visibility/scheduled` accepted a `user-agent` containing `vercel-cron` | 🟠 spend | A header anyone can set, on three routes that write a post on the strongest model, run SEO generation for every due brand, and run a visibility sweep for every due brand. Removed. |
+| `/api/blog/daily` POST claimed in a comment to accept Vercel's bearer | 🟡 stale | The comment said it; the code read only `x-cron-secret`. Now true. |
+
+**One function, five routes.** `cronAuthorised(req)` in `src/backend/guard.ts`
+accepts `Authorization: Bearer $CRON_SECRET` (what Vercel sends) or
+`x-cron-secret` (any other scheduler), and **nothing else**. It **fails closed**
+when `CRON_SECRET` is unset: a scheduled route with no secret configured is not
+"open to the scheduler", it is open.
+
+Two existing tests had to be corrected rather than the code loosened — one
+asserted that `?cron=1` was recognised as the credential, which was the hole
+written down as a requirement.
+
+Tests **939 → 942**; typecheck, layer check and build green. Four mutations —
+failing open with no secret, rejecting the bearer, going back to trusting the
+user-agent, and restoring the query-string bypass — all four caught.
+
+**Separate finding, reported not fixed.** `vercel.json` points a cron at
+`/api/autopilot/nightly`, but that route's GET returns documentation only — the
+digest lives on POST and needs `brands[]` and a recipient in the body. That cron
+has therefore never done anything. Fixing it means deciding where the brand list
+and the recipient address come from on an unattended run, which is the owner's
+call rather than a bug fix.

@@ -4,7 +4,7 @@ import { listPostsForBrand } from "@/backend/blog-store";
 import { getWallet } from "@/backend/wallet";
 import { PLANS, planEconomics } from "@/backend/subscription";
 import { resolveBrandAccess } from "@/backend/brand-access";
-import { rateLimit, clientKey } from "@/backend/guard";
+import { rateLimit, clientKey, cronAuthorised } from "@/backend/guard";
 
 // Customer SEO autopilot — each brand's OWN branded blog.
 //
@@ -88,11 +88,11 @@ export async function POST(req: NextRequest) {
 
 // Scheduler: generate for every enabled brand that is due under its cadence.
 export async function GET(req: NextRequest) {
-  const secret = req.headers.get("x-cron-secret") || "";
-  const vercelCron = (req.headers.get("user-agent") || "").includes("vercel-cron");
-  if (!((process.env.CRON_SECRET && secret === process.env.CRON_SECRET) || vercelCron)) {
-    return NextResponse.json({ error: "Unauthorised — scheduler only." }, { status: 401 });
-  }
+  // A user-agent is a header anyone can set, and this route runs agents for
+  // every due brand — that made it an anonymous button for spending the
+  // platform's provider budget. Credential only.
+  const cron = cronAuthorised(req);
+  if (!cron.ok) return NextResponse.json({ error: `Unauthorised — scheduler only. ${cron.reason}` }, { status: 401 });
   const brands = await listEnabledBrands();
   const due = brands.filter((b) => isDue(b));
   const results: { brandId: string; ok: boolean; charged: number; error?: string; slug?: string }[] = [];

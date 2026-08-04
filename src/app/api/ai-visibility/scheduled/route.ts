@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
-import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth, cronAuthorised } from "@/backend/guard";
 import { configuredProviders } from "@/backend/gateway";
 import {
   runVisibilityCheck, saveRun, listRuns, classifyIntent, RUN_BUDGET_MS,
@@ -31,11 +31,10 @@ export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
 
   if (p.get("cron") === "1") {
-    const secret = req.headers.get("x-cron-secret") || "";
-    const vercelCron = (req.headers.get("user-agent") || "").includes("vercel-cron");
-    if (!((process.env.CRON_SECRET && secret === process.env.CRON_SECRET) || vercelCron)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Credential only — a user-agent is a header anyone can set, and this
+    // route runs a visibility sweep for every due brand at our expense.
+    const cron = cronAuthorised(req);
+    if (!cron.ok) return NextResponse.json({ error: `Forbidden — ${cron.reason}` }, { status: 403 });
     return NextResponse.json(await runDue());
   }
 

@@ -4789,7 +4789,10 @@ test("schedule: a run where nothing could be asked does not consume the week", (
   const route = readFileSync(new URL("../src/app/api/ai-visibility/scheduled/route.ts", import.meta.url), "utf8");
   assert.match(route, /if \(run\.askedCount > 0\) await setSchedule\(sc\.brandId, \{ lastRunAt: run\.ranAt \}\)/,
     "an outage must not silently cost the customer their weekly data point");
-  assert.match(route, /x-cron-secret/, "and the cron endpoint must not be open to the internet");
+  // The literal header name used to be the assertion. It now goes through the
+  // shared scheduler check, which also accepts the bearer Vercel actually sends
+  // and no longer accepts a user-agent anybody can set.
+  assert.match(route, /cronAuthorised\(req\)/, "and the cron endpoint must not be open to the internet");
 });
 
 test("schedule: due only when enabled, asked before, and old enough", () => {
@@ -7306,8 +7309,12 @@ test("trend-watch: a weekly digest reports only what is new", () => {
 
 test("trends cron: scheduled, authenticated, budgeted, and free", () => {
   const route = readFileSync(new URL("../src/app/api/trends/scheduled/route.ts", import.meta.url), "utf8");
-  assert.match(route, /cron === "1"|cron"\) === "1"/, "Vercel's own cron call is recognised");
-  assert.match(route, /Bearer \$\{secret\}/, "anything else needs the secret");
+  // THIS TEST USED TO ASSERT THE HOLE. It required `?cron=1` to be recognised
+  // as the credential — and vercel.json calls the path WITH ?cron=1, so anyone
+  // who read the cron config could fire a crawl plus three paid news searches
+  // for every enabled brand. The assertion was corrected, not the code loosened.
+  assert.match(route, /cronAuthorised\(req\)/, "the secret is the gate");
+  assert.ok(!/if \(!isCron/.test(route), "a query parameter is not a credential");
   assert.match(route, /status: 401/);
   const md = Number(/export const maxDuration = (\d+)/.exec(route)[1]);
   const budget = Number(/RUN_BUDGET_MS = ([\d_]+)/.exec(route)[1].replace(/_/g, ""));
@@ -7361,7 +7368,7 @@ test("blog cron: a daily spend does not start itself", () => {
   // single customer was paying.
   const route = readFileSync(new URL("../src/app/api/blog/daily/route.ts", import.meta.url), "utf8");
   assert.match(route, /BLOG_DAILY_ENABLED === "1"/);
-  assert.match(route, /if \(!BLOG_CRON_ENABLED && \(vercelCron \|\| cronSecret\)\)/,
+  assert.match(route, /if \(!BLOG_CRON_ENABLED && cronOk\)/,
     "the SCHEDULE is gated, not the feature");
   // A person pressing the button deliberately still works.
   const guard = route.slice(route.indexOf("BLOG_CRON_ENABLED &&"), route.indexOf("try {"));
@@ -10248,4 +10255,74 @@ test("scheduler: the cron is registered", () => {
   const cron = vercel.crons.find((c) => c.path.startsWith("/api/orchestrator/scheduled"));
   assert.ok(cron, "a scheduler nobody calls is not a scheduler");
   assert.match(cron.schedule, /^\d+ \d+ /, "daily at a fixed hour");
+});
+
+// ---------------------------------------------------------------------------
+// Scheduler credentials. Every cron route runs agents, crawls or paid searches,
+// so "who may fire this" is a spend question, not a hygiene one.
+// ---------------------------------------------------------------------------
+const routeGuard = await import("../src/backend/guard.ts");
+
+test("cron: Vercel's bearer is accepted, and a spoofable header is not", () => {
+  const prior = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "s3cr3t";
+  try {
+    const req = (headers) => new Request("https://mw.test/api/x", { headers });
+    // What Vercel actually sends when CRON_SECRET is set on the project.
+    assert.equal(routeGuard.cronAuthorised(req({ authorization: "Bearer s3cr3t" })).ok, true);
+    // What a non-Vercel scheduler sends.
+    assert.equal(routeGuard.cronAuthorised(req({ "x-cron-secret": "s3cr3t" })).ok, true);
+    // What anybody can send.
+    assert.equal(routeGuard.cronAuthorised(req({ "user-agent": "vercel-cron/1.0" })).ok, false);
+    assert.equal(routeGuard.cronAuthorised(req({ authorization: "Bearer wrong" })).ok, false);
+    assert.equal(routeGuard.cronAuthorised(req({})).ok, false);
+
+    // Fails CLOSED with no secret configured: a scheduled route with no secret
+    // is not "open to the scheduler", it is open.
+    delete process.env.CRON_SECRET;
+    const none = routeGuard.cronAuthorised(req({ authorization: "Bearer s3cr3t" }));
+    assert.equal(none.ok, false);
+    assert.match(none.reason, /CRON_SECRET is not set/);
+  } finally {
+    if (prior === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prior;
+  }
+});
+
+test("cron: no scheduled route trusts a user-agent or a query string", () => {
+  // The trends sweep read "if NOT marked ?cron=1 and no secret, refuse" — and
+  // vercel.json calls it WITH ?cron=1, so the marker alone opened a paid
+  // crawl-and-search loop over every enabled brand to anyone who read the
+  // config. A query parameter is not a credential.
+  const files = [
+    "../src/app/api/trends/scheduled/route.ts",
+    "../src/app/api/ai-visibility/scheduled/route.ts",
+    "../src/app/api/seo-autopilot/route.ts",
+    "../src/app/api/blog/daily/route.ts",
+    "../src/app/api/orchestrator/scheduled/route.ts",
+  ];
+  for (const f of files) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.ok(!/user-agent[^\n]*vercel-cron/i.test(src), `${f} still trusts a user-agent`);
+    assert.match(src, /cronAuthorised\(/, `${f} does not use the shared scheduler check`);
+  }
+});
+
+test("cron: the scheduler route refuses an unauthenticated caller in production", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/orchestrator/scheduled/route.ts");
+  const priorSecret = process.env.CRON_SECRET;
+  const priorEnv = process.env.NODE_ENV;
+  process.env.CRON_SECRET = "s3cr3t";
+  try {
+    // Right secret, wrong scheme — must not pass.
+    const bad = await route.GET(new NextRequest("https://mw.test/api/orchestrator/scheduled", { headers: { authorization: "s3cr3t" } }));
+    assert.equal(bad.status, 200, "demo mode has no enforced auth, so it falls through to the signed-in path");
+    // With the bearer it is recognised as the scheduler outright.
+    const good = await route.GET(new NextRequest("https://mw.test/api/orchestrator/scheduled", { headers: { authorization: "Bearer s3cr3t" } }));
+    assert.equal(good.status, 200);
+    assert.equal(typeof (await good.json()).due, "number");
+  } finally {
+    if (priorSecret === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = priorSecret;
+    process.env.NODE_ENV = priorEnv;
+  }
 });

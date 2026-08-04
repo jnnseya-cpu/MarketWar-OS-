@@ -4,6 +4,7 @@ import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
 import { brandMarket } from "@/backend/brand-market";
 import { debitAcus, ACTION_COST_ACU } from "@/backend/wallet";
+import { cronAuthorised } from "@/backend/guard";
 
 // Weekly trend monitoring — the schedule the Trend Hijack card was waiting for.
 //
@@ -30,13 +31,15 @@ const SEARCHES_PER_BRAND = 3;
 export async function GET(req: NextRequest) {
   const startedAt = Date.now();
 
-  // Vercel signs its cron calls; anything else must present the secret. Without
-  // this the endpoint is a free crawl-and-search button for the whole internet.
-  const isCron = req.nextUrl.searchParams.get("cron") === "1";
-  const secret = process.env.CRON_SECRET || "";
-  const auth = req.headers.get("authorization") || "";
-  if (!isCron && !(secret && auth === `Bearer ${secret}`)) {
-    return NextResponse.json({ error: "This endpoint is for the scheduler." }, { status: 401 });
+  // THIS USED TO BE BYPASSABLE WITH A QUERY STRING. The guard read "if it is
+  // not marked ?cron=1 AND has no secret, refuse" — and vercel.json calls this
+  // path WITH ?cron=1, so the marker alone opened it. Anyone who read the cron
+  // config could trigger a crawl plus three paid news searches for every
+  // enabled brand, as often as they liked, on our bill. A query parameter is
+  // not a credential; ?cron=1 is now a label and the secret is the gate.
+  const cron = cronAuthorised(req);
+  if (!cron.ok) {
+    return NextResponse.json({ error: `This endpoint is for the scheduler — ${cron.reason}` }, { status: 401 });
   }
 
   const schedules = await listEnabled();
