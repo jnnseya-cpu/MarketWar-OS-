@@ -26,7 +26,7 @@ export default function BlogArticleClient({ slug, initialViews }: { slug: string
 
   return (
     <div className="flex items-center gap-4 text-sm text-slate-400">
-      <span className="flex items-center gap-1.5"><Eye className="h-4 w-4" /> {views.toLocaleString()} views</span>
+      <span className="flex items-center gap-1.5"><Eye className="h-4 w-4" /> {views.toLocaleString()} {views === 1 ? "view" : "views"}</span>
       <button onClick={share} className="flex items-center gap-1.5 font-semibold text-emerald-400 hover:text-emerald-300">
         {copied ? <><Check className="h-4 w-4" /> Link copied</> : <><Link2 className="h-4 w-4" /> Share</>}
       </button>

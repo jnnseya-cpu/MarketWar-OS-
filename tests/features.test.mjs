@@ -8506,7 +8506,12 @@ test("a brand's own page survives enforcement even though it is an absolute url"
   const r = bl.enforceLinks(md, menu, new Set());
   assert.ok(r.markdown.includes("(https://veryxjnn.com/pricing)"), "a page from their own sitemap is known-good");
   assert.ok(!r.markdown.includes("rival.test"), "and an unverified outside link is not published");
-  assert.equal(r.externalCount, 1);
+  // Their own page is an INTERNAL link even though it is an absolute url — it
+  // is their site. This assertion used to read externalCount === 1, which is
+  // what made the audit tell a customer that an article full of links to their
+  // own service pages "links nowhere".
+  assert.equal(r.internalCount, 1);
+  assert.equal(r.externalCount, 0);
 });
 
 test("a brand with no reachable website still gets its own posts to link to", async () => {
@@ -9011,4 +9016,115 @@ test("the comparison graphic and the analysis quote the same numbers", () => {
   assert.match(art, /Competitor prices read 4 August 2026/, "an undated price graphic is a misleading one");
   // Our own figures on it are the ones the code holds.
   assert.ok(art.includes("£49") && art.includes("980 AI credits"), "the Growth tier on the graphic is wrong");
+});
+
+// ---------------------------------------------------------------------------
+// A label in brackets with no url behind it
+//
+// Owner, reading a live customer article: "where are all the hyperlinks, and
+// all what was set and it looks unfinished". The article contained nine
+// bracketed labels — [Trades], [Legal], [How it works], [Register], [Contact]
+// and four more — with no links at all. The reader saw the brackets.
+//
+// The cause was a blind spot, not a bad model. The generator hands over its menu
+// written as `- [Label](/path)` and the model answered with the LABELS, dropping
+// the parentheses. Every check looked for `[text](url)`, so a bare `[text]` was
+// invisible to all of them: not a link to validate, not a link to strip, just
+// words with brackets round them. It passed enforcement, passed the audit, and
+// reached the reader.
+// ---------------------------------------------------------------------------
+const THEIR_MENU = [
+  ["https://evandeli.com/trades", "Trades"], ["https://evandeli.com/legal", "Legal"],
+  ["https://evandeli.com/how-it-works", "How it works"], ["https://evandeli.com/leads", "Leads"],
+  ["https://evandeli.com/trades/builder", "Trades · builder"],
+  ["https://evandeli.com/register", "Register"], ["https://evandeli.com/contact", "Contact"],
+].map(([url, label]) => ({ url, label, use: "a page on your own site", kind: "page" }));
+
+test("a bracketed label with no url is seen at all", () => {
+  const md = "see our overview of available [Trades] offerings, and register via our [Register] page.";
+  assert.deepEqual(bl.bareLabels(md), ["Trades", "Register"]);
+  // The old link finder saw nothing here, which is exactly how this shipped.
+  assert.equal(bl.extractLinks(md).length, 0);
+});
+
+test("a bracketed label is resolved to the page it names", () => {
+  const md = "see the [Trades] page, the [Trades · builder] examples and our [How it works] guide.";
+  const r = bl.resolveBareLinks(md, THEIR_MENU);
+  assert.equal(r.linked.length, 3);
+  assert.equal(r.unlinked.length, 0);
+  assert.ok(r.markdown.includes("[Trades](https://evandeli.com/trades)"));
+  assert.ok(r.markdown.includes("[Trades · builder](https://evandeli.com/trades/builder)"));
+  assert.equal(bl.bareLabels(r.markdown).length, 0, "no bracket may reach a reader");
+});
+
+test("a label matching nothing loses its brackets and keeps its words", () => {
+  const r = bl.resolveBareLinks("Ask about our [Warranty Cover] before booking.", THEIR_MENU);
+  assert.equal(r.markdown, "Ask about our Warranty Cover before booking.");
+  assert.deepEqual(r.unlinked.map((u) => u.label), ["Warranty Cover"]);
+  assert.equal(r.linked.length, 0);
+});
+
+test("a real link and an image are left alone", () => {
+  const md = "A [real link](https://evandeli.com/leads) and ![a photo](/img/site.png) stay as they are.";
+  const r = bl.resolveBareLinks(md, THEIR_MENU);
+  assert.equal(r.markdown, md);
+  assert.equal(r.linked.length + r.unlinked.length, 0);
+});
+
+test("the audit names the brackets instead of passing the article", () => {
+  const md = "see our [Trades] page and our [Legal] pages.";
+  const a = bl.linkAudit(md, THEIR_MENU);
+  assert.deepEqual(a.bare, ["Trades", "Legal"]);
+  assert.match(a.note, /square brackets with no link behind them/);
+  assert.match(a.note, /unfinished draft/);
+});
+
+test("a customer's own pages count as their own site, not as outbound", async () => {
+  // Their blog is hosted here and their shop is not, so their own links arrive
+  // absolute. Splitting on "starts with /" told a customer that an article full
+  // of links to their own service pages "links nowhere".
+  const md = "[Trades](https://evandeli.com/trades) · [Leads](https://evandeli.com/leads) · [Register](https://evandeli.com/register)";
+  const a = bl.linkAudit(md, THEIR_MENU);
+  assert.equal(a.internal, 3, "their own pages are internal links");
+  assert.equal(a.external, 0);
+  assert.equal(a.level, "ok");
+  assert.ok(!/links nowhere/.test(a.note));
+  const forced = bl.enforceLinks(md, THEIR_MENU, new Set());
+  assert.equal(forced.internalCount, 3);
+  assert.equal(forced.externalCount, 0);
+});
+
+test("the generator's brief spells out the whole link", () => {
+  const src = readFileSync(new URL("../src/backend/blog-generator.ts", import.meta.url), "utf8");
+  assert.match(src, /A label in square brackets on its own, like \[Pricing\], is NOT a link/);
+});
+
+test("the link policy resolves a bare label end to end", async () => {
+  // Behaviour, not source order. The first version of this compared indexOf
+  // positions, and indexOf returns -1 when the call is gone — so deleting the
+  // resolver outright made the assertion PASS. A check that a mutation cannot
+  // fail is not a check.
+  const { applyLinkPolicy } = await import("../src/backend/blog-generator.ts");
+  const out = await applyLinkPolicy("Register via our [Register] page today.", THEIR_MENU);
+  assert.equal(out.content, "Register via our [Register](https://evandeli.com/register) page today.");
+  assert.equal(out.links.internal, 1);
+  assert.match(out.links.note, /resolved to the page they name/);
+  // And a label naming nothing on the menu still loses its brackets here.
+  const orphan = await applyLinkPolicy("Ask about our [Warranty Cover] first.", THEIR_MENU);
+  assert.equal(orphan.content, "Ask about our Warranty Cover first.");
+});
+
+test("posts already published can be repaired in place", () => {
+  const route = readFileSync(new URL("../src/app/api/blog/route.ts", import.meta.url), "utf8");
+  assert.match(route, /action === "repair-links"/);
+  // Dry by default: a bulk rewrite of live articles must be asked for.
+  assert.match(route, /const dryRun = body\.apply !== true/);
+  // A brand's post is repaired against the BRAND's menu, not the platform's.
+  assert.match(route, /post\.brandId\s*\n?\s*\? await brandLinkMenu\(/);
+  assert.match(route, /getBrandById\(post\.brandId\)/);
+});
+
+test("one view is not 1 views", () => {
+  const c = readFileSync(new URL("../src/components/BlogArticleClient.tsx", import.meta.url), "utf8");
+  assert.match(c, /views === 1 \? "view" : "views"/);
 });

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPosts, getPost, savePost, incrementViews, deletePost } from "@/backend/blog-store";
 import { generateArticle } from "@/backend/blog-generator";
-import { linkAudit, linkMenu } from "@/backend/blog-links";
+import { brandLinkMenu, linkAudit, linkMenu, resolveBareLinks } from "@/backend/blog-links";
+import { getBrandById } from "@/backend/brand-store";
 import { slugify, readMinutes, type BlogPost } from "@/shared/blog";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
@@ -28,6 +29,7 @@ export const dynamic = "force-dynamic";
 // POST { action: "view", slug }                              → public view counter
 // POST { action: "generate", topic | topics[], category?, keywords? } → AI draft(s) (admin)
 // POST { action: "audit-links" }                             → per-post link report (admin)
+// POST { action: "repair-links", apply? }                    → resolve bare [Label]s in published posts
 // POST { action: "publish"|"unpublish"|"delete", slug }      → admin
 export async function GET(req: NextRequest) {
   try {
@@ -133,6 +135,51 @@ export async function POST(req: NextRequest) {
       }
       // `post` stays for the single-topic caller that has always read it.
       return NextResponse.json({ post: created[0], posts: created, links: linkNotes, skipped });
+    }
+
+    // REPAIR WHAT ALREADY WENT OUT. A live article read "see our overview of
+    // available [Trades] offerings" — nine bracketed labels with no links behind
+    // them, visible to every reader. Fixing the generator does nothing for the
+    // posts already published, and asking a customer to regenerate an article
+    // they have edited is asking them to pay for our defect twice. This resolves
+    // the brackets in place, against the same menu that post can see.
+    if (action === "repair-links") {
+      const dryRun = body.apply !== true;
+      const posts = await listPosts({ includeDrafts: true });
+      const repaired: { slug: string; linked: number; unlinked: number; detail: string }[] = [];
+      for (const post of posts) {
+        const before = post.content || "";
+        if (!/\[[^\]\n]{1,80}\](?!\s*[([])/.test(before)) continue;
+        // A brand's post links to the BRAND's pages; a platform post to ours.
+        const menu = post.brandId
+          ? await brandLinkMenu({
+              posts, brandId: post.brandId, exclude: post.slug,
+              website: (await getBrandById(post.brandId).catch(() => null))?.website || "",
+            }).catch(() => [])
+          : linkMenu(posts, post.slug);
+        const fixed = resolveBareLinks(before, menu);
+        if (!fixed.linked.length && !fixed.unlinked.length) continue;
+        if (!dryRun) {
+          post.content = fixed.markdown;
+          await savePost(post);
+        }
+        repaired.push({
+          slug: post.slug,
+          linked: fixed.linked.length,
+          unlinked: fixed.unlinked.length,
+          detail: [
+            fixed.linked.map((b) => `[${b.label}] → ${b.resolvedTo}`).join("; "),
+            fixed.unlinked.length ? `brackets removed, words kept: ${fixed.unlinked.map((b) => `[${b.label}]`).join(", ")}` : "",
+          ].filter(Boolean).join(" · "),
+        });
+      }
+      return NextResponse.json({
+        applied: !dryRun,
+        posts: repaired,
+        note: repaired.length
+          ? `${repaired.length} post(s) carry bracketed labels with no link behind them.${dryRun ? " Nothing was changed — send apply:true to fix them in place." : " Fixed in place."}`
+          : "No post has a bracketed label without a link.",
+      });
     }
 
     if (action === "audit-links") {

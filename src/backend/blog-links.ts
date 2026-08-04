@@ -181,6 +181,78 @@ export function extractLinks(markdown: string): FoundLink[] {
   return out;
 }
 
+/**
+ * A LABEL IN BRACKETS WITH NO URL BEHIND IT.
+ *
+ * This is here because it shipped. A customer's article went out reading
+ * "see our overview of available [Trades] offerings" and "register via our
+ * [Register] page" — nine bracketed labels, no links, brackets visible to every
+ * reader, and the whole piece looking like an unfinished draft.
+ *
+ * The cause was a blind spot rather than a bad model. The generator hands over a
+ * menu written as `- [Label](/path) — what it is`, and the model answered with
+ * the LABELS and dropped the parentheses. Every check downstream looked for
+ * `[text](url)`, so a bare `[text]` was invisible to all of them: not a link to
+ * validate, not a link to strip, just words that happened to have brackets round
+ * them. It passed the enforcement, passed the audit, and reached the reader.
+ *
+ * So a bare label is now resolved rather than ignored. If it names something on
+ * the menu it becomes the link the writer plainly meant; if it names nothing, the
+ * brackets come off and the sentence still reads. Either way the brackets do not
+ * reach a reader, and either way the report says which happened.
+ */
+export type BareLink = { label: string; resolvedTo: string | null };
+
+// `[text]` not followed by `(` — and not an image, and not a reference-style
+// definition line, both of which are legitimate Markdown that means something
+// else.
+const BARE_RE = /\[([^\]\n]{1,80})\](?!\s*[([])/g;
+
+const normalise = (s: string): string =>
+  String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Resolve bare `[Label]` against the menu, or take the brackets off. */
+export function resolveBareLinks(markdown: string, menu: LinkTarget[]): {
+  markdown: string;
+  linked: BareLink[];
+  unlinked: BareLink[];
+} {
+  const byLabel = new Map<string, LinkTarget>();
+  for (const m of menu) {
+    byLabel.set(normalise(m.label), m);
+    // Also match on the path itself: a model asked for the pricing page may
+    // write [choose-plan] as readily as [Pricing].
+    try {
+      const path = m.url.startsWith("http") ? new URL(m.url).pathname : m.url;
+      const key = normalise(path);
+      if (key && !byLabel.has(key)) byLabel.set(key, m);
+    } catch { /* the label alone is enough */ }
+  }
+
+  const linked: BareLink[] = [];
+  const unlinked: BareLink[] = [];
+  const out = String(markdown ?? "").replace(BARE_RE, (whole, label: string, offset: number) => {
+    const before = markdown[offset - 1];
+    if (before === "!") return whole;                       // an image
+    if (/^\s*$/.test(markdown.slice(markdown.lastIndexOf("\n", offset) + 1, offset))) {
+      // A line that STARTS with the bracket may be a reference definition
+      // (`[id]: https://…`) — leave those to Markdown.
+      if (/^\s*:/.test(markdown.slice(offset + whole.length))) return whole;
+    }
+    const hit = byLabel.get(normalise(label));
+    if (hit) { linked.push({ label, resolvedTo: hit.url }); return `[${label}](${hit.url})`; }
+    unlinked.push({ label, resolvedTo: null });
+    return label;
+  });
+
+  return { markdown: out, linked, unlinked };
+}
+
+/** Any bracket left with nothing behind it. Used by the audit as a backstop. */
+export function bareLabels(markdown: string): string[] {
+  return [...String(markdown ?? "").matchAll(BARE_RE)].map((m) => m[1]);
+}
+
 export const isInternal = (url: string): boolean => url.startsWith("/") && !url.startsWith("//");
 export const isExternal = (url: string): boolean => /^https?:\/\//i.test(url);
 
@@ -260,8 +332,10 @@ export function enforceLinks(
     markdown: out,
     kept,
     removed,
-    internalCount: kept.filter((l) => isInternal(l.url)).length,
-    externalCount: kept.filter((l) => isExternal(l.url)).length,
+    // Counted against the menu for the same reason the audit is: a customer's
+    // own page arrives as an absolute url and is still their own site.
+    internalCount: kept.filter((l) => isInternal(l.url) || allowedFromMenu.has(l.url.trim())).length,
+    externalCount: kept.filter((l) => isExternal(l.url) && !allowedFromMenu.has(l.url.trim())).length,
   };
 }
 
@@ -354,22 +428,38 @@ export type LinkAudit = {
   toPages: number;
   /** Internal links pointing at a page that does not exist. */
   broken: string[];
+  /** Labels in brackets with no url behind them — visible to the reader. */
+  bare: string[];
   level: "ok" | "thin" | "none";
   note: string;
 };
 
-/** What this post's linking actually looks like, for a post already written. */
+/**
+ * What this post's linking actually looks like, for a post already written.
+ *
+ * "INTERNAL" MEANS THE SITE THIS POST BELONGS TO, not the shape of the url. A
+ * platform post links to `/how-it-works`; a customer's post links to
+ * `https://theirdomain.com/services`, because their blog is hosted here and
+ * their shop is not. Splitting on `startsWith("/")` counted every one of a
+ * customer's own links as outbound and told them an article full of links to
+ * their own service pages "links nowhere" — advice that would have had them
+ * rewrite a perfectly good post. The menu is the site, so the menu decides.
+ */
 export function linkAudit(markdown: string, menu: LinkTarget[]): LinkAudit {
   const allowed = new Set(menu.map((m) => canonicalPath(m.url)));
+  const onMenu = (url: string) => allowed.has(canonicalPath(url));
   const links = extractLinks(markdown);
-  const internal = links.filter((l) => isInternal(l.url));
-  const external = links.filter((l) => isExternal(l.url));
-  const broken = internal.filter((l) => !allowed.has(canonicalPath(l.url))).map((l) => l.url);
-  const toPosts = internal.filter((l) => l.url.startsWith("/blog/")).length;
+  const internal = links.filter((l) => isInternal(l.url) || onMenu(l.url));
+  const external = links.filter((l) => isExternal(l.url) && !onMenu(l.url));
+  const broken = internal.filter((l) => !onMenu(l.url)).map((l) => l.url);
+  const bare = bareLabels(markdown);
+  const toPosts = internal.filter((l) => canonicalPath(l.url).startsWith("/blog/")).length;
   const toPages = internal.length - toPosts;
 
   const level: LinkAudit["level"] = internal.length === 0 ? "none" : internal.length < 3 ? "thin" : "ok";
-  const note = broken.length
+  const note = bare.length
+    ? `${bare.length} label(s) are in square brackets with no link behind them — ${bare.slice(0, 4).map((b) => `[${b}]`).join(", ")}${bare.length > 4 ? "…" : ""}. A reader sees the brackets, and the article reads like an unfinished draft. Regenerate or repair the links.`
+    : broken.length
     ? `${broken.length} internal link(s) point at a page that does not exist: ${broken.join(", ")}. Every reader who clicks one gets a 404, and so does every crawler.`
     : level === "none"
       ? "This article links nowhere. Nothing carries a reader to the product, nothing passes authority to another post, and search engines have no route out of the page."
@@ -377,5 +467,5 @@ export function linkAudit(markdown: string, menu: LinkTarget[]): LinkAudit {
         ? `${internal.length} internal link(s). Three or four placed where they are genuinely useful is the difference between a page that ranks alone and a set of pages that hold each other up.`
         : `${internal.length} internal links — ${toPosts} to other articles, ${toPages} to product pages${external.length ? `, plus ${external.length} outbound citation(s)` : ""}.`;
 
-  return { internal: internal.length, external: external.length, toPosts, toPages, broken, level, note };
+  return { internal: internal.length, external: external.length, toPosts, toPages, broken, bare, level, note };
 }

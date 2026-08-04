@@ -8,7 +8,7 @@ if (typeof window !== "undefined") {
 // provider key it returns a deterministic starter article, clearly flagged.
 
 import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
-import { enforceLinks, extractLinks, isExternal, linkAudit, menuForPrompt, verifyExternal, type LinkTarget } from "@/backend/blog-links";
+import { enforceLinks, extractLinks, isExternal, linkAudit, menuForPrompt, resolveBareLinks, verifyExternal, type LinkTarget } from "@/backend/blog-links";
 
 const SYSTEM = `You are an expert SEO content strategist and writer for MarketWar OS, an AI customer-acquisition platform. Write a complete, publish-ready blog article in Markdown.
 Rules:
@@ -20,7 +20,8 @@ Rules:
 
 LINKS. An article that links nowhere is a dead end for the reader and for search.
 - Place 3 to 6 internal links, in the flow of a sentence, where they genuinely help.
-- Use ONLY the destinations listed under "Link menu" below, exactly as written.
+- Write the WHOLE link every time: [anchor text](/the-path). A label in square brackets on its own, like [Pricing], is NOT a link — the reader sees the brackets and the article looks unfinished.
+- Use ONLY the destinations listed under "Link menu" below, and copy the path exactly as written.
 - NEVER invent a URL. If the page you want is not on the menu, write the sentence without a link.
 - Anchor text must describe the destination; never "click here" or a bare URL.
 - Outbound links to other sites are optional. Only link a page you are certain exists, and never a competitor's marketing page. Every external URL is checked before publication and removed if it does not answer.
@@ -83,19 +84,37 @@ export async function applyLinkPolicy(
   markdown: string,
   menu: LinkTarget[],
 ): Promise<{ content: string; links: GeneratedArticle["links"] }> {
+  // FIRST: a label in brackets with no url behind it. The model is given the
+  // menu as `- [Label](/path)` and will sometimes answer with the labels alone.
+  // Every other check here looks for `[text](url)`, so a bare `[text]` used to
+  // be invisible to all of them and shipped as visible brackets. Resolved to
+  // the destination it names, or the brackets come off.
+  const bare = resolveBareLinks(markdown, menu);
+  markdown = bare.markdown;
+
   const external = extractLinks(markdown).map((l) => l.url).filter(isExternal);
   const alive = external.length ? await verifyExternal(external).catch(() => new Set<string>()) : new Set<string>();
   const result = enforceLinks(markdown, menu, alive);
   const audit = linkAudit(result.markdown, menu);
+  const notes = [
+    bare.linked.length
+      ? `${bare.linked.length} bracketed label(s) had no url and were resolved to the page they name: ${bare.linked.map((b) => `[${b.label}] → ${b.resolvedTo}`).join("; ")}.`
+      : "",
+    bare.unlinked.length
+      ? `${bare.unlinked.length} bracketed label(s) matched nothing on the menu, so the brackets were removed and the words kept: ${bare.unlinked.map((b) => `[${b.label}]`).join(", ")}.`
+      : "",
+    result.removed.length
+      ? `${result.removed.length} link(s) were removed and their words left in place: ${result.removed.map((r) => `${r.url} (${r.reason})`).join("; ")}.`
+      : "",
+    audit.note,
+  ].filter(Boolean);
   return {
     content: result.markdown,
     links: {
       internal: result.internalCount,
       external: result.externalCount,
       removed: result.removed,
-      note: result.removed.length
-        ? `${result.removed.length} link(s) were removed and their words left in place: ${result.removed.map((r) => `${r.url} (${r.reason})`).join("; ")}. ${audit.note}`
-        : audit.note,
+      note: notes.join(" "),
     },
   };
 }

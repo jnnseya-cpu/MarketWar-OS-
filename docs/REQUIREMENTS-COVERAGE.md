@@ -2091,3 +2091,45 @@ nothing.**
 | The rule holds for new routes | ✅ **new** | A standing test fails any route that can reach a provider without a wallet gate. |
 | The exemption list is tiny and written out | ✅ | One entry: `/api/blog/daily`, the scheduler publishing MarketWar's own marketing blog with no customer in the request — the platform spending its own money, which the platform-wide AI ceiling already governs. The test asserts the list stays at most two, that each entry is still a real route, and that each carries a real reason rather than a label. |
 | The check cannot go quietly blind | ✅ | It asserts it still finds known spenders and known meters, and that it still does **not** flag the config-only gateway route. Mutation-verified: blinding the spend list fails. |
+
+### §61d — A label in brackets with no url behind it (2026-08-04)
+
+Owner, reading a live customer article published by AxionOS: *"where are all the
+hyperlinks, and all what was set and it looks unfinished"*.
+
+The article contained **nine bracketed labels and no links at all** — `[Trades]`,
+`[Legal]`, `[How it works]`, `[Leads]`, `[Trades · builder]`, `[Legal · terms]`,
+`[Legal · escrow]`, `[Register]`, `[Contact]` — with the brackets visible to
+every reader, including in both closing calls to action.
+
+**This is a defect in §61's own fix.** The generator hands the model its menu
+written as `- [Label](/path) — what it is`, and the model answered with the
+**labels**, dropping the parentheses. Every check built in §61 looked for
+`[text](url)`, so a bare `[text]` was invisible to all of them: not a link to
+validate, not a link to strip, just words that happened to have brackets round
+them. It passed enforcement, passed the audit, and reached the reader.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A bare label is seen at all | ✅ **fixed** | `bareLabels()` finds `[text]` not followed by `(`; images and reference definitions are left alone. Reproduced against the owner's article: **9 bare labels, 0 links** by the old finder. |
+| It becomes the link the writer meant | ✅ **new** | `resolveBareLinks()` matches the label against the menu — by label and by path, both normalised — so `[Trades · builder]` resolves to the brand's own `/trades/builder`. All nine of the owner's resolved. |
+| A label naming nothing loses its brackets | ✅ | The words stay and the sentence still reads: *"Ask about our [Warranty Cover] before booking"* → *"Ask about our Warranty Cover before booking."* No bracket reaches a reader either way, and the report says which happened. |
+| The brief says it plainly | ✅ | *"Write the WHOLE link every time: [anchor text](/the-path). A label in square brackets on its own, like [Pricing], is NOT a link."* Backed by the resolver, which runs first whatever the model does. |
+| The audit stops passing these articles | ✅ | `linkAudit().bare` lists them and the note leads with them: *"…the article reads like an unfinished draft."* |
+| Articles already published can be repaired | ✅ **new** | `POST /api/blog {action:"repair-links"}` — **dry by default**, `apply:true` to write. A brand's post is repaired against the **brand's** menu (via `getBrandById` → its sitemap), a platform post against ours. Fixing the generator does nothing for what is already live, and asking a customer to regenerate an article they have edited is asking them to pay for our defect twice. |
+
+**A second bug found on the way.** `linkAudit` split internal from external on
+`url.startsWith("/")`. A customer's blog is hosted here and their shop is not, so
+their own links arrive absolute — and every one of them was counted as outbound.
+An article linking nine times to the customer's own service pages was reported as
+**"This article links nowhere."** The menu is the site, so the menu now decides:
+their own pages count as internal in both `linkAudit` and `enforceLinks`. An
+older test asserted the broken behaviour and was corrected rather than the code.
+
+Also: the article footer read **"1 views"**.
+
+Mutation-verified — bare labels never resolving, unmatched brackets shipping
+anyway, own pages counted as outbound again, and the policy skipping the
+resolver, each caught. That last one needed the test rewritten: the first version
+compared `indexOf` positions, and `indexOf` returns `-1` when the call is deleted,
+so removing the resolver outright made the assertion **pass**.
