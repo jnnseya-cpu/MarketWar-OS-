@@ -8994,3 +8994,21 @@ test("the unpriced-action finding matches what the routes actually charge", asyn
   // The headline one: sending is priced per recipient and no send path charges it.
   assert.ok(unused.includes("email_send"), "email_send is charged now — section 7.1 needs rewriting");
 });
+
+test("the comparison graphic and the analysis quote the same numbers", () => {
+  // A picture is the part that gets screenshotted into a deck and outlives the
+  // document, so it must not drift from the analysis it illustrates.
+  const art = readFileSync(new URL("../docs/assets/marketwar-vs-stack.html", import.meta.url), "utf8");
+  const doc = readFileSync(new URL("../docs/COMPETITIVE-POSITION.md", import.meta.url), "utf8");
+  // The eleven priced rows in the graphic must sum to the total printed on it.
+  const rows = [...art.matchAll(/\["[^"]+","[^"]+",([\d.]+)\]/g)].map((m) => Number(m[1]));
+  assert.equal(rows.length, 11, "the graphic no longer prices eleven tools");
+  assert.equal(rows.reduce((a, b) => a + b, 0).toFixed(2), "961.95");
+  assert.ok(art.includes("$961.95"), "the printed total is not the sum of its own bars");
+  assert.ok(doc.includes("assets/marketwar-vs-stack.png"), "the analysis does not show the figure it generated");
+  // The honesty note travels with the picture, not just the document.
+  assert.match(art, /No exchange rate is applied here/);
+  assert.match(art, /Competitor prices read 4 August 2026/, "an undated price graphic is a misleading one");
+  // Our own figures on it are the ones the code holds.
+  assert.ok(art.includes("£49") && art.includes("980 AI credits"), "the Growth tier on the graphic is wrong");
+});

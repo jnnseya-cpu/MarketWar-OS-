@@ -125,6 +125,13 @@ Prices read 4 August 2026. Monthly rates unless stated.
 The honest way to price a platform this broad is to ask what a business would pay
 to assemble the same surface from the best-known point tools.
 
+![One subscription against eleven](assets/marketwar-vs-stack.png)
+
+*The figure above is generated from `docs/assets/marketwar-vs-stack.html` — the
+same numbers as the tables below, in the brand's navy and gold. The dollar bars
+share one axis with each other only; the £49 sits on its own card, because no
+exchange rate is applied.*
+
 ### Entry-tier stack — derived
 
 | Capability | Tool, entry tier | $/month |

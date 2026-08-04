@@ -1,0 +1,147 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  /* Mark colours validated against the #0d1b2a surface with the dataviz
+     validator: gold #b8892a + blue #4f93d6 pass lightness band, chroma floor,
+     CVD separation (ΔE 23.2 protan / 20.8 tritan), normal-vision floor and
+     3:1 contrast. The brighter logo gold is used for TEXT only. */
+  :root{
+    --surface:#0d1b2a; --panel:#12263a; --line:#1e3a52;
+    --gold:#b8892a; --gold-txt:#d9a441; --blue:#4f93d6;
+    --ink:#eef3f8; --muted:#8fa6bd;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1600px;height:1150px;background:var(--surface);
+    font-family:"DejaVu Sans","Helvetica Neue",Arial,sans-serif;color:var(--ink);
+    padding:52px 60px;display:flex;flex-direction:column;gap:26px}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;
+    border-bottom:2px solid var(--line);padding-bottom:22px}
+  .lockup{font-size:30px;font-weight:800;letter-spacing:.055em}
+  .lockup .war{color:var(--gold-txt)}
+  .lockup small{display:block;font-size:11.5px;font-weight:600;letter-spacing:.22em;
+    color:var(--muted);margin-top:7px}
+  h1{font-size:44px;font-weight:800;line-height:1.08;letter-spacing:-.015em;text-align:right}
+  h1 em{font-style:normal;color:var(--gold-txt)}
+  .asof{text-align:right;font-size:12.5px;color:var(--muted);margin-top:9px}
+
+  .cols{display:grid;grid-template-columns:1fr 476px;gap:34px;flex:1;min-height:0}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 28px}
+  .kicker{font-size:11.5px;font-weight:700;letter-spacing:.17em;color:var(--muted);
+    text-transform:uppercase;margin-bottom:4px}
+  .panel h2{font-size:21px;font-weight:700;margin-bottom:2px}
+  .sub{font-size:13px;color:var(--muted);margin-bottom:18px}
+
+  .row{display:grid;grid-template-columns:250px 1fr 84px;align-items:center;
+    gap:16px;height:42px}
+  .name{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .name span{color:var(--muted);font-weight:400}
+  .track{height:13px;position:relative}
+  .bar{height:13px;background:var(--blue);border-radius:0 4px 4px 0;
+    box-shadow:0 0 0 2px var(--panel)}
+  .val{font-size:14.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+
+  .total{display:flex;align-items:baseline;justify-content:space-between;
+    margin-top:16px;padding-top:16px;border-top:2px solid var(--line)}
+  .total .l{font-size:15px;font-weight:600;color:var(--muted)}
+  .total .r{font-size:38px;font-weight:800;font-variant-numeric:tabular-nums}
+
+  .ours{background:linear-gradient(160deg,#1b3a55 0%,#16304a 100%);
+    border:1px solid var(--gold);border-radius:16px;padding:30px 28px;
+    display:flex;flex-direction:column}
+  .ours .price{font-size:78px;font-weight:800;color:var(--gold-txt);
+    line-height:1;letter-spacing:-.03em;margin:10px 0 2px}
+  .ours .per{font-size:15px;color:var(--muted);margin-bottom:20px}
+  .ours ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+  .ours li{font-size:14px;line-height:1.45;display:flex;gap:10px;align-items:flex-start}
+  .tick{color:var(--gold-txt);font-weight:800;flex:none}
+  .alt{margin-top:22px;padding-top:18px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto auto 1fr;gap:6px 12px;align-items:baseline;
+    font-size:13px;color:var(--muted)}
+  .alt b{font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .alt .d{font-size:12px}
+  .caveat{margin-top:auto;padding-top:18px;font-size:11.5px;line-height:1.55;
+    color:var(--muted);border-top:1px solid var(--line)}
+
+  .values{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  .v{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:19px 20px}
+  .v .n{font-size:12px;font-weight:800;color:var(--gold-txt);letter-spacing:.05em}
+  .v h3{font-size:15px;font-weight:700;margin:7px 0 6px;line-height:1.25}
+  .v p{font-size:12.5px;line-height:1.5;color:var(--muted)}
+  .v p b{color:var(--ink);font-weight:600}
+
+  footer{font-size:11px;color:var(--muted);line-height:1.6;
+    border-top:1px solid var(--line);padding-top:14px}
+</style></head>
+<body>
+
+<header>
+  <div class="lockup">MARKET<span class="war">WAR</span> OS
+    <small>AI CUSTOMER ACQUISITION OPERATING SYSTEM</small></div>
+  <div>
+    <h1>One subscription against <em>eleven</em></h1>
+    <p class="asof">Competitor prices read 4 August 2026 · entry tiers · monthly</p>
+  </div>
+</header>
+
+<div class="cols">
+  <section class="panel">
+    <p class="kicker">The stack you replace</p>
+    <h2>What the same surface costs from point tools</h2>
+    <p class="sub">Eleven subscriptions, eleven logins, no shared customer record between them.</p>
+    <div id="rows"></div>
+    <div class="total"><span class="l">Eleven subscriptions, entry tiers</span><span class="r">$961.95<span style="font-size:17px;font-weight:600;color:var(--muted)">/mo</span></span></div>
+  </section>
+
+  <section class="ours">
+    <p class="kicker">MarketWar OS · Growth</p>
+    <div class="price">£49</div>
+    <p class="per">per month · 980 AI credits included</p>
+    <ul>
+      <li><span class="tick">✓</span><span>All eleven capabilities, <b>one login and one bill</b></span></li>
+      <li><span class="tick">✓</span><span><b>3 brands, 5 users, 10 social accounts</b></span></li>
+      <li><span class="tick">✓</span><span>Email from <b>your own authenticated domain</b> on our own sending infrastructure</span></li>
+      <li><span class="tick">✓</span><span>AI included &mdash; no provider account, no separate AI bill</span></li>
+      <li><span class="tick">✓</span><span>Priced on <b>actions, not contacts stored</b></span></li>
+      <li><span class="tick">✓</span><span><b>30% off</b> on annual billing</span></li>
+      <li><span class="tick">✓</span><span>A free tier that opens <b>every module and agent</b> before you pay</span></li>
+    </ul>
+    <div class="alt">
+      <span>Scale</span><b>£149</b><span class="d">10 brands · 2,980 credits</span>
+      <span>Starter</span><b>£19</b><span class="d">1 brand · 380 credits</span>
+    </div>
+    <p class="caveat"><b style="color:var(--ink)">No exchange rate is applied here.</b> Competitors publish in USD and we price in GBP; inventing a conversion to make one bar chart out of two currencies would be the kind of number this platform refuses to print. The two figures are shown side by side, on separate scales, and the conclusion holds at any rate.</p>
+  </section>
+</div>
+
+<div class="values">
+  <div class="v"><p class="n">01</p><h3>One customer record, not eleven</h3>
+    <p>Eleven tools means eleven copies of your customer, none of them talking. Here the vault, the campaigns, the pages and the attribution ledger are <b>one data model</b>.</p></div>
+  <div class="v"><p class="n">02</p><h3>Your domain, our infrastructure</h3>
+    <p>DKIM-signed sending from your own domain with a per-brand tracking host. No third-party ESP, and no <b>$10.80/month</b> to remove somebody else's branding.</p></div>
+  <div class="v"><p class="n">03</p><h3>Actions, not contacts stored</h3>
+    <p>Adding 5,000 contacts takes ActiveCampaign from <b>$15 to about $99</b>. Your list can grow to any size here and the subscription does not move.</p></div>
+  <div class="v"><p class="n">04</p><h3>It refuses to invent numbers</h3>
+    <p>Open rate shown as a <b>floor</b>. No hashtag reach figures. No invented best-time. Rates refused on samples too small to carry one. <b>Enforced by tests.</b></p></div>
+</div>
+
+<footer>
+  Stack priced at entry tiers, 4 August 2026: Wati Pro $149 · Semrush Pro $139.95 · Mailchimp Standard (5k contacts) $100 · Surfer Essential $99 · Hootsuite Standard $99 · Unbounce Build $99 · Profound Starter $99 · Jasper Pro $69 · Apollo Basic $59 · OpusClip Pro $29 · HubSpot Marketing Starter $20. At serious tiers the same stack is $2,950.95/mo plus HubSpot's $3,000 first-year onboarding fee.
+  Sources and the full analysis &mdash; including where the point tools beat us &mdash; in docs/COMPETITIVE-POSITION.md.
+</footer>
+
+<script>
+const data=[["Wati","WhatsApp",149],["Semrush","SEO + audit",139.95],
+["Mailchimp","Email, 5k",100],["Surfer","Content SEO",99],
+["Hootsuite","Social, 1 seat",99],["Unbounce","Landing pages",99],
+["Profound","AI visibility",99],["Jasper","AI copy",69],
+["Apollo","Prospecting",59],["OpusClip","Short video",29],
+["HubSpot","CRM starter",20]];
+const max=Math.max(...data.map(d=>d[2]));
+document.getElementById("rows").innerHTML=data.map(([n,d,v])=>
+ `<div class="row"><div class="name">${n} <span>· ${d}</span></div>
+  <div class="track"><div class="bar" style="width:${(v/max*100).toFixed(2)}%"></div></div>
+  <div class="val">$${v.toFixed(2).replace(/\.00$/,"")}</div></div>`).join("");
+</script>
+</body></html>
