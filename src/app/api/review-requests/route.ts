@@ -5,14 +5,18 @@ import {
   type RequestCandidate, type RequestChannel, type RequestConfig,
 } from "@/backend/review-requests";
 import { listContacts } from "@/backend/contacts";
+import { recordAsks, askedDaysAgo } from "@/backend/review-asks";
+import { sendEmailBatch } from "@/backend/email";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 
 // Review requests — asking real customers for real reviews.
 //
-// POST { action: "plan", platformId, channel, brandName, brandId | candidates[], … }
-// POST { action: "draft", platformId, channel, brandName, identifier|pastedUrl, … }
+// POST { action: "plan",   platformId, channel, brandName, brandId | candidates[], … }
+// POST { action: "draft",  platformId, channel, brandName, identifier|pastedUrl, … }
+// POST { action: "send",   … }  → sends today's paced batch by email and logs it
+// POST { action: "record", … }  → logs asks the customer sent by hand
 // GET  → the platform table and the doctrine
 //
 // Metered like everything else (`report` — the rate for work on data the
@@ -48,8 +52,8 @@ export async function POST(req: NextRequest) {
 
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : "");
   const action = str("action") || "plan";
-  if (action !== "plan" && action !== "draft") {
-    return NextResponse.json({ error: "Unknown action — use plan or draft" }, { status: 400 });
+  if (action !== "plan" && action !== "draft" && action !== "send" && action !== "record") {
+    return NextResponse.json({ error: "Unknown action — use plan, draft, send or record" }, { status: 400 });
   }
   const channel = (CHANNELS.includes(str("channel") as RequestChannel) ? str("channel") : "email") as RequestChannel;
   const platformId = str("platformId");
@@ -110,7 +114,12 @@ export async function POST(req: NextRequest) {
   }
 
   const cfg = (body.config && typeof body.config === "object" ? body.config : {}) as Partial<RequestConfig>;
-  const asked = (body.askedDaysAgo && typeof body.askedDaysAgo === "object" ? body.askedDaysAgo : {}) as Record<string, number>;
+  // FROM THE LEDGER, NOT THE BODY. The cool-off used to be checked against a
+  // number the caller supplied, so a caller who omitted it got a clean slate and
+  // there was no cool-off at all. A limit checked against data the caller
+  // provides is not a limit.
+  const nowISO = new Date().toISOString();
+  const asked = brandId ? await askedDaysAgo(brandId, nowISO) : {};
 
   const result = planCampaign({
     platformId, identifier, pastedUrl, channel,
@@ -124,7 +133,86 @@ export async function POST(req: NextRequest) {
     customBody: str("customBody") || undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error, hint: result.hint }, { status: 400 });
-  return NextResponse.json(result.campaign);
+  const campaign = result.campaign;
+
+  if (action === "plan") return NextResponse.json(campaign);
+
+  // Nothing goes out on a campaign the engine refused. `sendable` is false when
+  // the platform forbids asking, the message steers or incentivises, or nobody
+  // is eligible — every one of those is a reason not to send, not a warning to
+  // click through.
+  if (!campaign.sendable) {
+    return NextResponse.json({ error: "This campaign is not sendable yet.", findings: campaign.findings }, { status: 400 });
+  }
+  if (!brandId) return NextResponse.json({ error: "Sending needs a brandId — the ask is recorded against your vault." }, { status: 400 });
+
+  // Only today's batch. The pacing plan exists because a step change in review
+  // velocity is what every platform's filter looks for; sending the whole list
+  // at once would make the pacing advisory.
+  const batch = campaign.eligibility.eligible.slice(0, campaign.pacing.perDay);
+  if (!batch.length) return NextResponse.json({ error: "Nobody is eligible today." }, { status: 400 });
+
+  if (action === "record") {
+    // Sent by hand — SMS and WhatsApp have no sender wired here, and a message
+    // the customer sent themselves still means the person was asked.
+    const ids = Array.isArray(body.contactIds)
+      ? (body.contactIds as unknown[]).map(String).filter(Boolean)
+      : batch.map((c) => c.id);
+    const rows = await recordAsks({ brandId, contactIds: ids, platformId, channel, nowISO, sentBy: "by-hand" });
+    return NextResponse.json({ recorded: rows.length, note: "Logged, so the cool-off now covers these people." });
+  }
+
+  if (channel !== "email") {
+    return NextResponse.json({
+      error: `Sending over ${channel} is not wired to a provider here.`,
+      hint: "Send the draft yourself, then call this again with action \"record\" so the cool-off covers them.",
+      draft: campaign.sample,
+      recipients: batch.map((c) => ({ id: c.id, name: c.name, phone: c.phone })),
+    }, { status: 400 });
+  }
+
+  // Metered per recipient, before the send, like every other outbound message.
+  const meterSend = await meterAction(auth, "email_send", batch.length);
+  if (!meterSend.allowed) return NextResponse.json({ error: meterSend.error, balanceAcu: meterSend.balanceAcu }, { status: meterSend.status });
+
+  const items = batch
+    .filter((c) => c.email)
+    .map((c) => {
+      const d = draftRequest({
+        platformId, channel: "email",
+        brandName: str("brandName") || "your business",
+        link: campaign.link,
+        contactName: c.name,
+        senderName: str("senderName") || undefined,
+        whatTheyBought: str("whatTheyBought") || undefined,
+        customBody: str("customBody") || undefined,
+      });
+      return {
+        to: c.email as string,
+        subject: d.subject || `How was it?`,
+        html: d.body.split("\n").map((line) => (line.trim() ? `<p>${escapeHtml(line)}</p>` : "")).join(""),
+      };
+    });
+
+  const sent = await sendEmailBatch(items, { brandId });
+  const delivered = batch.filter((c, i) => c.email && sent[i]?.ok);
+  const rows = await recordAsks({ brandId, contactIds: delivered.map((c) => c.id), platformId, channel: "email", nowISO });
+
+  return NextResponse.json({
+    attempted: items.length,
+    sent: delivered.length,
+    recorded: rows.length,
+    remaining: Math.max(0, campaign.eligibility.eligible.length - batch.length),
+    pacing: campaign.pacing,
+    failures: sent.map((r, i) => (r.ok ? null : { to: items[i]?.to, detail: r.detail })).filter(Boolean),
+    doctrine: campaign.doctrine,
+  });
+}
+
+// The draft is plain text written for a person; the HTML wrapper must not turn
+// an apostrophe in somebody's name into markup.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 export async function GET() {

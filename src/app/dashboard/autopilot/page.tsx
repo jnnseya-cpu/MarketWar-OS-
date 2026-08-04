@@ -25,6 +25,9 @@ export default function AutopilotPage() {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
+  const [subscribed, setSubscribed] = useState(false);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subNote, setSubNote] = useState("");
   const [emailResult, setEmailResult] = useState<{ sent: boolean; mode: string; detail: string } | null>(null);
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
@@ -38,6 +41,22 @@ export default function AutopilotPage() {
       });
       setRun(await res.json());
     } finally { setBusy(false); }
+  }
+
+  // Subscribing to the real thing. The address is NOT sent — the server uses
+  // the signed-in account's own, because a nightly job that mails whatever a
+  // caller supplied is a relay that repeats itself for ever.
+  async function subscribe(on: boolean) {
+    setSubBusy(true);
+    try {
+      const res = await fetch("/api/autopilot/nightly", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: on ? "subscribe" : "unsubscribe", requestedLevel: level, budgetGbp: Number(budget) || 0, email: email.trim() || undefined }),
+      });
+      const d = await res.json();
+      if (d?.subscription) { setSubscribed(Boolean(d.subscription.enabled)); setSubNote(d.note || ""); }
+      else setSubNote(d?.error || "Could not change the subscription.");
+    } catch { setSubNote("Could not reach the server."); } finally { setSubBusy(false); }
   }
 
   async function sendDigest() {
@@ -108,6 +127,19 @@ export default function AutopilotPage() {
             {emailResult.sent ? `Sent (${emailResult.mode === "live" ? "delivered via SMTP" : "demo — set SMTP to deliver for real"}). ${emailResult.detail}` : `Not sent — ${emailResult.detail}`}
           </p>
         )}
+
+        {/* The schedule itself. Opt-in, to your own account address — nobody
+            receives a first email they did not ask for. */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-white/[0.07] pt-4">
+          <button className={subscribed ? "btn-ghost" : "btn-primary"} onClick={() => subscribe(!subscribed)} disabled={subBusy}>
+            {subBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            {subscribed ? "Stop sending it every morning" : "Send it every morning"}
+          </button>
+          <span className="text-xs text-slate-500">
+            Goes to your account&apos;s own address, at most once a day, and reports what Autopilot queued — it sends nothing to your customers.
+          </span>
+        </div>
+        {subNote && <p className="mt-2 text-xs text-slate-400">{subNote}</p>}
       </div>
 
       {run && (

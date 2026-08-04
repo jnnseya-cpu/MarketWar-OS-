@@ -2474,3 +2474,58 @@ digest lives on POST and needs `brands[]` and a recipient in the body. That cron
 has therefore never done anything. Fixing it means deciding where the brand list
 and the recipient address come from on an unattended run, which is the owner's
 call rather than a bug fix.
+
+### §67f — Wiring the loose ends (2026-08-04)
+
+Three things had been shipped with a gap recorded next to them. All three are
+closed.
+
+**1. The nightly digest cron had never done anything.** `vercel.json` pointed a
+schedule at `/api/autopilot/nightly`, whose GET returned documentation; the
+digest lived on POST and needed a brand list and a recipient in the body, which
+a cron does not have.
+
+The missing piece was never code — it was the answer to *who do we send it to?*,
+and both obvious answers are wrong. Everyone with an account is a daily email
+nobody asked for, sent from the domain every customer's deliverability depends
+on. Whatever address is in the request is a relay that repeats itself for ever.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The cron does real work | ✅ | GET iterates enabled subscriptions, reads each owner's brands from the store, sends one digest each. |
+| Nobody is mailed who did not ask | ✅ | `digest-subscriptions.ts` — per-owner, opt-in, default off, with a toggle on `/dashboard/autopilot`. |
+| Nobody can subscribe somebody else | ✅ | The address is the signed-in account's own (`auth.email`), never the request body. In demo, where there are no accounts, the typed address is all there is. |
+| A double-firing cron does not send twice | ✅ | 20-hour floor, and `markSent` runs **before** the send: a duplicate email is a complaint against the shared sending domain, and worse than a missed one. |
+| Overflow is reported | ✅ | 25 accounts a tick, the rest returned as due-but-not-processed. |
+
+**2. Review requests are sent, and the cool-off is real.** §66 shipped the
+planner and recorded that it did not send. The worse half of that gap was that
+`askedDaysAgo` came from the **request body** — so a caller who omitted it got a
+clean slate and there was, in practice, no cool-off at all. A limit checked
+against data the caller supplies is not a limit.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| An ask ledger exists | ✅ | `review-asks.ts` — one row per person asked, per platform, per channel, including asks the customer sent by hand. |
+| The cool-off reads the ledger | ✅ | The route no longer accepts `askedDaysAgo` at all. Asking the same person for a Google review and a Trustpilot review in one week is still asking them twice — the most recent ask decides, whatever order the rows arrive in. |
+| Sending is wired | ✅ | `action: "send"` mails **today's paced batch only** (or the pacing plan is decorative), metered `email_send` per recipient before the send, and records an ask only for the messages that actually went out. |
+| A refused campaign cannot be sent | ✅ | `sendable` is a gate, not a warning to click through — a platform that forbids asking, a message that steers or incentivises, or nobody eligible all stop it. |
+| Other channels are honest | ✅ | SMS and WhatsApp have no sender wired: the route returns the draft and the recipients, and `action: "record"` logs them once the customer has sent them. |
+
+**3. All nine deed kinds are observable.** The Play board filtered two of five
+daily tracks off the screen because nothing recorded prospect outreach or review
+requests. Both now have a ledger: a review-request deed is one entry in the ask
+ledger, an outreach deed is one message that actually reached one person. The
+filtering machinery stays for the next kind that stops being observable.
+
+**Recorded, not hidden.** §7.1 of `docs/COMPETITIVE-POSITION.md` said
+`email_send` is priced and charged nowhere. That is no longer literally true —
+the review-request path charges it. The section is updated rather than deleted,
+and the finding stands: every other send path is still free, and two paths
+priced differently for the same physical act is the worst of the three options.
+The test now asserts exactly that, so the day it becomes untrue the analysis
+fails the build.
+
+Tests **942 → 949**; typecheck, layer check and build green. Six mutations —
+the newest ask no longer winning, an always-due digest, any string accepted as
+an address, unsubscribe ignored, and two on the ledger ordering — all caught.

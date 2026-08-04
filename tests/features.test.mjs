@@ -9003,8 +9003,18 @@ test("the unpriced-action finding matches what the routes actually charge", asyn
   for (const k of unused) {
     assert.ok(doc.includes(`\`${k}\``), `${k} is priced and never charged, and the analysis does not say so`);
   }
-  // The headline one: sending is priced per recipient and no send path charges it.
-  assert.ok(unused.includes("email_send"), "email_send is charged now — section 7.1 needs rewriting");
+  // `email_send` used to be charged NOWHERE. The review-request path now charges
+  // it per recipient, so the blanket claim is no longer true and §7.1 says so.
+  // The finding itself still stands: every OTHER send path is free.
+  const sendPaths = readdirSync(new URL("../src/app/api", import.meta.url), { recursive: true, withFileTypes: true })
+    .filter((d) => d.name === "route.ts")
+    .map((d) => `${d.parentPath || d.path}/${d.name}`)
+    .filter((f) => /sendEmailBatch|sendEmail\(/.test(readFileSync(f, "utf8")));
+  const charging = sendPaths.filter((f) => readFileSync(f, "utf8").includes('"email_send"'));
+  assert.ok(charging.length > 0, "no send path charges email_send");
+  assert.ok(charging.length < sendPaths.length,
+    "every send path charges now — §7.1 is out of date and should be rewritten, not patched");
+  assert.match(doc, /Updated 2026-08-04/, "the analysis must record which paths changed");
 });
 
 test("the comparison graphic and the analysis quote the same numbers", () => {
@@ -10325,4 +10335,119 @@ test("cron: the scheduler route refuses an unauthenticated caller in production"
     if (priorSecret === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = priorSecret;
     process.env.NODE_ENV = priorEnv;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Wiring the loose ends: the ask ledger behind the cool-off, the nightly digest
+// the cron never sent, and the two deed kinds nothing could observe.
+// ---------------------------------------------------------------------------
+const asks = await import("../src/backend/review-asks.ts");
+
+test("asks: the cool-off is checked against the ledger, not against the caller", async () => {
+  // It used to read `askedDaysAgo` from the request body, so a caller who
+  // omitted it got a clean slate every time — which is no cool-off at all.
+  const route = readFileSync(new URL("../src/app/api/review-requests/route.ts", import.meta.url), "utf8");
+  assert.match(route, /await askedDaysAgo\(brandId, nowISO\)/);
+  assert.ok(!/body\.askedDaysAgo/.test(route), "the caller must not be able to supply its own history");
+
+  asks.__resetReviewAsks();
+  const now = "2026-08-04T10:00:00Z";
+  await asks.recordAsks({ brandId: "b-ask", contactIds: ["c1", "c2"], platformId: "google", channel: "email", nowISO: "2026-07-05T10:00:00Z" });
+  const map = await asks.askedDaysAgo("b-ask", now);
+  assert.equal(map.c1, 30);
+  assert.equal(map.c2, 30);
+  assert.equal(map.c3, undefined, "somebody never asked has no entry");
+});
+
+test("asks: asking on a second platform still counts as asking that person", async () => {
+  asks.__resetReviewAsks();
+  const now = "2026-08-04T10:00:00Z";
+  await asks.recordAsks({ brandId: "b2", contactIds: ["c1"], platformId: "google", channel: "email", nowISO: "2026-06-04T10:00:00Z" });
+  await asks.recordAsks({ brandId: "b2", contactIds: ["c1"], platformId: "trustpilot", channel: "whatsapp", nowISO: "2026-08-01T10:00:00Z", sentBy: "by-hand" });
+  const map = await asks.askedDaysAgo("b2", now);
+  assert.equal(map.c1, 3, "the MOST RECENT ask decides — two platforms in a week is still two asks");
+
+  // And the order rows arrive in must not change the answer. A Firestore query
+  // returns them unordered, and a backfill writes the old one last.
+  await asks.recordAsks({ brandId: "b3", contactIds: ["c1"], platformId: "trustpilot", channel: "email", nowISO: "2026-08-01T10:00:00Z" });
+  await asks.recordAsks({ brandId: "b3", contactIds: ["c1"], platformId: "google", channel: "email", nowISO: "2026-06-04T10:00:00Z" });
+  assert.equal((await asks.askedDaysAgo("b3", now)).c1, 3, "the newest ask still decides when the oldest arrives last");
+  const all = await asks.listAsks("b2");
+  assert.equal(all.length, 2);
+  assert.ok(all.some((a) => a.sentBy === "by-hand"), "a message the customer sent themselves is still an ask");
+});
+
+test("asks: a campaign the engine refused is never sent", () => {
+  const route = readFileSync(new URL("../src/app/api/review-requests/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(!campaign\.sendable\)/, "sendable is a gate, not a warning to click through");
+  // Only today's paced batch goes out, or the pacing plan is decorative.
+  assert.match(route, /campaign\.eligibility\.eligible\.slice\(0, campaign\.pacing\.perDay\)/);
+  // Per recipient, before the send.
+  assert.match(route, /meterAction\(auth, "email_send", batch\.length\)/);
+  // Only the ones that actually went out are recorded as asked.
+  assert.match(route, /sent\[i\]\?\.ok/);
+});
+
+const digest = await import("../src/backend/digest-subscriptions.ts");
+
+test("digest: nobody is mailed who did not ask, at an address they do not own", async () => {
+  digest.__resetDigestSubscriptions();
+  const now = "2026-08-04T06:00:00Z";
+  const bad = await digest.setSubscription({ ownerId: "u1", email: "not-an-email", enabled: true, nowISO: now });
+  assert.equal(bad.ok, false);
+
+  const ok = await digest.setSubscription({ ownerId: "u1", email: "Owner@Example.com", enabled: true, nowISO: now });
+  assert.equal(ok.subscription.email, "owner@example.com");
+  assert.equal((await digest.listEnabled()).length, 1);
+
+  await digest.setSubscription({ ownerId: "u1", email: "owner@example.com", enabled: false, nowISO: now });
+  assert.equal((await digest.listEnabled()).length, 0, "switching off means switching off");
+
+  // The route takes the address from the SESSION, never from the body — a
+  // nightly job that mails a caller-supplied address is a repeating relay.
+  const route = readFileSync(new URL("../src/app/api/autopilot/nightly/route.ts", import.meta.url), "utf8");
+  assert.match(route, /auth\.enforced \? own :/);
+});
+
+test("digest: a double-firing cron does not send twice", async () => {
+  digest.__resetDigestSubscriptions();
+  const now = "2026-08-04T06:00:00Z";
+  await digest.setSubscription({ ownerId: "u2", email: "u2@example.com", enabled: true, nowISO: now });
+  const sub = await digest.getSubscription("u2");
+  assert.equal(digest.dueForSend(sub, now), true, "never sent → due");
+
+  await digest.markSent("u2", now);
+  const after = await digest.getSubscription("u2");
+  assert.equal(digest.dueForSend(after, now), false);
+  assert.equal(digest.dueForSend(after, "2026-08-04T20:00:00Z"), false, "14 hours later is still the same morning");
+  assert.equal(digest.dueForSend(after, "2026-08-05T05:00:00Z"), true);
+
+  // Marked BEFORE the send: a duplicate email is a complaint against the
+  // sending domain every customer shares, and worse than a missed one.
+  const route = readFileSync(new URL("../src/app/api/autopilot/nightly/route.ts", import.meta.url), "utf8");
+  assert.ok(route.indexOf("await markSent(") < route.indexOf("await sendEmail({ to: sub.email"));
+});
+
+test("digest: the cron does real work now instead of returning documentation", () => {
+  const route = readFileSync(new URL("../src/app/api/autopilot/nightly/route.ts", import.meta.url), "utf8");
+  // The GET used to be a docs blob while vercel.json pointed a schedule at it.
+  assert.match(route, /export async function GET\(req: NextRequest\)/);
+  assert.match(route, /listEnabled\(\)/);
+  assert.match(route, /listBrandsForOwner\(sub\.ownerId\)/, "brands come from the store, not from a request body");
+  assert.match(route, /cronAuthorised\(req\)/);
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.ok(vercel.crons.some((c) => c.path === "/api/autopilot/nightly"));
+});
+
+test("play board: all nine deed kinds are observable now", () => {
+  const route = readFileSync(new URL("../src/app/api/genz/route.ts", import.meta.url), "utf8");
+  const line = /const TRACKABLE: DeedKind\[\] = \[([^\]]+)\]/.exec(route)[1];
+  for (const kind of ["content", "video", "page", "email", "outreach", "review-request", "customer", "research", "sale"]) {
+    assert.match(line, new RegExp(`"${kind}"`), `${kind} is still unobservable`);
+  }
+  // The two that were missing now have ledgers behind them.
+  assert.match(route, /kind: "review-request", at: a\.at/);
+  assert.match(route, /e\.type === "sent"/, "outreach is one message that reached one person");
+  // And the filtering machinery stays, for the next kind that stops being seen.
+  assert.match(route, /trackable: TRACKABLE/);
 });

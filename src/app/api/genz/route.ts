@@ -5,6 +5,8 @@ import { listWork } from "@/backend/work-library";
 import { listVideoJobs } from "@/backend/video-jobs";
 import { listEvents } from "@/backend/ledger";
 import { listContacts } from "@/backend/contacts";
+import { listAsks } from "@/backend/review-asks";
+import { brandEvents } from "@/backend/email-events";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -23,18 +25,24 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// Which deed kinds this platform can currently OBSERVE. Two of the nine cannot
-// be seen yet — prospect outreach has no per-contact record, and review
-// requests are drafted but not yet logged (§66's recorded gap) — so challenges
-// on them are filtered out rather than displayed permanently at zero.
-const TRACKABLE: DeedKind[] = ["content", "video", "page", "email", "customer", "research", "sale"];
+// Which deed kinds this platform can currently OBSERVE — now all nine.
+//
+// It was seven. Prospect outreach had no per-contact record and review requests
+// were drafted but never logged, so two of the five daily tracks were filtered
+// off the board entirely. Both have a ledger behind them now: a review-request
+// deed is one entry in the ask ledger, and an outreach deed is one message that
+// actually reached one person. The filtering machinery stays — a deed kind that
+// stops being observable must still drop off the board rather than sit at zero.
+const TRACKABLE: DeedKind[] = ["content", "video", "page", "email", "outreach", "review-request", "customer", "research", "sale"];
 
 async function deedsFor(brandId: string): Promise<Deed[]> {
-  const [work, jobs, revenue, contacts] = await Promise.all([
+  const [work, jobs, revenue, contacts, asks, mail] = await Promise.all([
     listWork(brandId).catch(() => []),
     listVideoJobs(brandId).catch(() => []),
     listEvents(brandId).catch(() => []),
     listContacts(brandId).catch(() => []),
+    listAsks(brandId).catch(() => []),
+    brandEvents(brandId).catch(() => []),
   ]);
 
   const deeds: Deed[] = [];
@@ -65,6 +73,16 @@ async function deedsFor(brandId: string): Promise<Deed[]> {
 
   for (const c of contacts) {
     if (c.importedAt) deeds.push({ kind: "customer", at: c.importedAt });
+  }
+
+  // One ask, one deed — including the ones sent by hand over WhatsApp, because
+  // a message the customer sent on Tuesday still asked somebody on Tuesday.
+  for (const a of asks) deeds.push({ kind: "review-request", at: a.at });
+
+  // Outreach is a message that actually reached ONE person. A campaign is not
+  // ten prospects contacted; ten delivered messages are.
+  for (const e of mail) {
+    if (e.type === "sent") deeds.push({ kind: "outreach", at: e.at });
   }
 
   return deeds.filter((d) => d.at && !Number.isNaN(new Date(d.at).getTime()));

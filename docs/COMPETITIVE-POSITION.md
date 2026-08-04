@@ -285,7 +285,16 @@ ever metered. **Never charged anywhere:** `video`, `post`, `publish_page`,
 `publish_social`, `email_send`, `data_export`, `connector_sync`.
 
 `email_send` is the significant one: it is priced at 1 ACU (1p) per recipient and
-**no send path charges it**. Campaign sending is currently free at any volume.
+**almost no send path charges it**. Campaign sending is still free at any volume.
+
+*Updated 2026-08-04:* the review-request send path (`/api/review-requests`,
+`action: "send"`) does charge it, per recipient, before the send — so
+`email_send` is no longer literally uncharged everywhere. That is one route out
+of every route that sends, and it does not change the finding below: the
+Email Centre, the campaign engine and the nightly digest still send for nothing.
+The decision the owner has to make is unchanged, and is now slightly more
+urgent, because two paths priced differently for the same physical act is the
+worst of the three options.
 
 Two ways to read that, and the owner should pick deliberately rather than by
 omission:
