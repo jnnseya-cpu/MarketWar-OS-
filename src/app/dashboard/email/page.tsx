@@ -103,6 +103,9 @@ export default function EmailPage() {
   // LOOKS filled in would be worse than an empty one.
   const [domains, setDomains] = useState<SendingDomainLike[]>([]);
   const [fromNote, setFromNote] = useState("");
+  // Where a reply actually goes. Checked with a real MX lookup, because the
+  // whole defect was that nobody — including us — asked the question.
+  const [replyCheck, setReplyCheck] = useState<{ reachable: "yes" | "no" | "unknown"; intoInbox: boolean; note: string; brandReplyAddress?: string } | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
   const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number }; improve?: ImproveReportView } | null>(null);
@@ -144,6 +147,21 @@ export default function EmailPage() {
       .catch(() => setStats(null));
   }, [activeBrand]);
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  // Re-checked whenever the sender fields settle, so the answer is about the
+  // campaign the customer is actually about to send.
+  useEffect(() => {
+    if (!activeBrand) { setReplyCheck(null); return; }
+    let off = false;
+    const t = setTimeout(() => {
+      authedFetch("/api/email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reply-check", brandId: activeBrand.id, replyTo, fromEmail }),
+      }).then((r) => r.json()).then((d) => { if (!off && d && d.reachable) setReplyCheck(d); })
+        .catch(() => { if (!off) setReplyCheck(null); });
+    }, 600);
+    return () => { off = true; clearTimeout(t); };
+  }, [activeBrand, replyTo, fromEmail]);
 
   // Fill in who this is from — the platform already knows all three.
   //
@@ -554,6 +572,12 @@ export default function EmailPage() {
           <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Leave blank to use the platform sender.</p>
           <div className="flex flex-wrap items-center gap-2">
             <input className="input flex-1 min-w-[200px]" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="Reply-to inbox (where replies land, e.g. you@gmail.com)" />
+            {replyCheck && (
+              <p className={`mt-1 w-full text-xs ${replyCheck.reachable === "no" ? "text-rose-300" : replyCheck.intoInbox ? "text-emerald-300" : "text-slate-400"}`}>
+                <span className="font-semibold">{replyCheck.reachable === "no" ? "Replies will not reach anybody. " : replyCheck.intoInbox ? "Replies arrive in your Inbox here. " : "Replies go to that mailbox. "}</span>
+                {replyCheck.note}
+              </p>
+            )}
           </div>
           <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave blank to receive replies at the From address above. Bounce notifications never reach you — they&rsquo;re handled by the platform and the address is auto-suppressed.</p>
           {templates.length > 0 && (

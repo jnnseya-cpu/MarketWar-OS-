@@ -9128,3 +9128,146 @@ test("one view is not 1 views", () => {
   const c = readFileSync(new URL("../src/components/BlogArticleClient.tsx", import.meta.url), "utf8");
   assert.match(c, /views === 1 \? "view" : "views"/);
 });
+
+// ---------------------------------------------------------------------------
+// Replies never came back
+//
+// Owner: "all emails sent from the email center never been replied to the inbox
+// or even automatic replies from those emails sent never get to user inbox".
+//
+// The receiving half was fully built — /api/inbound/email resolves a brand,
+// stores the message, the dashboard Inbox renders it. What was missing was the
+// one thing that makes any of it reachable: NOTHING IN DNS EVER SAID WHERE TO
+// DELIVER A REPLY. Every record the platform asks for — DKIM, SPF, DMARC, the
+// bounce CNAME, the tracking CNAME — proves we may SEND as that domain. Not one
+// tells a mail server where to deliver anything addressed to it. A reply to
+// hello@theircompany.com went wherever their MX pointed. Never here.
+// ---------------------------------------------------------------------------
+const reply = await import("../src/backend/reply-routing.ts");
+const inbound = await import("../src/backend/inbound.ts");
+
+test("a brand has a reply address that needs no DNS from the customer", () => {
+  const addr = reply.replyAddressFor("veryx");
+  assert.ok(addr.endsWith(`@${reply.replyHost()}`), "it must be on a host whose MX we control");
+  assert.equal(reply.brandFromReplyAddress(addr), "veryx", "and it must route back to the brand");
+});
+
+test("a reply address cannot be guessed from the brand id", () => {
+  // Otherwise anyone who knows a brand exists can post replies into its inbox.
+  assert.equal(reply.brandFromReplyAddress(`r.veryx.aaaaaa@${reply.replyHost()}`), "", "a wrong signature routes nowhere");
+  assert.equal(reply.brandFromReplyAddress(`r.veryx@${reply.replyHost()}`), "", "an unsigned address routes nowhere");
+  assert.equal(reply.brandFromReplyAddress("hello@gmail.com"), "", "somebody else's address is not ours");
+});
+
+test("the reply MX is offered on a SUBDOMAIN and never the root", async () => {
+  // A working business domain almost always has MX already. Repointing the root
+  // would not add replies to this platform, it would delete the company's email.
+  assert.equal(reply.replySubdomain("veryxjnn.com"), "reply.veryxjnn.com");
+  const sd = await import("../src/backend/sending-domains.ts");
+  const records = sd.recordsFor({ domain: "veryxjnn.com", selector: "mwos", publicKey: "AAAA" });
+  const mx = records.find((r) => r.type === "MX");
+  assert.ok(mx, "there must be a record that says where replies go — its absence is the whole bug");
+  assert.equal(mx.host, "reply.veryxjnn.com");
+  assert.equal(mx.required, false, "it is optional; replies work without it at the platform address");
+  assert.match(mx.detail || "", /cannot affect the email your company already receives/);
+  // SPF legitimately lives on the root — it is a TXT and displaces nothing.
+  // What must never appear there is an MX, which would take over the company's
+  // mail delivery.
+  for (const r of records) {
+    assert.ok(!(r.type === "MX" && r.host === "veryxjnn.com"),
+      `${r.purpose} asks for an MX on the root domain — that does not add replies, it deletes the company's email`);
+  }
+  assert.ok(records.some((r) => r.purpose === "SPF" && r.host === "veryxjnn.com"), "SPF belongs on the root and still does");
+});
+
+test("an out-of-office is not a bounce and never suppresses anybody", () => {
+  // It used to be. The route then scraped the first address out of the body to
+  // suppress, so "contact colleague@company.com while I am away" could
+  // permanently suppress a live colleague who never bounced anything.
+  assert.equal(inbound.classifyInbound("sam@client.co.uk", "r.x.y@reply.test", "Automatic reply: Out of office").kind, "auto-reply");
+  assert.equal(inbound.classifyInbound("sam@client.co.uk", "r.x.y@reply.test", "Re: annual leave until Monday").kind, "auto-reply");
+  assert.equal(inbound.classifyInbound("ceo@client.co.uk", "r.x.y@reply.test", "Re: quote", { "Auto-Submitted": "auto-replied" }).kind, "auto-reply");
+  // A real delivery failure still is one.
+  assert.equal(inbound.classifyInbound("MAILER-DAEMON@mx.google.com", "bounce@mw.test", "Delivery Status Notification (Failure)").kind, "bounce");
+  assert.equal(inbound.classifyInbound("x@y.com", "bounce@mw.test", "Undeliverable: your July offer").kind, "bounce");
+  // And a person is a person.
+  assert.equal(inbound.classifyInbound("sam@client.co.uk", "r.x.y@reply.test", "Re: your July offer").kind, "human");
+});
+
+test("only a delivery failure may suppress an address", () => {
+  const route = readFileSync(new URL("../src/app/api/inbound/email/route.ts", import.meta.url), "utf8");
+  const suppressBlock = route.slice(route.indexOf('if (kind === "bounce")'), route.indexOf('routed: "suppression"'));
+  assert.match(suppressBlock, /recordEvent/, "a bounce still suppresses");
+  // The auto-reply path must not be able to reach recordEvent.
+  const afterBounce = route.slice(route.indexOf('routed: "suppression"'));
+  assert.ok(!/recordEvent/.test(afterBounce), "nothing after the bounce branch may suppress an address");
+  assert.match(route, /auto: kind === "auto-reply"/, "an auto-reply is shown, flagged");
+});
+
+test("the send falls back to an address that can receive", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  // It used to fall back to the From address, which is exactly what lost every
+  // reply: nothing in our DNS tells anyone where to deliver mail to that domain.
+  assert.match(route, /const replyTo = replyToRaw \|\| replyAddressFor\(brandId\) \|\| fromEmail/);
+});
+
+test("the platform says where a reply will go, before the send", async () => {
+  const noWhere = await reply.replyVerdict({ replyTo: "hello@a-domain-that-cannot-exist-9z8x.invalid" });
+  assert.equal(noWhere.reachable, "no");
+  assert.match(noWhere.note, /never see the reply/);
+  const ours = await reply.replyVerdict({ brandId: "veryx" });
+  assert.equal(ours.reachable, "yes");
+  assert.equal(ours.intoInbox, true);
+  // And the Email Centre asks the question rather than leaving it to be found out.
+  const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /action: "reply-check"/);
+  assert.match(page, /Replies will not reach anybody/);
+});
+
+test("a bounce says whose it was and which address died", () => {
+  // Every message used to carry the same envelope sender, so a failure arrived
+  // with no indication of either. The intake made up the difference by taking
+  // the first address it could find in the body of a notice written by somebody
+  // else's mail server — and a wrong guess suppresses a live customer forever.
+  const env = reply.bounceAddressFor("veryx", "gone@example.com");
+  const parsed = reply.parseBounceAddress(env);
+  assert.equal(parsed?.brandId, "veryx");
+  assert.equal(
+    reply.recipientFromKey("veryx", parsed.key, ["someone@else.com", "gone@example.com"]),
+    "gone@example.com",
+    "matched against addresses we actually sent to, not against prose",
+  );
+  // An address we never sent to cannot be identified, so nothing is suppressed.
+  assert.equal(reply.recipientFromKey("veryx", parsed.key, ["someone@else.com"]), "");
+});
+
+test("the envelope sender survives being lower-cased", () => {
+  // The first version base64url'd the recipient into the local part. Addresses
+  // are lower-cased all along the path — by our own intake first — and
+  // lower-casing base64 destroys it, so every bounce silently failed to parse.
+  const env = reply.bounceAddressFor("veryx", "Gone@Example.COM");
+  assert.equal(env, env.toLowerCase(), "the address must contain nothing case-sensitive");
+  assert.ok(reply.parseBounceAddress(env.toUpperCase()), "and it must still parse after any mangling of case");
+  // Case in the recipient must not change which key it gets.
+  assert.equal(reply.recipientKey("veryx", "Gone@Example.COM"), reply.recipientKey("veryx", "gone@example.com"));
+});
+
+test("the envelope sender fits in a local part", () => {
+  // 64 octets is the limit; a key rather than the encoded address is what keeps
+  // it inside for any length of recipient.
+  const long = reply.bounceAddressFor("a-fairly-long-brand-identifier", `${"x".repeat(60)}@a-very-long-domain-name-indeed.example.com`);
+  assert.ok(long.split("@")[0].length <= 64, `local part is ${long.split("@")[0].length} octets`);
+});
+
+test("a forged envelope sender routes nowhere", () => {
+  assert.equal(reply.parseBounceAddress("b.veryx.aaaaaa.afe3d2d87164@bounces.marketwaros.com"), null);
+  assert.equal(reply.parseBounceAddress("b.veryx.6w3ryk.nothex@bounces.marketwaros.com"), null);
+  assert.equal(reply.parseBounceAddress("bounce@marketwaros.com"), null);
+});
+
+test("the campaign send hands the brand to the batch so bounces are attributable", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /from: fromHeader, replyTo, dkim, brandId,/);
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  assert.match(email, /bounceReturnPath: \(common\.brandId && bounceAddressFor\(common\.brandId, v\.verdict\.email\)\) \|\| BOUNCE_RETURN_PATH/);
+});

@@ -2133,3 +2133,56 @@ anyway, own pages counted as outbound again, and the policy skipping the
 resolver, each caught. That last one needed the test rewritten: the first version
 compared `indexOf` positions, and `indexOf` returns `-1` when the call is deleted,
 so removing the resolver outright made the assertion **pass**.
+
+## §64 — Replies never came back (2026-08-04)
+
+Owner: *"all emails sent from the email center never been replied to the inbox
+or even automatic replies from those emails sent never get to user inbox"*.
+
+**The receiving half was fully built and completely unreachable.**
+`/api/inbound/email` resolves a brand, stores the message, and the dashboard
+Inbox renders it. What was missing was the one thing that makes any of it
+reachable: **nothing in DNS ever said where to deliver a reply.** Every record
+the platform asks a customer to publish — DKIM, SPF, DMARC, the bounce CNAME,
+the tracking CNAME — exists to prove we may **send** as that domain. Not one of
+them tells a mail server where to deliver anything addressed **to** it. A
+recipient hit Reply, addressed it to `hello@theircompany.com`, and their mail
+server looked up an MX that either did not exist or belonged to somebody else.
+
+Worse, the send path defaulted `Reply-To` to the From address — so the default
+configuration pointed every reply at exactly the address with nowhere to land.
+
+**The fix that is not allowed.** "Point your MX at us" is the obvious answer and
+the most dangerous sentence an email platform can say: a working business domain
+almost always has MX records already, and repointing them does not add replies to
+this platform, it **deletes the company's email**. Nothing here asks for the root
+domain's MX, and a test fails any record that does.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Replies work with **no DNS from the customer** | ✅ **new** | Every brand has a signed address on the platform's own reply host (`r.<brand>.<tag>@reply.…`). It is now the `Reply-To` default. Driven through the real intake handler: a human reply lands in the brand's Inbox. |
+| The address cannot be guessed | ✅ | Six HMAC characters. Without them anyone who knows a brand exists could post replies into its inbox; a wrong tag routes nowhere. |
+| Their own domain is optional, and safe | ✅ **new** | One MX on `reply.<domain>` — a name that does not exist until they create it, so publishing it cannot change where any existing mail goes. Optional; without it replies still arrive at the platform address. SPF stays on the root, where it belongs and displaces nothing. |
+| The customer is told where a reply will go, **before** sending | ✅ **new** | `replyVerdict()` does a real MX lookup. Verified live: `gmail.com` → reachable, a non-existent domain → *"nothing anywhere accepts mail addressed to it… you will never see the reply."* Shown under the Reply-to field. |
+| An out-of-office reaches the Inbox | ✅ **fixed** | `classifyInbound` replaces a boolean with three outcomes. An auto-reply is stored **flagged**, so the customer sees it and it is not mistaken for a real reply. |
+| An out-of-office never suppresses anybody | ✅ **fixed** | It used to be classed as a bounce, and the route then scraped the first address out of the body — so *"contact colleague@company.com while I am away"* could permanently suppress a live colleague who never bounced anything. Reproduced end to end; that address is now untouched. |
+| A bounce says whose it was and which address died | ✅ **new** | Per-message VERP envelope sender. The failed address is matched against the addresses the brand **actually sent to**, so the answer is one of our own records rather than a guess about prose another mail server wrote. The body scrape survives only as the fallback. |
+
+**Two bugs found by running it rather than reading it.**
+
+*Real bounces stopped being processed.* Resolving the brand before classifying
+looked tidier and dropped every delivery failure: a DSN is addressed to the
+Return-Path mailbox, which is neither a brand reply address nor a brand's sending
+domain, so it fell out as "no brand owns this" before the bounce branch was
+reached. Classification now comes first.
+
+*The envelope sender did not survive being lower-cased.* The first VERP version
+base64url-encoded the recipient into the local part. Addresses are lower-cased
+all along the path — by our own intake before anything else looks at them — and
+lower-casing base64 destroys it, so every bounce silently failed to parse. It
+carries a lower-case keyed digest now, which nothing can damage and which keeps
+the local part inside the 64-octet limit for any length of address.
+
+Mutation-verified: the reply falling back to the From address, an out-of-office
+classed as a bounce again, the reply address accepting an unsigned tag, and the
+MX being asked for on the root — each caught.

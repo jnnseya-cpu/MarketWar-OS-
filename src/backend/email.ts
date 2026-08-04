@@ -42,6 +42,7 @@ const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.m
 // never reach the customer's inbox. Configure a real mailbox/forward there to
 // auto-process bounces (see docs/EMAIL-GUIDE.md).
 const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
+import { bounceAddressFor } from "@/backend/reply-routing";
 
 // SMTP is now served by the sending-node POOL (src/backend/sending-pool.ts). With
 // no pool configured it falls back to the single SMTP_* node — identical to the
@@ -675,6 +676,8 @@ export async function sendEmailBatch(
     dkim?: { domain: string; selector: string; privateKeyPem: string };
     attachments?: EmailAttachment[];
     deadline?: number;
+    /** Makes each message's bounce attributable to this brand and recipient. */
+    brandId?: string;
   } = {},
 ): Promise<SendResult[]> {
   const from = common.from || FROM_DEFAULT;
@@ -707,7 +710,10 @@ export async function sendEmailBatch(
         html: v.item.html,
         extra: {
           replyTo: common.replyTo, dkim: common.dkim, listUnsubscribe: v.item.listUnsubscribe,
-          bounceReturnPath: BOUNCE_RETURN_PATH, attachments: common.attachments,
+          // Per recipient, so a failure says whose it was and which address died
+          // instead of the intake guessing from the text of the notice.
+          bounceReturnPath: (common.brandId && bounceAddressFor(common.brandId, v.verdict.email)) || BOUNCE_RETURN_PATH,
+          attachments: common.attachments,
         },
       }));
 

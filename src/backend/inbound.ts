@@ -27,6 +27,8 @@ export type InboundMessage = {
   html?: string;
   receivedAt: string;
   read: boolean;
+  /** An out-of-office or auto-responder. Shown, flagged, and never suppressed. */
+  auto?: boolean;
 };
 
 const mem = new Map<string, InboundMessage[]>(); // brandId → messages
@@ -37,7 +39,7 @@ const docId = (id: string) => id.replace(/\//g, "_");
 export async function saveInbound(m: Omit<InboundMessage, "id" | "read"> & { id?: string }): Promise<InboundMessage> {
   const id = m.id || `${m.brandId}::${hid(`${m.from}|${m.subject}|${m.receivedAt}`)}`;
   const msg: InboundMessage = {
-    id, brandId: m.brandId, from: m.from.toLowerCase(), fromName: m.fromName,
+    id, brandId: m.brandId, from: m.from.toLowerCase(), fromName: m.fromName, auto: m.auto,
     to: m.to.toLowerCase(), subject: m.subject || "(no subject)",
     snippet: (m.snippet || m.text || "").replace(/\s+/g, " ").trim().slice(0, 240),
     text: m.text ? m.text.slice(0, 100_000) : undefined,
@@ -87,14 +89,77 @@ export async function unreadCount(brandId: string): Promise<number> {
   return (await listInbound(brandId)).filter((m) => !m.read).length;
 }
 
-// A message is a bounce / automated notice (not a human reply) — route to
-// suppression, not the inbox. Detects mailer-daemon senders, our bounce
-// Return-Path recipient, and auto-reply headers passed as flags.
-export function looksAutomated(from: string, to: string, subject: string): boolean {
+/**
+ * What kind of message is this?
+ *
+ * THREE THINGS, NOT TWO. This used to be a boolean — automated or not — and the
+ * conflation caused real harm in both directions.
+ *
+ *   A BOUNCE says the address is dead. It belongs in the suppression ledger and
+ *   nowhere else.
+ *
+ *   AN OUT-OF-OFFICE says the opposite: a real person received it and is on
+ *   holiday. It was being treated as a bounce, and the route then scraped the
+ *   first email address out of the body to suppress — so "please contact
+ *   colleague@company.com while I am away" could permanently suppress a live
+ *   colleague who had never bounced anything. It also meant the customer never
+ *   saw the auto-reply at all, which is the complaint that started this.
+ *
+ *   A HUMAN REPLY goes to the Inbox.
+ *
+ * Only a real delivery-status notification may suppress an address.
+ */
+export type InboundKind = "bounce" | "auto-reply" | "human";
+
+const DAEMON = /mailer-daemon|postmaster|daemon@/i;
+const NOREPLY = /no-?reply|do-?not-?reply/i;
+const DSN_SUBJECT = /delivery status notification|undeliverable|mail delivery (?:failed|subsystem)|returned mail|delivery has failed|failure notice|message not delivered/i;
+const AUTO_SUBJECT = /auto(?:matic)?[- ]?reply|out of (?:the )?office|autoresponder|away from (?:my|the) (?:desk|office)|annual leave|on holiday|vacation reply|abwesenheit|réponse automatique/i;
+
+export function classifyInbound(
+  from: string,
+  to: string,
+  subject: string,
+  headers: Record<string, string> = {},
+): { kind: InboundKind; why: string } {
   const f = (from || "").toLowerCase();
   const t = (to || "").toLowerCase();
   const s = (subject || "").toLowerCase();
-  return /mailer-daemon|postmaster|no-?reply|bounce|daemon@/.test(f)
-    || /^bounce@|^bounce\+|@bounces?\./.test(t)
-    || /delivery status notification|undeliverable|mail delivery failed|returned mail|auto(?:matic)?[- ]?reply|out of office/.test(s);
+  const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v || "").toLowerCase()]));
+
+  // RFC 3834 and the de-facto headers. An auto-responder that labels itself is
+  // the easiest case and the most reliable.
+  const autoSubmitted = h["auto-submitted"] || "";
+  if (autoSubmitted && autoSubmitted !== "no") {
+    return DSN_SUBJECT.test(s)
+      ? { kind: "bounce", why: `Auto-Submitted: ${autoSubmitted} with a delivery-failure subject` }
+      : { kind: "auto-reply", why: `the sender marked it Auto-Submitted: ${autoSubmitted}` };
+  }
+  if (h["x-autoreply"] || h["x-autorespond"] || h["x-auto-response-suppress"]) {
+    return { kind: "auto-reply", why: "the sender's own auto-responder headers" };
+  }
+
+  // A real delivery-status notification: from the mail system, about a failure.
+  if (DAEMON.test(f) || /^bounce@|^bounce\+|@bounces?\./.test(t)) {
+    return { kind: "bounce", why: "it came from the mail system, not from a person" };
+  }
+  if (DSN_SUBJECT.test(s)) return { kind: "bounce", why: "the subject is a delivery-failure notice" };
+
+  if (AUTO_SUBJECT.test(s)) return { kind: "auto-reply", why: "the subject is an out-of-office or auto-reply" };
+  // A no-reply sender is a machine, but it is not a failure — showing it is
+  // right, suppressing the address it mentions is not.
+  if (NOREPLY.test(f)) return { kind: "auto-reply", why: "the sender is a no-reply mailbox" };
+
+  return { kind: "human", why: "no automated signature" };
+}
+
+/**
+ * Kept because it shipped and callers may hold it.
+ *
+ * It answers the OLD question — "is this anything other than a human reply" —
+ * and must never again be used to decide whether to suppress an address. Use
+ * `classifyInbound` for that.
+ */
+export function looksAutomated(from: string, to: string, subject: string): boolean {
+  return classifyInbound(from, to, subject).kind !== "human";
 }

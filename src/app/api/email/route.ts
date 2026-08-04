@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { emailConfigured, filterList, sendEmail, sendEmailBatch, lastBatchMode, validateAttachments, type EmailAttachment } from "@/backend/email";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
+import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
 
 // M-34 email engine API.
 // POST { action: "validate", emails: string[] }  → hygiene verdicts
@@ -55,6 +56,23 @@ export async function POST(req: NextRequest) {
   // template) it arrives here as subject + html, so one action serves all
   // three and none of them can drift from the others. Reads only: no send, no
   // ACUs, no provider call.
+  // WHERE WILL A REPLY GO? Answered with a real MX lookup before the send, not
+  // discovered by a customer whose campaign got no replies for a month.
+  if (body.action === "reply-check") {
+    const rl = rateLimit(clientKey(req, "reply-check"), 60, 60_000, Date.now());
+    if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+    if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const verdict = await replyVerdict({
+      brandId,
+      replyTo: typeof body.replyTo === "string" ? body.replyTo : "",
+      fromEmail: typeof body.fromEmail === "string" ? body.fromEmail : "",
+    });
+    return NextResponse.json({ ...verdict, brandReplyAddress: replyAddressFor(brandId) });
+  }
+
   if (body.action === "preview") {
     const rl = rateLimit(clientKey(req, "email-preview"), 60, 60_000, Date.now());
     if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
@@ -253,7 +271,14 @@ export async function POST(req: NextRequest) {
     // Replies go here. Default to the From address, but let the sender point them
     // at their REAL inbox (e.g. their Gmail) so replies land where they read mail.
     const replyToRaw = typeof body.replyTo === "string" && body.replyTo.includes("@") ? body.replyTo.trim() : "";
-    const replyTo = replyToRaw || fromEmail || undefined;
+    // FALLING BACK TO THE FROM ADDRESS IS WHAT LOST EVERY REPLY. Nothing in the
+    // DNS this platform asks for tells a mail server where to deliver anything
+    // addressed to the customer's domain — every record proves we may SEND as
+    // it. So a reply to hello@theircompany.com went wherever their MX pointed,
+    // which was usually nowhere or somebody else. The brand's own reply address
+    // on our reply host needs no DNS from them at all, so it works on day one
+    // and the reply appears in their Inbox here.
+    const replyTo = replyToRaw || replyAddressFor(brandId) || fromEmail || undefined;
 
     // Per-recipient personalisation: look up each address's contact row and merge
     // {{ variables }} into the subject + body so every email is individual.
@@ -286,7 +311,7 @@ export async function POST(req: NextRequest) {
     let results: Awaited<ReturnType<typeof sendEmailBatch>> = [];
     try {
       results = await sendEmailBatch(prepared, {
-        from: fromHeader, replyTo, dkim,
+        from: fromHeader, replyTo, dkim, brandId,
         attachments: attachments.length ? attachments : undefined,
         deadline: sendDeadline,
       });

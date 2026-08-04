@@ -22,6 +22,7 @@ if (typeof window !== "undefined") {
 import { generateKeyPairSync } from "crypto";
 import { resolveTxt, resolveCname } from "dns/promises";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { replySubdomain } from "@/backend/reply-routing";
 
 // Infra hostnames the published records reference. Defaults point at the
 // marketwaros.com sending infrastructure; override per environment.
@@ -31,10 +32,12 @@ const DMARC_RUA = (process.env.MW_DMARC_RUA || "dmarc@marketwaros.com").trim();
 const BOUNCE_HOST = (process.env.MW_BOUNCE_HOST || "bounces.marketwaros.com").trim();
 const TRACK_HOST = (process.env.MW_TRACK_HOST || "track.marketwaros.com").trim();
 const SELECTOR = "mwos";
+// The receiving node. Only ever used on a subdomain the customer creates.
+const MX_HOST = (process.env.MW_MX_HOST || "mx.marketwaros.com").trim();
 
 export type DnsRecord = {
-  purpose: "DKIM" | "SPF" | "DMARC" | "Return-Path (bounce)" | "Tracking";
-  type: "TXT" | "CNAME";
+  purpose: "DKIM" | "SPF" | "DMARC" | "Return-Path (bounce)" | "Tracking" | "Replies (MX)";
+  type: "TXT" | "CNAME" | "MX";
   host: string;   // the name to create (fully qualified)
   value: string;  // the value to publish
   required: boolean;
@@ -96,6 +99,22 @@ export function recordsFor(d: Pick<SendingDomain, "domain" | "selector" | "publi
       purpose: "Tracking", type: "CNAME", required: false,
       host: `email.${domain}`,
       value: TRACK_HOST,
+    },
+    // REPLIES. Everything above proves we may SEND as this domain; not one of
+    // them tells a mail server where to deliver anything addressed TO it, which
+    // is why replies used to vanish. This is the only record that fixes that,
+    // and it is deliberately OPTIONAL and deliberately on a SUBDOMAIN: a
+    // business domain almost always has MX records already, and repointing the
+    // root would not add replies to this platform, it would delete the
+    // company's email. `reply.<domain>` does not exist until they create it, so
+    // publishing it cannot change where any existing mail goes. Without it,
+    // replies still work — they arrive at the brand's address on our own reply
+    // host instead of one that reads as theirs.
+    {
+      purpose: "Replies (MX)", type: "MX", required: false,
+      host: replySubdomain(domain),
+      value: `10 ${MX_HOST}`,
+      detail: "Optional. Lets replies come back to an address on your own domain and appear in your Inbox here. It is a subdomain, so it cannot affect the email your company already receives.",
     },
   ];
 }
@@ -225,6 +244,14 @@ export async function verifyDomain(brandId: string, domainRaw: string): Promise<
           r.verified = Boolean(found);
           r.detail = found ? "DMARC policy present" : "no DMARC record yet";
         }
+      } else if (r.type === "MX") {
+        const { resolveMx } = await import("dns/promises");
+        const want = r.value.replace(/^\d+\s+/, "").toLowerCase();
+        const mx = (await resolveMx(r.host)).map((m) => m.exchange.replace(/\.$/, "").toLowerCase());
+        r.verified = mx.includes(want);
+        r.detail = r.verified
+          ? "Replies to this subdomain will reach your Inbox here."
+          : mx.length ? `points to ${mx[0]} (expected ${want})` : "no MX yet — optional, and replies still work at your MarketWar reply address without it";
       } else {
         // CNAME
         const cn = (await resolveCname(r.host)).map((c) => c.replace(/\.$/, "").toLowerCase());
