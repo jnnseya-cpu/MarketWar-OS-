@@ -1991,3 +1991,53 @@ pages nobody links to are three hundred pages nobody reaches.
 | Both engines are reachable in the product | ✅ **fixed** | The SEO Autopilot page now carries the **service × place builder** (services and places, one per line — the OS invents neither) and **Backlinks worth earning**, each with the evidence and the pitch. |
 | The builder is signed in and rate limited | ✅ **fixed** | `POST /api/programmatic-seo` had neither. GET stays open — it is the doctrine and a fixed demo with no input. |
 | Nothing is gated to a plan | ✅ | Reach does not depend on tier: the ACU allowance already meters what an action costs, and a plan gate on top would charge twice for one decision. A test fails any of these three routes that starts gating by plan, and asserts SEO Autopilot is in the navigation for everyone. |
+
+## §62 — AI Growth Engine: ten tools, one section (2026-08-03)
+
+Owner listed ten built-in reach tools to be *"fully active and fully working"*
+in their own section and dashboard.
+
+**Eight already shipped** as full command surfaces. This page does **not**
+reimplement them — a second, thinner Landing Page Architect would be worse than
+the one that exists. It names each, says in one line what it does and what it
+needs from the customer, and takes them into the real thing. A test asserts all
+ten titles are present and that every linked destination is a page that exists.
+
+**Two did not exist at all** — and they are the two that get faked hardest
+everywhere else.
+
+| Tool | Where it lives | Note |
+|---|---|---|
+| AI social media post generator | Content Factory | existing |
+| AI travel advert creator | Campaign Builder | **travel added as an industry profile** — a vertical, not a separate product, so its vocabulary, channels and buyer roles apply across the whole platform rather than inside one button |
+| AI email campaign generator | Email Centre | existing |
+| AI landing page builder | Landing Builder | existing |
+| **AI hashtag generator** | on the page | **new** — `src/backend/hashtags.ts` |
+| AI video script generator | Video War Room | existing |
+| AI performance recommendations | ROI Engine | existing |
+| AI audience optimisation | Segments | existing |
+| AI campaign analytics | War Room | existing |
+| **AI best posting time recommendations** | on the page | **new** — `src/backend/posting-time.ts` |
+
+### Hashtags
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| No invented volume, reach or difficulty | ✅ | Every hashtag tool on the market prints "2.4M posts · reach 180K" beside a tag. Nobody selling one can measure either figure for the account using it. A test fails any field named volume/reach/difficulty/competition and any `1.2M`-shaped figure in the module. |
+| Every tag is traceable | ✅ | Each carries `because` — *"'boiler' is used 4 times in the post"*, *"somewhere you actually sell"*. Sources: the post's own repeated phrases and frequent words, the brand, their campaign tag, the industry profile, and the places they sell in. |
+| Different per platform | ✅ | Threads applies exactly **1**; X gets **2** because every tag spends characters from a hard limit; LinkedIn **3**; Instagram **5** of a documented 30. What a platform documents is called a limit; what people have found works is called a convention. |
+| Engagement bait removed and explained | ✅ | `#follow4follow`, `#fyp`, `#viral` and the rest buy engagement from people who will never buy anything, and tell the platform's own spam classifier the account is gaming reach. |
+| A short list is a mix | ✅ | Taking the first N in build order filled an Instagram set with five caption words and never reached the town — which for a local trade is the tag that brings a customer rather than an audience. The cut interleaves subject → place → campaign/brand → back to the post. |
+
+### Best posting time
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Three tiers, and it always says which | ✅ | **measured** from the brand's own delivery ledger; **market-hours** arithmetic on the countries they sell to, labelled as a starting point rather than a finding; **unknown**, which says so and says what to set. An invented "Tuesday 10am" is worse than an empty panel because the customer acts on it and never learns it was decoration. |
+| Clicks decide, opens are context | ✅ | Apple Mail Privacy Protection fetches the open pixel near delivery, so open timestamps describe **our sending schedule** rather than their habits. Once there are 40 clicks, clicks rank the hours outright: reproduced with 45 clicks at 19:00 against 200 opens at 09:00 — the clicked hour wins, as it must. A weighted blend had the relay-fetched hour winning, which was the exact error the weighting was meant to prevent. |
+| DST-correct local hours | ✅ | `offsetMinutesAt` per event: the same 18:00 UTC click lands at 19:00 in July and 18:00 in January. A fixed offset is an hour wrong for half the year. |
+| An empty hour is never recommended | ✅ | Asking for three windows when one hour holds the activity returns one. |
+| Machine hits excluded | ✅ | A scanner is not an audience — the same `meta.machine` flag used everywhere else. |
+| Nothing is charged | ✅ | Neither tool calls a provider — tags come from the customer's own words, times from their own ledger — so neither invents a fee to look valuable. A test fails the route if `meterAction` or `debitAcus` appears. |
+| Signed in, rate limited, ownership-checked | ✅ | `requireAuth` + `rateLimit`, and `resolveBrandAccess` on the ledger because it is the customer's own data. |
+| Mutation-verified | ✅ | Six mutations — one list for every platform, keeping engagement bait, letting opens outrank clicks, recommending empty hours, inventing a time with no market set, and counting scanners as audience — each caught. |

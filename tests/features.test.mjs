@@ -8636,3 +8636,175 @@ test("nothing here is gated to a plan — the cost is the ACUs it uses", () => {
   const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
   assert.match(sidebar, /\/dashboard\/seo-autopilot/, "and it is in the navigation for everyone");
 });
+
+// ---------------------------------------------------------------------------
+// The AI Growth Engine — ten tools, and the two that had no engine
+//
+// Owner listed ten built-in tools to be "fully active and fully working" in
+// their own section and dashboard. Eight already shipped as full command
+// surfaces. Two did not exist at all, and they happen to be the two that get
+// faked hardest everywhere else: hashtags with invented reach figures beside
+// them, and a "best time to post" nobody measured on the account being advised.
+// ---------------------------------------------------------------------------
+const tags = await import("../src/backend/hashtags.ts");
+const times = await import("../src/backend/posting-time.ts");
+
+const POST = "Boiler repair in Croydon this week. Our boiler engineers cover Croydon and Bromley — same-day boiler callout, fixed price. Book a boiler service today.";
+
+test("hashtags come out of the post, and each one says where it came from", () => {
+  const s = tags.hashtagsFor({ text: POST, platform: "instagram", brandName: "VeryX", industry: "plumbing", places: ["Croydon"] });
+  assert.ok(s.use.some((t) => t.tag === "#boiler"), "the word the post is about");
+  for (const t of [...s.use, ...s.alsoConsidered]) {
+    assert.ok(t.because.trim().length > 0, `${t.tag} has no reason`);
+    assert.match(t.tag, /^#[a-z0-9]{3,30}$/, `${t.tag} is not a usable tag`);
+  }
+});
+
+test("no volume, reach or difficulty number is ever printed beside a tag", () => {
+  // The one thing this engine refuses to do: nobody selling a hashtag tool can
+  // measure any of those for the account using it.
+  const src = readFileSync(new URL("../src/backend/hashtags.ts", import.meta.url), "utf8");
+  const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+  // A FIELD carrying one of those, not the prose that refuses to print them.
+  assert.ok(!/\b(volume|reach|difficulty|competition|popularity|postCount)\s*:/i.test(codeOnly),
+    "a number nobody can measure is a number that was invented");
+  // Nor a figure dressed up as one: "2.4M posts", "180K reach".
+  assert.ok(!/\d+(\.\d+)?\s*[KM]\b/.test(codeOnly));
+  const s = tags.hashtagsFor({ text: POST, platform: "instagram" });
+  for (const t of s.use) assert.ok(!/\d{3,}/.test(t.because), `${t.tag} quotes a figure`);
+  assert.match(s.note, /cannot be measured/);
+});
+
+test("the same post is tagged differently for each platform", () => {
+  const all = tags.hashtagsForAll({ text: POST, brandName: "VeryX", industry: "plumbing", places: ["Croydon"] }, ["instagram", "x", "linkedin", "threads"]);
+  const counts = Object.fromEntries(all.map((s) => [s.platform, s.use.length]));
+  assert.equal(counts.threads, 1, "Threads applies exactly one topic tag — the rest would simply not be applied");
+  assert.equal(counts.x, 2, "every tag on X spends characters from a hard limit");
+  assert.equal(counts.linkedin, 3);
+  assert.equal(counts.instagram, 5);
+  assert.ok(counts.instagram > counts.x, "one list for all platforms is wrong four times out of five");
+  // A documented ceiling is a limit; the smaller working number is a convention.
+  assert.equal(tags.ruleFor("instagram").hardCap, 30);
+  assert.equal(tags.ruleFor("x").hardCap, null);
+});
+
+test("engagement bait is removed and the removal is explained", () => {
+  const s = tags.hashtagsFor({ text: "follow4follow like4like fyp boiler repair", platform: "instagram" });
+  const all = [...s.use, ...s.alsoConsidered].map((t) => t.tag);
+  for (const bad of ["#follow4follow", "#like4like", "#fyp"]) assert.ok(!all.includes(bad), `${bad} survived`);
+  assert.match(s.warnings.join(" "), /spam classifier/);
+  assert.ok(all.includes("#boiler"), "the real subject is untouched");
+});
+
+test("a short list is a mix, not five words off the top of the caption", () => {
+  // Taking the first N in build order filled an Instagram set with caption
+  // words and never reached the town — which for a local trade is the tag that
+  // brings a customer rather than an audience.
+  const s = tags.hashtagsFor({ text: POST, platform: "instagram", brandName: "VeryX", industry: "plumbing", places: ["Croydon"], campaign: "summer24" });
+  const kinds = new Set(s.use.map((t) => t.kind));
+  assert.ok(kinds.has("from-post"), "the post's own subject leads");
+  assert.ok(kinds.has("place") || kinds.has("campaign") || kinds.has("brand"), "and it is not only caption words");
+  assert.equal(s.use.length, 5);
+  // Nothing is duplicated between what to use and what was left out.
+  const overlap = s.use.filter((u) => s.alsoConsidered.includes(u));
+  assert.deepEqual(overlap, []);
+});
+
+test("with no post text the engine says so rather than pretending to be relevant", () => {
+  const s = tags.hashtagsFor({ text: "", platform: "instagram", brandName: "VeryX" });
+  assert.match(s.warnings.join(" "), /no post text/i);
+});
+
+test("a best posting time is measured, or it is labelled as not measured", () => {
+  const market = { countries: [{ code: "GB", tier: "primary" }], cities: [] };
+  // Nothing to go on: market hours, and said to be market hours.
+  const empty = times.bestPostingTimes({ events: [], market });
+  assert.equal(empty.basis, "market-hours");
+  assert.match(empty.caveat, /not a finding about your audience/);
+  assert.match(empty.headline, /Not enough/);
+  // No market either: it refuses outright rather than inventing a clock.
+  const nothing = times.bestPostingTimes({ events: [], market: null });
+  assert.equal(nothing.basis, "unknown");
+  assert.deepEqual(nothing.windows, []);
+  assert.match(nothing.headline, /inventing one would be worse/);
+});
+
+test("clicks decide the ranking, not a pile of relay-fetched opens", () => {
+  const market = { countries: [{ code: "GB", tier: "primary" }], cities: [] };
+  const events = [];
+  // 45 clicks at 18:00 UTC (19:00 London in July), and 200 opens at 09:00 —
+  // the shape Apple's privacy relay produces when a send goes out at 9am.
+  for (let i = 0; i < 45; i++) events.push({ type: "click", at: `2026-07-0${(i % 9) + 1}T18:00:00.000Z` });
+  for (let i = 0; i < 200; i++) events.push({ type: "open", at: `2026-07-0${(i % 9) + 1}T09:00:00.000Z` });
+  const r = times.bestPostingTimes({ events, market });
+  assert.equal(r.basis, "measured");
+  assert.equal(r.windows[0].label, "19:00–20:00", "the hour people actually clicked in must win");
+  assert.equal(r.windows[0].clicks, 45);
+  assert.match(r.caveat, /Ranked on clicks alone/);
+});
+
+test("an hour with nothing in it is never recommended", () => {
+  const market = { countries: [{ code: "GB", tier: "primary" }], cities: [] };
+  const events = Array.from({ length: 45 }, (_, i) => ({ type: "click", at: `2026-07-0${(i % 9) + 1}T18:00:00.000Z` }));
+  const r = times.bestPostingTimes({ events, market, limit: 3 });
+  assert.equal(r.windows.length, 1, "asking for three windows when one hour has all the activity returns one");
+  for (const w of r.windows) assert.ok(w.clicks + w.opens > 0);
+});
+
+test("the local hour is the market's own clock, DST included", () => {
+  const events = [{ type: "click", at: "2026-07-01T18:00:00.000Z" }, { type: "click", at: "2026-01-01T18:00:00.000Z" }];
+  const b = times.hourBuckets(events, "Europe/London");
+  // July is BST (+1) → 19:00; January is GMT (+0) → 18:00. A fixed offset would
+  // put both in the same bucket and be an hour wrong for half the year.
+  assert.equal(b[19].clicks, 1);
+  assert.equal(b[18].clicks, 1);
+});
+
+test("a scanner is not an audience", () => {
+  const events = [
+    { type: "click", at: "2026-07-01T18:00:00.000Z", meta: { machine: "true" } },
+    { type: "click", at: "2026-07-01T18:00:00.000Z" },
+  ];
+  const b = times.hourBuckets(events, "Europe/London");
+  assert.equal(b[19].clicks, 1, "the machine-flagged hit is excluded, as it is everywhere else");
+});
+
+test("travel is a real industry profile, not a one-off tool", async () => {
+  // "AI travel advert creator" is a vertical, not a separate product: travel
+  // joins the profile set, so its vocabulary, channels and buyer roles apply
+  // across the whole platform rather than only inside one button.
+  const ind = await import("../src/shared/industry.ts");
+  const p = ind.resolveIndustry("guided tours and holiday packages");
+  assert.equal(p.key, "travel");
+  assert.ok(p.categories.length > 0 && p.findCustomers.length > 0);
+  assert.equal(ind.resolveIndustry("boiler repair").key, "trades", "and it does not swallow other verticals");
+});
+
+test("the growth engine is one section, and every tool in it has a destination", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/growth-engine/page.tsx", import.meta.url), "utf8");
+  for (const title of [
+    "AI social media post generator", "AI travel advert creator", "AI email campaign generator",
+    "AI landing page builder", "AI hashtag generator", "AI video script generator",
+    "AI performance recommendations", "AI audience optimisation", "AI campaign analytics",
+    "AI best posting time recommendations",
+  ]) {
+    assert.ok(page.includes(title), `missing from the Growth Engine: ${title}`);
+  }
+  // Every linked destination is a page that exists.
+  const missing = [];
+  for (const m of page.matchAll(/href: "(\/dashboard\/[a-z-]+)"/g)) {
+    if (!existsSync(new URL(`../src/app${m[1]}/page.tsx`, import.meta.url))) missing.push(m[1]);
+  }
+  assert.deepEqual(missing, [], `these tool links go nowhere: ${missing.join(", ")}`);
+  // And it is in the navigation.
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /\/dashboard\/growth-engine/);
+});
+
+test("the growth engine route is signed in, and charges nothing it did not spend", () => {
+  const route = readFileSync(new URL("../src/app/api/growth-engine/route.ts", import.meta.url), "utf8");
+  assert.match(route, /requireAuth\(req\)/);
+  assert.match(route, /rateLimit\(/);
+  assert.match(route, /resolveBrandAccess/, "the ledger is the customer's own data");
+  assert.ok(!/meterAction|debitAcus/.test(route), "neither tool calls a provider, so neither invents a fee");
+});

@@ -163,6 +163,17 @@ export const INDUSTRY_PROFILES: IndustryProfile[] = [
     commonGaps: ["no clear packages/pricing", "no enquiry form", "portfolio not indexed", "no testimonials"],
   },
   {
+    key: "travel", label: "Travel & tourism",
+    match: ["travel", "tour", "tours", "tourism", "holiday", "vacation", "flight", "flights", "airline", "cruise", "safari", "excursion", "sightseeing", "trip", "itinerary", "hostel", "guesthouse", "b&b", "resort", "villa", "airbnb", "car hire", "transfer", "visa"],
+    sellsTo: "consumers", audience: "people planning a trip weeks or months ahead, and the agents who book for them",
+    sampleProduct: "your tours / stays / transfers", sampleOffer: "early-bird or shoulder-season rate",
+    categories: ["Destination guides", "Itineraries", "Travel tips & practicalities", "Seasonal deals"],
+    channels: ["Google Search & Maps", "Instagram / TikTok", "OTA listings", "email to past guests"],
+    findCustomers: ["\"things to do in [destination]\" searches where you have no page", "travel forums and destination subreddits answering real questions", "local OTAs, DMCs and hotel concierges who resell", "past guests — the cheapest booking you will ever make"],
+    buyerTitles: ["Traveller", "Travel Agent", "Tour Operator", "Concierge", "Corporate Travel Manager"],
+    commonGaps: ["no destination pages", "prices and availability not on the site", "no post-trip review request", "seasonality ignored in the calendar"],
+  },
+  {
     key: "events", label: "Events & weddings",
     match: ["event", "wedding", "venue", "planner", "party", "conference", "exhibition", "hire", "entertainment", "dj ", "celebrant"],
     sellsTo: "both", audience: "couples, organisers and companies planning events",

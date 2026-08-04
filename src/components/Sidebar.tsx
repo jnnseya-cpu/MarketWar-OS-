@@ -72,6 +72,10 @@ export const NAV = [
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
       { href: "/dashboard/ai-agents", label: "Strategy Agents", icon: Sparkles },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },
+      // The ten built-in reach tools in one place — two of them (hashtags,
+      // posting times) live on that page; the rest link to the surface that
+      // already does the work rather than being reimplemented thinner.
+      { href: "/dashboard/growth-engine", label: "AI Growth Engine", icon: Rocket },
       { href: "/dashboard/briefing", label: "Daily Briefing", icon: ScrollText },
       { href: "/dashboard/strategy", label: "Strategy Chain", icon: Target },
       { href: "/dashboard/audit", label: "Failure Audit", icon: Stethoscope },
