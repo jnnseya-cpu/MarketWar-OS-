@@ -2405,3 +2405,38 @@ six caught.
 **Still ahead on the network:** the scheduler that calls the orchestrator
 unattended (the cap and the approval boundary are the preconditions, and both
 now exist), and per-brand chain authoring so a customer can compose their own.
+
+### §67d — The scheduler and customer-authored chains (2026-08-04)
+
+The last two items on the agent network. Both had the same precondition — a cap
+and an approval boundary — and both are now built on top of them.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Chains run without anybody pressing a button | ✅ **new** | `/api/orchestrator/scheduled` + a `vercel.json` cron at 04:00 daily. Per-brand, per-chain schedules in `src/backend/chain-store.ts` — daily, weekly or monthly. |
+| **Both paths run through one executor** | ✅ | `src/backend/chain-exec.ts`. If each route built its own dependencies the unattended path would drift — a missing approval queue there, an unmetered step here, and nobody watching that path to notice. Asserted by test: neither route constructs `queueApproval` itself. |
+| Nothing is sent or published overnight | ✅ | The scheduled path inherits the §67c boundary unchanged: acting steps become approval items waiting in the morning. The approval body says so explicitly — *"It ran on a schedule overnight — nothing was sent or published while you were away."* |
+| **Somebody is billed for unattended work** | ✅ | Nobody is signed in at 3am, so `brandOwnerId()` resolves the brand's owner and every step is metered against their wallet. An unattended run that charged nobody would be free AI — the §63 hole nobody would ever see. |
+| Unattended spend consumes the ceiling; attended spend does not | ✅ | One boolean through `executeChain`. A customer who asked for the run is spending their own ACUs and must not be refused by a limit meant for the machine. |
+| One run per cadence, even after a crash | ✅ | The schedule is marked **before** the run, asserted by source order. Marking after would retry a half-failing chain on every tick for ever — the schedule is a cadence, not a queue. |
+| A new schedule is due immediately | ✅ | Somebody who just switched one on expects something to happen, not to wait a week to find out whether it works. |
+| Overflow is deferred, never dropped | ✅ | Ten brands a tick; the rest are returned as `deferred`. A scheduler that silently skips half its work looks identical to one that had nothing to do. |
+| The cron endpoint is not open | ✅ | `CRON_SECRET` header or a signed-in operator. There is no third way in: a route that runs agents on demand and charges somebody else's wallet is not one to leave open. |
+| Customers compose their own chains | ✅ **new** | `compileChain` / `saveChain` — pick agents in order, up to 12 steps, stored per brand and listed beside the built-ins. `/dashboard/chains` has the composer and the schedule control. |
+| **A customer cannot mark an acting step as a draft** | ✅ | The effect of a step comes from `effectFor(agentId, declared)` on the server. A chain may **escalate** a step to need approval; it can never de-escalate one. If the effect were taken from the chain definition, the approval boundary would be a checkbox on the thing it protects. Tested: a chain declaring `outreach-commander` as `draft` comes back as `send`, with a note saying why. |
+| A custom chain cannot shadow a built-in | ✅ | The runner resolves built-ins first, so a colliding id would never run. `compileChain` renames it and says so. |
+| Authoring is bounded | ✅ | 12 steps max (beyond that later agents read more context than they can use, and every step is billed) and cadence clamped to 1–90 days. An hourly chain re-reads a market that has not moved and bills for the privilege — that floor is a product decision, stated rather than tuned in private. |
+| Errors arrive all at once | ✅ | `compileChain` returns every problem together. Fixing one error at a time is a form of punishment. |
+
+Tests **930 → 939**; typecheck, layer check and build green. Six mutations —
+declared effect winning over the table, authoring trusting the declared effect,
+a new schedule never being due, disabled schedules running anyway, a custom
+chain shadowing a built-in, and unbounded cadence — all six caught.
+
+**The agent network as specified is now structurally complete**: 39 agents, a
+shared memory with provenance, chains any of them can appear in, an approval
+boundary the chain author cannot lower, a per-brand daily ceiling, and a
+scheduler that respects all of it. What remains is content rather than
+architecture — the individual agents named in doc 14 §3 that have no engine yet
+(Community Manager, Learning Companion, Collaboration Engine), each blocked on
+the connector or the policy question recorded there.

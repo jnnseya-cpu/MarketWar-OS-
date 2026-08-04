@@ -81,3 +81,26 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
     return { ok: false, status: 503, error: "Brand access check temporarily unavailable" };
   }
 }
+
+// Who owns a brand, for work that runs with no request behind it.
+//
+// The scheduler has no session: nobody is signed in at 3am. Unattended spend
+// still has to be charged to somebody, and charging it to nobody would make it
+// free AI — the exact thing §63 removed. So the runner looks the owner up and
+// meters against their wallet.
+//
+// Returns null when Admin is not configured (demo/CI), which is the same state
+// in which metering is not enforced anyway.
+export async function brandOwnerId(brandId: string): Promise<string | null> {
+  if (!adminConfigured || !adminDb) return null;
+  const id = (brandId || "").trim();
+  if (!id) return null;
+  try {
+    const snap = await adminDb.collection(COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+    const owner = (snap.data() as { ownerId?: string }).ownerId;
+    return typeof owner === "string" && owner ? owner : null;
+  } catch {
+    return null;
+  }
+}

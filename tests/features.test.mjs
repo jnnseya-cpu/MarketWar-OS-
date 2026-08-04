@@ -10096,3 +10096,156 @@ test("budget: the unattended ceiling is reserved before the work, not after", as
   assert.equal((await budget.headroom("b-cap", "2026-08-05T00:00:00Z")).spentAcu, 0);
   assert.equal((await budget.headroom("b-other", now)).spentAcu, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Chain authoring and the scheduler. The safety property that matters here is
+// that a customer composing their own chain cannot mark an acting step as a
+// draft — if they could, the approval boundary would be a checkbox on the thing
+// it protects.
+// ---------------------------------------------------------------------------
+const store = await import("../src/backend/chain-store.ts");
+
+test("authoring: a customer cannot mark an acting step as a draft", () => {
+  const res = store.compileChain("b-auth", {
+    label: "My chain", goal: "Sell more",
+    steps: [
+      { agentId: "customer-avatar", effect: "draft" },
+      // The one that contacts people, declared safe. It must not be honoured.
+      { agentId: "outreach-commander", effect: "draft" },
+    ],
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.chain.steps[1].effect, "send", "the agent decides what a step does, not the chain");
+  assert.match(res.notes.join(" "), /decided by the agent/);
+
+  // Escalation is allowed — you can always ask for more oversight.
+  const strict = store.compileChain("b-auth", {
+    label: "Careful", goal: "Careful",
+    steps: [{ agentId: "customer-avatar", effect: "publish" }],
+  });
+  assert.equal(strict.chain.steps[0].effect, "publish");
+});
+
+test("authoring: a chain is refused with all its problems at once", () => {
+  const res = store.compileChain("b-auth", { label: "", goal: "", steps: [{ agentId: "nope" }] });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.length >= 3, "fixing one error at a time is a form of punishment");
+  assert.ok(res.errors.some((e) => /name/i.test(e)));
+  assert.ok(res.errors.some((e) => /what the chain is for/i.test(e)));
+  assert.ok(res.errors.some((e) => /not an agent/i.test(e)));
+
+  const long = store.compileChain("b-auth", {
+    label: "Too long", goal: "x",
+    steps: Array.from({ length: store.MAX_STEPS + 1 }, () => ({ agentId: "customer-avatar" })),
+  });
+  assert.equal(long.ok, false);
+  assert.match(long.errors.join(" "), new RegExp(`at most ${store.MAX_STEPS} steps`));
+});
+
+test("authoring: a custom chain cannot shadow a built-in", () => {
+  const res = store.compileChain("b-auth", {
+    id: "revenue-review", label: "Revenue review", goal: "mine",
+    steps: [{ agentId: "customer-avatar" }],
+  });
+  assert.equal(res.ok, true);
+  assert.notEqual(res.chain.id, "revenue-review", "the built-in resolves first, so this one would never run");
+  assert.match(res.notes.join(" "), /built-in chain/);
+});
+
+test("authoring: saved chains come back beside the built-ins, and delete only touches yours", async () => {
+  store.__resetChainStore();
+  const brand = "b-save";
+  const saved = await store.saveChain(brand, { label: "Weekly look", goal: "Check the week", steps: [{ agentId: "business-diagnosis" }, { agentId: "growth-roi-strategist" }] });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.chain.steps.length, 2);
+  assert.deepEqual(saved.chain.steps.map((s) => s.id), ["s1", "s2"]);
+
+  const all = await store.chainsFor(brand);
+  assert.ok(all.some((c) => c.id === saved.chain.id));
+  assert.ok(all.some((c) => c.id === "revenue-review"), "built-ins are still there");
+  assert.equal((await store.resolveChain(brand, saved.chain.id)).label, "Weekly look");
+
+  // Another brand cannot see it.
+  assert.equal(await store.resolveChain("b-other", saved.chain.id), null);
+
+  assert.equal(await store.deleteChain(brand, saved.chain.id), true);
+  assert.equal(await store.deleteChain(brand, "revenue-review"), false, "a built-in is not yours to delete");
+  assert.ok((await store.chainsFor(brand)).some((c) => c.id === "revenue-review"));
+});
+
+test("schedule: cadence is bounded and a new schedule is due at once", async () => {
+  store.__resetChainStore();
+  const now = "2026-08-04T04:00:00Z";
+  assert.equal(store.clampCadence(0), store.MIN_CADENCE_DAYS, "an hourly chain re-reads a market that has not moved");
+  assert.equal(store.clampCadence(9999), store.MAX_CADENCE_DAYS);
+  assert.equal(store.clampCadence("nonsense"), 7);
+
+  const s = await store.setSchedule({ brandId: "b-sch", chainId: "revenue-review", enabled: true, cadenceDays: 7, nowISO: now });
+  assert.equal(s.cadenceDays, 7);
+  assert.equal(store.isDue(s, now), true, "somebody who just switched it on expects something to happen");
+
+  await store.markRun("b-sch", "revenue-review", now);
+  const after = (await store.listSchedules("b-sch"))[0];
+  assert.equal(store.isDue(after, now), false);
+  assert.equal(store.isDue(after, "2026-08-10T04:00:00Z"), false, "six days is not seven");
+  assert.equal(store.isDue(after, "2026-08-11T04:00:00Z"), true);
+
+  // Disabled is never due, however long it has been.
+  const off = await store.setSchedule({ brandId: "b-sch", chainId: "revenue-review", enabled: false, cadenceDays: 1, nowISO: now });
+  assert.equal(store.isDue(off, "2027-01-01T00:00:00Z"), false);
+});
+
+test("schedule: allDue spans brands and respects the run mark", async () => {
+  store.__resetChainStore();
+  const now = "2026-08-04T04:00:00Z";
+  await store.setSchedule({ brandId: "b1", chainId: "revenue-review", enabled: true, cadenceDays: 7, nowISO: now });
+  await store.setSchedule({ brandId: "b2", chainId: "reputation-watch", enabled: true, cadenceDays: 7, nowISO: now });
+  await store.setSchedule({ brandId: "b3", chainId: "reactivation", enabled: false, cadenceDays: 7, nowISO: now });
+
+  const due = await store.allDue(now);
+  assert.deepEqual(due.map((s) => s.brandId).sort(), ["b1", "b2"]);
+
+  await store.markRun("b1", "revenue-review", now);
+  assert.deepEqual((await store.allDue(now)).map((s) => s.brandId), ["b2"]);
+});
+
+test("scheduler: the unattended route is shut to anonymous callers", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/orchestrator/scheduled/route.ts");
+  const src = readFileSync(new URL("../src/app/api/orchestrator/scheduled/route.ts", import.meta.url), "utf8");
+  // Two ways in and no third: the cron secret, or a signed-in operator.
+  assert.match(src, /x-cron-secret/);
+  assert.match(src, /requireAuth/);
+  // The schedule is marked BEFORE the run, or a crash becomes an infinite retry.
+  assert.ok(src.indexOf("await markRun(") < src.indexOf("await executeChain("));
+  // Unattended runs are billed to the brand owner, not to nobody.
+  assert.match(src, /brandOwnerId\(s\.brandId\)/);
+  assert.match(src, /unattended: true/);
+
+  // And it answers a GET, because that is what a cron sends.
+  const res = await route.GET(new NextRequest("https://mw.test/api/orchestrator/scheduled"));
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(typeof data.due, "number");
+  assert.match(data.doctrine, /nothing left this platform overnight/);
+});
+
+test("scheduler: both paths run chains through the one executor", () => {
+  // If each route built its own dependencies, the unattended path would drift —
+  // a missing approval queue there, an unmetered step here, and nobody watching.
+  const attended = readFileSync(new URL("../src/app/api/orchestrator/route.ts", import.meta.url), "utf8");
+  const cron = readFileSync(new URL("../src/app/api/orchestrator/scheduled/route.ts", import.meta.url), "utf8");
+  for (const src of [attended, cron]) {
+    assert.match(src, /executeChain\(/);
+    assert.ok(!/queueApproval:/.test(src), "the approval queue is built in one place only");
+  }
+  const exec = readFileSync(new URL("../src/backend/chain-exec.ts", import.meta.url), "utf8");
+  assert.match(exec, /meterAction\(auth, "llm"\)/, "every step is charged on both paths");
+});
+
+test("scheduler: the cron is registered", () => {
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const cron = vercel.crons.find((c) => c.path.startsWith("/api/orchestrator/scheduled"));
+  assert.ok(cron, "a scheduler nobody calls is not a scheduler");
+  assert.match(cron.schedule, /^\d+ \d+ /, "daily at a fixed hour");
+});

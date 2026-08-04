@@ -19,6 +19,10 @@
     {
       "path": "/api/trends/scheduled?cron=1",
       "schedule": "0 10 * * 1"
+    },
+    {
+      "path": "/api/orchestrator/scheduled",
+      "schedule": "0 4 * * *"
     }
   ]
 }

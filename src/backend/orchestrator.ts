@@ -48,6 +48,31 @@ export type StepEffect =
 
 export const AUTONOMOUS_EFFECT: StepEffect = "draft";
 
+// WHAT AN AGENT'S STEP REPRESENTS — owned by the server, not by whoever wrote
+// the chain.
+//
+// Today every agent only produces text, so nothing in this table changes what
+// physically happens on a run. It matters for the chain AFTER this one: when the
+// acting steps are wired to real executors, a customer-authored chain must not
+// already have them marked `draft`. If the effect were taken from the chain
+// definition, the approval boundary would be a field the person being protected
+// gets to set — which is not a boundary.
+//
+// A chain MAY escalate a step (ask for approval on something the table calls a
+// draft). It may never de-escalate. You can always ask for more oversight.
+const AGENT_EFFECT: Record<string, StepEffect> = {
+  "campaign-commander": "publish",   // its directive is to put campaigns live
+  "outreach-commander": "send",      // its directive is to contact people
+};
+
+const RANK: Record<StepEffect, number> = { draft: 0, publish: 1, send: 2, spend: 3 };
+
+export function effectFor(agentId: string, declared?: StepEffect): StepEffect {
+  const table = AGENT_EFFECT[agentId] || "draft";
+  const want = declared || "draft";
+  return RANK[want] > RANK[table] ? want : table;
+}
+
 export type ChainStep = {
   id: string;
   agentId: string;
@@ -138,7 +163,7 @@ export function validateChain(c: Chain): { ok: true } | { ok: false; errors: str
 // What a chain will cost if every runnable step runs. Queued steps are free
 // because they do not happen.
 export function plannedCostAcu(c: Chain): number {
-  return c.steps.filter((s) => s.effect === AUTONOMOUS_EFFECT).reduce((a, s) => a + s.costAcu, 0);
+  return c.steps.filter((s) => effectFor(s.agentId, s.effect) === AUTONOMOUS_EFFECT).reduce((a, s) => a + s.costAcu, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +223,12 @@ export async function runChain(input: {
   brandId: string;
   nowISO: string;
   deps: ChainDeps;
+  // A resolved chain — a customer's own, which the built-in table knows nothing
+  // about. Still validated here, because a stored chain can name an agent that
+  // has since been removed.
+  chain?: Chain;
 }): Promise<{ ok: false; error: string } | { ok: true; run: ChainRun }> {
-  const c = chain(input.chainId);
+  const c = input.chain || chain(input.chainId);
   if (!c) return { ok: false, error: `Unknown chain "${input.chainId}" — known: ${CHAINS.map((x) => x.id).join(", ")}` };
   const valid = validateChain(c);
   if (!valid.ok) return { ok: false, error: valid.errors.join("; ") };
@@ -210,8 +239,11 @@ export async function runChain(input: {
   let capAcu = 0;
   let remainingAcu = 0;
 
-  for (const step of c.steps) {
-    const agent = AGENTS[step.agentId];
+  for (const raw of c.steps) {
+    const agent = AGENTS[raw.agentId];
+    // The effect is RESOLVED, never taken as given: a chain may escalate a step
+    // to need approval, never quietly mark an acting step as a draft.
+    const step: ChainStep = { ...raw, effect: effectFor(raw.agentId, raw.effect) };
     const base: Omit<StepResult, "status" | "costAcu"> = {
       stepId: step.id, agentId: step.agentId, agentName: agent.name, effect: step.effect,
     };
