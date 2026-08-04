@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
   runOnboarding, commandMetrics, dataSources, NAV_SECTIONS, opportunityScore, onboardingAcuQuote,
@@ -29,10 +30,14 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "onboard";
 
-  // The onboard workup calls the paid AI gateway — require a signed-in user.
+  // The onboard workup calls the paid AI gateway — signed in, and CHARGED
+  // BEFORE the provider is asked. Signing in was never the point on its own: an
+  // authenticated customer with an empty wallet still spent our money.
   if (action === "onboard") {
     const auth = await requireAuth(req);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const meter = await meterAction(auth, "llm");
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
   }
 
   if (action === "score") {

@@ -3,6 +3,7 @@ import { saveContacts, listContacts, clearContacts, patchContact, toCustomerReco
 import { enrichBatch, dropSharedEmails, auditStoredEmails } from "@/backend/enrich";
 import { scoredCustomerList, segmentLabel } from "@/backend/segments";
 import { resolveBrandAccess } from "@/backend/brand-access";
+import { meterAction } from "@/backend/wallet";
 import { rateLimit, clientKey } from "@/backend/guard";
 
 export const runtime = "nodejs";
@@ -164,6 +165,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ action: "enrich", enrichedCount: 0, remaining: 0, results: [], ...(await scoredVault(brandId, business)), note: "No rows to enrich — every prospect already has an email, or the rows have no company name to search." });
     }
     const batch = targets.slice(0, ENRICH_CAP);
+    // Enrichment is a paid search per row, so it is charged per row and charged
+    // FIRST. Nothing about the rest of this route spends anything; running it
+    // with an empty wallet used to search a hundred and twenty times for free.
+    // The count is `batch.length` rather than the cap, so a customer with eleven
+    // rows left pays for eleven.
+    const meter = await meterAction(access, "enrich", batch.length);
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
     const raw = await enrichBatch(batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website })), 8);
 
     // Addresses the vault has ALREADY attached to some other company. An address

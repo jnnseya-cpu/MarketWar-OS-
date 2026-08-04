@@ -4,6 +4,7 @@ import { generateArticle } from "@/backend/blog-generator";
 import { linkAudit, linkMenu } from "@/backend/blog-links";
 import { slugify, readMinutes, type BlogPost } from "@/shared/blog";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 
 // A document generation runs behind this route, and DOCUMENT_BUDGET gives the
 // gateway 100s. Without a maxDuration the function is killed at the platform
@@ -66,6 +67,16 @@ export async function POST(req: NextRequest) {
   // Everything else is owner-only.
   const auth = await requireAuth(req, { scope: "platform_admin" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  // Writing an article is an AI action, so it is metered like every other one.
+  // For MarketWar's own staff this is a no-op — meterAction exempts staff, so
+  // the owner is never blocked from publishing by a wallet — but the rule holds
+  // uniformly, and an administrator who is not staff pays for what they spend.
+  if (action === "generate") {
+    const topicCount = Array.isArray(body.topics) ? Math.max(1, body.topics.length) : 1;
+    const meter = await meterAction(auth, "llm", Math.min(topicCount, MAX_BATCH));
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+  }
 
   try {
     if (action === "generate") {

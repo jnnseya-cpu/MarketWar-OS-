@@ -4,6 +4,7 @@ import { bestPostingTimes, MIN_CLICKS_TO_JUDGE } from "@/backend/posting-time";
 import { brandEvents } from "@/backend/email-events";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import type { TargetMarket } from "@/shared/market";
 
 // AI Growth Engine — the two tools that had no engine behind them.
@@ -12,10 +13,16 @@ import type { TargetMarket } from "@/shared/market";
 // POST { action: "posting-times", brandId, market?, timezone? }
 // GET  → the doctrine, and the per-platform rules
 //
-// Neither of these calls a provider: hashtags come out of the customer's own
-// post and their own brand, and posting times come out of their own delivery
-// ledger. Nothing to meter, so nothing is charged — a tool that costs us no
-// provider spend should not invent a fee to look valuable.
+// BOTH ARE METERED. Neither calls a provider — hashtags come out of the
+// customer's own post, posting times out of their own delivery ledger — so an
+// earlier version of this route charged nothing on the reasoning that a tool
+// costing us no provider spend should not invent a fee. The owner's rule is
+// narrower than that reasoning and it wins: every AI action is metered and
+// gated by the ACU balance, with no exceptions, so the two tools on this page
+// are metered like the rest. They are charged at the nominal `report` rate —
+// the rate for work done on data the customer already owns — rather than at a
+// provider-cost rate they do not incur, so the rule holds without overcharging
+// for it.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -30,6 +37,14 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "";
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : "");
+
+  // Charged before the work, like everything else. An unknown action is
+  // rejected first so a typo cannot cost anybody an ACU.
+  if (action !== "hashtags" && action !== "posting-times") {
+    return NextResponse.json({ error: "Unknown action — use hashtags or posting-times" }, { status: 400 });
+  }
+  const meter = await meterAction(auth, "report");
+  if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
 
   if (action === "hashtags") {
     const text = str("text");

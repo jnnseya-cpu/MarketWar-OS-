@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
@@ -21,6 +22,11 @@ import { EARNING_TIERS, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/cr
 // server ledger secret. Demo/zero-config (no Firebase Admin) passes through.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// verify_followers fetches each social page and reads the count out of it with
+// a model call, per profile. The route now debits before doing that, so the
+// platform default of ~10s would charge a customer and then be killed with
+// nothing delivered.
+export const maxDuration = 120;
 
 // Which actions require what. Read-but-PII and agent actions need a signed-in
 // user; money/admin actions need platform_admin (or the ledger secret).
@@ -38,6 +44,10 @@ export async function POST(req: NextRequest) {
   const num = (k: string) => (typeof b[k] === "number" ? (b[k] as number) : Number(b[k]) || 0);
   const nowISO = typeof b.nowISO === "string" ? b.nowISO : new Date().toISOString();
 
+  // Kept so the actions that spend can charge the same signed-in caller the
+  // gate just approved, instead of re-verifying the token a second time.
+  let authed: Awaited<ReturnType<typeof requireAuth>> | null = null;
+
   // ---- Authorisation gate ----
   if (action === "create_programme" || action === "list_programmes") {
     const access = await resolveBrandAccess(req, s("brandId"));
@@ -51,8 +61,8 @@ export async function POST(req: NextRequest) {
       if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
   } else if (AUTHED_ACTIONS.has(action)) {
-    const auth = await requireAuth(req);
-    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    authed = await requireAuth(req);
+    if (!authed.ok) return NextResponse.json({ error: authed.error }, { status: authed.status });
   }
 
   switch (action) {
@@ -104,6 +114,11 @@ export async function POST(req: NextRequest) {
     }
     case "verify_followers": {
       const socials = Array.isArray(b.socials) ? (b.socials as { platform?: string; url: string }[]) : [];
+      // Each social read is a page fetch plus a model call to pull the follower
+      // count out of it — an AI action, charged per profile before it runs.
+      if (!authed) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      const meter = await meterAction(authed, "llm", Math.max(1, socials.length));
+      if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
       const v = await verifyFollowersBatch(socials);
       if (s("creatorId") && v.verifiedTotal > 0 && v.humanRequired === 0) await setFollowerVerification(s("creatorId"), v.verifiedTotal, "ai");
       return NextResponse.json(v);

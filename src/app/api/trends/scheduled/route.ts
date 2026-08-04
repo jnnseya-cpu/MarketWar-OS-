@@ -3,6 +3,7 @@ import { listEnabled } from "@/backend/visibility-schedule";
 import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
 import { brandMarket } from "@/backend/brand-market";
+import { debitAcus, ACTION_COST_ACU } from "@/backend/wallet";
 
 // Weekly trend monitoring — the schedule the Trend Hijack card was waiting for.
 //
@@ -11,13 +12,20 @@ import { brandMarket } from "@/backend/brand-market";
 // trend monitoring, and two toggles for one intent is a way to have half of them
 // switched off.
 //
-// SPENDS NO AI. A news search plus word overlap is not a provider call, so this
-// costs no ACUs and runs for every scheduled brand without a wallet check.
+// IT DOES SPEND. This comment used to say the opposite — "a news search plus
+// word overlap is not a provider call" — and the word overlap is not, but the
+// news search is a paid search API and the crawl is our own bandwidth. A
+// scheduled job spending a customer's search budget without charging it was a
+// free AI action, which the platform does not have. Each brand is now metered
+// inside the loop, and a brand that cannot cover it is SKIPPED with the reason
+// rather than searched for nothing.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // A crawl plus three news searches per brand, several brands per run.
 export const maxDuration = 300;
 const RUN_BUDGET_MS = 270_000;
+// The sweep runs three news searches per brand (watchTrends).
+const SEARCHES_PER_BRAND = 3;
 
 export async function GET(req: NextRequest) {
   const startedAt = Date.now();
@@ -47,6 +55,14 @@ export async function GET(req: NextRequest) {
       // set up for visibility monitoring — no second place to keep them, and no
       // second thing to fill in.
       if (!s.domain) { skipped.push({ brandId: s.brandId, why: "no domain on the schedule — nothing to read subjects from" }); continue; }
+
+      // Charged before the crawl and the searches, per brand. A scheduled run
+      // must be able to refuse one brand and carry on with the rest.
+      const debit = await debitAcus(s.brandId, ACTION_COST_ACU.search * SEARCHES_PER_BRAND);
+      if (!debit.ok) {
+        skipped.push({ brandId: s.brandId, why: `not enough ACUs for this week's trend sweep (needs ${ACTION_COST_ACU.search * SEARCHES_PER_BRAND}, balance ${debit.balanceAcu}) — top up and it resumes on the next run` });
+        continue;
+      }
 
       const crawl = await deepCrawl(s.domain, { maxPages: 3, budgetMs: 20_000 });
       // Searched in the brand's own region: a story breaking somewhere this

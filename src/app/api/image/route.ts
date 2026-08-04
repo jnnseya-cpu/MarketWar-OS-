@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateImage, imageProviderStatus, extractBrandTheme, estimateImageCost } from "@/backend/image-gateway";
 import { DEFAULT_CREATIVE_OPTIONS, IMAGE_PROVIDERS, type CreativeOptions, type ImageGenerationRequest, type ImageQuality } from "@/shared/creative";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
+import { meterAction, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 
 // AI Visual Creation Engine API (multi-provider image gateway).
 // POST { action: "generate", ... } → N brand-safe creative variants
@@ -27,11 +28,19 @@ export async function POST(req: NextRequest) {
 
   // Generation hits paid providers → must be authenticated + throttled + bounded,
   // or it is an anonymous denial-of-wallet. (theme/estimate are free + local.)
+  // Metered here rather than at the call site so the wallet is charged BEFORE
+  // the provider is asked for anything: a customer must never end up with a
+  // debit and no image, and must never end up with an image and no debit.
+  // Charged per variant, because that is what the provider bills us for.
+  let meterVariants = 1;
   if (action === "generate") {
     const rl = rateLimit(clientKey(req, "image-generate"), 20, 60_000, Date.now());
     if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
     const auth = await requireAuth(req);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    meterVariants = Math.max(1, Math.min(8, Number(body.variants) || 1));
+    const meter = await meterAction(auth, "image", meterVariants);
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
   }
 
   if (action === "theme") {
@@ -93,8 +102,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "generate") {
-    const results = await generateImage(genReq);
-    return NextResponse.json({ variants: results, mode: results[0]?.mode ?? "demo" });
+    try {
+      const results = await generateImage(genReq);
+      return NextResponse.json({ variants: results, mode: results[0]?.mode ?? "demo" });
+    } catch (e) {
+      // Charged and nothing delivered is the one outcome that must not survive.
+      const auth = await requireAuth(req);
+      if (auth.ok) await creditAcus(auth.uid || "", ACTION_COST_ACU.image * meterVariants).catch(() => {});
+      throw e;
+    }
   }
 
   return NextResponse.json({ error: "Unknown action — use generate, estimate or theme" }, { status: 400 });

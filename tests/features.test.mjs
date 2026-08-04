@@ -8801,10 +8801,109 @@ test("the growth engine is one section, and every tool in it has a destination",
   assert.match(sidebar, /\/dashboard\/growth-engine/);
 });
 
-test("the growth engine route is signed in, and charges nothing it did not spend", () => {
+test("the growth engine route is signed in, metered and gated", () => {
+  // This test used to assert the OPPOSITE — that neither tool charged, because
+  // neither calls a provider. The owner's rule is narrower than that reasoning
+  // and it wins: every AI action is metered and gated by the ACU balance, with
+  // no exceptions. They are charged at the nominal `report` rate rather than a
+  // provider-cost rate they do not incur, so the rule holds without
+  // overcharging for it.
   const route = readFileSync(new URL("../src/app/api/growth-engine/route.ts", import.meta.url), "utf8");
   assert.match(route, /requireAuth\(req\)/);
   assert.match(route, /rateLimit\(/);
   assert.match(route, /resolveBrandAccess/, "the ledger is the customer's own data");
-  assert.ok(!/meterAction|debitAcus/.test(route), "neither tool calls a provider, so neither invents a fee");
+  assert.match(route, /meterAction\(auth, "report"\)/);
+  // Charged BEFORE the work, and an unknown action is rejected first so a typo
+  // cannot cost anybody an ACU.
+  const post = route.slice(route.indexOf("export async function POST"));
+  assert.ok(post.indexOf("meterAction") < post.indexOf("hashtagsFor("), "charged before the work runs");
+  assert.ok(post.indexOf("Unknown action") < post.indexOf("meterAction"), "a typo must not be charged for");
+});
+
+// ---------------------------------------------------------------------------
+// No free AI action, regardless
+//
+// Owner: "every AI action are metered and gated by available ACUs, no free AI
+// action regardless."
+//
+// Enforcing that by reading code is hopeless — 147 routes, and the provider call
+// is usually three or four modules down. tests/helpers/spend-graph.mjs builds
+// the call graph from each route's HTTP handlers and answers it mechanically:
+// which routes can reach a provider, and which of those charge for it first.
+//
+// The first run found eight routes spending with no wallet gate at all,
+// including image generation (the most expensive action on the platform) and a
+// weekly cron whose own comment claimed it spent nothing.
+// ---------------------------------------------------------------------------
+const spendGraph = await import("./helpers/spend-graph.mjs");
+
+// The only spending that is not a customer's AI action. Each has to earn its
+// place here in writing, and the list is asserted to stay this short.
+const SPEND_EXEMPT = {
+  "src/app/api/blog/daily/route.ts":
+    "MarketWar's own marketing blog on MarketWar's own site, published by the scheduler with no customer in the request. It is the platform spending its own money, which the platform-wide AI ceiling already governs. The interactive route (/api/blog) IS metered.",
+};
+
+test("every route that can spend with a provider charges for it first", () => {
+  const rows = spendGraph.auditRoutes();
+  assert.ok(rows.length > 10, "the graph found almost nothing — it has stopped working, which is worse than a failure");
+  const unmetered = rows.filter((r) => !r.metersVia && !SPEND_EXEMPT[r.route]);
+  assert.deepEqual(
+    unmetered.map((r) => `${r.route} (spends via ${r.spendsVia})`),
+    [],
+    "these routes can call a paid provider without charging an ACU",
+  );
+});
+
+test("the exemptions are few, named, and still real routes", () => {
+  for (const [route, why] of Object.entries(SPEND_EXEMPT)) {
+    assert.ok(existsSync(new URL(`../${route}`, import.meta.url)), `${route} no longer exists — drop the exemption`);
+    assert.ok(why.length > 80, `${route} needs a real reason, not a label`);
+  }
+  assert.ok(Object.keys(SPEND_EXEMPT).length <= 2, "the exemption list is where this rule goes to die — keep it tiny");
+});
+
+test("the graph is not vacuous — it finds the spenders and the meters", () => {
+  // A check that returns "all clear" because it cannot see anything is worse
+  // than no check, so this asserts it can still see both sides.
+  const rows = spendGraph.auditRoutes();
+  const routes = rows.map((r) => r.route);
+  for (const known of ["src/app/api/image/route.ts", "src/app/api/video/clips/route.ts", "src/app/api/search/route.ts"]) {
+    assert.ok(routes.includes(known), `${known} spends money and the graph missed it`);
+  }
+  assert.ok(rows.some((r) => r.metersVia), "it found no metering anywhere");
+  // And it must NOT flag a route that only reads configuration from a module
+  // that happens to also export the spender.
+  assert.ok(!routes.includes("src/app/api/gateway/route.ts"), "gatewayStatus reads config; it spends nothing");
+});
+
+test("image generation is charged per variant, before the provider is asked", () => {
+  const route = readFileSync(new URL("../src/app/api/image/route.ts", import.meta.url), "utf8");
+  assert.match(route, /meterAction\(auth, "image", meterVariants\)/);
+  assert.ok(route.indexOf("meterAction") < route.indexOf("await generateImage("), "charged before the spend, never after");
+  // And refunded if the provider fails, because charged-and-nothing-delivered is
+  // the one outcome that must not survive.
+  assert.match(route, /creditAcus\(/);
+});
+
+test("the weekly trend sweep charges each brand and skips the ones it cannot", () => {
+  const route = readFileSync(new URL("../src/app/api/trends/scheduled/route.ts", import.meta.url), "utf8");
+  // Its own comment used to claim it spent nothing while calling a paid search API.
+  assert.ok(!/SPENDS NO AI/.test(route));
+  assert.match(route, /debitAcus\(s\.brandId, ACTION_COST_ACU\.search \* SEARCHES_PER_BRAND\)/);
+  assert.match(route, /skipped\.push\(\{ brandId: s\.brandId, why: `not enough ACUs/);
+  // Charged before the crawl and the searches.
+  assert.ok(route.indexOf("debitAcus") < route.indexOf("await deepCrawl("));
+});
+
+test("a refusal names the price and the balance, so it can be acted on", () => {
+  // "Out of ACUs" with no numbers is a dead end; the customer cannot tell
+  // whether they are one credit short or a thousand.
+  const wallet = readFileSync(new URL("../src/backend/wallet.ts", import.meta.url), "utf8");
+  assert.match(wallet, /this action needs \$\{cost\} ACUs but your balance is \$\{res\.balanceAcu\}/);
+  assert.match(wallet, /status: 402/, "payment required, not a generic error");
+  for (const f of ["src/app/api/image/route.ts", "src/app/api/contacts/route.ts", "src/app/api/organic-dominance/route.ts", "src/app/api/growth-engine/route.ts"]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    assert.match(src, /balanceAcu: meter\.balanceAcu/, `${f} drops the balance from the refusal`);
+  }
 });

@@ -2041,3 +2041,53 @@ everywhere else.
 | Nothing is charged | ✅ | Neither tool calls a provider — tags come from the customer's own words, times from their own ledger — so neither invents a fee to look valuable. A test fails the route if `meterAction` or `debitAcus` appears. |
 | Signed in, rate limited, ownership-checked | ✅ | `requireAuth` + `rateLimit`, and `resolveBrandAccess` on the ledger because it is the customer's own data. |
 | Mutation-verified | ✅ | Six mutations — one list for every platform, keeping engagement bait, letting opens outrank clicks, recommending empty hours, inventing a time with no market set, and counting scanners as audience — each caught. |
+
+## §63 — No free AI action, regardless (2026-08-03)
+
+Owner: *"every AI action are metered and gated by available ACUs, no free AI
+action regardless."*
+
+**This overrules a decision I had made one commit earlier.** The AI Growth
+Engine's two new tools charged nothing, on the reasoning that neither calls a
+provider so neither should invent a fee — and I had written a test asserting
+metering must *not* appear. The owner's rule is narrower than that reasoning and
+it wins. Both are now metered at the nominal `report` rate (the rate for work on
+data the customer already owns), so the rule holds without overcharging for it,
+and the test now asserts the opposite of what it used to.
+
+**Reading 147 routes for this is hopeless**, because the provider call is usually
+three or four modules below the handler. `tests/helpers/spend-graph.mjs` builds
+the call graph from each route's HTTP verbs and answers it mechanically.
+
+The first version followed imports by *module* and produced nonsense —
+`/api/gateway` imports `gatewayStatus` from the file that also exports
+`gatewayComplete`, and was reported as a spender though it only reads
+configuration. The second brace-matched function bodies and reported that
+nothing in the codebase called anything, because `export async function f(input:
+{ … })` opens its first brace inside the **parameter type**. It is now
+symbol-level and slices definitions, which over-approximates in the safe
+direction: it flags a route that might spend rather than missing one that does.
+
+**What it found: 23 routes can reach a paid provider, and 8 of them charged
+nothing.**
+
+| Route | Was | Now |
+|---|---|---|
+| `/api/image` | signed in, **not metered** — the most expensive action on the platform (an image is 10 ACUs) was free | metered **per variant**, before the provider is called, and **refunded** if generation throws |
+| `/api/contacts` (enrich) | ownership-checked, not metered — an empty wallet still bought up to 120 paid searches | metered **per row**, `batch.length` rather than the cap, so eleven rows cost eleven |
+| `/api/organic-dominance` | signed in, not metered | metered — signing in was never the point on its own: an authenticated customer with an empty wallet still spent our money |
+| `/api/creator-recruitment` | signed in, not metered | metered, and given a `maxDuration` |
+| `/api/creator-engine` (verify_followers) | admin-gated, not metered | metered per profile, and given a `maxDuration` |
+| `/api/trends/scheduled` | **its own comment claimed it spent nothing** while calling a paid search API three times per brand, every week, for every scheduled brand | debited per brand **before** the crawl and the searches; a brand that cannot cover it is **skipped with the reason** and the sweep carries on |
+| `/api/blog` | platform_admin, not metered | metered — a no-op for staff, whom `meterAction` exempts, so the owner is never blocked from publishing; the rule still holds uniformly |
+| `/api/growth-engine` | deliberately unmetered | metered at the nominal rate |
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Charged before the work, never after | ✅ | Asserted on the image route (`meterAction` before `generateImage`) and the cron (`debitAcus` before `deepCrawl`). Charged-and-nothing-delivered is the one outcome that must not survive. |
+| A refusal can be acted on | ✅ | 402 with the price *and* the balance — "needs 40 ACUs, balance is 12" — carried through to the JSON on every route touched. "Out of ACUs" with no numbers is a dead end. |
+| Metering routes survive long enough to deliver | ✅ | The existing standing test caught two of the newly-metered routes immediately: they now debit and had no `maxDuration`, so the ~10s platform default would charge and then kill them. Both fixed. |
+| A typo is not charged for | ✅ | An unknown action is rejected before the meter runs. |
+| The rule holds for new routes | ✅ **new** | A standing test fails any route that can reach a provider without a wallet gate. |
+| The exemption list is tiny and written out | ✅ | One entry: `/api/blog/daily`, the scheduler publishing MarketWar's own marketing blog with no customer in the request — the platform spending its own money, which the platform-wide AI ceiling already governs. The test asserts the list stays at most two, that each entry is still a real route, and that each carries a real reason rather than a label. |
+| The check cannot go quietly blind | ✅ | It asserts it still finds known spenders and known meters, and that it still does **not** flag the config-only gateway route. Mutation-verified: blinding the spend list fails. |
