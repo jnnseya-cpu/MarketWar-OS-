@@ -9631,3 +9631,174 @@ test("reviews: a gating filter nested inside config is caught too", async () => 
   assert.equal(res.status, 400);
   assert.equal((await res.json()).gatingKey, "happyOnly");
 });
+
+// ---------------------------------------------------------------------------
+// Gen-Z Growth Layer — six hubs over the OS that already ships, and a Play
+// board whose progress is read from work the platform recorded.
+// ---------------------------------------------------------------------------
+const hubs = await import("../src/backend/genz-hubs.ts");
+
+test("hubs: every route in the map is a page that exists", () => {
+  // The whole value of a second navigation is that it goes somewhere. A hub
+  // linking to a page nobody built is worse than no hub, so this walks the app
+  // directory rather than trusting the table.
+  for (const href of hubs.hubRoutes()) {
+    const rel = href.replace(/^\//, "");
+    const page = new URL(`../src/app/${rel}/page.tsx`, import.meta.url);
+    assert.ok(existsSync(page), `${href} has no page.tsx behind it`);
+  }
+});
+
+test("hubs: all six exist, each states what it lacks, and nothing is double-counted", () => {
+  assert.deepEqual(hubs.HUBS.map((h) => h.id), ["create", "grow", "earn", "play", "connect", "build"]);
+  for (const h of hubs.HUBS) {
+    assert.ok(h.entries.length > 0, `${h.id} has no entries`);
+    assert.ok(h.notYet.length > 0, `${h.id} claims to be complete — every hub has gaps and must publish them`);
+  }
+  assert.equal(hubs.hubFor("/dashboard/video"), "create");
+  assert.equal(hubs.hubFor("/dashboard/nowhere"), null);
+  const cov = hubs.hubCoverage();
+  assert.equal(cov.length, 6);
+  assert.ok(cov.every((c) => c.pct > 0 && c.pct < 100), "a hub at 100% would mean the gap list was emptied rather than closed");
+});
+
+const mi = await import("../src/backend/missions.ts");
+
+test("missions: the day boundary follows the user's clock, through a DST change", () => {
+  // 23:30 UTC on 30 March is already 00:30 on the 31st in London (BST began).
+  assert.equal(mi.dayKey("2025-03-30T23:30:00Z", "Europe/London"), "2025-03-31");
+  assert.equal(mi.dayKey("2025-03-30T23:30:00Z", "UTC"), "2025-03-30");
+  // And in January, when London is on UTC, the same instant is still the 30th.
+  assert.equal(mi.dayKey("2025-01-30T23:30:00Z", "Europe/London"), "2025-01-30");
+  assert.equal(mi.dayKey("not-a-date"), "");
+  assert.equal(mi.dayIndex("2025-03-31") - mi.dayIndex("2025-03-30"), 1);
+});
+
+test("missions: the daily set is stable for a date and rotates between dates", () => {
+  const a = mi.dailyChallenges("2026-08-04").map((c) => c.id);
+  assert.deepEqual(mi.dailyChallenges("2026-08-04").map((c) => c.id), a, "same date, same challenges");
+  assert.notDeepEqual(mi.dailyChallenges("2026-08-05").map((c) => c.id), a, "next date, different challenges");
+  assert.equal(a.length, 5, "one per track");
+  assert.deepEqual(mi.dailyChallenges("2026-08-04").map((c) => c.track), mi.TRACKS);
+});
+
+test("missions: challenges the platform cannot observe are dropped, not shown at zero", () => {
+  const trackable = ["content", "sale", "customer", "page", "research"];
+  const set = mi.dailyChallenges("2026-08-04", trackable);
+  assert.ok(set.every((c) => trackable.includes(c.kind)), "an unobservable challenge is a nag nobody can clear");
+  // And a track with NOTHING observable drops out entirely rather than being
+  // filled with a challenge nobody can clear.
+  const onlyPages = mi.dailyChallenges("2026-08-04", ["page"]);
+  assert.ok(onlyPages.length < 5, "tracks with no observable challenge must disappear");
+  assert.ok(onlyPages.every((c) => c.kind === "page"));
+  const social = mi.dailyChallenges("2026-08-04", ["outreach", "review-request"]);
+  assert.deepEqual(social.map((c) => c.track), ["sales", "networking"], "only the tracks that can offer them survive");
+  assert.ok(social.every((c) => c.kind === "outreach" || c.kind === "review-request"));
+});
+
+test("missions: progress comes from recorded deeds, on the right day", () => {
+  const day = "2026-08-04";
+  const set = mi.dailyChallenges(day).filter((c) => c.kind === "content");
+  const deeds = [
+    { kind: "content", at: "2026-08-04T09:00:00Z" },
+    { kind: "content", at: "2026-08-04T18:00:00Z" },
+    { kind: "content", at: "2026-08-03T18:00:00Z" }, // yesterday — must not count
+  ];
+  const prog = mi.challengeProgress(set, deeds, day, "UTC");
+  assert.equal(prog[0].done, 2, "only today's work counts toward today's challenge");
+});
+
+test("missions: XP and levels come off a published curve", () => {
+  const t = mi.levelThresholds();
+  assert.equal(t[0], 0);
+  assert.equal(t[1], 100);
+  assert.ok(t.every((v, i) => i === 0 || v > t[i - 1]), "the curve must be strictly increasing");
+  assert.equal(mi.levelFor(0).level, 1);
+  assert.equal(mi.levelFor(0).title, "Rookie");
+  assert.equal(mi.levelFor(100).level, 2);
+  assert.equal(mi.levelFor(99).level, 1);
+  assert.equal(mi.levelFor(99).toNext, 1);
+  assert.equal(mi.levelFor(1e9).toNext, null, "the top level has no next");
+});
+
+test("missions: a streak counts completed days, and today may still be empty", () => {
+  // Complete the content challenge on three consecutive days.
+  const days = ["2026-08-02", "2026-08-03", "2026-08-04"];
+  const deeds = [];
+  for (const d of days) {
+    // Whatever the rotation picked first that day — satisfying it exactly is
+    // what "completed the day" means.
+    const need = mi.dailyChallenges(d)[0];
+    for (let i = 0; i < need.target; i++) deeds.push({ kind: need.kind, at: `${d}T10:00:00Z` });
+  }
+  const s = mi.streakFor(deeds, "2026-08-04", "UTC");
+  assert.equal(s.todayDone, true);
+  assert.ok(s.current >= 3, `expected at least 3, got ${s.current}`);
+  // The day is not over: an empty today must not kill a live run.
+  const s2 = mi.streakFor(deeds, "2026-08-05", "UTC");
+  assert.equal(s2.todayDone, false);
+  assert.ok(s2.current >= 3, "a streak that dies at breakfast teaches people to stop trying");
+  // But a two-day gap does break it.
+  assert.equal(mi.streakFor(deeds, "2026-08-07", "UTC").current, 0);
+});
+
+test("missions: an ACU reward is funded from realised margin or it is not paid", () => {
+  // Below the floor: revenue only twice the cost is EXACTLY 100% margin, so
+  // there is no headroom at all and the reward must be zero.
+  const atFloor = mi.rewardCeilingAcus({ spentAcu: 1000, revenueGbp: 10, providerCostGbp: 5 });
+  assert.equal(atFloor.acus, 0);
+  assert.match(atFloor.why, /floor/);
+
+  // BELOW the floor the arithmetic goes negative, and a negative reward is a
+  // debt dressed as a prize. It must clamp to zero and say what the margin is.
+  const under = mi.rewardCeilingAcus({ spentAcu: 1000, revenueGbp: 8, providerCostGbp: 5 });
+  assert.equal(under.acus, 0);
+  assert.match(under.why, /60%/, "the actual realised margin is named, not just 'too low'");
+
+  // Comfortably above it: some ACUs can be returned, and the margin left
+  // afterwards is still at or above 100%.
+  const rich = mi.rewardCeilingAcus({ spentAcu: 1000, revenueGbp: 10, providerCostGbp: 2 });
+  assert.ok(rich.acus > 0, "realised margin should fund something");
+  assert.ok(rich.marginAfter >= 1.0, `margin after the reward was ${rich.marginAfter}`);
+
+  // Nothing measured yet: no reward, and the reason says so rather than paying
+  // out on an assumption.
+  const empty = mi.rewardCeilingAcus({ spentAcu: 0, revenueGbp: 0, providerCostGbp: 0 });
+  assert.equal(empty.acus, 0);
+  assert.match(empty.why, /No metered spend/);
+});
+
+test("missions: a completed mission pays only what the ceiling allows", () => {
+  const deeds = [{ kind: "sale", at: "2026-08-04T10:00:00Z", valueGbp: 250 }];
+  const broke = mi.missionProgress(mi.MONEY_MISSIONS, deeds, "2026-08-04T12:00:00Z", { acus: 0, why: "no margin", marginAfter: null });
+  const m1 = broke.find((m) => m.id === "first-100");
+  assert.equal(m1.complete, true, "£250 clears a £100 mission");
+  assert.equal(m1.rewardAcu, 0, "an unfunded reward is not paid");
+  assert.ok(m1.xp > 0, "XP costs nothing, so it is still paid");
+
+  const funded = mi.missionProgress(mi.MONEY_MISSIONS, deeds, "2026-08-04T12:00:00Z", { acus: 50, why: "ok", marginAfter: 1.2 });
+  assert.equal(funded.find((m) => m.id === "first-100").rewardAcu, 50, "capped by the ceiling, not by the wish");
+
+  // Out of the window entirely.
+  const old = mi.missionProgress(mi.MONEY_MISSIONS, deeds, "2026-10-04T12:00:00Z", { acus: 50, why: "ok", marginAfter: 1.2 });
+  assert.equal(old.find((m) => m.id === "first-100").done, 0);
+});
+
+test("missions: a lead is not a sale", async () => {
+  // The route maps the revenue ledger into deeds. A "lead" event carries £0, and
+  // counting it would let "Make £100" complete on nothing.
+  const src = readFileSync(new URL("../src/app/api/genz/route.ts", import.meta.url), "utf8");
+  assert.match(src, /e\.type !== "order" && e\.type !== "sale"/);
+});
+
+test("missions: the whole play state assembles without inventing a reward", () => {
+  const state = mi.playState({ deeds: [], nowISO: "2026-08-04T12:00:00Z", timezone: "Europe/London", trackable: ["content", "sale", "customer", "page", "research", "email", "video"] });
+  assert.equal(state.day, "2026-08-04");
+  assert.equal(state.completedToday, 0);
+  assert.equal(state.xp, 0);
+  assert.equal(state.level.level, 1);
+  assert.equal(state.ceiling.acus, 0);
+  assert.deepEqual(state.untracked, ["outreach", "review-request"]);
+  assert.ok(state.missions.every((m) => m.rewardAcu === 0));
+  assert.match(state.doctrine, /never by a user pressing|work the platform recorded/i);
+});

@@ -2279,3 +2279,74 @@ Tests **885 → 902**, all passing; typecheck, layer check and build green.
 *send* them — sending goes through the Email Centre / WhatsApp by hand for now,
 and the "already asked" record is passed in rather than stored. A `review_asks`
 ledger and one-click send are the next increment.
+
+---
+
+## §67 — The Gen-Z Growth Layer and the GZ-OS agent network (2026-08-04)
+
+Two owner specs on the same day: **25 Gen-Z features in six hubs** (Create, Grow,
+Earn, Play, Connect, Build) and a **20-agent always-on network** sharing one
+memory, plus four "world-first" layers. Full blueprint and the per-item mapping:
+`docs/ai-os/14-genz-growth-layer.md`.
+
+**The premise is right and the build follows it literally.** "Attracting Gen Z is
+not about changing the product — it's about changing how they discover, create,
+collaborate, buy and earn." MarketWar has ~60 surfaces and 39 agents; sorted as
+Command/Acquisition/Conversion/Intelligence/Account they are an operator's map,
+and sorted as Create/Grow/Earn/Play/Connect/Build they are a user's map. Same
+engines, second front door.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Six hubs over the OS that already ships | ✅ **new** | `src/backend/genz-hubs.ts` + `/api/genz` + `/dashboard/hubs` + sidebar entry. Nothing underneath changed. |
+| Every hub tile goes somewhere real | ✅ | A test walks `src/app` and fails if any `href` in the map has no `page.tsx`. A hub linking to a page nobody built is worse than no hub. |
+| Each hub publishes what it lacks | ✅ | Every hub carries a `notYet` list, asserted non-empty by test. A hub showing five things and silently omitting eight reads as complete when it is not. |
+| Daily Challenges | ✅ **new** | `src/backend/missions.ts` — five tracks (marketing, sales, video, networking, brand), rotating by day index so everyone on a date gets the same set. Rotation, not a hash-score. |
+| Progress is verified, never self-declared | ✅ | Challenges complete from **recorded deeds** — Work Library items, finished video jobs, ledger sales, Vault contacts. A scoreboard nobody verifies measures nothing. |
+| Unobservable challenges are removed, not shown at zero | ✅ | Prospect outreach and review-request sending have no per-event record yet, so challenges on them are filtered out and the board names them. A challenge nobody can clear teaches people the whole board is decorative. |
+| XP, levels, streaks, badges | ✅ | Published curve (×1.4 per level), DST-correct day keys via `Intl` — a fixed offset is wrong twice a year — and a streak that survives an empty *today*, because a run that dies at breakfast teaches people to stop trying. |
+| Money Missions | ✅ **new** | Five missions over real windows (£100/7d, 5 sales/14d, £1,000/30d, 50 contacts, 100 prospects), measured from the ledger. A `lead` event carries £0 and does not count as a sale. |
+| **"Completing challenges earns ACUs" vs the pricing law** | ✅ **conflict resolved** | An ACU is provider spend, and free ACUs collide with both the owner's 100% margin floor and §63. Resolved by funding rather than printing: `rewardCeilingAcus()` returns the largest giveaway that keeps the floor, from realised revenue and measured provider cost — `G ≤ S·(R − C(1+f)) / (C(1+f))`. Below the floor the ceiling is **zero** and missions pay XP, badges and streaks, which cost nothing. Mystery boxes and spin-to-win stay unbuilt for the same reason: a random draw cannot be funded from margin that has not been made. |
+| The whole spec mapped, honestly | ✅ | All 25 features and all 20 agents mapped in doc 14 to `✅ shipped` / `🟡 engine exists, front door does not` / `📘 blueprint` / `📦 blocked, blocker named`. |
+
+### §Gaps — conflicts recorded rather than silently resolved
+
+1. **Prediction scores vs the hash-score ban.** The specs ask for predicted
+   engagement, watch-time and retention prediction, scroll-stop probability,
+   compatibility percentages, estimated sponsorship ROI and a
+   "parallel-universe" simulator naming the best price and launch date before
+   any spend. None of those is measurable for an account we have no data from,
+   and this register has removed the same defect repeatedly (§54, the clip
+   finder). **Recommended resolution — adopted in doc 14 §1.1:** score against
+   the customer's OWN measured history, or ship a labelled rubric ("does the
+   hook name someone in the first three words"), never a percentage produced
+   from nothing. The Creator Coach, Viral Lab and Parallel-Universe Testing are
+   all buildable as rubrics and replays; as oracles they would make every honest
+   number on the platform suspect.
+2. **Trend Hunter across TikTok / Snapchat / Discord / Twitch.** None offers a
+   usable public trend API; scraping breaches their terms and the enforcement
+   lands on the customer's connected accounts. **Recommended resolution:** build
+   the connector where an API exists and state plainly which platforms are not
+   covered, rather than inventing a trend score for them.
+3. **Autonomy that commits the user.** "AI negotiates rates", auto-replying DMs
+   with pricing and availability, and automated community moderation each create
+   an obligation or a decision with a person on the other end. **Recommended
+   resolution:** draft and queue; the human accepts. The existing `approvals`
+   engine is the gate and the orchestrator must not bypass it.
+4. **Health and finance in the AI Life OS.** Regulated advice in the UK. Out of
+   scope until there is a licensed partner; business, career and education are
+   in.
+5. **An always-on agent network is a standing provider bill.** "Continuously
+   observes, learns, predicts, creates" is an unbounded invoice unless each run
+   is metered (§63) and capped per brand per day. Recorded as a build
+   precondition, not an afterthought.
+6. **The shared memory is the real proposal.** `strategy-run.ts` already chains
+   seven agents by passing outputs forward, but the context dies with the run.
+   The next increment is a durable per-brand fact store with **provenance** —
+   `{ fact, value, source, confidence, observedAt }` — and one hard rule: a fact
+   derived from a model is never promoted to "measured". Without that, one
+   agent's guess becomes the next agent's premise, and a chain of ten agents
+   produces a confident plan built on nothing.
+
+Tests **902 → 915**, all passing; typecheck, layer check and build green; seven
+mutations applied to the new engines and every one caught.

@@ -55,12 +55,13 @@ import {
   Wand2,
   Users,
   Wallet,
-  Workflow, Palette,} from "lucide-react";
+  Workflow, Palette, Trophy,} from "lucide-react";
 
 export const NAV = [
   {
     group: "Command",
     items: [
+      { href: "/dashboard/hubs", label: "Growth Hubs (Create · Grow · Earn · Play)", icon: Trophy },
       { href: "/dashboard/library", label: "Work Library", icon: Library },
       { href: "/dashboard/studio", label: "Brand Studio", icon: Wand2 },
       { href: "/dashboard/brand-kit", label: "Brand Launch Kit", icon: Palette },
