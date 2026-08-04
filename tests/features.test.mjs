@@ -9271,3 +9271,99 @@ test("the campaign send hands the brand to the batch so bounces are attributable
   const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
   assert.match(email, /bounceReturnPath: \(common\.brandId && bounceAddressFor\(common\.brandId, v\.verdict\.email\)\) \|\| BOUNCE_RETURN_PATH/);
 });
+
+// ---------------------------------------------------------------------------
+// The error boundary reported the error to nobody
+//
+// Owner, from the live site: "Something broke — the OS caught it. The error is
+// contained to this view… Try again."
+//
+// That screen is the whole story, and that is the problem. The boundary caught
+// the crash, showed a calm sentence and dropped the error on the floor: no log,
+// no endpoint, not even the message on screen. The customer had a button and no
+// way to say what happened; nobody who could fix it ever found out what threw.
+// A boundary that swallows the error is a nicer white screen, not a fix.
+// ---------------------------------------------------------------------------
+
+test("the boundary says what threw and reports it", () => {
+  const b = readFileSync(new URL("../src/app/error.tsx", import.meta.url), "utf8");
+  // The call must be REACHED, not merely present. A grep for the string passes
+  // just as happily when the call is short-circuited behind a falsy guard, which
+  // is exactly the mutation this has to catch, so the assertion pins it to the
+  // start of the effect body.
+  assert.match(b, /useEffect\(\(\) => \{[\s\S]{0,400}?\n {4}fetch\("\/api\/client-error", \{/,
+    "a caught error that is never reported cannot be fixed");
+  assert.match(b, /\{error\.message\}/, "the message names the thing — showing nothing is not actionable");
+  assert.match(b, /window\.location\.pathname/, "which view it broke on is half the diagnosis");
+  assert.match(b, /Copy details/, "so the customer can say more than 'it broke'");
+  // Reporting must never throw inside the boundary — that turns a broken view
+  // into a broken tab.
+  assert.match(b, /\.catch\(\(\) => \{ \/\* the screen below is still useful without it \*\/ \}\)/);
+});
+
+test("crashes are grouped by what distinguishes them, and counted", async () => {
+  const ce = await import("../src/backend/client-errors.ts");
+  const a = await ce.recordClientError({ message: "Cannot read properties of undefined (reading 'sent')", route: "/dashboard/email", at: "2026-08-04T10:00:00.000Z" });
+  const b = await ce.recordClientError({ message: "Cannot read properties of undefined (reading 'sent')", route: "/dashboard/email", at: "2026-08-04T10:00:05.000Z" });
+  assert.equal(a, b, "the same failure twice is one row, not two");
+  const other = await ce.recordClientError({ message: "x is not a function", route: "/dashboard/email", at: "2026-08-04T10:01:00.000Z" });
+  assert.notEqual(a, other, "a different failure on the same route is a different row");
+  const list = await ce.recentClientErrors();
+  const row = list.find((e) => e.ref === a);
+  assert.equal(row.count, 2, "and it carries how often it happened");
+  assert.equal(row.route, "/dashboard/email");
+});
+
+test("the crash log takes reports from signed-out visitors, but is read by admins only", () => {
+  const route = readFileSync(new URL("../src/app/api/client-error/route.ts", import.meta.url), "utf8");
+  const post = route.slice(route.indexOf("export async function POST"), route.indexOf("export async function GET"));
+  assert.ok(!/requireAuth/.test(post), "a crash on the sign-up page is the one worth hearing about, and that visitor has no session");
+  assert.match(post, /rateLimit\(/, "so it cannot be used to flood the log");
+  const get = route.slice(route.indexOf("export async function GET"));
+  assert.match(get, /requireAuth\(req, \{ scope: "platform_admin" \}\)/);
+});
+
+test("the panels survive a response shape they did not expect", async () => {
+  // This is the crash class that produces that boundary: an array the component
+  // maps over arriving undefined. Asserted on the source because the components
+  // are client-only, and the guard is the point rather than the render.
+  const improve = readFileSync(new URL("../src/components/EmailImprove.tsx", import.meta.url), "utf8");
+  for (const field of ["findings", "providers", "campaigns"]) {
+    assert.match(improve, new RegExp(`Array\\.isArray\\(report\\?\\.${field}\\)`), `${field} is mapped without a guard`);
+  }
+  assert.match(improve, /if \(!reach \|\| !reach\.sent\) return null;/);
+  const growth = readFileSync(new URL("../src/app/dashboard/growth-engine/page.tsx", import.meta.url), "utf8");
+  assert.match(growth, /Array\.isArray\(s2\?\.use\)/);
+  assert.match(growth, /Array\.isArray\(d\.windows\)/);
+});
+
+test("the Reply-to help no longer promises what the fix removed", () => {
+  // It said "Leave blank to receive replies at the From address above" — which
+  // is precisely the default that lost every reply.
+  const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.ok(!/Leave blank to receive replies at the From address/.test(page));
+  assert.match(page, /Leave it blank and replies come to your own MarketWar reply address/);
+});
+
+test("the crash report route records what the boundary sends it", async () => {
+  // Behaviour through the real handler, because the boundary's own test can only
+  // read source and source can lie about whether a line is reached.
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/client-error/route.ts");
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/client-error", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const a = await (await post({ message: "Cannot read properties of undefined (reading 'x')", route: "/dashboard/inbox" })).json();
+  assert.ok(a.ref, "the customer is given something to quote");
+  const b = await (await post({ message: "Cannot read properties of undefined (reading 'x')", route: "/dashboard/inbox" })).json();
+  assert.equal(b.ref, a.ref, "the same crash twice is one row");
+
+  const bad = await post({ route: "/dashboard/inbox" });
+  assert.equal(bad.status, 400, "a report with no message is not a report");
+
+  const ce = await import("../src/backend/client-errors.ts");
+  const row = (await ce.recentClientErrors()).find((e) => e.ref === a.ref);
+  assert.equal(row.count, 2);
+  assert.equal(row.route, "/dashboard/inbox");
+});

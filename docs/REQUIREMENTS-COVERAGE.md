@@ -2186,3 +2186,45 @@ the local part inside the 64-octet limit for any length of address.
 Mutation-verified: the reply falling back to the From address, an out-of-office
 classed as a bounce again, the reply address accepting an unsigned tag, and the
 MX being asked for on the root — each caught.
+
+## §65 — The error boundary reported the error to nobody (2026-08-04)
+
+Owner, from the live site: *"Something broke — the OS caught it. The error is
+contained to this view; your data and campaigns are untouched. Try again."*
+
+**That screen was the whole story, and that is the defect.** The boundary caught
+the crash, showed a calm sentence, and dropped the error on the floor — no log,
+no endpoint, not even the message on screen. The customer had a button and no way
+to say what happened; nobody who could fix it ever learned what threw. A boundary
+that swallows the error is a nicer white screen, not a fix.
+
+It could not be reproduced from the report, and it could not be reproduced from
+the code either: every dashboard surface was driven in a real browser and none of
+them crashed. **Which is exactly the situation the reporting exists for.**
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The screen says what threw | ✅ **fixed** | The message and the route, in monospace. *"it broke"* is not something anybody can act on; *"Cannot read properties of undefined (reading 'sent')"* usually names the thing. |
+| The customer can say more than "it broke" | ✅ **new** | A **Copy details** button and a quotable reference. |
+| The crash is reported | ✅ **new** | `POST /api/client-error` with message, route, digest and stack. Reporting can never throw inside the boundary — that turns a broken view into a broken tab. |
+| One bug is one row | ✅ | Grouped by message + route with a count and last-seen, so a component crashing four hundred times is one row rather than four hundred. No user id, no page contents, nothing from the customer's data: fixing a crash needs what threw and where. |
+| Signed-out visitors can report | ✅ | A crash on the sign-up page is the one most worth hearing about, and that visitor has no session. Rate-limited so it cannot flood the log. Reading the log is `platform_admin`. |
+| Proven, not assumed | ✅ | A deliberately crashing page was built, driven in a real browser, and removed. The boundary showed *"Cannot read properties of undefined (reading 'sent')"*, *"on /crash-probe"*, and *"Quote a4421db7a4"*; the POST carried the full stack; the admin GET returned the row with `count`. |
+
+**And the likely cause, hardened.** The crash class that produces this boundary is
+an array arriving `undefined` from an API and being mapped over. The three
+surfaces added most recently all did exactly that with no guard —
+`EmailImprove`'s findings/providers/campaigns, the Growth Engine's hashtag sets
+and posting windows, and the blog studio's link audits. All now normalise what
+they were handed. A panel that renders nothing beats a panel that renders; a view
+that white-screens is worse than both.
+
+Also corrected: the Reply-to help still read *"Leave blank to receive replies at
+the From address above"* — precisely the default that §64 removed for losing
+every reply.
+
+Mutation-verified. One mutation escaped first: the boundary's test grepped for
+the reporting call, and a grep passes just as happily when the call is
+short-circuited behind a falsy guard. It now pins the call to the start of the
+effect body, and a second test drives the real route handler, because source can
+lie about whether a line is reached.

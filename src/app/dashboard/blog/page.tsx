@@ -38,7 +38,7 @@ export default function BlogStudioPage() {
       });
       const data = await res.json();
       const map: Record<string, { internal: number; external: number; broken: string[]; level: "ok" | "thin" | "none"; note: string }> = {};
-      for (const a of Array.isArray(data.audits) ? data.audits : []) map[a.slug] = a;
+      for (const a of Array.isArray(data.audits) ? data.audits : []) map[a.slug] = { ...a, broken: Array.isArray(a?.broken) ? a.broken : [] };
       setAudits(map);
     } catch { /* ignore */ }
   }, []);

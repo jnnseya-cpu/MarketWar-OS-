@@ -128,7 +128,15 @@ export default function GrowthEnginePage() {
       });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Couldn't build the tags."); return; }
-      setSets(d.sets || []);
+      // Normalised here rather than trusted: the render maps these, and an
+      // absent array throws into the global boundary.
+      setSets((Array.isArray(d.sets) ? d.sets : []).map((s2: HashtagSet) => ({
+        ...s2,
+        use: Array.isArray(s2?.use) ? s2.use : [],
+        alsoConsidered: Array.isArray(s2?.alsoConsidered) ? s2.alsoConsidered : [],
+        warnings: Array.isArray(s2?.warnings) ? s2.warnings : [],
+        rule: s2?.rule ?? { hardCap: null, suggested: 0, note: "" },
+      })));
     } catch { setErr("Couldn't reach the growth engine."); }
     finally { setTagging(false); }
   }
@@ -142,7 +150,9 @@ export default function GrowthEnginePage() {
         body: JSON.stringify({ action: "posting-times", brandId: activeBrand.id, market: activeBrand.targetMarket ?? null }),
       });
       const d = await r.json();
-      if (r.ok) setAdvice(d);
+      if (r.ok && d && d.basis) {
+        setAdvice({ ...d, windows: Array.isArray(d.windows) ? d.windows : [], days: Array.isArray(d.days) ? d.days : [] });
+      }
     } catch { /* the panel simply stays empty */ }
     finally { setTiming(false); }
   }, [activeBrand]);

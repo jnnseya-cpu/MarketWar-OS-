@@ -53,8 +53,17 @@ const AFFECTS: Record<ImproveFinding["affects"], string> = {
 };
 
 export default function EmailImprove({ report }: { report: ImproveReportView }) {
-  const { reach, findings, providers, campaigns } = report;
-  if (!reach.sent) return null;
+  // DEFENSIVE ON PURPOSE. This renders whatever /api/email-events returned, and
+  // a response that is a shape older than this component — or a partial one from
+  // a failed aggregation — used to throw straight into the global error
+  // boundary, which then reported the crash to nobody. A panel that renders
+  // nothing is a worse day than a panel that renders; a view that white-screens
+  // is a worse day than both.
+  const reach = report?.reach;
+  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  const providers = Array.isArray(report?.providers) ? report.providers : [];
+  const campaigns = Array.isArray(report?.campaigns) ? report.campaigns : [];
+  if (!reach || !reach.sent) return null;
 
   const judgeableProviders = providers.filter((p) => p.judgeable);
   const judgeableCampaigns = campaigns.filter((c) => c.judgeable);

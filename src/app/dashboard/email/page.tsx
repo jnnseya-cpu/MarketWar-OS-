@@ -579,7 +579,7 @@ export default function EmailPage() {
               </p>
             )}
           </div>
-          <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave blank to receive replies at the From address above. Bounce notifications never reach you — they&rsquo;re handled by the platform and the address is auto-suppressed.</p>
+          <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave it blank and replies come to your own MarketWar reply address instead, where they appear in your Inbox here; that needs no DNS from you and always works. Bounce notifications never reach you — they&rsquo;re handled by the platform and only the address that actually failed is suppressed.</p>
           {templates.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <select className="input max-w-[280px]" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
