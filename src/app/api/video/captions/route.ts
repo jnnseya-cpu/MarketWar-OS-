@@ -63,7 +63,39 @@ export async function POST(req: NextRequest) {
       // back as "Unrecognized file format" — an error that explains nothing and
       // arrives after the charge. Catch it here and say what to do instead.
       const verdict = classifyMediaUrl(url);
-      if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind }, { status: 400 });
+
+      // YOUR OWN YOUTUBE VIDEO IS A SPECIAL CASE, AND A BETTER ONE.
+      //
+      // This screen exists to produce an .srt — which is exactly what YouTube
+      // already holds for a video on a channel you own, and hands over through
+      // its own API. Reading it beats transcribing: YouTube captioned the
+      // master, we would be transcribing a re-encode; there is no 25MB ceiling;
+      // it returns immediately; and it costs nothing, so the meter below is
+      // never reached. Nothing is downloaded, which is the whole point.
+      if (verdict.kind === "youtube" && verdict.youtubeId) {
+        const { captionsFor } = await import("@/backend/youtube-captions");
+        const { toVtt } = await import("@/backend/transcribe");
+        const caps = await captionsFor(verdict.youtubeId, language);
+        if (!caps.ok) {
+          return NextResponse.json({
+            error: caps.error, hint: caps.hint, urlKind: verdict.kind,
+            studioUrl: verdict.studioUrl, needsConsent: caps.needsConsent,
+          }, { status: 400 });
+        }
+        return NextResponse.json({
+          ok: true,
+          source: "youtube-captions",
+          language: caps.track.language,
+          auto: caps.track.auto,
+          segments: caps.segments,
+          srt: caps.srt,
+          vtt: toVtt(caps.segments),
+          chargedAcu: 0,
+          note: caps.note,
+        });
+      }
+
+      if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind, studioUrl: verdict.studioUrl }, { status: 400 });
 
       const r = await fetch(url);
       if (!r.ok) return NextResponse.json({ error: `Couldn't fetch that media (HTTP ${r.status}).` }, { status: 400 });

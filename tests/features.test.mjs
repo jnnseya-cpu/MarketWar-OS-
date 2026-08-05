@@ -10692,3 +10692,82 @@ test("media url: a YouTube refusal is one click, not four steps", async () => {
   assert.equal(mu.classifyMediaUrl("https://cdn.example.com/a.mp4").usable, true);
   assert.equal(mu.classifyMediaUrl("https://cdn.example.com/a.mp4").studioUrl, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// YouTube captions — the lawful way to get a video's words.
+//
+// Three screens dead-ended on the same paste. Two of them never needed the
+// video: the Caption Engine produces an .srt, which IS a transcript with
+// timestamps, and the Clip Finder scores the words. YouTube hands those over
+// through its own API for a channel you own — better than transcribing,
+// because it captioned the master rather than a re-encode.
+// ---------------------------------------------------------------------------
+const ytc = await import("../src/backend/youtube-captions.ts");
+
+test("youtube captions: SRT is parsed into exact segments", () => {
+  const srt = [
+    "1", "00:00:01,000 --> 00:00:04,500", "Pricing is the first thing you got wrong.", "",
+    "2", "00:01:02,250 --> 00:01:05,000", "<c>And</c> here is why.", "",
+    "3", "00:02:00,000 --> 00:02:00,000", "zero length, dropped", "",
+    "4", "00:03:00,000 --> 00:03:02,000", "", "",
+  ].join("\n");
+  const segs = ytc.parseSrt(srt);
+  assert.equal(segs.length, 2, "zero-length and empty cues are dropped, not emitted");
+  assert.deepEqual(segs[0], { start: 1, end: 4.5, text: "Pricing is the first thing you got wrong." });
+  // Hours and minutes must both count, and YouTube's inline karaoke tags go.
+  assert.equal(segs[1].start, 62.25);
+  assert.equal(segs[1].text, "And here is why.", "inline tags must not reach the scorer");
+  assert.deepEqual(ytc.parseSrt(""), []);
+  assert.deepEqual(ytc.parseSrt("not an srt at all"), []);
+});
+
+test("youtube captions: a human track beats YouTube's speech recognition", () => {
+  const tracks = [
+    { id: "asr", language: "en", trackKind: "ASR", name: "", isDraft: false, auto: true },
+    { id: "human", language: "en", trackKind: "standard", name: "", isDraft: false, auto: false },
+    { id: "fr", language: "fr", trackKind: "standard", name: "", isDraft: false, auto: false },
+  ];
+  // The clip finder scores the actual words, so an ASR mishearing is a
+  // mis-scored clip. A human track wins even when ASR is listed first.
+  assert.equal(ytc.pickTrack(tracks).id, "human");
+  assert.equal(ytc.pickTrack(tracks, "fr").id, "fr", "an asked-for language wins among human tracks");
+  // Only ASR available → used, not refused.
+  assert.equal(ytc.pickTrack([tracks[0]]).id, "asr");
+  // A draft track is not a track.
+  assert.equal(ytc.pickTrack([{ ...tracks[1], isDraft: true }]), null);
+  assert.equal(ytc.pickTrack([]), null);
+});
+
+test("youtube captions: the scope is requested, and its cost is written down", () => {
+  const auth = readFileSync(new URL("../src/backend/google-auth.ts", import.meta.url), "utf8");
+  assert.match(auth, /youtube\.force-ssl/, "captions.download needs it");
+  assert.match(auth, /SENSITIVE/, "a scope needing Google verification must say so where it is added");
+  assert.equal(ytc.YOUTUBE_SCOPE, "https://www.googleapis.com/auth/youtube.force-ssl");
+});
+
+test("youtube captions: 'not your video' is never reported as 'no captions'", () => {
+  // Sending somebody to add subtitles to a video that is not theirs is sending
+  // them to fix the wrong thing.
+  const src = readFileSync(new URL("../src/backend/youtube-captions.ts", import.meta.url), "utf8");
+  assert.match(src, /res\.status === 403/);
+  assert.match(src, /not on the connected channel/);
+  assert.match(src, /has no caption track yet/);
+  // Auto-captions are used but labelled, because their accuracy differs.
+  assert.match(src, /AUTOMATIC captions/);
+  assert.match(src, /mishear names and jargon/);
+});
+
+test("youtube captions: both word-based screens use them, and neither charges", () => {
+  const clips = readFileSync(new URL("../src/app/api/video/clips/route.ts", import.meta.url), "utf8");
+  const caps = readFileSync(new URL("../src/app/api/video/captions/route.ts", import.meta.url), "utf8");
+  for (const [name, src] of [["clips", clips], ["captions", caps]]) {
+    assert.match(src, /verdict\.kind === "youtube" && verdict\.youtubeId/, `${name} does not try captions`);
+    assert.match(src, /captionsFor\(verdict\.youtubeId/, `${name} does not call the caption reader`);
+  }
+  // The Caption Engine returns before the meter — there is nothing to charge for.
+  assert.ok(caps.indexOf('source: "youtube-captions"') < caps.indexOf('meterAction(auth, "llm")'),
+    "the caption path must return before metering, or a free lookup gets billed");
+  assert.match(caps, /chargedAcu: 0/);
+  // And the clip finder says which transcript the customer is reading.
+  assert.match(clips, /transcriptFrom: captionSource \? "youtube-captions" : "transcription"/);
+});

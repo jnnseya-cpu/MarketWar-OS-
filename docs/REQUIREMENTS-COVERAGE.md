@@ -2648,3 +2648,40 @@ Tests **955 → 959**; typecheck, layer check and build green.
 a value that existed on one side of a boundary and was never carried across, or
 a diagnosis that named the wrong cause. That is what "full of features and no
 customers" is made of.
+
+---
+
+## §70 — YouTube links, lawfully (2026-08-04)
+
+The same paste dead-ended on three screens — Render Farm, Caption Engine, Clip
+Finder — because all three share one classifier and it refused YouTube links.
+
+**The refusal was right, and stays right for one of the three.** YouTube permits
+downloading only through a download link YouTube itself displays, and the only
+one of those is Studio's, for a video on your own channel. Shipping an extractor
+would hand the customer a terms breach against the channel they are trying to
+grow, on top of being unreliable — third-party extractors break constantly.
+
+**But two of the three never needed the video.** The Caption Engine produces an
+`.srt`, which *is* a transcript with timestamps. The Clip Finder transcribes
+speech, rebuilds sentences and scores the words. Both need the WORDS — and
+YouTube hands those over through its own API for a channel you own.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Read a video's words without downloading it | ✅ **new** | `src/backend/youtube-captions.ts` — `captions.list` → `captions.download?tfmt=srt` under the owner's OAuth. Nothing is downloaded. |
+| It is better, not merely permitted | ✅ | YouTube captioned the **master**; transcription reads a re-encode. No 25MB ceiling, no upload, returns immediately, and **costs no ACUs** — the Caption Engine returns before the meter is reached, asserted by test on source order. |
+| A human track beats speech recognition | ✅ | The clip finder scores actual words, so an ASR mishearing is a mis-scored clip. `pickTrack` ranks human tracks above ASR, then the asked-for language. Draft tracks are not tracks. |
+| Auto-captions are used but labelled | ✅ | When only ASR exists it is used and the note says so — *"Auto-captions mishear names and jargon — check any clip before publishing."* |
+| **"Not your video" is never reported as "no captions"** | ✅ | 403 → *"this video is not on the connected channel"*. Telling a customer to add subtitles to a video that is not theirs sends them to fix the wrong thing. |
+| The parser cannot silently mis-time a clip | ✅ | Written in-repo rather than pulled in, because a loose parser fails silently — a mis-parsed timestamp produces a clip starting in the wrong place and nothing downstream can tell. Hours and minutes both count; zero-length and empty cues are dropped; YouTube's inline karaoke tags are stripped before the scorer sees them. |
+| The scope's real cost is written down | ✅ | `youtube.force-ssl` added to `OAUTH_SCOPES`, with a comment recording that Google classifies it as **sensitive**: production apps need OAuth verification, and until it is granted the flow works for accounts added as **test users** on the Cloud project while everyone else sees the unverified-app warning. Owner's decision: build now, verify in parallel. |
+| Render Farm is unchanged | ✅ | Rendering needs pixels and there is no lawful route to them. It points at the exact Studio page (§69). |
+
+Tests **960 → 965**; typecheck, layer check and build green. Four mutations —
+ASR ranked equal to a human track, empty cues kept, inline tags reaching the
+scorer, draft tracks treated as usable — all four caught.
+
+**Owner action, once ready to open it up:** start Google's OAuth verification for
+`youtube.force-ssl`. Until then, add the accounts that own the test channels as
+test users on the Cloud project and the flow works for them today.

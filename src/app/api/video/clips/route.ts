@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
   // A caller who already has a transcript (from /api/video/captions) can skip
   // the provider entirely — same clips, no second charge for the same audio.
   let segments: Segment[] | null = null;
+  // Set when the words came from YouTube's own caption track rather than from
+  // transcribing audio — surfaced so the customer knows which they are reading.
+  let captionSource = "";
 
   const num = (v: unknown, d: number, lo: number, hi: number) => {
     const n = Number(v);
@@ -104,22 +107,50 @@ export async function POST(req: NextRequest) {
         // A YouTube or Vimeo page link fetches HTML, and HTML handed to Whisper
         // comes back as "Unrecognized file format" — after the charge.
         const verdict = classifyMediaUrl(url);
-        if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind, studioUrl: verdict.studioUrl }, { status: 400 });
 
-        const r = await fetch(url);
-        if (!r.ok) return NextResponse.json({ error: `Couldn't fetch that media (HTTP ${r.status}).` }, { status: 400 });
-        const served = r.headers.get("content-type") || "";
-        if (!isMediaContentType(served)) {
-          return NextResponse.json({
-            error: `That link returned ${served.split(";")[0] || "a web page"}, not audio or video. Paste a direct link to the media file, or upload it instead.`,
-            urlKind: "page",
-          }, { status: 400 });
+        // EXCEPT WHEN IT IS YOUR OWN YOUTUBE VIDEO. The clip finder needs the
+        // WORDS, not the pixels, and YouTube hands the words over through its
+        // own API for a channel you own. Better than transcribing: it captions
+        // the master rather than a re-encode, there is no 25MB limit, and no
+        // transcription is charged. Nothing is downloaded.
+        if (verdict.kind === "youtube" && verdict.youtubeId) {
+          const { captionsFor } = await import("@/backend/youtube-captions");
+          const caps = await captionsFor(verdict.youtubeId, typeof body.language === "string" ? body.language : undefined);
+          if (caps.ok) {
+            segments = caps.segments;
+            captionSource = caps.note;
+          } else {
+            return NextResponse.json({
+              error: caps.error,
+              hint: caps.hint,
+              urlKind: verdict.kind,
+              studioUrl: verdict.studioUrl,
+              needsConsent: caps.needsConsent,
+            }, { status: 400 });
+          }
         }
-        bytes = await r.arrayBuffer();
-        if (bytes.byteLength > MAX_AUDIO_BYTES) {
-          return NextResponse.json({ error: `That file is ${(bytes.byteLength / 1048576).toFixed(1)}MB — the limit is 25MB. Trim it first.` }, { status: 400 });
+
+        if (!segments?.length && !verdict.usable) {
+          return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind, studioUrl: verdict.studioUrl }, { status: 400 });
         }
-        filename = url.split("/").pop()?.split("?")[0] || filename;
+
+        // Only fetch when the captions did not already supply the words.
+        if (!segments?.length) {
+          const r = await fetch(url);
+          if (!r.ok) return NextResponse.json({ error: `Couldn't fetch that media (HTTP ${r.status}).` }, { status: 400 });
+          const served = r.headers.get("content-type") || "";
+          if (!isMediaContentType(served)) {
+            return NextResponse.json({
+              error: `That link returned ${served.split(";")[0] || "a web page"}, not audio or video. Paste a direct link to the media file, or upload it instead.`,
+              urlKind: "page",
+            }, { status: 400 });
+          }
+          bytes = await r.arrayBuffer();
+          if (bytes.byteLength > MAX_AUDIO_BYTES) {
+            return NextResponse.json({ error: `That file is ${(bytes.byteLength / 1048576).toFixed(1)}MB — the limit is 25MB. Trim it first.` }, { status: 400 });
+          }
+          filename = url.split("/").pop()?.split("?")[0] || filename;
+        }
       }
     }
   } catch (e) {
@@ -221,14 +252,21 @@ export async function POST(req: NextRequest) {
     renderJob,
     renderingAvailable: render.ok,
     chargedAcu,
-    note: `${found.note} Each clip carries a .srt already rebased to start at zero, so it is usable in any editor right now — and the Clip Finder screen cuts them to 9:16 with the captions burned in, in your own browser, with no upload and no render bill${render.ok ? ". A render worker is also configured, so render:true can queue them server-side for an unattended batch." : "."}`,
+    transcriptFrom: captionSource ? "youtube-captions" : "transcription",
+    captionNote: captionSource || undefined,
+    note: `${captionSource ? `${captionSource} ` : ""}${found.note} Each clip carries a .srt already rebased to start at zero, so it is usable in any editor right now — and the Clip Finder screen cuts them to 9:16 with the captions burned in, in your own browser, with no upload and no render bill${render.ok ? ". A render worker is also configured, so render:true can queue them server-side for an unattended batch." : "."}`,
   });
 }
 
 export async function GET() {
   return NextResponse.json({
     engine: "Clip Finder — one long video in, scored short clips out",
-    accepts: ["multipart upload (field: file)", "json { url }", "json { segments } from a transcript you already have"],
+    accepts: [
+      "multipart upload (field: file)",
+      "json { url } — a direct media link",
+      "json { url } — a YouTube link to a video on YOUR connected channel: the words come from YouTube's own caption track, nothing is downloaded and no transcription is charged",
+      "json { segments } from a transcript you already have",
+    ],
     returns: ["clip in/out timestamps", "the quotable text of each clip", "seven counted signals per clip with their evidence", "a per-clip .srt rebased to zero", "genre + reframe spec", "optional 9:16 render job"],
     options: { minSec: "default 15", maxSec: "default 75", limit: "default 10", render: "true to queue the cuts", brandId: "required when rendering" },
     limits: { maxBytes: MAX_AUDIO_BYTES, note: "25MB per request (Whisper's limit). Export audio-only from a long recording — it is a fraction of the size and the clip timings still line up with the video." },

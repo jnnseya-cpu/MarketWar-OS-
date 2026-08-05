@@ -98,7 +98,14 @@ async function mintOAuthUserToken(): Promise<string | null> {
 
 // ---- In-app connect flow (no OAuth Playground needed) --------------------
 // One consent covers Search Console (rankings) + Business Profile (local).
-const OAUTH_SCOPES = "https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/business.manage";
+// `youtube.force-ssl` is what `captions.list` + `captions.download` require, and
+// it is the lawful way to read a customer's OWN video's words without touching
+// the video. Google classifies it as SENSITIVE: a production app using it needs
+// their OAuth verification, and until that is granted it works for accounts
+// added as test users on the Cloud project while everyone else sees the
+// unverified-app warning. That is a deployment fact, not a code one, and it is
+// recorded here so nobody wonders later why consent looks different.
+const OAUTH_SCOPES = "https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/youtube.force-ssl";
 function stateSecret(): string { return env("GOOGLE_OAUTH_CLIENT_SECRET") || "marketwar-google-state"; }
 export function signState(): string {
   // Short-lived, HMAC-signed nonce so only URLs the app generated are accepted.
