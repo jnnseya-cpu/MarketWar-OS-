@@ -59,6 +59,7 @@ export type Fact = {
 // choose its own standing. Adding to this list is a deliberate act: it means
 // that module genuinely counts something.
 export const MEASURING_MODULES = [
+  "deep-crawl",       // what is actually in the HTML of the customer's own site
   "posting-time",     // hours computed from the brand's own delivery ledger
   "email-events",     // opens, clicks, bounces actually recorded
   "email-improve",    // the reach report built from those events

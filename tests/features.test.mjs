@@ -10478,3 +10478,127 @@ test("play board: all nine deed kinds are observable now", () => {
   // And the filtering machinery stays, for the next kind that stops being seen.
   assert.match(route, /trackable: TRACKABLE/);
 });
+
+// ---------------------------------------------------------------------------
+// Carrying the crawl forward.
+//
+// The defect, verbatim from a live run: the deep crawl read 8 pages of
+// veryxjnn.com and extracted 530 things — then the Instant Marketing Audit
+// directly below it reported 0 of 36 checks measured, the attack map ranked
+// nothing, and the strategy agent opened with "zero verified facts about what
+// VeryX actually sells". Every one of those was true of the request that
+// produced it: the audit was called with a business name and no evidence.
+// ---------------------------------------------------------------------------
+const siteFacts = await import("../src/backend/site-facts.ts");
+const siteraid = await import("../src/backend/siteraid.ts");
+
+// A crawl-shaped fixture. Not a fetch — this asserts the WIRING, and a test
+// that needs the internet is a test that fails on a train.
+function fakeCrawl(over = {}) {
+  return {
+    startUrl: "https://veryxjnn.com/", host: "veryxjnn.com", partial: true,
+    audit: { url: "https://veryxjnn.com/", ok: true, status: 200, score: 90, checks: [], title: "VeryX", description: "d", words: 1685, https: true, loadMs: 113 },
+    pages: [{ url: "https://veryxjnn.com/", ok: true }, { url: "https://veryxjnn.com/pricing", ok: true }],
+    extraction: {
+      url: "https://veryxjnn.com/", found: 530,
+      brand: { name: "VeryX", tagline: "The Enterprise Execution Operating System", lang: "en-GB", siteName: "VeryX" },
+      products: { values: ["Command Centre"], note: "" }, services: { values: [], note: "" },
+      pricing: [{ value: "£49", currency: "GBP", declared: true }, { value: "£1.04", declared: false }],
+      images: [{ url: "a", label: "" }], videos: [], logos: [], colours: ["#d6112b"], fonts: ["Inter"],
+      ctas: ["Book a 20-min demo", "Start your onboarding", "Get started"],
+      trustSignals: ["GDPR-aligned", "SOC 2 in progress", "PCI via Stripe", "UK data residency"],
+      reviews: [], faqs: [{ q: "q", a: "a" }], hierarchy: [], navigation: [], offers: [],
+      blogLinks: [], contact: { emails: [], phones: [], address: "GB, London" },
+      socialLinks: [], audience: null, notExtracted: [],
+    },
+    robots: { present: true, obeyed: true, disallowed: [], crawlDelayMs: 0, sitemaps: 1 },
+    note: "",
+    ...over,
+  };
+}
+
+const SITE = { business: "VeryX", category: "Enterprise Execution Operating System", offers: ["platform"], location: "United Kingdom" };
+
+test("siteraid: the audit measures nothing without evidence — and everything with it", async () => {
+  // This is the screen the owner pasted.
+  const blind = siteraid.instantAudit(SITE);
+  assert.equal(blind.overall, null);
+  assert.equal(blind.coverage.measured, 0);
+
+  // The same audit, handed the crawl that had already run.
+  const crawl = fakeCrawl();
+  const seeing = siteraid.instantAudit(SITE, { audit: crawl.audit, extraction: crawl.extraction });
+  assert.ok(seeing.coverage.measured > 0, "a crawl was supplied and nothing was measured");
+  assert.equal(typeof seeing.overall, "number");
+  assert.ok(seeing.sections.some((s) => s.overall !== null), "every section is still 'not measured'");
+});
+
+test("siteraid: the crawl is kept against the brand and read back", async () => {
+  siteFacts.__resetSiteFacts();
+  const now = "2026-08-04T12:00:00Z";
+  const saved = await siteFacts.saveSiteFacts("b-facts", fakeCrawl(), now);
+  assert.ok(saved);
+  assert.equal(saved.pagesRead, 2);
+
+  const back = await siteFacts.latestSiteFacts("b-facts", now);
+  assert.equal(back.host, "veryxjnn.com");
+  assert.equal(back.ageDays, 0);
+  assert.equal(back.stale, false);
+  // The score must never imply a crawl that did not just happen.
+  assert.match(siteFacts.provenance(back), /Measured from the crawl of veryxjnn\.com today/);
+  assert.match(siteFacts.provenance({ ...back, ageDays: 20, stale: true }), /20 days ago/);
+  assert.equal((await siteFacts.latestSiteFacts("b-facts", "2026-09-04T12:00:00Z")).stale, true);
+  assert.equal(await siteFacts.latestSiteFacts("nobody", now), null);
+});
+
+test("siteraid: a crawl that read nothing never overwrites one that did", async () => {
+  siteFacts.__resetSiteFacts();
+  const now = "2026-08-04T12:00:00Z";
+  await siteFacts.saveSiteFacts("b-403", fakeCrawl(), now);
+  // A 403 or a timeout is a fact about the request, not about the site.
+  const blocked = await siteFacts.saveSiteFacts("b-403", fakeCrawl({ pages: [{ url: "x", ok: false }], extraction: null }), now);
+  assert.equal(blocked, null, "a blocked fetch must not wipe a good crawl");
+  assert.equal((await siteFacts.latestSiteFacts("b-403", now)).pagesRead, 2);
+});
+
+test("siteraid: what the crawl proves becomes MEASURED memory — and no more than that", () => {
+  const facts = siteFacts.memoryFactsFrom(fakeCrawl());
+  const byKey = Object.fromEntries(facts.map((f) => [f.key, f]));
+  assert.equal(byKey["brand.tagline"].value, "The Enterprise Execution Operating System");
+  assert.equal(byKey["reputation.trust-signals"].value.split(" · ").length, 4);
+  assert.match(byKey["brand.ctas"].note, /3 calls to action/);
+
+  // A declared price is quotable; a number seen in body text is not, and the
+  // two must never be merged — that is how a competitor's price becomes yours.
+  assert.equal(byKey["offer.prices-declared"].value, "£49 GBP");
+  assert.match(byKey["offer.prices-seen"].note, /NOT quotable/);
+
+  // And the inferences stay out. Audience, vertical and value proposition are
+  // judgements; writing them here would launder them into measurements.
+  for (const forbidden of ["audience.segment", "brand.vertical", "brand.value-proposition"]) {
+    assert.ok(!(forbidden in byKey), `${forbidden} was written as a measurement`);
+  }
+});
+
+test("siteraid: deep-crawl may write measured facts; an agent still may not", async () => {
+  bm.__resetBrandMemory();
+  const ok = await bm.remember({ brandId: "b-crawl", key: "brand.tagline", value: "x", source: "measured", sourceRef: "deep-crawl" });
+  assert.equal(ok.ok, true, "the crawler counts what is in the HTML, so it measures");
+  const no = await bm.remember({ brandId: "b-crawl", key: "brand.tagline", value: "x", source: "measured", sourceRef: "content-factory" });
+  assert.equal(no.ok, false);
+});
+
+test("siteraid: the route reads the stored crawl instead of asking for a URL again", () => {
+  const route = readFileSync(new URL("../src/app/api/siteraid/route.ts", import.meta.url), "utf8");
+  // Both the audit and the attack map fall back to the kept crawl.
+  assert.equal((route.match(/const kept = await storedFacts\(req, body\)/g) || []).length, 2);
+  assert.match(route, /from: "stored-crawl"/);
+  // The deep crawl keeps what it read, ownership-checked.
+  assert.match(route, /await keepCrawl\(req, body, crawled\)/);
+  assert.match(route, /resolveBrandAccess\(req, brandId\)/);
+  // And the page actually sends the brand, or none of the above ever runs.
+  const page = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  assert.equal((page.match(/brandId: activeBrand\?\.id/g) || []).length, 3, "deep, audit and attack must all carry the brand");
+  // A store that cannot persist says so rather than losing the crawl quietly.
+  assert.match(route, /Firebase Admin is not configured on this deployment/);
+});

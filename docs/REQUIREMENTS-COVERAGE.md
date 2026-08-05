@@ -2554,3 +2554,52 @@ rather than guessed. The public-copy test was extended to assert each of them,
 so the day a claim stops being true the build fails rather than the page lying.
 
 Tests **949**, all passing; typecheck, layer check and build green.
+
+---
+
+## §68 — The crawl died in the browser (2026-08-04)
+
+The owner pasted a live SiteRaid run for VeryX and asked what any of it is worth
+if their own test brands get no customers. The screen answered for itself.
+
+**On one page, in this order:** a live crawl scoring **A 90/100** with real
+findings; a deep crawl reading **8 pages and extracting 530 things** — the
+tagline, seven calls to action, six prices, four trust signals; and then, four
+hundred pixels below, the Instant Marketing Audit reporting **0 of 36 checks
+measured**, thirty-six lines of *"nothing has been crawled yet"*, an attack map
+ranking nothing, and a strategy agent opening with *"I have zero verified facts
+about what VeryX actually sells"*.
+
+**Every one of those statements was true of the request that produced it.**
+`src/app/dashboard/website-intel/page.tsx:241` called `{ action: "audit", site }`
+with no evidence, so `instantAudit` correctly refused to score. The crawl was in
+React state and nothing carried it across. The engine could always do this; the
+caller never asked it to.
+
+That is the difference between a platform that reads your site and a platform
+that shows you it read your site — and it is why a customer sees literature
+instead of momentum.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| The crawl is kept | ✅ **new** | `src/backend/site-facts.ts` — stored per brand the moment a deep crawl runs, ownership-checked through `resolveBrandAccess`. |
+| The audit uses it without re-crawling | ✅ | `"no URL"` no longer means `"no evidence"`. Re-fetching a site to learn what we already know would cost the customer time and money for nothing. |
+| **Measured, on the same inputs** | ✅ **verified live** | Against a real 6-page crawl through the real engine: **0/36 → 25/36 measured, overall 59/100**, six sections with real verdicts (conversion 78 strong, social 35 urgent). Attack map: **6 of 16 ranked**, each with the count behind it — *"1 trust signal on the site"*, *"0 bundle offers across 0 products"*. |
+| The score never implies a fresh look | ✅ | `provenance()` — *"Measured from the crawl of veryxjnn.com today — 8 pages read, a sample of the site rather than all of it."* Facts age and say so at 14 days. |
+| A blocked fetch cannot erase a good crawl | ✅ | A 403 or a timeout is a fact about the request, not about the site. `saveSiteFacts` refuses to store a crawl that read nothing. |
+| The agents stop asking what the site already says | ✅ | Nine facts per crawl into Brand Memory as `measured` by `deep-crawl` (now on the whitelist): tagline, products, CTAs, trust signals, prices, FAQs, contact. The strategy agent's *"zero verified facts"* opener is answered by the crawl the customer already paid for. |
+| Declared prices and text prices stay apart | ✅ | A price in structured data is the business's own and quotable; a number in body text may be a phone number, a year or a rival's price. Merging them is how a competitor's price becomes yours. |
+| Inference is not laundered into measurement | ✅ | Audience, vertical and value proposition are **not** written to memory by the crawler. They are judgements, and the modules that make them label them as judgements. |
+| A store that cannot persist says so | ✅ | Without Firebase Admin the store is one instance's memory — on serverless the next request may not see it, and the audit would silently fall back to *"not measured"*. The response now names that instead of recreating the defect. |
+
+Tests **949 → 955**; typecheck, layer check and build green. Four mutations —
+a blocked crawl overwriting a good one, declared prices dropped, the audit
+ignoring the stored crawl again, the tagline not remembered — all four caught.
+
+**Still open, and named rather than buried.** Campaign Warfare has the same
+shape of defect: it asks six questions and reads none of the stored facts, so a
+brand with a 530-fact crawl still gets *"Vertical: generic"*, *"Audience is
+broad"*, hashtags split out of the product name (`#workcentric #common
+#environment`), and the price `149` scored as if it were an offer. The fix is
+the same one applied here — read the facts the platform already holds — and it
+is the next increment.

@@ -176,7 +176,7 @@ export default function WebsiteIntelPage() {
     if (!website.trim()) return;
     setDeepBusy(true); setDeep(null);
     try {
-      const r = await authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "deep", url: website }) });
+      const r = await authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "deep", url: website, brandId: activeBrand?.id }) });
       const d = await r.json();
       setDeep(r.ok ? d : { note: d.error || "The deep crawl failed.", partial: false, robots: { present: false, disallowed: [], crawlDelayMs: 0 }, pages: [], extraction: null });
     } catch { setDeep({ note: "Couldn't reach the crawler.", partial: false, robots: { present: false, disallowed: [], crawlDelayMs: 0 }, pages: [], extraction: null }); }
@@ -238,9 +238,9 @@ export default function WebsiteIntelPage() {
         authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
       const [ingestion, audit, dna, attack, truth] = await Promise.all([
         post({ action: "authorise", authorisation }),
-        post({ action: "audit", site }),
+        post({ action: "audit", site, brandId: activeBrand?.id }),
         post({ action: "dna", site }),
-        post({ action: "attack", site }),
+        post({ action: "attack", site, brandId: activeBrand?.id }),
         post({ action: "truth", claims }),
       ]);
       if (audit?.error) throw new Error(audit.error);
