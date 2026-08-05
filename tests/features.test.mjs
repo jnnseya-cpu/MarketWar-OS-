@@ -10667,3 +10667,28 @@ test("voice: a 401 names which of the four causes it was", async () => {
   assert.match(src, /ElevenLabs refused the request \(401\): \$\{detail\}/);
   assert.ok(!/if \(res\.status === 401\) return "ElevenLabs rejected the API key/.test(src), "the blanket answer is gone");
 });
+
+test("media url: a YouTube refusal is one click, not four steps", async () => {
+  const mu = await import("../src/shared/media-url.ts");
+  const v = mu.classifyMediaUrl("https://www.youtube.com/watch?v=rnkRe2BP2c4&t=74s");
+  assert.equal(v.kind, "youtube");
+  assert.equal(v.usable, false, "no lawful way to read the pixels or the audio off a YouTube page");
+  assert.equal(v.youtubeId, "rnkRe2BP2c4");
+  // The exact page, not a description of how to find it.
+  assert.equal(v.studioUrl, "https://studio.youtube.com/video/rnkRe2BP2c4/edit");
+  assert.ok(!/three dots/.test(v.reason || ""), "the prose route is replaced by the link");
+  assert.match(v.reason, /only permits downloading through its own download link/);
+
+  // Every surface that can refuse must carry the link, or it is a paragraph again.
+  for (const f of ["../src/app/api/video/clips/route.ts", "../src/app/api/video/jobs/route.ts"]) {
+    assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /studioUrl: (verdict|source)\.studioUrl/, `${f} drops the link`);
+  }
+  assert.match(readFileSync(new URL("../src/components/RenderFarm.tsx", import.meta.url), "utf8"), /Open this video in YouTube Studio/);
+
+  // A shorts link and a youtu.be link are the same video, and both get the link.
+  assert.equal(mu.classifyMediaUrl("https://youtu.be/rnkRe2BP2c4").studioUrl, v.studioUrl);
+  assert.equal(mu.classifyMediaUrl("https://www.youtube.com/shorts/rnkRe2BP2c4").studioUrl, v.studioUrl);
+  // A real media file is still usable and carries no Studio link.
+  assert.equal(mu.classifyMediaUrl("https://cdn.example.com/a.mp4").usable, true);
+  assert.equal(mu.classifyMediaUrl("https://cdn.example.com/a.mp4").studioUrl, undefined);
+});

@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     // A YouTube/Vimeo/page link is not a video file — no renderer can read one,
     // so refuse it here rather than charging for a job doomed to fail.
     const source = classifyMediaUrl(sourceUrl);
-    if (!source.usable) return NextResponse.json({ error: source.reason, urlKind: source.kind }, { status: 400 });
+    if (!source.usable) return NextResponse.json({ error: source.reason, urlKind: source.kind, studioUrl: source.studioUrl }, { status: 400 });
     // Same for a secondary asset (the B-roll clip or the logo).
     for (const field of ["brollUrl", "logoUrl"] as const) {
       const p = body.params && typeof body.params === "object" ? (body.params as Record<string, unknown>)[field] : undefined;

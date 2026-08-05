@@ -251,7 +251,17 @@ export default function RenderFarm({
           <label className="label mt-3">…or paste a direct link</label>
           <input className="input" placeholder="https://…/my-video.mp4" value={sourceUrl} onChange={(e) => { setSourceUrl(e.target.value); setUploadedName(null); }} />
           {sourceBad ? (
-            <p className="mt-1 text-[11px] leading-relaxed text-amber-300">{source!.reason}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-300">
+              {source!.reason}
+              {source!.studioUrl && (
+                <>
+                  {" "}
+                  <a href={source!.studioUrl} target="_blank" rel="noopener noreferrer" className="font-semibold underline">
+                    Open this video in YouTube Studio →
+                  </a>
+                </>
+              )}
+            </p>
           ) : (
             <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
               Uploading is free — you are only charged for the render. The file goes straight to storage and never passes

@@ -17,6 +17,8 @@ export type MediaUrlVerdict = {
   usable: boolean;      // can this be fetched and processed as media?
   reason?: string;      // what to do instead — written for the customer
   youtubeId?: string;
+  /** The exact Studio page for this video, so the fix is a click. */
+  studioUrl?: string;
 };
 
 // Extensions we can hand to a transcriber or a renderer.
@@ -45,13 +47,27 @@ export function classifyMediaUrl(raw: string): MediaUrlVerdict {
 
   const ytId = youtubeIdFrom(url);
   if (ytId) {
+    // A REFUSAL SHOULD BE ONE CLICK, NOT FOUR STEPS.
+    //
+    // This used to describe a route through YouTube Studio in prose — Content,
+    // then the three dots, then Download — which is a paragraph the customer has
+    // to translate into actions while looking at a different screen. The video's
+    // id is right here, so the exact page is linkable, and the answer becomes a
+    // link rather than instructions.
+    //
+    // The refusal itself stands. YouTube's terms permit downloading only through
+    // a download link YouTube itself displays, and the only one of those is
+    // Studio's, for a video on your own channel. A platform that shipped an
+    // extractor would be handing its customers a terms breach against the
+    // channel they are trying to grow.
     return {
       kind: "youtube",
       usable: false,
       youtubeId: ytId,
+      studioUrl: `https://studio.youtube.com/video/${ytId}/edit`,
       reason:
-        "That is a YouTube page, not a video file — YouTube does not allow its videos to be downloaded, so nothing here can read the audio from it. " +
-        "If the video is yours: YouTube Studio → Content → the three dots → Download, then upload that file here. " +
+        "That is a YouTube page, not a video file, and YouTube only permits downloading through its own download link — so nothing here can read the audio from it. " +
+        "If the video is yours, open it in YouTube Studio and use Download, then bring that file back here. " +
         "If it is not yours, use the original file or a copy you host yourself.",
     };
   }

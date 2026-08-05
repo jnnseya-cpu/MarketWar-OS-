@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         // A YouTube or Vimeo page link fetches HTML, and HTML handed to Whisper
         // comes back as "Unrecognized file format" — after the charge.
         const verdict = classifyMediaUrl(url);
-        if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind }, { status: 400 });
+        if (!verdict.usable) return NextResponse.json({ error: verdict.reason, urlKind: verdict.kind, studioUrl: verdict.studioUrl }, { status: 400 });
 
         const r = await fetch(url);
         if (!r.ok) return NextResponse.json({ error: `Couldn't fetch that media (HTTP ${r.status}).` }, { status: 400 });
