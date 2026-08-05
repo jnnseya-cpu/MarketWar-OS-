@@ -114,8 +114,20 @@ export async function POST(req: NextRequest) {
         // the master rather than a re-encode, there is no 25MB limit, and no
         // transcription is charged. Nothing is downloaded.
         if (verdict.kind === "youtube" && verdict.youtubeId) {
+          // Read with THIS BRAND's own YouTube connection, and only after
+          // ownership is established — the token belongs to the customer, so
+          // the request must prove it is theirs before it is used.
+          if (!brandId) {
+            return NextResponse.json({
+              error: "Pick a brand first. A YouTube link is read with that brand's own connection, never with the platform's.",
+              urlKind: verdict.kind, studioUrl: verdict.studioUrl,
+            }, { status: 400 });
+          }
+          const access = await resolveBrandAccess(req, brandId);
+          if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
           const { captionsFor } = await import("@/backend/youtube-captions");
-          const caps = await captionsFor(verdict.youtubeId, typeof body.language === "string" ? body.language : undefined);
+          const caps = await captionsFor(verdict.youtubeId, brandId, typeof body.language === "string" ? body.language : undefined);
           if (caps.ok) {
             segments = caps.segments;
             captionSource = caps.note;

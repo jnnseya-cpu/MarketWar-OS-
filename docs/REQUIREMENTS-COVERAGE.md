@@ -2685,3 +2685,42 @@ scorer, draft tracks treated as usable — all four caught.
 **Owner action, once ready to open it up:** start Google's OAuth verification for
 `youtube.force-ssl`. Until then, add the accounts that own the test channels as
 test users on the Cloud project and the flow works for them today.
+
+### §70b — Whose Google account is it? (2026-08-04)
+
+The owner asked one question about §70 — *"is the Google setting for each user or
+the platform?"* — and it found a cross-tenant defect in code shipped an hour
+earlier.
+
+**There was exactly one Google refresh token for the whole platform**
+(`platform_config/google_oauth`). For what it was built for that is correct:
+Search Console and Business Profile read MarketWar's own properties, so one
+account is the right number. Wiring YouTube captions to it was wrong twice over:
+
+- every customer pasting their own video would get **403 → "not on the connected
+  channel"** — an error about somebody else's account, sending them to fix
+  something that was never broken;
+- and if the platform's own Google account owned a channel, **any customer could
+  read its captions** by pasting its links.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A brand's Google connection is its own | ✅ **fixed** | `brand_google_oauth/{brandId}` alongside the untouched platform doc. `getBrandGoogleRefreshToken` / `setBrandGoogleRefreshToken` / `brandGoogleConnected`. |
+| **Captions never fall back to the platform account** | ✅ | `getGoogleAccessToken(scope, { brandId, requireBrand: true })`. The refusal happens **before a credential is chosen** — asserted by source order, because a test in an unconfigured environment returns null down every path and would otherwise pass for the wrong reason. |
+| One brand cannot be handed another's token from cache | ✅ | The token cache was keyed by scope alone; it is now `scope::brandId`. |
+| The brand travels **inside** the signed state | ✅ | It decides which account the resulting token is stored against, so as a plain query parameter anyone could redirect a consent into another brand's connection. Tampering invalidates the state rather than changing the brand. |
+| A customer can connect their own channel | ✅ | The connect route was executive-only, which would have made per-brand connection impossible. Now: **with** a brand → `resolveBrandAccess`; **without** one → still executive, because that is the platform's own account. |
+| Ownership is proved before a brand's token is used | ✅ | Both consumer routes call `resolveBrandAccess` before `captionsFor(videoId, brandId, …)`. |
+
+Tests **965 → 969**; typecheck, layer check and build green. Four mutations —
+falling back to the platform token, sharing the cache across brands, dropping
+the brand from the signed state, captions using the platform account again — all
+four caught. The first escaped once and the test was strengthened rather than
+the finding dropped.
+
+**Corrected instruction to the owner.** §70 said "re-connect Google once". That
+is right for the platform connection (Search Console / Business Profile, which
+now also carries the YouTube scope), and **each brand connects its own Google
+account separately** for captions — `POST /api/google/connect?brandId=…`. The
+Cloud project, the OAuth client and the verification are the platform's, one
+set, shared. The *authorisations* are per brand.

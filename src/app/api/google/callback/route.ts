@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyState, exchangeGoogleCode } from "@/backend/google-auth";
-import { setStoredGoogleRefreshToken } from "@/backend/google-oauth-store";
+import { verifyState, brandFromState, exchangeGoogleCode } from "@/backend/google-auth";
+import { setStoredGoogleRefreshToken, setBrandGoogleRefreshToken } from "@/backend/google-oauth-store";
 
 // Google OAuth callback for the in-app connect flow. Google redirects here with
 // ?code&state; we verify the HMAC-signed state (only URLs the app generated are
@@ -27,6 +27,15 @@ export async function GET(req: NextRequest) {
   const r = await exchangeGoogleCode(code, redirectUri);
   if (!r.ok || !r.refreshToken) return back(origin, { google: "error", reason: (r.error || "Token exchange failed").slice(0, 160) });
 
+  // Where the token belongs. A consent started from a brand stores against THAT
+  // brand — its YouTube captions are read with its own authorisation, and the
+  // platform's connection is never used on a customer's behalf. A consent with
+  // no brand is the platform's own (Search Console, Business Profile).
+  const brandId = brandFromState(state);
+  if (brandId) {
+    await setBrandGoogleRefreshToken(brandId, r.refreshToken);
+    return back(origin, { google: "connected", brand: brandId });
+  }
   await setStoredGoogleRefreshToken(r.refreshToken);
   return back(origin, { google: "connected" });
 }

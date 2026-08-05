@@ -80,8 +80,9 @@ async function resolveRefreshToken(): Promise<string> {
   return (stored || env("GOOGLE_OAUTH_REFRESH_TOKEN")).trim();
 }
 
-async function mintOAuthUserToken(): Promise<string | null> {
-  const refresh = await resolveRefreshToken();
+async function mintOAuthUserToken(brandRefresh?: string | null): Promise<string | null> {
+  // A brand's own refresh token when one was supplied; otherwise the platform's.
+  const refresh = brandRefresh ?? (await resolveRefreshToken());
   if (!hasOAuthClient() || !refresh) return null;
   const res = await fetch(TOKEN_URL, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -107,12 +108,27 @@ async function mintOAuthUserToken(): Promise<string | null> {
 // recorded here so nobody wonders later why consent looks different.
 const OAUTH_SCOPES = "https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/youtube.force-ssl";
 function stateSecret(): string { return env("GOOGLE_OAUTH_CLIENT_SECRET") || "marketwar-google-state"; }
-export function signState(): string {
+export function signState(brandId?: string): string {
   // Short-lived, HMAC-signed nonce so only URLs the app generated are accepted.
-  const payload = Buffer.from(JSON.stringify({ t: Math.floor(Date.now() / 1000) })).toString("base64url");
+  //
+  // The brand travels INSIDE the signature. It decides which account the
+  // resulting token is stored against, so if it rode alongside as a plain query
+  // parameter anyone could redirect a consent into another brand's connection.
+  const payload = Buffer.from(JSON.stringify({ t: Math.floor(Date.now() / 1000), b: (brandId || "").trim() || undefined })).toString("base64url");
   const sig = createHmac("sha256", stateSecret()).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
+
+/** The brand a verified state was signed for, or "" for a platform connection. */
+export function brandFromState(state: string): string {
+  if (!verifyState(state)) return "";
+  try {
+    const [payload] = (state || "").split(".");
+    const { b } = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { b?: string };
+    return typeof b === "string" ? b : "";
+  } catch { return ""; }
+}
+
 export function verifyState(state: string, maxAgeSec = 900): boolean {
   const [payload, sig] = (state || "").split(".");
   if (!payload || !sig) return false;
@@ -174,19 +190,43 @@ export async function diagnoseGoogleOAuth(): Promise<{ configured: boolean; ok: 
 // even when a service account is also configured (which is the common setup:
 // service account for Search Console + OAuth for Business Profile). Other scopes
 // prefer the service account and fall back to OAuth.
-export async function getGoogleAccessToken(scope: string): Promise<string | null> {
-  const cached = cache.get(scope);
+export async function getGoogleAccessToken(
+  scope: string,
+  opts?: {
+    /** Use THIS brand's own Google connection. */
+    brandId?: string;
+    /**
+     * Refuse to fall back to the platform's credential when the brand has not
+     * connected. Required for anything that reads a CUSTOMER's own account:
+     * without it, brand A's request is served by whichever account the platform
+     * connected, which is both a wrong answer and a cross-tenant leak.
+     */
+    requireBrand?: boolean;
+  },
+): Promise<string | null> {
+  const brandId = (opts?.brandId || "").trim();
+  // Cached per brand as well as per scope — one cache key for "whatever token
+  // we last minted" would hand one brand another brand's access token.
+  const cacheKey = brandId ? `${scope}::${brandId}` : scope;
+  const cached = cache.get(cacheKey);
   if (cached && cached.exp > Date.now() + 60_000) return cached.token;
   try {
-    const mustUseOAuth = /business\.manage/.test(scope);
+    let brandRefresh: string | null = null;
+    if (brandId) {
+      const { getBrandGoogleRefreshToken } = await import("@/backend/google-oauth-store");
+      brandRefresh = await getBrandGoogleRefreshToken(brandId);
+    }
+    if (opts?.requireBrand && !brandRefresh) return null;
+
+    const mustUseOAuth = /business\.manage/.test(scope) || Boolean(brandRefresh);
     const sa = serviceAccount();
     let token: string | null = null;
     if (mustUseOAuth) {
-      token = hasOAuthClient() ? await mintOAuthUserToken() : null;
+      token = hasOAuthClient() ? await mintOAuthUserToken(brandRefresh) : null;
     } else {
       token = sa ? await mintServiceAccountToken(sa, scope) : hasOAuthClient() ? await mintOAuthUserToken() : null;
     }
-    if (token) { cache.set(scope, { token, exp: Date.now() + 3_500_000 }); return token; }
+    if (token) { cache.set(cacheKey, { token, exp: Date.now() + 3_500_000 }); return token; }
     return null;
   } catch { return null; }
 }

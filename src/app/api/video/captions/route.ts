@@ -73,9 +73,22 @@ export async function POST(req: NextRequest) {
       // it returns immediately; and it costs nothing, so the meter below is
       // never reached. Nothing is downloaded, which is the whole point.
       if (verdict.kind === "youtube" && verdict.youtubeId) {
+        // The brand's OWN connection, ownership-checked. Never the platform's:
+        // that would answer every customer with somebody else's account.
+        const brandId = typeof body.brandId === "string" ? body.brandId.trim() : "";
+        if (!brandId) {
+          return NextResponse.json({
+            error: "Pick a brand first. A YouTube link is read with that brand's own connection, never with the platform's.",
+            urlKind: verdict.kind, studioUrl: verdict.studioUrl,
+          }, { status: 400 });
+        }
+        const { resolveBrandAccess } = await import("@/backend/brand-access");
+        const access = await resolveBrandAccess(req, brandId);
+        if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
         const { captionsFor } = await import("@/backend/youtube-captions");
         const { toVtt } = await import("@/backend/transcribe");
-        const caps = await captionsFor(verdict.youtubeId, language);
+        const caps = await captionsFor(verdict.youtubeId, brandId, language);
         if (!caps.ok) {
           return NextResponse.json({
             error: caps.error, hint: caps.hint, urlKind: verdict.kind,

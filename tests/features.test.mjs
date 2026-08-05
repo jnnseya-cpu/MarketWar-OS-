@@ -10771,3 +10771,88 @@ test("youtube captions: both word-based screens use them, and neither charges", 
   // And the clip finder says which transcript the customer is reading.
   assert.match(clips, /transcriptFrom: captionSource \? "youtube-captions" : "transcription"/);
 });
+
+
+// ---------------------------------------------------------------------------
+// Whose Google account is it?
+//
+// The first version of the captions reader called getGoogleAccessToken(scope)
+// with no brand — which resolves the ONE platform-wide refresh token used for
+// Search Console and Business Profile. Wrong twice: every customer would be
+// told "not on the connected channel", an error about somebody else's account;
+// and if the platform's own Google account owned a channel, any customer could
+// read its captions by pasting its links.
+// ---------------------------------------------------------------------------
+const gstore = await import("../src/backend/google-oauth-store.ts");
+const gauth = await import("../src/backend/google-auth.ts");
+
+test("google: a brand's connection is its own, and separate from the platform's", async () => {
+  gstore.__resetBrandGoogleTokens();
+  assert.equal(await gstore.getBrandGoogleRefreshToken("brand-a"), null);
+  await gstore.setBrandGoogleRefreshToken("brand-a", "token-a");
+  await gstore.setBrandGoogleRefreshToken("brand-b", "token-b");
+  assert.equal(await gstore.getBrandGoogleRefreshToken("brand-a"), "token-a");
+  assert.equal(await gstore.getBrandGoogleRefreshToken("brand-b"), "token-b", "one brand must never see another's");
+  assert.equal(await gstore.brandGoogleConnected("brand-a"), true);
+  assert.equal(await gstore.brandGoogleConnected("nobody"), false);
+  assert.equal(await gstore.getBrandGoogleRefreshToken(""), null);
+});
+
+test("google: an unconnected brand is refused, never served the platform's token", async () => {
+  gstore.__resetBrandGoogleTokens();
+  // requireBrand makes the absence of a brand connection a refusal. Without it
+  // the call falls back to the platform credential, which is the leak.
+  assert.equal(await gauth.getGoogleAccessToken("https://www.googleapis.com/auth/youtube.force-ssl", { brandId: "unconnected", requireBrand: true }), null);
+
+  // That alone proves little here — nothing is configured in test, so every
+  // path returns null. The property that matters is WHERE the refusal happens:
+  // before a credential is chosen, so a stored platform token can never satisfy
+  // a brand request.
+  const auth0 = readFileSync(new URL("../src/backend/google-auth.ts", import.meta.url), "utf8");
+  const guardAt = auth0.indexOf("if (opts?.requireBrand && !brandRefresh) return null;");
+  assert.ok(guardAt > 0, "the requireBrand guard is gone — brand calls now fall back to the platform token");
+  assert.ok(guardAt < auth0.indexOf("const mustUseOAuth"), "the refusal must precede choosing a credential");
+  assert.ok(guardAt < auth0.indexOf("mintOAuthUserToken(brandRefresh)"), "the refusal must precede minting");
+
+  const src = readFileSync(new URL("../src/backend/youtube-captions.ts", import.meta.url), "utf8");
+  assert.match(src, /requireBrand: true/, "captions must never fall back to the platform account");
+  assert.match(src, /captionsFor\(videoId: string, brandId: string/, "the brand is required, not optional");
+  // And the token cache must be keyed per brand, or one brand is handed
+  // another's access token from cache.
+  const auth = readFileSync(new URL("../src/backend/google-auth.ts", import.meta.url), "utf8");
+  assert.match(auth, /const cacheKey = brandId \? `\$\{scope\}::\$\{brandId\}` : scope/);
+});
+
+test("google: the brand travels inside the signed state, not beside it", () => {
+  // The brand decides which account the resulting token is stored against. As a
+  // plain query parameter, anyone could redirect a consent into another brand's
+  // connection.
+  const st = gauth.signState("brand-a");
+  assert.equal(gauth.verifyState(st), true);
+  assert.equal(gauth.brandFromState(st), "brand-a");
+  assert.equal(gauth.brandFromState(gauth.signState()), "", "no brand means the platform's own connection");
+  // Tampering with the payload must invalidate it rather than change the brand.
+  const [payload, sig] = st.split(".");
+  const forged = Buffer.from(JSON.stringify({ t: Math.floor(Date.now() / 1000), b: "brand-b" })).toString("base64url") + "." + sig;
+  assert.equal(gauth.verifyState(forged), false);
+  assert.equal(gauth.brandFromState(forged), "");
+  void payload;
+});
+
+test("google: connecting a brand needs the brand, not an executive", () => {
+  // The executive gate is right for the PLATFORM connection and wrong for a
+  // customer's own — leaving it across both meant no customer could ever
+  // connect their channel, which is the whole point of doing this per brand.
+  const connect = readFileSync(new URL("../src/app/api/google/connect/route.ts", import.meta.url), "utf8");
+  assert.match(connect, /if \(brandId\) \{/);
+  assert.match(connect, /resolveBrandAccess\(req, brandId\)/);
+  assert.match(connect, /\} else if \(auth\.enforced && auth\.role !== "executive"\)/);
+  const cb = readFileSync(new URL("../src/app/api/google/callback/route.ts", import.meta.url), "utf8");
+  assert.match(cb, /setBrandGoogleRefreshToken\(brandId, r\.refreshToken\)/);
+  // Both consumer routes prove ownership before using a brand's token.
+  for (const f of ["../src/app/api/video/clips/route.ts", "../src/app/api/video/captions/route.ts"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.match(src, /captionsFor\(verdict\.youtubeId, brandId/, `${f} does not pass the brand`);
+    assert.match(src, /resolveBrandAccess\(req, brandId\)/, `${f} uses a brand token without checking ownership`);
+  }
+});

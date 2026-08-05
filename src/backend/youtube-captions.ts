@@ -27,6 +27,15 @@ if (typeof window !== "undefined") {
 // video returns 403 and that is reported as "not your channel", never as "no
 // captions" — telling a customer their video has no subtitles when the real
 // answer is that it is not theirs sends them to fix the wrong thing.
+//
+// AND IT IS PER BRAND, NEVER THE PLATFORM'S. The first version of this called
+// `getGoogleAccessToken(scope)` with no brand, which resolves the ONE
+// platform-wide refresh token used for Search Console and Business Profile.
+// That would have been wrong twice over: every customer would be told "not on
+// the connected channel" — an error about somebody else's account — and if the
+// platform's own Google account owned a channel, any customer could have read
+// its captions by pasting its links. `requireBrand` makes the absence of a
+// brand connection a refusal rather than a silent fallback.
 
 import { getGoogleAccessToken } from "@/backend/google-auth";
 import type { Segment } from "@/backend/transcribe";
@@ -103,17 +112,17 @@ export function pickTrack(tracks: CaptionTrack[], preferLang?: string): CaptionT
   return [...usable].sort((a, b) => score(b) - score(a))[0];
 }
 
-async function token(): Promise<string | null> {
-  return getGoogleAccessToken(YOUTUBE_SCOPE);
+async function token(brandId: string): Promise<string | null> {
+  return getGoogleAccessToken(YOUTUBE_SCOPE, { brandId, requireBrand: true });
 }
 
-export async function listCaptionTracks(videoId: string): Promise<{ ok: true; tracks: CaptionTrack[] } | { ok: false; error: string; needsConsent?: boolean }> {
-  const t = await token();
+export async function listCaptionTracks(videoId: string, brandId: string): Promise<{ ok: true; tracks: CaptionTrack[] } | { ok: false; error: string; needsConsent?: boolean }> {
+  const t = await token(brandId);
   if (!t) {
     return {
       ok: false,
       needsConsent: true,
-      error: "YouTube is not connected. Connect the Google account that owns the channel — the platform reads the captions your own videos already have, and never downloads the video.",
+      error: "This brand has not connected YouTube. Connect the Google account that owns the channel — each brand connects its own, and the platform's connection is never used on your behalf. It reads the captions your videos already have and never downloads the video.",
     };
   }
   const res = await fetch(`${API}/captions?part=snippet&videoId=${encodeURIComponent(videoId)}`, {
@@ -142,9 +151,9 @@ export async function listCaptionTracks(videoId: string): Promise<{ ok: true; tr
   return { ok: true, tracks };
 }
 
-export async function downloadCaptionSrt(captionId: string): Promise<{ ok: true; srt: string } | { ok: false; error: string }> {
-  const t = await token();
-  if (!t) return { ok: false, error: "YouTube is not connected." };
+export async function downloadCaptionSrt(captionId: string, brandId: string): Promise<{ ok: true; srt: string } | { ok: false; error: string }> {
+  const t = await token(brandId);
+  if (!t) return { ok: false, error: "This brand has not connected YouTube." };
   const res = await fetch(`${API}/captions/${encodeURIComponent(captionId)}?tfmt=srt`, {
     headers: { Authorization: `Bearer ${t}` },
   }).catch(() => null);
@@ -157,8 +166,11 @@ export async function downloadCaptionSrt(captionId: string): Promise<{ ok: true;
 }
 
 // The whole flow: id in, timed words out.
-export async function captionsFor(videoId: string, preferLang?: string): Promise<CaptionsResult> {
-  const listed = await listCaptionTracks(videoId);
+export async function captionsFor(videoId: string, brandId: string, preferLang?: string): Promise<CaptionsResult> {
+  if (!(brandId || "").trim()) {
+    return { ok: false, error: "No brand on the request, so there is no YouTube connection to use. Pick a brand first — captions are read with that brand's own authorisation." };
+  }
+  const listed = await listCaptionTracks(videoId, brandId);
   if (!listed.ok) return { ok: false, error: listed.error, needsConsent: listed.needsConsent };
 
   const track = pickTrack(listed.tracks, preferLang);
@@ -170,7 +182,7 @@ export async function captionsFor(videoId: string, preferLang?: string): Promise
     };
   }
 
-  const dl = await downloadCaptionSrt(track.id);
+  const dl = await downloadCaptionSrt(track.id, brandId);
   if (!dl.ok) return { ok: false, error: dl.error };
 
   const segments = parseSrt(dl.srt);
