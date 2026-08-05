@@ -14,11 +14,15 @@ import { authedFetch } from "@/frontend/api-client";
 type VideoJob = {
   jobId: string; status: "queued" | "rendering" | "ready" | "failed" | "demo";
   mode: "live" | "demo"; provider: string; videoUrl: string | null; prompt: string; note: string;
+  requestedSeconds?: number; seconds?: number;
 };
 
 export default function VideoRenderAndPublish() {
   const { activeBrand } = useActiveBrand();
   const [prompt, setPrompt] = useState("");
+  // Asked for, rather than assumed. The renders came back at four seconds
+  // because nothing in the chain ever named a length.
+  const [seconds, setSeconds] = useState(8);
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [videoLive, setVideoLive] = useState<boolean | null>(null);
@@ -40,7 +44,7 @@ export default function VideoRenderAndPublish() {
     if (!activeBrand || !prompt.trim()) return;
     setBusy(true); setJob(null);
     try {
-      const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt }) });
+      const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt, seconds }) });
       const j = (await r.json()) as VideoJob;
       setJob(j);
       if (j.status === "rendering") poll(j.jobId);
@@ -75,6 +79,15 @@ export default function VideoRenderAndPublish() {
       </p>
 
       <textarea className="input min-h-[70px]" placeholder="e.g. 8-second vertical clip of the flame-grilled platter, steam rising, hands reaching in, warm cinematic lighting" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="label mb-0">Length</label>
+        <select className="input max-w-[150px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
+          <option value={4}>4 seconds</option>
+          <option value={8}>8 seconds</option>
+          <option value={12}>12 seconds (Sora only)</option>
+        </select>
+        <span className="text-[11px] text-slate-500">One call maxes at 8s on Veo and 12s on Sora — longer needs stitching.</span>
+      </div>
       <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} Render video</button>
 
       {job && (

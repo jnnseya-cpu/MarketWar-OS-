@@ -2603,3 +2603,48 @@ broad"*, hashtags split out of the product name (`#workcentric #common
 #environment`), and the price `149` scored as if it were an offer. The fix is
 the same one applied here — read the facts the platform already holds — and it
 is the next increment.
+
+---
+
+## §69 — The stopping rule, and three fixes under it (2026-08-04)
+
+**Rule adopted by the owner: no new features until the Money Ledger has one real
+entry.** It was tested immediately — the first thing written after agreeing it
+was a new diagnostic engine, `money-path.ts`, which was deleted unshipped. The
+rule holds or it is decoration.
+
+Everything below is a fix to something that already exists.
+
+### The walk
+
+The money path was walked end to end against the real routes for a construction
+brand, rather than reported on.
+
+| Step | Result |
+|---|---|
+| 1 · List | ✅ 2 prospects imported, segmented (`High-intent`, `Hot lead`), consent tracked at 100%. |
+| 2 · Offer | ✅ `offer-forge` returned a core offer at £149 on a **73.2% margin** plus entry/bundle/urgency variants, each margin-checked. Contract is `{action, input:{product, priceGbp, costGbp}}` — a flat body is rejected. |
+| 3 · Sending domain | ✅ DKIM keypair minted, selector `mwos`, records returned to publish, status `pending` until DNS resolves. |
+| 4 · Send | ⚠️ Blocked in this sandbox only. The preview correctly reads the Vault (`listContacts`) and eligibility is `email && consent !== false`; the imported contacts satisfy both. It reported nobody because **without Firebase Admin the Vault does not survive between requests**. Not a code defect — and not verifiable outside production. |
+| 5 · Reply path | ✅ Reply address minted (`r.<brand>.<tag>@reply.marketwaros.com`), `intoInbox: true`, and the note explains what a blank Reply-to now does. |
+| 6 · Payment | ✅ Demo link minted with the attribution metadata, and the response states exactly what `STRIPE_SECRET_KEY` changes and how the webhook records revenue. |
+| 7 · Record | Untested — nothing to record without step 6 live. |
+
+**Conclusion.** No structural break was found in the code. The path cannot be
+proven from a sandbox with no persistence, no SMTP, no Stripe and no search key;
+the only place it can be proven is production, with real data.
+
+### The three fixes
+
+| Defect | Root cause | Fix |
+|---|---|---|
+| **Video renders come back at 4 seconds** | There was no duration in the code **at all**. `startVideoRender` took `{ brandId, prompt }`; Veo was called with `{ instances: [{ prompt }] }` and Sora with `{ model, prompt }`. Neither was told a length, so both returned their own default. | Duration threaded from the screen to both providers — Veo `parameters.durationSeconds`, Sora `seconds`. Clamped to what each model actually does (**Veo caps a single call at 8s; Sora takes 4, 8 or 12 and nothing between**), snapped DOWN for Sora because a longer clip than asked for is a bigger bill nobody approved. When the ask cannot be met the job says so and names stitching as the way to go longer. A 400 on the parameter retries **without** it rather than losing the render. |
+| **"ElevenLabs rejected the API key"** | The mapping was right that it was a 401 — but it answered every 401 with "check your key" and **threw away the reason ElevenLabs had just given**. Three of the four common causes are not a bad key. | `invalid_api_key` → replace it. `missing_permissions` → the key is valid, its scopes are wrong, *replacing it will not help*. `detected_unusual_activity` → the **free tier refusing traffic from a cloud IP**; the key is fine and only a paid plan clears it. `quota_exceeded` → the allowance is spent. An unrecognised reason passes ElevenLabs' own words through instead of substituting a guess. |
+| **A new engine, one message after agreeing not to** | — | `money-path.ts` deleted before commit. |
+
+Tests **955 → 959**; typecheck, layer check and build green.
+
+**The pattern in all three, and in §68.** None was a missing capability. Each was
+a value that existed on one side of a boundary and was never carried across, or
+a diagnosis that named the wrong cause. That is what "full of features and no
+customers" is made of.

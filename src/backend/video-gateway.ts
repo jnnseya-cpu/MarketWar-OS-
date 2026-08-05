@@ -33,6 +33,10 @@ export type VideoJob = {
   mode: "live" | "demo";
   videoUrl: string | null;   // hosted MP4 when ready (attachable)
   providerRef: string | null; // provider operation/id to poll
+  /** What the caller asked for, and what the model will actually deliver. Both
+   *  carried so a 4-second clip can never again arrive without an explanation. */
+  requestedSeconds?: number;
+  seconds?: number;
   note: string;
 };
 
@@ -89,19 +93,78 @@ const VEO_CANDIDATES = [
 ];
 let workingVeoModel: string | null = null;
 
-async function veoTry(model: string, prompt: string, key: string): Promise<{ ref?: string; status: number; reason?: string }> {
+// HOW LONG THE CLIP IS — the thing nobody was asking for.
+//
+// The renders came back at four seconds and there was no bug to find, because
+// there was no duration in the code at all: `startVideoRender` took a brandId
+// and a prompt, Veo was called with `{ instances: [{ prompt }] }` and Sora with
+// `{ model, prompt }`. Neither was told a length, so both returned their own
+// default — and four seconds is not a social video, it is a GIF that costs
+// money.
+//
+// WHAT EACH MODEL WILL ACTUALLY DO. This is the part a caller cannot guess and
+// must not be allowed to assume: a single Veo call maxes out at 8 seconds, and
+// Sora 2 accepts 4, 8 or 12 and nothing between. So a request for 15 seconds
+// cannot be honoured by one call to either. The engine asks for the longest the
+// chosen model supports and REPORTS the difference, rather than quietly
+// shipping a quarter of what was asked for — which is exactly what it was
+// doing.
+export const VEO_MAX_SECONDS = 8;
+export const VEO_MIN_SECONDS = 4;
+export const SORA_STEPS = [4, 8, 12];
+export const DEFAULT_SECONDS = 8;
+
+/** What this provider will actually produce for a requested length. */
+export function supportedSeconds(provider: VideoProvider, requested: number): number {
+  const want = Math.max(1, Math.round(Number(requested) || DEFAULT_SECONDS));
+  if (provider === "veo") return Math.min(VEO_MAX_SECONDS, Math.max(VEO_MIN_SECONDS, want));
+  if (provider === "sora") {
+    // Snap DOWN to a supported step, never up: a longer clip than asked for is
+    // a bigger bill nobody approved.
+    const fits = SORA_STEPS.filter((n) => n <= want);
+    return fits.length ? fits[fits.length - 1] : SORA_STEPS[0];
+  }
+  return want;
+}
+
+/** Said out loud when the model cannot give what was asked for. */
+export function durationNote(provider: VideoProvider, requested: number, delivered: number): string {
+  if (delivered >= requested) return "";
+  const cap = provider === "veo"
+    ? `a single Veo call caps at ${VEO_MAX_SECONDS} seconds`
+    : `Sora accepts only ${SORA_STEPS.join(", ")} seconds`;
+  return `You asked for ${requested}s and this clip is ${delivered}s — ${cap}. For longer, render segments and stitch them in the Video War Room rather than expecting one call to produce it.`;
+}
+
+async function veoTry(model: string, prompt: string, key: string, seconds: number): Promise<{ ref?: string; status: number; reason?: string }> {
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instances: [{ prompt }] }),
+      // `durationSeconds` is the documented Veo parameter. If a model or region
+      // rejects it the call is retried WITHOUT it rather than failing the
+      // render — a shorter clip beats no clip, and the note says which happened.
+      body: JSON.stringify({ instances: [{ prompt }], parameters: { durationSeconds: seconds } }),
     });
-    if (!res.ok) return { status: res.status, reason: safeReason(await res.text().catch(() => "")) };
+    if (!res.ok) {
+      const reason = safeReason(await res.text().catch(() => ""));
+      if (res.status === 400) {
+        const retry = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instances: [{ prompt }] }),
+        });
+        if (retry.ok) {
+          const d = await retry.json().catch(() => null);
+          if (typeof d?.name === "string") return { ref: d.name, status: 200, reason: "duration not accepted by this model — rendered at its default length" };
+        }
+      }
+      return { status: res.status, reason };
+    }
     const data = await res.json().catch(() => null);
     return typeof data?.name === "string" ? { ref: data.name, status: 200 } : { status: 200, reason: "no operation handle" };
   } catch (e) { return { status: 0, reason: e instanceof Error ? e.message : "network error" }; }
 }
 
-async function veoStart(prompt: string): Promise<StartResult> {
+async function veoStart(prompt: string, seconds: number): Promise<StartResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { error: "No GEMINI_API_KEY set" };
   const ordered = [process.env.GEMINI_VIDEO_MODEL, workingVeoModel, ...VEO_CANDIDATES]
@@ -109,7 +172,7 @@ async function veoStart(prompt: string): Promise<StartResult> {
     .filter((m, i, a) => a.indexOf(m) === i);
   let lastErr = "";
   for (const model of ordered) {
-    const r = await veoTry(model, prompt, key);
+    const r = await veoTry(model, prompt, key, seconds);
     if (r.ref) { workingVeoModel = model; return { ref: r.ref }; }
     // 404 / 400 = wrong-or-unavailable model → try the next candidate.
     if (r.status === 404 || r.status === 400) { lastErr = `${model}: ${r.status} ${r.reason || ""}`.trim(); continue; }
@@ -174,17 +237,29 @@ async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer; dia
     return { done: true, diag: `Veo returned no recognisable video field. Response shape: { ${inner} }.` };
   } catch (e) { return { done: false, diag: e instanceof Error ? e.message : "poll error" }; }
 }
-async function soraStart(prompt: string): Promise<StartResult> {
+async function soraStart(prompt: string, seconds: number): Promise<StartResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { error: "No OPENAI_API_KEY set" };
   const model = process.env.OPENAI_VIDEO_MODEL || "sora-2";
   try {
     const res = await fetch("https://api.openai.com/v1/videos", {
       method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt }),
+      // Sora takes `seconds` as a string enum. Same rule as Veo: if it is
+      // rejected, retry without it rather than losing the render.
+      body: JSON.stringify({ model, prompt, seconds: String(seconds) }),
     });
     if (!res.ok) {
       const body = safeReason(await res.text().catch(() => ""));
+      if (res.status === 400) {
+        const retry = await fetch("https://api.openai.com/v1/videos", {
+          method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model, prompt }),
+        });
+        if (retry.ok) {
+          const d = await retry.json().catch(() => null);
+          if (typeof d?.id === "string") return { ref: d.id };
+        }
+      }
       return { error: `Sora API ${res.status} (model ${model})${body ? ` — ${body}` : ""}` };
     }
     const data = await res.json().catch(() => null);
@@ -208,9 +283,10 @@ async function soraPoll(id: string): Promise<{ done: boolean; bytes?: Buffer }> 
 // ---------------------------------------------------------------------------
 // Public API — start + poll.
 // ---------------------------------------------------------------------------
-export async function startVideoRender(input: { brandId: string; prompt: string }): Promise<VideoJob> {
+export async function startVideoRender(input: { brandId: string; prompt: string; seconds?: number }): Promise<VideoJob> {
   const brandId = input.brandId?.trim() || "brand";
   const prompt = input.prompt?.trim() || "Product highlight video";
+  const requestedSeconds = Math.max(1, Math.round(Number(input.seconds) || DEFAULT_SECONDS));
   const jobId = jobIdFor(brandId, prompt);
 
   // Provider chain with automatic failover (like the AI gateway): try Veo, then
@@ -223,6 +299,7 @@ export async function startVideoRender(input: { brandId: string; prompt: string 
 
   if (chain.length === 0) {
     const job: VideoJob = { jobId, brandId, prompt, provider: "demo", status: "demo", mode: "demo", videoUrl: null, providerRef: null,
+      requestedSeconds, seconds: requestedSeconds,
       note: "Demo — video render activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key. The pipeline, job model and post-attach are wired; only the render engine is gated." };
     await saveJob(job);
     return job;
@@ -230,11 +307,14 @@ export async function startVideoRender(input: { brandId: string; prompt: string 
 
   const errors: string[] = [];
   for (const provider of chain) {
-    const started = provider === "veo" ? await veoStart(prompt) : await soraStart(prompt);
+    const deliveredSeconds = supportedSeconds(provider, requestedSeconds);
+    const started = provider === "veo" ? await veoStart(prompt, deliveredSeconds) : await soraStart(prompt, deliveredSeconds);
     if ("ref" in started) {
       const failedOver = errors.length > 0;
+      const shortfall = durationNote(provider, requestedSeconds, deliveredSeconds);
       const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
-        note: `Rendering via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — poll for the hosted MP4 (renders take up to a few minutes).` };
+        requestedSeconds, seconds: deliveredSeconds,
+        note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
       await saveJob(job);
       return job;
     }

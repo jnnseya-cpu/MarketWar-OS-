@@ -10602,3 +10602,68 @@ test("siteraid: the route reads the stored crawl instead of asking for a URL aga
   // A store that cannot persist says so rather than losing the crawl quietly.
   assert.match(route, /Firebase Admin is not configured on this deployment/);
 });
+
+// ---------------------------------------------------------------------------
+// Video length. The renders came back at four seconds and there was no bug to
+// find, because there was no duration in the code at all: startVideoRender took
+// a brandId and a prompt, Veo was called with { instances: [{ prompt }] } and
+// Sora with { model, prompt }. Neither was told a length, so both returned
+// their own default — and four seconds is a GIF that costs money.
+// ---------------------------------------------------------------------------
+const vg = await import("../src/backend/video-gateway.ts");
+
+test("video: a requested length reaches the provider", () => {
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /parameters: \{ durationSeconds: seconds \}/, "Veo is never told how long");
+  assert.match(src, /seconds: String\(seconds\)/, "Sora is never told how long");
+  const route = readFileSync(new URL("../src/app/api/video-render/route.ts", import.meta.url), "utf8");
+  assert.match(route, /startVideoRender\(\{ brandId, prompt, seconds \}\)/);
+  const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+  assert.match(ui, /prompt, seconds \}\)/, "the screen must send the length the user picked");
+});
+
+test("video: what each model will actually deliver, not what was hoped for", () => {
+  // A single Veo call caps at 8s; asking for 15 gets 8, and says so.
+  assert.equal(vg.supportedSeconds("veo", 15), 8);
+  assert.equal(vg.supportedSeconds("veo", 6), 6);
+  assert.equal(vg.supportedSeconds("veo", 1), 4, "below the floor is raised to it, not sent as-is");
+
+  // Sora takes 4, 8 or 12 and nothing between. Snap DOWN — a longer clip than
+  // asked for is a bigger bill nobody approved.
+  assert.equal(vg.supportedSeconds("sora", 12), 12);
+  assert.equal(vg.supportedSeconds("sora", 11), 8);
+  assert.equal(vg.supportedSeconds("sora", 15), 12);
+  assert.equal(vg.supportedSeconds("sora", 2), 4);
+
+  // And the shortfall is named rather than silently shipped.
+  assert.equal(vg.durationNote("veo", 8, 8), "", "no note when the ask was met");
+  assert.match(vg.durationNote("veo", 15, 8), /asked for 15s and this clip is 8s/);
+  assert.match(vg.durationNote("veo", 15, 8), /caps at 8 seconds/);
+  assert.match(vg.durationNote("sora", 15, 12), /only 4, 8, 12 seconds/);
+  assert.match(vg.durationNote("sora", 15, 12), /stitch/, "the way to get longer is stated");
+});
+
+test("video: a provider that rejects the length still renders", () => {
+  // A 400 on the duration parameter must not lose the render — a shorter clip
+  // beats no clip, and the note says which happened.
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+  assert.equal((src.match(/if \(res\.status === 400\)/g) || []).length, 2, "both providers need the retry");
+  assert.match(src, /rendered at its default length/);
+});
+
+test("voice: a 401 names which of the four causes it was", async () => {
+  // "Check ELEVENLABS_API_KEY" was the answer to every 401, and three of the
+  // four common causes are not a bad key — so the customer was sent to
+  // regenerate a credential that was working.
+  const src = readFileSync(new URL("../src/backend/voice.ts", import.meta.url), "utf8");
+  for (const status of ["invalid_api_key", "missing_permissions", "detected_unusual_activity", "quota_exceeded"]) {
+    assert.match(src, new RegExp(status), `${status} is not distinguished`);
+  }
+  // The two that are NOT a key problem must say so plainly.
+  assert.match(src, /the key is fine, and it clears on any paid plan/);
+  assert.match(src, /replacing the key will not help/);
+  // And an unrecognised reason passes ElevenLabs' own words through rather than
+  // substituting a guess.
+  assert.match(src, /ElevenLabs refused the request \(401\): \$\{detail\}/);
+  assert.ok(!/if \(res\.status === 401\) return "ElevenLabs rejected the API key/.test(src), "the blanket answer is gone");
+});

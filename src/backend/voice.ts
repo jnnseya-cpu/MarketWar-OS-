@@ -46,11 +46,47 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   });
 }
 
+// WHAT A 401 ACTUALLY MEANS HERE, WHICH IS FOUR DIFFERENT THINGS.
+//
+// This used to answer every 401 with "ElevenLabs rejected the API key. Check
+// ELEVENLABS_API_KEY." — and then throw away the reason ElevenLabs had just
+// given. Three of the four common causes are not a bad key, so the customer was
+// sent to regenerate a credential that was working:
+//
+//   • invalid_api_key        — the key really is wrong or revoked.
+//   • missing_permissions    — the key is valid but was created without the
+//                              scope this endpoint needs. Editing the key fixes
+//                              it; replacing it does not.
+//   • detected_unusual_activity — the FREE tier refusing traffic from a cloud
+//                              IP. Extremely common on Vercel, and the key is
+//                              fine. Only a paid plan clears it.
+//   • quota_exceeded         — the allowance is spent, which is a 401 on some
+//                              endpoints and a 429 on others.
+//
+// Telling somebody to check a key that is not the problem costs them an
+// afternoon and teaches them to distrust the next message too.
+const XI_401: Record<string, string> = {
+  invalid_api_key: "ElevenLabs says the key itself is invalid or revoked — generate a new one and replace ELEVENLABS_API_KEY.",
+  missing_permissions: "The key is VALID but was created without the permission this action needs. Edit the key's scopes in ElevenLabs (text-to-speech, voices, dubbing as applicable) — replacing the key will not help.",
+  detected_unusual_activity: "ElevenLabs has flagged the traffic as unusual. This is their free tier refusing requests from a cloud IP — the key is fine, and it clears on any paid plan. Nothing is wrong with your configuration.",
+  quota_exceeded: "The character allowance on this account is spent. The key is fine; the plan needs topping up or the period needs to roll over.",
+};
+
 async function errorFrom(res: Response): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { detail?: { message?: string; status?: string } | string };
   const detail = typeof body.detail === "string" ? body.detail : body.detail?.message || body.detail?.status;
-  if (res.status === 401) return "ElevenLabs rejected the API key. Check ELEVENLABS_API_KEY.";
-  if (res.status === 429) return "ElevenLabs rate limit or quota reached — your character allowance is spent for this period.";
+  const status = typeof body.detail === "object" && body.detail ? (body.detail.status || "") : "";
+
+  if (res.status === 401) {
+    const known = XI_401[status];
+    if (known) return known;
+    // Unrecognised reason: pass ElevenLabs' own words through rather than
+    // substituting a guess for them.
+    return detail
+      ? `ElevenLabs refused the request (401): ${detail}. That may or may not be the key — check the key's PERMISSIONS as well as its value.`
+      : "ElevenLabs refused the request (401) without saying why. Check the key's value and its permissions — a key with the wrong scopes fails exactly like a wrong one.";
+  }
+  if (res.status === 429) return `ElevenLabs rate limit or quota reached — your character allowance is spent for this period.${detail ? ` (${detail})` : ""}`;
   return detail || `ElevenLabs returned HTTP ${res.status}`;
 }
 
