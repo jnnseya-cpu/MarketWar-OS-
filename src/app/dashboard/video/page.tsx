@@ -43,6 +43,7 @@ import RenderFarm from "@/components/RenderFarm";
 import CaptionEngine from "@/components/CaptionEngine";
 import ClipFinder from "@/components/ClipFinder";
 import AudioStudio from "@/components/AudioStudio";
+import ConnectYouTube from "@/components/ConnectYouTube";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -224,6 +225,11 @@ export default function VideoWarRoomPage() {
         subtitle="Creation, editing, captions, translation, avatars, branding, repurposing and campaign launch — video as a weapon, not a file. Every asset ships with a tracked CTA into a channel you own."
         actions={<Pill tone="info">{renderLive ? "video render live (Veo / Sora)" : "video render · activate with a key"}</Pill>}
       />
+
+      {/* Connect the brand's own channel — the captions path for the Caption
+          Engine and Clip Finder below. Placed above them, because it is what
+          makes a pasted YouTube link work at all. */}
+      <ConnectYouTube />
 
       <HowToUse
         does="Make, cut, caption and publish marketing videos. Most of it works in your browser right now — no key."

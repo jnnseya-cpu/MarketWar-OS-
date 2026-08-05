@@ -2724,3 +2724,28 @@ now also carries the YouTube scope), and **each brand connects its own Google
 account separately** for captions — `POST /api/google/connect?brandId=…`. The
 Cloud project, the OAuth client and the verification are the platform's, one
 set, shared. The *authorisations* are per brand.
+
+### §70c — The button that made it reachable (2026-08-04)
+
+Google Cloud project, OAuth client, consent screen and **verification** are all
+done on the owner's side, so the platform prerequisites are complete. One gap
+remained between "built" and "usable": **no customer could switch it on.**
+
+The only Google connect button on the platform lives on `/dashboard/go-live`,
+which is admin-only and connects the **platform's** account. The per-brand route
+accepted `?brandId=` and nothing called it that way. A capability nobody can
+switch on is a capability nobody has.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| A customer can connect their brand's channel | ✅ **new** | `ConnectYouTube` on `/dashboard/video`, above the Caption Engine and Clip Finder — placed where the need arises, asserted by source order. |
+| The screen knows whether it is connected | ✅ | `GET /api/google/connect?brandId=` returns `connected` + `clientReady`, ownership-checked. Both GET and POST check, or one brand could read whether another has connected. |
+| The exchange is stated before the button | ✅ | Asking for a Google account is asking for trust. Read: caption tracks of your own videos. **Never** the video file — YouTube does not permit it and nothing here downloads one. **Never** posting, editing or deleting. **Yours alone** — the platform's connection is never used on your behalf. |
+
+Tests **969 → 970**; typecheck, layer check and build green.
+
+**The whole flow now, end to end:** brand owner presses Connect → consent carries
+the brand inside the signed state → the callback stores the refresh token
+against that brand → pasting a YouTube link into the Caption Engine or Clip
+Finder reads that brand's own caption track, charges nothing, and downloads
+nothing.

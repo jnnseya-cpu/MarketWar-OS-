@@ -10856,3 +10856,28 @@ test("google: connecting a brand needs the brand, not an executive", () => {
     assert.match(src, /resolveBrandAccess\(req, brandId\)/, `${f} uses a brand token without checking ownership`);
   }
 });
+
+test("youtube connect: a customer can actually reach the feature", () => {
+  // The captions reader was built, the route accepted a brandId, and the only
+  // Google connect button on the platform was on the ADMIN-ONLY Go-Live board
+  // connecting the PLATFORM's account. A capability nobody can switch on is a
+  // capability nobody has.
+  const panel = readFileSync(new URL("../src/components/ConnectYouTube.tsx", import.meta.url), "utf8");
+  assert.match(panel, /\/api\/google\/connect\?brandId=\$\{encodeURIComponent\(activeBrand\.id\)\}/);
+  // The exchange is stated before the button, because asking for a Google
+  // account is asking for trust.
+  assert.match(panel, /Never: the video file itself/);
+  assert.match(panel, /Never: posting, editing or deleting/);
+  assert.match(panel, /the platform's connection is never used on your behalf/);
+
+  // Mounted where the need arises, above the panels that use it.
+  const page = readFileSync(new URL("../src/app/dashboard/video/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<ConnectYouTube \/>/);
+  assert.ok(page.indexOf("<ConnectYouTube />") < page.indexOf("<HowToUse"), "it must sit above the tools that need it");
+
+  // And the status endpoint is ownership-checked, or one brand could read
+  // whether another has connected.
+  const route = readFileSync(new URL("../src/app/api/google/connect/route.ts", import.meta.url), "utf8");
+  assert.match(route, /export async function GET/);
+  assert.equal((route.match(/resolveBrandAccess\(req, brandId\)/g) || []).length, 2, "both GET and POST must check ownership");
+});

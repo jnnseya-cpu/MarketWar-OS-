@@ -37,3 +37,22 @@ export async function POST(req: NextRequest) {
   const redirectUri = `${req.nextUrl.origin}/api/google/callback`;
   return NextResponse.json({ url: googleConsentUrl(redirectUri, signState(brandId)), redirectUri, brandId: brandId || undefined });
 }
+
+// Is this brand connected? The screens need to know before they offer a button,
+// and a customer must never be told to connect something they already have.
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const brandId = (req.nextUrl.searchParams.get("brandId") || "").trim();
+  if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
+  const { resolveBrandAccess } = await import("@/backend/brand-access");
+  const access = await resolveBrandAccess(req, brandId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const { brandGoogleConnected } = await import("@/backend/google-oauth-store");
+  return NextResponse.json({
+    brandId,
+    connected: await brandGoogleConnected(brandId),
+    clientReady: hasOAuthClient(),
+    what: "Connecting lets this brand's own YouTube captions be read for the Caption Engine and Clip Finder. Nothing is downloaded, nothing is posted, and the platform's own Google connection is never used on your behalf.",
+  });
+}
