@@ -2749,3 +2749,61 @@ the brand inside the signed state → the callback stores the refresh token
 against that brand → pasting a YouTube link into the Caption Engine or Clip
 Finder reads that brand's own caption track, charges nothing, and downloads
 nothing.
+
+---
+
+## §71 — Adsumo, mapped from what is publicly indexed (2026-08-04)
+
+Owner asked for a deep dive on `adsumo.ai` to extract modules for the OS.
+
+**The page could not be read.** `adsumo.ai` and `www.adsumo.ai` are blocked by
+this session's network egress — `CONNECT tunnel failed, response 403` at host
+level, so no path resolves. What follows is assembled from **search-engine
+snippets of their own pages**, not from the pages themselves, and is marked
+provisional for that reason. Building a module list from snippets and calling it
+an extraction would be the invented-precision this register exists to catch.
+
+### Their module set, as indexed
+
+| Module | MarketWar today | Verdict |
+|---|---|---|
+| **URL → image ads** | `deep-crawl` reads the site (8 pages / 530 facts on a real run) and, since §68, **stores it**; `site-extract` returns logos, colours, fonts, CTAs and prices | ✅ have |
+| **AI image ads, on brand** | `image-gateway` composites the customer's **real** logo and photos — a model is never asked to redraw a logo or spell copy | ✅ have, and stricter |
+| **Dozens of variants to test** | `batch-ads` — 6 angles × 4 formats × 3 treatments from one photo | ✅ have |
+| **Ad sizes** | 8 social formats + 5 print (A6–A3, 300 DPI with bleed) | ✅ have |
+| **Multi-platform copy** | `warfare` — 12 platform payloads from one campaign | ✅ have |
+| **AI video ads** | `video-gateway` (Veo / Sora), duration now honoured (§69) | ✅ partial |
+| **UGC / podcast / street-interview styles** | — | 📦 gap |
+| **50+ avatars + voiceover / lipsync** | `voice` (ElevenLabs) exists; no avatar library, no lipsync | 📦 gap |
+| **Ad library — browse winning ads, recreate them** | nothing matches `winning ads` / `swipe file` in the repo | 📦 gap, **with a constraint** |
+| **Localisation** | 53 market locales (timezone, currency, spelling); copy localisation goes through the gateway's `lang`, which is not a fixed list | ✅ have, differently |
+| **Team collaboration** | `approvals` — state machine, immutable history | ✅ have |
+| **Canvas editor for a generated ad** | browser clip editor exists; no static-ad canvas | 📦 gap |
+
+### Three things to check against the real page before any of it is built
+
+1. **Their own language count disagrees with itself** across indexed pages — one
+   says 29, another 100+. A number that changes between a vendor's own pages is
+   a number to verify, not to copy into a comparison.
+2. **"Trained on millions of ads to understand what converts"** is an
+   unverifiable performance claim. If MarketWar ever echoed a claim of that
+   shape it would be blocked by its own `claim-guard`, so it is recorded here as
+   *their* marketing rather than a capability to match.
+3. **"Find winning ads and recreate them for your brand"** is the one module
+   with a legal edge. Recreating a competitor's advertisement raises copyright
+   in the creative and passing-off in the trade dress, and the liability lands
+   on the customer who publishes it. If it is built, it must be an *analysis*
+   surface — what structure, hook and offer shape are working in a category —
+   never a reproduction tool. Same doctrine as `link-opportunities` ("EARN
+   links, never place them") and `reputation` ("reviews are EARNED").
+
+### Correction to an earlier statement
+
+I told the owner MarketWar has "13 languages". That was wrong — the 13 is the
+**currency/market** table in `localisation.ts`. The real figures are **53 market
+locales** in `shared/market.ts`, with copy language passed to the gateway rather
+than drawn from a fixed list.
+
+**Not built.** The stopping rule stands: no new features until the Money Ledger
+has one real entry. This section records the requirement set so it is not lost;
+the four gaps above are candidates for after that, in the owner's priority order.
