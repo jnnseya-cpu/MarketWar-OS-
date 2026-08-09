@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Swords, Radar, Shield } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
+import AdIntel from "@/components/AdIntel";
 import { HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard, ScoreBar } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -120,6 +121,11 @@ export default function CompetitorsPage() {
         subtitle="Every named rival — monitored across search, AI answers, social and sentiment, scored for threat and share of voice, then turned into a sales battlecard of ethical counter-moves. Scores are directional estimates; live signal feeds plug in at go-live. We win on our genuine strengths, never on knocking copy."
         actions={<Pill tone="info">threat · share of voice · battlecard</Pill>}
       />
+
+      {/* What the rivals' ads actually look like — counted from the ads the
+          customer collected, never recreated. Sits above the threat board
+          because it is the one part of competitor work that needs no estimate. */}
+      <AdIntel />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">

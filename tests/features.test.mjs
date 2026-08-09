@@ -10881,3 +10881,387 @@ test("youtube connect: a customer can actually reach the feature", () => {
   assert.match(route, /export async function GET/);
   assert.equal((route.match(/resolveBrandAccess\(req, brandId\)/g) || []).length, 2, "both GET and POST must check ownership");
 });
+
+// ---------------------------------------------------------------------------
+// The Adsumo-gap modules: ad formats, the editable canvas, likeness consent,
+// the avatar gateway, and ad intelligence.
+//
+// The competitor pitch for all of this is "generate an ad, remix a winning one,
+// put a face on it". Each module here takes the half that is a real product and
+// refuses the half that is a lawsuit or a made-up number — so these tests care
+// as much about what the modules WON'T do as what they will.
+// ---------------------------------------------------------------------------
+const adStyles = await import("../src/backend/ad-styles.ts");
+const canvas = await import("../src/backend/ad-canvas.ts");
+const consentMod = await import("../src/backend/likeness-consent.ts");
+const avatars = await import("../src/backend/avatar-gateway.ts");
+const adIntel = await import("../src/backend/ad-intel.ts");
+
+test("ad styles: every style is filmable — shots, camera, audio and a failure mode", () => {
+  assert.ok(adStyles.AD_STYLES.length >= 12, "the format library is too thin to be worth a screen");
+  for (const s of adStyles.AD_STYLES) {
+    assert.ok(s.shots.length >= 3, `${s.id} has no shot list`);
+    assert.ok(s.failsWhen.length > 0, `${s.id} never says how it goes wrong`);
+    assert.ok(s.idealSeconds > 0 && s.idealSeconds <= 90, `${s.id} has an implausible length`);
+    assert.ok(s.platforms.length > 0, `${s.id} runs nowhere`);
+    // The whole point: no format carries a predicted performance number.
+    const json = JSON.stringify(s).toLowerCase();
+    for (const banned of ["viralityscore", "predictedctr", "winrate", "performancescore"]) {
+      assert.ok(!json.includes(banned), `${s.id} predicts performance nobody can know`);
+    }
+  }
+});
+
+test("ad styles: a brief is built from the product, and refuses without one", () => {
+  const bad = adStyles.briefFor({ styleId: "ugc-testimonial", product: "  " });
+  assert.equal(bad.ok, false);
+  const unknown = adStyles.briefFor({ styleId: "not-a-style", product: "paint" });
+  assert.equal(unknown.ok, false);
+
+  const res = adStyles.briefFor({ styleId: "street-interview", product: "loft conversions", audience: "homeowners in Leeds" });
+  assert.equal(res.ok, true);
+  assert.match(res.brief.prompt, /loft conversions/);
+  assert.ok(res.brief.checklist.length > 0, "a brief with nothing to check is a paragraph");
+  // Asking for less time than the format needs is a warning, not a silent trim.
+  const short = adStyles.briefFor({ styleId: "street-interview", product: "loft conversions", seconds: 4 });
+  assert.equal(short.ok, true);
+  assert.ok(short.brief.warnings.length > 0, "a 4s street interview must warn that the shot list is cut short");
+});
+
+test("canvas: contrast is the WCAG ratio, computed — not an impression", () => {
+  // The published reference values. If these drift the whole check is decoration.
+  assert.equal(canvas.contrastRatio("#ffffff", "#000000"), 21);
+  assert.equal(canvas.contrastRatio("#ffffff", "#ffffff"), 1);
+  assert.ok(Math.abs(canvas.contrastRatio("#767676", "#ffffff") - 4.54) < 0.05, "the classic 4.5:1 grey must measure 4.5:1");
+  assert.equal(canvas.readableOn("#ffffff"), "#000000");
+  assert.equal(canvas.readableOn("#101624"), "#ffffff");
+});
+
+test("canvas: a scrim over an unknown photo gives a FLOOR, not a shrug", () => {
+  // The photo can be any colour, so it is bracketed by black and white and the
+  // worse composite is a guarantee that holds whatever the picture is.
+  const { floor, worst } = canvas.scrimFloor("#ffffff", "#101624", 0.62);
+  assert.ok(floor > 1 && floor < 21);
+  assert.ok(/^#[0-9a-f]{6}$/.test(worst));
+  // A thicker scrim can only help — it moves the worst case toward the scrim.
+  const thicker = canvas.scrimFloor("#ffffff", "#101624", 0.95);
+  assert.ok(thicker.floor > floor, "a heavier scrim must raise the guaranteed floor");
+  // And the exact composite is real arithmetic, not a lookup.
+  assert.equal(canvas.composite("#ffffff", "#000000", 0.5), "#808080");
+  assert.equal(canvas.composite("#ffffff", "#000000", 1), "#ffffff");
+});
+
+test("canvas: the builder's own defaults pass the builder's own check", () => {
+  // A default that fails the check ships a defect to every customer who never
+  // opens the panel. This caught a real one: amber offer text over a 62% scrim
+  // fell to 1.64:1 on a light photograph.
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d1", placementId: "feed-square",
+    imageUrl: "https://cdn.example.com/x.jpg",
+    headline: "Your extension, finished before the winter",
+    subhead: "Fixed price. Fixed date.",
+    offer: "Free survey in August",
+    cta: "Book a survey",
+    colours: ["#c98500", "#101624"],
+  });
+  const check = canvas.checkDoc(doc);
+  const contrastFails = check.findings.filter((f) => /:1 against/.test(f.title));
+  assert.equal(contrastFails.length, 0, `the default build must not fail its own contrast check: ${contrastFails.map((f) => f.title).join("; ")}`);
+  assert.equal(check.publishable, true);
+});
+
+test("canvas: refit re-lays-out for the new safe area — it is not a crop", () => {
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d2", placementId: "feed-square",
+    headline: "Same-day boiler repair", cta: "Call now", colours: ["#199e70"],
+  });
+  const reel = canvas.refit(doc, "reel");
+  const frame = canvas.placement("reel");
+  assert.equal(reel.placementId, "reel");
+
+  // A reel reserves its bottom 35%. Nothing readable may sit inside it.
+  for (const l of reel.layers) {
+    if (l.kind !== "text") continue;
+    assert.ok(l.y <= 1 - frame.safe.bottom + 1e-9, `${l.id} at y=${l.y} is under the reel's CTA block`);
+    assert.ok(l.y >= frame.safe.top - 1e-9, `${l.id} at y=${l.y} is under the profile row`);
+  }
+  // And the check agrees, which is the real assertion.
+  assert.equal(canvas.checkDoc(reel).publishable, true);
+
+  // The text did not merely keep its number: a square's 0.9 would be INSIDE the
+  // reel's reserved band, so a crop would have left it there.
+  const headline = doc.layers.find((l) => l.id === "headline");
+  const reelHeadline = reel.layers.find((l) => l.id === "headline");
+  assert.notEqual(headline.y, reelHeadline.y, "refit that leaves y untouched is a crop wearing a different name");
+});
+
+test("canvas: the scrim is derived, so it always covers the copy it exists for", () => {
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d3", placementId: "feed-square",
+    imageUrl: "https://cdn.example.com/x.jpg",
+    headline: "A headline long enough to wrap onto more than a single line of the frame",
+    subhead: "And a subhead underneath it.", cta: "Get a quote", colours: ["#3987e5"],
+  });
+  const covers = (d) => {
+    const scrim = d.layers.find((l) => l.id === "scrim");
+    const top = canvas.textBlockTop(d);
+    // Anchored bottom-left at y=1, so it spans (1 - h) .. 1.
+    return 1 - scrim.h <= top + 1e-9;
+  };
+  assert.ok(covers(doc), "the scrim must cover the copy on the frame it was built for");
+  for (const id of ["reel", "story", "tiktok", "landscape", "email-banner"]) {
+    const d = canvas.refit(doc, id);
+    // The stack must fit the FRAME before anything can cover it. A 3:1 email
+    // banner is where fitting each layer to its own box is not enough: four
+    // layers that each fit their width can still add up to a block taller than
+    // a 400px frame, and its top ends up outside the artwork entirely.
+    const top = canvas.textBlockTop(d);
+    assert.ok(top >= canvas.placement(id).safe.top - 1e-9, `on ${id} the copy starts at ${top.toFixed(3)} — above the frame's safe area, so it is off the artwork`);
+    assert.ok(covers(d), `after refit to ${id} the copy floats off the scrim onto the bare photo`);
+  }
+});
+
+test("canvas: an edit changes a string — it never regenerates the picture", () => {
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d4", placementId: "feed-square",
+    imageUrl: "https://cdn.example.com/photo.jpg", headline: "Old headline", colours: ["#3987e5"],
+  });
+  const before = doc.layers.find((l) => l.id === "bg").href;
+  const res = canvas.applyEdit(doc, { op: "set-text", layerId: "headline", text: "New headline" });
+  assert.equal(res.ok, true);
+  assert.equal(res.doc.layers.find((l) => l.id === "headline").text, "New headline");
+  assert.equal(res.doc.layers.find((l) => l.id === "bg").href, before, "editing text must not touch the artwork");
+  assert.match(res.note, /nothing was charged/i);
+});
+
+test("canvas: a hand-placed layer is not overruled by a resize", () => {
+  const doc = canvas.docFromAd({ brandId: "b1", docId: "d5", placementId: "feed-square", headline: "Hi", colours: ["#3987e5"] });
+  const moved = canvas.applyEdit(doc, { op: "move", layerId: "headline", x: 0.3, y: 0.4 });
+  assert.equal(moved.ok, true);
+  assert.equal(moved.doc.layers.find((l) => l.id === "headline").pinned, true);
+  const reel = canvas.refit(moved.doc, "reel");
+  const h = reel.layers.find((l) => l.id === "headline");
+  assert.equal(h.x, 0.3, "a pinned layer must keep the position the customer chose");
+  assert.equal(h.y, 0.4);
+});
+
+test("canvas: the renderer escapes what the customer typed", () => {
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d6", placementId: "feed-square",
+    headline: `</text><script>alert(1)</script>`, colours: ["#3987e5"],
+  });
+  const svg = canvas.renderSvg(doc);
+  assert.ok(!svg.includes("<script>"), "customer text reached the SVG unescaped");
+  assert.ok(svg.includes("&lt;script&gt;"));
+  // And an href scheme that is not https or data:image never renders.
+  assert.equal(canvas.safeHref("javascript:alert(1)"), null);
+  assert.equal(canvas.safeHref("http://example.com/a.png"), null, "plain http would break the page and leak the referrer");
+  assert.equal(canvas.safeHref("https://cdn.example.com/a.png"), "https://cdn.example.com/a.png");
+});
+
+test("canvas: a claim on the artwork is caught by the same guard as the copy", () => {
+  const doc = canvas.docFromAd({
+    brandId: "b1", docId: "d7", placementId: "feed-square",
+    headline: "Guaranteed 300% more leads", colours: ["#3987e5"],
+  });
+  const check = canvas.checkDoc(doc);
+  assert.ok(check.claims.length > 0, "an unprovable claim is not less unprovable for being set in a nice typeface");
+});
+
+test("likeness consent: unscoped, unevidenced or unnamed consent is refused", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  const base = { brandId: "b1", personName: "Sam Reed", kinds: ["face"], evidence: "signed-release", territories: ["GB"], platforms: ["*"], nowISO: now };
+  assert.equal((await consentMod.recordConsent({ ...base, personName: "" })).ok, false);
+  assert.equal((await consentMod.recordConsent({ ...base, kinds: [] })).ok, false);
+  assert.equal((await consentMod.recordConsent({ ...base, evidence: "trust-me" })).ok, false);
+  assert.equal((await consentMod.recordConsent({ ...base, territories: [] })).ok, false);
+  assert.equal((await consentMod.recordConsent({ ...base, platforms: [] })).ok, false);
+  assert.equal((await consentMod.recordConsent(base)).ok, true);
+});
+
+test("likeness consent: a face consent is never a voice consent", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  await consentMod.recordConsent({ brandId: "b2", personName: "Ada Cole", kinds: ["face"], evidence: "signed-release", territories: ["*"], platforms: ["*"], paidAds: true, nowISO: now });
+  const face = await consentMod.consentFor({ brandId: "b2", personName: "Ada Cole", kind: "face", nowISO: now });
+  assert.equal(face.allowed, true);
+  const voice = await consentMod.consentFor({ brandId: "b2", personName: "Ada Cole", kind: "voice", nowISO: now });
+  assert.equal(voice.allowed, false);
+  assert.match(voice.reason, /not voice/i);
+});
+
+test("likeness consent: scope, expiry and withdrawal each refuse for their OWN reason", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  await consentMod.recordConsent({ brandId: "b3", personName: "Jo Vale", kinds: ["face"], evidence: "written-agreement", territories: ["GB"], platforms: ["Instagram"], paidAds: false, termDays: 30, nowISO: now });
+
+  // Saying "no consent on record" when one exists sends them to collect a
+  // consent they already have. Each refusal must name the part that failed.
+  const paid = await consentMod.consentFor({ brandId: "b3", personName: "Jo Vale", kind: "face", paidAd: true, nowISO: now });
+  assert.equal(paid.allowed, false);
+  assert.match(paid.reason, /paid/i);
+
+  const territory = await consentMod.consentFor({ brandId: "b3", personName: "Jo Vale", kind: "face", territory: "FR", nowISO: now });
+  assert.equal(territory.allowed, false);
+  assert.match(territory.reason, /GB/);
+
+  const platform = await consentMod.consentFor({ brandId: "b3", personName: "Jo Vale", kind: "face", platform: "TikTok", nowISO: now });
+  assert.equal(platform.allowed, false);
+  assert.match(platform.reason, /Instagram/);
+
+  const later = "2026-10-09T10:00:00.000Z";
+  const expired = await consentMod.consentFor({ brandId: "b3", personName: "Jo Vale", kind: "face", nowISO: later });
+  assert.equal(expired.allowed, false);
+  assert.match(expired.reason, /expired/i);
+
+  // And a withdrawal takes effect immediately, with the record kept.
+  const list = await consentMod.listConsents("b3");
+  assert.equal(await consentMod.revokeConsent("b3", list[0].id, now, "changed their mind"), true);
+  const revoked = await consentMod.consentFor({ brandId: "b3", personName: "Jo Vale", kind: "face", nowISO: now });
+  assert.equal(revoked.allowed, false);
+  assert.match(revoked.reason, /withdrew/i);
+  assert.ok((await consentMod.listConsents("b3")).some((c) => c.revokedAt), "the withdrawal itself must stay on record");
+});
+
+test("likeness consent: one brand's consent never covers another's", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  await consentMod.recordConsent({ brandId: "brand-a", personName: "Kit Shaw", kinds: ["face"], evidence: "self", territories: ["*"], platforms: ["*"], nowISO: now });
+  const other = await consentMod.consentFor({ brandId: "brand-b", personName: "Kit Shaw", kind: "face", nowISO: now });
+  assert.equal(other.allowed, false);
+});
+
+test("avatars: the category gate refuses before consent and before any provider", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  for (const [script, why] of [
+    ["This supplement will cure your back pain", /medical/i],
+    ["Guaranteed returns on your crypto investment", /financial/i],
+    ["Vote for our candidate in the election", /political/i],
+    ["Breaking news: sources say prices are falling", /news/i],
+  ]) {
+    const gate = await avatars.gateAvatar({ brandId: "b1", script, avatarKind: "stock", nowISO: now });
+    assert.equal(gate.ok, false, `"${script}" must be refused`);
+    assert.match(gate.error, why);
+  }
+  // A refusal here is not conditional on consent existing — it is checked FIRST,
+  // because this one costs the customer their ad account rather than an ACU.
+  const withConsent = await avatars.gateAvatar({ brandId: "b1", script: "Our cream will cure eczema", avatarKind: "stock", nowISO: now });
+  assert.equal(withConsent.ok, false);
+  assert.match(withConsent.error, /medical/i);
+});
+
+test("avatars: a custom avatar without a consent record is refused, not warned", async () => {
+  consentMod.__resetLikenessConsents();
+  const now = "2026-08-09T10:00:00.000Z";
+  const none = await avatars.gateAvatar({ brandId: "b9", script: "Come and see our new showroom.", avatarKind: "custom", personName: "Ravi Patel", nowISO: now });
+  assert.equal(none.ok, false);
+  assert.match(none.error, /No consent on record/i);
+
+  // Unnamed is refused too — an unnamed face cannot be checked against anything.
+  const unnamed = await avatars.gateAvatar({ brandId: "b9", script: "Come and see our new showroom.", avatarKind: "custom", nowISO: now });
+  assert.equal(unnamed.ok, false);
+
+  await consentMod.recordConsent({ brandId: "b9", personName: "Ravi Patel", kinds: ["face"], evidence: "recorded-statement", territories: ["*"], platforms: ["*"], paidAds: true, nowISO: now });
+  const ok = await avatars.gateAvatar({ brandId: "b9", script: "Come and see our new showroom.", avatarKind: "custom", personName: "Ravi Patel", nowISO: now });
+  assert.equal(ok.ok, true);
+
+  // But a face consent still does not let us clone the voice.
+  const voice = await avatars.gateAvatar({ brandId: "b9", script: "Come and see our new showroom.", avatarKind: "custom", personName: "Ravi Patel", voiceId: "v1", nowISO: now });
+  assert.equal(voice.ok, false);
+  assert.match(voice.error, /not voice/i);
+});
+
+test("avatars: with no provider configured it returns a real brief, never a fake video", async () => {
+  consentMod.__resetLikenessConsents();
+  for (const p of avatars.AVATAR_PROVIDERS) assert.ok(!process.env[p.envKey], `${p.envKey} is set in the test env`);
+  assert.equal(avatars.wouldCallProvider(), false);
+  const job = await avatars.renderAvatar({ brandId: "b1", script: "Two weeks to fit a kitchen, start to finish.", avatarKind: "stock", nowISO: "2026-08-09T10:00:00.000Z" });
+  assert.equal(job.ok, true);
+  assert.equal(job.mode, "brief");
+  assert.equal(job.jobRef, null);
+  assert.match(job.note, /nothing was charged/i);
+  assert.match(job.brief, /Two weeks to fit a kitchen/);
+  assert.ok(job.disclosure.length > 0, "synthetic media must always carry its disclosure");
+});
+
+test("ad intel: below the judging volume it counts but concludes nothing", () => {
+  const few = adIntel.analyseAds([
+    { id: "1", advertiser: "A", source: "observed", headline: "50% off today", body: "Save now" },
+    { id: "2", advertiser: "B", source: "observed", headline: "Free quote", body: "Call us" },
+  ]);
+  assert.equal(few.ads, 2);
+  assert.equal(few.judgeable, false);
+  assert.equal(few.normsToMatch.length, 0, "two ads cannot establish a norm");
+  assert.equal(few.openGround.length, 0);
+  assert.ok(few.patterns.length > 0, "the counts themselves are still shown");
+  assert.ok(few.notes.some((n) => n.includes(String(adIntel.MIN_ADS_TO_JUDGE))));
+});
+
+test("ad intel: every figure is a count with a denominator, and the norms are real", () => {
+  const ads = Array.from({ length: 10 }, (_, i) => ({
+    id: `a${i}`, advertiser: `Advertiser ${i}`, source: "meta-ad-library",
+    headline: i < 8 ? "Are you tired of leaks?" : "Boiler repair",
+    body: i < 8 ? "We fix it today. Free quote for your home." : "Call the team.",
+    cta: "Book now", format: "image",
+  }));
+  const rep = adIntel.analyseAds(ads);
+  assert.equal(rep.ads, 10);
+  assert.equal(rep.advertisers, 10);
+  assert.equal(rep.judgeable, true);
+  for (const p of rep.patterns) {
+    assert.equal(p.of, 10, "a percentage without its denominator is the thing this platform refuses");
+    assert.equal(p.pct, Math.round((p.matched / p.of) * 100));
+    assert.ok(p.matched <= p.of);
+  }
+  // 8 of 10 open on a question, so that is a norm and the count backs it.
+  const q = rep.patterns.find((p) => p.id === "question-open");
+  assert.equal(q.matched, 8);
+  assert.ok(rep.normsToMatch.some((n) => n.includes("8 of 10")), "a norm must carry the count that made it one");
+  // Nothing anywhere is called a winner.
+  assert.ok(!JSON.stringify(rep).toLowerCase().includes("winning"));
+});
+
+test("ad intel: one advertiser is a house style, and it says so", () => {
+  const ads = Array.from({ length: 9 }, (_, i) => ({ id: `x${i}`, advertiser: "Same Ltd", source: "observed", headline: `Offer ${i}`, body: "Body copy here." }));
+  const rep = adIntel.analyseAds(ads);
+  assert.equal(rep.advertisers, 1);
+  assert.ok(rep.notes.some((n) => /house style/i.test(n)));
+});
+
+test("ad intel: recreating a competitor's ad is refused as a code path", () => {
+  const res = adIntel.recreationRefused("Rival Ltd");
+  assert.equal(res.allowed, false);
+  assert.match(res.reason, /Rival Ltd/);
+  assert.match(res.reason, /copyright/i);
+  assert.ok(res.instead.length > 0, "a refusal with no alternative is just a door");
+  // And the route serves it before it parses anything, so there is no path that
+  // falls through into an analysis returning enough to rebuild the ad.
+  const route = readFileSync(new URL("../src/app/api/ad-intel/route.ts", import.meta.url), "utf8");
+  assert.match(route, /recreationRefused/);
+  assert.ok(route.indexOf("recreationRefused") < route.indexOf("body.ads"), "the refusal must be served before the ads are read");
+});
+
+test("adsumo-gap routes: brand-scoped, and free work is never metered", () => {
+  const canvasRoute = readFileSync(new URL("../src/app/api/ad-canvas/route.ts", import.meta.url), "utf8");
+  // Editing is local arithmetic. Charging for a typo correction would put back
+  // the exact cost the canvas exists to remove.
+  assert.ok(!canvasRoute.includes("meterAction"), "the canvas must never charge — no provider is called");
+  assert.match(canvasRoute, /resolveBrandAccess\(req, brandId\)/);
+  // A posted document is forced onto the caller's own brand.
+  assert.match(canvasRoute, /return \{ \.\.\.\(posted as AdDoc\), brandId \}/);
+
+  const avatarRoute = readFileSync(new URL("../src/app/api/avatars/route.ts", import.meta.url), "utf8");
+  // Gates, then wallet, then render. Any other order either charges for a
+  // refusal or makes the platform pay for a render the customer cannot afford.
+  const gateAt = avatarRoute.indexOf("await gateAvatar(request)");
+  const meterAt = avatarRoute.indexOf("await meterAction(access");
+  const renderAt = avatarRoute.indexOf("await renderAvatar(request)");
+  assert.ok(gateAt > 0 && meterAt > gateAt, "the wallet must not be touched before the refusals are checked");
+  assert.ok(renderAt > meterAt, "the provider must not be called before the wallet");
+  // And a provider failure refunds itself rather than pointing at support.
+  assert.match(avatarRoute, /creditAcus\(access\.uid, ACTION_COST_ACU\.video\)/);
+  // The provider's key is never returned to the browser.
+  assert.ok(!/envKey/.test(avatarRoute.split("export async function POST")[0].replace(/\/\/.*/g, "")), "a provider key must never leave the server");
+});

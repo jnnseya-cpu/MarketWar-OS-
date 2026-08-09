@@ -2807,3 +2807,149 @@ than drawn from a fixed list.
 **Not built.** The stopping rule stands: no new features until the Money Ledger
 has one real entry. This section records the requirement set so it is not lost;
 the four gaps above are candidates for after that, in the owner's priority order.
+
+---
+
+## §72 — The four Adsumo gaps, built (2026-08-09)
+
+**Owner instruction: "add all of them and improve to make them powerful."** That
+overrides the stopping rule recorded in §69, and is recorded here as an explicit
+owner decision rather than a drift. All four gaps listed in §71 are now shipped.
+
+Each one takes the half of the competitor's pitch that is a real product and
+refuses the half that is a lawsuit or a fabricated number. The refusals are code
+paths, not paragraphs in the terms.
+
+### 1. Ad formats — `src/backend/ad-styles.ts`, `/api/ad-styles`, `AdFormats.tsx`
+
+Twelve filmable formats: `ugc-testimonial`, `street-interview`, `podcast-clip`,
+`founder-direct`, `problem-solution`, `before-after`, `unboxing`, `demo-hands`,
+`day-in-the-life`, `myth-bust`, `green-screen-react`, `listicle-fast`. Each
+carries a timed shot list, the camera and lighting it needs, its hook shape, its
+audio posture, an ideal length, what it needs on the day, and **how it fails**.
+
+`briefFor()` builds the gateway prompt and a verification checklist. Where the
+brand has a stored crawl (§68) the brief is written against what the site
+actually says — an invented fact in a shot list becomes an invented claim on
+camera.
+
+**What it deliberately does not do:** rank formats. The competitor screen puts a
+predicted score beside each one; that number is generated, not measured. A test
+asserts no style object carries a virality/CTR/win-rate field.
+
+### 2. The ad canvas — `src/backend/ad-canvas.ts` + `-store.ts`, `/api/ad-canvas`, `AdCanvas.tsx`
+
+**The gap this closes is the expensive one.** Every image path in the platform
+ended with a flat picture. One typo and the only remedy was another generation,
+another ACU, and a composition that was not quite the one you liked.
+
+An ad here is a **document**: background, scrim, headline, subhead, offer, CTA
+and logo as separate layers. Editing a headline edits a string — no provider is
+called, no ACU is spent, and the artwork underneath cannot change. The route is
+the only feature route in the platform that deliberately never touches the
+wallet, and a test asserts it never gains a `meterAction` call.
+
+Coordinates are **relative with anchors**, which is what makes resizing real:
+`refit()` re-lays-out for the new placement's safe area rather than cropping. A
+layer keeps its *gap from the safe edge it was anchored to*, not its raw
+fraction — a story reserves its bottom 20% and a reel its bottom 35%, so `y=0.9`
+is comfortably above the reply bar in one and underneath the CTA in the other.
+
+Nine placements carry the platforms' own published safe insets (Meta Stories
+14/20, Meta Reels 14/35, TikTok ~130px top / ~480px bottom / ~140px right, and
+so on), in one table so they can be corrected when the apps redesign.
+
+**The checks are measurements:**
+
+- **Contrast is the WCAG ratio, computed.** Not an impression.
+- **A scrim over an unknown photograph gives a FLOOR, not a shrug.** The photo
+  is bounded by black and white, so compositing the scrim over both brackets
+  every possible outcome and the worse of the two is a guarantee that holds
+  whatever the picture turns out to be. "We cannot know" becomes "it is at least
+  this good" — the difference between a warning you ignore and a number you use.
+- **Text width is the one estimate**, says so everywhere it appears, and is
+  deliberately pessimistic so it warns early.
+- Claims on the artwork go through the same `claim-guard` as the copy. An
+  unprovable claim is not less unprovable for being set in a nice typeface.
+
+**Three defects the checks caught in the builder's own defaults**, all fixed:
+
+1. Amber offer text over a 62% scrim fell to **1.64:1** on a light photograph.
+   The builder now uses the accent only where it survives its own floor, and
+   puts it on the CTA plate — where the colour underneath is certain — otherwise.
+2. The scrim was a stored height, correct for exactly one frame. Refit to a reel
+   lifted the copy 250px and it floated off the panel onto the bare photo. The
+   scrim is now **derived** from the text it exists to sit behind.
+3. On a 3:1 email banner, four layers that each fit their own width added up to a
+   block taller than a 400px frame — its top was **outside the artwork**, where
+   nothing can cover it. `compressStack()` now shrinks type and gaps together
+   until the stack sits inside the safe band, stopping at the readable floor and
+   reporting what still does not fit.
+
+### 3. Presenter video — `likeness-consent.ts`, `avatar-gateway.ts`, `/api/avatars`, `PresenterVideo.tsx`
+
+`rights-guard.ts` already asked the right questions — `face_consent`,
+`voice_consent`, `model_release` — but checked them against an object handed to
+it by the caller. Nothing stored a consent, so nothing could prove one, and
+voice cloning stayed switched off with a note saying "gated on a consent record
+we do not yet capture". **That record now exists.**
+
+A consent is four things and all four are required: **who** (named, with the
+evidence), **what** (face or voice, never inferred from one to the other),
+**where and how long** (territories, platforms, an expiry — consent without a
+scope is a signature on a blank page), and **revocable** (immediate, and the
+withdrawal is kept, so a person who changes their mind never has to argue about
+whether they did). A refusal names *which part* failed — "no consent" would send
+them to collect one they already have.
+
+The gateway (HeyGen / D-ID / Synthesia behind one door) refuses in a deliberate
+order: **category first** — medical, financial, political, news-style — because
+that one costs the customer their ad account rather than an ACU; **consent
+second**; the **wallet last**. `gateAvatar()` is split out from `renderAvatar()`
+precisely so a route can charge in the middle: charging before the gates debits
+a refusal, and charging after the provider has started makes the platform pay
+for a render the customer could not afford. A provider failure **refunds itself**
+— "contact support" is not a refund policy. With no provider configured the
+answer is a real shot brief, never a fake video.
+
+### 4. Ad intelligence — `src/backend/ad-intel.ts`, `/api/ad-intel`, `AdIntel.tsx`
+
+Fourteen patterns counted over the ads the customer collected, every figure with
+its denominator. Above `MIN_ADS_TO_JUDGE = 8` it names the category's **norms**
+(what most of them do, matchable without copying anybody) and its **open ground**
+(what almost none of them do). Below it, the counts are shown and the conclusions
+are not — a percentage over four ads is noise wearing a decimal point.
+`WHERE_TO_LOOK` names the four public ad libraries and notes that Meta's API is
+largely limited to political and social-issue ads, so commercial collection is
+manual.
+
+**Recreation is refused, as a function.** `recreationRefused()` is a code path a
+future caller has to go through, and the route serves it *before* it parses the
+ads — so there is no fall-through into an analysis that returns enough to rebuild
+the ad anyway. An advertisement is a copyright work, its distinctive look can be
+protected trade dress, and the liability for publishing a copy lands on the
+customer rather than on the tool. Same doctrine as fake reviews and bought
+followers.
+
+**Nothing is called a winner.** An ad running for a long time is evidence of a
+budget, not of a result; only the advertiser knows what it returned.
+
+### Verification
+
+Tests **970 → 993**, all passing. Typecheck, layer check and build green. Nine
+mutation checks run and every one caught: scrim floor taking the best case
+instead of the worst; the stack never compressed into the frame; refit leaving
+`y` alone (a crop wearing a different name); SVG escaping removed; a face consent
+silently covering the voice; consents leaking across brands; the
+restricted-category gate never firing; the wallet charged before the refusals;
+and two ads being enough to declare a category norm.
+
+### Conflicts recorded rather than resolved silently
+
+- **§69's stopping rule** ("no new features until the Money Ledger has one real
+  entry") is suspended by the owner's instruction above. It is not deleted — if
+  the owner reinstates it, it applies from that point.
+- **§71 recorded the Adsumo map as provisional** because the domain was
+  egress-blocked. It still is. These four modules were built against the feature
+  *set* recorded there, and any correction to that map should be folded in as an
+  upgrade rather than a rewrite.

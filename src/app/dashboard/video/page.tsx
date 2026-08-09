@@ -44,6 +44,8 @@ import CaptionEngine from "@/components/CaptionEngine";
 import ClipFinder from "@/components/ClipFinder";
 import AudioStudio from "@/components/AudioStudio";
 import ConnectYouTube from "@/components/ConnectYouTube";
+import AdFormats from "@/components/AdFormats";
+import PresenterVideo from "@/components/PresenterVideo";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
@@ -230,6 +232,11 @@ export default function VideoWarRoomPage() {
           Engine and Clip Finder below. Placed above them, because it is what
           makes a pasted YouTube link work at all. */}
       <ConnectYouTube />
+
+      {/* What to film, and who reads it. Both sit above the render tools because
+          a format decision comes before a render, not after one. */}
+      <AdFormats />
+      <PresenterVideo />
 
       <HowToUse
         does="Make, cut, caption and publish marketing videos. Most of it works in your browser right now — no key."

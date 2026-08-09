@@ -11,6 +11,7 @@ import { Loader2, Image as ImageIcon, Palette, ShieldCheck, Download, Check } fr
 import GenerateAndPublish from "@/components/GenerateAndPublish";
 import PublishToChannels from "@/components/PublishToChannels";
 import BrandAssetUploader from "@/components/BrandAssetUploader";
+import AdCanvas from "@/components/AdCanvas";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -124,6 +125,11 @@ export default function StudioPage() {
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">Add a brand from the switcher, upload its logo + colours, and every creative is generated on-brand.</p>
         </div>
       )}
+
+      {/* The canvas — a generated ad you can still change, without spending
+          another ACU to fix a typo. Sits above the generator because the first
+          thing anyone does with a creative is want to change one word of it. */}
+      {activeBrand && <AdCanvas />}
 
       {/* Brand Asset Library — real uploads, hosted on Firebase Storage */}
       {activeBrand && (
