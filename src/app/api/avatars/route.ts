@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AVATAR_PROVIDERS, avatarGatewayConfigured, configuredProvider, gateAvatar, renderAvatar, restrictedUse, wouldCallProvider } from "@/backend/avatar-gateway";
+import { AVATAR_PROVIDERS, avatarGatewayConfigured, billableMinutes, configuredProvider, gateAvatar, renderAvatar, restrictedUse, wouldCallProvider } from "@/backend/avatar-gateway";
 import { recordConsent, listConsents, revokeConsent, consentFor, SYNTHETIC_DISCLOSURE, DEFAULT_TERM_DAYS, type ConsentEvidence, type LikenessKind } from "@/backend/likeness-consent";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
@@ -53,6 +53,8 @@ export async function GET(req: NextRequest) {
     })),
     defaultTermDays: DEFAULT_TERM_DAYS,
     disclosure: SYNTHETIC_DISCLOSURE,
+    // The price before the click, like every other action on the platform.
+    acuPerMinute: ACTION_COST_ACU.avatar,
   });
 }
 
@@ -142,10 +144,14 @@ export async function POST(req: NextRequest) {
 
   // 2. WALLET — but only if a provider will actually be called. With none
   //    configured the answer is a written brief, which costs nobody anything.
+  const minutes = billableMinutes(request.script);
   let charged = false;
   if (wouldCallProvider()) {
-    const meter = await meterAction(access, "video");
-    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu, charged: false }, { status: meter.status });
+    // Per minute, because that is how every avatar provider bills. A flat
+    // charge would lose money on a long script — quietly, which is the worst
+    // way to breach a margin floor.
+    const meter = await meterAction(access, "avatar", minutes);
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu, charged: false, minutes }, { status: meter.status });
     charged = meter.metered;
   }
 
@@ -161,16 +167,16 @@ export async function POST(req: NextRequest) {
   if (!job.ok) {
     let refunded = false;
     if (charged && access.ok && access.uid) {
-      try { await creditAcus(access.uid, ACTION_COST_ACU.video); refunded = true; } catch { refunded = false; }
+      try { await creditAcus(access.uid, ACTION_COST_ACU.avatar * minutes); refunded = true; } catch { refunded = false; }
     }
     return NextResponse.json({
       error: job.error, hint: job.hint,
       charged: charged && !refunded,
       refunded,
       note: refunded
-        ? `The provider failed, so the ${ACTION_COST_ACU.video} ACUs have been put back. You have not paid for a video you did not get.`
+        ? `The provider failed, so the ${ACTION_COST_ACU.avatar * minutes} ACUs have been put back. You have not paid for a video you did not get.`
         : undefined,
     }, { status: 502 });
   }
-  return NextResponse.json({ ...job, charged });
+  return NextResponse.json({ ...job, charged, minutes });
 }

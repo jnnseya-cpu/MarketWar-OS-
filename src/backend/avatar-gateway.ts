@@ -159,6 +159,22 @@ export async function gateAvatar(req: AvatarRequest): Promise<{ ok: true } | { o
 /** Will this cost anything? A brief calls nobody, so it is free — and the caller needs to know BEFORE it meters. */
 export function wouldCallProvider(): boolean { return configuredProvider() !== null; }
 
+/**
+ * How long this script will run, in minutes, rounded up.
+ *
+ * Every avatar provider bills by DURATION, so the charge has to as well. A flat
+ * per-render price overcharges a fifteen-second clip and loses money on a
+ * two-minute one, and the second of those breaches the margin floor without
+ * anybody noticing. 150 words per minute is a natural presenter pace — the same
+ * rate the brief uses to state its own length, so the number the customer is
+ * quoted and the number they are charged come from one place.
+ */
+export const WORDS_PER_MINUTE = 150;
+export function billableMinutes(script: string): number {
+  const words = (script || "").split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / WORDS_PER_MINUTE));
+}
+
 export async function renderAvatar(req: AvatarRequest): Promise<AvatarJob> {
   // The gates run here too. A second entry point that skipped them would be the
   // whole point of the module lost to a convenience.

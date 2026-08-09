@@ -37,31 +37,38 @@ export default function TermsPage() {
         <H2>7. AI outputs</H2>
         <p>AI-generated outputs are provided as assistance, not guaranteed results. Scores and predictions are labelled estimates. You are responsible for reviewing outputs before publishing, and for ensuring any claims are substantiated. The Service blocks unsubstantiated superlatives and applies compliance checks, but final responsibility for published material is yours.</p>
 
-        <H2>8. Automation, schedules and unattended work</H2>
+        <H2>8. Synthetic faces and voices, and other people&rsquo;s advertising</H2>
+        <p>The Service can produce video with a synthetic presenter, and can analyse advertising that other businesses are running. Both touch other people&rsquo;s rights, so the limits are terms rather than settings and cannot be turned off.</p>
+        <p><strong>A real person&rsquo;s likeness needs their consent, recorded before it is used.</strong> To synthesise an identifiable person&rsquo;s face or voice you must first record a consent naming that person, how you know they agreed, the territories and platforms it covers, and the date it ends. Consent to a face is not consent to a voice, and consent to organic use is not consent to paid advertising; each is asked for separately. Without a consent covering the specific use, the Service refuses to render — this is not a warning you can dismiss. A consent can be withdrawn at any time, takes effect immediately, and the record of the withdrawal is kept.</p>
+        <p><strong>Stock presenters are licensed performers.</strong> They are supplied under the provider&rsquo;s licence, not ours. You may not present them in a way that implies a real person personally endorses your product, and you may not use a synthetic presenter for medical, financial-advice, political or news-style content — the Service declines those outright, because every provider forbids them and the advertising regulators treat a synthetic endorsement in those categories as misleading.</p>
+        <p><strong>Synthetic media must be disclosed.</strong> Where a face or voice in your creative is synthetic, you are responsible for saying so on the published material. The EU AI Act imposes a transparency duty on synthetic media and the ASA treats an undisclosed synthetic endorsement as misleading.</p>
+        <p><strong>We will not reproduce another advertiser&rsquo;s creative.</strong> The Service can count what the ads in your category have in common — how they open, whether they price, whether they prove — and will not recreate, remix or generate &ldquo;your version&rdquo; of a specific competitor&rsquo;s advertisement. An advertisement is a copyright work and its distinctive look can be protected trade dress; liability for publishing a copy would fall on you, not on us. Nor does the Service label any advertisement a winner: an ad running for a long time is evidence of a budget, not of a result.</p>
+
+        <H2>9. Automation, schedules and unattended work</H2>
         <p>Parts of the Service can run without you present: agent chains on a cadence you set, and scheduled reports. Three things govern that, and we state them here because they are promises about your money and your customers, not features.</p>
         <p><strong>Nothing is sent, published or spent unattended.</strong> Every step of an automated run declares what performing it would do. Only steps that produce a draft for you to read are permitted to run on their own. A step that would contact a person, publish something publicly or commit spend is converted into an item awaiting your approval, with the draft attached — and this applies equally to runs that happen overnight.</p>
         <p><strong>Unattended usage is metered and capped.</strong> Work the platform performs on its own initiative consumes ACUs from your balance in the same way work you start yourself does, and is additionally subject to a fixed daily ceiling per brand, reserved before each step rather than reconciled afterwards. When the ceiling is reached the remaining steps do not run and are reported as skipped. The ceiling limits only automated work; anything you start yourself is governed by your balance alone.</p>
         <p><strong>You can switch it off.</strong> Schedules are per brand and per chain, off by default, and can be disabled at any time from the dashboard. Email digests are opt-in and go only to the address on your own account.</p>
 
-        <H2>9. Third-party services</H2>
+        <H2>10. Third-party services</H2>
         <p>The Service may connect to third-party providers (AI models, payment, messaging, advertising). Your use of those is subject to their terms. External platforms are optional; the Service remains functional without them.</p>
 
-        <H2>10. Availability & changes</H2>
+        <H2>11. Availability & changes</H2>
         <p>We aim for high availability (see <Link href="/status" className="text-emerald-400 hover:text-emerald-300">Platform status</Link>) but do not guarantee uninterrupted service. We may modify or discontinue features with reasonable notice.</p>
 
-        <H2>11. Suspension & termination</H2>
+        <H2>12. Suspension & termination</H2>
         <p>We may suspend or terminate access for breach, non-payment (after a grace period), or unlawful use. On termination your data is retained per the retention policy, then deleted. Purchased top-up ACUs remain valid within their validity window.</p>
 
-        <H2>12. Warranties & liability</H2>
+        <H2>13. Warranties & liability</H2>
         <p>The Service is provided &quot;as is&quot; to the extent permitted by law. To the maximum extent permitted, our aggregate liability is limited to the fees you paid in the twelve months preceding the claim. We are not liable for indirect or consequential losses.</p>
 
-        <H2>13. Governing law</H2>
+        <H2>14. Governing law</H2>
         <p>These terms are governed by the laws of England and Wales, unless a mandatory local law applies to you. Disputes are subject to the exclusive jurisdiction of the courts of England and Wales.</p>
 
-        <H2>14. Who you are contracting with</H2>
+        <H2>15. Who you are contracting with</H2>
         <LegalEntity />
 
-        <H2>15. Contact</H2>
+        <H2>16. Contact</H2>
         <p>Questions about these terms: <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact us</Link>.</p>
       </Prose>
     </MarketingShell>

@@ -100,6 +100,7 @@ function workFor(acus: number): WorkExample[] {
     { label: "long-form SEO articles", cost: ACTION_COST_ACU.post, note: "Researched and published to your blog." },
     { label: "social clips cut from one video", cost: JOB_COST_ACU.clips, note: "Reframed to 9:16 for TikTok, Reels and Shorts." },
     { label: "videos with captions burned in", cost: JOB_COST_ACU.captions_burn, note: "Transcribed from your real audio." },
+    { label: "minutes of presenter video", cost: ACTION_COST_ACU.avatar, note: "A synthetic face reading your script. Billed by the minute, as the providers bill us." },
     { label: "emails sent", cost: ACTION_COST_ACU.email_send, note: "From your own domain, per recipient." },
   ];
   return rows

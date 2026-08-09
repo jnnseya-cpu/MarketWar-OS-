@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { AreaChart } from "@/components/charts";
-import { Receipt, TrendingUp, Users, Coins, Swords, Save } from "lucide-react";
+import { Receipt, TrendingUp, Users, Coins, Swords, Save, Plus } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useResults } from "@/frontend/results-context";
 
@@ -19,8 +19,11 @@ const spendKey = (brandId: string) => `mw_spend_${brandId}`;
 
 export default function MoneyLedgerPage() {
   const { activeBrand } = useActiveBrand();
-  const { events, summary } = useResults();
+  const { events, summary, logEvent } = useResults();
   const [spend, setSpend] = useState<number>(0);
+  // The first entry has to be reachable from the page that keeps asking for it.
+  const [entry, setEntry] = useState({ amount: "", source: "", note: "", at: "" });
+  const [logged, setLogged] = useState(false);
   const [spendInput, setSpendInput] = useState<string>("");
   const [saved, setSaved] = useState(false);
 
@@ -105,6 +108,52 @@ export default function MoneyLedgerPage() {
           </div>
           <button onClick={saveSpend} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400"><Save className="h-4 w-4" /> Save</button>
           {saved && <span className="text-xs font-semibold text-emerald-300">Saved.</span>}
+        </div>
+      </div>
+
+      {/* Log a sale — HERE, not on another page.
+          This screen said "the moment you log a sale, this becomes your
+          receipt" and offered no way to do it; the form lived on /revenue and
+          you had to know that. A capability nobody can reach is a capability
+          nobody has — the same defect as the YouTube connect button. It writes
+          through `logEvent`, the one path every other source uses, so there is
+          still exactly one place revenue enters the ledger. */}
+      <div className="mt-6 card border-emerald-500/30 p-5">
+        <h2 className="mb-1 flex items-center gap-2 font-display text-sm font-bold text-white"><Plus className="h-4 w-4 text-emerald-400" /> Log a sale</h2>
+        <p className="mb-3 text-xs text-slate-400">
+          A real one. Money that actually came in, from a customer who actually paid, attributed to whatever brought them. Everything on this page is computed from these entries, so an invented figure here does not flatter the number — it destroys the only number worth having.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-4">
+          <div className="flex items-center gap-2 rounded-lg border border-ink-700 bg-ink-900/70 px-3 py-2">
+            <span className="text-sm text-slate-500">£</span>
+            <input type="number" min={0} value={entry.amount} onChange={(e) => setEntry((f) => ({ ...f, amount: e.target.value }))} placeholder="2400" className="w-full bg-transparent text-sm text-white outline-none" />
+          </div>
+          <input className="input" value={entry.source} onChange={(e) => setEntry((f) => ({ ...f, source: e.target.value }))} placeholder="What brought them — e.g. Google Business Profile" />
+          <input className="input" value={entry.note} onChange={(e) => setEntry((f) => ({ ...f, note: e.target.value }))} placeholder="Note (optional)" />
+          <input className="input" type="date" value={entry.at} onChange={(e) => setEntry((f) => ({ ...f, at: e.target.value }))} />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-40"
+            disabled={!(Number(entry.amount) > 0) || !entry.source.trim()}
+            onClick={() => {
+              logEvent({
+                type: "sale",
+                source: entry.source.trim(),
+                amountGbp: Number(entry.amount) || 0,
+                note: entry.note.trim() || undefined,
+                // A date the customer picked is the date it happened; the
+                // ledger's day series would otherwise put an old sale on today.
+                at: entry.at ? new Date(`${entry.at}T12:00:00`).toISOString() : undefined,
+              });
+              setEntry({ amount: "", source: "", note: "", at: "" });
+              setLogged(true); setTimeout(() => setLogged(false), 2400);
+            }}
+          >
+            <Receipt className="h-4 w-4" /> Record it
+          </button>
+          {logged && <span className="text-xs font-semibold text-emerald-300">Recorded. It is in the receipts below.</span>}
+          <span className="text-xs text-slate-600">An enquiry is not a sale — log those as leads on the Revenue page.</span>
         </div>
       </div>
 

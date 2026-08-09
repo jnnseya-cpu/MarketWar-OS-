@@ -8302,7 +8302,11 @@ test("the public site describes the capabilities that actually shipped", () => {
   // The autonomy contract. The platform now runs agents while nobody is
   // watching, and a prospect deciding whether to buy needs to know what that
   // does and does not include BEFORE they sign up, not after.
-  assert.match(how, /Phase 8 — Working while you are not/);
+  // Asserted by TITLE, not by phase number. This was pinned to "Phase 8" and
+  // broke the moment a phase was inserted above it — which is a renumbering,
+  // not a regression. What matters is that the promise is on the page.
+  assert.match(how, /Working while you are not/);
+  assert.match(how, /\{PHASES\.length\} phases/, "the phase count must come from the array, not from a number typed into the prose");
   assert.match(how, /only drafting steps run unattended/);
   assert.match(how, /daily ceiling per brand/);
   assert.match(landing, /Will it email my customers or post publicly without me\?/);
@@ -11261,7 +11265,104 @@ test("adsumo-gap routes: brand-scoped, and free work is never metered", () => {
   assert.ok(gateAt > 0 && meterAt > gateAt, "the wallet must not be touched before the refusals are checked");
   assert.ok(renderAt > meterAt, "the provider must not be called before the wallet");
   // And a provider failure refunds itself rather than pointing at support.
-  assert.match(avatarRoute, /creditAcus\(access\.uid, ACTION_COST_ACU\.video\)/);
+  assert.match(avatarRoute, /creditAcus\(access\.uid, ACTION_COST_ACU\.avatar \* minutes\)/);
+  // Billed per MINUTE, because every avatar provider bills by duration. A flat
+  // per-render charge overcharges a short clip and loses money on a long one —
+  // and the second of those breaches the margin floor without anyone noticing.
+  assert.match(avatarRoute, /meterAction\(access, "avatar", minutes\)/);
+  assert.ok(!/meterAction\(access, "video"/.test(avatarRoute), "an avatar minute is not a £0.10 generated clip and must not be priced as one");
   // The provider's key is never returned to the browser.
   assert.ok(!/envKey/.test(avatarRoute.split("export async function POST")[0].replace(/\/\/.*/g, "")), "a provider key must never leave the server");
+});
+
+// ---------------------------------------------------------------------------
+// The money ledger — the one store where a defect costs the customer their
+// receipts rather than an ACU.
+// ---------------------------------------------------------------------------
+const moneyLedger = await import("../src/backend/ledger.ts");
+
+test("ledger: one brand can never address another brand's revenue record", async () => {
+  // The hole this closes existed in the PRODUCTION path only. `/api/results`
+  // accepts a caller-supplied id (it must, so a redelivered Stripe webhook does
+  // not double-count) and proves the caller owns the brand in the body — never
+  // that they own the id. With the document keyed by the bare id, a caller who
+  // owned brand A could post brand B's event id and overwrite B's record, or
+  // delete it outright. Nothing caught it because the in-memory store was
+  // already keyed by brand: the test store and the production store had
+  // different security properties.
+  const a = moneyLedger.resultDocKey("brand-A", "evt-1");
+  const b = moneyLedger.resultDocKey("brand-B", "evt-1");
+  assert.notEqual(a, b, "the same event id under two brands must not be the same document");
+  // Same brand, same id → same key, so a redelivered webhook still overwrites
+  // its own record instead of adding a second one.
+  assert.equal(a, moneyLedger.resultDocKey("brand-A", "evt-1"));
+
+  // Two brands that differ only after a separator must still not collide.
+  assert.notEqual(moneyLedger.resultDocKey("b", "1__2"), moneyLedger.resultDocKey("b__1", "2"));
+
+  // And the behaviour, on the store the tests can actually run.
+  await moneyLedger.recordEvent({ id: "evt-shared", brandId: "brand-B", type: "sale", source: "Google Ads", amountGbp: 4200, at: "2026-08-01T10:00:00.000Z" });
+  await moneyLedger.recordEvent({ id: "evt-shared", brandId: "brand-A", type: "sale", source: "spoof", amountGbp: 1, at: "2026-08-02T10:00:00.000Z" });
+  assert.equal((await moneyLedger.brandSummary("brand-B")).revenueGbp, 4200, "brand A overwrote brand B's revenue");
+  await moneyLedger.deleteEvent("brand-A", "evt-shared");
+  assert.equal((await moneyLedger.brandSummary("brand-B")).revenueGbp, 4200, "brand A deleted brand B's revenue");
+});
+
+test("ledger: a real entry is recorded, summarised and attributed", async () => {
+  const brand = "ledger-real";
+  assert.equal((await moneyLedger.brandSummary(brand)).isEmpty, true, "a new brand starts with no revenue, never a sample");
+
+  await moneyLedger.recordEvent({ id: "r1", brandId: brand, type: "lead", source: "Google Business Profile", amountGbp: 0, at: "2026-08-05T09:00:00.000Z" });
+  await moneyLedger.recordEvent({ id: "r2", brandId: brand, type: "sale", source: "Google Business Profile", amountGbp: 2400, note: "First job", at: "2026-08-08T14:00:00.000Z" });
+
+  const s = await moneyLedger.brandSummary(brand);
+  assert.equal(s.isEmpty, false);
+  assert.equal(s.revenueGbp, 2400);
+  assert.equal(s.orders, 1);
+  assert.equal(s.leads, 1);
+  assert.equal(s.avgOrderGbp, 2400);
+  // A lead contributes no revenue — counting an enquiry as money is the
+  // fastest way to make the whole ledger untrustworthy.
+  assert.equal(s.bySource[0].source, "Google Business Profile");
+  assert.equal(s.bySource[0].revenueGbp, 2400);
+  assert.equal(s.bySource[0].leads, 1);
+  assert.equal(s.byDay.length, 1, "only the day with money in it appears on the revenue series");
+  assert.equal(s.byDay[0].day, "2026-08-08");
+
+  // Re-recording the same id is idempotent, so a redelivered webhook never
+  // doubles the number the owner is trying to trust.
+  await moneyLedger.recordEvent({ id: "r2", brandId: brand, type: "sale", source: "Google Business Profile", amountGbp: 2400, note: "First job", at: "2026-08-08T14:00:00.000Z" });
+  assert.equal((await moneyLedger.brandSummary(brand)).revenueGbp, 2400, "a redelivered event double-counted");
+});
+
+test("pricing: a synthetic-presenter minute clears the owner's margin floor", async () => {
+  // Routing avatars through `video` was a real mispricing: `video` is costed
+  // against a £0.10 generated clip, and a presenter minute costs several times
+  // that, so the margin would have collapsed silently — the worst way to breach
+  // a floor. This asserts the arithmetic rather than the number, so the check
+  // survives a provider price change.
+  const wal = await import("../src/backend/wallet.ts");
+  const sub = await import("../src/backend/subscription.ts");
+
+  const acus = wal.ACTION_COST_ACU.avatar;
+  assert.ok(acus > wal.ACTION_COST_ACU.video, "a presenter minute must not be priced as a generated clip");
+
+  // The law: price is never below 2x provider cost (100% margin).
+  const providerCostGbp = 0.45;             // the cost line this price derives from
+  const priceGbp = acus / sub.ACU_PER_GBP;
+  assert.ok(priceGbp >= providerCostGbp * sub.MARKUP_FLOOR, `£${priceGbp} is below the ${sub.MARKUP_FLOOR}x floor on £${providerCostGbp}`);
+
+  // And it clears the NET floor too — the one that includes infra, Stripe fees
+  // and overhead. The 2x headline alone would have been 90 ACUs here, BELOW the
+  // net floor of 132, so it would have looked compliant while breaching the law.
+  const econ = await import("../src/backend/unit-economics.ts");
+  const netFloor = econ.minimumAcusFor({ providerCostGbp, persistsArtifact: true }).minAcus;
+  assert.ok(acus >= netFloor, `${acus} ACUs is below the ${netFloor}-ACU net-profit floor`);
+
+  // Duration billing, so the price a customer is quoted scales with the video.
+  const ag = await import("../src/backend/avatar-gateway.ts");
+  assert.equal(ag.billableMinutes(""), 1, "a minimum of one minute — a provider still charges for a short render");
+  assert.equal(ag.billableMinutes("word ".repeat(150).trim()), 1);
+  assert.equal(ag.billableMinutes("word ".repeat(151).trim()), 2, "over a minute must bill as two");
+  assert.equal(ag.billableMinutes("word ".repeat(450).trim()), 3);
 });

@@ -19,6 +19,8 @@ const POLICIES: { name: string; href: string; blurb: string; live?: boolean }[] 
   { name: "Service Level & Support", href: "/status", blurb: "Availability targets, support tiers, and the live status page." },
   { name: "Responsible AI Policy", href: "/terms", blurb: "Estimates labelled, unsubstantiated claims blocked, restricted categories human-gated." },
   { name: "Automation & Human Approval", href: "/terms", blurb: "Agents may draft unattended; nothing is sent, published or spent without your approval. Automated spend is metered and capped per brand per day, and every schedule can be switched off." },
+  { name: "Synthetic Faces & Voices", href: "/terms", blurb: "A real person's likeness needs a recorded, scoped, revocable consent before it is synthesised — face and voice are separate permissions, and without one covering the use the platform refuses to render. Synthetic media must be disclosed." },
+  { name: "Competitor Ad Analysis", href: "/terms", blurb: "We count what the ads in your category have in common; we will not recreate a competitor's advertisement, and we never label one a winner." },
   { name: "Reviews & Social Proof", href: "/terms", blurb: "Review requests go to real customers, everyone eligible gets the same link, and no supplied reviews or purchased followers are available at any price — the DMCC Act 2024 and the FTC rule make the trader liable, not us." },
 ];
 

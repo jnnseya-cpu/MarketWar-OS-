@@ -64,10 +64,24 @@ const PROVIDER_COST_GBP = {
   //   dub   → per minute of dubbed video    (transcribe + translate + re-voice)
   voice: 0.085,
   dub: 0.35,
+  // Synthetic presenter (HeyGen / D-ID / Synthesia), per MINUTE of rendered
+  // video — these providers bill by duration, so a flat per-render charge would
+  // overcharge a 15-second clip and lose money on a two-minute one.
+  //
+  // ROUTING AVATARS THROUGH `video` WAS A MISPRICING. `video` is costed against
+  // a £0.10 generated clip; a presenter minute is several times that, so the
+  // margin would have collapsed to roughly nothing on the owner's own pricing
+  // law. This is its own line for that reason.
+  //
+  // The 0.45 is an ESTIMATE from the providers' published per-minute rates and
+  // is deliberately on the high side — under-costing here breaches the margin
+  // floor silently, while over-costing only leaves money on the table. Correct
+  // it against the first real invoice; every downstream price re-derives.
+  avatar: 0.45,
 } as const;
 
 // Actions that persist a large artifact carry extra storage/egress cost.
-const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true, voice: true, dub: true };
+const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true, voice: true, dub: true, avatar: true };
 
 // The price is the HIGHER of:
 //   (a) 4x the provider bill — the owner's headline markup, and
@@ -96,6 +110,7 @@ export const ACTION_COST_ACU = {
   post: priced("post"),        // 25
   voice: priced("voice"),      // per 1,000 characters of speech
   dub: priced("dub"),          // per minute of dubbed video
+  avatar: priced("avatar"),    // per minute of synthetic-presenter video
   // --- Rule 2: costs us ~nothing, so a token charge only -----------------
   publish_page: NOMINAL,       // hosting a page we already serve
   publish_social: NOMINAL,     // handing a post to a connected account

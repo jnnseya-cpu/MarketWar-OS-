@@ -2953,3 +2953,128 @@ and two ads being enough to declare a category norm.
   egress-blocked. It still is. These four modules were built against the feature
   *set* recorded there, and any correction to that map should be folded in as an
   upgrade rather than a rewrite.
+
+---
+
+## §73 — The Money Ledger path, and what it cost to look at it (2026-08-09)
+
+The owner asked for the Money Ledger to have one real entry. **It does not, and
+this section says so rather than manufacturing one.** Asked directly, the owner
+confirmed there is no real sale yet. A fabricated figure would destroy the only
+number the §69 stopping rule was ever about, so the ledger stays empty and
+honest and the rule's condition remains **unmet**.
+
+What the request was actually worth was walking the path. Two defects were in it.
+
+### 1. One brand could overwrite or delete another brand's revenue — in production only
+
+`/api/results` accepts a caller-supplied event `id`. It has to: a redelivered
+Stripe webhook must not double-count. It proves the caller owns the `brandId` in
+the body. **It never proved they owned the id.**
+
+In `ledger.ts` the Firestore document was keyed by the bare event id:
+
+- `recordEvent` did `results/{id}.set(event, { merge: false })`. A caller who
+  owned brand A could post brand B's event id, and B's record would be
+  overwritten with brandId A — at which point B's revenue vanished from
+  `listEvents`, which queries `where brandId ==`.
+- `deleteEvent` was worse: it **ignored `brandId` entirely** and deleted whatever
+  document carried that id.
+
+**Nothing caught it because the in-memory store was already keyed by brand and
+was always safe.** The test store and the production store had different security
+properties — that is the deeper defect, and it is the same shape as every other
+one this project has found: a value that exists on one side of a boundary and is
+never carried across.
+
+Fixed by scoping the document key, so the class is impossible rather than
+checked — brand A cannot address brand B's document, so there is no ownership
+test to forget. The brand is **hashed** rather than concatenated: the first
+attempt used `${brandId}__${id}`, and the test immediately caught that
+`("b", "1__2")` and `("b__1", "2")` both flatten to `b__1__2`. Sanitising for
+Firestore's key rules makes it worse still — `a/b` and `a_b` become the same
+string. A fixed-width digest of the brand has neither problem.
+
+Records written under the old key still **list** correctly (the query is by
+`brandId`, not by key), and `deleteEvent` falls back to the legacy key after
+reading the record to confirm whose it is. Deleting revenue is not recoverable,
+so that path reads before it removes.
+
+### 2. The page that asked for the entry had no way to take one
+
+The Money Ledger said *"the moment a lead converts or you log a sale, this line
+becomes your receipt"* — and offered no way to log a sale. The form lived on
+`/dashboard/revenue`, and you had to know that. A capability nobody can reach is
+a capability nobody has, which is exactly the YouTube-connect defect from §70.
+
+A **Log a sale** panel now sits on the Money Ledger itself, writing through
+`logEvent` — the same single path the owned form captures and the Stripe webhook
+use, so there is still exactly one place revenue enters the ledger. It takes the
+date the sale happened rather than stamping today, because the revenue series
+would otherwise put an old sale on the wrong day.
+
+### 3. Presenter video was mispriced against the wrong provider
+
+`/api/avatars` metered `video`, which is costed against a **£0.10** generated
+clip. A synthetic-presenter minute costs several times that, so the owner's
+100%-margin floor would have been breached silently — the worst way to breach
+one.
+
+`avatar` is now its own cost line at **£0.45 per minute** (an estimate from the
+providers' published rates, deliberately on the high side: under-costing breaches
+the floor, over-costing only leaves money on the table — correct it against the
+first real invoice and every downstream price re-derives). Charged **per minute**,
+as `dub` already is, because every avatar provider bills by duration and a flat
+per-render charge would overcharge a fifteen-second clip and lose money on a
+two-minute one.
+
+Owner's decision, asked and answered: **keep the standard 4× markup — 180 ACUs
+(£1.80) per minute.** The alternative offered was the true net floor of 132 ACUs
+(£1.32), which is exactly 100% net profit after infra, Stripe and overhead. Note
+that the 2× *headline* markup would have been 90 ACUs — **below** the net floor,
+so it would have breached the law despite looking compliant. `priced()` taking
+the max of the two is what prevents that.
+
+The quoted price now appears before the click (`acuPerMinute` on the GET), and
+the minutes quoted in the panel use the same 150-words-per-minute rule the server
+bills at, so the number shown and the number charged come from one place.
+
+### 4. Public pages
+
+- **Landing**: the creative block now states that a generated ad stays editable
+  and that every placement is a fresh layout rather than a crop; the revenue
+  block states that the Money Ledger only ever shows revenue you recorded
+  against cost you entered.
+- **How it works**: a new phase covers the editable canvas, the twelve filmable
+  formats and the synthetic presenter's refusals. The page claimed *"Seven
+  phases"* over an array of **eight** — already drifted before this change — and
+  now renders `PHASES.length`, so it cannot drift again.
+- **Terms §8 (new)** — *Synthetic faces and voices, and other people's
+  advertising*: likeness consent recorded before use, face and voice as separate
+  permissions, immediate withdrawal, stock performers under the provider's
+  licence, the restricted categories, the synthetic-media disclosure duty, and
+  the refusal to reproduce another advertiser's creative or to label any ad a
+  winner. Sections 8–15 renumbered to 9–16.
+- **Policies**: two new index entries pointing at it.
+- **Plan value**: "minutes of presenter video" now appears in what each tier
+  buys — 5 minutes on Growth. Modest, and honest.
+
+### Verification
+
+Tests **993 → 996**. Typecheck, layer check and build green. Two mutation checks
+run and both caught: reverting the ledger document key to the bare event id
+fails the cross-tenant test, and pricing an avatar minute as a generated clip
+fails the margin-floor test — which asserts the arithmetic rather than the
+number, so it survives a provider price change.
+
+Two of this project's own tests failed on the first run and both were the tests,
+not the code. One pinned the autonomy promise to *"Phase 8"* and broke when a
+phase was inserted above it; it now asserts the title and additionally that the
+count is rendered from `PHASES.length`. The other pinned the avatar refund to
+`ACTION_COST_ACU.video`; it now asserts per-minute `avatar` billing and that
+`video` is never used for a presenter render.
+
+### Still open
+
+**The Money Ledger has zero entries.** The path into it is now correct and
+reachable, and the §69 stopping rule's condition is not met.

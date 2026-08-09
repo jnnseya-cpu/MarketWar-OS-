@@ -34,6 +34,7 @@ export default function PresenterVideo() {
   const [consents, setConsents] = useState<Consent[]>([]);
   const [configured, setConfigured] = useState(false);
   const [disclosure, setDisclosure] = useState("");
+  const [acuPerMinute, setAcuPerMinute] = useState(0);
   const [script, setScript] = useState("");
   const [avatarKind, setAvatarKind] = useState<"stock" | "custom">("stock");
   const [personName, setPersonName] = useState("");
@@ -59,6 +60,7 @@ export default function PresenterVideo() {
         setConsents(Array.isArray(d?.consents) ? d.consents : []);
         setConfigured(Boolean(d?.configured));
         setDisclosure(d?.disclosure || "");
+        setAcuPerMinute(Number(d?.acuPerMinute) || 0);
       }
     } catch { /* the panel still records consents */ }
   }, [activeBrand?.id]);
@@ -101,6 +103,10 @@ export default function PresenterVideo() {
     const d = await post({ action: "render", script, avatarKind, personName: personName || undefined });
     if (d) setJob(d);
   }
+
+  // The same 150 words per minute the server bills at, so the number quoted
+  // here and the number charged come from one rule rather than two.
+  const minutes = Math.max(1, Math.ceil(script.split(/\s+/).filter(Boolean).length / 150));
 
   return (
     <div className="mb-6 card border-fuchsia-500/25 p-5">
@@ -177,6 +183,11 @@ export default function PresenterVideo() {
       <button className="btn-primary mt-4" onClick={render} disabled={busy || !script.trim()}>
         {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Video className="h-4 w-4" /> {configured ? "Render the presenter" : "Get the shot brief"}</>}
       </button>
+      <p className="mt-2 text-[11px] text-slate-500">
+        {configured
+          ? `About ${minutes} minute${minutes === 1 ? "" : "s"} at a natural pace${acuPerMinute ? ` · ${acuPerMinute * minutes} ACUs` : ""}. Providers bill by duration, so this is charged by the minute and nothing is charged if a gate refuses it.`
+          : "No provider is configured, so this returns a shot brief and charges nothing."}
+      </p>
 
       {error && <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/[0.06] p-3 text-sm text-rose-200">{error}</p>}
 
