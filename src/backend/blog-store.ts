@@ -10,9 +10,43 @@ if (typeof window !== "undefined") {
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BlogPost } from "@/shared/blog";
+import { SEO_ARTICLES } from "@/shared/seo-articles";
 
 const COLLECTION = "blog_posts";
 const mem = new Map<string, BlogPost>(); // slug -> post
+
+// ---------------------------------------------------------------------------
+// The evergreen cluster
+//
+// These are code, not rows, because they are the pages the site is meant to rank
+// for — and a page that exists only when Firestore is configured is a page
+// missing from the sitemap on every deployment that is not.
+//
+// Merged in HERE rather than in each consumer, so the article route, the index,
+// the related-post logic and the sitemap pick them up with no changes at all. A
+// stored post with the same slug wins, so one can always be superseded by an
+// edited version without touching the code.
+// ---------------------------------------------------------------------------
+const EVERGREEN_AUTHOR = "MarketWar OS";
+const EVERGREEN_PUBLISHED = "2026-08-10T09:00:00.000Z";
+
+const evergreen = (): BlogPost[] => SEO_ARTICLES.map((a) => ({
+  id: `evergreen_${a.slug}`,
+  slug: a.slug,
+  title: a.title,
+  excerpt: a.excerpt,
+  category: a.category,
+  readMinutes: a.readMinutes,
+  content: a.content,
+  author: EVERGREEN_AUTHOR,
+  status: "published" as const,
+  mode: "live" as const,
+  views: 0,
+  createdAt: EVERGREEN_PUBLISHED,
+  publishedAt: EVERGREEN_PUBLISHED,
+}));
+
+export const evergreenSlugs = (): string[] => SEO_ARTICLES.map((a) => a.slug);
 
 export async function savePost(post: BlogPost): Promise<void> {
   if (adminConfigured && adminDb) {
@@ -26,9 +60,12 @@ export async function getPost(slug: string): Promise<BlogPost | null> {
   if (!slug) return null;
   if (adminConfigured && adminDb) {
     const doc = await adminDb.collection(COLLECTION).doc(slug).get();
-    return doc.exists ? (doc.data() as BlogPost) : null;
+    if (doc.exists) return doc.data() as BlogPost;
+  } else {
+    const local = mem.get(slug);
+    if (local) return local;
   }
-  return mem.get(slug) ?? null;
+  return evergreen().find((p) => p.slug === slug) ?? null;
 }
 
 export async function listPostsForBrand(brandId: string): Promise<BlogPost[]> {
@@ -45,6 +82,10 @@ export async function listPosts(opts?: { includeDrafts?: boolean }): Promise<Blo
     posts = [...mem.values()];
   }
   if (!opts?.includeDrafts) posts = posts.filter((p) => p.status === "published");
+  // A stored post with the same slug wins, so an evergreen article can always be
+  // superseded by an edited version without a deploy.
+  const stored = new Set(posts.map((p) => p.slug));
+  posts = [...posts, ...evergreen().filter((p) => !stored.has(p.slug))];
   return posts.sort((a, b) => (b.publishedAt || b.createdAt).localeCompare(a.publishedAt || a.createdAt));
 }
 

@@ -3918,3 +3918,74 @@ the same way, after it had paid somebody twice. A mutation adding a direct Strip
 call to `creator-engine.ts` fails the test.
 
 Tests **1052 → 1054**.
+
+---
+
+## §82 — The creator-earning article cluster (2026-08-10)
+
+**Owner instruction:** SEO blogs with heavy hyperlinks and backlinks, promoting
+SHARE2EARN, the growth and influencer programmes, and the Gen-Z features.
+
+`src/shared/seo-articles.ts` — seven articles merged into `blog-store`, so the
+existing article route, the blog index, the related-post logic and the sitemap
+all pick them up with no changes to any of them.
+
+### Internal linking: built
+
+One **pillar** — *Creator earning programmes* — and six **spokes**: SHARE2EARN,
+the influencer bands, payout economics, getting paid with no tax reference,
+ProfitGuard/GrowthGuard, and the Gen-Z layer.
+
+**44 internal links, none dead.** Every spoke links up to the pillar and across
+to its siblings; the pillar links down to all six. A test walks every `](/...)`
+in every article and fails on a link whose page does not exist — a cluster whose
+links 404 is worse than no cluster, because it wastes the crawl budget it was
+built to concentrate. Three mutations confirm it: a dead link, a spoke that stops
+linking to the pillar, and an outbound link traded into an article.
+
+Relations in the cluster are **declared, not inferred**. The existing
+`relatedPosts` scores keyword overlap, which would rebuild the hub-and-spoke into
+a different and weaker graph by accident. The related block also stops claiming
+word overlap when that is not the reason — it says "part of this guide".
+
+Added to the article route: **FAQPage** and **BreadcrumbList** structured data
+alongside the existing BlogPosting, plus keyword metadata. The FAQ entries are
+real questions the articles answer, so this is the rich result the pages were
+written for rather than markup bolted onto prose that never addresses them.
+
+The sitemap weights them: **0.9 for the pillar, 0.75 for spokes**, against 0.6 for
+an ordinary post.
+
+They are **code rather than database rows** on purpose. A page that exists only
+when Firestore is configured is a page missing from the sitemap on every
+deployment that is not — and these are the pages the site is meant to rank for. A
+stored post with the same slug still wins, so any of them can be superseded by an
+edited version without a deploy.
+
+### Backlinks: not built, and deliberately
+
+**A backlink is a link from somebody else's site.** Buying, exchanging, planting
+or generating them is a Google Search Essentials spam violation that demotes a
+domain rather than lifting it — and it is the exact doctrine this platform
+already sells in `link-opportunities.ts`: *EARN links, never place them.*
+Manufacturing them here would have contradicted the product's own advice while
+risking the domain it was meant to promote.
+
+What was built instead is the half that is real. Two of the seven are shaped as
+**linkable assets** because they answer questions with no good published answer:
+
+- **Payout economics** — an itemised fee comparison across nine rails including
+  African mobile money. Almost nobody publishes the mobile-money side.
+- **Getting paid with no tax reference** — a plain-English answer to what DAC7
+  and the OECD model rules require when a jurisdiction issues no individual TIN.
+  There is very little good English-language writing on it.
+
+`LINKABLE_ASSETS` names, for each, why it is citable and who would plausibly cite
+it. That is an outreach list — telling people who write about the subject that
+the page exists — not a link scheme. A test asserts no article contains an
+outbound link at all, so nothing is being traded.
+
+### Verification
+
+Tests **1054 → 1061**. Typecheck, layer check and build green. Three mutation
+checks run, all caught.

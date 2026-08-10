@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { listPosts } from "@/backend/blog-store";
+import { SEO_ARTICLES } from "@/shared/seo-articles";
 
 // We sell SEO and shipped no sitemap.
 //
@@ -45,12 +46,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     // Published only — a draft in the sitemap invites a crawler to a 404.
     const posts = await listPosts();
+    // The evergreen cluster is what the site is meant to rank for, and its
+    // pillar is the page the spokes exist to concentrate authority on — so they
+    // do not sit at the same priority as an ordinary post.
+    const pillar = new Set(SEO_ARTICLES.filter((a) => a.pillar).map((a) => a.slug));
+    const spoke = new Set(SEO_ARTICLES.filter((a) => !a.pillar).map((a) => a.slug));
     for (const p of posts) {
       pages.push({
         url: `${SITE}/blog/${p.slug}`,
         lastModified: p.createdAt ? new Date(p.createdAt) : now,
-        changeFrequency: "monthly",
-        priority: 0.6,
+        changeFrequency: pillar.has(p.slug) || spoke.has(p.slug) ? "monthly" : "monthly",
+        priority: pillar.has(p.slug) ? 0.9 : spoke.has(p.slug) ? 0.75 : 0.6,
       });
     }
   } catch { /* static pages still ship */ }

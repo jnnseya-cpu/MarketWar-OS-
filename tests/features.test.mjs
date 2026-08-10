@@ -12643,3 +12643,134 @@ test("payouts: both programmes share the mechanism and keep their own rates", as
   assert.match(engine, /w\.payoutEligible/);
   assert.equal(cp.MIN_PAYOUT_FOLLOWERS, 10_000);
 });
+
+// ---------------------------------------------------------------------------
+// The creator-earning article cluster.
+//
+// A topic cluster only works if every link in it resolves. One whose links 404
+// is worse than none: it wastes the crawl budget it was built to concentrate.
+// ---------------------------------------------------------------------------
+const seoCluster = await import("../src/shared/seo-articles.ts");
+const blogStore = await import("../src/backend/blog-store.ts");
+
+test("seo cluster: every internal link points at a page that exists", () => {
+  const slugs = new Set(seoCluster.SEO_ARTICLES.map((a) => a.slug));
+  const dead = [];
+  let total = 0;
+
+  for (const a of seoCluster.SEO_ARTICLES) {
+    for (const [, href] of a.content.matchAll(/\]\((\/[^)]+)\)/g)) {
+      total += 1;
+      if (href.startsWith("/blog/")) {
+        if (!slugs.has(href.slice(6))) dead.push(`${a.slug} → ${href}`);
+      } else {
+        const path = href.replace(/^\//, "").split("#")[0];
+        const exists = existsSync(new URL(`../src/app/${path}/page.tsx`, import.meta.url));
+        if (!exists) dead.push(`${a.slug} → ${href} (no page.tsx)`);
+      }
+    }
+  }
+  assert.deepEqual(dead, [], `dead internal links: ${dead.join("; ")}`);
+  assert.ok(total >= 30, `a cluster with ${total} internal links is not a cluster`);
+});
+
+test("seo cluster: it is a hub and spoke, and the hub is reachable from everywhere", () => {
+  const pillars = seoCluster.SEO_ARTICLES.filter((a) => a.pillar);
+  assert.equal(pillars.length, 1, "a cluster has exactly one pillar");
+  const pillar = pillars[0];
+
+  for (const a of seoCluster.SEO_ARTICLES) {
+    if (a.pillar) continue;
+    assert.match(a.content, new RegExp(`/blog/${pillar.slug}`), `${a.slug} does not link up to the pillar`);
+    assert.ok(a.related.includes(pillar.slug), `${a.slug} does not declare the pillar as related`);
+  }
+  // And the pillar links down to every spoke.
+  for (const a of seoCluster.SEO_ARTICLES) {
+    if (a.pillar) continue;
+    assert.match(pillar.content, new RegExp(`/blog/${a.slug}`), `the pillar does not link down to ${a.slug}`);
+  }
+  // Declared relations must be real slugs, or the related block renders nothing.
+  const slugs = new Set(seoCluster.SEO_ARTICLES.map((x) => x.slug));
+  for (const a of seoCluster.SEO_ARTICLES) {
+    for (const r of a.related) {
+      assert.ok(slugs.has(r), `${a.slug} declares "${r}" as related and it does not exist`);
+      assert.notEqual(r, a.slug, `${a.slug} lists itself as related`);
+    }
+  }
+});
+
+test("seo cluster: the articles are real pages, present with or without a database", async () => {
+  // They are code rather than rows precisely so they exist on a deployment with
+  // no Firestore — a page that appears only when a database is configured is a
+  // page missing from the sitemap everywhere else.
+  const posts = await blogStore.listPosts();
+  for (const a of seoCluster.SEO_ARTICLES) {
+    const post = posts.find((p) => p.slug === a.slug);
+    assert.ok(post, `${a.slug} is not listed on the blog`);
+    assert.equal(post.status, "published");
+    const one = await blogStore.getPost(a.slug);
+    assert.ok(one && one.title === a.title, `${a.slug} does not resolve as an article`);
+  }
+  assert.equal((await blogStore.getPost("no-such-article-here")), null);
+});
+
+test("seo cluster: each article carries what a search result needs", () => {
+  for (const a of seoCluster.SEO_ARTICLES) {
+    // Title and description within the lengths that actually render.
+    assert.ok(a.title.length >= 30 && a.title.length <= 110, `${a.slug} title is ${a.title.length} chars`);
+    assert.ok(a.excerpt.length >= 80 && a.excerpt.length <= 320, `${a.slug} excerpt is ${a.excerpt.length} chars`);
+    assert.ok(a.keywords.length >= 4, `${a.slug} has too few keywords to be aimed at anything`);
+    // FAQ entries become FAQPage structured data, so they must be real Q&A.
+    assert.ok(a.faq.length >= 3, `${a.slug} has ${a.faq.length} FAQ entries`);
+    for (const f of a.faq) {
+      assert.ok(f.q.trim().endsWith("?"), `${a.slug}: "${f.q}" is not a question`);
+      assert.ok(f.a.length > 60, `${a.slug}: the answer to "${f.q}" is too thin to be a rich result`);
+    }
+    // Enough words to be a page rather than a stub.
+    assert.ok(a.content.split(/\s+/).length > 400, `${a.slug} is too short to rank for anything`);
+    assert.ok(a.content.includes("## "), `${a.slug} has no headings`);
+  }
+});
+
+test("seo cluster: the sitemap carries the cluster, weighted", async () => {
+  const mod = await import("../src/app/sitemap.ts");
+  const pages = await mod.default();
+  const by = Object.fromEntries(pages.map((p) => [p.url.replace(/^https?:\/\/[^/]+/, ""), p.priority]));
+  for (const a of seoCluster.SEO_ARTICLES) {
+    const path = `/blog/${a.slug}`;
+    assert.ok(path in by, `${a.slug} is missing from the sitemap`);
+    // The pillar is the page the spokes exist to concentrate authority on, so
+    // it does not sit at the same weight as an ordinary post.
+    assert.equal(by[path], a.pillar ? 0.9 : 0.75, `${a.slug} has the wrong sitemap priority`);
+  }
+});
+
+test("seo cluster: the article route emits FAQ and breadcrumb structured data", () => {
+  const route = readFileSync(new URL("../src/app/blog/[slug]/page.tsx", import.meta.url), "utf8");
+  assert.match(route, /"@type": "FAQPage"/);
+  assert.match(route, /"@type": "BreadcrumbList"/);
+  assert.match(route, /"@type": "BlogPosting"/);
+  // The cluster's relations are DECLARED, not inferred from keyword overlap —
+  // otherwise the hub and spoke rebuilds itself into a weaker graph by accident.
+  assert.match(route, /cluster\.related/);
+  // And the related block does not claim word overlap when that is not why.
+  assert.match(route, /part of this guide/);
+});
+
+test("seo cluster: no backlink is manufactured anywhere", () => {
+  // A backlink is a link from somebody else's site. Buying, exchanging or
+  // planting them is a Search Essentials spam violation that demotes a domain —
+  // and it is the doctrine this platform already sells in link-opportunities.
+  const src = readFileSync(new URL("../src/shared/seo-articles.ts", import.meta.url), "utf8");
+  assert.match(src, /EARN links, never place them/);
+  assert.ok(seoCluster.LINKABLE_ASSETS.length >= 3, "linkable assets are what earn links; there should be several");
+  for (const a of seoCluster.LINKABLE_ASSETS) {
+    assert.ok(seoCluster.SEO_ARTICLES.some((x) => x.slug === a.slug), `${a.slug} is listed as a linkable asset and does not exist`);
+    assert.ok(a.whyCitable.length > 40 && a.whoWouldCite.length > 40, `${a.slug} does not say who would cite it or why`);
+  }
+  assert.match(seoCluster.OUTREACH_DOCTRINE.join(" "), /Nothing here places a backlink/);
+  // No article contains an outbound link at all — nothing is being traded.
+  for (const art of seoCluster.SEO_ARTICLES) {
+    assert.ok(!/\]\(https?:\/\//.test(art.content), `${art.slug} contains an outbound link`);
+  }
+});
