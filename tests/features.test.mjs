@@ -11383,8 +11383,10 @@ test("ladder: SHARE2EARN can never pay more than the influencer programme", () =
   // capped at 0.40% and must never pay more than the influencer programme.
   assert.equal(cp.INFLUENCER_RATE_10K, 0.01);
   assert.equal(cp.INFLUENCER_RATE_5K, 0.0075);
-  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.004);
-  assert.equal(cp.SHARE2EARN_RATE, 0.004);
+  // 0.5% since §77. The RULE below is what this test protects, not the number:
+  // whatever the rate is set to, it can never overtake an influencer band.
+  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.005);
+  assert.equal(cp.SHARE2EARN_RATE, 0.005);
   assert.equal(cp.share2earnNeverPaysMore(), true);
 
   // Enforced by DERIVATION, not by discipline: the rate is the minimum of its
@@ -11916,4 +11918,87 @@ test("growthguard: capacity says whether the value behind it was measured", () =
   });
   assert.equal(proven.measured, true);
   assert.match(proven.headline, /incremental/);
+});
+
+test("share2earn 0.5%: the rate, and the invariant surviving at the new number", () => {
+  assert.equal(cp.SHARE2EARN_RATE, 0.005, "the creator rate is 0.5% of eligible sale value");
+  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.005);
+  // Raising 0.40% to 0.50% must not have been achieved by weakening the rule
+  // that share2earn never pays more than the influencer programme.
+  assert.equal(cp.share2earnNeverPaysMore(), true);
+  assert.ok(cp.SHARE2EARN_RATE < cp.INFLUENCER_RATE_5K, "0.5% must still sit under the 0.75% influencer band");
+
+  // The owner's table, to the penny.
+  for (const [sales, earns] of [[10_000, 50], [50_000, 250], [100_000, 500], [500_000, 2_500], [1_000_000, 5_000], [5_000_000, 25_000], [10_000_000, 50_000]]) {
+    assert.equal(s2e.saleCommissionPence(sales), earns, `£${sales / 100} of eligible sales should pay £${earns / 100}`);
+  }
+});
+
+test("share2earn 0.5%: commission is taken on product value, never the checkout total", () => {
+  // The owner's example: £120 checkout, £100 product, £15 tax, £5 delivery.
+  const v = s2e.netEligibleValue({ checkoutTotalPence: 12_000, productPence: 10_000, taxPence: 1_500, deliveryPence: 500 });
+  assert.equal(v.eligiblePence, 10_000);
+  assert.equal(s2e.saleCommissionPence(v.eligiblePence), 50, "£0.50 on a £100 product");
+  assert.match(v.note, /money the merchant never keeps/i);
+
+  // Tips and gift cards are excluded on the same principle.
+  const w = s2e.netEligibleValue({ checkoutTotalPence: 15_000, productPence: 10_000, taxPence: 1_500, deliveryPence: 500, tipPence: 1_000, giftCardPence: 2_000 });
+  assert.equal(w.eligiblePence, 10_000);
+
+  // A refund removes it, and a cancellation removes all of it.
+  assert.equal(s2e.netEligibleValue({ checkoutTotalPence: 12_000, productPence: 10_000, refundedPence: 10_000 }).eligiblePence, 0);
+  assert.equal(s2e.netEligibleValue({ checkoutTotalPence: 12_000, productPence: 10_000, cancelled: true }).eligiblePence, 0);
+  // A partial refund reduces it proportionally rather than voiding it.
+  assert.equal(s2e.netEligibleValue({ checkoutTotalPence: 12_000, productPence: 10_000, refundedPence: 4_000 }).eligiblePence, 6_000);
+});
+
+test("share2earn 0.5%: an unsafe product is refused, never quietly re-rated", () => {
+  // The owner's case: a product whose net margin is 0.3%. Paying 0.5% loses
+  // money, so it is marked ineligible — because a headline rate that silently
+  // becomes something smaller is a rate nobody can trust.
+  const thin = pg.economicsFor({ pricePence: 10_000, cogsPence: 9_900, fulfilmentPence: 50, paymentFeePence: 20, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0 });
+  const allowance = pg.capacityFromTransaction(thin);
+  const bad = s2e.productEligible({ eligiblePence: 10_000, contributionPence: thin.contributionPence, growthPoolPence: thin.growthPoolPence, growthGuardAllowancePence: allowance.pence });
+  assert.equal(bad.eligible, false);
+  assert.equal(bad.commissionPence, 0, "an ineligible product must pay nothing, not a reduced rate");
+  assert.equal(bad.ratePct, 0.5, "the advertised rate is still 0.5% — it is the PRODUCT that is ineligible");
+  assert.match(bad.fix, /not quietly reduced/i);
+
+  // A healthy product qualifies and pays the full rate.
+  const good = pg.economicsFor({ pricePence: 10_000, cogsPence: 4_000, fulfilmentPence: 500, paymentFeePence: 200, taxPence: 1_500, returnsAllowancePct: 2, otherVariablePence: 0, minProtectedMarginPct: 20 });
+  const ok = s2e.productEligible({ eligiblePence: 10_000, contributionPence: good.contributionPence, growthPoolPence: good.growthPoolPence, growthGuardAllowancePence: pg.capacityFromTransaction(good).pence });
+  assert.equal(ok.eligible, true);
+  assert.equal(ok.commissionPence, 50, "an eligible product pays the full 0.5%");
+
+  // A product contributing nothing is refused for its own reason.
+  const dead = pg.economicsFor({ pricePence: 1_000, cogsPence: 1_200, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0 });
+  const d = s2e.productEligible({ eligiblePence: 1_000, contributionPence: dead.contributionPence, growthPoolPence: dead.growthPoolPence, growthGuardAllowancePence: 0 });
+  assert.equal(d.eligible, false);
+  assert.match(d.reason, /contributes nothing/i);
+
+  // GrowthGuard binds independently: a product can clear the acquisition pool
+  // and still be refused because 0.5% of revenue exceeds 5% of contribution.
+  const squeezed = s2e.productEligible({ eligiblePence: 10_000, contributionPence: 2_000, growthPoolPence: 2_000, growthGuardAllowancePence: 40 });
+  assert.equal(squeezed.eligible, false);
+  assert.match(squeezed.reason, /GrowthGuard/);
+});
+
+test("share2earn 0.5%: engagement earns XP, only a sale earns cash", () => {
+  // Paying cash for views spends the merchant's margin on something that
+  // produced no sale, and a channel that does that gets switched off.
+  const cash = s2e.XP_RULES.filter((r) => r.cash);
+  assert.equal(cash.length, 1);
+  assert.equal(cash[0].id, "sale");
+  for (const r of s2e.XP_RULES.filter((x) => !x.cash)) assert.ok(r.xp > 0, `${r.id} earns neither cash nor XP`);
+  assert.match(s2e.XP_DOCTRINE, /never cash/i);
+
+  // Levels are thresholds over counted XP, and progression is monotonic.
+  assert.equal(s2e.levelFor(0).level.id, "rookie");
+  assert.equal(s2e.levelFor(500).level.id, "creator");
+  assert.equal(s2e.levelFor(499).level.id, "rookie");
+  assert.equal(s2e.levelFor(40_000).level.id, "icon");
+  assert.equal(s2e.levelFor(40_000).next, null);
+  assert.equal(s2e.levelFor(400).xpToNext, 100, "the distance to the next level is counted, not guessed");
+  let last = -1;
+  for (const l of s2e.LEVELS) { assert.ok(l.xp > last, "level thresholds must increase"); last = l.xp; }
 });

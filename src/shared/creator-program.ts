@@ -77,8 +77,15 @@ export const RATE_PLATFORM = 0.0025;   // 0.25% to the platform
 export const INFLUENCER_RATE_10K = 0.01;    // 1.00% — 10,000+ followers
 export const INFLUENCER_RATE_5K = 0.0075;   // 0.75% — 5,000–9,999 followers
 
-/** SHARE2EARN's ceiling. The effective rate is never above the lowest influencer band. */
-export const SHARE2EARN_RATE_CAP = 0.004;   // 0.40%
+/**
+ * SHARE2EARN's rate: 0.5% of verified eligible sale value.
+ *
+ * Owner ruling, replacing the earlier 0.40% cap. It remains a CEILING as well as
+ * the headline rate, and the derivation below still guarantees it can never
+ * overtake the influencer bands — 0.5% sits under the 0.75% band, so the
+ * invariant holds at the new number rather than being weakened to accommodate it.
+ */
+export const SHARE2EARN_RATE_CAP = 0.005;   // 0.50%
 export const SHARE2EARN_RATE = Math.min(SHARE2EARN_RATE_CAP, INFLUENCER_RATE_5K, INFLUENCER_RATE_10K);
 
 export type CommissionBandId = "influencer_10k" | "influencer_5k" | "share2earn";
@@ -110,7 +117,7 @@ export const COMMISSION_BANDS: CommissionBand[] = [
   band("influencer_5k", "influencer", "Influencer · 5,000–9,999 followers", 5_000, INFLUENCER_RATE_5K,
     "Applied to the creator programme and had 5,000+ combined followers verified."),
   band("share2earn", "share2earn", "SHARE2EARN", 0, SHARE2EARN_RATE,
-    "Open to everyone. No follower count, no application, no audience test."),
+    "Open to everyone. No follower count, no application, no audience test — 0.5% of the eligible value of every verified sale your link produces."),
 ];
 
 export const bandById = (id: CommissionBandId): CommissionBand =>

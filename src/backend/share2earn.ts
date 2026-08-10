@@ -560,3 +560,172 @@ export function ladderIsSane(): { ok: boolean; reason: string } {
   }
   return { ok: true, reason: `SHARE2EARN pays ${ratePct(bandById("share2earn").creatorRate)}; the lowest influencer band pays ${ratePct(Math.min(...COMMISSION_BANDS.filter((b) => b.programme === "influencer").map((b) => b.creatorRate)))}.` };
 }
+
+// ---------------------------------------------------------------------------
+// Net Eligible Sale Value
+//
+// The 0.5% is NOT taken off the checkout total, and the difference is not
+// pedantry — it is the difference between a commission the merchant can afford
+// and one that quietly pays creators out of tax it is holding for HMRC.
+//
+// Excluded: tax, delivery, tips, gift cards, and anything else that is not the
+// product. Money the merchant never keeps cannot fund a commission.
+// ---------------------------------------------------------------------------
+export type SaleLines = {
+  checkoutTotalPence: number;
+  productPence: number;
+  taxPence?: number;
+  deliveryPence?: number;
+  tipPence?: number;
+  giftCardPence?: number;
+  otherExcludedPence?: number;
+  refundedPence?: number;
+  cancelled?: boolean;
+};
+
+export type EligibleValue = {
+  eligiblePence: number;
+  excludedPence: number;
+  breakdown: { label: string; pence: number }[];
+  note: string;
+};
+
+export function netEligibleValue(s: SaleLines): EligibleValue {
+  const n = (v?: number) => Math.max(0, Math.round(v || 0));
+  if (s.cancelled) {
+    return {
+      eligiblePence: 0,
+      excludedPence: n(s.checkoutTotalPence),
+      breakdown: [{ label: "Cancelled order", pence: 0 }],
+      note: "The order was cancelled, so there is no eligible value and no commission.",
+    };
+  }
+  const excludedLines = [
+    { label: "Tax", pence: n(s.taxPence) },
+    { label: "Delivery", pence: n(s.deliveryPence) },
+    { label: "Tip", pence: n(s.tipPence) },
+    { label: "Gift card", pence: n(s.giftCardPence) },
+    { label: "Other excluded", pence: n(s.otherExcludedPence) },
+    { label: "Refunded", pence: n(s.refundedPence) },
+  ].filter((l) => l.pence > 0);
+
+  const eligible = Math.max(0, n(s.productPence) - n(s.refundedPence));
+  const excluded = Math.max(0, n(s.checkoutTotalPence) - eligible);
+
+  return {
+    eligiblePence: eligible,
+    excludedPence: excluded,
+    breakdown: [{ label: "Product value", pence: n(s.productPence) }, ...excludedLines.map((l) => ({ ...l, pence: -l.pence }))],
+    note: excluded > 0
+      ? `£${(eligible / 100).toFixed(2)} of the £${(n(s.checkoutTotalPence) / 100).toFixed(2)} checkout is commissionable. Tax, delivery, tips and gift cards are money the merchant never keeps, so they cannot fund a commission.`
+      : `The whole £${(eligible / 100).toFixed(2)} is product value.`,
+  };
+}
+
+/** The creator's cut of one verified sale. */
+export function saleCommissionPence(eligiblePence: number): number {
+  return Math.round(Math.max(0, eligiblePence) * SHARE2EARN_RATE);
+}
+
+// ---------------------------------------------------------------------------
+// Product eligibility
+//
+// OWNER RULING, AND IT IS THE RIGHT ONE: where 0.5% would make a transaction
+// commercially unsafe, the product is marked INELIGIBLE rather than the
+// creator's rate being quietly reduced. If the product promises 0.5%, a creator
+// gets 0.5% on everything MarketWar marks eligible — a headline rate that
+// silently becomes 0.2% on some products is a headline rate nobody can trust.
+// ---------------------------------------------------------------------------
+export type Eligibility = {
+  eligible: boolean;
+  commissionPence: number;
+  ratePct: number;
+  reason: string;
+  /** What the merchant would have to change for it to qualify. */
+  fix?: string;
+};
+
+export function productEligible(input: {
+  eligiblePence: number;
+  /** ProfitGuard's numbers for this offer. */
+  contributionPence: number;
+  growthPoolPence: number;
+  /** The GrowthGuard allowance this transaction creates. */
+  growthGuardAllowancePence: number;
+}): Eligibility {
+  const commission = saleCommissionPence(input.eligiblePence);
+  const ratePct = Math.round(SHARE2EARN_RATE * 10000) / 100;
+
+  if (input.eligiblePence <= 0) {
+    return { eligible: false, commissionPence: 0, ratePct, reason: "There is no commissionable product value in this sale." };
+  }
+  if (input.contributionPence <= 0) {
+    return {
+      eligible: false, commissionPence: 0, ratePct,
+      reason: "This product contributes nothing after its variable costs, so no commission of any size can be funded from it.",
+      fix: "Raise the price or cut a variable cost. The problem is the product's economics, not the channel.",
+    };
+  }
+  if (commission > input.growthPoolPence) {
+    return {
+      eligible: false, commissionPence: 0, ratePct,
+      reason: `${ratePct}% of this sale is £${(commission / 100).toFixed(2)}, and only £${(input.growthPoolPence / 100).toFixed(2)} is available for acquisition once costs and the protected margin are taken out. Paying it would lose money on the transaction.`,
+      fix: "Not eligible for SHARE2EARN. That is deliberate: the rate is not quietly reduced, because a headline rate that silently becomes something smaller is a rate nobody can trust.",
+    };
+  }
+  if (commission > input.growthGuardAllowancePence) {
+    return {
+      eligible: false, commissionPence: 0, ratePct,
+      reason: `${ratePct}% of this sale is £${(commission / 100).toFixed(2)}, above the £${(input.growthGuardAllowancePence / 100).toFixed(2)} that GrowthGuard's 5% ceiling allows this transaction to fund.`,
+      fix: "Not eligible. A thin-margin product cannot support a percentage of revenue, however small it looks next to the price.",
+    };
+  }
+  const headroom = input.growthGuardAllowancePence - commission;
+  return {
+    eligible: true, commissionPence: commission, ratePct,
+    reason: `Eligible. ${ratePct}% of £${(input.eligiblePence / 100).toFixed(2)} is £${(commission / 100).toFixed(2)}, inside both the £${(input.growthPoolPence / 100).toFixed(2)} acquisition pool and the £${(input.growthGuardAllowancePence / 100).toFixed(2)} GrowthGuard allowance.`,
+    fix: headroom <= 0
+      ? "The creator's commission consumes the entire GrowthGuard allowance for this sale, leaving nothing for the platform fee, reserve or bonuses. It is allowed, but there is no room for anything else."
+      : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// XP — the engagement that does NOT eat the merchant's margin
+//
+// 0.5% on a cheap product is small, and the temptation is to top it up with cash
+// for views and shares. That is the merchant's margin being spent on engagement
+// that produced no sale. So everything short of a verified sale earns XP, rank
+// and access instead: progression the platform can give away for nothing and a
+// creator genuinely wants.
+// ---------------------------------------------------------------------------
+export type XpRule = { id: string; label: string; xp: number; per: string; cash: boolean };
+
+export const XP_RULES: XpRule[] = [
+  { id: "view_500", label: "500 verified views", xp: 50, per: "per 500, from a connected account only", cash: false },
+  { id: "share", label: "Content shared and still live", xp: 20, per: "per post", cash: false },
+  { id: "click", label: "Qualified click", xp: 2, per: "per click", cash: false },
+  { id: "streak_day", label: "Daily streak", xp: 15, per: "per consecutive day", cash: false },
+  { id: "lead", label: "Verified lead", xp: 60, per: "per lead", cash: false },
+  { id: "sale", label: "Verified sale", xp: 200, per: "per sale, PLUS 0.5% of eligible value", cash: true },
+];
+
+export const LEVELS = [
+  { id: "rookie", label: "Rookie", xp: 0, unlocks: "The open campaign feed." },
+  { id: "creator", label: "Creator", xp: 500, unlocks: "Missions with bonuses attached." },
+  { id: "rising", label: "Rising", xp: 2_000, unlocks: "Higher-value campaigns and early access to drops." },
+  { id: "pro", label: "Pro", xp: 6_000, unlocks: "Premium campaigns and brand collaborations." },
+  { id: "elite", label: "Elite", xp: 15_000, unlocks: "Direct brand proposals and ambassador offers." },
+  { id: "icon", label: "Icon", xp: 40_000, unlocks: "Negotiated terms and named partnerships." },
+];
+
+export function levelFor(xp: number): { level: typeof LEVELS[number]; next: typeof LEVELS[number] | null; xpToNext: number } {
+  const x = Math.max(0, Math.round(xp || 0));
+  let level = LEVELS[0];
+  for (const l of LEVELS) if (x >= l.xp) level = l;
+  const next = LEVELS.find((l) => l.xp > x) || null;
+  return { level, next, xpToNext: next ? next.xp - x : 0 };
+}
+
+export const XP_DOCTRINE =
+  "Views, shares, clicks and streaks earn XP, rank and access — never cash. Cash comes from a verified sale, at 0.5% of the eligible product value. That is not meanness: paying cash for engagement that produced no sale spends the merchant's margin on nothing, and a channel that does that gets switched off, which costs every creator on it.";

@@ -4,6 +4,7 @@ import {
   walletFrom, trustSignals, creatorScore, squadTotals, earningOutlook,
   worstCasePence, ladderIsSane, SHARE2EARN_DOCTRINE, DISCLOSURE, HOLD_DAYS,
   MIN_ACTIONS_TO_SCORE, MAX_SQUAD_MEMBERS,
+  netEligibleValue, saleCommissionPence, productEligible, XP_RULES, LEVELS, levelFor, XP_DOCTRINE,
   type MissionKind, type Reward, type EarnActionId,
 } from "@/backend/share2earn";
 import { COMMISSION_BANDS, ratePct, SHARE2EARN_RATE, SHARE2EARN_RATE_CAP } from "@/shared/creator-program";
@@ -56,6 +57,7 @@ export async function GET(req: NextRequest) {
       holdDays: HOLD_DAYS,
       minActionsToScore: MIN_ACTIONS_TO_SCORE,
       maxSquadMembers: MAX_SQUAD_MEMBERS,
+      xp: { rules: XP_RULES, levels: LEVELS, doctrine: XP_DOCTRINE },
       doctrine: SHARE2EARN_DOCTRINE,
       profitGuard: PROFIT_GUARD_DOCTRINE,
       growthGuard: { ceiling: GROWTHGUARD_CEILING, split: CAPACITY_SPLIT, doctrine: GROWTHGUARD_DOCTRINE },
@@ -238,6 +240,35 @@ export async function POST(req: NextRequest) {
       ceiling: GROWTHGUARD_CEILING,
       doctrine: GROWTHGUARD_DOCTRINE,
     });
+  }
+
+  // One sale, end to end: what is commissionable, whether the product qualifies,
+  // and what the creator earns.
+  if (action === "sale") {
+    const lines = (body.sale || {}) as Record<string, unknown>;
+    const n = (k: string) => Math.max(0, Math.round(Number(lines[k]) || 0));
+    const value = netEligibleValue({
+      checkoutTotalPence: n("checkoutTotalPence"), productPence: n("productPence"),
+      taxPence: n("taxPence"), deliveryPence: n("deliveryPence"), tipPence: n("tipPence"),
+      giftCardPence: n("giftCardPence"), otherExcludedPence: n("otherExcludedPence"),
+      refundedPence: n("refundedPence"), cancelled: lines.cancelled === true,
+    });
+    const offer = parseOffer(body.offer);
+    if (!offer) {
+      return NextResponse.json({
+        value, commissionPence: saleCommissionPence(value.eligiblePence),
+        note: "Supply the offer's economics to check whether this product is eligible at all — a commission that the margin cannot fund is refused rather than reduced.",
+      });
+    }
+    const e = economicsFor(offer);
+    const allowance = capacityFromTransaction(e, typeof body.survivalFloorPct === "number" ? body.survivalFloorPct : undefined);
+    const eligibility = productEligible({
+      eligiblePence: value.eligiblePence,
+      contributionPence: e.contributionPence,
+      growthPoolPence: e.growthPoolPence,
+      growthGuardAllowancePence: allowance.pence,
+    });
+    return NextResponse.json({ value, eligibility, economics: e, allowance });
   }
 
   if (action === "quote") {

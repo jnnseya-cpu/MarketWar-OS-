@@ -157,7 +157,7 @@ export default function Share2Earn() {
         {rate && <Pill tone="good">{rate} on a sale</Pill>}
       </div>
       <p className="mb-4 text-sm text-slate-400">
-        No follower gate. 350 people who trust you are worth more than 80,000 who scroll past, and the Creator Score measures results rather than reach — followers are not an input to it.
+        Share the products you like on your own channels. When a verified sale comes from your content you earn <span className="font-bold text-emerald-300">0.5% of the product value</span> — no follower gate, no application. Views, shares, clicks and streaks earn XP, rank and access rather than cash, so the merchant&rsquo;s margin is never spent on engagement that produced no sale.
       </p>
 
       {/* The ladder, so nobody has to guess which band they are in. */}

@@ -3431,3 +3431,91 @@ One test from §74 was corrected rather than the code: `an unfunded bounty never
 publishes` was pinned to a sale-bearing mission, which §75 made refuse *earlier*
 and for a stricter reason (a sale reward now needs the offer's economics). It now
 tests the funding check on activity rewards, which is what it was always about.
+
+---
+
+## §77 — SHARE2EARN at 0.5%, on verified eligible sales (2026-08-09)
+
+**Owner ruling:** a fixed **0.5% creator commission on verified product sales**,
+with the 5% GrowthGuard ceiling retained as the business-protection layer. Two
+different rules: 0.5% is what a creator earns, 5% is what the whole module may
+ever cost.
+
+### The rate, and the invariant surviving it
+
+`SHARE2EARN_RATE_CAP` moves 0.40% → **0.50%**. The §74 rule — SHARE2EARN never
+pays more than the influencer programme — **still holds at the new number**
+rather than being weakened to accommodate it: 0.5% sits under the 0.75% band, and
+the derivation `Math.min(cap, INFLUENCER_RATE_5K, INFLUENCER_RATE_10K)` is
+unchanged. A mutation raising the rate to 0.8% fails four tests.
+
+The owner's table reproduces to the penny — £100 → £0.50, £1,000 → £5,
+£10,000 → £50, £100,000 → £500.
+
+### Net Eligible Sale Value
+
+The 0.5% is **not** taken off the checkout total, and the difference is not
+pedantry: it is the difference between a commission the merchant can afford and
+one that quietly pays creators out of VAT it is holding for HMRC.
+
+The owner's example computes exactly: a £120 checkout of £100 product + £15 tax +
+£5 delivery yields **£100 eligible → £0.50**. Tips and gift cards are excluded on
+the same principle. A refund reduces the eligible value proportionally; a
+cancellation voids it.
+
+### An unsafe product is refused, never quietly re-rated
+
+This is the owner's ruling and it is the right one. Where 0.5% would make a
+transaction commercially unsafe, the product is marked **⛔ ineligible** rather
+than the creator's rate being silently reduced. *"If you advertise 'Earn 0.5%',
+creators should actually receive 0.5% on every product MarketWar marks eligible."*
+
+`productEligible()` refuses for four distinct reasons, each named:
+
+- no commissionable product value in the sale;
+- the product contributes nothing after variable costs;
+- 0.5% exceeds the **ProfitGuard acquisition pool** — the owner's 0.3%-margin
+  case, where £0.50 of commission is asked from £0.30 of available margin;
+- 0.5% exceeds the **GrowthGuard allowance** for that transaction — which binds
+  independently, because 0.5% *of revenue* can exceed 5% *of contribution* on a
+  thin-margin product even when the acquisition pool looks ample.
+
+Where the commission consumes the entire GrowthGuard allowance the product stays
+eligible but says so, since nothing is then left for the platform fee, reserve or
+bonuses.
+
+### XP, so gamification does not eat the margin
+
+0.5% on a cheap product is small, and the temptation is to top it up with cash
+for views and shares. That is the merchant's margin being spent on engagement
+that produced no sale — and a channel that does that gets switched off, which
+costs every creator on it.
+
+So **only a verified sale earns cash.** Views (from a connected account only),
+shares, qualified clicks, daily streaks and verified leads earn **XP**, and XP
+buys rank and access: Rookie → Creator → Rising → Pro → Elite → Icon, each
+unlocking higher-value campaigns. Progression the platform can give away for
+nothing and a creator genuinely wants.
+
+### Verification
+
+Tests **1023 → 1027**. Typecheck, layer check and build green. Five mutation
+checks run and all five caught: commission taken on the checkout total including
+tax and delivery; an unaffordable product marked eligible; the GrowthGuard check
+on eligibility dropped; views earning cash again; and the rate raised past the
+influencer band.
+
+### Not yet built from this ruling
+
+- **Fixed 0.5% vs "up to 0.5%"** as a merchant setting. Only *fixed* is
+  implemented, because the owner's own reasoning argues against the variable
+  form — an advertised rate that silently becomes smaller is worse than an
+  ineligible product. The switch is a one-line addition if wanted.
+- **Creator Copilot's performance coaching** ("your 7–10 second videos convert
+  2.4× better") — the numbers exist once a creator has history; the analysis is a
+  connection to `creative-learning`, not a new engine. Its estimated-opportunity
+  figure must go through `earningOutlook`, which already refuses to forecast
+  without three finished missions.
+- **Withdrawals** remain the gate. Money can now be earned, classified, held,
+  capped and settled — it cannot leave. Payout rail, KYC and a tax position, and
+  it is not a code problem.
