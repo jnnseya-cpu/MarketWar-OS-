@@ -3989,3 +3989,70 @@ outbound link at all, so nothing is being traded.
 
 Tests **1054 → 1061**. Typecheck, layer check and build green. Three mutation
 checks run, all caught.
+
+---
+
+## §83 — Public pages caught up with the creator programme (2026-08-10)
+
+Everything from §74–§82 was live in the product and largely absent from the
+public site. The gap that mattered was not marketing.
+
+### Terms §9 — the real gap
+
+**The platform now pays real money to real people, takes a fee, holds balances
+and can dispute an earning — and the terms said none of it.** That is not a
+marketing omission, it is an unenforceable relationship: a creator had no written
+statement of what they earn, when it becomes theirs, what a withdrawal costs, or
+what happens to their tax.
+
+New section 9, *Earning and being paid as a creator*, covering:
+
+- **Not our employee, worker or agent** — stated first, because everything else
+  follows from it.
+- The rates, and that eligible value is the **product only** — tax, delivery,
+  tips and gift cards excluded.
+- **Earned, not granted**: a brand may dispute only on the recorded grounds and
+  is named to the creator; it cannot withhold a settled, undisputed commission,
+  and the dispute window closes after 28 days.
+- **Ineligible products** rather than a quietly reduced rate.
+- Identity before a first payout, and why — the reporting duty *and* protecting
+  the balance from anyone who obtains a password. Payouts from 18; a balance
+  below that is held and does not expire.
+- The fee: the provider's processing cost plus **3% of that fee, not of the
+  withdrawal**, itemised before confirmation, with the 25% refusal.
+- **Paid gross.** Nothing withheld anywhere, annual reporting with a copy to the
+  creator, and the no-tax-reference case handled explicitly.
+- Fair use — self-referral, manufactured clicks, undisclosed promotion — and that
+  the disclosure obligation sits with whoever publishes.
+- What the brand pays, and that it is never charged to the creator or customer.
+
+Sections 9–16 renumbered to 10–17. A test asserts the numbering stays contiguous,
+because a renumber that skips or repeats one makes a term uncitable.
+
+### Pricing
+
+`/choose-plan` now states that **creator commission is a separate cost from the
+subscription and ACUs** — charged as an acquisition cost on sales those creators
+produced, never a retainer. The table renders from `COMMISSION_BANDS` rather than
+being typed, and notes that the platform's 0.25% is flat across every band, so a
+creator moving up a tier raises what they take home rather than what we take.
+
+### Landing, how-it-works, growth, policies
+
+- **Landing** gains a feature block: no follower requirement, 0.5%/0.75%/1%,
+  capped at 5% of value generated, and rewards that breach a protected margin
+  refused rather than warned about.
+- **How it works** gains Phase 9, *Turn customers and creators into a
+  distribution network* — the previous Phase 9 becomes 10, and the count still
+  renders from `PHASES.length` as fixed in §73.
+- **Growth** gains the four things a creator asks *before* applying rather than
+  after: withdraw wherever you are, every fee before you confirm, nothing
+  withheld for tax, and earned-not-granted. Plus why cash comes only from a sale.
+- **Policies** gains two index entries pointing at the new terms section.
+
+Every one of these links into the §82 article cluster rather than dead-ending, and
+a test asserts it.
+
+### Verification
+
+Tests **1061 → 1062**. Typecheck, layer check and build green.

@@ -72,6 +72,14 @@ const PILLARS = [
     href: "/signup",
   },
   {
+    icon: Users,
+    color: SERIES[3],
+    title: "An audience that sells for you",
+    desc: "Turn customers and creators into a performance-based distribution network. SHARE2EARN pays 0.5% of a verified sale with no follower requirement at all; the creator programme pays 0.75% and 1% on verified counts. Commission is only ever charged on sales those people produced, capped at 5% of the value generated, and the platform refuses any reward that would breach the margin you chose to protect.",
+    cta: "See how creators earn",
+    href: "/blog/creator-earning-programmes",
+  },
+  {
     icon: Globe2,
     color: SERIES[7],
     title: "Business Automation",

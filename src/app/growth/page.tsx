@@ -32,6 +32,40 @@ export default function GrowthPage() {
           <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">{ratePct(INFLUENCER_RATE_10K)}</p><p className="mt-1 text-xs text-slate-400">of each referred customer&rsquo;s eligible net revenue is yours at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ followers, {ratePct(INFLUENCER_RATE_5K)} from 5,000, {ratePct(SHARE2EARN_RATE)} on SHARE2EARN with no gate. The platform takes {ratePct(RATE_PLATFORM)} on top, charged to the promoted brand as their acquisition cost — never to you or the customer.</p></div>
         </div>
 
+        {/* The questions a creator actually asks before applying, and the ones
+            most programmes leave until after you have signed up. */}
+        <H2>Getting paid</H2>
+        <div className="not-prose mb-8 grid gap-4 sm:grid-cols-2">
+          {[
+            {
+              h: "Withdraw wherever you are",
+              p: "Bank transfer, instant to card, PayPal, Wise, or mobile money on M-Pesa, Orange Money, Airtel and Africell. The mobile rails need a phone number and nothing else, and their minimum is £2 rather than the £5–£20 of the bank rails — small, frequent withdrawals are normal there and a high floor would exclude the people this is for.",
+            },
+            {
+              h: "Every fee, before you confirm",
+              p: "The payout provider's processing fee is passed through at cost, and our administration fee is 3% of that fee — not of your withdrawal. On a £2 PayPal fee that is 6p. Each line says whose the charge is, and if another rail would leave you with more the quote tells you unprompted.",
+            },
+            {
+              h: "Nothing is withheld for tax",
+              p: "You are not an employee, so you are paid gross: no income tax, no National Insurance, no PAYE. We report annual earnings to the tax authority and hand you a copy of the same figure — reporting what you were paid and deducting from it are different things. If your country issues no individual tax reference, that fact is reported and you are never asked for a number that does not exist.",
+            },
+            {
+              h: "Earned, not granted",
+              p: "Once a sale settles and its refund window closes, the money is yours. A brand can dispute a specific earning on stated grounds — a refund, a chargeback, a self-referral — and you are told which. It cannot quietly hold a commission you earned.",
+            },
+          ].map((c) => (
+            <div key={c.h} className="card p-5">
+              <h3 className="font-display text-base font-bold text-white">{c.h}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">{c.p}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mb-8 text-[13px] leading-relaxed text-slate-400">
+          The full detail is in{" "}
+          <Link href="/blog/creator-payout-economics" className="font-semibold text-emerald-400 hover:text-emerald-300">creator payout economics</Link>, and if your country issues no tax reference,{" "}
+          <Link href="/blog/creator-payouts-no-tax-reference" className="font-semibold text-emerald-400 hover:text-emerald-300">how that is handled</Link>. Cash only ever comes from a verified sale — views, shares, clicks and streaks earn XP, rank and access to higher-value campaigns instead, which is what stops a merchant&rsquo;s margin being spent on engagement that produced nothing.
+        </p>
+
         <H2>Four ways to earn</H2>
         <div className="not-prose grid gap-4 sm:grid-cols-2">
           {EARNING_TIERS.map((t) => (

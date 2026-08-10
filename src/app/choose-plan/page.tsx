@@ -11,6 +11,7 @@ import { Check, Loader2, Sparkles } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { BrandLockup } from "@/components/Logo";
 import { AGENT_LIST } from "@/shared/agents";
+import { COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
 
 
 type Plan = {
@@ -123,6 +124,36 @@ export default function ChoosePlanPage() {
             })}
           </div>
         )}
+
+        {/* The creator programme is charged separately, and a pricing page that
+            does not say so is a pricing page somebody argues with later. */}
+        <div className="mt-10 rounded-xl border border-white/10 bg-ink-900/50 p-5">
+          <h3 className="font-display text-base font-bold text-white">Creator commission is separate — and only ever paid on a sale</h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
+            Your subscription buys the platform, and AI actions draw on your ACU allowance. If you run{" "}
+            <Link href="/blog/creator-earning-programmes" className="font-semibold text-emerald-400 hover:text-emerald-300">SHARE2EARN or the creator programme</Link>,
+            commission is charged as an acquisition cost on the sales those creators produce — never a retainer, never a fee for reach that converted nothing.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[420px] text-left text-xs">
+              <thead><tr className="text-slate-500"><th className="pb-1.5 font-semibold">Who is promoting</th><th className="pb-1.5 font-semibold">Creator gets</th><th className="pb-1.5 font-semibold">You pay</th></tr></thead>
+              <tbody className="divide-y divide-white/[0.06]">
+                {COMMISSION_BANDS.map((b) => (
+                  <tr key={b.id}>
+                    <td className="py-2 pr-3 text-slate-300">{b.label}</td>
+                    <td className="py-2 pr-3 font-bold text-emerald-300">{ratePct(b.creatorRate)}</td>
+                    <td className="py-2 text-white">{ratePct(b.totalRate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+            Our share is a flat {ratePct(RATE_PLATFORM)} at every band, so a creator moving up a tier raises what they take home rather than what we take. The whole programme is capped at{" "}
+            <Link href="/blog/profitguard-growthguard-creator-programme" className="font-semibold text-emerald-400 hover:text-emerald-300">5% of the value it generates</Link>{" "}
+            and cannot breach the margin you choose to protect — a reward configuration that would is refused, not warned about.
+          </p>
+        </div>
 
         <p className="mt-8 text-center text-sm text-slate-500">
           Not sure yet? <Link href="/dashboard" className="font-semibold text-emerald-400 hover:text-emerald-300">Explore the demo first</Link> — you can pick a plan any time from Billing.

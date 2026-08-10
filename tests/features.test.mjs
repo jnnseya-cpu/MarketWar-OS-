@@ -12774,3 +12774,43 @@ test("seo cluster: no backlink is manufactured anywhere", () => {
     assert.ok(!/\]\(https?:\/\//.test(art.content), `${art.slug} contains an outbound link`);
   }
 });
+
+test("public pages: the creator programme and its payouts are actually described", () => {
+  // The platform now pays real money to real people, takes a fee, holds
+  // balances and can dispute an earning. A public site that says none of that
+  // is selling something the terms do not cover.
+  const terms = readFileSync(new URL("../src/app/terms/page.tsx", import.meta.url), "utf8");
+  assert.match(terms, /Earning and being paid as a creator/);
+  assert.match(terms, /not our employee, our worker or our agent/);
+  assert.match(terms, /3% of that processing fee/);
+  assert.match(terms, /paid gross/i);
+  assert.match(terms, /cannot withhold a settled, undisputed commission/i);
+  assert.match(terms, /issues no individual tax reference/i);
+  // Section numbering stays contiguous — a renumber that skips or repeats one
+  // makes a term unciteable.
+  const numbers = [...terms.matchAll(/<H2>(\d+)\./g)].map((m) => Number(m[1]));
+  assert.deepEqual(numbers, numbers.map((_, i) => i + 1), "the terms sections are not contiguous");
+
+  // Pricing must state that commission is a separate cost, with the real rates.
+  const pricing = readFileSync(new URL("../src/app/choose-plan/page.tsx", import.meta.url), "utf8");
+  assert.match(pricing, /COMMISSION_BANDS/, "the pricing page hardcodes rates instead of rendering the ladder");
+  assert.match(pricing, /acquisition cost on the sales/i);
+  assert.match(pricing, /5% of the value it generates/);
+
+  // The landing page and how-it-works both cover it.
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  assert.match(landing, /SHARE2EARN pays 0\.5%/);
+  const how = readFileSync(new URL("../src/app/how-it-works/page.tsx", import.meta.url), "utf8");
+  assert.match(how, /Turn customers and creators into a distribution network/);
+  assert.match(how, /refused rather than flagged/);
+
+  // The growth page answers the questions a creator asks BEFORE applying.
+  const growth = readFileSync(new URL("../src/app/growth/page.tsx", import.meta.url), "utf8");
+  for (const claim of [/Withdraw wherever you are/, /Nothing is withheld for tax/, /Earned, not granted/, /3% of that fee/]) {
+    assert.match(growth, claim, "the growth page is missing a payout fact a creator needs before applying");
+  }
+  // And the public pages link into the article cluster rather than dead-ending.
+  for (const [src, name] of [[pricing, "pricing"], [growth, "growth"], [landing, "landing"]]) {
+    assert.match(src, /\/blog\/(creator-earning-programmes|creator-payout-economics|profitguard-growthguard-creator-programme)/, `${name} does not link into the cluster`);
+  }
+});
