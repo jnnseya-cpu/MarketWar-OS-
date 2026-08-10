@@ -50,15 +50,105 @@ export function programmeFor(input: { followers: number; verified: boolean; admi
   const gate = input.followers >= MIN_PAYOUT_FOLLOWERS && input.verified;
   return gate || input.adminOverride || input.provenConversions ? "main" : "acu_referral";
 }
-export const RATE_TOTAL = 0.01;        // 1% total
-export const RATE_CREATOR = 0.0075;    // 0.75% to the creator
+// ---------------------------------------------------------------------------
+// THE COMMISSION LADDER — the one place any payout rate is written down.
+//
+// Owner ruling: an influencer with 10,000+ followers earns 1%, one with
+// 5,000–9,999 earns 0.75%, and SHARE2EARN is capped at 0.40% and must NEVER pay
+// more than the influencer programme.
+//
+// That last clause is an INVARIANT, not a number, so it is enforced by
+// derivation rather than by discipline. `SHARE2EARN_RATE` is the MINIMUM of its
+// own cap and the lowest influencer rate — so if the influencer bands are ever
+// cut below 0.40%, share2earn follows them down automatically and cannot
+// overtake them. There is no rate to remember to update, which is the only kind
+// of rule that survives contact with a codebase.
+//
+// The rates also stopped being written in one place a long time ago: 0.75% was
+// typed into ten pieces of prose across the marketing pages, the apply form and
+// the outreach copy. Those now render from this table (see `ratePct`), because a
+// rate that lives in eleven places is a rate that will be wrong in ten of them.
+// ---------------------------------------------------------------------------
+
+/** The platform's cut, constant across every band. */
 export const RATE_PLATFORM = 0.0025;   // 0.25% to the platform
+
+/** Influencer bands, by verified follower count. */
+export const INFLUENCER_RATE_10K = 0.01;    // 1.00% — 10,000+ followers
+export const INFLUENCER_RATE_5K = 0.0075;   // 0.75% — 5,000–9,999 followers
+
+/** SHARE2EARN's ceiling. The effective rate is never above the lowest influencer band. */
+export const SHARE2EARN_RATE_CAP = 0.004;   // 0.40%
+export const SHARE2EARN_RATE = Math.min(SHARE2EARN_RATE_CAP, INFLUENCER_RATE_5K, INFLUENCER_RATE_10K);
+
+export type CommissionBandId = "influencer_10k" | "influencer_5k" | "share2earn";
+
+export type CommissionBand = {
+  id: CommissionBandId;
+  programme: "influencer" | "share2earn";
+  label: string;
+  /** Verified followers needed to sit in this band. */
+  minFollowers: number;
+  creatorRate: number;
+  platformRate: number;
+  /** What the promoted brand is charged — the creator's share plus ours. */
+  totalRate: number;
+  requires: string;
+};
+
+const band = (id: CommissionBandId, programme: CommissionBand["programme"], label: string, minFollowers: number, creatorRate: number, requires: string): CommissionBand => ({
+  id, programme, label, minFollowers, creatorRate,
+  platformRate: RATE_PLATFORM,
+  totalRate: Math.round((creatorRate + RATE_PLATFORM) * 1e6) / 1e6,
+  requires,
+});
+
+/** Highest-earning band first — `bandForFollowers` takes the first one that fits. */
+export const COMMISSION_BANDS: CommissionBand[] = [
+  band("influencer_10k", "influencer", "Influencer · 10,000+ followers", 10_000, INFLUENCER_RATE_10K,
+    "Applied to the creator programme and had 10,000+ combined followers verified."),
+  band("influencer_5k", "influencer", "Influencer · 5,000–9,999 followers", 5_000, INFLUENCER_RATE_5K,
+    "Applied to the creator programme and had 5,000+ combined followers verified."),
+  band("share2earn", "share2earn", "SHARE2EARN", 0, SHARE2EARN_RATE,
+    "Open to everyone. No follower count, no application, no audience test."),
+];
+
+export const bandById = (id: CommissionBandId): CommissionBand =>
+  COMMISSION_BANDS.find((b) => b.id === id) || COMMISSION_BANDS[COMMISSION_BANDS.length - 1];
+
+/**
+ * Which band someone is in.
+ *
+ * An influencer band requires BOTH the follower count and a verified creator
+ * application — an unverified count is a claim, not a qualification. Everyone
+ * else lands on SHARE2EARN, which is the point of it: it has no gate, so nobody
+ * is ever told they are too small to earn.
+ */
+export function bandForFollowers(input: { followers: number; verified: boolean; onCreatorProgramme?: boolean }): CommissionBand {
+  const eligible = input.verified && input.onCreatorProgramme !== false;
+  if (!eligible) return bandById("share2earn");
+  return COMMISSION_BANDS.find((b) => b.programme === "influencer" && input.followers >= b.minFollowers) || bandById("share2earn");
+}
+
+/** The invariant, as something a test can execute rather than a sentence to trust. */
+export function share2earnNeverPaysMore(): boolean {
+  const s2e = bandById("share2earn").creatorRate;
+  return COMMISSION_BANDS.filter((b) => b.programme === "influencer").every((b) => s2e <= b.creatorRate)
+    && s2e <= SHARE2EARN_RATE_CAP;
+}
+
+/** A rate as the prose should show it — one source, so the pages cannot drift. */
+export const ratePct = (rate: number): string => `${Math.round(rate * 10000) / 100}%`;
+
+export const RATE_TOTAL = 0.01;        // legacy alias — the 5k band's total
+export const RATE_CREATOR = INFLUENCER_RATE_5K;    // legacy alias — the 5k band's creator rate
 export const EARNINGS_CAP_GBP = 20_000; // the £20k cycle threshold
 
 export const COMMISSION_MODEL: string[] = [
   "Subscribe to as many programmes as you can — from 1 up to 100 — and get a unique tracked link + coupon code for each one.",
-  `You're paid only once you have at least ${MIN_PAYOUT_FOLLOWERS.toLocaleString()} followers totalled across all your social platforms and YouTube. Below that you can still promote and accrue — payout unlocks when you cross the threshold.`,
-  "Per referred user you earn 0.75% of their eligible net revenue; the platform takes 0.25% (1% total). The 1% is charged to the promoted brand as their acquisition cost — never to you or the customer. Attribution is transparent — you see exactly which code/link drove which conversion.",
+  `The influencer bands start at 5,000 followers totalled across all your social platforms and YouTube, and step up at ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}. Below 5,000 you are not excluded — SHARE2EARN pays you from your first click.`,
+  `Per referred user you earn ${ratePct(INFLUENCER_RATE_10K)} of their eligible net revenue with ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers, or ${ratePct(INFLUENCER_RATE_5K)} between 5,000 and 9,999. The platform takes ${ratePct(RATE_PLATFORM)} on top, charged to the promoted brand as their acquisition cost — never to you or the customer. Attribution is transparent — you see exactly which code/link drove which conversion.`,
+  `No followers yet? SHARE2EARN has no gate at all and pays ${ratePct(SHARE2EARN_RATE)} on a sale plus fixed amounts for clicks, leads and signups. It is capped at ${ratePct(SHARE2EARN_RATE_CAP)} and can never pay more than the influencer bands above.`,
   `Once a single referred user has earned you £${EARNINGS_CAP_GBP.toLocaleString()}, the split flips: the platform takes the full 1% for the next £${EARNINGS_CAP_GBP.toLocaleString()}, then commission on that user stops.`,
   "Paid on VERIFIED revenue only — no payment for empty reach. Every payout is fraud-scored, every endorsement carries AI-content disclosure, and we never clone a creator without consent.",
   "Payouts settle via BitriPay mobile money in Africa (M-Pesa / Orange / Airtel / Africell) and via Stripe everywhere else. Follower counts are verified by an AI agent reading your public profile, or by a human reviewer.",

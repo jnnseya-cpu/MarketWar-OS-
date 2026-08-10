@@ -13,7 +13,7 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
-import { COMMISSION_MODEL, computeCreatorSplit, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
+import { COMMISSION_MODEL, computeCreatorSplit, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K, SHARE2EARN_RATE } from "@/shared/creator-program";
 
 type Profile = { profile: string; why: string; whereToFind: string; suggestedTier: string; searchTerms: string[] };
 type Result = { mode: "live" | "scaffold"; business: string; angle: string; profiles: Profile[]; outreachOpener: string; note: string };
@@ -63,7 +63,7 @@ export default function InfluencersPage() {
       <PageHeader
         kicker="Influencer Recruitment · per brand"
         title="Recruit the creators who move your market"
-        subtitle="Every brand recruits its own creators — the AI agent tells you exactly who to bring in for your niche (trust travels within a niche, so we target educators, operators and reviewers, not vanity followers). Creators apply on your programme, get a code/link, and earn 0.75% per referred customer."
+        subtitle={`Every brand recruits its own creators — the AI agent tells you exactly who to bring in for your niche (trust travels within a niche, so we target educators, operators and reviewers, not vanity followers). Creators apply on your programme, get a code/link, and earn ${ratePct(INFLUENCER_RATE_10K)} per referred customer at ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers, ${ratePct(INFLUENCER_RATE_5K)} from 5,000, and ${ratePct(SHARE2EARN_RATE)} on SHARE2EARN with no follower gate at all.`}
         actions={<Pill tone="info">niche-first · AI-guided</Pill>}
       />
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import PartnerApplyForm from "@/components/PartnerApplyForm";
-import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, EARNING_TIERS } from "@/shared/creator-program";
+import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, EARNING_TIERS, COMMISSION_BANDS, ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K, SHARE2EARN_RATE, RATE_PLATFORM } from "@/shared/creator-program";
 
 export const metadata: Metadata = {
   title: "Growth & Influencers · MarketWar OS",
@@ -19,7 +19,7 @@ export default function GrowthPage() {
       <Prose>
         <div className="mb-8 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4">
           <p className="text-sm font-semibold text-emerald-200">Apply now. Get your tracked code. Start earning on verified sales.</p>
-          <p className="mt-1 text-[13px] text-slate-400">One profile, up to {MAX_PROGRAMMES} programmes, one wallet. You earn 0.75% of every referred customer&rsquo;s eligible net revenue — tracked to the line, paid on real outcomes, never vanity metrics. {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ combined followers unlocks recurring cash commission; under that you earn ACUs per referral and auto-upgrade the moment you cross the line.</p>
+          <p className="mt-1 text-[13px] text-slate-400">One profile, up to {MAX_PROGRAMMES} programmes, one wallet. {ratePct(INFLUENCER_RATE_10K)} of every referred customer&rsquo;s eligible net revenue at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers, {ratePct(INFLUENCER_RATE_5K)} between 5,000 and 9,999 — tracked to the line, paid on real outcomes, never vanity metrics. Below 5,000 you are not turned away: SHARE2EARN pays {ratePct(SHARE2EARN_RATE)} with no follower gate at all, and you still accrue ACUs per referral.</p>
         </div>
 
         <div className="mb-8 rounded-xl border border-white/10 bg-ink-900/50 p-4">
@@ -28,8 +28,8 @@ export default function GrowthPage() {
 
         <div className="not-prose mb-8 grid gap-3 sm:grid-cols-3">
           <div className="card p-5"><p className="font-display text-2xl font-bold text-white">1–{MAX_PROGRAMMES}</p><p className="mt-1 text-xs text-slate-400">programmes you can subscribe to — a unique code/link for each product you promote.</p></div>
-          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">{MIN_PAYOUT_FOLLOWERS.toLocaleString()}+</p><p className="mt-1 text-xs text-slate-400">followers across all your socials + YouTube to unlock payout — you can still promote + accrue below it. Your funds accumulate until you reach 10K, then pay out.</p></div>
-          <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">0.75%</p><p className="mt-1 text-xs text-slate-400">of each referred customer&rsquo;s eligible net revenue is yours (platform takes 0.25%). The 1% is charged to the promoted brand as their acquisition cost — never to you or the customer.</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-white">0</p><p className="mt-1 text-xs text-slate-400">followers needed to start earning. SHARE2EARN has no gate; the influencer bands open at 5,000 and step up at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}, verified across all your socials + YouTube.</p></div>
+          <div className="card p-5"><p className="font-display text-2xl font-bold text-emerald-300">{ratePct(INFLUENCER_RATE_10K)}</p><p className="mt-1 text-xs text-slate-400">of each referred customer&rsquo;s eligible net revenue is yours at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ followers, {ratePct(INFLUENCER_RATE_5K)} from 5,000, {ratePct(SHARE2EARN_RATE)} on SHARE2EARN with no gate. The platform takes {ratePct(RATE_PLATFORM)} on top, charged to the promoted brand as their acquisition cost — never to you or the customer.</p></div>
         </div>
 
         <H2>Four ways to earn</H2>

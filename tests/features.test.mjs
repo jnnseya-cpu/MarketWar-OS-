@@ -11366,3 +11366,202 @@ test("pricing: a synthetic-presenter minute clears the owner's margin floor", as
   assert.equal(ag.billableMinutes("word ".repeat(151).trim()), 2, "over a minute must bill as two");
   assert.equal(ag.billableMinutes("word ".repeat(450).trim()), 3);
 });
+
+// ---------------------------------------------------------------------------
+// SHARE2EARN™ and the commission ladder.
+//
+// This is a payout system pointed at the public. Every other module can be
+// wrong and cost an ACU; this one can be wrong and cost real money to people
+// who will organise and share exactly how they gamed it. So the tests care
+// about the refusals as much as the arithmetic.
+// ---------------------------------------------------------------------------
+const cp = await import("../src/shared/creator-program.ts");
+const s2e = await import("../src/backend/share2earn.ts");
+
+test("ladder: SHARE2EARN can never pay more than the influencer programme", () => {
+  // The owner's rule: 10k+ earns 1%, 5k-9,999 earns 0.75%, share2earn is
+  // capped at 0.40% and must never pay more than the influencer programme.
+  assert.equal(cp.INFLUENCER_RATE_10K, 0.01);
+  assert.equal(cp.INFLUENCER_RATE_5K, 0.0075);
+  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.004);
+  assert.equal(cp.SHARE2EARN_RATE, 0.004);
+  assert.equal(cp.share2earnNeverPaysMore(), true);
+
+  // Enforced by DERIVATION, not by discipline: the rate is the minimum of its
+  // own cap and every influencer band, so cutting an influencer band below the
+  // cap drags share2earn down with it rather than letting it overtake.
+  const lowestInfluencer = Math.min(...cp.COMMISSION_BANDS.filter((b) => b.programme === "influencer").map((b) => b.creatorRate));
+  assert.ok(cp.SHARE2EARN_RATE <= lowestInfluencer, "share2earn pays more than an influencer band");
+  assert.ok(cp.SHARE2EARN_RATE <= cp.SHARE2EARN_RATE_CAP, "share2earn is above its own cap");
+  assert.equal(cp.SHARE2EARN_RATE, Math.min(cp.SHARE2EARN_RATE_CAP, cp.INFLUENCER_RATE_5K, cp.INFLUENCER_RATE_10K));
+
+  // The platform's cut is constant, so the brand's total is the creator's rate
+  // plus ours — stated once rather than typed into each band.
+  for (const b of cp.COMMISSION_BANDS) {
+    assert.equal(b.platformRate, cp.RATE_PLATFORM);
+    assert.ok(Math.abs(b.totalRate - (b.creatorRate + b.platformRate)) < 1e-9, `${b.id} total does not equal creator + platform`);
+  }
+});
+
+test("ladder: the band follows verified followers, and an unverified count is a claim", () => {
+  const band = (followers, verified = true) => cp.bandForFollowers({ followers, verified }).id;
+  assert.equal(band(10_000), "influencer_10k");
+  assert.equal(band(9_999), "influencer_5k");
+  assert.equal(band(5_000), "influencer_5k");
+  assert.equal(band(4_999), "share2earn");
+  assert.equal(band(0), "share2earn", "nobody is ever told they are too small to earn");
+  // An unverified follower count buys nothing — otherwise the gate is a text box.
+  assert.equal(band(500_000, false), "share2earn");
+});
+
+test("ladder: no rate is typed into prose — the pages render from the table", () => {
+  // 0.75% was written into ten separate strings across the marketing pages, the
+  // apply form and the outreach copy. A rate that lives in eleven places is a
+  // rate that will be wrong in ten of them.
+  for (const f of [
+    "../src/app/growth/page.tsx",
+    "../src/components/PartnerApplyForm.tsx",
+    "../src/app/dashboard/influencers/page.tsx",
+    "../src/app/dashboard/partner-network/page.tsx",
+    "../src/backend/creator-recruitment.ts",
+    "../src/app/api/creator-engine/route.ts",
+    "../src/app/api/growth/apply/route.ts",
+  ]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    const prose = src.replace(/^\/\/.*$/gm, "");
+    assert.ok(!/0\.75%|\b1%\s*total\b/.test(prose), `${f} still has a commission rate typed into its text`);
+    assert.match(src, /ratePct|COMMISSION_BANDS|bandForFollowers/, `${f} does not render the rate from the ladder`);
+  }
+});
+
+test("share2earn: only what the platform counts itself is payable", () => {
+  const byId = Object.fromEntries(s2e.EARN_ACTIONS.map((a) => [a.id, a]));
+  // Views on an account we are not connected to cannot be measured, and a
+  // screenshot is not a measurement. Paying for them is how every
+  // share-to-earn scheme gets farmed to death.
+  assert.equal(byId.qualified_engagement.payableNow, false);
+  assert.ok(byId.qualified_engagement.blockedReason.length > 0, "a refusal with no reason is just a locked door");
+  // What IS ours to count.
+  for (const id of ["traffic", "lead", "signup", "sale", "content_published"]) {
+    assert.equal(byId[id].payableNow, true, `${id} should be payable`);
+    assert.ok(byId[id].measuredBy.length > 20, `${id} does not say how it is measured`);
+  }
+  // Every payable action has a daily cap — the cheapest brake on farming.
+  for (const a of s2e.payableActions()) assert.ok(a.dailyUnitCap > 0, `${a.id} has no daily cap`);
+});
+
+test("share2earn: an unfunded bounty never publishes", async () => {
+  s2e.__resetShare2Earn();
+  const now = "2026-08-09T12:00:00.000Z";
+  const rewards = [
+    { actionId: "traffic", units: 100, label: "100 clicks" },
+    { actionId: "sale", units: 2, pencePerUnit: 500, bonusPence: 1000, label: "2 sales + bonus" },
+  ];
+  const worst = s2e.worstCasePence(rewards, 20);
+  assert.equal(worst, 46_000, "the worst case is arithmetic, not an estimate");
+
+  const draft = { brandId: "b1", kind: "viral_challenge", title: "48H Drop", brief: "", rewards, expectedCreators: 20, opensAt: now, closesAt: "2026-08-11T12:00:00.000Z", nowISO: now };
+  const under = await s2e.createMission({ ...draft, budgetPence: 5_000 });
+  assert.equal(under.ok, false, "a mission that can owe £460 published on a £50 budget");
+  assert.match(under.error, /460/);
+
+  const funded = await s2e.createMission({ ...draft, budgetPence: worst });
+  assert.equal(funded.ok, true);
+  assert.equal(funded.mission.reservedPence, worst, "the worst case must be reserved, not the optimistic case");
+  assert.ok(funded.mission.disclosure.length > 0, "paid promotion must carry its disclosure");
+});
+
+test("share2earn: a mission cannot offer to pay for something we cannot count", async () => {
+  s2e.__resetShare2Earn();
+  const now = "2026-08-09T12:00:00.000Z";
+  const res = await s2e.createMission({
+    brandId: "b1", kind: "viral_challenge", title: "1,000 views", brief: "",
+    rewards: [{ actionId: "qualified_engagement", units: 1000, label: "1,000 qualified views" }],
+    budgetPence: 1_000_000, expectedCreators: 1, opensAt: now, closesAt: "2026-08-11T12:00:00.000Z", nowISO: now,
+  });
+  assert.equal(res.ok, false, "a pay-per-view mission published");
+  assert.match(res.error, /cannot be paid yet/i);
+  assert.match(res.hint, /traffic|Traffic|clicks|Sale/i, "the refusal must name what CAN be paid");
+});
+
+test("share2earn: the Creator Score measures results, not reach", () => {
+  // The whole point: 800 followers converting at 12% must beat 80,000
+  // converting at nothing. That only works if it is counted.
+  const small = s2e.creatorScore({ clicks: 200, conversions: 24, leads: 0, missionsAccepted: 6, missionsCompleted: 6, postsSubmitted: 6, postsStillLive: 6 });
+  const big = s2e.creatorScore({ clicks: 4000, conversions: 8, leads: 0, missionsAccepted: 10, missionsCompleted: 4, postsSubmitted: 10, postsStillLive: 6 });
+  assert.ok(small.score > big.score, `the converting creator scored ${small.score}, the big one ${big.score}`);
+  // Followers are not an input at all — there is nowhere to pass them.
+  assert.ok(!JSON.stringify(small.components).toLowerCase().includes("follower"));
+  // Every component carries its own count.
+  for (const c of small.components) assert.match(c.value, /\d/, `${c.label} has no number behind it`);
+
+  // And below a real volume it refuses rather than scoring luck.
+  const thin = s2e.creatorScore({ clicks: 5, conversions: 1, leads: 0, missionsAccepted: 1, missionsCompleted: 1, postsSubmitted: 1, postsStillLive: 1 });
+  assert.equal(thin.score, null);
+  assert.match(thin.note, new RegExp(String(s2e.MIN_ACTIONS_TO_SCORE)));
+});
+
+test("share2earn: no earnings forecast for someone with no history", () => {
+  // "Potentiel estimé : £18–£42" for a creator with no record is a forecast
+  // presented as a fact, and the fastest way to make the product feel like a
+  // scam when it does not happen.
+  const mission = { rewards: [{ actionId: "sale", units: 2, pencePerUnit: 500, bonusPence: 1000, label: "" }] };
+  const blind = s2e.earningOutlook(mission, null);
+  assert.equal(blind.estimatePence, null, "an estimate was produced with no history to compute it from");
+  assert.match(blind.line, /Up to £/, "the mission's real maximum is still shown — that one is a fact");
+
+  const thin = s2e.earningOutlook(mission, { clicks: 100, conversions: 5, missionsCompleted: 1 });
+  assert.equal(thin.estimatePence, null, "one finished mission is not a history");
+
+  const known = s2e.earningOutlook(mission, { clicks: 300, conversions: 21, missionsCompleted: 6 });
+  assert.ok(known.estimatePence > 0);
+  assert.match(known.basis, /your own 300 clicks and 21 conversions/, "an estimate must show what it was computed from");
+});
+
+test("share2earn: the wallet holds money before it is withdrawable", () => {
+  const now = "2026-08-09T12:00:00.000Z";
+  const e = (id, pence, state, at) => ({ id, brandId: "b1", creatorId: "c1", missionId: "m1", actionId: "traffic", units: 1, pence, state, at });
+  const w = s2e.walletFrom([
+    e("e1", 150, "approved", "2026-07-01T00:00:00.000Z"),   // past the hold
+    e("e2", 400, "approved", "2026-08-08T00:00:00.000Z"),   // yesterday — still held
+    e("e3", 60, "rejected", "2026-08-01T00:00:00.000Z"),
+    e("e4", 90, "tracked", "2026-08-08T00:00:00.000Z"),
+  ], now);
+  assert.equal(w.availablePence, 150, "money earned yesterday must not be withdrawable today");
+  assert.equal(w.pendingPence, 490);
+  assert.equal(w.rejectedPence, 60);
+  assert.ok(!Number.isNaN(w.lifetimePence));
+  assert.ok(s2e.HOLD_DAYS >= 7, "a hold shorter than a week does not survive a chargeback");
+});
+
+test("share2earn: fraud is a list of things that happened, not a score", () => {
+  const clean = s2e.trustSignals({ creatorId: "c1", clicks: 200, distinctVisitors: 190, selfPurchases: 0, conversions: 12, sharedDeviceAccounts: 0, postsSubmitted: 5, postsStillLive: 5, accountAgeDays: 60 });
+  assert.equal(clean.verdict, "clear");
+
+  // Buying through your own link is not a referral.
+  const self = s2e.trustSignals({ creatorId: "c1", clicks: 200, distinctVisitors: 190, selfPurchases: 1, conversions: 12, sharedDeviceAccounts: 0, postsSubmitted: 5, postsStillLive: 5, accountAgeDays: 60 });
+  assert.equal(self.verdict, "blocked");
+
+  // Refreshing your own link is not traffic.
+  const refresh = s2e.trustSignals({ creatorId: "c1", clicks: 100, distinctVisitors: 12, selfPurchases: 0, conversions: 0, sharedDeviceAccounts: 0, postsSubmitted: 2, postsStillLive: 2, accountAgeDays: 60 });
+  assert.equal(refresh.verdict, "blocked");
+
+  // A shared household is checked by a person, not auto-rejected.
+  const shared = s2e.trustSignals({ creatorId: "c1", clicks: 200, distinctVisitors: 190, selfPurchases: 0, conversions: 12, sharedDeviceAccounts: 4, postsSubmitted: 5, postsStillLive: 5, accountAgeDays: 60 });
+  assert.equal(shared.verdict, "review");
+
+  // Every signal says what it means, so a stopped payout can be argued with.
+  for (const s of clean.signals) assert.ok(s.what.length > 20, `${s.id} has no explanation`);
+});
+
+test("share2earn: a squad total is the sum of real member earnings", () => {
+  const now = "2026-08-09T12:00:00.000Z";
+  const e = (id, cid, pence) => ({ id, brandId: "b1", creatorId: cid, missionId: "m1", actionId: "sale", units: 1, pence, state: "approved", at: "2026-07-01T00:00:00.000Z" });
+  const t = s2e.squadTotals([
+    { creatorId: "a", earnings: [e("1", "a", 500), e("2", "a", 300)] },
+    { creatorId: "b", earnings: [e("3", "b", 1200)] },
+  ], now);
+  assert.equal(t.lifetimePence, 2000, "a squad total must equal what its members actually earned");
+  assert.equal(t.members[0].creatorId, "b", "ranked by real earnings");
+  assert.match(t.note, /does not create money/i);
+});

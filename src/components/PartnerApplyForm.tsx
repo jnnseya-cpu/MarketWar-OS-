@@ -5,12 +5,12 @@
 // application. Honest: on success it confirms the application was received.
 //
 // New commission model: subscribe to 1–100 programmes, get a code/link per
-// programme, paid 0.75% per referred user (platform 0.25%) — but payout only
+// programme, paid at the band their verified follower count puts them in — but payout only
 // unlocks at 10k+ total followers across all socials + YouTube.
 
 import { useState } from "react";
 import { Loader2, CheckCircle2, Send, Plus, X } from "lucide-react";
-import { MIN_PAYOUT_FOLLOWERS, MIN_PROGRAMMES, MAX_PROGRAMMES, SUB10K_ACU_PER_REFERRAL } from "@/shared/creator-program";
+import { MIN_PAYOUT_FOLLOWERS, MIN_PROGRAMMES, MAX_PROGRAMMES, SUB10K_ACU_PER_REFERRAL, ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K, SHARE2EARN_RATE, bandForFollowers } from "@/shared/creator-program";
 
 type SocialRow = { platform: string; handle: string; followers: number };
 const PLATFORMS = ["YouTube", "TikTok", "Instagram", "Facebook", "LinkedIn", "X", "Newsletter", "Podcast", "Other"];
@@ -81,7 +81,7 @@ export default function PartnerApplyForm() {
   return (
     <form onSubmit={submit} className="rounded-xl border border-white/10 bg-ink-900/60 p-6">
       <h3 className="font-display text-base font-bold text-white">Apply to the creator programme</h3>
-      <p className="mt-1 mb-4 text-[13px] text-slate-400">Real application — we store it, score it and match you to brands. {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ combined followers earns cash commission (0.75%); under that you earn {SUB10K_ACU_PER_REFERRAL} ACUs per referral and auto-upgrade at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}.</p>
+      <p className="mt-1 mb-4 text-[13px] text-slate-400">Real application — we store it, score it and match you to brands. {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers earns {ratePct(INFLUENCER_RATE_10K)}, 5,000&ndash;9,999 earns {ratePct(INFLUENCER_RATE_5K)}. Under 5,000 nobody is turned away &mdash; SHARE2EARN pays {ratePct(SHARE2EARN_RATE)} with no gate, and you still earn {SUB10K_ACU_PER_REFERRAL} ACUs per referral.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-slate-400">How do you want to earn?</span>
@@ -110,8 +110,8 @@ export default function PartnerApplyForm() {
           <button type="button" onClick={addRow} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 hover:text-emerald-200"><Plus className="h-3.5 w-3.5" /> Add another platform</button>
           <div className={`mt-2 rounded-lg border p-2.5 text-[12px] ${followers >= MIN_PAYOUT_FOLLOWERS ? "border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-200" : "border-sky-500/25 bg-sky-500/[0.06] text-sky-200"}`}>
             <span className="font-bold">{followers.toLocaleString()}</span> combined followers — {followers >= MIN_PAYOUT_FOLLOWERS
-              ? "you qualify for the MAIN programme: recurring cash commission (0.75%) on verified sales, paid out."
-              : `you can promote and accrue now: your commission accumulates until you reach ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}, then pays out — and you also earn ${SUB10K_ACU_PER_REFERRAL} ACUs per referral to create a brand + advertise. You auto-upgrade the moment you cross ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}.`}
+              ? `you qualify for the ${bandForFollowers({ followers, verified: true }).label} band: ${ratePct(bandForFollowers({ followers, verified: true }).creatorRate)} recurring cash commission on verified sales, paid out.`
+              : `you can earn today on SHARE2EARN at ${ratePct(SHARE2EARN_RATE)} with no follower gate, plus ${SUB10K_ACU_PER_REFERRAL} ACUs per referral. You move to the ${ratePct(INFLUENCER_RATE_5K)} influencer band the moment 5,000 verified followers are confirmed, and ${ratePct(INFLUENCER_RATE_10K)} at ${MIN_PAYOUT_FOLLOWERS.toLocaleString()}.`}
           </div>
         </div>
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-400">Your name</span><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Full name" /></label>

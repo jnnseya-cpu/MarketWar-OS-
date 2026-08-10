@@ -3078,3 +3078,134 @@ count is rendered from `PHASES.length`. The other pinned the avatar refund to
 
 **The Money Ledger has zero entries.** The path into it is now correct and
 reachable, and the §69 stopping rule's condition is not met.
+
+---
+
+## §74 — The commission ladder, and SHARE2EARN™ (2026-08-09)
+
+**Owner ruling:** an influencer with 10,000+ followers earns **1%**, one with
+5,000–9,999 earns **0.75%**, and SHARE2EARN is capped at **0.40%** and *must
+never pay more than the influencer programme*.
+
+Asked to decide two open points, the owner expressed no preference, so they were
+ruled and are recorded here as the assistant's calls, reversible in one line
+each:
+
+1. **The platform's 0.25% is constant across every band.** The promoted brand
+   therefore pays 1.25% at the 10k band, 1% at the 5k band and 0.65% on
+   SHARE2EARN. This preserves platform revenue and is the smallest change to a
+   model that already worked.
+2. **SHARE2EARN is the answer for under-5,000 followers.** It has no gate at all,
+   which is exactly the product's own promise. The ACU-per-referral programme is
+   *kept* alongside it — nothing was removed.
+
+### The invariant is enforced by derivation, not by discipline
+
+"Must never pay more" is a rule, and a rule maintained by remembering to check it
+is a rule that will be broken. So `SHARE2EARN_RATE` is the **minimum** of its own
+cap and every influencer band:
+
+```ts
+export const SHARE2EARN_RATE = Math.min(SHARE2EARN_RATE_CAP, INFLUENCER_RATE_5K, INFLUENCER_RATE_10K);
+```
+
+Cut an influencer band below 0.40% and SHARE2EARN follows it down automatically
+rather than overtaking it. There is no second number to remember to update. A
+mutation that hardcodes the rate to its cap while dropping an influencer band
+below it fails the test.
+
+### The rate had already drifted into eleven places
+
+`0.75%` was typed into the growth page, the apply form, the influencers page, the
+partner-network page, the recruitment outreach copy and two API responses — six
+surfaces plus the constant itself. **A rate that lives in eleven places is a rate
+that will be wrong in ten of them**, and it was already the case that the
+constant and the prose could disagree without anything noticing. Every one of
+them now renders from `COMMISSION_BANDS` via `ratePct()`, and a test asserts no
+commission rate appears as literal text in any of those files.
+
+### SHARE2EARN™ — what was built
+
+`src/backend/share2earn.ts`, `/api/share2earn`, `Share2Earn.tsx`, mounted on
+`/dashboard/partner-network` directly beneath the ladder that bounds it.
+
+This is the first module in the platform that is **a payout system pointed at the
+public**. Every other module can be wrong and cost an ACU; this one can be wrong
+and cost real money to people who will organise, screenshot and share exactly how
+they gamed it. Three rules follow, and they are why it is built the way it is
+rather than the way the mockup looks:
+
+**1. We only pay for what we count ourselves.** Of the seven earning actions in
+the specification, six are payable today — clicks on our own tracked link, leads,
+signups and sales in the brand's own results ledger, a post that still resolves
+48 hours later, and a funded mission bounty. **"Qualified engagement" is not.** We
+cannot see views on an account we are not connected to, a screenshot is not a
+measurement, and paying per view is how every share-to-earn scheme in history got
+farmed to death within a month. It is marked `payableNow: false` with the reason
+attached, a mission that tries to reward it is **refused at creation**, and it
+unlocks when the creator connects the account. Every payable action carries a
+daily unit cap.
+
+**2. A bounty that is not funded is not offered.** "Top 10 creators → £100 pool"
+is a debt the moment it is displayed. `worstCasePence()` computes what the
+mission owes if every expected creator hits every target, and a mission whose
+budget is below that **does not publish** — it returns the two numbers and says
+so. Creators will have done the work by the time the money runs out, and "the
+pool was decorative" is the one thing this system cannot survive.
+
+**3. Every number shown to a creator is counted or labelled.** The mockup's
+"Match avec ton audience : 94%" and "Potentiel estimé : £18–£42" are both
+fabrications for somebody with no history. `earningOutlook()` returns the
+mission's **real maximum** always — that is a fact — and an estimate *only* once
+the creator has finished three missions, computed from their own clicks and
+conversions with the arithmetic shown. Below that it says plainly that it will
+not guess.
+
+**Creator Score™** delivers the actual differentiator. Followers are not an input
+— there is nowhere to pass them. It counts conversion rate (450 of 1000),
+missions finished (250), content kept up (200) and volume (100). An 800-follower
+creator converting at 12% scores **945**; an 80,000-follower creator converting at
+0.2% scores **329**. Below 25 counted actions it returns `null` and says a score
+would be measuring luck.
+
+**Creator Trust AI™** is a list of things that happened, not a score: self-purchase
+(blocks), click duplication above 70% (blocks), shared device (human review —
+households and campuses are real), deleted content, an account under three days
+old, and an implausible conversion rate. Each signal states what it means, so a
+stopped payout can be argued with as a fact.
+
+**The wallet** moves money through `tracked → verified → approved → paid`, with a
+**14-day hold** before an approved earning is withdrawable. Paying at "tracked" is
+how these systems get drained. **Squad totals** are the sum of what members
+actually earned — joining a squad creates no money, and a squad bonus is a funded
+mission reward like any other.
+
+### Built from the specification, and what was not
+
+Built: the earning engine and its seven actions, missions with all ten kinds and
+funded bounties, the wallet and its states, Creator Score, Trust AI, squads, and
+the mission builder with a cost quote before publishing.
+
+**Not built, deliberately:** the AI Creator Copilot's content generation and
+"Make it mine" (the existing `content-engine`, `copywriter` and `ad-styles`
+already generate this — wiring them to a mission is a connection, not a new
+engine); Opportunity Radar's matching (buildable, but its headline number is a
+match percentage, and it must be computed from real conversion history rather
+than shipped as a hash); the Brand War Room's ROAS panel (the numbers exist in
+`roi-engine` and the results ledger — needs assembling, not inventing); Creator
+Career; and withdrawals, which need a payout rail (BitriPay / Stripe Connect),
+KYC and a tax position before a single pound leaves the platform. The last one is
+the real gate on going live and it is not a code problem.
+
+The brand names in the specification's mockups (NIKE) are illustrations only — the
+UI renders the customer's own brands, because putting a real company's name on a
+mission card the platform generated would be impersonation.
+
+### Verification
+
+Tests **996 → 1007**. Typecheck, layer check and build green. Six mutation checks
+run and all six caught: share2earn hardcoded to its cap while an influencer band
+drops below it; the mission funding check removed; pay-per-view switched on; the
+score computed over any volume; one finished mission treated as a history; and
+the payout hold removed. Engine registry 47 → 48, with `COMPETITIVE-POSITION.md`
+recounted.

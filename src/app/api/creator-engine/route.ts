@@ -9,7 +9,7 @@ import {
   type CreatorAccount, type PayoutRegion,
 } from "@/backend/creator-engine";
 import { scoutScore, matchProgrammes, generateBrief, verifyFollowersBatch } from "@/backend/creator-agents";
-import { EARNING_TIERS, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES } from "@/shared/creator-program";
+import { EARNING_TIERS, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, COMMISSION_BANDS, ratePct } from "@/shared/creator-program";
 
 // Creator & Partner Monetisation Engine API — the whole loop.
 // GET → catalogue + tiers + constants.
@@ -172,7 +172,7 @@ export async function GET() {
     engine: "MarketWar Creator & Partner Monetisation Engine (Activation Playbook v1.0)",
     tiers: EARNING_TIERS,
     catalogue: await listProgrammes(),
-    constants: { MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, split: "0.75% creator / 0.25% platform (1% total)", cycle: "£20,000 cap-and-recycle, per creator (all programmes combined)" },
+    constants: { MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, bands: COMMISSION_BANDS.map((b) => `${b.label}: ${ratePct(b.creatorRate)} creator + ${ratePct(b.platformRate)} platform = ${ratePct(b.totalRate)} charged to the brand`), cycle: "£20,000 cap-and-recycle, per creator (all programmes combined)" },
     agents: ["Scout (applicant scoring)", "Match (programme matching)", "Brief (campaign brief)", "Attribution (split + cycle + fraud)", "Payout (10K gate + BitriPay release)"],
   });
 }

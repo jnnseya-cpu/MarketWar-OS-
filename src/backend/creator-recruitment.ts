@@ -3,6 +3,8 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import { ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K } from "@/shared/creator-program";
+
 // Per-brand Creator Recruitment Advisor — the AI agent that tells EACH brand who
 // to recruit. The portfolio targeting used to live on the public page; it now
 // lives inside each brand, generated for that brand's own niche by the AI agent
@@ -81,7 +83,7 @@ export async function recommendCreators(input: RecruitInput): Promise<RecruitRes
       { profile: `Local ${loc} creators`, why: "Local trust + intent convert fastest.", whereToFind: `Search "${loc}" + your category on Instagram/TikTok`, suggestedTier: "local_viral", searchTerms: [`${niche} ${loc}`, `${loc} review`] },
       { profile: `${niche} reviewers`, why: "Reviewers reach high-intent, comparison-stage buyers.", whereToFind: "YouTube review + comparison channels in your category", suggestedTier: "authority", searchTerms: [`${niche} review`, `${niche} vs`, `is ${niche} worth it`] },
     ],
-    outreachOpener: `Hi — I run ${business}. Your ${niche} content reaches exactly the people we help. We pay 0.75% per referred customer on verified revenue, with your own tracked code. Open to a quick chat?`,
+    outreachOpener: `Hi — I run ${business}. Your ${niche} content reaches exactly the people we help. We pay ${ratePct(INFLUENCER_RATE_10K)} per referred customer on verified revenue at 10,000+ followers (${ratePct(INFLUENCER_RATE_5K)} from 5,000), with your own tracked code. Open to a quick chat?`,
     note: "Structural scaffold generated from your inputs (no AI provider connected). Connect an AI provider for a full, niche-specific recruitment plan. No invented creators or numbers.",
   };
 }

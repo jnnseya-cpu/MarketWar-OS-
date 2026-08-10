@@ -12,7 +12,8 @@ import { Loader2, Plus, Users, LinkIcon, Wallet, Radar, ShieldCheck, Copy } from
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
-import { EARNING_TIERS } from "@/shared/creator-program";
+import { EARNING_TIERS, COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
+import Share2Earn from "@/components/Share2Earn";
 
 type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string };
 type Wallet = { payoutEligible: boolean; followers: number; cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number; lifetimeCreatorGbp: number; lifetimePlatformGbp: number; payableGbp: number; pendingGbp: number; gateNote: string; perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[] };
@@ -88,9 +89,14 @@ export default function PartnerNetworkPage() {
       <PageHeader
         kicker="Growth Partner Network · Brand Programme Dashboard"
         title="Turn creators, affiliates and promoters into a measurable acquisition channel"
-        subtitle="Create programmes for a whole brand, a product, both or anything — run multiple campaigns. Admit partners (admin can waive the 10K gate), issue a tracked code + link per programme, record verified conversions, and see the per-customer £20K split, wallet and payout. The 1% (0.75% partner + 0.25% platform) is charged to the promoted brand as its acquisition cost. Every figure is computed; nothing is faked."
-        actions={<Pill tone="info">0.75% partner · 0.25% platform · £20K cap</Pill>}
+        subtitle={`Create programmes for a whole brand, a product, both or anything — run multiple campaigns. Admit partners (admin can waive the follower gate), issue a tracked code + link per programme, record verified conversions, and see the per-customer £20K split, wallet and payout. ${COMMISSION_BANDS.map((b) => `${b.label} — ${ratePct(b.creatorRate)} partner + ${ratePct(b.platformRate)} platform`).join("; ")}. The total is charged to the promoted brand as its acquisition cost. Every figure is computed; nothing is faked.`}
+        actions={<Pill tone="info">{COMMISSION_BANDS.map((b) => ratePct(b.creatorRate)).join(" / ")} partner · {ratePct(RATE_PLATFORM)} platform · £20K cap</Pill>}
       />
+
+      {/* SHARE2EARN sits directly under the ladder it is bounded by, so nobody
+          has to go to another page to see that it pays less than the influencer
+          bands and why. */}
+      <Share2Earn />
 
       {!activeBrand && <div className="card border-emerald-500/20 p-10 text-center"><Users className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" /><h2 className="font-display text-lg font-bold text-white">Add a brand to run a partner programme</h2></div>}
 
