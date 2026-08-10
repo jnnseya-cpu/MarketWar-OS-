@@ -24,6 +24,7 @@ export const FOOTER_NAV: { title: string; links: [string, string][] }[] = [
       ["Developers", "/developers"],
       ["Get started", "/get-started"],
       ["Growth & Influencers", "/growth"],
+      ["Join SHARE2EARN", "/share2earn"],
     ],
   },
   {

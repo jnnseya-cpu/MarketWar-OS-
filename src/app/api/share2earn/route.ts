@@ -29,6 +29,14 @@ import {
   brandLiability, approvalQueue, disputeEarning, releaseEarly, withhold,
   saveDispute, listDisputes, DISPUTE_REASONS, DISPUTE_WINDOW_DAYS, APPROVALS_DOCTRINE,
 } from "@/backend/payout-approvals";
+import {
+  PROMOTION_MODES, PROMOTION_DOCTRINE, catalogue, openCatalogue, setPolicy, saveProduct,
+  getProduct, getPolicy, claimProduct, promotionDecision, discoverable,
+} from "@/backend/promotable";
+import { joinShare2Earn, JOIN_DOCTRINE, bandFor } from "@/backend/share2earn-signup";
+import { getCreator, getCreatorByToken, listSubscriptions } from "@/backend/creator-engine";
+import { SIGNUP_DOORS, UPGRADE_PATH } from "@/shared/creator-program";
+import { getBrandById } from "@/backend/brand-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -60,6 +68,35 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const brandId = (url.searchParams.get("brandId") || "").trim();
   const creatorId = (url.searchParams.get("creatorId") || "").trim();
+  const promotable = (url.searchParams.get("promotable") || "").trim();
+
+  // Cross-brand discovery: everything claimable anywhere, in the public shape.
+  // A catalogue nobody can find is a catalogue nobody claims from.
+  if (url.searchParams.get("discover")) {
+    const brands = await discoverable();
+    return NextResponse.json({
+      brands,
+      claimable: brands.reduce((n, b) => n + b.products.length, 0),
+      doors: SIGNUP_DOORS,
+      doctrine: PROMOTION_DOCTRINE,
+    });
+  }
+
+  // What a creator may browse: only the products this brand has opened AND the
+  // margin can fund, and never the brand's costs. Public on purpose — a
+  // catalogue a creator has to sign in to browse is a catalogue nobody browses.
+  if (promotable) {
+    const nowISO = new Date().toISOString();
+    const policy = await getPolicy(promotable, nowISO);
+    return NextResponse.json({
+      mode: policy.mode,
+      products: await openCatalogue(promotable, nowISO),
+      doctrine: PROMOTION_DOCTRINE,
+      note: policy.mode === "mission_only"
+        ? "This brand promotes by mission only — there is no self-serve catalogue here. Its missions carry the reward and the funded budget."
+        : "Everything listed is claimable right now. Claim one and you get a tracked link to the brand's own page.",
+    });
+  }
 
   if (!brandId && !creatorId) {
     return NextResponse.json({
@@ -88,6 +125,8 @@ export async function GET(req: NextRequest) {
         executeDoctrine: EXECUTE_DOCTRINE,
       },
       approvals: { reasons: DISPUTE_REASONS, windowDays: DISPUTE_WINDOW_DAYS, doctrine: APPROVALS_DOCTRINE },
+      signup: { doors: SIGNUP_DOORS, upgradePath: UPGRADE_PATH, doctrine: JOIN_DOCTRINE },
+      promotion: { modes: PROMOTION_MODES, doctrine: PROMOTION_DOCTRINE },
       disclosure: DISCLOSURE,
       ladder: ladderIsSane(),
     });
@@ -131,6 +170,19 @@ export async function POST(req: NextRequest) {
   const num = (k: string) => (typeof body[k] === "number" && Number.isFinite(body[k] as number) ? (body[k] as number) : 0);
   const action = str("action") || "mission";
   const nowISO = new Date().toISOString();
+
+  // ---------------------------------------------------------------------------
+  // JOIN — the public door. No auth, because requiring an account to get an
+  // account is the gate SHARE2EARN says it does not have. Tighter rate limit
+  // than the rest of the route: it writes an account and it is unauthenticated.
+  // ---------------------------------------------------------------------------
+  if (action === "join") {
+    const jl = rateLimit(clientKey(req, "share2earn-join"), 10, 60_000, Date.now());
+    if (!jl.ok) return NextResponse.json({ error: "Too many attempts — try again shortly." }, { status: 429, headers: { "Retry-After": String(jl.retryAfterSec) } });
+    const res = await joinShare2Earn({ name: str("name"), email: str("email"), nowISO });
+    if (!res.ok) return NextResponse.json({ error: res.error, field: res.field }, { status: 400 });
+    return NextResponse.json({ ...res, doors: SIGNUP_DOORS, upgradePath: UPGRADE_PATH, disclosure: DISCLOSURE });
+  }
 
   if (action === "trust") {
     const auth = await requireAuth(req);
@@ -209,6 +261,55 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(out, { status: out.ok ? 200 : 400 });
   }
 
+  // ---------------------------------------------------------------------------
+  // CLAIM — a creator takes a tracked link for a product they chose themselves.
+  //
+  // The creator is the session, never the body: a claim mints a code that money
+  // gets attributed to, so letting the browser name the earner would let anyone
+  // put their promotion in somebody else's name. The decision is recomputed
+  // server-side from the product and the brand's current policy — what the
+  // browser saw is not evidence of what is allowed now.
+  // ---------------------------------------------------------------------------
+  if (action === "claim" || action === "my-links") {
+    // Two ways to prove who you are, ONE thing they prove. A platform session
+    // (the dashboard) or the partner's own access token (the link they were
+    // issued, which is a bearer credential to exactly this account). Whichever
+    // it is, the creator id comes from the credential and never from the body.
+    let me = "";
+    const token = str("token");
+    if (token) {
+      const holder = await getCreatorByToken(token);
+      if (!holder) return NextResponse.json({ error: "That partner link is not valid." }, { status: 401 });
+      me = holder.id;
+    } else {
+      const auth = await requireAuth(req);
+      if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+      me = auth.uid || str("creatorId");
+    }
+    if (!me) return NextResponse.json({ error: "No creator identity on this session." }, { status: 401 });
+
+    if (action === "my-links") {
+      const account = await getCreator(me);
+      return NextResponse.json({
+        band: bandFor(account),
+        links: await listSubscriptions(me),
+        upgradePath: UPGRADE_PATH,
+      });
+    }
+
+    const product = await getProduct(str("productId"));
+    if (!product) return NextResponse.json({ error: "No such product." }, { status: 404 });
+    const policy = await getPolicy(product.brandId, nowISO);
+    const brand = await getBrandById(product.brandId);
+    const res = await claimProduct({
+      creatorId: me, product, policy,
+      brandName: brand?.name || product.brandId,
+      nowISO,
+    });
+    if (!res.ok) return NextResponse.json({ error: res.error, hint: res.hint }, { status: 400 });
+    return NextResponse.json({ ...res, disclosure: DISCLOSURE });
+  }
+
   // Administrator actions on somebody else's identity. Platform admin only, and
   // the administrator's own id is recorded against the decision.
   if (action === "verify-identity" || action === "screen-identity") {
@@ -267,6 +368,45 @@ export async function POST(req: NextRequest) {
   if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  // ---------------------------------------------------------------------------
+  // The brand decides WHAT can be promoted: the mode, and the products.
+  //
+  // `catalogue` is the brand's own view — it includes the products that fail,
+  // and why, because "why can nobody promote this one" is the question a brand
+  // actually has. It carries the offer economics, which is why it is behind
+  // brand access and the creator-facing GET is a different, narrower shape.
+  // ---------------------------------------------------------------------------
+  if (action === "promotion-mode") {
+    const policy = await setPolicy({
+      brandId,
+      mode: str("mode") as never,
+      defaultDestinationUrl: str("defaultDestinationUrl") || undefined,
+      survivalFloorPct: typeof body.survivalFloorPct === "number" ? body.survivalFloorPct : undefined,
+      nowISO,
+    });
+    void policy;
+    return NextResponse.json({ modes: PROMOTION_MODES, doctrine: PROMOTION_DOCTRINE, ...(await catalogue(brandId, nowISO)) });
+  }
+
+  if (action === "catalogue") {
+    return NextResponse.json({ ...(await catalogue(brandId, nowISO)), modes: PROMOTION_MODES, doctrine: PROMOTION_DOCTRINE });
+  }
+
+  if (action === "product") {
+    const offer = parseOffer(body.offer);
+    if (!offer) return NextResponse.json({ error: "A product needs its economics — price at minimum. Without them nobody can say whether it can carry a commission." }, { status: 400 });
+    const name = str("name");
+    if (!name) return NextResponse.json({ error: "A product needs a name — it is what a creator picks from a list." }, { status: 400 });
+    const product = await saveProduct({
+      brandId, name, url: str("url"), offer,
+      promotable: body.promotable !== false,
+      excludedReason: str("excludedReason") || undefined,
+      nowISO,
+    });
+    const policy = await getPolicy(brandId, nowISO);
+    return NextResponse.json({ product, decision: promotionDecision(product, policy), policy });
+  }
 
   // ProfitGuard: what can this offer actually afford?
   if (action === "economics") {

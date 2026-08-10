@@ -4056,3 +4056,143 @@ a test asserts it.
 ### Verification
 
 Tests **1061 → 1062**. Typecheck, layer check and build green.
+
+## §84 — Two doors, and what a brand lets people promote (2026-08-10)
+
+The owner asked two questions: does SHARE2EARN sign people up the same way as
+the growth and influencer programme, and does a brand choose what gets promoted
+or can everything be promoted as creators want. Answering them honestly exposed
+two real gaps, both now closed.
+
+### Gap 1 — SHARE2EARN promised no application and the site only had one
+
+`bandForFollowers` already put everyone unverified on the SHARE2EARN band, and
+the band's own description said *"no follower count, no application, no audience
+test"*. But **the only signup surface on the whole site was `PartnerApplyForm`
+on `/growth`** — the creator *application*, which asks for channels, audience
+size and a follower count. A promise made in a rate table and contradicted by
+the only form on the site is a promise nobody can act on.
+
+**`src/backend/share2earn-signup.ts`** is the second door, and the difference
+between the doors is the whole point:
+
+| | `/share2earn` | `/growth` |
+|---|---|---|
+| You give | Name and email | Channels and audience |
+| Then | In immediately | Scored and verified |
+| Pays | 0.5% | 1% / 0.75% |
+| Reviewed | No | Yes — it pays more |
+
+**The safety property: the instant door cannot mint an influencer band.**
+`joinShare2Earn({ name, email, nowISO })` has no `followers` parameter — not
+"ignores one if supplied", but no home for one — so there is no unverified
+number anywhere in the fast path for a later change to start trusting. The test
+throws `followers: 5_000_000, followersVerified: true, adminOverride: true` at
+it and asserts the account still comes back at zero, unverified and ineligible.
+A mutation that lets the claim through fails it.
+
+One account either way: joining derives the same `creatorId(email)` the
+application path does, so applying later **upgrades the account that already
+exists** — verified at 5,000 moves it to 0.75%, at 10,000 to 1%, and nothing
+earned is lost. That is asserted, because it is the promise the join page makes.
+
+The public form holds the same rule the application does: **an existing
+account's access token is never printed**. Typing somebody else's email into an
+open join form returns "already registered" and nothing else, and cannot
+overwrite their name.
+
+### Gap 2 — promotion was brand-curated by mission only
+
+`createMission` was the only way anything became promotable. There was no
+product catalogue, and no way for a creator to browse a brand's range and pick
+something. **`src/backend/promotable.ts`** adds the catalogue as **two
+independent gates**, which is the honest form of "everything can be promoted":
+
+1. **The brand's permission** — three modes. `mission_only` (today's behaviour,
+   and still the **default**, so no existing brand is silently opted into owing
+   commission on products nobody has looked at), `curated` (only what the brand
+   switches on), `open_catalogue` (everything listed is promotable and the brand
+   excludes individual items instead).
+2. **The margin's permission** — the same `productEligible()` the sale path
+   uses, computed from the product's own economics. **This is the gate a brand
+   cannot open by choosing a mode.** A brand can open its entire range and still
+   find an item ineligible; the item then pays **nothing rather than a quietly
+   smaller percentage**, because a headline rate that shrinks on some products
+   is a rate nobody can quote.
+
+Both reasons are reported separately, because "the brand closed it" and "the
+margin closed it" need different actions and only one of them has a lever on the
+screen.
+
+**One attribution path.** A claim mints its tracked code through the existing
+`createProgramme` + `subscribe` machinery, so `/r/{CODE}` resolves it exactly
+like every other referral. This codebase has already shipped one second path for
+money (§81) and it was the weaker one; there is now exactly one place a referral
+code is minted.
+
+**The brand's costs never cross to a creator.** `publicView` is built by
+listing the fields that go out rather than deleting the ones that must not, so a
+field added to a product later is not published by accident. The test asserts
+the exact key set and that three distinctive cost figures appear nowhere in the
+creator-facing payload.
+
+**A claim recomputes.** The decision is derived server-side from the product and
+the brand's *current* policy — a browser holding a stale page cannot mint a code
+against an answer that has since changed.
+
+### Surfaces
+
+- **`/share2earn`** — the public door: the two doors side by side, the join
+  form, what is claimable right now (counted from `?discover=1`; it says
+  plainly when nothing is, rather than inventing a shopfront), and what a brand
+  can open.
+- **`/growth`** — now points at the other door in a panel above the form.
+- **`/partner`** — the token-gated creator dashboard gains *Claim something to
+  promote*: brands with an open catalogue, one button, a tracked link on the
+  spot. Authentication is the partner's own token; the earner is derived from
+  the credential and never from the request body.
+- **`/dashboard/partner-network`** — `PromotionCatalogue`: the mode selector,
+  the product form (economics mandatory, same rule as a sale-paying mission),
+  and per-product status showing *which* gate closed it.
+- Sitemap and footer, so the new door is not an orphan page.
+
+### Gaps this leaves
+
+- A brand's catalogue has no bulk import — products are added one at a time.
+  For a wide range that is the difference between opening a catalogue and
+  intending to.
+- Discovery is a flat list of everything claimable. No matching, no ranking, no
+  per-creator fit — `matchProgrammes` exists in `creator-agents.ts` and is not
+  wired to it yet.
+- Discovery has no per-brand filter or search. At a few dozen products that is
+  fine; at a few hundred it is not.
+
+### The defect this work exposed, and fixed
+
+Writing the gap list caught a real one. A claimed product's conversions post
+through the existing referral ledger, and `computeCreatorSplit` **hardwired
+`RATE_CREATOR` (0.75%)**. That was correct while every partner arrived through
+the reviewed application — and wrong the moment a SHARE2EARN joiner could claim
+a product and drive a sale down the same ledger: they would have accrued 0.75%
+in `creatorWallet`, above the band SHARE2EARN is defined to sit beneath, in the
+one place nobody would have looked. `share2earnNeverPaysMore()` would still have
+returned true, because it checks the table and not this path.
+
+Same defect class as §81 and §75: **a value that exists on one side of a
+boundary and is never carried across.** The band existed; the wallet never asked
+for it. `computeCreatorSplit(net, creatorRate = RATE_CREATOR)` now takes the
+rate as an argument — the default preserves every existing caller exactly — and
+`creatorWallet` derives the band from the account and passes it. The rate now
+follows the person: the same unpaid earnings recompute at 1% when a follower
+count is verified, because the ledger stores revenue rather than a frozen
+commission. A mutation reverting the wallet to the assumed rate fails the test.
+
+### Verification
+
+Tests **919 → 922**, all passing. Three mutations run — the margin gate stopped
+binding, and the join door started believing a claimed follower count, and the wallet
+reverting to an assumed rate — all caught. Typecheck, layer check and build green. Exercised live against the dev
+server: join, duplicate join, a join carrying a follower claim, mode change,
+eligible and ineligible products, cross-brand discovery, claim, refusal of the
+ineligible product, and `/r/{CODE}` redirecting to the brand's own page with the
+ref attached.

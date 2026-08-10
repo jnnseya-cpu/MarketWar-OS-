@@ -22,6 +22,17 @@ export default function GrowthPage() {
           <p className="mt-1 text-[13px] text-slate-400">One profile, up to {MAX_PROGRAMMES} programmes, one wallet. {ratePct(INFLUENCER_RATE_10K)} of every referred customer&rsquo;s eligible net revenue at {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers, {ratePct(INFLUENCER_RATE_5K)} between 5,000 and 9,999 — tracked to the line, paid on real outcomes, never vanity metrics. Below 5,000 you are not turned away: SHARE2EARN pays {ratePct(SHARE2EARN_RATE)} with no follower gate at all, and you still accrue ACUs per referral.</p>
         </div>
 
+        {/* The other door. This page is the REVIEWED one — it asks for your
+            channels because the influencer bands pay more and a verified
+            follower count is what unlocks them. Anyone who does not want to be
+            reviewed should not be reading a form; they should be earning. */}
+        <div className="mb-8 rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-4">
+          <p className="text-sm font-semibold text-sky-100">Don&rsquo;t want to apply? You don&rsquo;t have to.</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
+            This page is the reviewed door: you state your channels, we verify the follower count, and the count is what unlocks {ratePct(INFLUENCER_RATE_10K)} and {ratePct(INFLUENCER_RATE_5K)}. <Link href="/share2earn" className="font-semibold text-sky-300 underline decoration-sky-500/40 underline-offset-2 hover:text-sky-200">SHARE2EARN</Link> has no application at all — a name and an email, and you are earning {ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale from the first one. It is the same account either way: join now, grow, apply later, and nothing already earned is lost.
+          </p>
+        </div>
+
         <div className="mb-8 rounded-xl border border-white/10 bg-ink-900/50 p-4">
           <p className="text-[13px] leading-relaxed text-slate-300"><span className="font-semibold text-white">Our approach:</span> {STRATEGY_NOTE}</p>
         </div>

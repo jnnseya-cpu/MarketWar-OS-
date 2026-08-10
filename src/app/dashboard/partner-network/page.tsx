@@ -14,6 +14,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { EARNING_TIERS, COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
 import Share2Earn from "@/components/Share2Earn";
+import PromotionCatalogue from "@/components/PromotionCatalogue";
 import BrandPayouts from "@/components/BrandPayouts";
 
 type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string };
@@ -100,6 +101,10 @@ export default function PartnerNetworkPage() {
       {/* What the brand owes, above the machine that generates it — the bill
           before the engine. */}
       <BrandPayouts />
+
+      {/* WHAT creators may promote, above the missions that are the other way
+          to say it. A brand answers this once and creators self-serve from it. */}
+      <PromotionCatalogue />
 
       <Share2Earn />
 

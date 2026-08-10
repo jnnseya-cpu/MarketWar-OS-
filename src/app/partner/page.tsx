@@ -7,7 +7,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Wallet, Users, LinkIcon, Copy, ShieldCheck, TrendingUp, Coins } from "lucide-react";
+import { Loader2, Wallet, Users, LinkIcon, Copy, ShieldCheck, TrendingUp, Coins, Store, Plus } from "lucide-react";
 
 
 type WalletData = {
@@ -15,12 +15,90 @@ type WalletData = {
   cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number;
   lifetimeCreatorGbp: number; paidGbp: number; payableGbp: number; pendingGbp: number;
   programme: "main" | "acu_referral"; acusEarned: number; referralCount: number; gateNote: string;
+  band: { id: string; label: string; creatorRate: number; requires: string };
   perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[];
 };
 type Sub = { code: string; link: string; programme: string; brand: string; destinationUrl: string };
+type PublicProduct = { id: string; brandId: string; name: string; url: string; pricePence: number; commissionPence: number; ratePct: number; reason: string };
 type Portal = { partner: { name: string; tier: string; followers: number; followersVerified: boolean; payoutEligible: boolean; scoutScore?: number }; wallet: WalletData; subscriptions: Sub[] };
 
 const money = (n: number) => `£${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+
+/**
+ * CLAIM SOMETHING TO PROMOTE.
+ *
+ * The other half of the answer to "what can I promote": brands that opened a
+ * catalogue are listed here, and claiming issues a tracked link on the spot —
+ * no approval, no message to the brand, no wait. Brands on missions-only never
+ * appear, by their own choice; their missions carry their own reward.
+ *
+ * The token is the credential. The server derives the earner from it and never
+ * from anything this page sends, because a claim mints the code money gets
+ * attributed to.
+ */
+function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void }) {
+  const [products, setProducts] = useState<PublicProduct[] | null>(null);
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/share2earn?discover=1");
+        if (!res.ok) return;
+        const d = await res.json();
+        setProducts((d.brands || []).flatMap((b: { products: PublicProduct[] }) => b.products));
+      } catch { /* the dashboard works without it */ }
+    })();
+  }, []);
+
+  async function claim(productId: string) {
+    setBusy(productId); setError(null); setNote(null);
+    try {
+      const res = await fetch("/api/share2earn", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "claim", token, productId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(d.error || "Could not claim that."); return; }
+      setNote(d.note);
+      onClaimed();
+    } catch { setError("Network error — please try again."); }
+    finally { setBusy(""); }
+  }
+
+  if (!products) return null;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-ink-900/50 p-5">
+      <h2 className="mb-1 flex items-center gap-2 font-display font-bold text-white"><Store className="h-4 w-4 text-emerald-400" /> Claim something to promote</h2>
+      {products.length === 0 ? (
+        <p className="text-sm text-slate-400">No brand has opened a self-serve catalogue yet. When one does, its products appear here and you can take a tracked link without asking anyone.</p>
+      ) : (
+        <>
+          <p className="mb-3 text-xs text-slate-400">Pick anything. Claiming issues you a tracked link to the brand&rsquo;s own page — no approval needed, and the rate is the same on everything listed.</p>
+          <div className="space-y-2">
+            {products.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-ink-950/40 p-3 text-sm">
+                <div>
+                  <p className="font-semibold text-white">{p.name}</p>
+                  <p className="text-xs text-slate-500">{money(p.pricePence / 100)} · you earn {money(p.commissionPence / 100)} per verified sale ({p.ratePct}%)</p>
+                </div>
+                <button onClick={() => void claim(p.id)} disabled={busy === p.id} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60">
+                  {busy === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Claim
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {note && <p className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-xs leading-relaxed text-emerald-200">{note}</p>}
+      {error && <p className="mt-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3 text-xs text-rose-200">{error}</p>}
+    </div>
+  );
+}
 
 function PartnerDashboard() {
   const params = useSearchParams();
@@ -29,6 +107,7 @@ function PartnerDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     if (!token) { setError("This dashboard needs your personal link. Check the email/confirmation from when you applied."); setLoading(false); return; }
     (async () => {
@@ -40,7 +119,7 @@ function PartnerDashboard() {
       } catch { setError("Network error — please try again."); }
       finally { setLoading(false); }
     })();
-  }, [token]);
+  }, [token, reloadKey]);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center bg-ink-950"><Loader2 className="h-6 w-6 animate-spin text-emerald-400" /></div>;
   if (error || !data) return (
@@ -73,6 +152,11 @@ function PartnerDashboard() {
           <div className="rounded-xl border border-white/10 bg-ink-900/60 p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><Coins className="h-3.5 w-3.5" /> ACUs earned</div><p className="mt-1 font-display text-2xl font-bold text-white">{wallet.acusEarned.toLocaleString()}</p></div>
         </div>
         <p className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-ink-900/50 p-3 text-xs text-slate-400"><ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> {wallet.gateNote}</p>
+        {wallet.band && (
+          <p className="rounded-lg border border-white/10 bg-ink-900/50 p-3 text-xs text-slate-400">
+            <span className="font-semibold text-white">{wallet.band.label} — {Math.round(wallet.band.creatorRate * 10000) / 100}%.</span> {wallet.band.requires} The rate follows you, not the link: verify a follower count and the same earnings recompute at the higher band.
+          </p>
+        )}
 
         {/* Performance */}
         <div className="rounded-xl border border-white/10 bg-ink-900/50 p-5">
@@ -100,6 +184,8 @@ function PartnerDashboard() {
             </div>
           </div>
         )}
+
+        <ClaimShelf token={token} onClaimed={() => setReloadKey((k) => k + 1)} />
 
         {/* Codes & links */}
         <div className="rounded-xl border border-white/10 bg-ink-900/50 p-5">

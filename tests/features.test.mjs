@@ -12814,3 +12814,322 @@ test("public pages: the creator programme and its payouts are actually described
     assert.match(src, /\/blog\/(creator-earning-programmes|creator-payout-economics|profitguard-growthguard-creator-programme)/, `${name} does not link into the cluster`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// §84 — THE TWO DOORS, AND WHAT A BRAND LETS PEOPLE PROMOTE.
+//
+// The owner asked whether SHARE2EARN signs people up the same way as the growth
+// and influencer programme, and whether a brand picks what gets promoted or
+// everything is fair game. Both answers are now code, so both are testable:
+// one account behind two doors, and two independent gates on every product.
+//
+// The tests below care most about the two things that would cost real money:
+// the instant door minting an influencer rate, and a brand's cost of goods
+// crossing to a creator.
+// ---------------------------------------------------------------------------
+const join = await import("../src/backend/share2earn-signup.ts");
+const promo = await import("../src/backend/promotable.ts");
+const ce = await import("../src/backend/creator-engine.ts");
+
+const HEALTHY = { pricePence: 10_000, cogsPence: 3_000, fulfilmentPence: 500, paymentFeePence: 300, minProtectedMarginPct: 20 };
+const THIN = { pricePence: 1_000, cogsPence: 900, fulfilmentPence: 50, paymentFeePence: 30 };
+
+test("share2earn signup: the instant door cannot mint an influencer band", async () => {
+  // The door is public and unreviewed, so the ONLY thing standing between it
+  // and a 1% rate is that it never learns a follower count. Throw every field
+  // an attacker would want at it — the function's signature has no home for
+  // them, and the band that comes back has to be share2earn regardless.
+  const attempts = [
+    { name: "A", email: "s2e-a@example.com" },
+    { name: "B", email: "s2e-b@example.com", followers: 5_000_000, followersVerified: true },
+    { name: "C", email: "s2e-c@example.com", tier: "agency", adminOverride: true, payoutEligible: true },
+    { name: "D", email: "s2e-d@example.com", band: "influencer_10k", onCreatorProgramme: true },
+  ];
+  for (const a of attempts) {
+    const res = await join.joinShare2Earn({ ...a, nowISO: "2026-08-10T00:00:00.000Z" });
+    assert.equal(res.ok, true, `join refused for ${a.email}`);
+    assert.equal(res.band.id, "share2earn", `${a.email} was let onto ${res.band.id}`);
+    assert.equal(res.band.creatorRate, cp.SHARE2EARN_RATE);
+    const account = await ce.getCreator(res.creatorId);
+    assert.equal(account.followers, 0, "a claimed follower count reached the account");
+    assert.equal(account.followersVerified, false, "the instant door verified somebody");
+    assert.equal(account.payoutEligible, false, "the instant door granted payout eligibility");
+  }
+});
+
+test("share2earn signup: a public form never prints an existing account's key", async () => {
+  // The access token IS the credential to somebody's dashboard and their money.
+  // Typing a stranger's email into an open join form must not hand it over —
+  // the same rule the /growth application holds, because one door that leaks is
+  // a leak.
+  const first = await join.joinShare2Earn({ name: "First", email: "s2e-dup@example.com", nowISO: "2026-08-10T00:00:00.000Z" });
+  assert.equal(first.alreadyRegistered, false);
+  assert.ok(first.dashboardUrl, "a brand-new joiner got no way in");
+
+  const second = await join.joinShare2Earn({ name: "Impostor", email: "s2e-dup@example.com", nowISO: "2026-08-10T00:01:00.000Z" });
+  assert.equal(second.ok, true);
+  assert.equal(second.alreadyRegistered, true);
+  assert.equal(second.dashboardUrl, undefined, "the join form leaked an existing partner's access token");
+  assert.ok(!JSON.stringify(second).includes(first.dashboardUrl.split("t=")[1]), "the token appeared elsewhere in the response");
+
+  // And the impostor's name did not overwrite the real one.
+  const account = await ce.getCreator(first.creatorId);
+  assert.equal(account.name, "First", "a public form overwrote an existing account");
+});
+
+test("share2earn signup: two doors, one account — applying later upgrades, never restarts", async () => {
+  // The promise on the join page: join now, grow, apply later, keep everything.
+  // If joining created a second account, that promise would be a lie told in
+  // money.
+  const joined = await join.joinShare2Earn({ name: "Grower", email: "s2e-grow@example.com", nowISO: "2026-08-10T00:00:00.000Z" });
+  assert.equal(joined.band.id, "share2earn");
+
+  // The same id the application path would derive for that email.
+  assert.equal(joined.creatorId, ce.creatorId("s2e-grow@example.com"));
+
+  // Verification is what moves the band — and it moves THIS account.
+  const upgraded = await ce.setFollowerVerification(joined.creatorId, 12_000, "human");
+  assert.equal(upgraded.id, joined.creatorId, "verification created a different account");
+  assert.equal(join.bandFor(upgraded).id, "influencer_10k");
+  assert.equal(join.bandFor(upgraded).creatorRate, cp.INFLUENCER_RATE_10K);
+
+  // 5,000 lands on the middle band; an unverified count on neither.
+  const mid = await ce.setFollowerVerification(joined.creatorId, 5_000, "ai");
+  assert.equal(join.bandFor(mid).id, "influencer_5k");
+  assert.equal(join.bandFor({ ...mid, followersVerified: false }).id, "share2earn");
+});
+
+test("promotable: the default is the mode that owes nobody anything", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  // A brand that has never opened this screen has NOT opted into self-serve
+  // promotion. Anything else would start a commission liability on products
+  // nobody looked at.
+  const policy = await promo.getPolicy("brand_untouched", nowISO);
+  assert.equal(policy.mode, "mission_only");
+
+  const product = await promo.saveProduct({ brandId: "brand_untouched", name: "Starter", url: "https://example.com/starter", offer: HEALTHY, nowISO });
+  const decision = promo.promotionDecision(product, policy);
+  assert.equal(decision.open, false);
+  assert.equal(decision.brandAllows, false);
+  // The margin was fine — it is the BRAND that said no, and the two reasons
+  // stay separate so a brand can tell which lever to pull.
+  assert.equal(decision.eligibility.eligible, true);
+  assert.match(decision.reason, /mission only/i);
+
+  const claim = await promo.claimProduct({ creatorId: "cr_x", product, policy, brandName: "Untouched", nowISO });
+  assert.equal(claim.ok, false, "a code was minted for a brand that promotes by mission only");
+});
+
+test("promotable: an open catalogue still cannot open a product the margin refuses", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  const policy = await promo.setPolicy({ brandId: "brand_open", mode: "open_catalogue", nowISO });
+  assert.equal(policy.mode, "open_catalogue");
+
+  const good = await promo.saveProduct({ brandId: "brand_open", name: "Healthy", url: "https://example.com/healthy", offer: HEALTHY, nowISO });
+  const thin = await promo.saveProduct({ brandId: "brand_open", name: "Thin", url: "https://example.com/thin", offer: THIN, nowISO });
+
+  const dGood = promo.promotionDecision(good, policy);
+  const dThin = promo.promotionDecision(thin, policy);
+
+  // "Everything is promotable" means everything the brand allows AND the margin
+  // can pay for. The brand allowed both.
+  assert.equal(dGood.brandAllows, true);
+  assert.equal(dThin.brandAllows, true);
+  assert.equal(dGood.open, true);
+  assert.equal(dThin.open, false, "a product whose margin cannot fund the rate was still claimable");
+  assert.match(dThin.reason, /brand allows it, but the product's economics do not/i);
+
+  // Refused, never re-rated: the ineligible product pays nothing rather than a
+  // quietly smaller percentage.
+  assert.equal(dThin.commissionPence, 0);
+  assert.equal(dGood.commissionPence, Math.round(good.offer.pricePence * cp.SHARE2EARN_RATE));
+
+  // A brand can still exclude one by hand, and has to say why.
+  const excluded = await promo.saveProduct({ brandId: "brand_open", name: "Healthy", url: "https://example.com/healthy", offer: HEALTHY, excludedReason: "Stock is short", nowISO });
+  assert.equal(promo.promotionDecision(excluded, policy).open, false);
+});
+
+test("promotable: curated admits only what the brand switched on", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  const policy = await promo.setPolicy({ brandId: "brand_curated", mode: "curated", nowISO });
+  const on = await promo.saveProduct({ brandId: "brand_curated", name: "On", url: "https://example.com/on", offer: HEALTHY, promotable: true, nowISO });
+  const off = await promo.saveProduct({ brandId: "brand_curated", name: "Off", url: "https://example.com/off", offer: HEALTHY, promotable: false, nowISO });
+  assert.equal(promo.promotionDecision(on, policy).open, true);
+  assert.equal(promo.promotionDecision(off, policy).open, false);
+  // The same two products in an open catalogue: the switch stops mattering,
+  // which is the difference between the modes stated as arithmetic.
+  const open = await promo.setPolicy({ brandId: "brand_curated", mode: "open_catalogue", nowISO });
+  assert.equal(promo.promotionDecision(off, open).open, true);
+});
+
+test("promotable: a creator never sees what the product costs the brand", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  await promo.setPolicy({ brandId: "brand_secret", mode: "open_catalogue", nowISO });
+  // Deliberately distinctive cost numbers, so their appearance anywhere in the
+  // creator-facing payload is unmistakable.
+  const offer = { pricePence: 10_000, cogsPence: 3_137, fulfilmentPence: 541, paymentFeePence: 307, minProtectedMarginPct: 20 };
+  await promo.saveProduct({ brandId: "brand_secret", name: "Secret", url: "https://example.com/secret", offer, nowISO });
+
+  const publicList = await promo.openCatalogue("brand_secret", nowISO);
+  assert.equal(publicList.length, 1);
+  const serialised = JSON.stringify(publicList);
+  for (const secret of [3137, 541, 307]) {
+    assert.ok(!serialised.includes(String(secret)), `the brand's cost of £${(secret / 100).toFixed(2)} reached the creator's view`);
+  }
+  // Built by construction rather than by deletion: the shape is exactly these
+  // fields, so a field added to the product later is not published by accident.
+  assert.deepEqual(Object.keys(publicList[0]).sort(), ["brandId", "commissionPence", "id", "name", "pricePence", "ratePct", "reason", "url"]);
+
+  // The brand's OWN view does carry the economics — that is the difference
+  // between the two surfaces, and why one is behind brand access.
+  const own = await promo.catalogue("brand_secret", nowISO);
+  assert.equal(own.products.length, 1);
+  assert.equal(own.products[0].product.offer.cogsPence, 3_137);
+});
+
+test("promotable: a claim mints a code through the one attribution path", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  const policy = await promo.setPolicy({ brandId: "brand_claim", mode: "open_catalogue", nowISO });
+  const product = await promo.saveProduct({ brandId: "brand_claim", name: "Claimable", url: "https://example.com/buy", offer: HEALTHY, nowISO });
+  const joined = await join.joinShare2Earn({ name: "Claimer", email: "s2e-claim@example.com", nowISO });
+
+  const res = await promo.claimProduct({ creatorId: joined.creatorId, product, policy, brandName: "Claim Co", nowISO });
+  assert.equal(res.ok, true, res.error);
+  // The SAME code scheme every other referral uses — resolvable by the same
+  // lookup /r/{CODE} calls, not a second private one.
+  assert.match(res.subscription.code, /^MW-[0-9A-F]{10}$/);
+  assert.equal(res.subscription.link, `/r/${res.subscription.code}`);
+  const resolved = await ce.subscriptionByCode(res.subscription.code);
+  assert.equal(resolved.creatorId, joined.creatorId);
+  // And it points at the BRAND's page, never back at us.
+  const programme = await ce.getProgramme(resolved.programmeId);
+  assert.equal(programme.destinationUrl, "https://example.com/buy");
+
+  // Claiming twice is the same link, not two competing ones.
+  const again = await promo.claimProduct({ creatorId: joined.creatorId, product, policy, brandName: "Claim Co", nowISO });
+  assert.equal(again.subscription.code, res.subscription.code);
+});
+
+test("promotable: the claim recomputes — what the browser last saw is not permission", async () => {
+  promo.__resetPromotable();
+  const nowISO = "2026-08-10T00:00:00.000Z";
+  const open = await promo.setPolicy({ brandId: "brand_recheck", mode: "open_catalogue", nowISO });
+  const product = await promo.saveProduct({ brandId: "brand_recheck", name: "Was open", url: "https://example.com/was", offer: HEALTHY, nowISO });
+  assert.equal((await promo.claimProduct({ creatorId: "cr_early", product, policy: open, brandName: "R", nowISO })).ok, true);
+
+  // The brand closes the catalogue. A creator holding a stale page must not be
+  // able to mint a code against the old answer.
+  const closed = await promo.setPolicy({ brandId: "brand_recheck", mode: "mission_only", nowISO });
+  const late = await promo.claimProduct({ creatorId: "cr_late", product, policy: closed, brandName: "R", nowISO });
+  assert.equal(late.ok, false);
+
+  // Same for a product that never had the margin: the thin one is refused even
+  // in an open catalogue, at claim time and not only in the listing.
+  const thin = await promo.saveProduct({ brandId: "brand_recheck", name: "Thin", url: "https://example.com/thin", offer: THIN, nowISO });
+  const refused = await promo.claimProduct({ creatorId: "cr_late", product: thin, policy: open, brandName: "R", nowISO });
+  assert.equal(refused.ok, false);
+  assert.match(refused.hint, /the product's margin, not you/i);
+});
+
+test("promotable: a product id is scoped to its brand", () => {
+  // The money ledger shipped this defect once: a document keyed by a bare id
+  // lets one tenant write over another's. Two brands both selling "Starter"
+  // must not share a row.
+  assert.notEqual(promo.productId("brand_a", "Starter"), promo.productId("brand_b", "Starter"));
+  assert.equal(promo.productId("brand_a", "Starter"), promo.productId("brand_a", " starter "));
+});
+
+test("public: the two doors are described the same way everywhere", () => {
+  // The rates on the doors render from the ladder rather than being typed, so
+  // a rate change cannot leave a signup page advertising the old one.
+  const doors = cp.SIGNUP_DOORS;
+  assert.equal(doors.length, 2);
+  const s2eDoor = doors.find((d) => d.id === "share2earn");
+  const growthDoor = doors.find((d) => d.id === "growth");
+  assert.equal(s2eDoor.reviewed, false, "the no-application door acquired an application");
+  assert.equal(growthDoor.reviewed, true, "the door that pays 1% stopped being reviewed");
+  assert.ok(s2eDoor.pays.includes(cp.ratePct(cp.SHARE2EARN_RATE)));
+  assert.ok(growthDoor.pays.includes(cp.ratePct(cp.INFLUENCER_RATE_10K)));
+  assert.ok(growthDoor.pays.includes(cp.ratePct(cp.INFLUENCER_RATE_5K)));
+  assert.match(cp.UPGRADE_PATH, /Nothing already earned is lost/);
+});
+
+test("public: the no-application door actually exists on the site", () => {
+  // The contradiction this fixes: SHARE2EARN promised "no application, no
+  // follower count" while the only signup surface on the whole site was the
+  // creator APPLICATION on /growth. A promise in a rate table with no door
+  // behind it is a promise nobody can act on.
+  const page = readFileSync(new URL("../src/app/share2earn/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /JoinShare2Earn/, "the join page has no join form");
+  assert.match(page, /SIGNUP_DOORS/, "the page hardcodes the doors instead of rendering them");
+  for (const claim of [/two doors into one account/i, /Missions only/, /Curated catalogue/, /Open catalogue/, /eligible net value/]) {
+    assert.match(page, claim, "the join page is missing something a creator needs before joining");
+  }
+
+  // The form itself must not grow a follower field — the whole guarantee is
+  // that the instant door never learns a number it would have to distrust.
+  const form = readFileSync(new URL("../src/components/JoinShare2Earn.tsx", import.meta.url), "utf8");
+  const inputs = [...form.matchAll(/placeholder="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(inputs, ["Alex Mbala", "you@example.com"], "the instant join form grew a field beyond a name and an email");
+
+  // Both doors point at each other, so nobody lands on the slow one by accident.
+  const growth = readFileSync(new URL("../src/app/growth/page.tsx", import.meta.url), "utf8");
+  assert.match(growth, /href="\/share2earn"/, "the application page never mentions the door with no application");
+  assert.match(form, /Apply instead/, "the join page never offers the reviewed door");
+
+  // And it is reachable: sitemap and footer, not an orphan page.
+  const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
+  assert.match(sitemap, /path: "\/share2earn"/);
+  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8");
+  assert.match(marketing, /"\/share2earn"/);
+});
+
+test("the wallet pays the band the person is on, not the band the ledger assumes", async () => {
+  // The defect this closes, found while documenting §84: `computeCreatorSplit`
+  // hardwired 0.75%. That was correct while every partner arrived through the
+  // reviewed application — and wrong the moment a SHARE2EARN joiner could claim
+  // a product and drive a sale down the SAME ledger, because they would have
+  // accrued 0.75% in the one place nobody would look, above the band SHARE2EARN
+  // is defined to sit beneath.
+  const net = 10_000;
+
+  // Same revenue, three bands, three different creator shares — and the
+  // platform's cut is the same in all three, as the ladder says.
+  const s2e = cp.computeCreatorSplit(net, cp.SHARE2EARN_RATE);
+  const mid = cp.computeCreatorSplit(net, cp.INFLUENCER_RATE_5K);
+  const top = cp.computeCreatorSplit(net, cp.INFLUENCER_RATE_10K);
+  assert.equal(s2e.creatorGbp, Math.round(net * cp.SHARE2EARN_RATE * 100) / 100);
+  assert.equal(mid.creatorGbp, Math.round(net * cp.INFLUENCER_RATE_5K * 100) / 100);
+  assert.equal(top.creatorGbp, Math.round(net * cp.INFLUENCER_RATE_10K * 100) / 100);
+  assert.ok(s2e.creatorGbp < mid.creatorGbp && mid.creatorGbp < top.creatorGbp, "the bands stopped being ordered");
+  assert.equal(s2e.platformGbp, top.platformGbp, "the platform's cut moved with the band");
+
+  // The default is unchanged, so nothing that called it before behaves
+  // differently now.
+  assert.deepEqual(cp.computeCreatorSplit(net), cp.computeCreatorSplit(net, cp.RATE_CREATOR));
+
+  // End to end: a SHARE2EARN joiner who drives a real sale accrues at 0.5%,
+  // not at the influencer rate the ledger used to assume.
+  const joined = await join.joinShare2Earn({ name: "Wallet", email: "s2e-wallet@example.com", nowISO: "2026-08-10T00:00:00.000Z" });
+  const prog = await ce.createProgramme({ brandId: "brand_wallet", brandName: "Wallet Co", name: "Wallet test", product: "Thing", description: "d", destinationUrl: "https://example.com/x", nowISO: "2026-08-10T00:00:00.000Z" });
+  const sub = await ce.subscribe(joined.creatorId, prog.id, "2026-08-10T00:00:00.000Z");
+  await ce.recordConversion({ code: sub.subscription.code, grossGbp: 1_000, referredRef: "cust_1", idempotencyKey: "ord_1", nowISO: "2026-08-10T00:00:00.000Z" });
+
+  const wallet = await ce.creatorWallet(joined.creatorId);
+  assert.equal(wallet.band.id, "share2earn");
+  assert.equal(wallet.lifetimeCreatorGbp, Math.round(1_000 * cp.SHARE2EARN_RATE * 100) / 100, "a SHARE2EARN joiner accrued at an influencer rate");
+  assert.ok(wallet.lifetimeCreatorGbp < 1_000 * cp.INFLUENCER_RATE_5K, "share2earn out-earned the band above it");
+
+  // Verify the same person at 10,000 followers and the same sale pays 1% —
+  // the rate follows the person, and the upgrade is retrospective on unpaid
+  // earnings because the ledger stores revenue, not a frozen commission.
+  await ce.setFollowerVerification(joined.creatorId, 12_000, "human");
+  const upgraded = await ce.creatorWallet(joined.creatorId);
+  assert.equal(upgraded.band.id, "influencer_10k");
+  assert.equal(upgraded.lifetimeCreatorGbp, Math.round(1_000 * cp.INFLUENCER_RATE_10K * 100) / 100);
+});

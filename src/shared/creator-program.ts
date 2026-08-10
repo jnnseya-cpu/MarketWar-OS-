@@ -147,6 +147,59 @@ export function share2earnNeverPaysMore(): boolean {
 /** A rate as the prose should show it — one source, so the pages cannot drift. */
 export const ratePct = (rate: number): string => `${Math.round(rate * 10000) / 100}%`;
 
+// ---------------------------------------------------------------------------
+// THE TWO DOORS
+//
+// One account, one payout path, two ways in — and the difference between them
+// is exactly the thing that pays more. The influencer bands are reviewed
+// because they pay 1% and 0.75%; SHARE2EARN is not reviewed because it pays
+// 0.5% and nobody should be told they are too small to earn it.
+//
+// Client-safe data so the public pages, the join form and the docs all describe
+// the doors the same way. The behaviour is in src/backend/share2earn-signup.ts.
+// ---------------------------------------------------------------------------
+export type SignupDoor = {
+  id: "share2earn" | "growth";
+  label: string;
+  href: string;
+  /** What you hand over to get in. */
+  requires: string;
+  /** What happens after you press the button. */
+  then: string;
+  pays: string;
+  reviewed: boolean;
+};
+
+export const SIGNUP_DOORS: SignupDoor[] = [
+  {
+    id: "share2earn",
+    label: "Join SHARE2EARN",
+    href: "/share2earn",
+    requires: "Your name and an email. No follower count, no audience test, no portfolio.",
+    then: "You are in immediately — no application, no review queue, no waiting list. Pick something to promote and post.",
+    pays: `${ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces, plus XP on the things that are counted but not cash-paid.`,
+    reviewed: false,
+  },
+  {
+    id: "growth",
+    label: "Apply to the creator programme",
+    href: "/growth",
+    requires: "Your channels and audience, so a follower count can be verified.",
+    then: "We score the audience for fit, quality and brand safety, and verify the follower count by reading your public profiles or by a human reviewer.",
+    pays: `${ratePct(INFLUENCER_RATE_10K)} with 10,000+ verified followers, ${ratePct(INFLUENCER_RATE_5K)} between 5,000 and 9,999. Verification is what unlocks the higher rate.`,
+    reviewed: true,
+  },
+];
+
+/**
+ * Joining SHARE2EARN and applying later are the SAME account.
+ *
+ * Written down as data because it is the promise the join page makes, and a
+ * promise on a page that nothing in code holds is how people lose earnings.
+ */
+export const UPGRADE_PATH =
+  `Joining SHARE2EARN and applying to the creator programme are two doors into one account. Join now, grow an audience, apply later — the same account moves to ${ratePct(INFLUENCER_RATE_5K)} at 5,000 verified followers and ${ratePct(INFLUENCER_RATE_10K)} at 10,000. Nothing already earned is lost, no balance is reset, and you never start again.`;
+
 export const RATE_TOTAL = 0.01;        // legacy alias — the 5k band's total
 export const RATE_CREATOR = INFLUENCER_RATE_5K;    // legacy alias — the 5k band's creator rate
 export const EARNINGS_CAP_GBP = 20_000; // the £20k cycle threshold
@@ -176,12 +229,28 @@ export type CustomerSplit = {
 };
 
 // Per-customer split given that customer's cumulative Eligible Net Revenue.
-export function computeCreatorSplit(customerNetRevenueGbp: number): CustomerSplit {
+//
+// THE RATE IS AN ARGUMENT, NOT A CONSTANT.
+//
+// It used to be `RATE_CREATOR` (0.75%) hardwired, which was right when every
+// partner came through the application and sat on an influencer band. It stopped
+// being right the moment a SHARE2EARN joiner could claim a product and drive a
+// sale down this same ledger: they would have accrued 0.75% here while the whole
+// ladder says SHARE2EARN pays 0.5% and can never pay more than an influencer
+// band. That is this codebase's recurring defect — a value that exists on one
+// side of a boundary and is never carried across — and the fix is to make the
+// caller state the rate rather than let the wallet assume one.
+//
+// The default preserves every existing caller's behaviour exactly.
+export function computeCreatorSplit(customerNetRevenueGbp: number, creatorRate: number = RATE_CREATOR): CustomerSplit {
   const rev = Math.max(0, customerNetRevenueGbp || 0);
-  const r1 = EARNINGS_CAP_GBP / RATE_CREATOR;          // net revenue for partner to earn £20k @0.75%
-  const r2 = MARKETWAR_POST_CAP_GBP / RATE_TOTAL;      // net revenue for platform to collect £20k @1.0%
+  // A rate of zero would divide by zero on the cap; treat it as "earns nothing".
+  const rate = Math.max(0, creatorRate);
+  const total = rate + RATE_PLATFORM;
+  const r1 = rate > 0 ? EARNINGS_CAP_GBP / rate : Infinity;   // net revenue for the partner to earn £20k at their rate
+  const r2 = MARKETWAR_POST_CAP_GBP / total;                  // net revenue for the platform to collect £20k
   const p1 = Math.min(rev, r1);
-  let creator = p1 * RATE_CREATOR;
+  let creator = p1 * rate;
   let platform = p1 * RATE_PLATFORM;
   let state: ReferralState = "PARTNER_EARNING";
   let creatorEarned = creator;
@@ -189,7 +258,7 @@ export function computeCreatorSplit(customerNetRevenueGbp: number): CustomerSpli
     state = "MARKETWAR_EARNING";
     creatorEarned = EARNINGS_CAP_GBP;
     const p2 = Math.min(rev - r1, r2);
-    platform += p2 * RATE_TOTAL;                       // partner earns nothing in state 2
+    platform += p2 * total;                            // partner earns nothing in state 2
     if (rev - r1 >= r2) state = "COMPLETED";
   }
   const round = (n: number) => Math.round(n * 100) / 100;
@@ -197,9 +266,9 @@ export function computeCreatorSplit(customerNetRevenueGbp: number): CustomerSpli
     creatorGbp: round(creator), platformGbp: round(platform), state, cap: EARNINGS_CAP_GBP,
     creatorProgressPct: Math.round((Math.min(creatorEarned, EARNINGS_CAP_GBP) / EARNINGS_CAP_GBP) * 100),
     note: state === "PARTNER_EARNING"
-      ? `Partner earning — 0.75% to you, 0.25% to the platform. £${round(creatorEarned).toLocaleString()} of £${EARNINGS_CAP_GBP.toLocaleString()} from this customer.`
+      ? `Partner earning — ${ratePct(rate)} to you, ${ratePct(RATE_PLATFORM)} to the platform. £${round(creatorEarned).toLocaleString()} of £${EARNINGS_CAP_GBP.toLocaleString()} from this customer.`
       : state === "MARKETWAR_EARNING"
-        ? `Cap reached — the platform collects the full 1% until it matches £${MARKETWAR_POST_CAP_GBP.toLocaleString()} from this customer.`
+        ? `Cap reached — the platform collects the full ${ratePct(total)} until it matches £${MARKETWAR_POST_CAP_GBP.toLocaleString()} from this customer.`
         : "Completed — the referral obligation for this customer has ended.",
   };
 }

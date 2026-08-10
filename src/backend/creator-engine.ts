@@ -20,7 +20,7 @@ if (typeof window !== "undefined") {
 import { createHash, randomUUID } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { executePayout } from "@/backend/payout-execute";
-import { computeCreatorSplit, programmeFor, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
+import { computeCreatorSplit, programmeFor, bandForFollowers, type CommissionBand, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -254,6 +254,8 @@ export type Wallet = {
   referralCount: number;
   perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[];
   perProgramme: { programmeId: string; netGbp: number; events: number }[];
+  /** Which band this wallet is being paid at, and why. */
+  band: { id: string; label: string; creatorRate: number; requires: string };
   gateNote: string;
 };
 export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
@@ -277,8 +279,21 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
     byCustomer.set(e.referredRef, (byCustomer.get(e.referredRef) || 0) + e.netGbp);
     const p = byProg.get(e.programmeId) || { net: 0, events: 0 }; p.net += e.netGbp; p.events += 1; byProg.set(e.programmeId, p);
   }
+  // THE RATE FOLLOWS THE PERSON, NOT THE LEDGER.
+  //
+  // Every partner used to arrive through the reviewed application, so the split
+  // could assume the influencer rate. Since §84 a SHARE2EARN joiner can claim a
+  // product and drive a sale down this same ledger — and paying them 0.75% here
+  // would put SHARE2EARN above the band it is defined to sit beneath, in the one
+  // place nobody would look. The band is computed from the account and passed
+  // in, so the wallet no longer assumes a rate it was never told.
+  const band: CommissionBand = bandForFollowers({
+    followers: creator.followers,
+    verified: creator.followersVerified,
+    onCreatorProgramme: creator.followersVerified,
+  });
   const perCustomer = [...byCustomer.entries()].map(([ref, net]) => {
-    const sp = computeCreatorSplit(net);
+    const sp = computeCreatorSplit(net, band.creatorRate);
     return { ref, netGbp: Math.round(net * 100) / 100, creatorGbp: sp.creatorGbp, platformGbp: sp.platformGbp, state: sp.state, progressPct: sp.creatorProgressPct };
   }).sort((a, b) => b.creatorGbp - a.creatorGbp);
 
@@ -297,6 +312,7 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
   return {
     creatorId, payoutEligible: eligible, followers: creator.followers, followersVerified: creator.followersVerified,
     cumulativeNetGbp: r2(cumulativeNet), countedEvents: counted.length, flaggedEvents: ledger.length - counted.length,
+    band: { id: band.id, label: band.label, creatorRate: band.creatorRate, requires: band.requires },
     lifetimeCreatorGbp: lifetimeCreator, lifetimePlatformGbp: lifetimePlatform, paidGbp: paid,
     payableGbp: programme === "main" ? owed : 0,
     pendingGbp: programme === "main" ? 0 : owed,
