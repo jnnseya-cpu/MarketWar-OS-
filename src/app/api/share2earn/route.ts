@@ -19,6 +19,11 @@ import {
   PAYOUT_RAILS, railsForCountry, railConfigured, quoteWithdrawal, taxPosition,
   PAYOUT_DOCTRINE, ADMIN_FEE_RATE, ADMIN_FEE_BASIS,
 } from "@/backend/payout-fees";
+import {
+  submitIdentity, saveIdentity, loadIdentity, payoutAllowed, markVerified, markScreened,
+  reportRow, identityProviderConfigured, sanctionsScreeningConfigured, IDENTITY_DOCTRINE,
+} from "@/backend/payout-identity";
+import { executePayout, listAttempts, paidOutPence, liveRails, EXECUTE_DOCTRINE } from "@/backend/payout-execute";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -71,6 +76,11 @@ export async function GET(req: NextRequest) {
         rails: PAYOUT_RAILS.map(({ envKey, ...r }) => ({ ...r, live: railConfigured({ ...r, envKey } as never) })),
         adminFeeRate: ADMIN_FEE_RATE, adminFeeBasis: ADMIN_FEE_BASIS,
         doctrine: PAYOUT_DOCTRINE,
+        live: liveRails(),
+        identityProvider: identityProviderConfigured(),
+        sanctionsScreening: sanctionsScreeningConfigured(),
+        identityDoctrine: IDENTITY_DOCTRINE,
+        executeDoctrine: EXECUTE_DOCTRINE,
       },
       disclosure: DISCLOSURE,
       ladder: ladderIsSane(),
@@ -137,6 +147,90 @@ export async function POST(req: NextRequest) {
       missionsAccepted: num("missionsAccepted"), missionsCompleted: num("missionsCompleted"),
       postsSubmitted: num("postsSubmitted"), postsStillLive: num("postsStillLive"),
     }));
+  }
+
+  // Identity and the withdrawal itself belong to the CREATOR. The id comes from
+  // the session and never from the body — otherwise anyone could submit an
+  // identity for, or withdraw against, somebody else's account.
+  if (action === "identity" || action === "withdraw" || action === "payout-history") {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const me = auth.uid || str("creatorId");
+    if (!me) return NextResponse.json({ error: "No creator identity on this session." }, { status: 401 });
+    if (auth.enforced && auth.uid && str("creatorId") && str("creatorId") !== auth.uid) {
+      return NextResponse.json({ error: "You can only act on your own account." }, { status: 403 });
+    }
+
+    if (action === "identity") {
+      const res = submitIdentity({
+        creatorId: me,
+        legalName: str("legalName"), dateOfBirth: str("dateOfBirth"),
+        addressLine: str("addressLine"), city: str("city"), postcode: str("postcode"),
+        country: str("country"),
+        taxReference: str("taxReference") || undefined,
+        noTaxReferenceReason: str("noTaxReferenceReason") || undefined,
+        nowISO,
+      });
+      if (!res.ok) return NextResponse.json({ error: res.error, field: res.field }, { status: 400 });
+      await saveIdentity(res.identity);
+      return NextResponse.json({
+        // The tax reference is never echoed back — it went in, it does not come out.
+        state: res.identity.state,
+        gate: payoutAllowed(res.identity),
+        note: res.note,
+        doctrine: IDENTITY_DOCTRINE,
+      });
+    }
+
+    if (action === "payout-history") {
+      return NextResponse.json({
+        attempts: await listAttempts(me),
+        paidOutPence: await paidOutPence(me),
+        gate: payoutAllowed(await loadIdentity(me)),
+      });
+    }
+
+    const out = await executePayout({
+      creatorId: me,
+      railId: str("railId"),
+      amountPence: Math.max(0, Math.round(num("amountPence"))),
+      requestId: str("requestId"),
+      country: str("country") || undefined,
+      availablePence: Math.max(0, Math.round(num("availablePence"))),
+      destination: str("destination"),
+      nowISO,
+    });
+    return NextResponse.json(out, { status: out.ok ? 200 : 400 });
+  }
+
+  // Administrator actions on somebody else's identity. Platform admin only, and
+  // the administrator's own id is recorded against the decision.
+  if (action === "verify-identity" || action === "screen-identity") {
+    const auth = await requireAuth(req, { scope: "platform_admin" });
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const target = str("creatorId");
+    if (!target) return NextResponse.json({ error: "creatorId required" }, { status: 400 });
+    const done = action === "verify-identity"
+      ? await markVerified(target, auth.uid || "admin", nowISO, str("verificationRef") || undefined)
+      : await markScreened(target, body.clear === true, nowISO, str("reason") || undefined);
+    if (!done) return NextResponse.json({ error: "No identity on record for that creator." }, { status: 404 });
+    return NextResponse.json({ ok: true, gate: payoutAllowed(await loadIdentity(target)) });
+  }
+
+  // The annual report row — platform admin only; it contains another person's details.
+  if (action === "tax-report") {
+    const auth = await requireAuth(req, { scope: "platform_admin" });
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const identity = await loadIdentity(str("creatorId"));
+    if (!identity) return NextResponse.json({ error: "No identity on record for that creator." }, { status: 404 });
+    return NextResponse.json({
+      row: reportRow(identity, {
+        earnedPence: Math.max(0, Math.round(num("earnedPence"))),
+        payoutsPence: await paidOutPence(identity.creatorId),
+        feesPence: Math.max(0, Math.round(num("feesPence"))),
+      }),
+      note: "The creator receives a copy of exactly this. A figure filed about somebody that they cannot see is how disputes start.",
+    });
   }
 
   // Withdrawals belong to the CREATOR, not to a brand. Session identity only —

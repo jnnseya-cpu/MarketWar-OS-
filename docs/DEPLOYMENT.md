@@ -202,3 +202,51 @@ from the connected GitHub repo and the email engine flips from demo →
 
 The domain (`marketwaros.com`) and the Stripe webhook
 (`https://marketwaros.com/api/webhooks/stripe`) are the same regardless of host.
+
+---
+
+## Creator payouts — switching the rails on
+
+The payout code is complete and inert. Every rail reports itself as not
+connected until its key is present, and a withdrawal attempt against an
+unconnected rail returns "not connected" and names the missing variable rather
+than failing oddly or — worse — reporting a success. Nothing is ever recorded as
+sent without a reference back from the provider.
+
+Set these as **host** environment variables (Vercel → Settings → Environment
+Variables), same as everything else here. None belongs in GitHub.
+
+| Variable | Turns on | Notes |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Bank transfer and instant-to-card payouts | Connect must be enabled — transfers need a connected account as the destination. Also satisfies the identity-provider check. |
+| `PAYPAL_CLIENT_ID` | PayPal payouts | Payouts is a separate approval on a PayPal account; having an app is not enough. |
+| `WISE_API_TOKEN` | Wise transfers | Wise Business → API tokens. Best rate on cross-border. |
+| `BITRIPAY_API_KEY` | M-Pesa, Orange Money, Airtel Money, Africell, local bank | The Africa rails. Mobile money needs no bank account, which is why the minimum there is £2 rather than £5–£20. |
+| `SANCTIONS_API_KEY` | Screening before a first payout | Until this is set, the gate blocks and an administrator must record the screening by hand. |
+
+Optional, and only if you would rather not verify identities manually:
+`ONFIDO_API_TOKEN` or `PERSONA_API_KEY`. With none of them (and no Stripe key)
+nothing is ever marked verified automatically — a person confirms each record and
+their id is stored against the decision.
+
+### Before the first pound moves
+
+1. **Creators need a connected account.** A Stripe transfer needs a destination;
+   Connect onboarding produces one. Mobile money needs only the phone number.
+2. **Decide who signs off a manual verification.** The code records the
+   administrator's id against every decision, so it has to be a named person.
+3. **Check one small payout end to end** before opening it to anybody else. Send
+   the minimum, confirm the provider reference appears in the attempt ledger and
+   in the provider's own dashboard, then confirm a retry with the *same*
+   requestId returns the original reference rather than sending again.
+4. **Correct the fee table.** The rates in `payout-fees.ts` are estimates from
+   published pricing, deliberately on the high side. Replace them with what the
+   first real settlement report actually shows; every quote re-derives.
+
+### Reporting
+
+Annual earnings are reportable under the UK's rules for digital platforms (the
+OECD model rules, DAC7 in the EU). `tax-report` produces the row per creator and
+the creator receives the same figure. **Nothing is withheld** — creators are not
+employees, they are paid gross, and reporting what somebody was paid and
+deducting from it are different things.

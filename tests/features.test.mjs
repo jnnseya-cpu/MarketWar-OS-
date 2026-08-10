@@ -12112,3 +12112,214 @@ test("payouts: the quote points at a cheaper rail when one exists", () => {
   assert.equal(best.ok, true);
   assert.equal(best.cheaper, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Payouts, activated: the identity gate and the money actually leaving.
+//
+// This is the most dangerous path in the platform. Everything else can be wrong
+// and cost an ACU; this can pay a stranger, pay somebody twice, or take a
+// balance and send nothing.
+// ---------------------------------------------------------------------------
+const pid = await import("../src/backend/payout-identity.ts");
+const pex = await import("../src/backend/payout-execute.ts");
+
+test("payout identity: the form refuses what would make an unfileable return", () => {
+  const base = { creatorId: "c1", legalName: "Justin Banks", dateOfBirth: "1998-04-02", addressLine: "1 High St", city: "Leeds", postcode: "LS1 1AA", country: "GB", taxReference: "AB123456C", nowISO: "2026-08-10T12:00:00.000Z" };
+  assert.equal(pid.submitIdentity(base).ok, true);
+
+  const bad = (over, field) => {
+    const r = pid.submitIdentity({ ...base, ...over });
+    assert.equal(r.ok, false, `${field} should have been rejected`);
+    assert.equal(r.field, field);
+    assert.ok(r.error.length > 20, `${field} rejection does not explain itself`);
+  };
+  bad({ legalName: "Justin" }, "legalName");          // a handle is not a legal name
+  bad({ dateOfBirth: "2015-01-01" }, "dateOfBirth");  // under 18
+  bad({ dateOfBirth: "1850-01-01" }, "dateOfBirth");  // implausible
+  bad({ dateOfBirth: "02/04/1998" }, "dateOfBirth");  // wrong format
+  bad({ country: "GBR" }, "country");                 // alpha-3 is not alpha-2
+  bad({ addressLine: "" }, "addressLine");
+  bad({ city: "" }, "city");
+  bad({ taxReference: "", noTaxReferenceReason: "" }, "taxReference");
+  bad({ taxReference: "NOTAREALNINO" }, "taxReference");
+
+  // QQ123456C is HMRC's own EXAMPLE and is deliberately not a valid prefix —
+  // real NI numbers never start with Q. Accepting it would file a return with a
+  // placeholder in it, so it is rejected.
+  bad({ taxReference: "QQ123456C" }, "taxReference");
+
+  // A stated reason for having no reference is accepted in its place.
+  const noRef = pid.submitIdentity({ ...base, taxReference: "", noTaxReferenceReason: "No UK tax reference — resident in DR Congo" });
+  assert.equal(noRef.ok, true);
+  assert.equal(noRef.identity.state, "submitted", "a submitted record is never born verified");
+  assert.equal(noRef.identity.sanctionsScreened, false);
+});
+
+test("payout identity: the gate opens one step at a time and never on its own", async () => {
+  pid.__resetIdentities();
+  const now = "2026-08-10T12:00:00.000Z";
+  assert.equal(pid.payoutAllowed(null).allowed, false, "a payout was allowed with no identity at all");
+  assert.ok(pid.payoutAllowed(null).missing.length > 0, "the refusal must name what is missing");
+
+  const r = pid.submitIdentity({ creatorId: "c9", legalName: "Justin Banks", dateOfBirth: "1998-04-02", addressLine: "1 High St", city: "Leeds", postcode: "LS1 1AA", country: "GB", taxReference: "AB123456C", nowISO: now });
+  assert.equal(r.ok, true);
+  await pid.saveIdentity(r.identity);
+
+  // Submitted is not verified. A form filled in neatly is not a person.
+  assert.equal(pid.payoutAllowed(await pid.loadIdentity("c9")).allowed, false);
+
+  // AND screening does not substitute for verification. A mutation deleting the
+  // "submitted" arm of the gate once survived, because the sanctions check
+  // happened to catch the same record — two guards masking each other. A record
+  // that is screened but unverified must still be blocked, on its own merits.
+  const screenedNotVerified = { ...(await pid.loadIdentity("c9")), sanctionsScreened: true };
+  assert.equal(pid.payoutAllowed(screenedNotVerified).allowed, false, "screening let an unverified identity through");
+  // A state nobody has thought of yet must fail closed, not open.
+  assert.equal(pid.payoutAllowed({ ...screenedNotVerified, state: "some_new_state" }).allowed, false);
+
+  await pid.markVerified("c9", "admin@jnn", now);
+
+  // Verified is still not screened.
+  const midway = pid.payoutAllowed(await pid.loadIdentity("c9"));
+  assert.equal(midway.allowed, false);
+  assert.match(midway.reason, /screening/i);
+
+  await pid.markScreened("c9", true, now);
+  assert.equal(pid.payoutAllowed(await pid.loadIdentity("c9")).allowed, true);
+
+  // A sanctions hit closes it again and records why.
+  await pid.markScreened("c9", false, now, "matched a listed name");
+  const shut = await pid.loadIdentity("c9");
+  assert.equal(shut.state, "rejected");
+  assert.equal(pid.payoutAllowed(shut).allowed, false);
+  assert.match(pid.payoutAllowed(shut).reason, /matched a listed name/);
+});
+
+test("payouts: money never leaves without a verified identity", async () => {
+  pid.__resetIdentities(); pex.__resetPayoutAttempts();
+  const now = "2026-08-10T12:00:00.000Z";
+  const req = { creatorId: "cx", railId: "stripe_bank", amountPence: 10_000, requestId: "r1", availablePence: 20_000, destination: "acct_1", nowISO: now };
+
+  const blocked = await pex.executePayout(req);
+  assert.equal(blocked.ok, false);
+  assert.ok(blocked.gate, "the refusal must be attributed to the identity gate");
+  // And nothing was claimed, so a later legitimate attempt is not poisoned.
+  assert.equal(await pex.loadAttempt(pex.payoutKey(req)), null, "a blocked payout must not leave a claim behind");
+});
+
+test("payouts: the order is identity, then balance, then fees, then send", async () => {
+  pid.__resetIdentities(); pex.__resetPayoutAttempts();
+  const now = "2026-08-10T12:00:00.000Z";
+  const r = pid.submitIdentity({ creatorId: "cy", legalName: "Ada Cole", dateOfBirth: "1990-01-01", addressLine: "2 Low St", city: "Leeds", postcode: "LS2 2BB", country: "GB", taxReference: "AB123456C", nowISO: now });
+  await pid.saveIdentity(r.identity);
+  await pid.markVerified("cy", "admin", now);
+  await pid.markScreened("cy", true, now);
+
+  // Balance is checked before the fee quote.
+  const over = await pex.executePayout({ creatorId: "cy", railId: "stripe_bank", amountPence: 50_000, requestId: "r1", availablePence: 20_000, destination: "acct_1", nowISO: now });
+  assert.equal(over.ok, false);
+  assert.match(over.error, /£500\.00 was requested and £200\.00 is available/);
+
+  // A withdrawal under the rail's minimum is refused by the quote, not by the rail.
+  const tiny = await pex.executePayout({ creatorId: "cy", railId: "stripe_bank", amountPence: 100, requestId: "r2", availablePence: 20_000, destination: "acct_1", nowISO: now });
+  assert.equal(tiny.ok, false);
+  assert.ok(tiny.quote && tiny.quote.ok === false);
+
+  // A requestId is mandatory — it is what makes a retry a retry.
+  const noReq = await pex.executePayout({ creatorId: "cy", railId: "stripe_bank", amountPence: 10_000, requestId: "", availablePence: 20_000, destination: "acct_1", nowISO: now });
+  assert.equal(noReq.ok, false);
+  assert.match(noReq.hint, /retry a retry/i);
+});
+
+test("payouts: with no rail connected nothing is reported as sent", async () => {
+  pid.__resetIdentities(); pex.__resetPayoutAttempts();
+  const now = "2026-08-10T12:00:00.000Z";
+  // No provider key is set in the test environment — that is the point.
+  for (const r of pex.liveRails()) assert.equal(r.live, false, `${r.railId} claims to be live in the test env`);
+
+  const id = pid.submitIdentity({ creatorId: "cz", legalName: "Ada Cole", dateOfBirth: "1990-01-01", addressLine: "2 Low St", city: "Leeds", postcode: "LS2 2BB", country: "GB", taxReference: "AB123456C", nowISO: now });
+  await pid.saveIdentity(id.identity);
+  await pid.markVerified("cz", "admin", now);
+  await pid.markScreened("cz", true, now);
+
+  const req = { creatorId: "cz", railId: "stripe_bank", amountPence: 10_000, requestId: "r1", availablePence: 20_000, destination: "acct_1", nowISO: now };
+  const out = await pex.executePayout(req);
+  assert.equal(out.ok, false, "a payout reported success with no provider connected");
+  assert.match(out.error, /not connected/i);
+  assert.match(out.error, /STRIPE_SECRET_KEY/);
+  assert.match(out.hint, /released/i, "a failed payout must release the balance");
+
+  // The failure is recorded, so nothing is silently lost.
+  const attempt = await pex.loadAttempt(pex.payoutKey(req));
+  assert.equal(attempt.state, "failed");
+  assert.equal(await pex.paidOutPence("cz"), 0, "a failed attempt must never count as paid");
+});
+
+test("payouts: the same request can never send twice", async () => {
+  pid.__resetIdentities(); pex.__resetPayoutAttempts();
+  const now = "2026-08-10T12:00:00.000Z";
+  const id = pid.submitIdentity({ creatorId: "cd", legalName: "Ada Cole", dateOfBirth: "1990-01-01", addressLine: "2 Low St", city: "Leeds", postcode: "LS2 2BB", country: "GB", taxReference: "AB123456C", nowISO: now });
+  await pid.saveIdentity(id.identity);
+  await pid.markVerified("cd", "admin", now);
+  await pid.markScreened("cd", true, now);
+
+  // The key is stable for the same withdrawal and different for a new one.
+  const k = (requestId, amountPence = 10_000) => pex.payoutKey({ creatorId: "cd", railId: "stripe_bank", amountPence, requestId });
+  assert.equal(k("r1"), k("r1"));
+  assert.notEqual(k("r1"), k("r2"), "a new withdrawal must get a new key");
+  assert.notEqual(k("r1"), k("r1", 20_000), "a different amount is a different withdrawal");
+
+  // Simulate a claim that succeeded, then replay it. It must return the first
+  // result rather than sending again.
+  const key = k("r1");
+  await pex.saveAttempt({ id: key, creatorId: "cd", railId: "stripe_bank", grossPence: 10_000, feesPence: 21, netPence: 9_979, state: "sent", providerRef: "tr_123", createdAt: now, settledAt: now });
+  const replay = await pex.executePayout({ creatorId: "cd", railId: "stripe_bank", amountPence: 10_000, requestId: "r1", availablePence: 20_000, destination: "acct_1", nowISO: now });
+  assert.equal(replay.ok, true);
+  assert.equal(replay.replayed, true, "a replay must be flagged as one");
+  assert.equal(replay.attempt.providerRef, "tr_123", "the replay must return the ORIGINAL provider reference");
+  assert.match(replay.note, /Nothing was sent twice/);
+
+  // Only sent attempts count as money out.
+  assert.equal(await pex.paidOutPence("cd"), 10_000);
+});
+
+test("payouts: the annual report carries what was filed, and the creator sees it", async () => {
+  pid.__resetIdentities();
+  const now = "2026-08-10T12:00:00.000Z";
+  const r = pid.submitIdentity({ creatorId: "cr", legalName: "Justin Banks", dateOfBirth: "1998-04-02", addressLine: "1 High St", city: "Leeds", postcode: "LS1 1AA", country: "GB", taxReference: "AB123456C", nowISO: now });
+  const row = pid.reportRow(r.identity, { earnedPence: 68_430, payoutsPence: 60_000, feesPence: 430 });
+  assert.equal(row.legalName, "Justin Banks");
+  assert.equal(row.taxReference, "AB123456C");
+  assert.equal(row.earnedPence, 68_430);
+  assert.match(row.address, /1 High St, Leeds, LS1 1AA/);
+
+  // Where there is no reference, the REASON is filed in its place rather than a
+  // blank — a return with a gap where an identifier should be comes back.
+  const noRef = pid.submitIdentity({ creatorId: "cr2", legalName: "Ada Cole", dateOfBirth: "1990-01-01", addressLine: "2 Rue", city: "Kinshasa", postcode: "", country: "CD", taxReference: "", noTaxReferenceReason: "No UK reference — resident in DR Congo", nowISO: now });
+  const row2 = pid.reportRow(noRef.identity, { earnedPence: 1_000, payoutsPence: 0, feesPence: 0 });
+  assert.match(row2.taxReference, /NONE PROVIDED/);
+  assert.match(row2.taxReference, /DR Congo/);
+});
+
+test("payouts: the route never lets one creator act on another's account", () => {
+  const route = readFileSync(new URL("../src/app/api/share2earn/route.ts", import.meta.url), "utf8");
+  // The creator id comes from the SESSION. A body-supplied id that disagrees is
+  // rejected rather than trusted — otherwise anyone could submit an identity
+  // for, or withdraw against, somebody else's account.
+  assert.match(route, /const me = auth\.uid \|\| str\("creatorId"\)/);
+  assert.match(route, /You can only act on your own account/);
+  // Reading somebody else's identity or filing their tax row is admin-only.
+  // Asserted per BLOCK rather than by counting guards — verify and screen share
+  // one entry point, so a count of calls says nothing about coverage.
+  for (const [open, close] of [
+    ['if (action === "verify-identity" || action === "screen-identity")', 'if (action === "tax-report")'],
+    ['if (action === "tax-report")', "// Withdrawals belong to the CREATOR"],
+  ]) {
+    const block = route.slice(route.indexOf(open), route.indexOf(close));
+    assert.ok(block.length > 50, `could not find the block starting ${open}`);
+    assert.match(block, /requireAuth\(req, \{ scope: "platform_admin" \}\)/, `${open} is not admin-gated`);
+  }
+  // The tax reference goes in and does not come back out.
+  const identityBlock = route.slice(route.indexOf('if (action === "identity")'), route.indexOf('if (action === "payout-history")'));
+  assert.ok(!/taxReference: res\.identity/.test(identityBlock), "the tax reference is echoed back to the browser");
+});

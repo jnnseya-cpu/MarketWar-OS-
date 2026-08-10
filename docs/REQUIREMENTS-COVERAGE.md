@@ -3613,3 +3613,114 @@ reports which are live from their env keys, and none is set. Connecting them
 needs the provider accounts, and the identity collection the reporting rules
 require needs a KYC step before a first payout. That is the remaining gate, and
 it is commercial and legal rather than a code problem.
+
+---
+
+## §79 — Payouts activated: the identity gate and the money leaving (2026-08-10)
+
+**Owner instruction:** activate the rails and the KYC gate.
+
+Two halves, and they are different in kind. The **code** is done — the identity
+gate, the real provider adapters, execution with idempotency, and the annual
+report. The **accounts and keys** are not something an assistant can create;
+that part is listed at the end as the owner's step, and it is now the only one.
+
+`src/backend/payout-identity.ts`, `src/backend/payout-execute.ts`, exposed as
+`/api/share2earn` actions `identity`, `withdraw`, `payout-history`,
+`verify-identity`, `screen-identity`, `tax-report`.
+
+### The identity gate
+
+Two separate reasons it is mandatory, kept apart because they fail differently:
+the **reporting rules** (missing details are not a gap in a form, they are an
+unfileable return) and **paying the wrong person** (a payout is irreversible on
+most rails and instant on some, so an unverified account is one a phished
+password can drain).
+
+`submitIdentity` validates shape and refuses with the field named: a single-word
+name, an under-18, an implausible or wrongly formatted date of birth, an alpha-3
+country code, a missing address, and a tax reference that does not match the
+country's format. Where there is genuinely no reference, a **stated reason** is
+filed in its place — a return with a blank where an identifier should be comes
+back.
+
+It **does not pretend to verify**. Confirming a human matches a document is an
+identity provider's job; with none configured the record stays unverified and an
+administrator confirms it by hand, recorded against their name. Sanctions
+screening is the same: named, required, and left as an explicit unmet dependency
+rather than faked with a substring match.
+
+The record is **encrypted at rest** per account using the platform's existing
+AES-256-GCM helper, and the tax reference goes in without coming back out — the
+route never echoes it to the browser.
+
+### A mutation survived, and it found a real hole
+
+The gate was an enumeration of states to reject: `not_started`, `rejected`,
+`submitted`. A mutation deleting the `submitted` arm **still passed**, because
+the sanctions check below happened to catch the same record.
+
+Two guards masking each other is two guards you cannot reason about — and the
+hole was real: **a record that WAS screened but NOT verified would have gone
+straight through.** The gate is now a positive check (`state !== "verified"`
+blocks), so a state nobody has thought of yet fails closed, and the test asserts
+the screened-but-unverified case explicitly.
+
+### Execution
+
+The order is fixed and every step refuses rather than warns: **identity →
+balance → fee quote → claim → send → settle or release.**
+
+The **claim is written before the provider is called**. A double click, a retry,
+or a timeout the client never saw finds the claim and returns the first result
+instead of sending again; the idempotency key is derived from creator, rail,
+amount and a caller-supplied `requestId`, and is passed to the providers'
+own idempotency headers as well, so a retry is safe at both layers. A **failed
+payout releases the balance immediately** — money locked behind a failure is a
+support ticket and a lost user. Only `sent` attempts count as money out.
+
+And the rule that matters most: **nothing is ever reported as sent without a
+provider reference.** With no key configured it says so plainly and names the
+missing variable. A network failure is reported as genuinely ambiguous rather
+than guessed at, because the provider may or may not have received it.
+
+Adapters written against the providers' real endpoints: Stripe Connect
+transfers, PayPal Payouts, Wise transfers, and BitriPay for M-Pesa, Orange,
+Airtel, Africell and local bank. Deliberately dumb — build the request, read the
+reference, return a typed error. **No retry loops inside them**: a retry on a
+payout endpoint is how somebody gets paid twice.
+
+### A detail worth keeping
+
+The first probe used `QQ123456C` as a National Insurance number and the
+validator rejected it. That is HMRC's own **example** value, and it is
+deliberately invalid — real NI numbers never begin with Q. Accepting it would
+have filed a return with a placeholder in it. The rejection is now a test.
+
+### Verification
+
+Tests **1032 → 1040**. Typecheck, layer check and build green. Nine mutation
+checks run: the identity gate skipped; the idempotency claim never read; the
+balance check removed; a missing provider key no longer blocking; failed
+attempts counted as paid; sanctions screening dropped; a submitted record
+treated as verified; under-18s payable; and one that initially survived and led
+to the fix above. Engine registry 50 → 52.
+
+### What is left, and it is the owner's
+
+**Everything below needs an account that only the owner can open.** The code is
+inert without them and says so rather than failing oddly:
+
+| Variable | For | Where to get it |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Bank and instant-to-card payouts; also satisfies the identity-provider check via Stripe Identity | Stripe dashboard → Developers → API keys. Connect must be enabled for transfers. |
+| `PAYPAL_CLIENT_ID` | PayPal payouts | PayPal Developer → app credentials. Payouts must be approved on the account. |
+| `WISE_API_TOKEN` | Wise transfers | Wise Business → API tokens. |
+| `BITRIPAY_API_KEY` | M-Pesa, Orange, Airtel, Africell, local bank | BitriPay account. |
+| `SANCTIONS_API_KEY` | Screening before a first payout | Any screening provider; the gate blocks until it is set or an administrator records the screening by hand. |
+
+Two things beyond the keys, both commercial rather than technical: **Stripe
+Connect onboarding** for each creator (they need a connected account before a
+transfer has a destination), and a decision on **who signs off a manual identity
+verification** while no identity provider is connected — the code records the
+administrator's id against the decision, so it needs to be a named person.
