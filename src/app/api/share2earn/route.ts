@@ -15,6 +15,10 @@ import {
   rewardCapacity, allowedRate, splitCapacity, canCommit, capacityFromTransaction,
   GROWTHGUARD_CEILING, GROWTHGUARD_DOCTRINE, CAPACITY_SPLIT,
 } from "@/backend/profit-guard-economics";
+import {
+  PAYOUT_RAILS, railsForCountry, railConfigured, quoteWithdrawal, taxPosition,
+  PAYOUT_DOCTRINE, ADMIN_FEE_RATE, ADMIN_FEE_BASIS,
+} from "@/backend/payout-fees";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -63,6 +67,11 @@ export async function GET(req: NextRequest) {
       growthGuard: { ceiling: GROWTHGUARD_CEILING, split: CAPACITY_SPLIT, doctrine: GROWTHGUARD_DOCTRINE },
       fundingModes: FUNDING_MODES,
       customerClasses: DEFAULT_CLASS_POLICY,
+      payouts: {
+        rails: PAYOUT_RAILS.map(({ envKey, ...r }) => ({ ...r, live: railConfigured({ ...r, envKey } as never) })),
+        adminFeeRate: ADMIN_FEE_RATE, adminFeeBasis: ADMIN_FEE_BASIS,
+        doctrine: PAYOUT_DOCTRINE,
+      },
       disclosure: DISCLOSURE,
       ladder: ladderIsSane(),
     });
@@ -128,6 +137,29 @@ export async function POST(req: NextRequest) {
       missionsAccepted: num("missionsAccepted"), missionsCompleted: num("missionsCompleted"),
       postsSubmitted: num("postsSubmitted"), postsStillLive: num("postsStillLive"),
     }));
+  }
+
+  // Withdrawals belong to the CREATOR, not to a brand. Session identity only —
+  // a creatorId in the body would let anyone quote against anyone's balance.
+  if (action === "withdraw-quote" || action === "tax") {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const country = str("country");
+
+    if (action === "tax") {
+      return NextResponse.json(taxPosition({
+        earnedThisYearPence: Math.max(0, Math.round(num("earnedThisYearPence"))),
+        country: country || undefined,
+      }));
+    }
+
+    const amount = Math.max(0, Math.round(num("amountPence")));
+    const quote = quoteWithdrawal({ railId: str("railId"), amountPence: amount, country: country || undefined });
+    return NextResponse.json({
+      quote,
+      rails: railsForCountry(country).map(({ envKey, ...r }) => ({ ...r, live: railConfigured({ ...r, envKey } as never) })),
+      doctrine: PAYOUT_DOCTRINE,
+    }, { status: quote.ok ? 200 : 400 });
   }
 
   // Everything below belongs to a brand.

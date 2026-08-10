@@ -3519,3 +3519,97 @@ influencer band.
 - **Withdrawals** remain the gate. Money can now be earned, classified, held,
   capped and settled — it cannot leave. Payout rail, KYC and a tax position, and
   it is not a code problem.
+
+---
+
+## §78 — Withdrawals: not employees, paid gross, fees passed through (2026-08-09)
+
+**Owner ruling:** creators are not employees. They can request payout wherever
+they are. On top of the commission, the **processing fee of whichever withdrawal
+platform they choose** is charged, and **3% of that charge** is applied as an
+admin fee.
+
+`src/backend/payout-fees.ts`, exposed as `/api/share2earn` actions
+`withdraw-quote` and `tax`. It builds on `creator-engine.ts`, which already
+routes Africa to BitriPay and everywhere else to Stripe and keeps the release
+ledger idempotent — that path is untouched.
+
+### The 3%: a reading chosen, and the other one named
+
+*"the processing fee based on the withdraw platform they want and a 3% of that
+charge as admin fees"* — "that charge" reads most directly as the **processing
+fee**, and that is what is implemented. On a £2 PayPal fee the admin fee is
+**6p**.
+
+The other reading is 3% of the **withdrawal**: £3 on £100 — fifty times more, and
+six times the 0.5% commission the creator earned to get there. Given how hard the
+rest of this system works to protect the smaller participant, the smaller reading
+is the one that fits. **It is one constant and one flag**: `ADMIN_FEE_BASIS`
+switches it, and a mutation flipping it fails the test, so the choice is
+deliberate rather than accidental either way.
+
+### Tax: nothing withheld, but a real duty
+
+Not employees means **no income tax, no National Insurance, no PAYE** — creators
+are paid gross and declare their own earnings where they live.
+
+That is **not** the same as the platform having no obligation, and this is the
+part worth flagging because it is easy to miss. Since January 2024 the UK's
+reporting rules for digital platforms (the OECD model rules; DAC7 in the EU)
+require a platform paying sellers for services to **collect their identity
+details and report annual earnings to the tax authority**. So the platform's duty
+is to know who it paid and hand HMRC and the creator the same number — not to
+deduct anything from it. `taxPosition()` states the platform's obligations, the
+creator's own, and carries a plain "this is not tax advice" disclaimer.
+
+### Withdraw wherever you are
+
+Nine rails: Stripe bank and instant-to-card, PayPal, Wise, local bank, and
+mobile money on **M-Pesa, Orange Money, Airtel Money and Africell** through
+BitriPay. Mobile-money minimums are deliberately **£2** rather than the £5–£20 of
+the bank rails, because small frequent withdrawals are the norm on those rails
+and a high floor there would exclude exactly the people the module is for. A
+rail that does not serve the creator's country is refused with the ones that do.
+
+Fee figures are **estimates from published rates, deliberately on the high side**
+— quoting a creator less than they are charged is the one error here that
+produces an angry person with a screenshot. Correct against the first real
+settlement report and every quote re-derives.
+
+### Fees can never eat the withdrawal
+
+Three guards, in order:
+
+1. **Per-rail minimum** — below it the quote names the minimum and points at a
+   rail with a lower floor.
+2. **A warning above 10%** — it warns rather than blocks, because the choice
+   stays the creator's.
+3. **A hard refusal at 25%** — a withdrawal where fees take a quarter of the
+   money is refused rather than offered.
+
+The test asserts the property that actually matters: **at every rail's own
+minimum the fee share is already below the refusal threshold**, so the minimums
+are what does the work and the 25% rule is a backstop against a future pricing
+change. A first attempt tested the refusal directly and failed — the minimum
+guard fired first, with a more useful message. That is the design working.
+
+Every quote is itemised before confirmation, saying **whose** each charge is —
+the rail's or ours — because "fees" as a single number is how a pass-through gets
+mistaken for a margin. And where another rail would leave the creator with more,
+the quote says so unprompted.
+
+### Verification
+
+Tests **1027 → 1032**. Typecheck, layer check and build green. Five mutation
+checks run and all five caught: the admin fee charged on the withdrawal instead
+of the processing fee; 20% withheld from a non-employee; the per-rail minimum
+removed; any rail offered in any country; and the cheaper alternative hidden.
+Engine registry 49 → 50.
+
+### Still open
+
+The rails are **priced and quoted but not yet connected** — `railConfigured()`
+reports which are live from their env keys, and none is set. Connecting them
+needs the provider accounts, and the identity collection the reporting rules
+require needs a KYC step before a first payout. That is the remaining gate, and
+it is commercial and legal rather than a code problem.

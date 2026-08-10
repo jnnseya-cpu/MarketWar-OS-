@@ -12002,3 +12002,113 @@ test("share2earn 0.5%: engagement earns XP, only a sale earns cash", () => {
   let last = -1;
   for (const l of s2e.LEVELS) { assert.ok(l.xp > last, "level thresholds must increase"); last = l.xp; }
 });
+
+// ---------------------------------------------------------------------------
+// Withdrawals — creators are not employees, and the money has to be able to
+// leave without being eaten on the way out.
+// ---------------------------------------------------------------------------
+const pay = await import("../src/backend/payout-fees.ts");
+
+test("payouts: nothing is withheld, because a creator is not an employee", () => {
+  const t = pay.taxPosition({ earnedThisYearPence: 68_430, country: "CD" });
+  assert.equal(t.withholdingPence, 0, "tax was deducted from someone who is not an employee");
+  assert.equal(t.employed, false);
+  assert.match(t.statements.join(" "), /no income tax, no National Insurance, no PAYE/i);
+
+  // Not withholding is not the same as having no duty. A platform that pays for
+  // services has to know who it paid and report it.
+  const obligations = t.platformObligations.join(" ");
+  assert.match(obligations, /collects your name/i);
+  assert.match(obligations, /reported to the tax authority/i);
+  assert.match(obligations, /cannot|do not deduct/i);
+  assert.ok(t.creatorObligations.length >= 2, "the creator's own duty must be stated too");
+  assert.match(t.disclaimer, /not tax advice/i);
+});
+
+test("payouts: the admin fee is 3% of the processing fee, not of the withdrawal", () => {
+  assert.equal(pay.ADMIN_FEE_RATE, 0.03);
+  assert.equal(pay.ADMIN_FEE_BASIS, "processing_fee");
+
+  const q = pay.quoteWithdrawal({ railId: "paypal", amountPence: 10_000, country: "GB" });
+  assert.equal(q.ok, true);
+  assert.equal(q.processingFeePence, 200, "PayPal at 2% of £100");
+  assert.equal(q.adminFeePence, 6, "3% of the £2 processing fee is 6p — not £3 of the withdrawal");
+  assert.equal(q.netPence, 9_794);
+  assert.equal(q.grossPence - q.processingFeePence - q.adminFeePence, q.netPence, "the lines must add up");
+
+  // The itemisation says whose each charge is, because "fees" as one number is
+  // how a pass-through gets mistaken for a margin.
+  const whose = q.lines.map((l) => l.whose);
+  assert.ok(whose.includes("rail") && whose.includes("platform"));
+  assert.match(q.lines.find((l) => l.whose === "platform").label, /3% of the processing fee/);
+});
+
+test("payouts: fees can never eat the withdrawal", () => {
+  // THE REAL SAFETY PROPERTY: every rail's minimum is set high enough that the
+  // 25% refusal can never be reached above it. The refusal is a backstop
+  // against a future pricing change, not the thing doing the work — and this
+  // asserts that the minimums are the thing doing the work.
+  for (const r of pay.PAYOUT_RAILS) {
+    const p = pay.processingFee(r, r.minWithdrawalPence);
+    const share = (p + pay.adminFee(p, r.minWithdrawalPence)) / r.minWithdrawalPence;
+    assert.ok(share < pay.FEE_REFUSAL_SHARE, `${r.id}'s minimum of £${(r.minWithdrawalPence / 100).toFixed(2)} still gives ${Math.round(share * 100)}% fees`);
+  }
+  // Below the minimum the refusal names the minimum rather than a percentage,
+  // which is the more useful thing to be told.
+  const tiny = pay.quoteWithdrawal({ railId: "mpesa", amountPence: 110 });
+  assert.equal(tiny.ok, false);
+  assert.equal(tiny.minimumPence, 200);
+
+  // Below a rail's minimum it says so and points at one with a lower floor.
+  const small = pay.quoteWithdrawal({ railId: "stripe_bank", amountPence: 100 });
+  assert.equal(small.ok, false);
+  assert.equal(small.minimumPence, 500);
+  assert.match(small.hint, /M-Pesa|lower minimum|£2\.00/i);
+
+  // Between those, it warns rather than blocks — the choice stays the creator's.
+  const warned = pay.quoteWithdrawal({ railId: "mpesa", amountPence: 200 });
+  assert.equal(warned.ok, true);
+  assert.ok(warned.warning, "a 14% fee share should carry a warning");
+  assert.ok(warned.netPence > 0);
+
+  // And the net is never negative on any rail at any amount above its minimum.
+  for (const r of pay.PAYOUT_RAILS) {
+    for (const amt of [r.minWithdrawalPence, 5_000, 100_000]) {
+      const q = pay.quoteWithdrawal({ railId: r.id, amountPence: amt });
+      if (q.ok) assert.ok(q.netPence > 0 && q.netPence < q.grossPence, `${r.id} at ${amt} produced ${q.netPence}`);
+    }
+  }
+});
+
+test("payouts: a creator can withdraw wherever they are", () => {
+  // Mobile money exists so that not having a bank account is not a barrier.
+  const drc = pay.railsForCountry("CD").map((r) => r.id);
+  assert.ok(drc.includes("mpesa") && drc.includes("orange_money") && drc.includes("airtel_money") && drc.includes("africell_money"));
+  const uk = pay.railsForCountry("GB").map((r) => r.id);
+  assert.ok(uk.includes("stripe_bank"));
+  assert.ok(!uk.includes("mpesa"), "M-Pesa should not be offered where it does not operate");
+
+  // Asking for a rail that does not serve that country is refused with the ones
+  // that do, rather than a bare error.
+  const wrong = pay.quoteWithdrawal({ railId: "mpesa", amountPence: 10_000, country: "GB" });
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.hint, /Bank transfer/);
+
+  // Mobile-money minimums are deliberately low, because small frequent
+  // withdrawals are the norm on those rails.
+  for (const id of ["mpesa", "orange_money", "airtel_money", "africell_money"]) {
+    assert.ok(pay.rail(id).minWithdrawalPence <= 500, `${id} has a minimum too high for the market it serves`);
+  }
+});
+
+test("payouts: the quote points at a cheaper rail when one exists", () => {
+  const q = pay.quoteWithdrawal({ railId: "paypal", amountPence: 10_000, country: "GB" });
+  assert.equal(q.ok, true);
+  assert.ok(q.cheaper, "£100 to PayPal is not the cheapest UK option and the quote should say so");
+  assert.ok(q.cheaper.netPence > q.netPence);
+
+  // On the cheapest rail there is nothing better to suggest.
+  const best = pay.quoteWithdrawal({ railId: "stripe_bank", amountPence: 10_000, country: "GB" });
+  assert.equal(best.ok, true);
+  assert.equal(best.cheaper, undefined);
+});
