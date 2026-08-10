@@ -12587,3 +12587,59 @@ test("payout identity: a country that issues no tax reference is not asked for o
   assert.match(pay.taxPosition({ earnedThisYearPence: 50_000, country: "AE" }).platformObligations.join(" "), /issues no individual tax reference/i);
   assert.match(pay.taxPosition({ earnedThisYearPence: 50_000, country: "CD" }).platformObligations.join(" "), /normal answer rather than a problem/i);
 });
+
+test("payouts: exactly one file may move money to a person", () => {
+  // The defect this prevents has already happened once: the platform grew a
+  // second payout path, and the weaker one paid more. A third would be found the
+  // same way — after it had paid somebody twice.
+  //
+  // So the invariant is structural: every call to a payout provider lives in
+  // payout-execute.ts, and everything else delegates.
+  const backend = readdirSync(new URL("../src/backend/", import.meta.url));
+  const PROVIDER_ENDPOINTS = /api\.stripe\.com\/v1\/(transfers|payouts)|api-m\.paypal\.com\/v1\/payments\/payouts|api\.wise\.com\/v1\/transfers|api\.bitripay\.com\/v1\/payouts/;
+
+  const offenders = backend
+    .filter((f) => f.endsWith(".ts") && f !== "payout-execute.ts")
+    .filter((f) => PROVIDER_ENDPOINTS.test(readFileSync(new URL(`../src/backend/${f}`, import.meta.url), "utf8")));
+  assert.deepEqual(offenders, [], `these files call a payout provider directly instead of going through payout-execute: ${offenders.join(", ")}`);
+
+  // And no route may either — a payout assembled in a route bypasses every gate.
+  const routes = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(new URL(dir, import.meta.url), { withFileTypes: true })) {
+      if (e.isDirectory()) walk(`${dir}${e.name}/`);
+      else if (e.name === "route.ts") routes.push(`${dir}${e.name}`);
+    }
+  };
+  walk("../src/app/api/");
+  for (const r of routes) {
+    assert.ok(!PROVIDER_ENDPOINTS.test(readFileSync(new URL(r, import.meta.url), "utf8")), `${r} calls a payout provider directly`);
+  }
+});
+
+test("payouts: both programmes share the mechanism and keep their own rates", async () => {
+  // SAME MECHANISM. Everything that protects a withdrawal applies to both.
+  const engine = readFileSync(new URL("../src/backend/creator-engine.ts", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/share2earn/route.ts", import.meta.url), "utf8");
+  for (const [src, who] of [[engine, "the growth programme"], [route, "SHARE2EARN"]]) {
+    assert.match(src, /executePayout\(\{/, `${who} does not go through the shared payout path`);
+  }
+  // executePayout is where the gates live, so sharing it IS sharing them.
+  const exec = readFileSync(new URL("../src/backend/payout-execute.ts", import.meta.url), "utf8");
+  assert.match(exec, /payoutAllowed\(identity\)/);
+  assert.match(exec, /quoteWithdrawal\(/);
+  assert.match(exec, /await loadAttempt\(id\)/);
+
+  // DIFFERENT RATES, deliberately. Sharing the plumbing must not have flattened
+  // the commission ladder.
+  assert.equal(cp.INFLUENCER_RATE_10K, 0.01);
+  assert.equal(cp.INFLUENCER_RATE_5K, 0.0075);
+  assert.equal(cp.SHARE2EARN_RATE, 0.005);
+  assert.equal(cp.share2earnNeverPaysMore(), true);
+  assert.notEqual(cp.SHARE2EARN_RATE, cp.INFLUENCER_RATE_10K, "the two programmes must not have collapsed into one rate");
+
+  // And the growth programme keeps its own extra gate — the follower threshold —
+  // on top of the shared identity gate.
+  assert.match(engine, /w\.payoutEligible/);
+  assert.equal(cp.MIN_PAYOUT_FOLLOWERS, 10_000);
+});

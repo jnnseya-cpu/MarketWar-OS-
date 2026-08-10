@@ -3892,3 +3892,29 @@ registry 52 → 53.
 
 One §79 assertion was updated rather than the code: the report row now reads
 "NO TIN — <code label> (<jurisdiction note>)" instead of "NONE PROVIDED".
+
+### §81 addendum — verified, and locked in
+
+Asked to confirm that the growth programme and SHARE2EARN now share a payout, the
+claim was checked rather than asserted. **Every call to a payout provider lives in
+`payout-execute.ts`** — four `fetch`es, one file — and `executePayout` has exactly
+two callers: `creator-engine.requestPayout` and the SHARE2EARN route.
+
+**Same mechanism, different rates**, and both halves now have a test:
+
+| Shared | Kept separate |
+|---|---|
+| Identity gate (verified + screened) | Rate: influencer 1% / 0.75%, SHARE2EARN 0.5% |
+| Fee quote, rails, minimums, the 25% refusal | What triggers the earning |
+| Idempotency claim before the provider call | Follower gate: 10,000 on the growth programme, none on SHARE2EARN |
+| Release-on-failure and the attempt ledger | £20k cap-and-recycle vs GrowthGuard's 5% ceiling |
+| Paid gross, no withholding, same reporting | Product eligibility (SHARE2EARN only) |
+
+A structural guard now enforces the first column: a test walks `src/backend/` and
+every API route and fails if any file other than `payout-execute.ts` calls a
+payout endpoint. This defect class has already occurred once — the platform grew
+a second path and the weaker one paid more — and a third would have been found
+the same way, after it had paid somebody twice. A mutation adding a direct Stripe
+call to `creator-engine.ts` fails the test.
+
+Tests **1052 → 1054**.
