@@ -3209,3 +3209,225 @@ drops below it; the mission funding check removed; pay-per-view switched on; the
 score computed over any volume; one finished mission treated as a history; and
 the payout hold removed. Engine registry 47 → 48, with `COMPETITIVE-POSITION.md`
 recounted.
+
+---
+
+## §75 — ProfitGuard AI™: creators earn from value created (2026-08-09)
+
+**Owner ruling:** SHARE2EARN must be self-funding and margin-protected by design.
+A company must never pay creators more than the verified economic value they
+generate, and no campaign may be pushed into negative margin to create
+engagement. *Creators earn from the value they create — never from the survival
+margin of the business.*
+
+`src/backend/profit-guard-economics.ts`, wired into `createMission`, exposed via
+`/api/share2earn` (`economics`, `waterfall`, `health`, `classify`) and rendered
+in the mission builder.
+
+### A file was overwritten and restored
+
+`profit-guard.ts` already existed — ProfitGuard's nine pre-scale checks for video
+clips (in stock, offer valid, price correct, margin clears the floor, delivery
+capacity, page and checkout working, CAC viable, AI cost controlled). It was
+**overwritten** by the new economics engine, which is a breach of the
+Additive-Only Law. It was restored from git and the new work now lives in
+`profit-guard-economics.ts`. Both keep the ProfitGuard name and neither is lost:
+one answers *"is it safe to scale this clip?"*, the other *"what can this offer
+afford to pay a creator?"* — a checklist and a waterfall are different shapes.
+
+### The owner's arithmetic, encoded as tests
+
+Both worked examples are asserted verbatim, because a financial governor that
+disagrees with the arithmetic it was specified from is worse than none.
+
+| | Example 1 | Example 2 (Commission Waterfall) |
+|---|---|---|
+| Price | £100 | £120 |
+| Variable costs | £55 | £75 (COGS 50, delivery 10, payment 4, tax 6, returns 5) |
+| Contribution | £45 | £45 |
+| Protected margin | £20 | £25 |
+| **Growth pool** | **£25** | **£20** |
+| Allocation | creator £15, MarketWar £5, reserve £2 | creator £12, platform £4, squad £1, reserve £3 |
+| Merchant keeps | **£23** | **£25** |
+
+A £35 creator reward out of the £25 pool is **refused**, naming the £10 it would
+take out of the protected margin — exactly as specified.
+
+Break-even ROAS 2.22× and minimum permitted ROAS 4.00× fall out of the same
+numbers rather than being entered separately.
+
+### The floor has no override, and that is a property rather than a promise
+
+A floor with an escape hatch is not a floor, and the hurry is exactly when it
+would be used. The first version of this test grepped the source for
+"override" — and failed, because the module's *own prose* says it has none. It
+was replaced with a **property test over 100 combinations** of price, cost and
+protection level asserting that the pool always equals contribution minus
+protection, that the protection is never quietly reduced, and that one penny past
+the pool is always refused. That is a stronger claim than any text search.
+
+### The one word this module refuses to misuse
+
+**"Incremental".** A sale attributed to a creator's link is not proof it would not
+have happened anyway, and classifying a buyer as "new" does not establish
+incrementality either. So with no holdout every figure says **ATTRIBUTED**, and
+the dashboard's caveat says plainly that it is not a measure of incremental
+profit. Configure a real holdout — 300 a side minimum, below which it says it is
+measuring noise — and lift is computed properly, and only then does the word
+appear. A CFO who catches the product calling attributed revenue "incremental"
+once will never trust another number on the screen, and would be right not to.
+
+The owner's dashboard line is delivered, with the honest label:
+`£28,420 attributed revenue · £12,789 attributed gross profit · £2,880 spent ·
+£9,909 contribution retained` and `Every £1 spent produced £3.44 of attributed
+contribution`.
+
+### The rest of the specification
+
+- **Safe Reward Ceiling™** and **campaign limits** — max CPA, max CPL, max creator
+  commission, max total spend, break-even and minimum ROAS. **A lead is only
+  priced when a lead-to-sale rate has actually been measured**; without one
+  `maxCplPence` is zero and says why, because pricing a lead against an assumed
+  conversion rate is how acquisition budgets disappear.
+- **IncrementalityGuard™** — new 100%, returning-after-a-gap 50%, already-active
+  10%, organic 0%, self-referral 0%. Classification is knowable from the vault;
+  incrementality is not, and the module keeps the two apart.
+- **Kill Switch** — CPA over ceiling and a collapse in conversion quality
+  *throttle* (by enough to bring CPA back under the ceiling); ROAS under the
+  minimum, a dead offer, an exhausted budget, refunds over 12% and fraud over 3%
+  each *pause*. Every trip states what happened and what was done about it.
+- **Dynamic commission** — a **controller, not an optimiser**. It compares actual
+  CPA against the ceiling and moves toward the headroom that exists; it does not
+  move at all below 20 conversions, because adjusting a price on four is reacting
+  to noise. Nobody has measured a creator-supply response curve, so none is
+  pretended.
+- **Revenue-Locked Rewards™ / Business Survival Mode™** — a sale mission now
+  defaults to `revenue_locked`: only the activity rewards need cash up front, and
+  the commission is funded out of the transaction. Nothing accrues before the
+  customer's money arrives, a refund or chargeback **voids** the commission, and
+  split settlement releases half on payment and half after the cancellation
+  window.
+- **A sale reward now requires the offer's economics.** Without them nobody knows
+  whether the commission fits inside the margin, and "we will work it out later"
+  is how a campaign eats a business.
+
+### Changed from the previous session
+
+The specification revises the earlier proposal on views, and the module already
+matched: `qualified_engagement` was never payable. Views now explicitly earn XP,
+rank and access rather than cash — recorded here as the owner's ruling, with the
+cash ladder (5 qualified clicks → £0.50, lead → £2, first purchase → £8, repeat
+→ £2) as the shape the reward table should take once a brand's own economics set
+the ceiling.
+
+### Verification
+
+Tests **1007 → 1017**. Typecheck, layer check and build green. Eight mutation
+checks run and all eight caught: the pool ignoring the protected margin; the
+waterfall accepting any allocation; lift claimed with no holdout; the dashboard
+always saying "incremental"; a lead priced against an assumed 20% conversion;
+commission tuning on any volume; money accruing before the customer pays; and a
+sale commission needing no economics. Engine registry 48 → 49.
+
+### Still open
+
+Withdrawals remain the gate: money can be earned, held, classified and settled —
+it cannot leave. That needs a payout rail, KYC and a tax position, and it is not
+a code problem.
+
+---
+
+## §76 — GrowthGuard™: the 5% law (2026-08-09)
+
+**Owner ruling:** the total cost of SHARE2EARN must never exceed **5% of the
+verified economic value it generates** — an absolute system ceiling, not
+something a merchant can override. And the rate actually used is
+`MIN(5%, merchant safe rate)`, so a thin-margin business runs at a fraction of
+it automatically.
+
+Added to `profit-guard-economics.ts`; exposed as `/api/share2earn` action
+`capacity`.
+
+### The owner's ladder, reproduced exactly
+
+| Verified contribution generated | Maximum total spend | Merchant retains |
+|---|---|---|
+| £0 | £0 | £0 |
+| £2,000 | £100 | £1,900 |
+| £10,000 | £500 | £9,500 |
+| £100,000 | £5,000 | £95,000 |
+
+And the £500 splits to the owner's shares to the penny: creators £300,
+MarketWar £75, referral and squad £50, refund and fraud reserve £50,
+performance bonuses £25.
+
+### The three locks
+
+1. **Incrementality** — only value attributed to SHARE2EARN counts, and where a
+   holdout exists only measured incremental value counts.
+2. **GrowthGuard 5%** — the whole ecosystem, creator rewards and MarketWar's own
+   fee included, cannot consume more than 5% of that value.
+3. **Survival Floor** — the merchant names the share of contribution it must
+   retain, and if even 5% would breach it the rate drops further. Verified: a
+   98% floor pulls a 5%-capable offer down to 2%.
+
+The ceiling is asserted **behaviourally over 100 combinations** of cost,
+protection and survival floor — the rate is never above 5% for any of them.
+
+### A grep was removed, again
+
+The first version of that test also grepped the source for a scaled ceiling and
+**failed on an unrelated local variable named `ceiling`** inside
+`tuneCommission`. That is the second false positive from text-searching this
+codebase for a property (the first was §75's "override" check finding the
+module's own documentation). Both are now behavioural. Exercising the function
+over its inputs proves the thing itself rather than a spelling of it, and this
+is worth remembering the next time a source grep looks like a cheap assertion.
+
+### A discrepancy in the specification, named rather than silently resolved
+
+The instruction says the 5% is computed *"against verified incremental
+contribution, not simply gross sales"* — and separately gives an example where a
+£100 purchase yields £5 of allowance, which is **5% of revenue**. On any offer
+without a 100% margin those are different numbers.
+
+This implements the **principle (contribution)**, because it is the stricter of
+the two and it is precisely what protects a thin-margin business: 5% of a
+supermarket basket's revenue would be most of its profit, while 5% of its
+contribution is pennies. The revenue-equivalent is reported alongside as
+`equivalentPctOfRevenue` so the difference is visible rather than buried, and
+`basis` switches it in one place if the owner prefers the looser reading.
+
+### And one on "verified incremental"
+
+Computing capacity strictly on *measured incremental* contribution would require
+every merchant to run a holdout, which would leave most SMEs with zero capacity
+and no way to start. So capacity is computed on **attributed** contribution by
+default, labelled as such, with the caveat stating plainly that this is the more
+generous reading and that configuring a holdout makes it stricter and truer. When
+a holdout exists the figures switch to incremental automatically.
+
+### Outcome-funded, not budget-funded
+
+`capacityFromTransaction` adds capacity one settled transaction at a time — a
+£93 contribution adds £4.65 and the other £88.35 stays with the merchant.
+`canCommit` refuses new liability once the ceiling is reached and offers the
+partial amount that remains rather than going silent. Generate nothing and the
+performance-funded budget is nothing; there is no starting balance to burn
+through.
+
+This is why a creator is shown **"earn up to £X from verified results"** rather
+than a guarantee: the reward exists only once the commercial result has funded
+it.
+
+### Verification
+
+Tests **1017 → 1023**. Typecheck, layer check and build green. Five mutation
+checks run and all five caught: the 5% ceiling dropped; the Survival Floor
+ignored; committed spend not reducing remaining capacity; any commitment granted
+regardless of capacity; and rounding over-allocating the split.
+
+One test from §74 was corrected rather than the code: `an unfunded bounty never
+publishes` was pinned to a sale-bearing mission, which §75 made refuse *earlier*
+and for a stricter reason (a sale reward now needs the offer's economics). It now
+tests the funding check on activity rewards, which is what it was always about.

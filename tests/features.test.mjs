@@ -11453,17 +11453,19 @@ test("share2earn: only what the platform counts itself is payable", () => {
 test("share2earn: an unfunded bounty never publishes", async () => {
   s2e.__resetShare2Earn();
   const now = "2026-08-09T12:00:00.000Z";
+  // Activity rewards need cash up front — there is no transaction to fund them
+  // from, which is exactly why they are the ones a budget has to cover.
   const rewards = [
     { actionId: "traffic", units: 100, label: "100 clicks" },
-    { actionId: "sale", units: 2, pencePerUnit: 500, bonusPence: 1000, label: "2 sales + bonus" },
+    { actionId: "lead", units: 5, label: "5 leads" },
   ];
   const worst = s2e.worstCasePence(rewards, 20);
-  assert.equal(worst, 46_000, "the worst case is arithmetic, not an estimate");
+  assert.equal(worst, 12_000, "the worst case is arithmetic, not an estimate");
 
   const draft = { brandId: "b1", kind: "viral_challenge", title: "48H Drop", brief: "", rewards, expectedCreators: 20, opensAt: now, closesAt: "2026-08-11T12:00:00.000Z", nowISO: now };
   const under = await s2e.createMission({ ...draft, budgetPence: 5_000 });
-  assert.equal(under.ok, false, "a mission that can owe £460 published on a £50 budget");
-  assert.match(under.error, /460/);
+  assert.equal(under.ok, false, "a mission that can owe £120 published on a £50 budget");
+  assert.match(under.error, /120/);
 
   const funded = await s2e.createMission({ ...draft, budgetPence: worst });
   assert.equal(funded.ok, true);
@@ -11564,4 +11566,354 @@ test("share2earn: a squad total is the sum of real member earnings", () => {
   assert.equal(t.lifetimePence, 2000, "a squad total must equal what its members actually earned");
   assert.equal(t.members[0].creatorId, "b", "ranked by real earnings");
   assert.match(t.note, /does not create money/i);
+});
+
+// ---------------------------------------------------------------------------
+// ProfitGuard AI™ — creators earn from value created, never from the survival
+// margin of the business.
+//
+// The two worked examples the owner supplied are encoded verbatim, because a
+// financial governor that disagrees with the arithmetic it was specified from
+// is worse than none.
+// ---------------------------------------------------------------------------
+const pg = await import("../src/backend/profit-guard-economics.ts");
+
+test("profitguard: the owner's worked example — £100 in, £25 available, never £45", () => {
+  const offer = { pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 };
+  const e = pg.economicsFor(offer);
+  assert.equal(e.contributionPence, 4_500, "contribution before marketing");
+  assert.equal(e.protectedMarginPence, 2_000);
+  assert.equal(e.growthPoolPence, 2_500, "SHARE2EARN can spend £25 — not £45, and definitely not £100");
+  assert.equal(e.maxCpaPence, 2_500);
+  assert.equal(e.breakEvenRoas, 2.22);
+  assert.equal(e.minPermittedRoas, 4);
+
+  // The configuration the owner described: creator £15, MarketWar £5, reserve £2.
+  const ok = pg.waterfall(offer, { creatorPence: 1_500, platformPence: 500, reservePence: 200, squadPence: 0 });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.merchantKeepsPence, 2_300, "the business keeps £23 — its protected £20 plus the £3 unspent");
+
+  // "MarketWar should never allow SHARE2EARN to promise £35 to the creator."
+  const refused = pg.waterfall(offer, { creatorPence: 3_500, platformPence: 0, reservePence: 0, squadPence: 0 });
+  assert.equal(refused.ok, false, "a £35 reward was allowed out of a £25 pool");
+  assert.equal(refused.overspendPence, 1_000);
+  assert.match(refused.error, /protected margin/i);
+});
+
+test("profitguard: the Commission Waterfall example — £120 order, £20 available", () => {
+  const offer = { pricePence: 12_000, cogsPence: 5_000, fulfilmentPence: 1_000, paymentFeePence: 400, taxPence: 600, returnsAllowancePct: 0, otherVariablePence: 500, minProtectedMarginPence: 2_500 };
+  const e = pg.economicsFor(offer);
+  assert.equal(e.variableCostPence, 7_500);
+  assert.equal(e.contributionPence, 4_500, "remaining contribution");
+  assert.equal(e.growthPoolPence, 2_000, "SHARE2EARN's entire ecosystem has only £20");
+
+  // Creator £12 + platform £4 + squad £1 + reserve £3 = exactly £20.
+  const flow = pg.waterfall(offer, { creatorPence: 1_200, platformPence: 400, squadPence: 100, reservePence: 300 });
+  assert.equal(flow.ok, true);
+  assert.equal(flow.allocatedPence, 2_000);
+  assert.equal(flow.unspentPence, 0);
+  assert.equal(flow.merchantKeepsPence, 2_500, "the company keeps its required £25");
+
+  // One penny more is refused. The pool is a ceiling, not a target.
+  const over = pg.waterfall(offer, { creatorPence: 1_201, platformPence: 400, squadPence: 100, reservePence: 300 });
+  assert.equal(over.ok, false);
+});
+
+test("profitguard: the protected margin cannot be reached, and has no override", () => {
+  // A floor with an escape hatch is not a floor, and the hurry is exactly when
+  // it would be used. Asserted as a PROPERTY over the whole input space rather
+  // than by grepping for the word "override" — the source says "no override"
+  // in its own prose, so a text search finds its own documentation.
+  for (const price of [500, 2_500, 10_000, 47_300]) {
+    for (const cost of [0, 100, 3_000, 9_000]) {
+      for (const askPct of [0, 10, 25, 60, 100]) {
+        const e = pg.economicsFor({ pricePence: price, cogsPence: cost, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: askPct });
+        // The pool is exactly what is left after the protection, never more.
+        assert.equal(e.growthPoolPence, Math.max(0, e.contributionPence - e.protectedMarginPence), `pool exceeded contribution minus protection at ${price}/${cost}/${askPct}%`);
+        // The protection is what was asked for, unless the contribution cannot
+        // reach it — in which case the pool is zero rather than negative.
+        const asked = Math.min((askPct / 100) * price, Math.max(0, e.contributionPence));
+        assert.ok(Math.abs(e.protectedMarginPence - Math.round(asked)) <= 1, `protection was reduced below what was asked at ${price}/${cost}/${askPct}%`);
+        assert.ok(e.growthPoolPence >= 0);
+        // And no allocation of any size can reach past it.
+        const grab = pg.waterfall({ pricePence: price, cogsPence: cost, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: askPct }, { creatorPence: e.growthPoolPence + 1, platformPence: 0, reservePence: 0, squadPence: 0 });
+        assert.equal(grab.ok, false, `one penny past the pool was allowed at ${price}/${cost}/${askPct}%`);
+      }
+    }
+  }
+
+  // An offer that contributes nothing yields no pool at all, whatever is asked for.
+  const dead = pg.economicsFor({ pricePence: 1_000, cogsPence: 1_200, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 0 });
+  assert.equal(dead.growthPoolPence, 0);
+  assert.ok(dead.notes.some((n) => /the problem is the offer, not the channel/i.test(n)));
+  assert.equal(pg.waterfall({ pricePence: 1_000, cogsPence: 1_200, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0 }, { creatorPence: 1, platformPence: 0, reservePence: 0, squadPence: 0 }).ok, false);
+
+  // Two floors given → the LARGER binds.
+  const both = pg.economicsFor({ pricePence: 10_000, cogsPence: 5_000, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 1_000, minProtectedMarginPct: 30 });
+  assert.equal(both.protectedMarginPence, 3_000, "the weaker floor won");
+});
+
+test("profitguard: a lead is not priced against a conversion rate nobody measured", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 });
+  const blind = pg.campaignLimits(e, { targetCustomers: 100 });
+  assert.equal(blind.maxCplPence, 0, "a lead was priced with no measured lead-to-sale rate");
+  assert.match(blind.basis, /no lead price is set/i);
+
+  const known = pg.campaignLimits(e, { targetCustomers: 100, leadToSaleRate: 0.2 });
+  assert.equal(known.maxCplPence, 500, "a lead is worth 20% of a customer when 20% of leads convert");
+  assert.equal(known.maxTotalSpendPence, 250_000);
+});
+
+test("profitguard: 'incremental' requires a holdout — otherwise it says attributed", () => {
+  const none = pg.measuredLift({ exposed: 5_000, exposedSales: 200, holdout: 0, holdoutSales: 0 });
+  assert.equal(none.measured, false);
+  assert.equal(none.incrementalSales, null);
+  assert.match(none.caveat, /ATTRIBUTED/);
+  assert.ok(!/\bincremental\b/i.test(none.headline), "the headline claimed incrementality with no holdout");
+
+  // A holdout too small to measure is not a holdout.
+  const tiny = pg.measuredLift({ exposed: 5_000, exposedSales: 200, holdout: 50, holdoutSales: 1 });
+  assert.equal(tiny.measured, false);
+  assert.match(tiny.caveat, /too small/i);
+
+  // A real one earns the word.
+  const real = pg.measuredLift({ exposed: 5_000, exposedSales: 200, holdout: 1_000, holdoutSales: 20 });
+  assert.equal(real.measured, true);
+  assert.equal(real.incrementalSales, 100, "4% exposed against 2% held back over 5,000 = 100 incremental");
+  assert.match(real.headline, /incremental/);
+
+  // And the dashboard follows the same rule.
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 });
+  const attributed = pg.campaignProfit({ economics: e, customers: 100, revenuePence: 2_842_000, creatorPayoutsPence: 216_000, platformFeePence: 72_000 });
+  assert.equal(attributed.label, "attributed");
+  assert.match(attributed.headline, /attributed revenue/);
+  assert.match(attributed.caveat, /not a measure of incremental profit/i);
+  assert.ok(attributed.returnPerPound > 0);
+
+  const proven = pg.campaignProfit({ economics: e, customers: 100, revenuePence: 2_842_000, creatorPayoutsPence: 216_000, platformFeePence: 72_000, lift: real });
+  assert.equal(proven.label, "incremental");
+});
+
+test("profitguard: IncrementalityGuard pays less for a customer you already had", () => {
+  const c = (o) => pg.classifyCustomer({ cameViaCreatorLink: true, buyerMatchesCreator: false, ...o });
+  assert.equal(c({ hasPurchasedBefore: false }), "new");
+  assert.equal(c({ hasPurchasedBefore: true, daysSinceLastPurchase: 400 }), "returning_inactive");
+  assert.equal(c({ hasPurchasedBefore: true, daysSinceLastPurchase: 10 }), "existing_active");
+  assert.equal(pg.classifyCustomer({ hasPurchasedBefore: false, cameViaCreatorLink: false, buyerMatchesCreator: false }), "organic");
+  assert.equal(pg.classifyCustomer({ hasPurchasedBefore: false, cameViaCreatorLink: true, buyerMatchesCreator: true }), "self_referral");
+
+  // The money follows the classification, and self-referral pays nothing.
+  assert.equal(pg.rewardFor(1_000, "new").pence, 1_000);
+  assert.equal(pg.rewardFor(1_000, "returning_inactive").pence, 500);
+  assert.equal(pg.rewardFor(1_000, "existing_active").pence, 100);
+  assert.equal(pg.rewardFor(1_000, "organic").pence, 0);
+  assert.equal(pg.rewardFor(1_000, "self_referral").pence, 0);
+  for (const p of pg.DEFAULT_CLASS_POLICY) assert.ok(p.why.length > 20, `${p.id} does not say why`);
+});
+
+test("profitguard: the kill switch trips on the things that actually cost money", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 });
+  const limits = pg.campaignLimits(e, { targetCustomers: 100 });
+  const base = { spendPence: 100_000, revenuePence: 1_000_000, customers: 100, leads: 400, refundRatePct: 2, fraudRatePct: 0.5, budgetPence: 500_000 };
+
+  assert.equal(pg.killSwitch(e, base, limits).verdict, "running");
+
+  // CPA over the ceiling throttles, and by enough to get back under it.
+  const pricey = pg.killSwitch(e, { ...base, spendPence: 400_000, revenuePence: 1_000_000 }, limits);
+  assert.notEqual(pricey.verdict, "running");
+  assert.ok(pricey.throttlePct > 0);
+
+  // ROAS under the minimum pauses — that is the protected margin being eaten.
+  assert.equal(pg.killSwitch(e, { ...base, spendPence: 500_000, revenuePence: 900_000, budgetPence: 5_000_000 }, limits).verdict, "paused");
+  // Refunds, fraud and an exhausted budget each pause on their own.
+  assert.equal(pg.killSwitch(e, { ...base, refundRatePct: 20 }, limits).verdict, "paused");
+  assert.equal(pg.killSwitch(e, { ...base, fraudRatePct: 9 }, limits).verdict, "paused");
+  assert.equal(pg.killSwitch(e, { ...base, spendPence: 500_000, budgetPence: 500_000, revenuePence: 9_000_000 }, limits).verdict, "paused");
+  // A collapse in conversion quality throttles.
+  assert.notEqual(pg.killSwitch(e, { ...base, conversionRateBaseline: 0.05, conversionRateNow: 0.02 }, limits).verdict, "running");
+
+  // Every trip explains itself and says what was done about it.
+  for (const t of pg.killSwitch(e, base, limits).trips) {
+    assert.ok(t.what.length > 20 && t.action.length > 10, `${t.id} does not explain itself`);
+  }
+});
+
+test("profitguard: commission is tuned by a controller, not an imagined response curve", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 });
+  const limits = pg.campaignLimits(e, { targetCustomers: 100 });
+
+  // Below the volume it does not move at all — four conversions is noise.
+  const quiet = pg.tuneCommission({ currentRewardPence: 1_500, limits, conversions: 4, spendPence: 4_000 });
+  assert.equal(quiet.changed, false);
+  assert.match(quiet.reason, /noise/i);
+
+  // Acquiring cheaply → room to pay more, still inside the ceiling.
+  const up = pg.tuneCommission({ currentRewardPence: 1_000, limits, conversions: 60, spendPence: 60_000 });
+  assert.ok(up.rewardPence > 1_000);
+  assert.ok(up.rewardPence <= limits.maxCreatorCommissionPence, "tuning pushed the reward past what the margin funds");
+
+  // Acquiring near the ceiling → come down before the kill switch does it.
+  const down = pg.tuneCommission({ currentRewardPence: 1_500, limits, conversions: 60, spendPence: 145_000 });
+  assert.ok(down.rewardPence < 1_500);
+
+  // A reward already above the ceiling is pulled back to it immediately.
+  const over = pg.tuneCommission({ currentRewardPence: 9_999, limits, conversions: 0, spendPence: 0 });
+  assert.equal(over.rewardPence, limits.maxCreatorCommissionPence);
+});
+
+test("profitguard: Business Survival Mode pays nothing before the customer's money arrives", () => {
+  const rl = pg.FUNDING_MODES.find((f) => f.mode === "revenue_locked");
+  const now = "2026-08-09T00:00:00.000Z";
+  assert.equal(pg.settlementState({ policy: rl, paidAt: null, refunded: false, chargedBack: false, nowISO: now }).state, "unfunded");
+  assert.equal(pg.settlementState({ policy: rl, paidAt: "2026-08-08T00:00:00.000Z", refunded: false, chargedBack: false, nowISO: now }).state, "pending");
+  assert.equal(pg.settlementState({ policy: rl, paidAt: "2026-06-01T00:00:00.000Z", refunded: false, chargedBack: false, nowISO: now }).state, "settled");
+
+  // A refund or chargeback voids the commission — there is no revenue behind it.
+  for (const bad of [{ refunded: true, chargedBack: false }, { refunded: false, chargedBack: true }]) {
+    const v = pg.settlementState({ policy: rl, paidAt: "2026-06-01T00:00:00.000Z", ...bad, nowISO: now });
+    assert.equal(v.state, "void");
+    assert.equal(v.payablePct, 0);
+  }
+
+  // Split settlement releases half now, half after the window.
+  const split = pg.settlementState({ policy: { ...rl, splitSettlement: true }, paidAt: "2026-08-08T00:00:00.000Z", refunded: false, chargedBack: false, nowISO: now });
+  assert.equal(split.payablePct, 50);
+});
+
+test("share2earn: a sale reward without the offer's economics is refused", async () => {
+  s2e.__resetShare2Earn();
+  const now = "2026-08-09T12:00:00.000Z";
+  const draft = {
+    brandId: "b-pg", kind: "sell_and_earn", title: "Sell & Earn", brief: "",
+    rewards: [{ actionId: "sale", units: 1, pencePerUnit: 1_500, label: "£15 per sale" }],
+    budgetPence: 0, expectedCreators: 10, opensAt: now, closesAt: "2026-09-09T12:00:00.000Z", nowISO: now,
+  };
+  const blind = await s2e.createMission(draft);
+  assert.equal(blind.ok, false, "a sale commission was set with nobody knowing the margin");
+  assert.match(blind.error, /economics/i);
+
+  // £15 out of a £25 pool, plus our 25% fee and 10% reserve = £20.25 — fits.
+  const offer = { pricePence: 10_000, cogsPence: 5_500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2_000 };
+  const ok = await s2e.createMission({ ...draft, offer });
+  assert.equal(ok.ok, true, ok.ok ? "" : ok.error);
+  assert.equal(ok.mission.fundingMode, "revenue_locked", "a sale mission funds itself out of the transaction");
+  assert.equal(ok.mission.economics.growthPoolPence, 2_500);
+  assert.match(ok.note, /before the customer's money arrives/i);
+
+  // £35 per sale out of a £25 pool is refused by ProfitGuard, not by the budget.
+  const greedy = await s2e.createMission({ ...draft, offer, rewards: [{ actionId: "sale", units: 1, pencePerUnit: 3_500, label: "£35 per sale" }] });
+  assert.equal(greedy.ok, false);
+  assert.match(greedy.error, /ProfitGuard refused/);
+});
+
+test("growthguard: the module costs at most 5% of the value it generates", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 500, fulfilmentPence: 0, paymentFeePence: 200, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: 20 });
+  assert.equal(pg.GROWTHGUARD_CEILING, 0.05);
+
+  // The owner's ladder, exactly.
+  for (const [generated, maxSpend] of [[0, 0], [200_000, 10_000], [1_000_000, 50_000], [10_000_000, 500_000]]) {
+    const c = pg.rewardCapacity({ e, verifiedContributionPence: generated, committedPence: 0 });
+    assert.equal(c.maxSpendPence, maxSpend, `£${generated / 100} generated should allow £${maxSpend / 100}`);
+    assert.equal(c.merchantRetainsPence, generated - maxSpend, "the merchant keeps at least 95%");
+  }
+
+  // Generate nothing, spend nothing. There is no starting balance to burn.
+  const zero = pg.rewardCapacity({ e, verifiedContributionPence: 0, committedPence: 0 });
+  assert.equal(zero.availablePence, 0);
+  assert.equal(pg.canCommit(zero, 1).ok, false, "a reward was committed against zero generated value");
+});
+
+test("growthguard: 5% is a system ceiling, not a merchant setting", () => {
+  // No function may take an argument that raises the ceiling. Asserted purely
+  // BEHAVIOURALLY over the input space: the rate is never above 5% for any
+  // economics, however generous, at any survival floor.
+  //
+  // A source grep was tried here and removed. It matched an unrelated local
+  // variable called `ceiling` inside tuneCommission — the second false positive
+  // from text-searching this codebase for a property. Exercising the function
+  // over its inputs proves the thing itself rather than a spelling of it.
+  for (const cogs of [0, 100, 5_000, 9_900]) {
+    for (const protect of [0, 5, 50, 99]) {
+      for (const floorPct of [undefined, 0, 25, 90, 100]) {
+        const e = pg.economicsFor({ pricePence: 10_000, cogsPence: cogs, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: protect });
+        const a = pg.allowedRate(e, floorPct);
+        assert.ok(a.rate <= pg.GROWTHGUARD_CEILING + 1e-12, `rate ${a.rate} exceeded the ceiling at cogs ${cogs}/protect ${protect}/floor ${floorPct}`);
+        assert.ok(a.rate >= 0);
+      }
+    }
+  }
+  // And the constant itself is the law, not a default someone can pass around.
+  assert.equal(pg.GROWTHGUARD_CEILING, 0.05);
+});
+
+test("growthguard: the allowed rate is the LOWER of 5% and what the merchant survives", () => {
+  // A high-margin offer is capped by GrowthGuard.
+  const saas = pg.economicsFor({ pricePence: 10_000, cogsPence: 500, fulfilmentPence: 0, paymentFeePence: 200, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: 20 });
+  const a1 = pg.allowedRate(saas);
+  assert.equal(a1.rate, 0.05);
+  assert.equal(a1.binding, "growthguard");
+
+  // An offer protecting nearly all of its contribution is capped by itself.
+  const thin = pg.economicsFor({ pricePence: 10_000, cogsPence: 9_400, fulfilmentPence: 0, paymentFeePence: 150, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: 4 });
+  const a2 = pg.allowedRate(thin);
+  assert.ok(a2.rate <= 0.05);
+  assert.ok(pg.merchantSafeRate(thin) <= 1);
+
+  // Lock 3 — the Survival Floor pulls it below 5% even when 5% was affordable.
+  const floored = pg.allowedRate(saas, 98);
+  assert.ok(floored.rate < 0.05, "a 98% survival floor did not reduce the rate");
+  assert.equal(floored.binding, "merchant");
+  assert.match(floored.why, /lower number/i);
+
+  // An offer with no contribution supports no rate at all.
+  const dead = pg.economicsFor({ pricePence: 1_000, cogsPence: 1_200, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0 });
+  assert.equal(pg.allowedRate(dead).rate, 0);
+});
+
+test("growthguard: no further liability once the ceiling is reached", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 500, fulfilmentPence: 0, paymentFeePence: 200, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: 20 });
+  const cap = pg.rewardCapacity({ e, verifiedContributionPence: 1_000_000, committedPence: 49_000 });
+  assert.equal(cap.availablePence, 1_000);
+
+  assert.equal(pg.canCommit(cap, 1_000).ok, true, "the last penny of capacity should be committable");
+  const over = pg.canCommit(cap, 2_000);
+  assert.equal(over.ok, false, "a commitment beyond the ceiling was allowed");
+  assert.equal(over.grantedPence, 1_000, "a partial grant should be offered rather than silence");
+
+  // Capacity grows one settled transaction at a time — it earns before it spends.
+  const t = pg.capacityFromTransaction(e);
+  assert.equal(t.pence, Math.round(e.contributionPence * 0.05));
+  assert.match(t.note, /stays with the merchant/);
+});
+
+test("growthguard: the allowance splits to the owner's shares and never over-allocates", () => {
+  const rows = pg.splitCapacity(50_000);
+  const by = Object.fromEntries(rows.map((r) => [r.id, r.pence]));
+  assert.equal(by.creator, 30_000);
+  assert.equal(by.platform, 7_500);
+  assert.equal(by.referral, 5_000);
+  assert.equal(by.reserve, 5_000);
+  assert.equal(by.bonus, 2_500);
+  assert.equal(rows.reduce((a, r) => a + r.pence, 0), 50_000);
+
+  // Rounding must never invent a penny of liability beyond the ceiling.
+  for (const total of [0, 1, 7, 33, 101, 999, 12_345]) {
+    const sum = pg.splitCapacity(total).reduce((a, r) => a + r.pence, 0);
+    assert.ok(sum <= total, `split of ${total} allocated ${sum}`);
+  }
+});
+
+test("growthguard: capacity says whether the value behind it was measured", () => {
+  const e = pg.economicsFor({ pricePence: 10_000, cogsPence: 500, fulfilmentPence: 0, paymentFeePence: 200, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPct: 20 });
+  const blind = pg.rewardCapacity({ e, verifiedContributionPence: 1_000_000, committedPence: 0 });
+  assert.equal(blind.measured, false);
+  assert.match(blind.headline, /attributed/);
+  assert.match(blind.caveat, /more generous reading/i);
+
+  const proven = pg.rewardCapacity({
+    e, verifiedContributionPence: 1_000_000, committedPence: 0,
+    lift: pg.measuredLift({ exposed: 5_000, exposedSales: 200, holdout: 1_000, holdoutSales: 20 }),
+  });
+  assert.equal(proven.measured, true);
+  assert.match(proven.headline, /incremental/);
 });

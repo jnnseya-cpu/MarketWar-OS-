@@ -44,6 +44,10 @@ import {
   bandById, ratePct, SHARE2EARN_RATE, SHARE2EARN_RATE_CAP,
   share2earnNeverPaysMore, COMMISSION_BANDS,
 } from "@/shared/creator-program";
+import {
+  economicsFor, waterfall, campaignLimits,
+  type OfferEconomics, type Economics, type CampaignLimits,
+} from "@/backend/profit-guard-economics";
 
 // ---------------------------------------------------------------------------
 // The seven ways to earn, and which of them we can honestly pay today
@@ -150,6 +154,11 @@ export type Mission = {
   /** Disclosure is not optional on paid promotion. */
   disclosure: string;
   createdAt: string;
+  /** The unit economics this mission was cleared against, when supplied. */
+  economics?: Economics;
+  limits?: CampaignLimits;
+  /** Prepaid budget, or funded out of the transactions themselves. */
+  fundingMode: "prepaid" | "revenue_locked";
 };
 
 export const DISCLOSURE =
@@ -182,6 +191,16 @@ export type MissionDraft = {
   opensAt: string;
   closesAt: string;
   nowISO: string;
+  /**
+   * The offer's unit economics.
+   *
+   * Optional ONLY so an activity-reward mission with no sale in it still works.
+   * The moment a mission rewards a sale, this becomes mandatory — paying
+   * commission on a transaction whose margin nobody has stated is exactly the
+   * thing ProfitGuard exists to prevent.
+   */
+  offer?: OfferEconomics;
+  fundingMode?: "prepaid" | "revenue_locked";
 };
 
 export type MissionResult =
@@ -209,8 +228,46 @@ export async function createMission(d: MissionDraft): Promise<MissionResult> {
   if (Number.isNaN(opens) || Number.isNaN(closes)) return { ok: false, error: "Invalid opening or closing date." };
   if (closes <= opens) return { ok: false, error: "The mission closes before it opens." };
 
+  // RULE 4: a sale reward requires the offer's economics. Without them nobody —
+  // not the brand, not us — knows whether the commission fits inside the margin,
+  // and "we will work it out later" is how a campaign eats a business.
+  const paysOnSale = d.rewards.some((r) => r.actionId === "sale" || r.actionId === "mission_bounty");
+  const fundingMode = d.fundingMode || (paysOnSale ? "revenue_locked" : "prepaid");
+  let economics: Economics | undefined;
+  let limits: CampaignLimits | undefined;
+
+  if (paysOnSale) {
+    if (!d.offer) {
+      return {
+        ok: false,
+        error: "This mission pays on a sale, so it needs the offer's economics: price, cost of goods, fulfilment, payment fees, tax, returns allowance and the margin you are protecting.",
+        hint: "ProfitGuard computes the Safe Reward Ceiling from those. Without them a commission is a number somebody hoped was affordable.",
+      };
+    }
+    economics = economicsFor(d.offer);
+    limits = campaignLimits(economics, { targetCustomers: d.expectedCreators });
+
+    // The waterfall, per transaction. The creator's reward plus our fee plus the
+    // reserve must fit inside the growth pool — never inside the protected margin.
+    const perSale = d.rewards.filter((r) => r.actionId === "sale")
+      .reduce((sum, r) => sum + (r.pencePerUnit ?? 0) + (r.bonusPence || 0), 0);
+    const platformFee = Math.round(perSale * 0.25);
+    const reserve = Math.round(perSale * 0.1);
+    const flow = waterfall(d.offer, { creatorPence: perSale, platformPence: platformFee, reservePence: reserve, squadPence: 0 });
+    if (!flow.ok) {
+      return { ok: false, error: `ProfitGuard refused this mission. ${flow.error}`, hint: flow.hint };
+    }
+  }
+
   // RULE 2: the money is reserved before anybody is told about it.
-  const worst = worstCasePence(d.rewards, d.expectedCreators);
+  //
+  // Revenue-Locked missions fund the sale portion out of the transaction itself,
+  // so only the activity rewards (clicks, leads, content) need cash up front —
+  // which is the whole point of Cash-Protected Growth for a business without a
+  // marketing budget. Everything else still has to be funded.
+  const worst = fundingMode === "revenue_locked"
+    ? worstCasePence(d.rewards.filter((r) => r.actionId !== "sale"), d.expectedCreators)
+    : worstCasePence(d.rewards, d.expectedCreators);
   if (d.budgetPence < worst) {
     return {
       ok: false,
@@ -232,11 +289,14 @@ export async function createMission(d: MissionDraft): Promise<MissionResult> {
     live: true,
     disclosure: DISCLOSURE,
     createdAt: d.nowISO,
+    economics, limits, fundingMode,
   };
   await saveMission(mission);
   return {
     ok: true, mission,
-    note: `Live. £${(worst / 100).toFixed(2)} of the £${(d.budgetPence / 100).toFixed(2)} budget is reserved against the worst case, so every reward on the card is money that already exists.`,
+    note: fundingMode === "revenue_locked"
+      ? `Live. £${(worst / 100).toFixed(2)} reserved for the activity rewards; the sale commission is funded out of each transaction, so nothing leaves your account before the customer's money arrives.${economics ? ` ProfitGuard cleared it: £${(economics.growthPoolPence / 100).toFixed(2)} of every £${(economics.pricePence / 100).toFixed(2)} order is available for acquisition, and your £${(economics.protectedMarginPence / 100).toFixed(2)} protected margin is never reachable.` : ""}`
+      : `Live. £${(worst / 100).toFixed(2)} of the £${(d.budgetPence / 100).toFixed(2)} budget is reserved against the worst case, so every reward on the card is money that already exists.`,
   };
 }
 

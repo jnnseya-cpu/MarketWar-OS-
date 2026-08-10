@@ -7,6 +7,13 @@ import {
   type MissionKind, type Reward, type EarnActionId,
 } from "@/backend/share2earn";
 import { COMMISSION_BANDS, ratePct, SHARE2EARN_RATE, SHARE2EARN_RATE_CAP } from "@/shared/creator-program";
+import {
+  economicsFor, waterfall, campaignLimits, killSwitch, tuneCommission, measuredLift,
+  campaignProfit, classifyCustomer, rewardFor, settlementState, FUNDING_MODES,
+  DEFAULT_CLASS_POLICY, PROFIT_GUARD_DOCTRINE, type OfferEconomics,
+  rewardCapacity, allowedRate, splitCapacity, canCommit, capacityFromTransaction,
+  GROWTHGUARD_CEILING, GROWTHGUARD_DOCTRINE, CAPACITY_SPLIT,
+} from "@/backend/profit-guard-economics";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -50,6 +57,10 @@ export async function GET(req: NextRequest) {
       minActionsToScore: MIN_ACTIONS_TO_SCORE,
       maxSquadMembers: MAX_SQUAD_MEMBERS,
       doctrine: SHARE2EARN_DOCTRINE,
+      profitGuard: PROFIT_GUARD_DOCTRINE,
+      growthGuard: { ceiling: GROWTHGUARD_CEILING, split: CAPACITY_SPLIT, doctrine: GROWTHGUARD_DOCTRINE },
+      fundingModes: FUNDING_MODES,
+      customerClasses: DEFAULT_CLASS_POLICY,
       disclosure: DISCLOSURE,
       ladder: ladderIsSane(),
     });
@@ -123,6 +134,112 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
+  // ProfitGuard: what can this offer actually afford?
+  if (action === "economics") {
+    const offer = parseOffer(body.offer);
+    if (!offer) return NextResponse.json({ error: "An `offer` with at least a price is required." }, { status: 400 });
+    const e = economicsFor(offer);
+    const limits = campaignLimits(e, {
+      targetCustomers: Math.max(1, Math.round(num("targetCustomers") || 1)),
+      leadToSaleRate: typeof body.leadToSaleRate === "number" ? body.leadToSaleRate : undefined,
+    });
+    return NextResponse.json({ economics: e, limits, doctrine: PROFIT_GUARD_DOCTRINE });
+  }
+
+  if (action === "waterfall") {
+    const offer = parseOffer(body.offer);
+    if (!offer) return NextResponse.json({ error: "An `offer` with at least a price is required." }, { status: 400 });
+    const a = (body.allocation || {}) as Record<string, unknown>;
+    const flow = waterfall(offer, {
+      creatorPence: Math.max(0, Math.round(Number(a.creatorPence) || 0)),
+      platformPence: Math.max(0, Math.round(Number(a.platformPence) || 0)),
+      reservePence: Math.max(0, Math.round(Number(a.reservePence) || 0)),
+      squadPence: Math.max(0, Math.round(Number(a.squadPence) || 0)),
+    });
+    return NextResponse.json(flow, { status: flow.ok ? 200 : 400 });
+  }
+
+  if (action === "health") {
+    const offer = parseOffer(body.offer);
+    if (!offer) return NextResponse.json({ error: "An `offer` with at least a price is required." }, { status: 400 });
+    const e = economicsFor(offer);
+    const limits = campaignLimits(e, { targetCustomers: Math.max(1, Math.round(num("targetCustomers") || 1)) });
+    const h = (body.health || {}) as Record<string, unknown>;
+    const health = {
+      spendPence: Math.max(0, Number(h.spendPence) || 0), revenuePence: Math.max(0, Number(h.revenuePence) || 0),
+      customers: Math.max(0, Number(h.customers) || 0), leads: Math.max(0, Number(h.leads) || 0),
+      refundRatePct: Math.max(0, Number(h.refundRatePct) || 0), fraudRatePct: Math.max(0, Number(h.fraudRatePct) || 0),
+      budgetPence: Math.max(0, Number(h.budgetPence) || 0),
+      conversionRateNow: typeof h.conversionRateNow === "number" ? h.conversionRateNow : undefined,
+      conversionRateBaseline: typeof h.conversionRateBaseline === "number" ? h.conversionRateBaseline : undefined,
+    };
+    const lift = body.holdout && typeof body.holdout === "object"
+      ? measuredLift(body.holdout as { exposed: number; exposedSales: number; holdout: number; holdoutSales: number })
+      : measuredLift({ exposed: 0, exposedSales: health.customers, holdout: 0, holdoutSales: 0 });
+    return NextResponse.json({
+      killSwitch: killSwitch(e, health, limits),
+      tuning: tuneCommission({
+        currentRewardPence: Math.max(0, Math.round(num("currentRewardPence"))),
+        limits, conversions: health.customers, spendPence: health.spendPence,
+      }),
+      lift,
+      profit: campaignProfit({
+        economics: e, customers: health.customers, revenuePence: health.revenuePence,
+        creatorPayoutsPence: Math.max(0, Math.round(num("creatorPayoutsPence"))),
+        platformFeePence: Math.max(0, Math.round(num("platformFeePence"))),
+        lift,
+      }),
+    });
+  }
+
+  if (action === "classify") {
+    const cls = classifyCustomer({
+      hasPurchasedBefore: body.hasPurchasedBefore === true,
+      daysSinceLastPurchase: typeof body.daysSinceLastPurchase === "number" ? body.daysSinceLastPurchase : null,
+      cameViaCreatorLink: body.cameViaCreatorLink !== false,
+      buyerMatchesCreator: body.buyerMatchesCreator === true,
+    });
+    const base = Math.max(0, Math.round(num("baseRewardPence")));
+    const r = rewardFor(base, cls);
+    const mode = FUNDING_MODES.find((f) => f.mode === str("fundingMode")) || FUNDING_MODES[0];
+    return NextResponse.json({
+      customerClass: cls, rewardPence: r.pence, policy: r.policy,
+      settlement: settlementState({
+        policy: mode, paidAt: str("paidAt") || null,
+        refunded: body.refunded === true, chargedBack: body.chargedBack === true, nowISO,
+      }),
+    });
+  }
+
+  // GrowthGuard — what the module is allowed to owe right now.
+  if (action === "capacity") {
+    const offer = parseOffer(body.offer);
+    if (!offer) return NextResponse.json({ error: "An `offer` with at least a price is required." }, { status: 400 });
+    const e = economicsFor(offer);
+    const floor = typeof body.survivalFloorPct === "number" ? body.survivalFloorPct : undefined;
+    const lift = body.holdout && typeof body.holdout === "object"
+      ? measuredLift(body.holdout as { exposed: number; exposedSales: number; holdout: number; holdoutSales: number })
+      : undefined;
+    const capacity = rewardCapacity({
+      e,
+      verifiedContributionPence: Math.max(0, Math.round(num("verifiedContributionPence"))),
+      verifiedRevenuePence: Math.max(0, Math.round(num("verifiedRevenuePence"))) || undefined,
+      committedPence: Math.max(0, Math.round(num("committedPence"))),
+      survivalFloorPct: floor,
+      lift,
+    });
+    const want = Math.max(0, Math.round(num("wantPence")));
+    return NextResponse.json({
+      capacity,
+      rate: allowedRate(e, floor),
+      split: splitCapacity(capacity.availablePence),
+      perTransaction: capacityFromTransaction(e, floor),
+      commit: want > 0 ? canCommit(capacity, want) : null,
+      ceiling: GROWTHGUARD_CEILING,
+      doctrine: GROWTHGUARD_DOCTRINE,
+    });
+  }
+
   if (action === "quote") {
     // What would this mission cost at worst? Answerable before publishing, so a
     // brand is never surprised by its own offer.
@@ -163,6 +280,8 @@ export async function POST(req: NextRequest) {
     rewards: parseRewards(body.rewards),
     budgetPence: Math.max(0, Math.round(num("budgetPence"))),
     expectedCreators: Math.max(1, Math.round(num("expectedCreators") || 1)),
+    offer: parseOffer(body.offer) || undefined,
+    fundingMode: str("fundingMode") === "prepaid" ? "prepaid" : undefined,
     opensAt: str("opensAt") || nowISO,
     closesAt: str("closesAt") || new Date(Date.now() + 7 * 86_400_000).toISOString(),
     nowISO,
@@ -183,4 +302,20 @@ function parseRewards(raw: unknown): Reward[] {
       bonusPence: typeof r.bonusPence === "number" ? Math.max(0, Math.round(r.bonusPence)) : undefined,
       label: typeof r.label === "string" ? r.label.slice(0, 120) : "",
     }));
+}
+
+function parseOffer(raw: unknown): OfferEconomics | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const n = (k: string) => Math.max(0, Math.round(Number(o[k]) || 0));
+  if (n("pricePence") <= 0) return null;
+  return {
+    pricePence: n("pricePence"), cogsPence: n("cogsPence"), fulfilmentPence: n("fulfilmentPence"),
+    paymentFeePence: n("paymentFeePence"), taxPence: n("taxPence"),
+    returnsAllowancePct: Math.max(0, Math.min(100, Number(o.returnsAllowancePct) || 0)),
+    otherVariablePence: n("otherVariablePence"),
+    minProtectedMarginPence: o.minProtectedMarginPence != null ? n("minProtectedMarginPence") : undefined,
+    minProtectedMarginPct: typeof o.minProtectedMarginPct === "number" ? o.minProtectedMarginPct : undefined,
+    ltvMultiple: typeof o.ltvMultiple === "number" ? o.ltvMultiple : undefined,
+  };
 }
