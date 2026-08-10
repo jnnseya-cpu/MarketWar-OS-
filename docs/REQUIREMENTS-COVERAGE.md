@@ -3724,3 +3724,66 @@ Connect onboarding** for each creator (they need a connected account before a
 transfer has a destination), and a decision on **who signs off a manual identity
 verification** while no identity provider is connected — the code records the
 administrator's id against the decision, so it needs to be a named person.
+
+---
+
+## §80 — The creator payout dashboard (2026-08-10)
+
+`src/components/CreatorPayouts.tsx` on `/dashboard/earnings`, with a sidebar
+entry. Deliberately **separate from `/dashboard/partner-network`**, which is the
+brand's view — programmes, commission ledgers, who to recruit. This is the other
+side of the same deal: what one person earned and how they get it out. Mixing
+them on one screen makes both harder to read.
+
+### The one thing here that is not cosmetic
+
+**The `requestId`.** The server refuses a duplicate withdrawal by claiming an
+idempotency key derived from (creator, rail, amount, requestId) *before* it calls
+the provider. That protection is worth **nothing** if the browser mints a fresh
+id on every click — two clicks would be two different withdrawals and the person
+would be paid twice.
+
+So the id is generated once per intended withdrawal and held in a `useRef`. A
+retry after a failure or a timeout reuses it, which is what makes it a retry. It
+is re-minted only when the withdrawal genuinely changes — a different rail,
+amount or destination — or after one has succeeded. Two mutations confirm it: a
+fresh id per click, and a signature that ignores the amount and destination.
+
+### A defect caught while writing the page
+
+The first version passed `creatorId={activeBrand?.id}`. **A creator is a person,
+not a brand.** That would have filed one person's tax details against a company,
+and in demo mode — where the server falls back to the supplied id because there
+is no session — paid out against the wrong account entirely. It now uses
+`useAuthUser()`, and a test asserts the earnings page contains no reference to
+`activeBrand` at all.
+
+### What the screen does
+
+- **The money first**, because it is what they came for: available, pending, paid
+  out, lifetime — each with a sentence explaining which is which, since "pending"
+  meaning "yours but the refund window has not closed" is not obvious.
+- **The gate as a blocker plus a fix**, never a bare refusal. "Payouts closed"
+  with no next step is how a support queue gets built.
+- **The identity form**, with the reason it is asked stated up front and
+  "nothing is deducted from what you earn" said plainly. The field that failed
+  server-side is outlined. The tax reference is cleared on save and never
+  re-displayed.
+- **The withdrawal**, with every fee itemised and labelled *theirs* or *ours* —
+  "fees" as one number is how a pass-through gets mistaken for a margin. A rail
+  that is not connected says so rather than failing oddly on click, and the
+  cheaper alternative is offered as a **button** rather than a note.
+- **History including failures.** A payout that vanished without a trace is what
+  destroys trust fastest, so failed attempts stay visible with their error.
+
+### No money arithmetic in the browser
+
+A test asserts the component contains no fee calculation and none of the payout
+constants. The server computes every figure; a second copy of a payout rule in
+the browser is a second place for it to be wrong — in money, about somebody's
+wages.
+
+### Verification
+
+Tests **1040 → 1043**. Typecheck, layer check and build green (`/dashboard/earnings`
+5.39 kB). Two mutation checks run, both caught.

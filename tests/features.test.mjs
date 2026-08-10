@@ -12323,3 +12323,59 @@ test("payouts: the route never lets one creator act on another's account", () =>
   const identityBlock = route.slice(route.indexOf('if (action === "identity")'), route.indexOf('if (action === "payout-history")'));
   assert.ok(!/taxReference: res\.identity/.test(identityBlock), "the tax reference is echoed back to the browser");
 });
+
+test("creator payout dashboard: the requestId is stable per withdrawal, not per click", () => {
+  const src = readFileSync(new URL("../src/components/CreatorPayouts.tsx", import.meta.url), "utf8");
+
+  // The server refuses a duplicate by claiming an idempotency key derived from
+  // (creator, rail, amount, requestId). That protection is worth NOTHING if the
+  // browser mints a fresh id on every click — two clicks would be two different
+  // withdrawals and the person would be paid twice.
+  assert.match(src, /useRef<string>\(newRequestId\(\)\)/, "the request id must be held in a ref, not regenerated each render");
+  assert.ok(!/requestId:\s*newRequestId\(\)/.test(src), "a fresh id is generated at call time — a double click would pay twice");
+  assert.match(src, /requestId:\s*idFor\(\)/, "the withdrawal must send the held id");
+
+  // It is re-minted only when the withdrawal itself changes.
+  const idFor = src.slice(src.indexOf("function idFor()"), src.indexOf("async function saveIdentity"));
+  assert.match(idFor, /\$\{railId\}\|\$\{amountPence\}\|\$\{destination/, "the signature must cover rail, amount and destination");
+  assert.match(idFor, /requestFor\.current !== signature/);
+
+  // And after a success the next withdrawal is genuinely a new one.
+  assert.match(src, /requestFor\.current = "";/);
+});
+
+test("creator payout dashboard: it shows what is refused and why, never a bare no", () => {
+  const src = readFileSync(new URL("../src/components/CreatorPayouts.tsx", import.meta.url), "utf8");
+  // The gate's reason AND its fix, because "payouts closed" with no next step
+  // is how a support queue is built.
+  assert.match(src, /\{gate\.reason\}/);
+  assert.match(src, /\{gate\.fix\}/);
+  // Every fee line, itemised, saying whose it is.
+  assert.match(src, /l\.whose === "rail" \? " — theirs" : l\.whose === "platform" \? " — ours"/);
+  // The cheaper alternative is offered as an action, not just a note.
+  assert.match(src, /would leave you \{money\(quote\.cheaper\.netPence\)\}/);
+  // Failures stay visible in the history — a payout that vanished without a
+  // trace is what destroys trust fastest.
+  assert.match(src, /\{a\.error\}/);
+  assert.match(src, /a\.state === "failed" \? "bad"/);
+  // A rail that is not connected says so instead of failing oddly on click.
+  assert.match(src, /is not connected on this deployment yet/);
+});
+
+test("creator payout dashboard: it never re-displays a tax reference, and never computes money", () => {
+  const src = readFileSync(new URL("../src/components/CreatorPayouts.tsx", import.meta.url), "utf8");
+  // The reference goes in and does not come out; the field is cleared on save.
+  assert.match(src, /setTaxReference\(""\)/);
+  // No fee, gate or balance arithmetic in the browser. A second copy of a payout
+  // rule is a second place for it to be wrong, in money, about someone's wages.
+  assert.ok(!/feePct\s*\*|feeFixedPence\s*\+|\*\s*0\.03/.test(src), "the browser is computing a fee");
+  assert.ok(!/ADMIN_FEE|GROWTHGUARD|SHARE2EARN_RATE/.test(src), "a payout constant has been copied into the browser");
+
+  // A creator is a person, not a brand — the page passes the signed-in user.
+  const page = readFileSync(new URL("../src/app/dashboard/earnings/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /creatorId=\{user\?\.uid\}/);
+  assert.ok(!/activeBrand/.test(page), "the earnings page is passing a brand id as a creator id");
+  // And it is reachable.
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /"\/dashboard\/earnings"/, "a capability nobody can reach is a capability nobody has");
+});
