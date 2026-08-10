@@ -543,6 +543,25 @@ export async function listEarnings(creatorId: string): Promise<Earning[]> {
   } catch { return [...local]; }
 }
 
+/**
+ * Every earning owed BY one brand.
+ *
+ * The store is keyed by creator, because a creator reading their own wallet is
+ * the common path. A brand needs the other axis — what it owes across everyone —
+ * and without this it would have to be assembled in the route from a list the
+ * browser supplied, which is a number the payer would be computing about itself.
+ */
+export async function brandEarnings(brandId: string, limit = 1000): Promise<Earning[]> {
+  const local = [...memEarnings.values()].flat().filter((e) => e.brandId === brandId);
+  if (!useDb()) return local.slice(0, limit);
+  try {
+    const snap = await adminDb!.collection(EARNINGS).where("brandId", "==", brandId).limit(limit).get();
+    const byId = new Map<string, Earning>();
+    for (const e of [...snap.docs.map((d) => d.data() as Earning), ...local]) byId.set(e.id, e);
+    return [...byId.values()];
+  } catch { return local.slice(0, limit); }
+}
+
 export function __resetShare2Earn(): void { memMissions.clear(); memEarnings.clear(); }
 
 export const SHARE2EARN_DOCTRINE = [

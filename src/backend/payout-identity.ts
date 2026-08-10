@@ -71,6 +71,82 @@ const TAX_REF_FORMATS: Record<string, { re: RegExp; label: string }> = {
   DE: { re: /^\d{11}$/, label: "Steuer-ID (11 digits)" },
 };
 
+// ---------------------------------------------------------------------------
+// Jurisdictions that do not issue an individual tax reference
+//
+// The form asked every creator for a tax reference and, failing that, a free-text
+// reason. For somebody in Kinshasa that is a question with no correct answer:
+// the DRC does levy personal tax, but it is largely collected at source from
+// formal employment and an individual outside that system has no number to give.
+// Several countries issue none at all.
+//
+// The reporting standard already anticipates this. Where a jurisdiction does not
+// issue a TIN, or the person is not required to hold one, the platform records
+// THAT FACT in a form the return accepts — it does not invent a number and it
+// does not leave a blank. So the reason becomes a chosen code rather than a
+// sentence somebody typed, and where the jurisdiction issues nothing the
+// question is not asked at all.
+//
+// Nothing here changes what is withheld, which is nothing, anywhere. A creator
+// in the DRC is paid gross exactly as one in Leeds is, and what they owe locally
+// is between them and their own authority.
+// ---------------------------------------------------------------------------
+export type TinSituation = "issued" | "not_issued" | "rarely_held";
+
+export const JURISDICTIONS: Record<string, { situation: TinSituation; note: string }> = {
+  // Issues individual references and expects them.
+  GB: { situation: "issued", note: "National Insurance number." },
+  IE: { situation: "issued", note: "PPS number." },
+  FR: { situation: "issued", note: "Numéro fiscal." },
+  DE: { situation: "issued", note: "Steuer-ID." },
+  US: { situation: "issued", note: "SSN or ITIN." },
+  NG: { situation: "issued", note: "Tax Identification Number." },
+  KE: { situation: "issued", note: "KRA PIN." },
+  GH: { situation: "issued", note: "Ghana Card / TIN." },
+  ZA: { situation: "issued", note: "SARS tax number." },
+  // Issues in principle, but an individual outside formal employment usually has
+  // none. Asking for one and refusing without it would exclude most creators.
+  CD: { situation: "rarely_held", note: "The DRC taxes employment income at source; an individual outside formal employment typically holds no personal reference." },
+  TZ: { situation: "rarely_held", note: "A TIN exists but is uncommon for individuals not in formal employment." },
+  UG: { situation: "rarely_held", note: "A TIN exists but is uncommon outside formal employment or business registration." },
+  ZM: { situation: "rarely_held", note: "A TPIN exists but is uncommon for informal earners." },
+  SN: { situation: "rarely_held", note: "NINEA is issued to businesses; individuals often hold none." },
+  CI: { situation: "rarely_held", note: "Individuals outside formal employment often hold no reference." },
+  CM: { situation: "rarely_held", note: "Individuals outside formal employment often hold no reference." },
+  SL: { situation: "rarely_held", note: "Individuals outside formal employment often hold no reference." },
+  // No personal income tax, so no personal reference exists to give.
+  AE: { situation: "not_issued", note: "No personal income tax, so no individual reference is issued." },
+  QA: { situation: "not_issued", note: "No personal income tax." },
+  BH: { situation: "not_issued", note: "No personal income tax." },
+  KW: { situation: "not_issued", note: "No personal income tax." },
+  BS: { situation: "not_issued", note: "No personal income tax." },
+  MC: { situation: "not_issued", note: "No personal income tax for most residents." },
+  VU: { situation: "not_issued", note: "No personal income tax." },
+};
+
+export const jurisdiction = (iso2: string) =>
+  JURISDICTIONS[(iso2 || "").trim().toUpperCase()] || { situation: "issued" as TinSituation, note: "" };
+
+/** Is a reference required at all where this person lives? */
+export function taxReferenceRequired(country: string): boolean {
+  return jurisdiction(country).situation === "issued";
+}
+
+/**
+ * The codes a return accepts in place of a reference. A chosen code files; a
+ * sentence somebody typed does not.
+ */
+export type NoTinCode = "jurisdiction_issues_none" | "not_required_to_hold" | "applied_for" | "unable_to_obtain";
+
+export const NO_TIN_CODES: { id: NoTinCode; label: string; appliesWhen: string }[] = [
+  { id: "jurisdiction_issues_none", label: "My country does not issue one to individuals", appliesWhen: "No personal income tax, or no individual reference exists." },
+  { id: "not_required_to_hold", label: "I am not required to hold one", appliesWhen: "The country issues them, but not to someone in your position." },
+  { id: "applied_for", label: "I have applied and am waiting", appliesWhen: "Give the reference as soon as it arrives — this one is temporary." },
+  { id: "unable_to_obtain", label: "I cannot obtain one", appliesWhen: "Say why in a sentence; this is the last resort and is reported as given." },
+];
+
+export const noTinCode = (id: string) => NO_TIN_CODES.find((c) => c.id === id) || null;
+
 export type SubmitInput = {
   creatorId: string;
   legalName: string;
@@ -124,10 +200,32 @@ export function submitIdentity(input: SubmitInput): SubmitResult {
   // that comes back.
   const ref = (input.taxReference || "").trim();
   const reason = (input.noTaxReferenceReason || "").trim();
+  const jur = jurisdiction(country);
+
   if (!ref && !reason) {
+    // Where the jurisdiction issues nothing, the fact IS the answer and the
+    // creator is not asked to explain the absence of something that does not
+    // exist. Anywhere else, a code is required.
+    if (jur.situation === "not_issued") {
+      return {
+        ok: true,
+        identity: buildIdentity(input, { creatorId, legalName, country, ref: "", reason: "jurisdiction_issues_none" }),
+        note: `Recorded. ${jur.note} That fact is what gets reported in place of a reference — you are not asked for a number that does not exist. Nothing is withheld from what you earn.`,
+      };
+    }
     return {
       ok: false, field: "taxReference",
-      error: `A tax reference is required${TAX_REF_FORMATS[country] ? ` — ${TAX_REF_FORMATS[country].label}` : ""}. If you genuinely do not have one, say why instead and that reason is reported in its place.`,
+      error: jur.situation === "rarely_held"
+        ? `A tax reference if you have one. ${jur.note} If you do not, choose one of the reasons instead — that is reported in its place and is a normal answer, not a problem.`
+        : `A tax reference is required${TAX_REF_FORMATS[country] ? ` — ${TAX_REF_FORMATS[country].label}` : ""}. If you genuinely do not have one, choose a reason instead and it is reported in its place.`,
+    };
+  }
+  // A stated reason must be one of the filable codes, or a sentence explaining
+  // why none of them fit. A bare "n/a" files nothing.
+  if (!ref && reason && !noTinCode(reason) && reason.length < 12) {
+    return {
+      ok: false, field: "noTaxReferenceReason",
+      error: "Choose one of the reasons, or explain in a sentence. A return needs something it can file, and two letters is not it.",
     };
   }
   if (ref) {
@@ -140,23 +238,27 @@ export function submitIdentity(input: SubmitInput): SubmitResult {
     }
   }
 
-  const identity: PayoutIdentity = {
-    creatorId, legalName,
-    dateOfBirth: input.dateOfBirth,
-    addressLine: input.addressLine.trim(), city: input.city.trim(),
-    postcode: (input.postcode || "").trim(), country,
-    taxReference: ref || undefined,
-    noTaxReferenceReason: ref ? undefined : reason,
-    state: "submitted",
-    submittedAt: input.nowISO,
-    sanctionsScreened: false,
-  };
+  const identity = buildIdentity(input, { creatorId, legalName, country, ref, reason });
 
   return {
     ok: true, identity,
     note: identityProviderConfigured()
       ? "Submitted for verification. Your first payout can be released once the check clears."
       : "Recorded. No identity provider is connected on this deployment, so nothing is marked verified automatically and payouts stay blocked until an administrator confirms the record — we will not mark a person verified because a form was filled in neatly.",
+  };
+}
+
+function buildIdentity(input: SubmitInput, p: { creatorId: string; legalName: string; country: string; ref: string; reason: string }): PayoutIdentity {
+  return {
+    creatorId: p.creatorId, legalName: p.legalName,
+    dateOfBirth: input.dateOfBirth,
+    addressLine: (input.addressLine || "").trim(), city: (input.city || "").trim(),
+    postcode: (input.postcode || "").trim(), country: p.country,
+    taxReference: p.ref || undefined,
+    noTaxReferenceReason: p.ref ? undefined : p.reason,
+    state: "submitted",
+    submittedAt: input.nowISO,
+    sanctionsScreened: false,
   };
 }
 
@@ -241,7 +343,8 @@ export function reportRow(identity: PayoutIdentity, totals: { earnedPence: numbe
     dateOfBirth: identity.dateOfBirth,
     address: [identity.addressLine, identity.city, identity.postcode].filter(Boolean).join(", "),
     country: identity.country,
-    taxReference: identity.taxReference || `NONE PROVIDED — ${identity.noTaxReferenceReason || "no reason recorded"}`,
+    taxReference: identity.taxReference
+      || `NO TIN — ${noTinCode(identity.noTaxReferenceReason || "")?.label || identity.noTaxReferenceReason || "no reason recorded"}${jurisdiction(identity.country).note ? ` (${jurisdiction(identity.country).note})` : ""}`,
     earnedPence: Math.max(0, Math.round(totals.earnedPence)),
     payoutsPence: Math.max(0, Math.round(totals.payoutsPence)),
     feesPence: Math.max(0, Math.round(totals.feesPence)),
@@ -315,5 +418,7 @@ export const IDENTITY_DOCTRINE = [
   "They are asked for because a platform that pays people for services must report who it paid — and because money leaving to an unverified account is money anybody who phishes a password can take.",
   "Nothing is deducted from what you earn. Reporting what you were paid and withholding from it are different things.",
   "You receive a copy of exactly what is reported about you. A figure filed about somebody that they cannot see is how disputes start.",
+  "Where your country does not issue an individual tax reference, that fact is what gets reported — you are never asked for a number that does not exist, and it is a normal answer rather than a problem.",
+  "Nothing is withheld anywhere. A creator in Kinshasa is paid gross exactly as one in Leeds is, and what you owe locally is between you and your own authority.",
   "No record is marked verified because a form was filled in neatly. Where no identity provider is connected, an administrator confirms it by hand and that is recorded against their name.",
 ];

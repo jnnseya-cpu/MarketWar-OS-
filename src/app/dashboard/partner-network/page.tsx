@@ -14,6 +14,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { EARNING_TIERS, COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
 import Share2Earn from "@/components/Share2Earn";
+import BrandPayouts from "@/components/BrandPayouts";
 
 type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string };
 type Wallet = { payoutEligible: boolean; followers: number; cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number; lifetimeCreatorGbp: number; lifetimePlatformGbp: number; payableGbp: number; pendingGbp: number; gateNote: string; perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[] };
@@ -96,6 +97,10 @@ export default function PartnerNetworkPage() {
       {/* SHARE2EARN sits directly under the ladder it is bounded by, so nobody
           has to go to another page to see that it pays less than the influencer
           bands and why. */}
+      {/* What the brand owes, above the machine that generates it — the bill
+          before the engine. */}
+      <BrandPayouts />
+
       <Share2Earn />
 
       {!activeBrand && <div className="card border-emerald-500/20 p-10 text-center"><Users className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" /><h2 className="font-display text-lg font-bold text-white">Add a brand to run a partner programme</h2></div>}

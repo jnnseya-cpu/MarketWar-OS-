@@ -19,6 +19,7 @@ if (typeof window !== "undefined") {
 
 import { createHash, randomUUID } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { executePayout } from "@/backend/payout-execute";
 import { computeCreatorSplit, programmeFor, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
 
 // ---------------------------------------------------------------------------
@@ -322,30 +323,65 @@ export function payoutRailFor(region: PayoutRegion): { rail: "bitripay" | "strip
   return { rail: "stripe", live: Boolean(process.env.STRIPE_SECRET_KEY), envKey: "STRIPE_SECRET_KEY" };
 }
 
-export async function requestPayout(creatorId: string, region: PayoutRegion = "other", nowISO?: string): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion }> {
+/**
+ * ONE PAYOUT PATH FOR THE WHOLE PLATFORM.
+ *
+ * This used to send money by itself, and it was the weaker of the two paths in
+ * a system that had grown two — which is the wrong way round, because the growth
+ * programme pays MORE (1% and 0.75%) than SHARE2EARN's 0.5%. It had no identity
+ * gate, no fee quote, and no destination: it reported a release without knowing
+ * where the money was going.
+ *
+ * Its idempotency was broken too. The record id was hashed over the TIMESTAMP,
+ * so two clicks a second apart produced two different ids and two records — and
+ * because both calls read the payable balance before either wrote, the race paid
+ * twice. The comment above it claimed the opposite.
+ *
+ * So it now delegates to `executePayout`, which claims before it calls the
+ * provider and gates on a verified identity. Same signature, same return shape,
+ * and every rule that protects a SHARE2EARN withdrawal now protects a growth
+ * commission as well.
+ */
+export async function requestPayout(
+  creatorId: string,
+  region: PayoutRegion = "other",
+  nowISO?: string,
+  opts?: { destination?: string; railId?: string; requestId?: string; country?: string },
+): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion; hint?: string }> {
   const w = await creatorWallet(creatorId);
   if (!w) return { ok: false, reason: "No creator account.", rail: "none", region };
   if (!w.payoutEligible) return { ok: false, reason: w.gateNote, rail: "held", region };
   if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance — everything earned so far has already been paid.", rail: "none", region };
-  const { rail, live, envKey } = payoutRailFor(region);
-  const railName = rail === "bitripay" ? "BitriPay (Africa mobile-money)" : "Stripe";
+
+  const iso = nowISO || new Date().toISOString();
   const amount = w.payableGbp;
-  // Only record a release (decrementing future payable) when the rail actually
-  // moved money. Idempotent: the record makes the next wallet read show £0 owed,
-  // so a retry/double-click can never re-release the same funds.
-  if (live) {
-    const iso = nowISO || new Date().toISOString();
-    const rec: PayoutRecord = { id: `pay_${hid(creatorId + "::" + iso + "::" + amount)}`, creatorId, amountGbp: amount, rail, region, createdAt: iso };
-    if (useDb()) await adminDb!.collection("creator_payouts").doc(rec.id).set(rec, { merge: true }); else memPayout.set(rec.id, rec);
+  const railId = opts?.railId || (region === "africa" ? "mpesa" : "stripe_bank");
+  const amountPence = Math.round(amount * 100);
+
+  // A stable key when the caller has not supplied one. Derived from the creator
+  // and the amount rather than the clock, so a double click on the SAME payable
+  // balance is one withdrawal — which is exactly the case the old code got wrong.
+  const requestId = opts?.requestId || `auto_${hid(`${creatorId}|${amountPence}`)}`;
+
+  const out = await executePayout({
+    creatorId, railId, amountPence, requestId,
+    country: opts?.country,
+    availablePence: amountPence,
+    destination: opts?.destination || "",
+    nowISO: iso,
+  });
+
+  if (!out.ok) {
+    return { ok: false, reason: out.error, hint: out.hint, rail: railId, region };
   }
-  return {
-    ok: live,
-    releasedGbp: live ? amount : undefined,
-    reason: live
-      ? `£${amount.toLocaleString()} released via ${railName} (fraud-scored). Your payable balance is now £0.`
-      : `£${amount.toLocaleString()} approved for release via ${railName} — connect the rail (${envKey}) to move funds. No money is claimed as moved, and nothing is deducted, until the rail is live.`,
-    rail, region,
-  };
+
+  // The release ledger is still written, because `creatorWallet` reads it to
+  // work out what is still payable. It is keyed by the idempotency key now, so
+  // a replay overwrites its own record rather than adding a second one.
+  const rec: PayoutRecord = { id: out.attempt.id, creatorId, amountGbp: amount, rail: railId, region, createdAt: iso };
+  if (useDb()) await adminDb!.collection("creator_payouts").doc(rec.id).set(rec, { merge: true }); else memPayout.set(rec.id, rec);
+
+  return { ok: true, releasedGbp: amount, reason: out.note, rail: railId, region };
 }
 
 export const ENGINE_CONSTANTS = { MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM };

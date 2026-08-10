@@ -12297,7 +12297,9 @@ test("payouts: the annual report carries what was filed, and the creator sees it
   // blank — a return with a gap where an identifier should be comes back.
   const noRef = pid.submitIdentity({ creatorId: "cr2", legalName: "Ada Cole", dateOfBirth: "1990-01-01", addressLine: "2 Rue", city: "Kinshasa", postcode: "", country: "CD", taxReference: "", noTaxReferenceReason: "No UK reference — resident in DR Congo", nowISO: now });
   const row2 = pid.reportRow(noRef.identity, { earnedPence: 1_000, payoutsPence: 0, feesPence: 0 });
-  assert.match(row2.taxReference, /NONE PROVIDED/);
+  // Reworded in §81: the return names the filable code and the jurisdiction fact
+  // rather than a bare "none provided".
+  assert.match(row2.taxReference, /NO TIN/);
   assert.match(row2.taxReference, /DR Congo/);
 });
 
@@ -12378,4 +12380,210 @@ test("creator payout dashboard: it never re-displays a tax reference, and never 
   // And it is reachable.
   const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
   assert.match(sidebar, /"\/dashboard\/earnings"/, "a capability nobody can reach is a capability nobody has");
+});
+
+// ---------------------------------------------------------------------------
+// The brand's side of a creator payout.
+//
+// The line these tests exist to hold: a commission is EARNED. Once the sale has
+// settled and the refund window has closed the money is the creator's, and the
+// brand's role is review rather than permission.
+// ---------------------------------------------------------------------------
+const pap = await import("../src/backend/payout-approvals.ts");
+
+const earning = (over = {}) => ({
+  id: "e1", brandId: "b1", creatorId: "cr1", missionId: "m1", actionId: "sale",
+  units: 1, pence: 500, state: "approved", at: "2026-08-01T00:00:00.000Z", ...over,
+});
+
+test("brand payouts: a settled undisputed commission cannot be withheld", () => {
+  const w = pap.withhold();
+  assert.equal(w.allowed, false);
+  assert.match(w.reason, /not your money/i);
+  // The refusal must offer the legitimate route, not just say no.
+  assert.match(w.instead, /dispute/i);
+  for (const r of pap.DISPUTE_REASONS) assert.ok(r.meaning.length > 20, `${r.id} does not explain itself`);
+
+  // A dispute without a reason from the list is refused — free-text withholding
+  // is exactly the thing this prevents.
+  const bare = pap.disputeEarning({ brandId: "b1", earning: earning(), reason: "", note: "not paying", actor: "a", nowISO: "2026-08-05T00:00:00.000Z" });
+  assert.equal(bare.ok, false);
+  assert.match(bare.hint, /not available/i);
+  const invented = pap.disputeEarning({ brandId: "b1", earning: earning(), reason: "changed_my_mind", note: "x", actor: "a", nowISO: "2026-08-05T00:00:00.000Z" });
+  assert.equal(invented.ok, false);
+});
+
+test("brand payouts: a dispute needs a reason, and the serious ones need evidence", () => {
+  const now = "2026-08-05T00:00:00.000Z";
+  // A refund is self-evident — no note required.
+  const refund = pap.disputeEarning({ brandId: "b1", earning: earning(), reason: "order_refunded", note: "", actor: "a", nowISO: now });
+  assert.equal(refund.ok, true);
+  assert.equal(refund.earning.state, "rejected");
+  assert.match(refund.earning.reason, /refunded/i);
+  assert.equal(refund.record.pence, 500);
+
+  // An accusation of fraud affects the creator's record, so it has to be argued.
+  const thin = pap.disputeEarning({ brandId: "b1", earning: earning(), reason: "fraudulent_conversion", note: "dodgy", actor: "a", nowISO: now });
+  assert.equal(thin.ok, false);
+  assert.match(thin.error, /needs an explanation/i);
+  const argued = pap.disputeEarning({ brandId: "b1", earning: earning(), reason: "fraudulent_conversion", note: "Card was chargeback-flagged and the address matches the creator's own.", actor: "a", nowISO: now });
+  assert.equal(argued.ok, true);
+  assert.match(argued.note, /creator is told the reason/i);
+});
+
+test("brand payouts: the dispute window closes, and paid money is not reopened", () => {
+  const e = earning();
+  // Inside the window.
+  assert.equal(pap.disputeEarning({ brandId: "b1", earning: e, reason: "order_refunded", note: "", actor: "a", nowISO: "2026-08-20T00:00:00.000Z" }).ok, true);
+  // Past it — a creator cannot plan around a balance that might be clawed back
+  // indefinitely.
+  const late = pap.disputeEarning({ brandId: "b1", earning: e, reason: "order_refunded", note: "", actor: "a", nowISO: "2027-08-01T00:00:00.000Z" });
+  assert.equal(late.ok, false);
+  assert.match(late.error, new RegExp(String(pap.DISPUTE_WINDOW_DAYS)));
+
+  // Already paid is a conversation, not a state change.
+  const paid = pap.disputeEarning({ brandId: "b1", earning: earning({ state: "paid" }), reason: "order_refunded", note: "", actor: "a", nowISO: "2026-08-05T00:00:00.000Z" });
+  assert.equal(paid.ok, false);
+  assert.match(paid.error, /already been paid/i);
+
+  // And one brand cannot touch another's earnings.
+  const other = pap.disputeEarning({ brandId: "b2", earning: e, reason: "order_refunded", note: "", actor: "a", nowISO: "2026-08-05T00:00:00.000Z" });
+  assert.equal(other.ok, false);
+  assert.match(other.error, /another brand/i);
+});
+
+test("brand payouts: releasing early only ever moves money toward the creator", () => {
+  const now = "2026-08-05T00:00:00.000Z";
+  const res = pap.releaseEarly({ brandId: "b1", earning: earning({ at: now }), actor: "a", nowISO: now });
+  assert.equal(res.ok, true);
+  assert.equal(res.earning.state, "approved");
+  // Back-dating past the hold is what makes it withdrawable now.
+  const wallet = s2e.walletFrom([res.earning], now);
+  assert.equal(wallet.availablePence, 500, "an early release must be withdrawable immediately");
+  assert.equal(wallet.pendingPence, 0);
+
+  // A disputed earning is not released without withdrawing the dispute first.
+  const disputed = pap.releaseEarly({ brandId: "b1", earning: earning({ state: "rejected" }), actor: "a", nowISO: now });
+  assert.equal(disputed.ok, false);
+});
+
+test("brand payouts: the liability is what is owed, split by state and by creator", () => {
+  const now = "2026-08-20T00:00:00.000Z";
+  const l = pap.brandLiability("b1", [
+    earning({ id: "a", creatorId: "cr1", pence: 500, at: "2026-08-01T00:00:00.000Z" }),        // past hold → payable
+    earning({ id: "b", creatorId: "cr1", pence: 300, at: "2026-08-19T00:00:00.000Z" }),        // inside hold → pending
+    earning({ id: "c", creatorId: "cr2", pence: 900, state: "paid" }),
+    earning({ id: "d", creatorId: "cr2", pence: 200, state: "rejected" }),
+    earning({ id: "e", brandId: "b2", creatorId: "cr3", pence: 9999 }),                        // another brand
+  ], now);
+
+  assert.equal(l.payableNowPence, 500);
+  assert.equal(l.pendingPence, 300);
+  assert.equal(l.paidPence, 900);
+  assert.equal(l.disputedPence, 200);
+  assert.equal(l.totalOwedPence, 800, "owed is payable plus pending — not the paid or disputed");
+  assert.equal(l.creators.length, 2, "another brand's earnings must not appear");
+  // The framing matters: this is a bill, not a balance.
+  assert.match(l.note, /not your money/i);
+});
+
+test("brand payouts: the queue is a chance to catch something, not a gate", () => {
+  const now = "2026-08-20T00:00:00.000Z";
+  const q = pap.approvalQueue("b1", [
+    earning({ id: "a", pence: 500, at: "2026-08-18T00:00:00.000Z" }),   // 2 days held → urgent soon
+    earning({ id: "b", pence: 300, at: "2026-08-01T00:00:00.000Z" }),   // already payable
+    earning({ id: "c", pence: 100, state: "paid" }),
+    earning({ id: "d", pence: 100, state: "rejected" }),
+  ], now);
+
+  assert.equal(q.items.length, 2, "paid and disputed earnings are not decisions waiting to be made");
+  assert.equal(q.items[0].earning.id, "b", "soonest to settle first");
+  // The wording must not imply money is waiting for permission.
+  assert.match(q.note, /Nothing here needs approving to be paid/i);
+  for (const i of q.items) assert.ok(i.daysLeftToDispute >= 0 && i.payableIn >= 0);
+});
+
+test("brand payouts: the screen offers dispute and release, and no silent hold", () => {
+  const src = readFileSync(new URL("../src/components/BrandPayouts.tsx", import.meta.url), "utf8");
+  assert.match(src, /Release early/);
+  assert.match(src, /Dispute/);
+  // No generic hold/withhold button that bypasses a reason.
+  assert.ok(!/action: "withhold"/.test(src), "the brand screen offers a silent withhold");
+  // A reason is required before the dispute button does anything.
+  assert.match(src, /disabled=\{busy \|\| !reason\}/);
+  // The creator is told — said on the screen, not just in the backend comment.
+  assert.match(src, /creator is told which reason you chose/i);
+  // The brand is shown that this is a bill rather than a balance.
+  assert.match(src, /What you owe your creators/);
+
+  const route = readFileSync(new URL("../src/app/api/share2earn/route.ts", import.meta.url), "utf8");
+  // Brand-side actions are brand-scoped, and the refusal is a real endpoint.
+  assert.match(route, /action === "liability" \|\| action === "queue"/);
+  assert.match(route, /if \(action === "withhold"\)/);
+  assert.match(route, /return NextResponse\.json\(withhold\(\), \{ status: 400 \}\)/);
+});
+
+test("payouts: there is ONE payout path, and the growth programme uses it too", () => {
+  // The platform had grown two payout paths, and the weaker one paid MORE — the
+  // growth programme pays 1% and 0.75% against SHARE2EARN's 0.5%, and had no
+  // identity gate, no fee quote and no destination. It now delegates.
+  const src = readFileSync(new URL("../src/backend/creator-engine.ts", import.meta.url), "utf8");
+  assert.match(src, /import \{ executePayout \} from "@\/backend\/payout-execute"/);
+  assert.match(src, /await executePayout\(\{/);
+  // It must no longer call a provider or write a release on its own terms.
+  const fn = src.slice(src.indexOf("export async function requestPayout"), src.indexOf("export async function", src.indexOf("export async function requestPayout") + 10) || undefined);
+  assert.ok(!/fetch\(/.test(fn), "requestPayout is calling a provider directly again");
+
+  // The old key was hashed over the TIMESTAMP, so two clicks a second apart made
+  // two records and — because both read the balance before either wrote — paid
+  // twice. The fallback key must not depend on the clock.
+  assert.match(src, /auto_\$\{hid\(`\$\{creatorId\}\|\$\{amountPence\}`\)\}/);
+  const keyLine = src.slice(src.indexOf("const requestId = opts?.requestId"), src.indexOf("const out = await executePayout"));
+  assert.ok(!/iso|Date|now/i.test(keyLine), "the idempotency key still depends on the clock");
+});
+
+test("payout identity: a country that issues no tax reference is not asked for one", () => {
+  const base = { creatorId: "c1", legalName: "Ada Cole", dateOfBirth: "1995-01-01", addressLine: "12 Ave", city: "Kinshasa", postcode: "", nowISO: "2026-08-10T12:00:00.000Z" };
+
+  // Where none exists, the FACT is the answer. Asking somebody to explain the
+  // absence of a number their country does not issue is a question with no
+  // correct reply.
+  assert.equal(pid.taxReferenceRequired("AE"), false);
+  const uae = pid.submitIdentity({ ...base, country: "AE" });
+  assert.equal(uae.ok, true, "a UAE creator was blocked for having no tax reference");
+  assert.equal(uae.identity.noTaxReferenceReason, "jurisdiction_issues_none");
+  assert.match(uae.note, /does not exist/i);
+
+  // Where one exists but an informal earner usually holds none — the DRC case —
+  // it asks, explains why, and accepts a code.
+  assert.equal(pid.jurisdiction("CD").situation, "rarely_held");
+  const drcBlank = pid.submitIdentity({ ...base, country: "CD" });
+  assert.equal(drcBlank.ok, false);
+  assert.match(drcBlank.error, /if you have one/i);
+  assert.match(drcBlank.error, /normal answer, not a problem/i);
+  const drcCode = pid.submitIdentity({ ...base, country: "CD", noTaxReferenceReason: "not_required_to_hold" });
+  assert.equal(drcCode.ok, true);
+
+  // Where one is expected, it is still required.
+  assert.equal(pid.taxReferenceRequired("GB"), true);
+  assert.equal(pid.submitIdentity({ ...base, country: "GB" }).ok, false);
+
+  // A code files; two letters does not.
+  assert.equal(pid.submitIdentity({ ...base, country: "CD", noTaxReferenceReason: "n/a" }).ok, false);
+  assert.equal(pid.submitIdentity({ ...base, country: "CD", noTaxReferenceReason: "No reference is issued to me as an informal earner" }).ok, true);
+
+  // The report names the code and the jurisdiction rather than printing a slug.
+  const row = pid.reportRow(drcCode.identity, { earnedPence: 1_000, payoutsPence: 0, feesPence: 0 });
+  assert.match(row.taxReference, /NO TIN — I am not required to hold one/);
+  assert.match(row.taxReference, /DRC taxes employment income at source/);
+  assert.ok(!/not_required_to_hold/.test(row.taxReference), "a raw code slug reached the return");
+
+  // And nothing is withheld anywhere, whatever the country.
+  for (const country of ["GB", "CD", "AE"]) {
+    const t = pay.taxPosition({ earnedThisYearPence: 50_000, country });
+    assert.equal(t.withholdingPence, 0, `${country} had tax withheld from a non-employee`);
+  }
+  // And the statement says the right thing for where they live.
+  assert.match(pay.taxPosition({ earnedThisYearPence: 50_000, country: "AE" }).platformObligations.join(" "), /issues no individual tax reference/i);
+  assert.match(pay.taxPosition({ earnedThisYearPence: 50_000, country: "CD" }).platformObligations.join(" "), /normal answer rather than a problem/i);
 });

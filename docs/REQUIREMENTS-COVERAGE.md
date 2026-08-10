@@ -3787,3 +3787,108 @@ wages.
 
 Tests **1040 → 1043**. Typecheck, layer check and build green (`/dashboard/earnings`
 5.39 kB). Two mutation checks run, both caught.
+
+---
+
+## §81 — The brand's side, one payout path, and countries with no tax reference (2026-08-10)
+
+Three things: the brand-side view and approvals the owner asked for, and two
+answers to the questions asked while it was being built.
+
+### 1. Brand-side payouts and approvals
+
+`src/backend/payout-approvals.ts`, `BrandPayouts.tsx` on
+`/dashboard/partner-network`, above the engine that generates the bill.
+
+**The line this draws is the whole design.** A commission is EARNED — a creator
+posted, somebody bought, the sale settled. At that point it is not the brand's
+money, so there is no approve button it waits behind. A brand can do exactly two
+things:
+
+- **Dispute** a specific earning, with a reason from a fixed list — refunded,
+  charged back, fraudulent, self-referral, policy breach, duplicate, wrongly
+  attributed. The serious three require an explanation, because they affect the
+  creator's record and not just this payment. The creator is told which reason.
+- **Release early**, paying before the hold expires. Always available, because it
+  only ever moves money toward the creator.
+
+`withhold()` is exported as a **function that refuses**, so a future caller
+reaching for "just hold it" has to go through it and read why not: *an earned
+commission a payer may keep at will is not a commission, it is a tip; creators
+price that in within a week and the good ones leave.* The API exposes it as a
+real endpoint returning 400.
+
+The dispute window closes after the hold plus a fortnight. A brand that can
+reopen a payment from a year ago has not got a review process, it has an option —
+and a creator cannot plan around a balance that might be clawed back
+indefinitely. Already-paid money cannot be disputed at all; that is a
+conversation, not a state change.
+
+The screen leads with **"What you owe your creators"** and the copy says plainly
+that this is not the brand's money. The queue is framed as *a chance to catch a
+refund before the money leaves*, not a gate.
+
+### 2. "Is this every payout the OS makes?" — it was not, and that was a defect
+
+**No.** The platform had grown **two payout paths**, and the weaker one paid
+more:
+
+| | Growth / influencer programme | SHARE2EARN |
+|---|---|---|
+| Rate | 1% and 0.75% | 0.5% |
+| Identity gate | **none** | required |
+| Fee quote | **none** | itemised |
+| Destination | **none — it reported a release without knowing where the money went** | required |
+| Idempotency | broken (below) | claimed before the send |
+
+Its idempotency was not merely absent, it was **wrong in a way the comment
+denied**. The release record's id was hashed over the timestamp, so two clicks a
+second apart produced two different ids and two records — and because both calls
+read the payable balance before either wrote, the race paid twice. The comment
+above it said "a retry/double-click can never re-release the same funds".
+
+`requestPayout` now delegates to `executePayout`. Same signature, same return
+shape, and every rule that protects a SHARE2EARN withdrawal protects a growth
+commission. Where no `requestId` is supplied the fallback is derived from
+**creator and amount, never the clock**, so a double click on the same payable
+balance is one withdrawal. A mutation reintroducing the clock fails the test.
+
+### 3. Countries with no personal tax reference
+
+The form asked everyone for a tax reference and, failing that, a free-text
+reason. For somebody in Kinshasa that is **a question with no correct answer**:
+the DRC does levy personal tax, but it is largely collected at source from formal
+employment, and an individual outside that system has no number to give. Several
+countries issue none at all.
+
+The reporting standard already anticipates this, so the module now knows three
+situations per jurisdiction:
+
+- **Issues** (GB, IE, FR, DE, US, NG, KE, GH, ZA) — a reference is required and
+  format-checked.
+- **Rarely held** (CD, TZ, UG, ZM, SN, CI, CM, SL) — it asks, *explains why the
+  answer is often none*, and accepts a code. The refusal says this is "a normal
+  answer, not a problem".
+- **Not issued** (AE, QA, BH, KW, BS, MC, VU) — **the question is not asked at
+  all.** The jurisdiction fact is what gets reported.
+
+In place of a number the return carries one of four filable codes rather than a
+sentence somebody typed: *jurisdiction issues none, not required to hold, applied
+for, unable to obtain.* A bare "n/a" is refused — a return needs something it can
+file. The report row prints the code's label and the jurisdiction note, never a
+raw slug.
+
+**And nothing is withheld anywhere.** A creator in Kinshasa is paid gross exactly
+as one in Leeds is; what they owe locally is between them and their own
+authority. The tax statement now says the right thing for where the person
+actually lives.
+
+### Verification
+
+Tests **1043 → 1052**. Typecheck, layer check and build green. Ten mutation
+checks run across the three pieces, all caught — including the clock-dependent
+idempotency key and a no-TIN country being asked for a reference anyway. Engine
+registry 52 → 53.
+
+One §79 assertion was updated rather than the code: the report row now reads
+"NO TIN — <code label> (<jurisdiction note>)" instead of "NONE PROVIDED".

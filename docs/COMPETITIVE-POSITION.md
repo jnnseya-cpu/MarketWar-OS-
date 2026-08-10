@@ -31,13 +31,13 @@ against a two-figure pound subscription does not turn on the spot rate.
 |---|---|---|
 | Dashboard surfaces | **59** | directories under `src/app/dashboard` |
 | API routes | **147** | `route.ts` files under `src/app/api` |
-| Documented engines (each with its own API + zero-config demo) | **52** | `ENGINE_REGISTRY` |
+| Documented engines (each with its own API + zero-config demo) | **53** | `ENGINE_REGISTRY` |
 | Runnable AI agents | **39** | `AGENT_LIST` |
 | Command-Centre front-line units | **26** in 6 divisions under one commander | `ARMY` / `DIVISIONS` |
 | Of those 26, live with no external key | **23** | `armyStats()` |
 | Needing a connector before they act | **3** — paid-ads auto-launch, multi-channel social publishing, live WhatsApp send | each names its own unlock |
 
-The engines by category: Economics & Governance (14), Market Intelligence (9),
+The engines by category: Economics & Governance (15), Market Intelligence (9),
 Acquisition & Campaigns (6), Engagement & Retention (6), Content & Reporting (6),
 Local & Marketplace (5), Video Intelligence (3), Autonomy & Orchestration (3).
 
@@ -222,7 +222,7 @@ A comparison that only flatters us is worthless. These are real.
 6. **Integrations, support, and trust.** HubSpot has a marketplace of over a
    thousand integrations and an onboarding organisation. We are new, and a new
    platform asking a business to move its customer list is asking for a lot.
-7. **Breadth is not depth.** 52 engines and 39 agents is a wide surface. In any
+7. **Breadth is not depth.** 53 engines and 39 agents is a wide surface. In any
    single column, a category leader that has done one thing for ten years will
    beat us on that thing. The argument for us is the *whole*, not any part.
 

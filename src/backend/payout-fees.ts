@@ -10,6 +10,8 @@ if (typeof window !== "undefined") {
 // the two things that were missing: the FEE the creator actually pays, and the
 // TAX position of someone who is not an employee.
 //
+import { jurisdiction } from "@/backend/payout-identity";
+
 // ── THE TAX POSITION, STATED PLAINLY ───────────────────────────────────────
 //
 // Creators are not employees. Nothing is withheld: no income tax, no National
@@ -272,6 +274,7 @@ export type TaxPosition = {
 
 export function taxPosition(input: { earnedThisYearPence: number; country?: string }): TaxPosition {
   const gbp = (input.earnedThisYearPence / 100).toFixed(2);
+  const jur = jurisdiction(input.country || "");
   return {
     // The number that matters, and it is zero.
     withholdingPence: 0,
@@ -285,6 +288,11 @@ export function taxPosition(input: { earnedThisYearPence: number; country?: stri
       "MarketWar collects your name, address, date of birth and tax reference before your first payout, because a platform that pays for services is required to know who it paid.",
       "Under the UK's reporting rules for digital platforms — the OECD model rules, DAC7 in the EU — annual earnings are reported to the tax authority, and you receive a copy of exactly what was reported.",
       "We do not deduct tax on your behalf and cannot. Reporting what you were paid and withholding from it are different things.",
+      jur.situation === "not_issued"
+        ? `Your country issues no individual tax reference — ${jur.note} That fact is reported in place of a number; you are never asked for one that does not exist.`
+        : jur.situation === "rarely_held"
+          ? `${jur.note} If you hold no reference, a stated reason is reported in its place and that is a normal answer rather than a problem.`
+          : "Your tax reference is reported alongside the amount, which is what makes the return filable.",
     ],
     creatorObligations: [
       "What you earn here is your income and you declare it where you live. In the UK that usually means Self Assessment once your total self-employed income passes the trading allowance.",

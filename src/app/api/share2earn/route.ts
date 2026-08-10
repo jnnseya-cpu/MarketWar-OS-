@@ -5,6 +5,7 @@ import {
   worstCasePence, ladderIsSane, SHARE2EARN_DOCTRINE, DISCLOSURE, HOLD_DAYS,
   MIN_ACTIONS_TO_SCORE, MAX_SQUAD_MEMBERS,
   netEligibleValue, saleCommissionPence, productEligible, XP_RULES, LEVELS, levelFor, XP_DOCTRINE,
+  recordEarning, brandEarnings, type Earning,
   type MissionKind, type Reward, type EarnActionId,
 } from "@/backend/share2earn";
 import { COMMISSION_BANDS, ratePct, SHARE2EARN_RATE, SHARE2EARN_RATE_CAP } from "@/shared/creator-program";
@@ -24,6 +25,10 @@ import {
   reportRow, identityProviderConfigured, sanctionsScreeningConfigured, IDENTITY_DOCTRINE,
 } from "@/backend/payout-identity";
 import { executePayout, listAttempts, paidOutPence, liveRails, EXECUTE_DOCTRINE } from "@/backend/payout-execute";
+import {
+  brandLiability, approvalQueue, disputeEarning, releaseEarly, withhold,
+  saveDispute, listDisputes, DISPUTE_REASONS, DISPUTE_WINDOW_DAYS, APPROVALS_DOCTRINE,
+} from "@/backend/payout-approvals";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -82,6 +87,7 @@ export async function GET(req: NextRequest) {
         identityDoctrine: IDENTITY_DOCTRINE,
         executeDoctrine: EXECUTE_DOCTRINE,
       },
+      approvals: { reasons: DISPUTE_REASONS, windowDays: DISPUTE_WINDOW_DAYS, doctrine: APPROVALS_DOCTRINE },
       disclosure: DISCLOSURE,
       ladder: ladderIsSane(),
     });
@@ -395,6 +401,34 @@ export async function POST(req: NextRequest) {
       growthGuardAllowancePence: allowance.pence,
     });
     return NextResponse.json({ value, eligibility, economics: e, allowance });
+  }
+
+  // The brand's side: what it owes, and the only two things it may do about it.
+  if (action === "liability" || action === "queue") {
+    const earnings = Array.isArray(body.earnings) ? (body.earnings as Earning[]) : await brandEarnings(brandId);
+    return NextResponse.json(action === "liability"
+      ? { liability: brandLiability(brandId, earnings, nowISO), disputes: await listDisputes(brandId), doctrine: APPROVALS_DOCTRINE }
+      : { ...approvalQueue(brandId, earnings, nowISO), reasons: DISPUTE_REASONS, windowDays: DISPUTE_WINDOW_DAYS });
+  }
+
+  if (action === "dispute" || action === "release-early") {
+    const earning = body.earning as Earning | undefined;
+    if (!earning || typeof earning !== "object" || !earning.id) {
+      return NextResponse.json({ error: "The earning to act on is required." }, { status: 400 });
+    }
+    const actor = access.uid || "brand";
+    const res = action === "dispute"
+      ? disputeEarning({ brandId, earning, reason: str("reason"), note: str("note"), actor, nowISO })
+      : releaseEarly({ brandId, earning, actor, nowISO });
+    if (!res.ok) return NextResponse.json({ error: res.error, hint: res.hint }, { status: 400 });
+    await saveDispute(res.record);
+    await recordEarning(res.earning);
+    return NextResponse.json({ earning: res.earning, record: res.record, note: res.note });
+  }
+
+  // Reaching for "just hold it" has to go through the refusal and read why not.
+  if (action === "withhold") {
+    return NextResponse.json(withhold(), { status: 400 });
   }
 
   if (action === "quote") {
