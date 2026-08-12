@@ -411,7 +411,7 @@ export function improvements(input: ImproveInput): ImproveReport {
       title: `${dead.count.toLocaleString()} contacts have never opened anything`,
       evidence: `Each has received ${dead.minSends} or more messages and has never opened or clicked one. Together they account for ${dead.messages.toLocaleString()} of your ${r.sent.toLocaleString()} sends (${pct(dead.messages, r.sent)}%). The same openers over the remaining list would read ${dead.openFloorWithoutPct}% rather than ${r.openFloorPct}% — that is the same arithmetic, not a forecast.`,
       fix: "Send this group one plainly-worded message asking whether they still want to hear from you, then stop sending to whoever does not answer. Continuing to mail an address that has ignored five messages is what teaches Gmail and Microsoft to route the whole domain to spam, so this protects delivery to everybody else as well.",
-      where: "/dashboard/vault",
+      where: "/dashboard/customers",
     });
   }
 
@@ -440,7 +440,7 @@ export function improvements(input: ImproveInput): ImproveReport {
         title: `${unsubPct}% unsubscribed from this list`,
         evidence: `${unsubs.toLocaleString()} of ${r.sent.toLocaleString()} messages ended in an unsubscribe. Above roughly 0.5% the usual cause is frequency or a mismatch between what was signed up for and what is being sent, rather than the individual message.`,
         fix: "Reduce the send frequency and say on the sign-up form what will actually arrive and how often. An unsubscribe is the good outcome here — the alternative is a spam complaint, which damages every other brand sending on this infrastructure.",
-        where: "/dashboard/vault",
+        where: "/dashboard/customers",
       });
     }
   }

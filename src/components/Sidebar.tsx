@@ -141,6 +141,7 @@ export const NAV = [
       { href: "/dashboard/budget", label: "Budget Protection", icon: PiggyBank },
       { href: "/dashboard/competitors", label: "Competitor Spy", icon: Radar },
       { href: "/dashboard/reputation", label: "Reputation Shield", icon: ShieldCheck },
+      { href: "/dashboard/sentinel", label: "Sentinel Security", icon: Shield },
       { href: "/dashboard/local", label: "Local Domination", icon: MapPin },
     ],
   },

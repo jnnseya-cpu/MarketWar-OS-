@@ -49,10 +49,13 @@ export default function JoinShare2Earn() {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const res = await fetch("/api/share2earn", {
+      // The public-form lane. /api/share2earn itself moves money and requires a
+      // recently-checked human session; asking for one on the form that creates
+      // the account would be circular.
+      const res = await fetch("/api/share2earn/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "join", name, email }),
+        body: JSON.stringify({ name, email }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setError(d.error || "Could not complete that — try again."); return; }

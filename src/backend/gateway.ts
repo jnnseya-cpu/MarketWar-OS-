@@ -17,6 +17,9 @@ if (typeof window !== "undefined") {
 
 import { spendVerdict, recordSpend, estimateCost } from "@/backend/ai-spend";
 
+import { guardPrompt, harden, type Untrusted, type Finding } from "@/backend/instruction-firewall";
+import { record as recordSecurityEvent } from "@/backend/sentinel";
+
 export type ProviderId = "anthropic" | "openai" | "gemini";
 
 /**
@@ -35,6 +38,17 @@ export interface GatewayRequest {
   prompt: string;
   maxTokens?: number;
   lang?: string; // target output language (English display name, e.g. "French"); English = no-op
+  /**
+   * Text somebody OTHER than the operator wrote — a scraped page, a CRM note,
+   * an inbound email, a pasted document.
+   *
+   * Passing it here instead of concatenating it into `prompt` is what lets the
+   * instruction firewall wrap it in a labelled envelope and refuse the
+   * unambiguous attacks. A caller that inlines third-party text into `prompt`
+   * still gets the provenance rule in the system message, but not the envelope
+   * — so the field is the difference between "defended" and "warned".
+   */
+  untrusted?: Untrusted[];
 }
 
 // Read the caller's target language from the request (x-mw-lang header carries a
@@ -545,6 +559,29 @@ export const LIVE_AI_UNAVAILABLE =
  *                        that genuinely takes longer than a chat reply — a full
  *                        strategy is not a two-sentence answer.
  */
+/**
+ * Raised when third-party text tried to issue instructions.
+ *
+ * A distinct error type so a route can tell a customer WHAT was in their
+ * document, rather than reporting a generic failure for something that was not
+ * a failure at all — the system worked exactly as intended.
+ */
+export class UntrustedInstructionError extends Error {
+  readonly findings: Finding[];
+  constructor(message: string, findings: Finding[]) {
+    super(message);
+    this.name = "UntrustedInstructionError";
+    this.findings = findings;
+  }
+}
+
+// What the last call's firewall saw, for the Sentinel to record. Per-process and
+// last-write-wins: it is a diagnostic, never an audit trail, and the Sentinel's
+// own store is the record.
+let lastFirewallFindings: Finding[] = [];
+export function firewallFindings(): Finding[] { return lastFirewallFindings; }
+export { harden as hardenSystemPrompt };
+
 export async function gatewayComplete(
   reqIn: GatewayRequest,
   opts: { budgetMs?: number; perCallMs?: number; tier?: ModelTier; paid?: boolean } = {},
@@ -560,9 +597,33 @@ export async function gatewayComplete(
   // set, instruct the model to answer entirely in it. Every engine that routes
   // through the gateway inherits this automatically.
   const lang = (reqIn.lang || "").trim();
-  const req: GatewayRequest = lang && !/^(en|english)/i.test(lang)
+  const localised: GatewayRequest = lang && !/^(en|english)/i.test(lang)
     ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
     : reqIn;
+
+  // THE INSTRUCTION FIREWALL — the second half of "block all non-human
+  // instructions", and the half that matters in a platform with nineteen agents
+  // reading other people's text.
+  //
+  // The provenance rule goes on EVERY call, not only the ones that declare
+  // untrusted input. Most engines still concatenate third-party text into the
+  // prompt, so a rule that only applied to the declared cases would protect the
+  // careful callers and leave the rest exactly as exposed as before. It costs
+  // about a hundred input tokens; a hijacked agent costs the brand.
+  const guarded = guardPrompt({ system: localised.system, prompt: localised.prompt, untrusted: localised.untrusted || [] });
+  if (!guarded.ok) {
+    recordSecurityEvent({ at: new Date().toISOString(), kind: "injection_refused", actor: "system:gateway", detail: guarded.findings.map((f) => f.id).join(", ") });
+    throw new UntrustedInstructionError(guarded.error, guarded.findings);
+  }
+  if (guarded.flagged) {
+    recordSecurityEvent({ at: new Date().toISOString(), kind: "injection_flagged", actor: "system:gateway", detail: guarded.findings.map((f) => f.id).join(", ") });
+  }
+  const req: GatewayRequest = {
+    ...localised,
+    system: guarded.system,
+    prompt: guarded.prompt,
+  };
+  lastFirewallFindings = guarded.findings;
 
   // Default FAST. A caller that genuinely needs the strongest model says so;
   // the expensive path should be the deliberate one, not the one you get by

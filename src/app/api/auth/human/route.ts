@@ -5,6 +5,7 @@ import {
   isDisposableEmail, humanCheckStatus,
 } from "@/backend/human-check";
 import { claimSignupGrant, getWallet, signupGrantClaimed, FREE_SIGNUP_ACUS } from "@/backend/wallet";
+import { issueSession, bindingFor as gateBinding, HUMAN_COOKIE, SESSION_TTL_MS, gateStatus } from "@/backend/human-gate";
 
 // The human check behind signup and login.
 //
@@ -57,7 +58,31 @@ export async function POST(req: NextRequest) {
   if (!res.ok) {
     return NextResponse.json({ error: res.reason, retryable: res.retryable }, { status: res.retryable ? 400 : 403 });
   }
-  return NextResponse.json({ token: res.token, expiresAt: res.expiresAt });
+  // A PASSED CHECK OPENS THE WHOLE OS, NOT JUST THE ALLOWANCE.
+  //
+  // This used to mint a 20-minute token whose only job was to unlock the free
+  // ACUs. Under the owner's directive the same passed check is what every
+  // section requires, so it now also sets the signed human-session cookie the
+  // middleware gate reads. Two artefacts from one check: the token (spent once,
+  // for the allowance) and the session (held, for the visit).
+  //
+  // HttpOnly so no script on the page can read or replay it, SameSite=Lax so it
+  // does not travel on cross-site requests, Secure in production.
+  const session = await issueSession(await gateBinding(req));
+  const out = NextResponse.json({
+    token: res.token,
+    expiresAt: res.expiresAt,
+    session: { expiresAt: session.expiresAt, ttlMs: SESSION_TTL_MS },
+    gate: gateStatus(),
+  });
+  out.cookies.set(HUMAN_COOKIE, session.value, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+  });
+  return out;
 }
 
 export async function PUT(req: NextRequest) {

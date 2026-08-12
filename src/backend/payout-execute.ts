@@ -36,6 +36,7 @@ import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { quoteWithdrawal, rail, type WithdrawalQuote } from "@/backend/payout-fees";
 import { loadIdentity, payoutAllowed } from "@/backend/payout-identity";
+import { record as recordSecurityEvent } from "@/backend/sentinel";
 
 export type PayoutState = "claimed" | "sent" | "failed" | "reversed";
 
@@ -94,7 +95,13 @@ export async function executePayout(input: ExecuteInput): Promise<PayoutOutcome>
   // 1. IDENTITY — before anything, including before the quote.
   const identity = await loadIdentity(creatorId);
   const gate = payoutAllowed(identity);
-  if (!gate.allowed) return { ok: false, error: gate.reason, hint: gate.fix, gate: gate.reason };
+  if (!gate.allowed) {
+    // The refusal worked. Recording it is how a PATTERN of refusals — somebody
+    // testing where the gate is — becomes visible instead of being nine
+    // successful defences nobody counted.
+    recordSecurityEvent({ at: new Date().toISOString(), kind: "payout_refused", actor: `uid:${creatorId}`, detail: gate.reason });
+    return { ok: false, error: gate.reason, hint: gate.fix, gate: gate.reason };
+  }
 
   // 2. BALANCE.
   const amount = Math.max(0, Math.round(input.amountPence || 0));

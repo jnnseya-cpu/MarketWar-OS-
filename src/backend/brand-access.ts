@@ -27,6 +27,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { requireAuth } from "@/backend/guard";
+import { record as recordSecurityEvent, actorFor } from "@/backend/sentinel";
 import type { Role } from "@/shared/roles";
 
 export type BrandAccess =
@@ -73,6 +74,9 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
     });
 
     if (verdict === "denied") {
+      // One of these is a stale tab. Five in half an hour is somebody trying ids,
+      // which is exactly the shape Sentinel's tenant-probing rule looks for.
+      recordSecurityEvent({ at: new Date().toISOString(), kind: "tenant_denied", actor: actorFor(req, uid), brandId, detail: "brand belongs to another account" });
       return { ok: false, status: 403, error: "This brand belongs to another account" };
     }
     return { ok: true, enforced: true, uid, role: auth.role };

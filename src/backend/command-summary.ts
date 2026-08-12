@@ -201,7 +201,7 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
       detail: `${s.source} has produced ${s.leads} lead${s.leads === 1 ? "" : "s"} but no orders yet — the intent is there, the offer or follow-up is not landing.`,
       priority: clampPriority(30 + Math.min(40, s.leads * 6)),
       metric: `${s.leads} leads · £0 converted`,
-      href: "/dashboard/offer-forge",
+      href: "/dashboard/offers",
       cta: "Sharpen the offer",
     });
   }
@@ -214,7 +214,7 @@ export function commandBriefing(business: string, rawSummary: ResultsSummary): C
       detail: `${orders} orders at £${round(avgOrderGbp)} average. A 10% bundle/upsell lift on the same order count is about £${uplift} more — with no extra acquisition spend.`,
       priority: clampPriority(25 + Math.min(35, uplift / 5)),
       metric: `AOV £${round(avgOrderGbp)} · +£${uplift} at +10%`,
-      href: "/dashboard/offer-forge",
+      href: "/dashboard/offers",
       cta: "Build a bundle",
     });
   }

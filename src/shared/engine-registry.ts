@@ -102,6 +102,7 @@ export const ENGINE_REGISTRY: EngineEntry[] = [
   // ── Reputation & Local ────────────────────────────────────────────────────
   { id: "review-requests", name: "Review Requests", category: "Local & Marketplace", blurb: "Ask real customers for real reviews across nine platforms — eligibility from your own vault, correct review links, paced sending, and no review gating.", actions: ["plan", "draft", "send", "record"], dashboard: "/dashboard/reputation" },
   { id: "local-outreach", name: "Flyers & Local Groups", category: "Local & Marketplace", blurb: "Print-ready flyers specified in millimetres with bleed and a scannable QR, plus community-group posts with each group's real rules beside them.", actions: ["flyer", "group-post", "followers"], dashboard: "/dashboard/local" },
+  { id: "sentinel", name: "Sentinel Anti-Intrusion", category: "Economics & Governance", blurb: "The human gate over every route, the instruction firewall that keeps third-party text from becoming an instruction, and counted detections with the evidence attached — no threat score.", actions: ["scan", "report", "brief"], dashboard: "/dashboard/sentinel" },
 ];
 
 export const ENGINE_CATEGORIES: EngineCategory[] = [

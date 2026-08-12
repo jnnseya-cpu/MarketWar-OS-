@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 // caller can never trigger a denial-of-wallet on the AI endpoints, even in demo.
 
 import { adminAuth, adminConfigured } from "@/backend/firebase-admin";
+import { record as recordSecurityEvent } from "@/backend/sentinel";
 import type { Role, Scope } from "@/shared/roles";
 import { hasScope } from "@/shared/roles";
 
@@ -62,10 +63,29 @@ export function rateLimit(key: string, limit: number, windowMs: number, now: num
     return { ok: true, remaining: limit - 1, retryAfterSec: 0 };
   }
   if (b.count >= limit) {
+    // Sentinel sees every rate limit without a single route being edited, because
+    // the key already carries the route and the caller. A control that depends on
+    // a hundred call sites remembering to report is a control with a hundred
+    // places to be forgotten.
+    const [route, ...rest] = key.split(":");
+    recordSecurityEvent({
+      at: new Date(now).toISOString(),
+      kind: "rate_limited",
+      actor: `ip:${ipHash(rest.join(":"))}`,
+      path: route,
+      detail: `limit ${limit} per ${Math.round(windowMs / 1000)}s`,
+    });
     return { ok: false, remaining: 0, retryAfterSec: Math.ceil((b.resetAt - now) / 1000) };
   }
   b.count += 1;
   return { ok: true, remaining: limit - b.count, retryAfterSec: 0 };
+}
+
+/** The caller in a security log is a hash, never an address. */
+function ipHash(ip: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < ip.length; i++) { h ^= ip.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
 }
 
 export function clientKey(req: Request, route: string): string {
@@ -77,6 +97,11 @@ export function clientKey(req: Request, route: string): string {
 // ---------------------------------------------------------------------------
 // Authentication + role authorisation
 // ---------------------------------------------------------------------------
+function noteAuthFailure(req: Request, detail: string): void {
+  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "local";
+  recordSecurityEvent({ at: new Date().toISOString(), kind: "auth_failed", actor: `ip:${ipHash(ip)}`, detail });
+}
+
 export type AuthResult =
   | {
       ok: true; enforced: boolean; uid: string | null; role: Role | null;
@@ -94,11 +119,15 @@ export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promi
   }
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!token) return { ok: false, status: 401, error: "Authentication required" };
+  if (!token) {
+    noteAuthFailure(req, "no bearer token");
+    return { ok: false, status: 401, error: "Authentication required" };
+  }
   let decoded;
   try {
     decoded = await adminAuth.verifyIdToken(token);
   } catch {
+    noteAuthFailure(req, "invalid or expired token");
     return { ok: false, status: 401, error: "Invalid or expired session" };
   }
   let role = (decoded.role as Role | undefined) ?? null;

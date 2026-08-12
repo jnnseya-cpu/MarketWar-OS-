@@ -4196,3 +4196,161 @@ server: join, duplicate join, a join carrying a follower claim, mode change,
 eligible and ineligible products, cross-brand discovery, claim, refusal of the
 ineligible product, and `/r/{CODE}` redirecting to the brand's own page with the
 ref attached.
+
+## §85 — Only people get in, and text never becomes an instruction (2026-08-12)
+
+Owner directive: *"Only humans can sign up and log in to every section and every
+part of this OS, and block all non-human instructions and activate an
+anti-hacking AI agent."*
+
+That is three controls with three different jobs, and conflating them is how
+this gets built badly.
+
+### 1. The human gate — `src/backend/human-gate.ts` + `src/middleware.ts`
+
+`human-check.ts` already proved a person was at the door; it protected the free
+ACU allowance and nothing else. The gate makes the same passed check hold for
+the whole visit, and applies it **in middleware** so coverage is a routing rule
+rather than a habit each route has to keep. A route added tomorrow is covered
+the day it is added.
+
+Every request lands in exactly one lane:
+
+| Lane | What it is |
+|---|---|
+| `always_open` | The check itself, health, login. Closing these closes the only door anyone can prove themselves through. |
+| `public_page` | The marketing site. Not the OS. |
+| `machine` | Webhooks and the scheduler — not people, and each must present the credential that makes it an **invited** machine. |
+| `public_form` | Signup and lead capture, where demanding a session to obtain a session is circular. |
+| `human` | Everything else: `/dashboard`, `/partner`, `/api`. |
+
+**"Block all non-human instructions" is implemented as: every request must be
+attributable either to a verified human session or to a machine we invited,
+authenticated as that machine.** An unauthenticated script has no lane. A call
+to `/api/webhooks/stripe` with no signature is refused; a scheduler path with no
+`CRON_SECRET` set fails **closed**, because a route nobody can be recognised for
+is not "open to the scheduler", it is open.
+
+**Sensitive paths need a RECENT check**, not one from this morning: fifteen
+minutes for anything touching money, identity, credentials or admin. A
+twelve-hour session is a twelve-hour window for whoever picks the laptop up, and
+that is the window a payout would leave through. The refusal is `reverify`, not
+`verify` — telling a signed-in customer to "log in again" when they only needed
+to re-tap is how a withdrawal gets abandoned.
+
+**It fails to a challenge, never a lockout.** Pages redirect to `/verify-human`
+carrying where they were going; APIs answer 403 with the action and the address.
+
+**Caught live before it shipped:** the first matcher gated the marketing site
+too. That is not a stricter reading of the directive, it is self-harm — Google
+could not crawl the pages this platform sells SEO on. The fix was to state a
+short list of what IS the OS rather than grow a list of exceptions to a gate
+over everything, because a list of exceptions is one somebody forgets to extend
+and the failure is silent. A test now pins nine public pages open.
+
+**Honest limit, stated on the page itself:** this stops SCALE — scripts, farms,
+credential stuffing, replayed sessions. It does not stop one determined person
+driving a real browser. No web check does, and claiming otherwise would be the
+dishonest part.
+
+**Demo:** with neither `HUMAN_CHECK_SECRET` nor a Firebase project the gate
+OBSERVES and says so. There are no accounts and no balances in the zero-config
+demo; pretending to protect them would be theatre, and blocking would breach the
+standing zero-config rule for no security benefit.
+
+### 2. The instruction firewall — `src/backend/instruction-firewall.ts`
+
+The half of "non-human instructions" that actually takes money out. Nineteen
+agents read material other people wrote — scraped pages, CRM notes, inbound
+email, pasted documents. If any of it reaches a model as instruction rather than
+data, whoever wrote it is issuing commands to a system that can publish, spend an
+AI budget and touch a payout queue, without ever logging in.
+
+**The defence is structure, not detection.** Third-party text is wrapped in a
+labelled envelope and every gateway call now carries a provenance rule stating,
+before the model reads any of it, that everything inside is evidence and never
+instruction. That holds for attacks nobody has thought of yet. The rule goes on
+**every** call, not only the ones that declare untrusted input, because most
+engines still concatenate third-party text into the prompt — a rule that only
+covered the careful callers would leave the rest exactly as exposed.
+
+**The pattern list is an alarm, not a wall**, and is described that way in the
+module. Anyone who reads it can rephrase around it; its job is telling Sentinel
+that somebody is trying. Nine patterns; the four with no innocent reading —
+credential exfiltration, forged system turns, guard bypass, payout redirection —
+refuse outright, the rest are processed and flagged, because a firewall that
+blocks real work gets switched off.
+
+**Nothing is silently sanitised.** Deleting the matched phrase would produce a
+confident analysis of a document that no longer exists and would hide the
+attempt. Content goes through whole and labelled, or it is refused and the
+customer is shown what was in it. A test asserts the refusal path contains no
+redaction, and that a payload cannot close the envelope early to put the rest of
+itself outside.
+
+### 3. Sentinel — `src/backend/sentinel.ts`, `/dashboard/sentinel`
+
+The anti-intrusion agent, and it is worth being exact about what "AI agent"
+means here.
+
+**Detection is arithmetic.** Every finding is a COUNT of events that happened, in
+a stated window, from one actor, with the events attached. No model decides
+whether you are under attack — asked that question a model produces a confident
+answer either way, and a security control that is confidently wrong at 3am is
+worse than none, because you would act on it.
+
+**There is no threat score anywhere in the module**, and a test asserts no field
+matching `/score|risk|level/` exists. Such a number would be a hash of some
+counts dressed as a measurement, which this codebase has a standing rule against.
+
+**The AI writes the brief, not the verdict** — reading a confirmed incident and
+saying what it means in the next hour is what a model is good at. It is metered
+like any other AI action and runs on demand; an agent that called a provider on
+every failed login would be a denial-of-wallet attack shipped as a feature. With
+no detections it returns a sentence and calls nothing.
+
+Eight rules with thresholds set where a normal person's worst day stays below
+them: credential stuffing, tenant probing, injection campaigns, payout targeting,
+gate evasion, machine-lane probing, sustained rate limiting, injection probing.
+Where the honest answer is "we cannot tell an attack from a broken integration",
+the response is `step_up` rather than `block` — locking out a customer to be safe
+is still locking out a customer. Actors are hashed, never stored as addresses.
+
+Wired at the choke points, so no route had to be edited: `rateLimit` reports
+every limit it applies, `requireAuth` every invalid session, `brand-access` every
+cross-tenant attempt, `payout-execute` every refused withdrawal, and the gateway
+every firewall finding. **Stated rather than glossed:** the human gate runs on
+the edge and cannot write into the Node process, so requests it blocks outright
+appear in the deployment's request log rather than in these counts.
+
+### Two dead links, found by the owner and then by a test
+
+The owner opened `/dashboard/vault` and got a 404. The Customer Vault is at
+`/dashboard/customers`; two pieces of guidance pointed at its label instead of
+its path. A new test walks every `/dashboard/*` string in the source against the
+routes that exist — it immediately found a second one, `/dashboard/offer-forge`,
+which is `/dashboard/offers`. A dead link inside a paid product is worse than a
+missing feature: the feature is there, and the customer has just been told it is
+not.
+
+### Verification
+
+Tests **922 → 933**. Three mutations run — the session signature stopping being
+checked, the firewall enveloping a critical finding instead of refusing it, and
+Sentinel collapsing all actors into one bucket — all caught. Typecheck, layer
+check and build green (middleware compiles at 27 kB).
+
+Exercised live in both modes. In observe mode nothing is blocked and the status
+says why. With the gate armed: `/dashboard` and `/dashboard/earnings` redirect to
+`/verify-human` carrying their destination, `/api/*` answers 403 with the action,
+the public site stays 200 throughout, `/api/share2earn/join` still works with no
+session, an unsigned webhook is refused and a signed one passes to the route, and
+a solved proof of work sets a 12-hour session that opens the dashboard and the
+money API in the same request cycle.
+
+### What is still the owner's step
+
+`HUMAN_CHECK_SECRET` must be set in production — without it the gate signs with a
+per-process key, so a second instance rejects the first one's sessions. The
+status endpoint and the Sentinel page both report this rather than leaving it to
+be discovered in the wild.
