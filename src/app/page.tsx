@@ -231,18 +231,23 @@ export default function LandingPage() {
           </div>
 
           <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: "0.24s" }}>
+            {/* THE FIRST ASK IS NOT "SIGN UP".
+                A stranger who has never heard of us will not create an account
+                to find out whether we are any good. They will, however, type
+                their own website into a box to see what is wrong with it — and
+                that is the same product, on the outside of the login. */}
             <Link
-              href="/signup"
+              href="/audit"
               className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-7 py-3.5 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
             >
-              Get started free
+              Audit my website free
               <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
             </Link>
             <Link
-              href="/how-it-works"
+              href="/signup"
               className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-emerald-500/50 hover:bg-white/10"
             >
-              Watch Demo
+              Get started free
             </Link>
           </div>
 

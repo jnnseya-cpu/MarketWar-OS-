@@ -13585,3 +13585,82 @@ test("the three businesses are described as plans, never as results", () => {
   assert.equal(gtm.targetById("veryx").site, "veryxjnn.com");
   assert.equal(gtm.targetById("marketwar").site, "marketwaros.com");
 });
+
+test("each business has a finished message, not a plan to write one", () => {
+  // The diagnosis says "send ten messages" and the honest objection is "send
+  // what?". A plan that stops one step before the thing a person has to do is
+  // a plan that does not get done.
+  for (const t of gtm.GTM_TARGETS) {
+    const m = t.firstMessage;
+    assert.ok(m && m.text.length > 150, `${t.id} has no written message`);
+    assert.ok(m.channel.length > 5, `${t.id}'s message has no channel`);
+    assert.ok(m.why.length > 60, `${t.id} does not say why the message is shaped that way`);
+    // Only the sender can fill a blank, and there should be few of them — a
+    // message that is mostly brackets is a template, which is the thing that
+    // does not get sent.
+    const blanks = (m.text.match(/\[[^\]]+\]/g) || []).length;
+    assert.ok(blanks <= 4, `${t.id}'s message is ${blanks} blanks — that is a template, not a message`);
+    // No hype words. These are cold messages to people who get twenty a day.
+    assert.doesNotMatch(m.text, /revolutionary|game.chang|cutting.edge|synerg|unlock the power/i, `${t.id}'s message reads like an advert`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// §87 — THE FRONT DOOR.
+//
+// "What can be done organically to see customer acquisition." The answer was
+// not another engine: MarketWar's best asset for winning a small business owner
+// — a real, measured audit of their actual website — had been behind the signup
+// since SiteRaid shipped, which is why it had never won anybody. Every tool in
+// this category that grows organically puts the valuable thing on the OUTSIDE
+// of the login. Ours was on the inside.
+// ---------------------------------------------------------------------------
+test("the free audit is genuinely free, findable, and the first thing asked for", () => {
+  const route = readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/audit/page.tsx", import.meta.url), "utf8");
+  const form = readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8");
+
+  // No auth on the way in. A stranger who has never heard of us cannot be asked
+  // to create an account to find out whether we are any good.
+  assert.doesNotMatch(route, /requireAuth|resolveBrandAccess/, "the free audit requires an account");
+  // And no wallet: a free audit that debits somebody is not free.
+  assert.doesNotMatch(route, /meterAction|debitAcus/, "the free audit charges for itself");
+  // No AI provider either, so it runs on the deployment exactly as it stands —
+  // the crawl is a fetch and a parse.
+  assert.doesNotMatch(route, /gatewayComplete|askProvider/, "the free audit needs an AI key to run");
+
+  // The gate must never close the front door.
+  assert.equal(gate.isPublicForm("/api/audit"), true, "the human gate closes the free audit");
+
+  // Value BEFORE the ask: findings are returned with no email, and the number
+  // held back is stated rather than implied to be enormous.
+  assert.match(route, /if \(!email\)/, "the audit asks for an email before showing anything");
+  assert.match(route, /heldBack/);
+  assert.match(form, /run\(false\)/, "the form's first action is not the free run");
+
+  // Findable: sitemap, footer, and the landing page's primary button.
+  const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
+  assert.match(sitemap, /path: "\/audit"/, "the front door is not in the sitemap");
+  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8");
+  assert.match(marketing, /"\/audit"/, "the front door is not in the site navigation");
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  assert.match(landing, /Audit my website free/, "the landing page still asks a stranger to sign up first");
+
+  // It promises only what it measures.
+  assert.match(page, /measured on your page/i);
+  assert.match(page, /listed separately rather\s*\n?\s*than counted against you/i);
+});
+
+test("an inbound audit becomes a real prospect, not a statistic", () => {
+  // Somebody typing their own website into a stranger's tool and then giving an
+  // address is the warmest signal this business can get, and until now there was
+  // nowhere for it to go — the whole reason the funnel could only ever say
+  // "nobody asked".
+  const route = readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8");
+  assert.match(route, /addProspect/, "an inbound lead is not recorded anywhere");
+  assert.match(route, /channel: "inbound"/, "the lead is recorded as if we contacted them");
+  // The lawful basis is written where the record is created, not assumed.
+  assert.match(route, /source: `Ran the free audit/);
+  // And a failure to record must never cost the visitor the thing they came for.
+  assert.match(route, /catch \{ \/\* a failed record must never cost the visitor their report \*\/ \}/);
+});

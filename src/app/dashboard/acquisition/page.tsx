@@ -138,6 +138,18 @@ export default function AcquisitionPage() {
         </div>
       )}
 
+      {/* The message, finished, at the point where it gets sent */}
+      <div className="card mb-6 p-5">
+        <h2 className="font-display font-bold text-white">Send this</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          {target.firstMessage.channel}. The only blanks are things only you know — everything else is finished, because a plan that stops one step before the thing a person has to do is a plan that does not get done.
+        </p>
+        {target.firstMessage.subject && <p className="mt-3 text-xs text-slate-400">Subject: <span className="text-white">{target.firstMessage.subject}</span></p>}
+        <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-white/10 bg-ink-950/60 p-3 text-sm leading-relaxed text-slate-200">{target.firstMessage.text}</pre>
+        <button onClick={() => navigator.clipboard?.writeText(target.firstMessage.text)} className="mt-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-white/5">Copy</button>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{target.firstMessage.why}</p>
+      </div>
+
       {/* Add a name */}
       <div className="card mb-6 p-5">
         <h2 className="font-display font-bold text-white">Add a name</h2>

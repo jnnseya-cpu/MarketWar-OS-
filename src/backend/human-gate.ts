@@ -120,6 +120,10 @@ export const MACHINE_LANES: MachineLane[] = [
  * a weaker guarantee than a session cookie and it is the correct one here.
  */
 export const PUBLIC_FORM_LANES = [
+  // The free audit. A stranger who has never heard of us types their website in
+  // and gets a real answer — requiring a session here would close the front door
+  // of the entire organic acquisition machine.
+  "/api/audit",
   "/api/share2earn/join",
   "/api/growth/apply",
   "/api/landing",

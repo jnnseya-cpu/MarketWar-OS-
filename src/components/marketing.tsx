@@ -20,6 +20,7 @@ export const FOOTER_NAV: { title: string; links: [string, string][] }[] = [
   {
     title: "Product",
     links: [
+      ["Free website audit", "/audit"],
       ["How it works", "/how-it-works"],
       ["Developers", "/developers"],
       ["Get started", "/get-started"],

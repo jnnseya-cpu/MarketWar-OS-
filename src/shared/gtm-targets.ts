@@ -36,6 +36,18 @@ export type GtmTarget = {
   /** What a first sale would have to look like to count as proof. */
   proofOfLife: string;
   whyNotSellingYet: string;
+  /**
+   * The message. Written out, not a template with slots.
+   *
+   * The diagnosis says "send ten messages" and the honest objection to that is
+   * "send what?". A plan that ends one step before the thing a person has to
+   * actually do is a plan that does not get done, so the text lives here, at
+   * the point of use, short enough to send from a phone.
+   *
+   * Square brackets are the only blanks, and each is something only the sender
+   * knows. Everything else is finished.
+   */
+  firstMessage: { channel: string; subject?: string; text: string; why: string };
 };
 
 export const GTM_TARGETS: GtmTarget[] = [
@@ -50,6 +62,18 @@ export const GTM_TARGETS: GtmTarget[] = [
     firstOffer: "A free Business DNA + marketing audit of their actual site, delivered as a document with their own numbers in it, and a paid plan only if they want the engines that produced it.",
     proofOfLife: "One business owner who has never met the founder pays for a month and uses it in week two.",
     whyNotSellingYet: "Nobody has been asked to buy it. The product has been built, the site is live, and the number of businesses contacted is the number this OS should be counting and has not been.",
+    firstMessage: {
+      channel: "Email or LinkedIn, from your own account",
+      subject: "your [town] website — three things",
+      text: [
+        "Hi [name] — I build marketing software, and I've been testing it by running real audits on local business sites. I ran yours this morning.",
+        "",
+        "Three things on it are quietly costing you enquiries. Two are ten-minute fixes; the third is why you are not showing up when people search for what you do.",
+        "",
+        "I've written it up properly. It's yours free, no pitch attached — want me to send it over?",
+      ].join("\n"),
+      why: "It leads with something true about THEIR business, which is the only opening a stranger reads to the end. The ask is to receive a document, not to buy anything or take a meeting — the smallest yes there is. Run the audit before you send it; a message that promises three findings and has none is worse than no message.",
+    },
   },
   {
     id: "axionos",
@@ -62,6 +86,19 @@ export const GTM_TARGETS: GtmTarget[] = [
     firstOffer: "Quote in five minutes instead of an evening — set up on their first real job, free, and they pay from the second month if the diary is fuller.",
     proofOfLife: "One tradesman sends a quote from it to a real customer and wins the job.",
     whyNotSellingYet: "It is being tested rather than sold. A test with no one on the other end of it produces a working product and no evidence that anybody wants it.",
+    firstMessage: {
+      channel: "WhatsApp or a Facebook trade group",
+      text: [
+        "Are you still writing quotes at nine at night?",
+        "",
+        "I've built something that gets a proper quote out in about five minutes from your phone — priced, branded, sent before you've finished the tea.",
+        "",
+        "I'm setting it up free on the next few jobs for people around [area], because I want to see it used on real work rather than in a demo. No catch and nothing to cancel.",
+        "",
+        "Want me to set it up on your next one?",
+      ].join("\n"),
+      why: "One question a tradesman answers in his own head before he finishes reading it, then an offer that costs him nothing and takes no time. No features, no price, no link — a link in a first message to a tradesman reads as an advert and does not get opened.",
+    },
   },
   {
     id: "veryx",
@@ -74,6 +111,19 @@ export const GTM_TARGETS: GtmTarget[] = [
     firstOffer: "Take one live programme, produce the Friday view for it once, free. If the board meeting goes better, there is something to talk about.",
     proofOfLife: "One PMO lead forwards the output to their own leadership without editing it.",
     whyNotSellingYet: "The buyer is reachable only by name, and no names have been worked. A B2B enterprise product with no named pipeline has not been sold to, it has been built.",
+    firstMessage: {
+      channel: "LinkedIn, to one named programme director at a time",
+      text: [
+        "[name] — you'll have a board pack going out on Friday that somebody rebuilt by hand this week from four different sources.",
+        "",
+        "I've built something that produces that view from the data you already hold, and I'm looking for one live programme to run it against properly.",
+        "",
+        "You keep the output whether or not it goes anywhere, and I'd want nothing in writing to do it.",
+        "",
+        "Worth twenty minutes?",
+      ].join("\n"),
+      why: "It names the Friday scramble, which every PMO lead recognises and nobody advertises. The ask is twenty minutes, the risk to them is nothing, and there is no procurement in it — enterprise says no to a purchase and yes to a look.",
+    },
   },
 ];
 

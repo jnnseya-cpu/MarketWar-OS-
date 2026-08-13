@@ -4454,3 +4454,86 @@ layer check and build green. Exercised live end to end including both refusals.
 
 No provider is called anywhere in this module. Charging a customer to count
 their own sales calls would be charging for arithmetic.
+
+## §87 — The front door: putting the valuable thing outside the login (2026-08-13)
+
+Owner: *"what can be done organically to see customer acquisition."*
+
+The answer was not another engine. MarketWar's single best asset for winning a
+small business owner is a real, measured audit of their **own** website — their
+page, their numbers, their problems, in fifteen seconds. It has existed since
+SiteRaid shipped and it has been **behind the signup** the whole time, which is
+why it has never won anybody.
+
+Every tool in this category that grows organically works the same way: the
+valuable thing is on the OUTSIDE of the login, and it is what search traffic
+lands on. Ours was on the inside, and the landing page's first ask of a total
+stranger was "create an account".
+
+### `/audit` and `/api/audit`
+
+- **No account, no card, no AI key.** The crawl is a fetch and a parse, so it
+  runs on the deployment exactly as it stands today. A test asserts the route
+  contains no `requireAuth`, no `meterAction` and no gateway call — a free audit
+  that debits a wallet is not free, and the visitor does not have one.
+- **Value before the ask.** The score and the three worst findings come back
+  with no email at all, and the number held back is stated — *"17 things were
+  measured on this page. Three are above; the other 14 come with the written
+  report."* Not "unlock your full report".
+- **It promises only what it measured.** Checks that could not be read from the
+  response are listed separately rather than counted against the visitor.
+- The human gate is explicitly opened for it — closing the front door of the
+  acquisition machine was one middleware rule away.
+
+### The loop that was missing
+
+Somebody typing their own website into a stranger's tool and then handing over
+an address is the warmest inbound signal this business can get, and there was
+nowhere for it to go. An audit completed with an email now creates a **real
+named prospect** in the §86 acquisition run, recorded as `inbound` — not as
+"contacted", because we have not said anything to them yet — with the lawful
+basis written at the point of creation: *"Ran the free audit on {host} and asked
+for the full report."* A failure to record can never cost the visitor their
+report.
+
+That is the first source of pipeline in this platform that does not require the
+owner to send anything.
+
+### Findable
+
+Sitemap at priority 0.95 (above every page except the home page), site
+navigation, and the landing page's primary button changed from *Get started
+free* to **Audit my website free**. Signing up is still there as the secondary
+action. A stranger will not create an account to find out whether you are any
+good; they will type their website into a box to see what is wrong with it.
+
+### Verified live
+
+Run against a real page (the dev server's own landing page):
+
+```
+score 79 grade B | gated: true | held back: 14
+ - FAIL  HTTPS         Not served over HTTPS — a ranking + trust negative.
+ - PASS  Title tag     Title present (55 chars).
+ - PASS  Viewport meta Mobile viewport set.
+with an email → 17 findings, recorded: true
+```
+
+The refusal path is honest too: a host behind bot protection gets *"allowlist
+the user agent MarketWarBot/1.0 in whatever sits in front of it"* rather than a
+shrug.
+
+**One limit, stated:** in dev the audit route and the acquisition route hold
+separate in-memory stores, so the funnel read-back only reflects the new
+prospect once Firestore is configured — the same durability condition as every
+other store in the platform. The write itself is confirmed by `recorded: true`.
+
+### Tests
+
+**940 → 942.** Typecheck, layer check and build green.
+
+### What this does not do
+
+It does not send the report by email — that needs a sending domain. The full
+report appears on the page immediately instead, so the visitor is never left
+waiting for something that cannot arrive.
