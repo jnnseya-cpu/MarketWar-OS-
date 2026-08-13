@@ -13242,7 +13242,15 @@ test("human gate: the demo observes and says so, rather than pretending to prote
   const demo = {};
   assert.equal(gate.mode(demo), "observe");
   assert.equal(gate.mode({ HUMAN_CHECK_SECRET: "x" }), "enforced");
-  assert.equal(gate.mode({ FIREBASE_PROJECT_ID: "p" }), "enforced");
+
+  // AND THIS ONE IS THE OUTAGE THAT ALMOST SHIPPED. A configured Firebase
+  // project used to be enough to switch enforcement on — but without a durable
+  // signing secret the gate signs sessions with a per-process key, so on any
+  // multi-instance deployment the cookie one instance mints is rejected by the
+  // next and a real customer is bounced between the dashboard and the check
+  // forever. The gate enforces only when it can enforce CORRECTLY.
+  assert.equal(gate.mode({ FIREBASE_PROJECT_ID: "p" }), "observe", "the gate would enforce with a signing key that does not survive a second instance");
+  assert.equal(gate.mode({ FIREBASE_PROJECT_ID: "p", HUMAN_CHECK_SECRET: "x" }), "enforced");
 
   const d = await gate.decide({ path: "/dashboard/campaigns", cookie: "", binding: "b", env: demo });
   assert.equal(d.allow, false, "the decision itself was softened");

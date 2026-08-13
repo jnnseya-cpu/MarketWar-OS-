@@ -171,9 +171,24 @@ export const isAlwaysOpen = (path: string): boolean =>
 export type Mode = "enforced" | "observe";
 
 export function mode(env: Record<string, string | undefined> = process.env): Mode {
-  const secretSet = Boolean((env.HUMAN_CHECK_SECRET || "").trim());
-  const firebase = Boolean((env.FIREBASE_PROJECT_ID || env.FIREBASE_CLIENT_EMAIL || env.FIREBASE_SERVICE_ACCOUNT || "").trim());
-  return secretSet || firebase ? "enforced" : "observe";
+  // ENFORCEMENT REQUIRES A DURABLE SIGNING SECRET, AND NOTHING ELSE COUNTS.
+  //
+  // The first version of this returned "enforced" when a Firebase project was
+  // configured. That was a live-site outage waiting to happen, and it is worth
+  // writing down exactly why rather than quietly deleting the clause:
+  //
+  // Without HUMAN_CHECK_SECRET the gate signs with a per-process key. On any
+  // real deployment there is more than one process — serverless functions scale
+  // out, instances restart — so a session minted by one is REJECTED by the
+  // next. The customer verifies, gets a cookie, loads the dashboard, is bounced
+  // back to /verify-human, verifies again, and never gets in. A production
+  // Firebase project without this one env var is the exact configuration that
+  // would produce it, and it is the most likely configuration to exist.
+  //
+  // This module's own doctrine says a control that strands a paying customer has
+  // simply chosen a different way to lose the account. It applies to the control
+  // itself: the gate only enforces when it can enforce CORRECTLY.
+  return (env.HUMAN_CHECK_SECRET || "").trim() ? "enforced" : "observe";
 }
 
 export function gateStatus(env: Record<string, string | undefined> = process.env): {
@@ -187,7 +202,7 @@ export function gateStatus(env: Record<string, string | undefined> = process.env
     sensitivePaths: SENSITIVE_PREFIXES,
     note: m === "enforced"
       ? `Enforced over ${GATED_PREFIXES.join(", ")}. Every dashboard page, the partner portal and every API route except the check itself requires a signed human session; ${SENSITIVE_PREFIXES.length} money- and credential-touching prefixes additionally require the check to have been passed in the last ${Math.round(REVERIFY_MS / 60_000)} minutes.`
-      : "Observing only. This deployment has neither HUMAN_CHECK_SECRET nor a Firebase project, so it is the zero-config demo: there are no accounts, no balances and nothing a script could take. Requests are evaluated and reported but not blocked. Set HUMAN_CHECK_SECRET to enforce.",
+      : "Observing only — HUMAN_CHECK_SECRET is not set, so the gate cannot sign a session that survives more than one instance. It evaluates and reports every request but blocks nothing, because enforcing with a per-process key would bounce real customers between the dashboard and the check forever. Set HUMAN_CHECK_SECRET to enforce; until then this is the safe half of the control, not the whole one.",
   };
 }
 
