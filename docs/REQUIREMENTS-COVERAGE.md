@@ -4354,3 +4354,103 @@ money API in the same request cycle.
 per-process key, so a second instance rejects the first one's sessions. The
 status endpoint and the Sentinel page both report this rather than leaving it to
 be discovered in the wild.
+
+## §86 — The acquisition run: how many people were actually asked (2026-08-13)
+
+Owner's report: *"neither the 2 testing brands nor MarketWar itself see any
+improvement on what they are selling and not a single customer acquired."*
+
+Before adding a fifty-fifth engine it was worth asking what this platform could
+**say** about that. The answer was nothing, and that is the finding.
+
+`prospecting.ts` builds an ICP, produces prospects and writes an outreach
+sequence — and then stops. Nothing is stored, no attempt is recorded, no outcome
+comes back. So the first question anybody would put to a business with no
+customers — **how many people did you ask?** — had no answer anywhere in 54
+engines. Without that number "no customers" has no cause, and the default
+assumption becomes the product, which is the one thing that gets fixed by
+building more of what already exists.
+
+### `src/backend/acquisition.ts`
+
+Named prospects, the message each was actually sent, what came back. Every stage
+requires its evidence, and the refusals are the design:
+
+- **A prospect is a name.** "Plumbers in Manchester" is refused, and so is a name
+  with no provenance — a list without a source cannot be worked twice and under
+  UK GDPR cannot lawfully be contacted at all.
+- **`contacted` requires the message text.** A record that says a message went
+  out, without the message, cannot later tell you whether the message was the
+  problem — and it usually is.
+- **`replied` requires their words**, and cannot be set for somebody who was
+  never written to. That check is what keeps the reply *rate* meaningful.
+- **`won` requires the amount that arrived.** There is no won-in-principle.
+- **`lost` requires the reason.** Ten losses with reasons is a product roadmap;
+  ten without is a bad week.
+
+The funnel counts everyone who **reached** a stage, not who is sitting in it —
+counting the current stage only would show one contact and one win from the same
+four people and make every conversion rate meaningless.
+
+### `diagnose()` — the sentence the platform owed the owner
+
+Six branches, each from counts alone:
+
+| Counts | Bottleneck |
+|---|---|
+| 0 sent | **nobody_asked** — it is not the product, the price, the site or the copy |
+| < 20 sent | too early to conclude anything, including that it is failing |
+| sent, no replies | the list or the first line |
+| replies, no conversations | the offer is not worth an hour |
+| conversations, no money | price, proof or the ask |
+| money | stop redesigning, do more of exactly that |
+
+The first branch is the one that matters and it is deliberately not softened:
+*"N engines and 0 messages sent. There is no version of this where the product,
+the price, the site or the copy is the reason — none of them has been in front
+of a buyer. This is the only diagnosis on the list that cannot be fixed by
+building."* The engine count is passed in from `ENGINE_REGISTRY.length` rather
+than typed, so the sentence can never quote a stale number.
+
+Rates below 20 contacts are shown with the explicit note that they are too few
+to decide on. A percentage over four attempts is noise wearing a percentage sign.
+
+### `src/shared/gtm-targets.ts` — the three businesses, named
+
+MarketWar OS (marketwaros.com), AxionOS (evandeli.com) and VeryX
+(veryxjnn.com), each with its buyer, its trigger, its first offer, what would
+count as proof of life — and, the field that does the work, **the channel that
+needs no provider key, no ad budget and no integration.** A channel that needs
+credentials is a channel that is not running; a business with no customers needs
+the one it can use this afternoon. For AxionOS that is trade groups and direct
+messages from a phone; for VeryX it is the founder's own inbox and LinkedIn, one
+named programme director at a time; for MarketWar it is fifty messages from a
+personal inbox plus the site's own pages.
+
+**Every field is a plan, never a result.** A test asserts each target has a named
+buyer, a keyless channel and a definition of a first sale, and the engine count
+is kept out of the prose because it would be wrong within a week.
+
+### What this ran as, live
+
+All three targets, against the real endpoint, right now:
+
+> **Nothing has been sold because nothing has been offered to anybody.**
+> 55 engines and 0 messages sent… Write down ten businesses you could name to a
+> friend. Not a category — ten names.
+
+Recording one real attempt for AxionOS moved it immediately to *"1 person
+contacted. Too few to conclude anything, including that it is not working."*
+That is the whole point: the number exists now, and it moves when somebody does
+the work rather than when somebody ships a feature.
+
+### Verification
+
+Tests **933 → 939**. Two mutations run — the funnel counting only the current
+stage, and a stage advancing with no attempt behind it — both caught. Typecheck,
+layer check and build green. Exercised live end to end including both refusals.
+
+### Not metered, ever
+
+No provider is called anywhere in this module. Charging a customer to count
+their own sales calls would be charging for arithmetic.

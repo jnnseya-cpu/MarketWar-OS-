@@ -13426,3 +13426,162 @@ test("human gate: the shop window stays open", () => {
     assert.equal(gate.isGatedSurface(gated), true, `${gated} is not gated`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// §86 — THE ACQUISITION RUN.
+//
+// Three businesses, no customers. Before adding a fifty-fifth engine it was
+// worth asking what this platform could SAY about that, and the answer was
+// nothing: prospecting builds a list and a sequence and then stops — nothing
+// stored, no attempt recorded, no outcome. So the first question anybody would
+// ask a business with no customers — how many people did you ask? — had no
+// answer anywhere in 54 engines.
+// ---------------------------------------------------------------------------
+const acq = await import("../src/backend/acquisition.ts");
+const gtm = await import("../src/shared/gtm-targets.ts");
+
+test("acquisition: with nothing sent, the diagnosis is never the product", () => {
+  // The branch that matters. The instinct after a quiet month is to rebuild
+  // something; this refuses to support that when nobody has been asked.
+  const empty = acq.funnelFrom([]);
+  const d = acq.diagnose(empty, 54);
+  assert.equal(d.bottleneck, "nobody_asked");
+  assert.match(d.headline, /nothing has been offered to anybody/i);
+  assert.match(d.because, /54 engines and 0 messages sent/);
+  assert.match(d.because, /cannot be fixed by building/);
+  assert.equal(d.evidence, "attempts=0, identified=0");
+
+  // And the engine count is passed in, not typed — so the sentence can never
+  // quote a number that is out of date.
+  assert.match(acq.diagnose(empty, 7).because, /^7 engines/);
+});
+
+test("acquisition: the bottleneck follows the counts, wherever they stop", () => {
+  const at = "2026-08-13T09:00:00.000Z";
+  const make = (stage, attempts, extra = {}) => ({
+    id: `p${Math.random()}`, brandId: "b", targetId: "marketwar", name: "x", source: "s",
+    stage, attempts: Array.from({ length: attempts }, () => ({ at, channel: "email", message: "m", by: "o" })),
+    createdAt: at, updatedAt: at, ...extra,
+  });
+
+  // Sent a few, nothing back: too early to conclude, and it says so rather than
+  // letting five silent messages trigger a rewrite of the product.
+  const few = acq.funnelFrom(Array.from({ length: 5 }, () => make("contacted", 1)));
+  assert.equal(acq.diagnose(few).bottleneck, "too_early");
+
+  // Twenty-five contacted, no replies: the list or the opening.
+  const silent = acq.funnelFrom(Array.from({ length: 25 }, () => make("contacted", 1)));
+  const s = acq.diagnose(silent);
+  assert.equal(s.bottleneck, "list_or_message");
+  assert.match(s.headline, /not the product/);
+
+  // Replies but no conversation: the offer.
+  const replied = acq.funnelFrom([...Array.from({ length: 22 }, () => make("contacted", 1)), ...Array.from({ length: 4 }, () => make("replied", 1))]);
+  assert.equal(acq.diagnose(replied).bottleneck, "offer");
+
+  // Conversations but no money: the close.
+  const meeting = acq.funnelFrom([...Array.from({ length: 22 }, () => make("contacted", 1)), ...Array.from({ length: 3 }, () => make("meeting", 1))]);
+  assert.equal(acq.diagnose(meeting).bottleneck, "close");
+
+  // Money: stop redesigning.
+  const won = acq.funnelFrom([...Array.from({ length: 22 }, () => make("contacted", 1)), make("won", 2, { valueGbp: 490 })]);
+  const w = acq.diagnose(won);
+  assert.equal(w.bottleneck, "working");
+  assert.match(w.headline, /£490/);
+  assert.match(w.because, /not to add a feature/);
+});
+
+test("acquisition: the funnel counts everyone who REACHED a stage, not who sits in it", () => {
+  const at = "2026-08-13T09:00:00.000Z";
+  const p = (stage) => ({ id: `p${stage}`, brandId: "b", targetId: "t", name: stage, source: "s", stage, attempts: [{ at, channel: "email", message: "m", by: "o" }], createdAt: at, updatedAt: at, valueGbp: stage === "won" ? 100 : undefined });
+  const f = acq.funnelFrom([p("contacted"), p("replied"), p("meeting"), p("won")]);
+
+  // Four people were contacted, even though only one is sitting at "contacted".
+  // Counting the current stage only would show a 25% contact rate and a 100%
+  // win rate from the same four people, which is worse than no number at all.
+  assert.equal(f.contacted, 4);
+  assert.equal(f.replied, 3);
+  assert.equal(f.meeting, 2);
+  assert.equal(f.won, 1);
+  assert.equal(f.revenueGbp, 100);
+
+  const r = acq.rates(f);
+  assert.equal(r.replyPct, 75);
+  // …and it refuses to let a percentage over four contacts look like evidence.
+  assert.match(r.note, /too few to mean anything/);
+});
+
+test("acquisition: a stage only moves on evidence", async () => {
+  acq.__resetAcquisition();
+  const nowISO = "2026-08-13T09:00:00.000Z";
+
+  // A category is not a prospect, and a name with no provenance cannot lawfully
+  // be contacted in the UK.
+  assert.equal((await acq.addProspect({ brandId: "b", targetId: "marketwar", name: "", source: "s", nowISO })).ok, false);
+  const noSource = await acq.addProspect({ brandId: "b", targetId: "marketwar", name: "Deli Ltd", source: "", nowISO });
+  assert.equal(noSource.ok, false);
+  assert.match(noSource.error, /GDPR/);
+
+  const added = await acq.addProspect({ brandId: "b", targetId: "marketwar", name: "Deli Ltd", source: "Met at the Camden trade morning", nowISO });
+  assert.equal(added.ok, true);
+  const id = added.prospect.id;
+  assert.equal(added.prospect.stage, "identified");
+
+  // You cannot have a reply from somebody you never wrote to. This is the check
+  // that keeps the reply RATE meaningful.
+  const premature = await acq.setStage({ id, stage: "replied", reply: "sounds good", nowISO });
+  assert.equal(premature.ok, false);
+  assert.match(premature.error, /nothing for them to have replied to/);
+
+  // An attempt needs the message. "A message went out" cannot later tell you
+  // whether the message was the problem.
+  assert.equal((await acq.recordAttempt({ id, channel: "email", message: "hi", by: "o", nowISO })).ok, false);
+  const sent = await acq.recordAttempt({ id, channel: "email", message: "Saw you quote by hand in the evenings — can I show you a five-minute version?", by: "o", nowISO });
+  assert.equal(sent.ok, true);
+  assert.equal(sent.prospect.stage, "contacted");
+
+  // Their words are required, a win needs the amount, a loss needs the reason.
+  assert.equal((await acq.setStage({ id, stage: "replied", nowISO })).ok, false);
+  assert.equal((await acq.setStage({ id, stage: "replied", reply: "Go on then", nowISO })).ok, true);
+  assert.equal((await acq.setStage({ id, stage: "won", nowISO })).ok, false);
+  assert.equal((await acq.setStage({ id, stage: "lost", nowISO })).ok, false);
+  const won = await acq.setStage({ id, stage: "won", valueGbp: 49, nowISO });
+  assert.equal(won.ok, true);
+  assert.equal(won.prospect.valueGbp, 49);
+
+  // And a real one now exists, so the run stops saying nobody was asked.
+  const f = acq.funnelFrom(await acq.listProspects("b"));
+  assert.equal(f.attempts, 1);
+  assert.notEqual(acq.diagnose(f).bottleneck, "nobody_asked");
+});
+
+test("acquisition: one tenant's pipeline is not another's", async () => {
+  acq.__resetAcquisition();
+  const nowISO = "2026-08-13T09:00:00.000Z";
+  await acq.addProspect({ brandId: "brand_a", targetId: "axionos", name: "Same Name Ltd", source: "directory", nowISO });
+  await acq.addProspect({ brandId: "brand_b", targetId: "veryx", name: "Same Name Ltd", source: "directory", nowISO });
+  assert.notEqual(acq.prospectId("brand_a", "Same Name Ltd"), acq.prospectId("brand_b", "Same Name Ltd"));
+  assert.equal((await acq.listProspects("brand_a")).length, 1);
+  assert.equal((await acq.listProspects("brand_b")).length, 1);
+  // And a target filter narrows within one brand rather than across brands.
+  assert.equal((await acq.listProspects("brand_a", "veryx")).length, 0);
+});
+
+test("the three businesses are described as plans, never as results", () => {
+  // Every field on a target is something we intend to do. The moment one of
+  // them implies a customer exists, this file becomes the thing the platform
+  // is built not to be.
+  assert.equal(gtm.GTM_TARGETS.length, 3);
+  for (const id of ["marketwar", "axionos", "veryx"]) {
+    const t = gtm.targetById(id);
+    assert.ok(t, `${id} is missing`);
+    assert.ok(t.buyer.length > 20, `${id} has no named buyer`);
+    // The channel has to be one that works today — no key, no ad account.
+    assert.match(t.channelToday, /no |free|own (inbox|phone)|without/i, `${id}'s channel needs something we do not have`);
+    assert.ok(t.proofOfLife.length > 20, `${id} has no definition of a first sale`);
+  }
+  // The sites are the real ones the owner is testing on.
+  assert.equal(gtm.targetById("axionos").site, "evandeli.com");
+  assert.equal(gtm.targetById("veryx").site, "veryxjnn.com");
+  assert.equal(gtm.targetById("marketwar").site, "marketwaros.com");
+});
