@@ -12674,20 +12674,36 @@ test("seo cluster: every internal link points at a page that exists", () => {
   assert.ok(total >= 30, `a cluster with ${total} internal links is not a cluster`);
 });
 
-test("seo cluster: it is a hub and spoke, and the hub is reachable from everywhere", () => {
-  const pillars = seoCluster.SEO_ARTICLES.filter((a) => a.pillar);
-  assert.equal(pillars.length, 1, "a cluster has exactly one pillar");
-  const pillar = pillars[0];
+test("seo cluster: each cluster is a hub and spoke, and the hub is reachable from everywhere", () => {
+  // TWO clusters now, aimed at opposite people: `creator` answers somebody who
+  // wants to earn from an audience, `buyer` answers a small business owner
+  // whose marketing is not working. They must not be merged — a crawler reads
+  // a cluster as a claim about one subject, and a hub linking to both is the
+  // authority on neither.
+  const clusters = [...new Set(seoCluster.SEO_ARTICLES.map((a) => a.cluster))];
+  assert.ok(clusters.length >= 2, "the buyer-side cluster is missing");
 
-  for (const a of seoCluster.SEO_ARTICLES) {
-    if (a.pillar) continue;
-    assert.match(a.content, new RegExp(`/blog/${pillar.slug}`), `${a.slug} does not link up to the pillar`);
-    assert.ok(a.related.includes(pillar.slug), `${a.slug} does not declare the pillar as related`);
-  }
-  // And the pillar links down to every spoke.
-  for (const a of seoCluster.SEO_ARTICLES) {
-    if (a.pillar) continue;
-    assert.match(pillar.content, new RegExp(`/blog/${a.slug}`), `the pillar does not link down to ${a.slug}`);
+  for (const c of clusters) {
+    const inC = seoCluster.SEO_ARTICLES.filter((a) => a.cluster === c);
+    const pillars = inC.filter((a) => a.pillar);
+    assert.equal(pillars.length, 1, `the ${c} cluster has ${pillars.length} pillars — a cluster has exactly one`);
+    const pillar = pillars[0];
+
+    for (const a of inC) {
+      if (a.pillar) continue;
+      assert.match(a.content, new RegExp(`/blog/${pillar.slug}`), `${a.slug} does not link up to the ${c} pillar`);
+      assert.ok(a.related.includes(pillar.slug), `${a.slug} does not declare the ${c} pillar as related`);
+      // And a spoke never links into the other cluster's hub, which is what
+      // would quietly turn two clusters back into one mush.
+      const otherPillars = seoCluster.SEO_ARTICLES.filter((x) => x.pillar && x.cluster !== c);
+      for (const op of otherPillars) {
+        assert.doesNotMatch(a.content, new RegExp(`/blog/${op.slug}`), `${a.slug} links across into the ${op.cluster} cluster's pillar`);
+      }
+    }
+    for (const a of inC) {
+      if (a.pillar) continue;
+      assert.match(pillar.content, new RegExp(`/blog/${a.slug}`), `the ${c} pillar does not link down to ${a.slug}`);
+    }
   }
   // Declared relations must be real slugs, or the related block renders nothing.
   const slugs = new Set(seoCluster.SEO_ARTICLES.map((x) => x.slug));
@@ -13663,4 +13679,38 @@ test("an inbound audit becomes a real prospect, not a statistic", () => {
   assert.match(route, /source: `Ran the free audit/);
   // And a failure to record must never cost the visitor the thing they came for.
   assert.match(route, /catch \{ \/\* a failed record must never cost the visitor their report \*\/ \}/);
+});
+
+test("the buyer cluster answers a buyer, and every page ends at the audit", () => {
+  // The creator cluster sells the earning programmes. This one is aimed at the
+  // person who actually pays, and it exists because that person had nothing on
+  // this site to find: 12 articles about earning from an audience and none
+  // about why their own website was not producing enquiries.
+  const buyer = seoCluster.SEO_ARTICLES.filter((a) => a.cluster === "buyer");
+  assert.ok(buyer.length >= 6, `a buyer cluster of ${buyer.length} is not a cluster`);
+
+  for (const a of buyer) {
+    // Every page routes to the thing that can prove the product in fifteen
+    // seconds. A cluster that ranks and then asks a stranger to create an
+    // account converts a fraction of one that hands them an answer.
+    assert.match(a.content, /\(\/audit\)/, `${a.slug} never sends the reader to the free audit`);
+    // Real search intent, in the words a business owner would use.
+    assert.ok(a.keywords.length >= 4, `${a.slug} has too few target queries to be worth writing`);
+    assert.ok(a.faq.length >= 3, `${a.slug} has no FAQ block, so it cannot win a rich result`);
+    // Substance. A thin page in 2026 does not rank and does not deserve to.
+    assert.ok(a.content.length > 3_000, `${a.slug} is ${a.content.length} characters — that is filler`);
+    // No hype. These are read by people who have been sold to badly before.
+    assert.doesNotMatch(a.content, /revolutionary|game.chang|10x your|secret sauce|unlock the power/i, `${a.slug} reads like an advert`);
+  }
+
+  // The pillar is the diagnostic page, because that is the question the buyer
+  // actually types.
+  const pillar = buyer.find((a) => a.pillar);
+  assert.equal(pillar.slug, "why-your-website-gets-no-enquiries");
+
+  // And the honesty rules the rest of the site lives by apply here too: no
+  // invented statistics dressed as industry benchmarks.
+  for (const a of buyer) {
+    assert.doesNotMatch(a.content, /\b\d{2,3}% of (small )?businesses\b/i, `${a.slug} quotes an invented industry statistic`);
+  }
 });

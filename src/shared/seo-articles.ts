@@ -34,6 +34,16 @@
 
 export type SeoArticle = {
   slug: string;
+  /**
+   * Which topic cluster this belongs to.
+   *
+   * Two clusters now live here and they are aimed at OPPOSITE people: `creator`
+   * answers somebody who wants to earn from an audience, `buyer` answers a
+   * small business owner whose marketing is not working. Merging them would
+   * produce a hub that is the authority on nothing — a crawler reads a cluster
+   * as a claim about one subject, and a page linking to both reads as neither.
+   */
+  cluster: "creator" | "buyer";
   title: string;
   excerpt: string;
   category: string;
@@ -52,6 +62,7 @@ export const SEO_ARTICLES: SeoArticle[] = [
   // ─────────────────────────────────────────────────────────────── PILLAR ──
   {
     slug: "creator-earning-programmes",
+    cluster: "creator",
     pillar: true,
     title: "Creator earning programmes: how MarketWar OS pays people who bring customers",
     excerpt:
@@ -118,6 +129,7 @@ Creators apply on the [growth programme page](/growth). Brands run it from [Part
   // ──────────────────────────────────────────────────────────────── SPOKE ──
   {
     slug: "share2earn-earn-from-your-audience",
+    cluster: "creator",
     title: "SHARE2EARN: earn 0.5% from your own audience, with no follower gate",
     excerpt:
       "Share a product you like. Somebody buys. You earn 0.5% of the product value. No application, no follower minimum, and cash only ever comes from a verified sale — here is exactly how it works and what it does not pay for.",
@@ -186,6 +198,7 @@ Start on [the growth programme page](/growth), or read [the full picture of how 
 
   {
     slug: "influencer-commission-bands",
+    cluster: "creator",
     title: "Influencer commission bands: 0.75% from 5,000 followers, 1% from 10,000",
     excerpt:
       "Two verified bands, what a brand pays at each, the £20,000 cap-and-recycle rule, and how the influencer programme differs from SHARE2EARN — same payout machinery, higher rate.",
@@ -247,6 +260,7 @@ The [full picture of how creators earn](/blog/creator-earning-programmes) sets t
 
   {
     slug: "creator-payout-economics",
+    cluster: "creator",
     title: "Creator payout economics: what it costs to get your money out, itemised",
     excerpt:
       "Nine payout rails, the real fee on each, why mobile money has a £2 minimum when a bank transfer needs £5, and the three guards that stop fees eating a small withdrawal.",
@@ -312,6 +326,7 @@ Both [SHARE2EARN](/blog/share2earn-earn-from-your-audience) and the [influencer 
 
   {
     slug: "creator-payouts-no-tax-reference",
+    cluster: "creator",
     title: "Getting paid when your country issues no tax reference",
     excerpt:
       "Most creator platforms demand a tax identification number and quietly exclude everyone who has none. Here is what the reporting rules actually require, and how a creator in the DRC, Tanzania or the UAE gets paid without one.",
@@ -372,6 +387,7 @@ You can start earning before any of this: [SHARE2EARN](/blog/share2earn-earn-fro
 
   {
     slug: "profitguard-growthguard-creator-programme",
+    cluster: "creator",
     title: "ProfitGuard and GrowthGuard: running a creator programme that cannot bankrupt you",
     excerpt:
       "The honest objection to any creator programme is that it might cost more than it makes. Two hard limits answer it: a Safe Reward Ceiling computed from your own unit economics, and a 5% cap on the entire programme's cost.",
@@ -442,6 +458,7 @@ Run it from [Partner Network](/dashboard/partner-network). [The full picture of 
 
   {
     slug: "gen-z-growth-features",
+    cluster: "creator",
     title: "The Gen-Z growth layer: missions, squads, streaks and a score that ignores followers",
     excerpt:
       "Six hubs, ten mission types, a Creator Score built from conversion rather than reach, and squad leaderboards — the layer that makes a creator open the app twice.",
@@ -498,6 +515,416 @@ Fraud checks are a list of things that either happened or did not, each saying w
 All of this sits on [the commission ladder](/blog/creator-earning-programmes): [0.5% with no gate](/blog/share2earn-earn-from-your-audience), [0.75% and 1% on the verified bands](/blog/influencer-commission-bands), and [payouts that reach a phone in Kinshasa as easily as a bank in Leeds](/blog/creator-payout-economics).
 
 Creators start at [the growth programme page](/growth) and track their own money on [My Earnings](/dashboard/earnings).`,
+  },
+
+  // ──────────────────────────────────────────── BUYER CLUSTER · PILLAR ──
+  //
+  // Aimed at the person who actually pays: a small business owner whose
+  // marketing is not working and who has not decided that software is the
+  // answer. Every page ends where the product can prove itself in fifteen
+  // seconds — the free audit — because a stranger will type their own website
+  // into a box long before they will create an account.
+  {
+    slug: "why-your-website-gets-no-enquiries",
+    cluster: "buyer",
+    pillar: true,
+    title: "Your website gets visitors and no enquiries. Here is where they go.",
+    excerpt:
+      "Six reasons a small business site takes traffic and returns nothing — slow first paint, an unanswerable first screen, a form nobody trusts, invisible contact details, no proof, and a page search engines cannot read. How to tell which one is yours.",
+    category: "Getting customers",
+    readMinutes: 9,
+    keywords: [
+      "website not getting enquiries", "website traffic no leads", "why is my website not working",
+      "small business website problems", "website conversion small business",
+    ],
+    related: ["free-website-audit-what-to-check", "why-your-business-doesnt-show-up-on-google", "how-ai-assistants-choose-which-business-to-name", "marketing-with-no-budget", "what-an-agency-charges-for"],
+    faq: [
+      { q: "Why does my website get visitors but no enquiries?", a: "Almost always one of six things: the page takes too long to become useful, the first screen does not answer what you do and who for, the contact route asks for too much or looks unsafe, your phone number is an image, there is no evidence anyone has used you, or search engines cannot read the page at all. They are diagnosable in about fifteen seconds by reading the page the way a crawler does." },
+      { q: "How many enquiries should a small business site get?", a: "There is no honest industry number, and anyone quoting one is selling something. What matters is your own before and after: measure the page now, change one thing, measure again. A site that goes from two enquiries a month to five has doubled its pipeline regardless of what the average is." },
+      { q: "Should I rebuild my website?", a: "Usually not. A rebuild is the most expensive way to test a hypothesis you have not written down yet. Fix the first screen, the contact route and the speed on the site you have; if enquiries do not move, you have learned something worth more than a new theme." },
+    ],
+    content: `A small business site that takes traffic and returns nothing is not a mystery. It is one of six things, and you can usually find out which in the time it takes to make a cup of tea.
+
+What follows is the order to check them in, which is not the order most people check them in. Almost everybody starts with how the site looks. Nobody has ever chosen a plumber on the strength of a colour scheme.
+
+## 1. The page takes too long to become useful
+
+Not "load" — become useful. A visitor on a phone, on mobile data, standing outside a job, gives your site about three seconds before deciding it is broken. If the first thing that appears is a blank screen, a spinner, or a giant image that has not arrived yet, they are gone before your copy has had a turn.
+
+This is measurable rather than arguable: how long the server took to answer, and how much has to be downloaded before anything readable appears.
+
+## 2. The first screen does not answer the only two questions
+
+What do you do, and who is it for. A stranger decides in about five seconds whether they are in the right place, and "Welcome to our website" answers neither question. Nor does a slogan.
+
+The test is brutal and useful: show the top of your homepage to somebody who does not know your business, for five seconds, then ask them what you sell and whether it is for them. Most owners are surprised.
+
+## 3. The contact route asks for too much, or looks unsafe
+
+Every extra field on a form costs you enquiries. A form asking for a company name, a budget range and how they heard about you, from somebody who wanted to ask whether you cover their postcode, is a form that gets abandoned.
+
+And a site without HTTPS now shows a browser warning. However good the rest of it is, a warning about safety appearing above your contact form is not something the copy can recover from.
+
+## 4. Your phone number is a picture
+
+More sites than you would think put the phone number inside an image or a graphic header, which means it is not a link on a phone, cannot be copied, and does not exist as far as any search engine is concerned. The same goes for an address that only appears in a footer graphic.
+
+## 5. There is no evidence anybody has ever used you
+
+Not testimonials you wrote. Reviews with names, work with photographs, a number of years, a named town. Trust is the whole transaction for a local business, and a site with no evidence asks a stranger to go first.
+
+## 6. Search engines cannot read the page
+
+If the title tag is missing or says "Home", if the page renders entirely in JavaScript, if there is no structured data describing what the business is and where — then the page can be beautiful and still be invisible. That is a different problem from the five above, and it is covered properly in [why your business does not show up on Google](/blog/why-your-business-doesnt-show-up-on-google).
+
+## Which one is yours
+
+The honest answer is that guessing is expensive. Five of the six are measurable directly from the page: the speed, the title, the HTTPS, whether the phone number is text, whether the structured data exists.
+
+We built a [free audit](/audit) that reads your actual page and tells you which of these it can see, in about fifteen seconds, with no account. It is the same engine our paying customers use; it is on the outside of the login because arguing that we could help you is worth less than showing you three true things about your own site.
+
+## Then what
+
+Fix one thing. Measure. Fix the next. That is unglamorous and it is how it actually goes.
+
+If you want to know what the free tools check versus what a proper audit sees, that is [in here](/blog/free-website-audit-what-to-check). If the problem turns out to be that nobody is arriving in the first place, start with [why your business does not show up on Google](/blog/why-your-business-doesnt-show-up-on-google) and, increasingly, [how AI assistants decide which business to name](/blog/how-ai-assistants-choose-which-business-to-name).
+
+And if the honest constraint is that there is no money for any of this, [that is a solvable problem too](/blog/marketing-with-no-budget) — and worth reading before [what an agency would charge you](/blog/what-an-agency-charges-for).`,
+  },
+
+  // ─────────────────────────────────────────────── BUYER CLUSTER · SPOKES ──
+  {
+    slug: "free-website-audit-what-to-check",
+    cluster: "buyer",
+    title: "Free website audit: what to check yourself in ten minutes, and what a tool sees that you cannot",
+    excerpt:
+      "The eight checks worth doing by hand on your own site, the four that need something to read the page for you, and how to tell a real audit from a lead-capture form with a progress bar.",
+    category: "Getting customers",
+    readMinutes: 8,
+    keywords: [
+      "free website audit", "website audit checklist", "check my website", "website health check",
+      "small business seo audit", "free site checker",
+    ],
+    related: ["why-your-website-gets-no-enquiries", "why-your-business-doesnt-show-up-on-google", "what-an-agency-charges-for"],
+    faq: [
+      { q: "Are free website audits any good?", a: "Some are. The test is whether the report tells you things it measured on your page, with the numbers, or whether it tells you generic advice with your domain name inserted. If it cannot say how many milliseconds your server took, it did not read your site." },
+      { q: "What should a website audit check?", a: "At minimum: HTTPS, server response time, the title and meta description, one H1, mobile viewport, image alt text, robots.txt and sitemap.xml, and structured data. Anything beyond that is welcome, but a report missing those is not an audit." },
+      { q: "Do I need to pay for a website audit?", a: "No. The measurable parts of an audit are a fetch and a parse — they cost almost nothing to run, which is why so many companies give them away. What costs money is fixing what they find." },
+    ],
+    content: `Most free website audits are a form with a progress bar. You give an email, a report arrives, and it contains advice that would be true of any site on the internet with your domain pasted into the header.
+
+A real one tells you things it measured on your page, with the numbers attached. Here is how to do the manual half yourself, and what genuinely needs a machine.
+
+## The eight you can check by hand
+
+**1. Does the address bar say Not Secure?** If your site is not on HTTPS, fix that before anything else on this list. It is usually free with your host and takes an afternoon.
+
+**2. Load your homepage on 4G with the wifi off.** Not on your office broadband. Count to three. Is there something readable and useful on screen?
+
+**3. Read the browser tab.** That is your title tag, and it is what appears in search results. If it says "Home" or "Untitled", you have found a free win.
+
+**4. Can you tap your phone number?** On a phone, on your own site. If nothing happens, it is an image, and it is invisible to both customers in a hurry and to search engines.
+
+**5. Show the top of the page to somebody for five seconds.** Ask them what you sell and who for. Most owners are surprised by the answer.
+
+**6. Count the fields on your contact form.** Every one past three costs you enquiries. Name, contact, message.
+
+**7. Look for evidence.** Names, photographs, reviews, a town, a number of years. Not adjectives.
+
+**8. Type your business name and your town into Google.** If you are not on the first page for your own name, something is properly wrong.
+
+## The four that need something to read the page for you
+
+These are not judgement calls, they are facts about the HTML, and you cannot see them by looking:
+
+- **The meta description** — present, and does it read like a sentence a person wrote, or like a list of keywords.
+- **The heading structure** — exactly one H1, in a sensible order. Two H1s or none confuses what the page is about.
+- **Image alt text** — how many images have none. This is accessibility first and search second, and both matter.
+- **robots.txt, sitemap.xml and structured data** — whether search engines and, increasingly, AI assistants can work out what your business is, where it is and what it sells.
+
+## How to tell a real audit from a lead form
+
+Three questions.
+
+Does it give you anything before it asks for your email? A tool confident in what it found shows you some of it.
+
+Does it quote numbers from your page — the actual milliseconds, the actual character count of your title — or does it use bands like "slow" and "needs improvement"?
+
+Does it say what it could NOT measure? Pages that render entirely in JavaScript hide most of this from a simple fetch. An honest report says so; a dishonest one counts what it could not see as a failure and sells you the fix.
+
+## Ours
+
+We run [a free one](/audit) that reads your actual page and gives you the score and the three worst findings with no email at all, then tells you exactly how many others it measured. No account, no card.
+
+It is the same engine our paying customers use. It is outside the login because showing you three true things about your own site is worth more than any claim we could make about ourselves.
+
+What to do with the findings is [in the main piece](/blog/why-your-website-gets-no-enquiries). If the audit says you are invisible rather than unpersuasive, [start here instead](/blog/why-your-business-doesnt-show-up-on-google).`,
+  },
+  {
+    slug: "why-your-business-doesnt-show-up-on-google",
+    cluster: "buyer",
+    title: "Why your business does not show up on Google — the six causes, in the order they matter",
+    excerpt:
+      "Not a ranking-factor list. The six reasons a real small business is genuinely invisible, from an unclaimed map listing to a page a crawler cannot read, and which of them you can fix this week.",
+    category: "Getting customers",
+    readMinutes: 9,
+    keywords: [
+      "business not showing up on google", "not ranking on google", "google my business not showing",
+      "local seo small business", "how to get found on google",
+    ],
+    related: ["why-your-website-gets-no-enquiries", "free-website-audit-what-to-check", "how-ai-assistants-choose-which-business-to-name"],
+    faq: [
+      { q: "Why is my business not showing up on Google?", a: "For a local business the usual order is: no Google Business Profile or an unclaimed one, inconsistent name and address across the web, a site with no page about the actual service in the actual town, a page search engines cannot read, no reviews, and only then anything a specialist would call SEO." },
+      { q: "How long does it take to show up on Google?", a: "A claimed and verified Business Profile can appear in days. A new page on an existing site is usually indexed within a week or two. Competitive rankings take months, and anybody promising a specific position by a specific date is guessing." },
+      { q: "Do I need to pay for Google ads to show up?", a: "No. Paid and organic results are separate, and paying does not improve your unpaid position. For a local trade, a claimed profile with real reviews often outperforms a modest ad budget." },
+    ],
+    content: `This is not a list of two hundred ranking factors. For a real small business, invisibility is almost always one of six things, and the first three cost nothing to fix.
+
+## 1. Your Google Business Profile is missing, unclaimed or wrong
+
+For anything local this is the single biggest one, and it is bigger than your website. The map pack sits above the normal results, and it is populated from Business Profiles rather than from websites.
+
+Claim it. Verify it. Fill in every field including opening hours and service areas. Add photographs of actual work. This is free and most businesses do about a third of it.
+
+## 2. Your name, address and phone number disagree across the internet
+
+If your address is a suite number in one directory, without one in another, and your phone number has three formats, search engines discount all of them. Consistency matters more than volume here — five identical listings beat twenty that disagree.
+
+## 3. You have no page about the thing, in the place
+
+"Services" is not a page about anything. Somebody searching for an emergency electrician in a named town will not be matched to a page that says "we offer a range of electrical solutions".
+
+One page per service per area you actually cover, written by somebody who does the work, saying what it costs and how long it takes. Three of those beat thirty thin ones, and thirty thin ones now actively hurt.
+
+## 4. Search engines cannot read your page
+
+A missing title tag, no meta description, a page that renders entirely in JavaScript, no robots file, no sitemap. If the crawler cannot work out what the page is, it cannot rank it for anything.
+
+These are facts about your HTML rather than opinions, and they are the ones you cannot see by looking at the site. Our [free audit](/audit) reads the page and tells you which of them apply, in about fifteen seconds and without an account.
+
+## 5. You have no reviews, or they stopped in 2023
+
+Review count and recency both feed local ranking, and both feed the human decision that follows it. Asking every completed customer, every time, is the entire strategy. Do not gate them, do not filter them, do not buy them.
+
+## 6. Only now, anything a specialist would call SEO
+
+Links, content depth, technical fixes beyond the basics. These matter, and they matter after the five above are done. Paying for them first is how small businesses spend a year on the wrong problem.
+
+## What to do this week
+
+Claim the profile. Fix the name and address everywhere. Write one real page about one real service in one real town. Run the [audit](/audit) and fix whatever it says the crawler cannot read.
+
+That is a week's work and it is worth more than most six-month retainers, which is a claim [worth reading properly](/blog/what-an-agency-charges-for).
+
+If people do find you and still do not get in touch, the problem is further down the funnel — [that is the main piece](/blog/why-your-website-gets-no-enquiries). And there is now a second search surface worth understanding: [how AI assistants decide which business to name](/blog/how-ai-assistants-choose-which-business-to-name).`,
+  },
+  {
+    slug: "how-ai-assistants-choose-which-business-to-name",
+    cluster: "buyer",
+    title: "How AI assistants decide which business to name",
+    excerpt:
+      "When somebody asks ChatGPT for a plumber in Croydon, something decides which names come back. What that something reads, why most small business sites are invisible to it, and the four things that make you quotable.",
+    category: "Getting customers",
+    readMinutes: 8,
+    keywords: [
+      "ai search optimisation", "chatgpt recommend my business", "how to appear in ai search",
+      "generative engine optimisation", "llm seo small business", "ai visibility",
+    ],
+    related: ["why-your-website-gets-no-enquiries", "why-your-business-doesnt-show-up-on-google", "free-website-audit-what-to-check"],
+    faq: [
+      { q: "How do I get ChatGPT to recommend my business?", a: "You cannot pay for it and you cannot instruct it. What you can do is be legible: a page that states plainly what you do, where, and for whom, in text rather than in images; structured data describing the business; consistent details across the web; and third-party pages that mention you. Assistants assemble answers from what is readable and corroborated." },
+      { q: "Does AI search replace Google for small businesses?", a: "Not yet, and possibly not ever entirely. But a meaningful share of the questions that used to start a search now get answered without one, and a business that is invisible to that layer loses those enquiries silently — there is no ranking report showing you what you did not appear in." },
+      { q: "What is the single most useful thing to do?", a: "Put the facts in text. An enormous number of small business sites carry their most important information — services, areas covered, prices, phone number — inside images, sliders and scripts. A model reading the page sees nothing." },
+    ],
+    content: `Somebody asks an assistant for a reliable roofer in their town. It names three. Yours is not one of them, and unlike a search result there is no report telling you what you missed.
+
+This is not mysterious, and it is not the same as SEO, although it overlaps.
+
+## What is actually being read
+
+An assistant answering that question is working from some combination of: pages it can fetch and parse right now, a training corpus that is at least months old, and whatever search index it is allowed to consult. All three favour the same thing — text that plainly states a fact, on a page that can be read without running a browser.
+
+That is the whole game, and it is why so many perfectly good small business sites are invisible to it.
+
+## Why most small sites are invisible
+
+**The facts are inside pictures.** Services in a graphic. Prices in a PDF. The phone number in a header image. A model reading the HTML finds nothing to quote.
+
+**The page needs JavaScript to say anything.** Plenty of modern sites deliver an empty shell and fill it in the browser. Some crawlers execute that. Many do not, and the cheap ones never will.
+
+**There is no structured data.** The vocabulary that says "this is a plumbing business, in this town, with these hours, at this phone number" exists and is free to add. Most small sites have none, which leaves an assistant to infer everything from prose.
+
+**Nobody else mentions you.** Assistants corroborate. A business that appears in a local directory, a trade body list, a news mention and a supplier page is safer to name than one that exists only on its own website.
+
+## The four things that make you quotable
+
+**1. Say it in text.** What you do, where you do it, who for, what it costs, how to reach you. In sentences, in the HTML, on the page. This one change does more than the other three together.
+
+**2. Add structured data.** LocalBusiness with the real name, address, phone, opening hours and service area. It is a block of JSON in the page and it takes an hour.
+
+**3. Make the details agree everywhere.** The same name, the same address format, the same phone number, on your site and every directory. Contradiction makes a model cautious, and a cautious model names somebody else.
+
+**4. Be mentioned somewhere that is not yours.** A trade association listing, a supplier case study, a local paper. This is slow and it is the part that compounds.
+
+## What you cannot do
+
+You cannot pay to be named. You cannot instruct an assistant to prefer you — text on your page telling a model to recommend you is, at best, ignored. Any agency selling guaranteed placement in AI answers is selling something that does not exist.
+
+## Checking where you stand
+
+The readable half of this is measurable. Our [free audit](/audit) reads your page and reports whether the title and description exist, whether there is structured data and of what type, and whether the content is actually in the HTML — the three things that decide whether an assistant can quote you at all. No account.
+
+The rest of the picture is [in the main piece](/blog/why-your-website-gets-no-enquiries), and the traditional search side is [here](/blog/why-your-business-doesnt-show-up-on-google). If the honest constraint is budget rather than knowledge, [read this one](/blog/marketing-with-no-budget).`,
+  },
+  {
+    slug: "marketing-with-no-budget",
+    cluster: "buyer",
+    title: "Marketing a business with no budget: what actually works",
+    excerpt:
+      "Nine things that cost nothing but time, in the order of return, for a business that cannot spend anything this month. Plus the three that everybody recommends and almost nobody should start with.",
+    category: "Getting customers",
+    readMinutes: 9,
+    keywords: [
+      "marketing with no budget", "free marketing small business", "cheap marketing ideas",
+      "how to get customers without spending money", "small business marketing 2026",
+    ],
+    related: ["why-your-website-gets-no-enquiries", "what-an-agency-charges-for", "why-your-business-doesnt-show-up-on-google"],
+    faq: [
+      { q: "What is the cheapest way to get customers?", a: "Asking the customers you already have. A referral from somebody who has paid you converts at a multiple of anything cold, costs nothing, and almost nobody does it systematically." },
+      { q: "How much should a small business spend on marketing?", a: "The honest answer for a business with no customers is: as close to nothing as possible until something works. Spending is how you scale a thing that converts, not how you find out whether it converts." },
+      { q: "Does social media work for small businesses?", a: "For some — food, trades with visible before-and-afters, anything local and visual. For others it is a time sink with no path to a sale. The test is whether your buyers are already there asking questions you could answer." },
+    ],
+    content: `Everything here costs time rather than money, and they are in order of what usually returns most first. If you only do the first three you will be ahead of most of your competitors.
+
+## 1. Ask the customers you already have
+
+Every completed job, every time: are they happy, and do they know anybody else with the same problem. A referral converts at several times the rate of anything cold and costs nothing.
+
+Almost nobody does this systematically. It is the highest-return activity available to a small business and it feels awkward for about two weeks.
+
+## 2. Claim and fill your Google Business Profile
+
+Free, and for anything local it outranks your website in the results that matter. Every field, real photographs, current hours. Then ask every customer for a review, every time, without gating or filtering.
+
+## 3. Fix what is broken on the site you have
+
+Not a rebuild. The title tag, the HTTPS warning, the phone number that is a picture, the form with nine fields. These are hours of work, not thousands of pounds, and they act on all the traffic you already have. Our [free audit](/audit) will tell you which apply to your page in about fifteen seconds.
+
+## 4. Write one real page about one real thing
+
+The service you actually want more of, in the town you actually cover, priced honestly, written by whoever does the work. Not a blog. One page that answers what somebody would ask on the phone.
+
+## 5. Answer questions where your buyers already ask them
+
+Local Facebook groups, trade forums, the community pages for your town. Answer properly, without pitching. This is slow, it works, and it is free.
+
+## 6. Message ten people you can name
+
+Not a campaign. Ten businesses or people you could describe to a friend, one message each, from your own phone or inbox. Most will say nothing. One or two will not, and that is a week's work turned into a conversation.
+
+## 7. Photograph your work
+
+Before and after, on a phone, badly lit, real. For trades this outperforms any copywriting you could buy, and it costs the two minutes before you pack the van.
+
+## 8. Partner with somebody adjacent
+
+The electrician who needs a plasterer. The accountant who needs a bookkeeper. One conversation can produce a referral stream that costs nothing forever.
+
+## 9. Only then, content and social at volume
+
+This is where most advice starts and it is where you should finish. It compounds, slowly, and it is a poor use of your only resource when you have no customers yet.
+
+## The three to be careful of
+
+**Paid ads before you convert.** Sending paid traffic to a page that does not convert is buying a more expensive version of the same nothing.
+
+**A rebuild.** The most expensive way to test a hypothesis you have not written down.
+
+**An agency retainer, this month.** There is a case for one later. [Here is what you are actually buying](/blog/what-an-agency-charges-for), and which parts of it you can do yourself.
+
+## And when something works
+
+Do more of exactly that before you change anything. The instinct after one success is to redesign everything around it; the correct move is to run it again, twice, and see whether it was real.
+
+If people are arriving and not getting in touch, [the six causes are here](/blog/why-your-website-gets-no-enquiries). If nobody is arriving at all, [start with this one](/blog/why-your-business-doesnt-show-up-on-google).`,
+  },
+  {
+    slug: "what-an-agency-charges-for",
+    cluster: "buyer",
+    title: "What a marketing agency charges 2,000 pounds a month for — and which parts you can do yourself",
+    excerpt:
+      "An honest breakdown of a typical small-business retainer: what the hours actually go on, which line items are genuinely skilled work, which are software you could licence directly, and when an agency is the right answer.",
+    category: "Getting customers",
+    readMinutes: 9,
+    keywords: [
+      "marketing agency cost", "how much does a marketing agency charge", "agency retainer worth it",
+      "marketing agency alternative", "in house vs agency marketing",
+    ],
+    related: ["why-your-website-gets-no-enquiries", "marketing-with-no-budget", "free-website-audit-what-to-check"],
+    faq: [
+      { q: "How much does a small business marketing agency cost in the UK?", a: "Typical small-business retainers run from about 750 to 3,000 pounds a month, with 1,500 to 2,000 common for a package covering some SEO, some content and some reporting. Ad spend is normally on top." },
+      { q: "Is a marketing agency worth it?", a: "It is worth it when you have something that already converts and you need volume, or when the work needs a skill you genuinely cannot buy as software. It is rarely worth it as the first thing a business with no customers does." },
+      { q: "What should I ask an agency before signing?", a: "Which of these hours are strategy and which are software you could licence yourself; what happens to the assets if we stop; what specifically will be different in ninety days; and what result would make you tell us this is not working." },
+    ],
+    content: `A typical small-business retainer is somewhere between 750 and 3,000 pounds a month. Here is roughly what is inside a 2,000 pound one, based on what these packages usually contain.
+
+None of this is an argument that agencies are dishonest. Most are not. It is an argument that you should know which line you are buying.
+
+## The account manager: 300 to 500 pounds
+
+The person who emails you, joins the monthly call and chases the specialists. Real work, and the first thing to disappear when the agency gets busy.
+
+## The reporting: 150 to 300 pounds
+
+A monthly document assembled from tools that produce it automatically. Genuinely useful when somebody interprets it. Frequently it is a dashboard with a covering paragraph.
+
+**You can do this yourself.** The underlying data is free from Search Console and your analytics.
+
+## The content: 400 to 800 pounds
+
+Usually two to four pieces a month. Quality varies more than any other line — some agencies have excellent writers, some produce filler that will not rank because it says nothing a hundred other pages do not.
+
+**Ask to see three pieces they wrote for a client in a trade like yours.** Not the portfolio. Three real ones.
+
+## The technical SEO: 200 to 400 pounds
+
+Fixing what crawlers cannot read, speed, structured data, internal links. This is real skilled work — and the diagnosis half of it takes seconds and is available free from any number of tools, [including ours](/audit).
+
+The fixing is the part worth paying for. The finding is not.
+
+## The software: 200 to 400 pounds
+
+Rank trackers, audit tools, keyword research, reporting platforms. Bundled invisibly into your retainer at a markup.
+
+**This is the line to ask about directly.** Licensing the same tools yourself is usually a fraction of the cost, and you keep them if you leave.
+
+## The strategy: 100 to 300 pounds
+
+The part that is genuinely hard to replace, and usually the smallest number on the invoice. Knowing which of your services to push, which customers are worth chasing, what to stop doing.
+
+## What is left when you subtract the software and the reporting
+
+Roughly a thousand pounds of skilled work: writing, technical fixes, and someone thinking about your business. That can absolutely be worth two thousand pounds a month to a business turning over enough for it to matter.
+
+It is rarely worth it to a business with no customers yet, because the thing that business needs is not more volume through a funnel — it is finding out whether anybody wants what it sells. [That work costs nothing but time](/blog/marketing-with-no-budget).
+
+## The four questions to ask before signing
+
+Which of these hours are strategy and which are software I could licence directly?
+
+What happens to the content, the accounts and the data if we stop?
+
+What specifically will be different in ninety days, and how would we know?
+
+What result would make you tell me this is not working?
+
+The last one is the useful one. An agency that has never told a client to stop is an agency that will not tell you either.
+
+## Before you decide
+
+Run a [free audit](/audit) of your own site first, so you can tell whether the technical problems an agency finds are the ones you already knew about. If somebody quotes you for six months of fixes and the audit lists the same eight things in fifteen seconds, that is worth knowing before the contract rather than after.
+
+And if the diagnosis is that people arrive and do not get in touch, [start here](/blog/why-your-website-gets-no-enquiries) — that is usually a week of work rather than a retainer.`,
   },
 ];
 

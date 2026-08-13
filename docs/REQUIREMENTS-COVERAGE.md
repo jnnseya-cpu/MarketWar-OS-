@@ -4537,3 +4537,73 @@ other store in the platform. The write itself is confirmed by `recorded: true`.
 It does not send the report by email — that needs a sending domain. The full
 report appears on the page immediately instead, so the visitor is never left
 waiting for something that cannot arrive.
+
+## §88 — The buyer-side cluster: pages that route into the audit (2026-08-13)
+
+§87 built the front door. This is what points at it.
+
+The site had twelve articles and every one of them was aimed at **creators** —
+people who want to earn from an audience. There was nothing at all for the
+person who actually pays: a small business owner whose marketing is not working
+and who has not decided that software is the answer. The audit page existed with
+nothing linking to it from outside.
+
+### Six pages, one cluster
+
+A pillar and five spokes, targeting what an SME owner actually types:
+
+| Page | Query it answers |
+|---|---|
+| **Your website gets visitors and no enquiries** (pillar) | "website not getting enquiries", "website traffic no leads" |
+| Free website audit: what to check yourself | "free website audit", "website audit checklist" |
+| Why your business does not show up on Google | "business not showing up on google", "how to get found on google" |
+| How AI assistants decide which business to name | "how to appear in ai search", "chatgpt recommend my business" |
+| Marketing a business with no budget | "marketing with no budget", "free marketing small business" |
+| What an agency charges £2,000 a month for | "marketing agency cost", "agency retainer worth it" |
+
+**Every one ends at the [free audit](/audit)** — the thing that can prove the
+product in fifteen seconds without an account. A cluster that ranks and then
+asks a stranger to sign up converts a fraction of one that hands them an answer.
+
+### Two clusters, kept apart
+
+`SeoArticle` gains a `cluster` field and the hub-and-spoke test now runs
+per-cluster. This matters more than it looks: a crawler reads a cluster as a
+claim about one subject, so merging creator content and buyer content produces a
+hub that is the authority on neither. A test asserts no spoke links across into
+the other cluster's pillar, which is exactly how two clusters quietly become one
+mush.
+
+### What the tests hold
+
+- Every buyer page routes to `/audit`.
+- ≥4 target queries and ≥3 FAQ entries each (no FAQ block, no rich result).
+- >3,000 characters of content — a thin page in 2026 does not rank and does not
+  deserve to.
+- **No hype vocabulary**, and **no invented industry statistics** — the pattern
+  `NN% of businesses` fails the suite. These are read by people who have been
+  sold to badly before, and the whole cluster's value is that it does not do
+  that.
+
+The content follows the platform's own honesty rules. The agency piece breaks
+down a real £2,000 retainer line by line and says plainly which parts are
+skilled work and which are software you could licence yourself — including that
+the diagnosis half of technical SEO takes seconds and is free, from us among
+others. The AI-visibility piece says outright that you cannot pay to be named
+and that anyone selling guaranteed placement in AI answers is selling something
+that does not exist.
+
+### Verified live
+
+All six render at 200, each links to `/audit`, all appear in the sitemap.
+
+### Tests
+
+**942 → 943.** Typecheck, layer check and build green.
+
+### What still has to happen off this machine
+
+Pages rank when they are indexed and linked to, which takes weeks and does not
+happen because a file was committed. Submit the sitemap in Search Console after
+deploying, and the cluster will do its work slowly, which is the only speed
+organic search has ever had.
