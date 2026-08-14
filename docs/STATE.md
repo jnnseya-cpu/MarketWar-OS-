@@ -125,6 +125,10 @@ be right. When something looks broken, check the boundary before the logic.
 
 ## 7. Rules that outrank preference
 
+The full engineering standard is `docs/ENGINEERING-DIRECTIVE.md` (owner
+directive, permanent). `CLAUDE.md` carries the compressed version that loads
+every session. Beyond it, specific to this platform:
+
 - **Additive only.** Nothing delivered is deleted or downgraded. Conflicts are
   implemented as upgrades and recorded, never silently overwritten.
 - **Never present a number as a measurement unless something counted it.** No

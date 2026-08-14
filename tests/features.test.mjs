@@ -14130,3 +14130,42 @@ test("the state document exists, is current, and stays short enough to read", ()
   assert.match(claude, /docs\/STATE\.md/, "the working rules never mention the state document");
   assert.match(claude, /REPLACED, never appended/i, "the rule that keeps it short is not written down");
 });
+
+test("the engineering directive is recorded and loads with every session", () => {
+  // The owner issued a permanent operating directive. Pasted into a chat it is
+  // lost at the end of the session — which is precisely the failure it was
+  // written to stop. So it lives in the repository, and the rules this codebase
+  // has actually broken are inline in CLAUDE.md rather than one file away,
+  // because CLAUDE.md is what is loaded automatically.
+  const directive = readFileSync(new URL("../docs/ENGINEERING-DIRECTIVE.md", import.meta.url), "utf8");
+  const claude = readFileSync(new URL("../CLAUDE.md", import.meta.url), "utf8");
+
+  // The operating loop, verbatim, in both places.
+  const LOOP = /UNDERSTAND → INSPECT → REUSE → PLAN → IMPLEMENT → VERIFY → STABILISE → MOVE FORWARD/;
+  assert.match(directive, LOOP);
+  assert.match(claude, LOOP, "the session file does not carry the operating loop");
+
+  // All sixty rules survived the transcription.
+  const numbered = [...directive.matchAll(/^\*\*(\d+)\. /gm)].map((m) => Number(m[1]));
+  assert.deepEqual(numbered, Array.from({ length: 60 }, (_, i) => i + 1), "the directive is missing or misnumbered rules");
+
+  // The rules with no exception, whatever a later instruction says.
+  for (const [rule, why] of [
+    [/no secrets in the repo, bundle, logs\s*\n?\s*or URLs/i, "secrets"],
+    [/tenant isolation enforced server-side/i, "tenant isolation"],
+    [/financial operations idempotent/i, "double-charging"],
+    [/no placeholder or faked data/i, "fake finished features"],
+  ]) {
+    assert.match(claude, rule, `CLAUDE.md does not carry the non-negotiable on ${why}`);
+  }
+
+  // It records where it has already been breached — rule 3 says track the
+  // decisions, rule 7 says carry the evidence forward rather than repeating.
+  assert.match(directive, /Where this directive has already been breached/);
+  assert.ok(directive.split("\n").filter((l) => /^\| \d+/.test(l)).length >= 4,
+    "the breach record is empty, which is not what happened");
+
+  // And CLAUDE.md must stay short enough to actually be read at session start.
+  const claudeLines = claude.split("\n").length;
+  assert.ok(claudeLines < 160, `CLAUDE.md is ${claudeLines} lines — past that it is skimmed, and a skimmed rule is not a rule`);
+});

@@ -16,6 +16,42 @@ specifications, or source material.** In practice:
 - Refactors must preserve behaviour and feature surface; removing a
   capability requires the owner's explicit instruction naming it.
 
+## How work is done here (owner directive — permanent)
+
+Full text: `docs/ENGINEERING-DIRECTIVE.md`. The standard, not a style guide.
+
+**UNDERSTAND → INSPECT → REUSE → PLAN → IMPLEMENT → VERIFY → STABILISE → MOVE FORWARD.**
+
+The ten that this repository has actually broken, so they are inline rather than
+one file away:
+
+1. **Never repeat completed work.** Inspect what exists first. If it works,
+   reuse and extend it — never recreate it. Existing stable functionality is an
+   asset.
+2. **Read before you write.** Never assume anything the codebase can answer.
+   Search first.
+3. **Done means done.** Do not touch working code again without a dependency, a
+   verified defect, a security issue, a regression, or a required architectural
+   change. Never refactor for cosmetics.
+4. **Fix root causes.** OBSERVE → TRACE → ROOT CAUSE → FIX → VERIFY → CHECK
+   REGRESSIONS. One correct fix beats ten patches.
+5. **Do not loop.** SAME ERROR + SAME APPROACH = STOP AND REASSESS. The next
+   attempt must carry new evidence.
+6. **Search before creating.** One source of truth per concept — no second
+   module doing the same job under a different name.
+7. **Build vertically.** UI → validation → API → logic → storage → response →
+   UI state → errors → tests. One finished vertical beats ten half-built ones.
+8. **Never declare success without verification.** IMPLEMENTED → TESTED →
+   VERIFIED. If it cannot be tested here, say so plainly — do not imply it was.
+9. **Fix your own build, type, lint and test failures** before calling anything
+   complete. Do not fix unrelated things while you are there.
+10. **Stability over feature count.** STABILITY → CORRECTNESS → SECURITY → UX →
+    PERFORMANCE → NEW FEATURES. Never add features on unstable foundations.
+
+Non-negotiable regardless of instruction: no secrets in the repo, bundle, logs
+or URLs; tenant isolation enforced server-side; financial operations idempotent;
+no placeholder or faked data inside anything represented as finished.
+
 ## Read this first, and keep it current
 
 `docs/STATE.md` is the single description of where the platform stands: what
