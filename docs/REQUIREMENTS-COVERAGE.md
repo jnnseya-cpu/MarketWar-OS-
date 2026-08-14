@@ -4607,3 +4607,78 @@ Pages rank when they are indexed and linked to, which takes weeks and does not
 happen because a file was committed. Submit the sitemap in Search Console after
 deploying, and the cluster will do its work slowly, which is the only speed
 organic search has ever had.
+
+## §89 — A photo in, a postable file out (2026-08-13)
+
+The owner put a competitor's ad next to this product — *"I uploaded vacation
+photos to Zeely AI, it made travel ads for me and got 5 package inquiries"* —
+and said, correctly, that MarketWar could never carry that testimonial because
+its features do not produce a result anybody can see.
+
+So I walked the journey a customer would have to complete to say that sentence,
+with no keys, exactly as a new user gets it. Here is the ad the platform
+produced:
+
+```
+<svg width="1080" height="1080">
+  <rect fill="#0b0f1a"/>          ← a dark rectangle
+  <text>ENQUIRE TODAY</text>
+  <text>Package deals from £499</text>
+  <text>Family holidays, sorted</text>
+</svg>
+```
+
+**Two breaks, and neither was in an engine.**
+
+### 1. There was no way to put a picture in
+
+`docFromAd` has supported a full-bleed image layer — with an automatic scrim
+behind the copy so the headline stays readable over an unknown photograph —
+since the day it shipped. **No surface in the product ever offered an upload.**
+Every ad this platform could make was text on a flat colour, which for a travel
+business, a restaurant or a tradesman is not an ad at all.
+
+### 2. There was no way to get anything out
+
+"Export" produced more SVG in the browser. Instagram, Facebook and WhatsApp take
+PNG and JPEG; none of them takes SVG. A person could do the entire job and end
+holding a file they could not post anywhere. **An ad you cannot save is not an
+ad**, and that single missing button is worth more than any engine added in the
+last month.
+
+### `src/frontend/ad-export.ts`
+
+Both halves run entirely in the browser — no upload endpoint, no storage bucket,
+no provider key, no cost, and the photograph never leaves the customer's device
+except inside their own ad document.
+
+- **In:** the file is decoded, resized to a 1,600px longest edge and re-encoded
+  as JPEG, stepping the quality down **in a loop until it actually fits** under
+  900KB — because the document travels as JSON and a 6MB phone photo becomes an
+  8MB base64 string that breaks everything downstream silently. What was done to
+  it is reported in the words a person would use.
+- **Out:** PNG at the placement's real pixel dimensions, not at whatever size
+  the screen happened to be — an ad exported at CSS size arrives on Instagram
+  soft and nobody can tell you why. A white background is painted first, because
+  a transparent PNG turns black in some apps and white in others. SVG is offered
+  too, for a print shop.
+- Download buttons on the working canvas **and on every placement in the export
+  grid**, so a full set for five placements is five clicks.
+
+### What was already right
+
+The engine. A test now proves it, so nobody "improves" the part that was fine: a
+photo becomes an image layer, a scrim is added **because** there is a photo and
+is absent when there is not, and the rendered SVG contains the picture.
+
+### Tests
+
+**943 → 945.** Typecheck, layer check and build green.
+
+### The honest position on the testimonial
+
+This does not manufacture one. It removes the two reasons a customer could not
+have produced one: they can now put their own photograph in and walk away with a
+file they can post. Whether five enquiries follow is up to their photograph,
+their offer and their audience — and if it happens, the acquisition run (§86) is
+where it gets recorded, with the message that produced it attached.

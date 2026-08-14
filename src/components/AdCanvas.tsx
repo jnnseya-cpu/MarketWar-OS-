@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Ban, Check, Download, Info, Layers, Loader2, Ruler, Wand2 } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { prepareImage, downloadPng, downloadSvg, adFilename } from "@/frontend/ad-export";
 import { authedFetch } from "@/frontend/api-client";
 
 type Finding = {
@@ -26,7 +27,7 @@ type Check = {
 };
 type Layer = { id: string; kind: "text" | "image" | "shape"; role: string; text?: string; hidden?: boolean; pinned?: boolean };
 type Doc = { id: string; brandId: string; placementId: string; layers: Layer[] };
-type PlacementRow = { id: string; label: string; ratio: string; usedFor: string; safeNote: string };
+type PlacementRow = { id: string; label: string; width: number; height: number; ratio: string; usedFor: string; safeNote: string };
 
 const SEV: Record<Finding["severity"], { icon: typeof Ban; cls: string }> = {
   blocking: { icon: Ban, cls: "border-rose-500/35 bg-rose-500/[0.06] text-rose-300" },
@@ -35,6 +36,12 @@ const SEV: Record<Finding["severity"], { icon: typeof Ban; cls: string }> = {
 };
 
 export default function AdCanvas({ imageUrl }: { imageUrl?: string }) {
+  // THE PHOTO. The engine has supported a full-bleed image with an automatic
+  // scrim since it shipped, and no surface in the product ever offered a way to
+  // put one in — so every ad this platform could make was text on a flat
+  // colour. For a travel business or a restaurant that is not an ad.
+  const [photo, setPhoto] = useState("");
+  const [photoNote, setPhotoNote] = useState("");
   const { activeBrand } = useActiveBrand();
   const [placements, setPlacements] = useState<PlacementRow[]>([]);
   const [headline, setHeadline] = useState("");
@@ -84,7 +91,7 @@ export default function AdCanvas({ imageUrl }: { imageUrl?: string }) {
 
   const build = async () => take(await post({
     action: "build", placementId, headline, subhead, offer, cta,
-    imageUrl: imageUrl || activeBrand?.productImageUrl || undefined,
+    imageUrl: photo || imageUrl || activeBrand?.productImageUrl || undefined,
     logoUrl: activeBrand?.logoUrl || undefined,
     colours: (activeBrand?.brandColours || []).concat(activeBrand?.color ? [activeBrand.color] : []),
   }));
@@ -161,9 +168,59 @@ export default function AdCanvas({ imageUrl }: { imageUrl?: string }) {
                 </button>
               ))}
             </div>
-            <button className="btn-secondary mt-2 w-full" onClick={exportAll} disabled={busy}>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Your photo</span>
+              <input
+                type="file" accept="image/jpeg,image/png,image/webp"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  setError("");
+                  try {
+                    const prepared = await prepareImage(f);
+                    setPhoto(prepared.dataUrl);
+                    setPhotoNote(prepared.note);
+                  } catch (err) { setError((err as Error).message); }
+                }}
+                className="block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-ink-950"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                {photoNote || "It never leaves this device except inside your own ad, and the headline gets a scrim behind it automatically so it stays readable over whatever you choose."}
+              </p>
+              {photo && (
+                <button className="mt-1 text-[11px] font-semibold text-slate-400 underline hover:text-slate-200" onClick={() => { setPhoto(""); setPhotoNote(""); }}>
+                  Remove the photo
+                </button>
+              )}
+            </label>
+
+            <button className="btn-secondary mt-3 w-full" onClick={exportAll} disabled={busy}>
               <Download className="h-4 w-4" /> Lay it out for every placement
             </button>
+
+            {/* AN AD YOU CANNOT SAVE IS NOT AN AD. Export used to produce more
+                SVG in the browser, and no feed on earth accepts an SVG. */}
+            {svg && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  className="btn-secondary" disabled={busy}
+                  onClick={async () => {
+                    const p = placements.find((x) => x.id === placementId);
+                    try {
+                      await downloadPng(svg, p?.width || 1080, p?.height || 1080, adFilename(activeBrand?.name || "ad", p?.label || placementId, headline));
+                    } catch (err) { setError((err as Error).message); }
+                  }}
+                >
+                  <Download className="h-4 w-4" /> PNG
+                </button>
+                <button
+                  className="btn-secondary" disabled={busy}
+                  onClick={() => downloadSvg(svg, adFilename(activeBrand?.name || "ad", placementId, headline))}
+                >
+                  <Download className="h-4 w-4" /> SVG
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -240,6 +297,16 @@ export default function AdCanvas({ imageUrl }: { imageUrl?: string }) {
                   {s.placement.label}
                 </p>
                 <p className="text-[10px] text-slate-600">{s.placement.ratio}</p>
+                <button
+                  className="mt-1.5 w-full rounded-md border border-white/10 px-2 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-white/5"
+                  onClick={async () => {
+                    try {
+                      await downloadPng(s.svg, s.placement.width, s.placement.height, adFilename(activeBrand?.name || "ad", s.placement.label, headline));
+                    } catch (err) { setError((err as Error).message); }
+                  }}
+                >
+                  Download PNG
+                </button>
               </div>
             ))}
           </div>

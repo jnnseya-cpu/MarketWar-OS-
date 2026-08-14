@@ -13714,3 +13714,71 @@ test("the buyer cluster answers a buyer, and every page ends at the audit", () =
     assert.doesNotMatch(a.content, /\b\d{2,3}% of (small )?businesses\b/i, `${a.slug} quotes an invented industry statistic`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// §89 — A PHOTO IN, A POSTABLE FILE OUT.
+//
+// The owner put a competitor's ad next to this product: "I uploaded vacation
+// photos, it made travel ads for me, and I got five enquiries" — and said we
+// could never have that testimonial because our features do not produce a
+// result anybody can see.
+//
+// Walking the journey found exactly why, and it was not the engines. The ad
+// canvas has supported a full-bleed photo with an automatic legibility scrim
+// since it shipped, and NO SURFACE EVER OFFERED AN UPLOAD — so every ad this
+// platform could produce was text on a flat colour. And "export" produced more
+// SVG in the browser, which no feed on earth accepts, so a person could do all
+// the work and end with a file they could not post anywhere.
+//
+// Both breaks were at the surface. Neither needed a key, a model or a provider.
+// ---------------------------------------------------------------------------
+test("the ad canvas takes a photo in and gives a postable file out", () => {
+  const ui = readFileSync(new URL("../src/components/AdCanvas.tsx", import.meta.url), "utf8");
+  const exp = readFileSync(new URL("../src/frontend/ad-export.ts", import.meta.url), "utf8");
+
+  // A photo can get in.
+  assert.match(ui, /type="file"/, "there is still no way to put a picture into an ad");
+  assert.match(ui, /accept="image\/jpeg,image\/png,image\/webp"/);
+  assert.match(ui, /prepareImage/, "an unprocessed phone photo goes straight into the document");
+  // And it reaches the engine, which already knew what to do with one.
+  assert.match(ui, /imageUrl: photo \|\|/, "the uploaded photo is not passed to the build");
+
+  // A postable file can get out. PNG specifically — SVG is what we had, and it
+  // is the format that made the whole feature useless.
+  assert.match(ui, /downloadPng/, "there is still no way to save the ad as something a feed accepts");
+  assert.match(exp, /image\/png/);
+  // At the placement's real pixel size, not whatever the screen happened to be.
+  assert.match(exp, /canvas\.width = width/);
+  // With a background painted, because a transparent PNG turns black in some
+  // apps and white in others.
+  assert.match(exp, /fillRect\(0, 0, width, height\)/);
+
+  // The picture never leaves the device. No upload endpoint, no bucket, no key.
+  assert.doesNotMatch(exp, /fetch\(|authedFetch|\/api\//, "the photo is being sent somewhere");
+
+  // A phone photo is 4-6MB and the document travels as JSON. It is resized and
+  // re-encoded until it fits, and the result is MEASURED rather than assumed.
+  assert.match(exp, /MAX_BYTES/);
+  assert.match(exp, /while \(byteLength\(dataUrl\) > MAX_BYTES/, "the size cap is a hope rather than a loop");
+});
+
+test("the engine was never the problem: a photo ad scrims itself", async () => {
+  // Proving the half that already worked, so the fix is understood as a surface
+  // fix and nobody 'improves' the engine that was fine.
+  const canvas = await import("../src/backend/ad-canvas.ts");
+  const png1x1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  const withPhoto = canvas.docFromAd({ placementId: "feed_square", headline: "Family holidays, sorted", cta: "Enquire today", imageUrl: png1x1 });
+  const kinds = withPhoto.layers.map((l) => l.kind);
+  assert.ok(kinds.includes("image"), "the photo did not become a layer");
+  // The scrim is added BECAUSE there is a photo — text over an unknown picture
+  // is the classic unreadable ad, and the engine already handled it.
+  assert.ok(withPhoto.layers.some((l) => l.id === "scrim"), "no scrim was placed behind the copy on a photo ad");
+
+  const withoutPhoto = canvas.docFromAd({ placementId: "feed_square", headline: "Family holidays, sorted", cta: "Enquire today" });
+  assert.ok(!withoutPhoto.layers.some((l) => l.id === "scrim"), "a scrim was added over a flat colour, where it does nothing but dim the ad");
+
+  // And the rendered ad actually contains the picture.
+  const svg = canvas.renderSvg(withPhoto);
+  assert.match(svg, /<image/, "the photo did not render");
+});
