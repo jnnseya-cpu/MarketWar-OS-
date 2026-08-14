@@ -8,6 +8,7 @@ if (typeof window !== "undefined") {
 // provider key it returns a deterministic starter article, clearly flagged.
 
 import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
+import { aiUnavailableMessage } from "@/backend/capabilities";
 import { enforceLinks, extractLinks, isExternal, linkAudit, menuForPrompt, resolveBareLinks, verifyExternal, type LinkTarget } from "@/backend/blog-links";
 
 const SYSTEM = `You are an expert SEO content strategist and writer for MarketWar OS, an AI customer-acquisition platform. Write a complete, publish-ready blog article in Markdown.
@@ -63,7 +64,7 @@ export async function generateArticle(input: {
       // A canned article is something a customer may publish under their own
       // name, on their own domain, as their own opinion. Hosted production
       // refuses it for the same reason the agents do.
-      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
+      if (!demoFallbackAllowed()) throw new Error(aiUnavailableMessage());
       const demo = demoArticle(input.topic, input.category);
       const checked = await applyLinkPolicy(demo.content, menu);
       return { ...demo, content: checked.content, links: checked.links, mode: "demo" };

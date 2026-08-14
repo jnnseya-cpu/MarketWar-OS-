@@ -9,6 +9,7 @@ if (typeof window !== "undefined") {
 // under REQUIRE_LIVE).
 
 import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
+import { aiUnavailableMessage } from "@/backend/capabilities";
 import { withConciseStyle } from "@/backend/agent-style";
 import { STRATEGY_BY_ID } from "@/shared/strategy-agents";
 
@@ -37,7 +38,7 @@ export async function runStrategyAgent(
     return { agentId: agent.id, agentName: agent.name, mode: "live", output: res.text };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
-      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
+      if (!demoFallbackAllowed()) throw new Error(aiUnavailableMessage());
       return { agentId: agent.id, agentName: agent.name, mode: "demo", output: demoOutput(agent.name, input) };
     }
     throw err;

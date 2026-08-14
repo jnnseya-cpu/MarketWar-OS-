@@ -6,6 +6,7 @@ import MobileNav from "@/components/MobileNav";
 import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
 import AuthStatusBanner from "@/components/AuthStatusBanner";
+import CapabilityNotice from "@/components/CapabilityNotice";
 import GuideWizard from "@/components/GuideWizard";
 import InstallPrompt from "@/components/InstallPrompt";
 import { BrandProvider } from "@/frontend/brand-context";
@@ -32,7 +33,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <UserMenu compact />
         </header>
         {/* pb accounts for the home indicator so the last card is never half under it. */}
-        <main className="pad-safe mx-auto max-w-7xl px-5 pb-[calc(2rem+var(--safe-bottom))] pt-8 sm:px-8">{children}</main>
+        {/* ONE PLACE, EVERY SCREEN.
+            Mounted in the layout rather than on each surface for the same
+            reason the human gate lives in middleware: a warning that depends on
+            every screen remembering to carry it is a warning half the screens
+            will not carry. If AI generation is dark on this deployment, the
+            customer learns it before they type, wherever they are. */}
+        <main className="pad-safe mx-auto max-w-7xl px-5 pb-[calc(2rem+var(--safe-bottom))] pt-8 sm:px-8">
+          <CapabilityNotice need="ai_generation" />
+          {children}
+        </main>
       </div>
       <GuideWizard />
       <InstallPrompt />

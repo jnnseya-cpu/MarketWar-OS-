@@ -547,9 +547,22 @@ export function demoFallbackAllowed(env: NodeJS.ProcessEnv = process.env): boole
   return env.NODE_ENV !== "production";
 }
 
-/** The honest thing to say when the fallback is refused. */
+/**
+ * What to say when the fallback is refused.
+ *
+ * The old wording told the customer the key was on its way and asked them to
+ * try again shortly. It was wrong in the way that matters most: it described a
+ * passing glitch. A deployment with no provider key has nothing in flight. The
+ * customer
+ * retries because they were told to, gets the same sentence, retries again, and
+ * concludes the product is broken — which, for them, it is.
+ *
+ * `aiUnavailableMessage()` in capabilities.ts distinguishes the two real cases
+ * and is what callers should use. This constant remains for the callers that
+ * have not been moved yet, and now tells the truth in both.
+ */
 export const LIVE_AI_UNAVAILABLE =
-  "Live AI is activating — the AI provider key isn't reachable for this request yet. This runs on the real model the moment the key is live; please retry in a moment. (Nothing was charged.)";
+  "This request needs an AI provider and none answered. If the deployment has no provider key set, retrying will not help — that is a missing setting rather than a fault. The audit, the ad canvas and every measured check still work without one. Nothing was charged.";
 
 /**
  * @param opts.budgetMs   How long the WHOLE call may take. A route knows its own

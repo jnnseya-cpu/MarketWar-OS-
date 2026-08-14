@@ -10,6 +10,7 @@ if (typeof window !== "undefined") {
 // Live through the AI gateway; deterministic preview when no provider key.
 
 import { gatewayComplete, GatewayUnconfiguredError, DOCUMENT_DEEP, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
+import { aiUnavailableMessage } from "@/backend/capabilities";
 
 export type GrowthPlanInput = {
   business: string;
@@ -65,7 +66,7 @@ export async function generateGrowthPlan(input: GrowthPlanInput): Promise<Growth
     return { mode: "live", plan: res.text, business: biz };
   } catch (err) {
     if (err instanceof GatewayUnconfiguredError) {
-      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
+      if (!demoFallbackAllowed()) throw new Error(aiUnavailableMessage());
       return { mode: "demo", plan: demoPlan(biz), business: biz };
     }
     throw err;

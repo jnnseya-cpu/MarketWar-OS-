@@ -13782,3 +13782,91 @@ test("the engine was never the problem: a photo ad scrims itself", async () => {
   const svg = canvas.renderSvg(withPhoto);
   assert.match(svg, /<image/, "the photo did not render");
 });
+
+// ---------------------------------------------------------------------------
+// §90 — NEVER TAKE SOMEBODY'S WORK FOR AN OUTCOME YOU CANNOT DELIVER.
+//
+// The owner said the features do not work and produce nothing a customer can
+// see. The mechanism was found rather than guessed: demoFallbackAllowed()
+// returns false in production, so on a live deployment with no AI provider key
+// every generative surface fails — four of them saying "Live AI is activating,
+// please retry in a moment", which describes a passing glitch and is not true.
+// The customer retries because they were told to, gets it again, and concludes
+// the product is broken. For them it is.
+//
+// launch-check has known this the whole time and says it perfectly, behind a
+// JSON health endpoint nobody opens.
+// ---------------------------------------------------------------------------
+const caps = await import("../src/backend/capabilities.ts");
+
+test("capabilities: a missing key is never described as a transient fault", () => {
+  // The exact sentence that wasted the evening.
+  const gateway = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(gateway, /Live AI is activating/, "the misleading message is still in the gateway");
+  assert.doesNotMatch(gateway, /please retry in a moment/i);
+
+  // With no provider configured, the message says so and does not ask anybody
+  // to wait for something that will not happen.
+  const noKeys = {};
+  const msg = caps.aiUnavailableMessage(noKeys);
+  assert.match(msg, /no AI provider configured/i);
+  assert.match(msg, /retrying will not change it/i);
+  // And it never claims nothing works, because that is false.
+  assert.match(msg, /still works/i);
+  assert.match(msg, /audit/i, "the message does not name a single thing that still works");
+  assert.match(msg, /Nothing was charged/);
+});
+
+test("capabilities: every dark capability names what still works and one action", () => {
+  for (const c of caps.CAPABILITIES) {
+    assert.ok(c.whenDark.length > 40, `${c.id} does not say what a customer loses`);
+    assert.ok(c.stillWorks.length > 40, `${c.id} does not name what still works — "nothing" is almost always a lie`);
+    assert.ok(c.oneAction.length > 20, `${c.id} does not say how to switch it on`);
+    // The action names a setting, never a key value.
+    assert.doesNotMatch(c.oneAction, /sk_|AIza|sk-ant/, `${c.id} leaks something that looks like a key`);
+  }
+  // The one that matters most is named as such rather than buried in a list.
+  const summary = caps.capabilitySummary({});
+  assert.match(summary.headline, /AI generation is not one of them/);
+  assert.match(summary.headline, /most of what a customer is paying for/);
+});
+
+test("capabilities: the report is honest about this deployment and leaks no keys", () => {
+  const states = caps.capabilityStates({});
+  assert.ok(states.length >= 7);
+  // With an empty environment, nothing should claim to be live.
+  for (const s of states) {
+    if (s.id === "persistence") continue; // reads the admin singleton, not the env map
+    assert.equal(s.live, false, `${s.id} claims to be live with no configuration at all`);
+    assert.ok(s.because.length > 10, `${s.id} does not say why`);
+  }
+  // A configured provider flips it, and the reason names the provider rather
+  // than asserting it vaguely.
+  const withKey = caps.capabilityStates({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x" });
+  assert.equal(withKey.find((s) => s.id === "payments").live, true);
+
+  // No value of any key appears anywhere in the report.
+  const serialised = JSON.stringify(caps.capabilityStates({ ANTHROPIC_API_KEY: "sk-ant-SECRET123", STRIPE_SECRET_KEY: "sk_live_SECRET456" }));
+  assert.ok(!serialised.includes("SECRET123") && !serialised.includes("SECRET456"), "a key value reached the capability report");
+});
+
+test("capabilities: the warning is mounted once, where every screen inherits it", () => {
+  // Same lesson as the human gate: a warning each screen has to remember to
+  // carry is a warning half the screens will not carry.
+  const layout = readFileSync(new URL("../src/app/dashboard/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /<CapabilityNotice need="ai_generation" \/>/, "the notice is not mounted in the dashboard layout");
+
+  const notice = readFileSync(new URL("../src/components/CapabilityNotice.tsx", import.meta.url), "utf8");
+  // Silent while the answer is in flight — a banner that flashes a warning and
+  // withdraws it teaches people to ignore banners.
+  assert.match(notice, /if \(!known \|\| live \|\| !cap\) return null;/);
+  assert.match(notice, /What still works:/);
+  assert.match(notice, /retrying will not change it/i);
+
+  // And the four modules that used the misleading constant now use the function
+  // that distinguishes a missing key from a provider that failed.
+  for (const f of ["strategy-run", "growth-plan", "provider", "blog-generator"]) {
+    const src = readFileSync(new URL(`../src/backend/${f}.ts`, import.meta.url), "utf8");
+    assert.match(src, /aiUnavailableMessage\(\)/, `${f} still throws the old constant at a customer`);
+  }
+});

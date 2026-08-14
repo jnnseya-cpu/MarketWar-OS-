@@ -6,6 +6,7 @@ if (typeof window !== "undefined") {
 import { claimReport } from "@/backend/claim-guard";
 import { AGENTS } from "@/shared/agents";
 import { gatewayComplete, GatewayUnconfiguredError, demoFallbackAllowed, LIVE_AI_UNAVAILABLE } from "@/backend/gateway";
+import { aiUnavailableMessage } from "@/backend/capabilities";
 import { withConciseStyle } from "@/backend/agent-style";
 import type { AgentResult } from "@/shared/types";
 
@@ -62,7 +63,7 @@ export async function runAgent(
       // invented financials about a real business, and a small "Demo
       // intelligence" pill does not undo a page of confident prose. See
       // demoFallbackAllowed() for why this is no longer left to an env var.
-      if (!demoFallbackAllowed()) throw new Error(LIVE_AI_UNAVAILABLE);
+      if (!demoFallbackAllowed()) throw new Error(aiUnavailableMessage());
       // Zero-config demo (local/dev/no-key): deterministic output so nothing breaks.
       const demoText = agent.demoOutput(input);
       return {
