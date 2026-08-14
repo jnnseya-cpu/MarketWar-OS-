@@ -1,0 +1,158 @@
+# MarketWar OS — current state
+
+**This file describes where things stand right now. It is REPLACED, never
+appended to.** If you read one document about this platform, read this one.
+
+`REQUIREMENTS-COVERAGE.md` is the history — 4,800 lines of what changed and why,
+across 40 numbered sections. It is useful for archaeology and useless for
+knowing where you are, which is why this file exists. Do not add another
+numbered section in place of updating this one.
+
+Last updated: 2026-08-13.
+
+---
+
+## 1. What this is
+
+An AI marketing operating system for small businesses. 55 engines behind one
+subscription, priced in credits, deployed at marketwaros.com. Live-tested on two
+brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
+enterprise programme intelligence).
+
+Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
+`shared`) enforced by `scripts/check-layers.mjs`. 203 backend modules, 128 API
+routes, 66 dashboard pages, 955 tests.
+
+---
+
+## 2. The one number that matters
+
+**Customers acquired: 0. Messages sent to prospects: 0.**
+
+Everything below is subordinate to that. `/dashboard/acquisition` holds the
+count and states the cause from the counts alone; with nothing sent, the
+diagnosis is not the product, the price, the site or the copy, because none of
+them has been in front of a buyer.
+
+---
+
+## 3. What works with NO keys at all
+
+This is the honest list, and it is not short. These need no provider, no card
+and no configuration:
+
+- **The free website audit** (`/audit`) — a real crawl of a real page, score,
+  findings, and an emailed lead recorded as an inbound prospect. Public, no
+  account. This is the front door of the whole acquisition machine.
+- **The ad canvas** — take your own photo in, get a PNG out at the real
+  placement size, contrast-checked, laid out for five placements.
+- **All pricing and margin arithmetic** — ProfitGuard, GrowthGuard, the
+  commission ladder, product eligibility. Every refusal is computed.
+- **The payout engine** — fee quotes across nine rails, identity gating, tax
+  position. Money moves only with provider keys; everything up to it is real.
+- **The acquisition run** — named prospects, what was sent, what came back.
+- **Sentinel** — the human gate, the instruction firewall, counted detections.
+- **The public content** — 13 blog articles in two clusters, 14 answer pages.
+
+## 4. What is dark without keys, and the one action for each
+
+`/api/capabilities` is the live answer for any given deployment. Do not trust
+this table over that endpoint — the endpoint asks each module's own check.
+
+| Capability | One action |
+|---|---|
+| AI writing and strategy | `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` / `GEMINI_API_KEY`) |
+| Taking money | `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` |
+| Saving work between visits | `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` |
+| Sending email | the sending pool with verified DNS, or `RESEND_API_KEY` / `SENDGRID_API_KEY` |
+| Generating images | `OPENAI_API_KEY` or `GEMINI_API_KEY` |
+| Rendering video | `GEMINI_API_KEY` (Veo) or `OPENAI_API_KEY` (Sora) |
+| Running work on a schedule | `CRON_SECRET` |
+
+When a capability is dark, the dashboard says so before the customer does the
+work, names what still works, and never tells anybody to retry something that
+cannot succeed.
+
+---
+
+## 5. Outstanding — the whole list, deduplicated
+
+Everything genuinely open. If it is not here it is either done or it is not
+happening.
+
+**Owner actions (nothing in code can substitute):**
+
+1. Set `HUMAN_CHECK_SECRET` in production. Without it the human gate signs
+   sessions with a per-process key and cannot enforce; it stays in observe mode
+   deliberately rather than bouncing customers between the dashboard and the
+   check.
+2. Open `/api/capabilities` on the live deployment and confirm what is actually
+   lit. Nothing in this repository can see the production environment.
+3. Submit the sitemap in Search Console after the next deploy. Pages do not rank
+   because a file was committed.
+4. Send the first ten messages. `/dashboard/acquisition` has the text written
+   out per brand, with only the blanks a sender knows.
+
+**Known gaps in the product (real, not urgent):**
+
+- A brand's promotable catalogue has no bulk import — products go in one at a
+  time.
+- Discovery of claimable products is a flat list; `matchProgrammes` exists in
+  `creator-agents.ts` and is not wired to it.
+- The landing-page builder and the onboarding flow have not been walked
+  end-to-end for the export defect described in §6. They are the next two.
+
+---
+
+## 6. The defect class that keeps recurring
+
+Worth stating once, because four separate bugs this month were the same shape.
+
+**A value that exists on one side of a boundary and is never carried across.**
+
+- The wallet computed a commission without asking which band the person was on.
+- The capability report guessed environment variables instead of asking the
+  module that owns them, and called a working feature dark.
+- Seven surfaces rendered generated output with no way to take it away — the
+  engine was correct, the last six inches were missing.
+- The ad canvas supported photos and had no upload; exported SVG that no feed
+  accepts.
+
+Every one was at the surface, not in an engine. The engines keep turning out to
+be right. When something looks broken, check the boundary before the logic.
+
+---
+
+## 7. Rules that outrank preference
+
+- **Additive only.** Nothing delivered is deleted or downgraded. Conflicts are
+  implemented as upgrades and recorded, never silently overwritten.
+- **Never present a number as a measurement unless something counted it.** No
+  risk scores, no invented benchmarks, no `NN% of businesses`.
+- **Never take somebody's effort for an outcome you cannot deliver.** If a
+  capability is dark, say so before the work.
+- **Profit margin on AI actions is never below 100%** (price ≥ 2× provider
+  cost), won on a lower cost base rather than by breaching the floor.
+- **Verify before shipping:** `npm run typecheck`, `npm run build`, the layer
+  check, and the test suite. Exercise changed routes against a running server.
+- Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main`.
+
+---
+
+## 8. This session, in one line each
+
+Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
+
+| Commit | What |
+|---|---|
+| `decc8db` | The capability report was guessing env vars and called working video dark |
+| `a39e45d` | Seven surfaces rendered work the customer could not take away |
+| `7bc36aa` | 14 answer pages, titled after buyer questions, each with a proof and a limit |
+| `491723c` | Capability contract — never take work for an outcome that cannot be delivered |
+| `dcd5066` | Ad canvas: a photo in, a postable PNG out |
+| `5873710` | Buyer-side blog cluster routing into the audit |
+| `6ba703c` | The free audit moved outside the login — the front door |
+| `0d993fe` | The acquisition run: how many people were actually asked |
+| `3db98d7` | The human gate enforces only when it can enforce correctly |
+| `214ecc9` | Human gate, instruction firewall, Sentinel |
+| `83349e2` | Two signup doors into one account; brand promotion modes |

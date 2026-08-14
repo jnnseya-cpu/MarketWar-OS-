@@ -14098,3 +14098,35 @@ test("video: a missing render key produces an honest demo job, never a hang", as
     if (hadOpenai) process.env.OPENAI_API_KEY = hadOpenai;
   }
 });
+
+test("the state document exists, is current, and stays short enough to read", () => {
+  // The owner's report, and it was correct: 40 append-only sections and 4,800
+  // lines of history, with no single description of where things stand. So
+  // every session re-derived the same context, and the same work got repeated —
+  // including two cases where I "fixed" something that was already right.
+  //
+  // The cure is one document that is REPLACED rather than appended to. This
+  // test is what stops it quietly becoming another changelog.
+  const state = readFileSync(new URL("../docs/STATE.md", import.meta.url), "utf8");
+  const lines = state.split("\n").length;
+  assert.ok(lines < 220, `STATE.md is ${lines} lines — past about 200 nobody reads it and it stops working`);
+
+  // It must answer the questions that were being re-derived every session.
+  for (const [heading, why] of [
+    [/What works with NO keys/i, "what is real without configuration"],
+    [/What is dark without keys/i, "what is not, and the one action for each"],
+    [/Outstanding/i, "the deduplicated open list"],
+    [/defect class that keeps recurring/i, "the pattern behind repeat bugs"],
+  ]) {
+    assert.match(state, heading, `STATE.md does not answer: ${why}`);
+  }
+
+  // It must not become a changelog. A numbered-section marker is the shape the
+  // coverage doc took, and the reason it stopped being readable.
+  assert.doesNotMatch(state, /^## §\d+/m, "STATE.md has grown numbered history sections — that is the other document");
+
+  // And the working rules must point at it, or nobody will read it.
+  const claude = readFileSync(new URL("../CLAUDE.md", import.meta.url), "utf8");
+  assert.match(claude, /docs\/STATE\.md/, "the working rules never mention the state document");
+  assert.match(claude, /REPLACED, never appended/i, "the rule that keeps it short is not written down");
+});

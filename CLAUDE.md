@@ -16,6 +16,21 @@ specifications, or source material.** In practice:
 - Refactors must preserve behaviour and feature surface; removing a
   capability requires the owner's explicit instruction naming it.
 
+## Read this first, and keep it current
+
+`docs/STATE.md` is the single description of where the platform stands: what
+works with no keys, what is dark, what is genuinely outstanding, and the defect
+class that keeps recurring. **It is REPLACED, never appended to.**
+
+Start every session by reading it. Finish every session by updating it — the
+outstanding list especially, so a finished item stops being rediscovered.
+
+`docs/REQUIREMENTS-COVERAGE.md` is the history: 40 numbered sections and 4,800
+lines of what changed and why. It is for archaeology. **Adding a section there
+is not a substitute for updating STATE.md**, and appending to it while leaving
+STATE.md stale is what produced a month of re-deriving the same context and
+repeating the same work.
+
 ## Repo map
 
 - `src/` — the shipped Next.js platform (landing page, onboarding,
