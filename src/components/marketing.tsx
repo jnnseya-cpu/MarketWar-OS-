@@ -21,6 +21,7 @@ export const FOOTER_NAV: { title: string; links: [string, string][] }[] = [
     title: "Product",
     links: [
       ["Free website audit", "/audit"],
+      ["Answers", "/features"],
       ["How it works", "/how-it-works"],
       ["Developers", "/developers"],
       ["Get started", "/get-started"],

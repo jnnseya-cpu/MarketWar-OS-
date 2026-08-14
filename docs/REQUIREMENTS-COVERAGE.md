@@ -4682,3 +4682,80 @@ have produced one: they can now put their own photograph in and walk away with a
 file they can post. Whether five enquiries follow is up to their photograph,
 their offer and their audience — and if it happens, the acquisition run (§86) is
 where it gets recorded, with the message that produced it attached.
+
+## §91 — A page per capability, written the only way they rank (2026-08-13)
+
+Brief: use the SEO engine to create heavily interlinked blogs selling every
+feature, function and functionality, to bring customers organically in record
+time.
+
+Two things about that brief decide whether it produces traffic or a demoted
+domain, and both are now enforced by tests rather than remembered.
+
+### Nobody searches for a feature name
+
+Nobody has ever typed "ad canvas" or "ProfitGuard". They type *"how much can I
+afford to pay an affiliate"* and *"why does my ad look stretched in stories"*.
+A page titled after our internal engine ranks for our internal engine, which
+nobody is looking for.
+
+**Every page here is titled after the buyer's question** and names the engine as
+the thing that answers it. A test rejects any title that is not a question.
+
+### Fifty-five thin pages is a penalty, not a strategy
+
+Google's scaled-content-abuse policy is aimed precisely at *a page per feature,
+produced at volume, adding nothing* — and it demotes the whole domain, not just
+the thin pages. Publishing 55 restatements of common advice would have made
+marketwaros.com harder to find, not easier.
+
+So each page carries a **`proof`**: the actual arithmetic, the actual refusal,
+the actual limit — something a competitor could not copy without building it.
+
+- *£100 order, £38 variable cost, 20% protected margin → £42 acquisition pool,
+  £3.10 of reward capacity.*
+- *A £10 product with £9.80 of cost supports 1p; 0.5% of it is 5p, so it is
+  refused rather than quietly re-rated.*
+- *Checks that could not be read from the response are listed separately and
+  never counted as failures.*
+
+And a **`limit`** — what it does not do. A feature page with no caveat is an
+advert, and readers who have been sold to badly can tell in one paragraph.
+
+### 14 pages, not 55
+
+The count is smaller than the feature list and honest rather than large and
+harmful. A capability with nothing specific to say does not get a page until it
+does. Four clusters: pricing and margin, creators and affiliates, ads and
+creative, getting found, plus reputation and trust.
+
+### What the tests refuse to ship
+
+- A title that is not a question.
+- A `proof` under 120 characters, or one containing no number and no refusal.
+- A `limit` under 60 characters.
+- A body under 2,200 characters — **this caught ten of my own pages** and they
+  were rewritten rather than the bar lowered.
+- Fewer than 3 FAQ entries or 4 target queries.
+- Hype vocabulary, or an invented `NN% of businesses` statistic.
+- An `engineId` that is not in `ENGINE_REGISTRY` — which caught a page claiming
+  an engine that does not exist.
+- Fewer than 2 outbound relations, any dead internal link, or fewer than 25
+  internal links across the cluster.
+
+### Live
+
+All 14 render at 200, the hub renders from the list rather than a hardcoded
+copy, FAQPage and BreadcrumbList JSON-LD emit, and all 14 appear in the sitemap
+— derived from `FEATURE_PAGES` so a page added tomorrow is included tomorrow.
+
+### Tests
+
+**949 → 951.** Typecheck, layer check and build green.
+
+### The honest part about "record time"
+
+Organic search does not have a record time. These pages get indexed over weeks
+and rank over months, and anyone quoting faster is describing paid traffic.
+What has been removed is the reason they would never have ranked at all: there
+was nothing on this site answering the questions its buyers actually ask.

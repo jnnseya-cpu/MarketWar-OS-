@@ -13870,3 +13870,93 @@ test("capabilities: the warning is mounted once, where every screen inherits it"
     assert.match(src, /aiUnavailableMessage\(\)/, `${f} still throws the old constant at a customer`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// §91 — A PAGE PER CAPABILITY, WRITTEN THE ONLY WAY THEY RANK.
+//
+// The brief was a page selling every feature, to bring customers organically
+// and fast. Two things about that make the difference between traffic and a
+// demoted domain, and both are enforced here rather than remembered:
+//
+//   Nobody searches for a feature name. Nobody has ever typed "ad canvas".
+//   Fifty-five thin pages is Google's scaled-content-abuse pattern exactly, and
+//   it takes the whole domain down rather than just the thin pages.
+//
+// So: every page is titled after a buyer's question, and every page carries
+// something only this platform can say. A page without one does not ship.
+// ---------------------------------------------------------------------------
+const feat = await import("../src/shared/feature-pages.ts");
+const engineIds = new Set((await import("../src/shared/engine-registry.ts")).ENGINE_REGISTRY.map((e) => e.id));
+
+test("feature pages: each one answers a question and says something only we can say", () => {
+  assert.ok(feat.FEATURE_PAGES.length >= 12, `${feat.FEATURE_PAGES.length} pages is not a cluster`);
+
+  const slugs = new Set();
+  for (const p of feat.FEATURE_PAGES) {
+    assert.ok(!slugs.has(p.slug), `duplicate slug ${p.slug}`);
+    slugs.add(p.slug);
+
+    // TITLED AFTER THE QUESTION. A page named after our engine ranks for our
+    // engine, which nobody is looking for.
+    assert.ok(/\?$/.test(p.title) || /^(Why|How|What|When|Who)\b/.test(p.title),
+      `"${p.title}" is not a question a buyer would type`);
+
+    // THE THING ONLY WE CAN SAY. This is what stops the page being a
+    // restatement of advice that exists on a thousand other sites.
+    assert.ok(p.proof.length > 120, `${p.slug} has no substantive proof — that is a page saying what everyone says`);
+    // It has to contain something concrete: a number, a percentage, a refusal.
+    assert.ok(/\d/.test(p.proof) || /REFUSE|refuses|never|cannot/.test(p.proof),
+      `${p.slug}'s proof contains nothing specific`);
+
+    // EVERY PAGE STATES A LIMIT. A feature page with no caveat is an advert.
+    assert.ok(p.limit.length > 60, `${p.slug} does not say what it cannot do`);
+
+    // Substance, not filler.
+    assert.ok(p.body.length > 2_200, `${p.slug} is ${p.body.length} characters — that is the thin-content pattern`);
+    assert.ok(p.faq.length >= 3, `${p.slug} has too few questions to earn a rich result`);
+    assert.ok(p.keywords.length >= 4, `${p.slug} targets too little to be worth writing`);
+
+    // No hype, and no invented benchmarks.
+    assert.doesNotMatch(p.body, /revolutionary|game.chang|unlock the power|10x your|secret sauce/i, `${p.slug} reads like an advert`);
+    assert.doesNotMatch(p.body, /\b\d{2,3}% of (small )?businesses\b/i, `${p.slug} quotes an invented statistic`);
+
+    // Every page maps to a real engine, so the cluster cannot drift away from
+    // the product it is selling.
+    assert.ok(engineIds.has(p.engineId), `${p.slug} claims engine "${p.engineId}" which does not exist`);
+  }
+});
+
+test("feature pages: the links resolve and the cluster is genuinely interlinked", async () => {
+  const slugs = new Set(feat.FEATURE_PAGES.map((p) => p.slug));
+  let internal = 0;
+
+  for (const p of feat.FEATURE_PAGES) {
+    // Declared relations are real, and never self-referential.
+    for (const r of p.related) {
+      assert.ok(slugs.has(r), `${p.slug} declares related "${r}" which does not exist`);
+      assert.notEqual(r, p.slug, `${p.slug} lists itself as related`);
+    }
+    assert.ok(p.related.length >= 2, `${p.slug} is a dead end with ${p.related.length} outbound relation(s)`);
+
+    // Every link in the prose resolves to a page that exists.
+    for (const [, href] of p.body.matchAll(/\]\((\/[^)]+)\)/g)) {
+      internal += 1;
+      if (href.startsWith("/features/")) {
+        assert.ok(slugs.has(href.slice(10)), `${p.slug} → ${href} is dead`);
+      } else {
+        const path = href.replace(/^\//, "").split("#")[0];
+        assert.ok(existsSync(new URL(`../src/app/${path}/page.tsx`, import.meta.url)), `${p.slug} → ${href} has no page`);
+      }
+    }
+  }
+  assert.ok(internal >= 25, `${internal} internal links is not an interlinked cluster`);
+
+  // And every page is reachable from the hub, or it is an orphan no crawler
+  // will find and no reader will land on.
+  const hub = readFileSync(new URL("../src/app/features/page.tsx", import.meta.url), "utf8");
+  assert.match(hub, /FEATURE_PAGES\.filter/, "the hub hardcodes its list instead of rendering every page");
+
+  // In the sitemap, derived rather than typed.
+  const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
+  assert.match(sitemap, /FEATURE_PAGES\.map/, "the answer pages are not in the sitemap");
+});

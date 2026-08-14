@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { listPosts } from "@/backend/blog-store";
 import { SEO_ARTICLES } from "@/shared/seo-articles";
+import { FEATURE_PAGES } from "@/shared/feature-pages";
 
 // We sell SEO and shipped no sitemap.
 //
@@ -18,6 +19,7 @@ const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros
 const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }[] = [
   { path: "", priority: 1.0, changeFrequency: "weekly" },
   { path: "/audit", priority: 0.95, changeFrequency: "monthly" },
+  { path: "/features", priority: 0.9, changeFrequency: "monthly" },
   { path: "/how-it-works", priority: 0.9, changeFrequency: "monthly" },
   { path: "/choose-plan", priority: 0.9, changeFrequency: "weekly" },
   { path: "/industries", priority: 0.8, changeFrequency: "monthly" },
@@ -36,6 +38,14 @@ const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.S
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
+  // Every answer page, derived from the list rather than typed — a static copy
+  // would stop covering them the day one is added.
+  const features: MetadataRoute.Sitemap = FEATURE_PAGES.map((f) => ({
+    url: `${SITE}/features/${f.slug}`,
+    lastModified: now,
+    changeFrequency: "monthly" as const,
+    priority: 0.75,
+  }));
   const pages: MetadataRoute.Sitemap = STATIC.map((p) => ({
     url: `${SITE}${p.path}`,
     lastModified: now,
@@ -63,5 +73,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   } catch { /* static pages still ship */ }
 
-  return pages;
+  return [...pages, ...features];
 }
