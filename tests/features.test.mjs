@@ -14035,3 +14035,66 @@ test("the copy control fails honestly when the browser refuses", () => {
   // And the fallback needs something real to select.
   assert.match(src, /ref=\{holder\}/);
 });
+
+test("capabilities: the report asks the module, it does not guess the env var", () => {
+  // THE DEFECT THIS CLOSES, found by walking the video path rather than trusting
+  // the report I had just written. The first version looked for
+  // VIDEO_RENDER_API_KEY and REPLICATE_API_TOKEN — neither of which any code in
+  // this repository reads — while the video gateway runs on GEMINI_API_KEY or
+  // OPENAI_API_KEY. So on a deployment where video WORKED, the report called it
+  // dark and told the operator to set a variable nothing consults.
+  //
+  // A capability report that is wrong about the deployment is worse than none,
+  // because it is believed.
+  const src = readFileSync(new URL("../src/backend/capabilities.ts", import.meta.url), "utf8");
+
+  // The two that were guessed now call the owning module's own check.
+  assert.match(src, /const videoReady = videoGatewayConfigured\(\)/, "video readiness is still guessed from env vars");
+  assert.match(src, /const emailReady = emailIsConfigured\(\)/, "email readiness is still guessed from env vars");
+
+  // And the invented variable names are gone.
+  for (const invented of ["VIDEO_RENDER_API_KEY", "REPLICATE_API_TOKEN", "MAILGUN_API_KEY"]) {
+    assert.doesNotMatch(src, new RegExp(invented), `${invented} is not read anywhere in this codebase`);
+  }
+
+  // Every env var this file names must be one the codebase actually consults —
+  // otherwise the "one action" sends an operator to a setting nothing reads.
+  //
+  // Matched against the whole of `src` rather than against `process.env.X`
+  // literals, because several are read indirectly through a helper: launch-check
+  // uses s("ANTHROPIC_API_KEY") and the health route uses env("..."). A narrower
+  // grep would have failed on a variable that is genuinely read, which is its
+  // own kind of wrong answer.
+  const named = new Set([...src.matchAll(/\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g)].map((m) => m[1]));
+  // EXCLUDING THIS FILE. Grepping all of src included capabilities.ts itself, so
+  // an invented name satisfied the check by appearing in the very line under
+  // test. A mutation putting the guess back survived, which is exactly what a
+  // mutation check is for — the assertion was decorative until this line.
+  const elsewhere = execSync('grep -rho "[A-Z][A-Z0-9]*\\(_[A-Z0-9]\\+\\)*" src --include=*.ts --include=*.tsx --exclude=capabilities.ts | sort -u', { encoding: "utf8" });
+  const known = new Set(elsewhere.split("\n").map((l) => l.trim()).filter(Boolean));
+  const unknown = [...named].filter((v) => !known.has(v));
+  assert.deepEqual(unknown, [], "capabilities.ts names settings that appear nowhere else in the codebase");
+});
+
+test("video: a missing render key produces an honest demo job, never a hang", async () => {
+  // The capability report used to claim video jobs were "accepted and never
+  // finish". Walking it showed that is false — and a report inventing a fault is
+  // the same dishonesty as a report hiding one.
+  const vg = await import("../src/backend/video-gateway.ts");
+  const hadGemini = process.env.GEMINI_API_KEY, hadOpenai = process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY; delete process.env.OPENAI_API_KEY;
+  try {
+    assert.equal(vg.videoGatewayConfigured(), false);
+    const job = await vg.startVideoRender({ brandId: "b_demo", prompt: "A thirty second product highlight" });
+    // It comes back immediately, says what it is, and names the key that would
+    // change it. It does not sit in "rendering" forever.
+    assert.equal(job.status, "demo");
+    assert.equal(job.mode, "demo");
+    assert.equal(job.videoUrl, null);
+    assert.match(job.note, /GEMINI_API_KEY|OPENAI_API_KEY/, "the demo job does not say what would make it real");
+    assert.notEqual(job.status, "rendering", "a job with no provider was left looking like it was working");
+  } finally {
+    if (hadGemini) process.env.GEMINI_API_KEY = hadGemini;
+    if (hadOpenai) process.env.OPENAI_API_KEY = hadOpenai;
+  }
+});

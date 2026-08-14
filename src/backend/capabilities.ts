@@ -33,6 +33,22 @@ if (typeof window !== "undefined") {
 import { readLaunchEnv } from "@/backend/launch-check";
 import { configuredProviders } from "@/backend/gateway";
 import { adminConfigured } from "@/backend/firebase-admin";
+// ASK THE MODULE THAT OWNS THE CAPABILITY. Never guess its env vars.
+//
+// The first version of this file guessed, and got two of seven wrong. It looked
+// for a pair of plausible-sounding render and mail variables that nothing in
+// this codebase reads, while the video gateway actually runs on the Gemini or
+// OpenAI key and mail readiness is decided by the sending pool. So on a
+// deployment where video WORKED, this report called it dark and told the
+// operator to set a variable no code path consults.
+//
+// That is worse than having no report at all, and it is this codebase's
+// recurring defect wearing another hat: a value that exists on one side of a
+// boundary and is never carried across. The fix is not a better guess — it is
+// to stop guessing and call the module's own check. A test asserts that every
+// variable this file names is one that `src` actually reads.
+import { videoGatewayConfigured } from "@/backend/video-gateway";
+import { emailIsConfigured } from "@/backend/email";
 
 export type CapabilityId =
   | "ai_generation"
@@ -81,7 +97,7 @@ export const CAPABILITIES: Capability[] = [
     label: "Sending email",
     whenDark: "Nothing this platform writes can be delivered to anybody. Campaigns compose and never send, and the free audit's report cannot be emailed.",
     stillWorks: "Every message is still produced in full and can be copied out and sent from your own inbox — which for the first fifty is what you should do anyway.",
-    oneAction: "Configure a sending domain and provider key in Settings, then verify the domain's DNS.",
+    oneAction: "Either configure the sending pool (MW_SENDING_HOST and the pool variables) with its DNS verified, or set RESEND_API_KEY or SENDGRID_API_KEY. `emailIsConfigured()` in src/backend/email.ts is the check that decides.",
   },
   {
     id: "image_generation",
@@ -93,9 +109,13 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "video_render",
     label: "Rendering video",
-    whenDark: "Video jobs are accepted and never finish. A customer writes a script, queues a render, and waits for a file that is not being made.",
-    stillWorks: "Scripts, shot lists, captions and the clip finder all run without it.",
-    oneAction: "Configure the render provider key for the video engine and redeploy.",
+    // Corrected after walking it. The gateway does NOT hang or queue a job
+    // that never finishes — it returns a job marked `demo` with an honest note
+    // saying the pipeline is wired and only the render engine is gated. Saying
+    // otherwise here would have been this report inventing a fault.
+    whenDark: "A render request comes back immediately marked as a demo rather than producing a file, so there is no MP4 to attach to a post or upload anywhere.",
+    stillWorks: "The whole pipeline around it: scripts, shot lists, captions, the clip finder and the job model. Nothing hangs and nothing is left queued — the render is the only gated step.",
+    oneAction: "Set GEMINI_API_KEY for Veo or OPENAI_API_KEY for Sora, and redeploy. `videoGatewayConfigured()` in src/backend/video-gateway.ts is the check that decides.",
   },
   {
     id: "scheduling",
@@ -122,8 +142,8 @@ export function capabilityStates(env: NodeJS.ProcessEnv = process.env): Capabili
   const providers = configuredProviders();
   const anyAi = providers.length > 0;
   const imageCapable = Boolean((env.OPENAI_API_KEY || "").trim() || (env.GEMINI_API_KEY || "").trim());
-  const emailReady = Boolean((env.RESEND_API_KEY || env.SENDGRID_API_KEY || env.MAILGUN_API_KEY || "").trim());
-  const videoReady = Boolean((env.VIDEO_RENDER_API_KEY || env.REPLICATE_API_TOKEN || "").trim());
+  const emailReady = emailIsConfigured();
+  const videoReady = videoGatewayConfigured();
 
   const state = (id: CapabilityId, live: boolean, because: string): CapabilityState => {
     const c = CAPABILITIES.find((x) => x.id === id)!;

@@ -4812,3 +4812,56 @@ had missed (`email-templates` and `warfare`), which is exactly why it exists.
 ### Tests
 
 **951 → 953.** Typecheck, layer check and build green.
+
+## §93 — The capability report was lying about the deployment (2026-08-13)
+
+Continuing the walk-it-yourself sweep, starting with video. It found a defect in
+what I had shipped two commits earlier, which is the more useful outcome.
+
+### Video was fine. My report was not.
+
+`startVideoRender` with no provider key returns immediately with
+`status: "demo"` and a note naming the key that would make it real. It does not
+hang, and it does not queue a job that never finishes.
+
+**My capability report said it did** — *"Video jobs are accepted and never
+finish"*. A report inventing a fault is the same dishonesty as a report hiding
+one, and it is worse than having no report, because it is believed.
+
+### And it was checking variables nothing reads
+
+The report guessed at two capabilities' environment variables. It looked for a
+render key and a mail key that **appear nowhere in this codebase**, while:
+
+- video actually runs on `GEMINI_API_KEY` (Veo) or `OPENAI_API_KEY` (Sora),
+  decided by `videoGatewayConfigured()`;
+- mail readiness is decided by `emailIsConfigured()`, which checks the sending
+  pool or Resend/SendGrid.
+
+So on a deployment where **video worked**, this report called it dark and told
+the operator to set a variable no code path consults.
+
+This is the codebase's recurring defect wearing another hat: a value that exists
+on one side of a boundary and is never carried across. The fix is not a better
+guess — it is to stop guessing and call the owning module's own check.
+
+### The test, and the mutation that exposed it as decorative
+
+Two assertions: the readiness must come from the module's function, and **every
+setting this file names must appear elsewhere in `src`**.
+
+The first version of that second check grepped all of `src` — **including
+capabilities.ts itself** — so an invented name satisfied the check by appearing
+in the very line under test. A mutation putting the guess back **survived**.
+
+That is exactly what a mutation check is for. With the file excluded from its
+own grep, the mutation now fails the suite and the assertion means something.
+
+A second test walks the video path directly and asserts the demo job comes back
+immediately, says `demo`, has no URL, names the key that would change it, and is
+never left looking like it is rendering.
+
+### Tests
+
+**953 → 955.** Mutation confirmed both directions. Typecheck, layer check and
+build green.
