@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Eye, Loader2, Mail, RefreshCcw, ShieldCheck, Smartphone } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
+import CopyOut from "@/components/CopyOut";
 
 // See it before two thousand people do.
 //
@@ -174,6 +175,17 @@ export default function EmailPreview({
           <div className="mb-2 rounded-lg border border-white/[0.07] bg-ink-900/60 p-3">
             <p className="text-sm font-semibold text-white">{sample.subject || <span className="text-rose-300">(no subject)</span>}</p>
             <p className="mt-0.5 truncate text-xs text-slate-500">{sample.preheader || "(nothing to preview beside the subject)"}</p>
+          </div>
+
+          {/* TAKE IT AWAY. When sending is not configured on a deployment —
+              the normal state until a domain is verified — copying the message
+              out is the ONLY way this engine produces anything at all. A
+              preview with no copy button is a feature that cannot be used and
+              looks like one that works. */}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <CopyOut text={`Subject: ${sample.subject}\n\n${sample.text}`} filename="email.txt" label="Copy the message" />
+            <CopyOut text={sample.html} filename="email.html" mime="text/html" label="Copy the HTML" compact />
+            <span className="text-[11px] text-slate-500">Paste it straight into your own inbox and send it from there.</span>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-white/[0.07] bg-white">

@@ -4759,3 +4759,56 @@ Organic search does not have a record time. These pages get indexed over weeks
 and rank over months, and anyone quoting faster is describing paid traffic.
 What has been removed is the reason they would never have ranked at all: there
 was nothing on this site answering the questions its buyers actually ask.
+
+## §92 — Work the customer cannot take away is work they cannot use (2026-08-13)
+
+The ad canvas (§89) taught this expensively: the engine was fine, the surface
+had no export, and a person could do the whole job and end holding a file no
+feed accepts. So I swept the codebase for the same shape — anything rendering
+generated output with no route off the screen — rather than waiting to find them
+one at a time.
+
+**Seven surfaces had it.**
+
+| Surface | What was trapped |
+|---|---|
+| `EmailPreview` | The whole message. **The worst of them** — see below. |
+| `email-templates` | The rendered HTML template. |
+| `AdFormats` | The generation prompt, whose entire purpose is to be used elsewhere. |
+| `PresenterVideo` | The script, which is read from a phone while filming. |
+| `/dashboard/ai-agents` | Every agent result. |
+| `/dashboard/create` | The output of the main build flow. |
+| `/dashboard/warfare` | Two ad-copy frameworks written to be pasted into an ad platform. |
+
+### Why the email one is the worst
+
+When sending is not configured — the normal state until a domain is verified —
+**copying the message out is the only way that engine produces anything at all.**
+There was no copy button. A feature that cannot be used, looking exactly like a
+feature that works.
+
+### `CopyOut`
+
+Deliberately tiny, and deliberately honest about failing. `navigator.clipboard`
+needs a secure context and a user gesture and is blocked outright in some
+embedded browsers. **A button that silently does nothing is worse than no
+button**, because the person believes they have the text and pastes an empty
+clipboard into an email to a customer. When the copy fails, the text is selected
+and the person is told to press Ctrl/Cmd+C.
+
+Where the artefact is long — an email, a script, a template — a file download is
+offered beside the copy.
+
+### The rule, not the fix
+
+The test enumerates **every** component and dashboard page, matches anything
+that renders generated output, and fails if it offers no way to take it away.
+Seven exemptions, each with a written reason, and the test fails if the list
+grows past ten — a growing list of reasons is how a rule stops being one.
+
+It works: the general rule immediately caught two surfaces the targeted sweep
+had missed (`email-templates` and `warfare`), which is exactly why it exists.
+
+### Tests
+
+**951 → 953.** Typecheck, layer check and build green.

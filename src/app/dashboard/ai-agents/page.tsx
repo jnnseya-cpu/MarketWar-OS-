@@ -11,6 +11,7 @@ import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { STRATEGY_AGENTS } from "@/shared/strategy-agents";
+import CopyOut from "@/components/CopyOut";
 
 type Result = { output: string; mode: "live" | "demo" };
 
@@ -122,6 +123,9 @@ export default function AiAgentsPage() {
               {r && (
                 <div className="mt-4 rounded-lg border border-ink-700 bg-ink-950/40 p-4">
                   <AgentMarkdown text={r.output} />
+                  {/* The work has to be able to leave the screen. An agent
+                      result you can only look at is a result you cannot use. */}
+                  <div className="mt-3"><CopyOut text={r.output} filename={`${a.id}.md`} mime="text/markdown" label="Copy the result" /></div>
                 </div>
               )}
             </div>

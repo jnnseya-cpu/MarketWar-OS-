@@ -13,6 +13,7 @@ import { Camera, Clapperboard, Loader2, TriangleAlert } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import CopyOut from "@/components/CopyOut";
 
 type Style = {
   id: string; label: string; looksLike: string;
@@ -139,9 +140,19 @@ export default function AdFormats() {
             </ul>
           </div>
           {brief.factsNote && <p className="text-[11px] leading-relaxed text-slate-500">{brief.factsNote}</p>}
+          <CopyOut
+            text={[
+              brief.prompt,
+              brief.checklist?.length ? `Shot checklist:\n${brief.checklist.map((c) => `- ${c}`).join("\n")}` : "",
+              brief.disclosure,
+            ].filter(Boolean).join("\n\n")}
+            filename="ad-brief.txt" label="Copy the whole brief"
+          />
           <details className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
             <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-500">The prompt, if you want to render it</summary>
             <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-400">{brief.prompt}</pre>
+            {/* The prompt's entire purpose is to be used somewhere else. */}
+            <div className="mt-2"><CopyOut text={brief.prompt} filename="prompt.txt" label="Copy the prompt" compact /></div>
           </details>
           {brief.disclosure && <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-[11px] leading-relaxed text-slate-500">{brief.disclosure}</p>}
         </div>

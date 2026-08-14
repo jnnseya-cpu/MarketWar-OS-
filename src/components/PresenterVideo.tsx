@@ -13,6 +13,7 @@ import { Loader2, ShieldCheck, UserRound, Video, X } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
+import CopyOut from "@/components/CopyOut";
 
 type Consent = {
   id: string; personName: string; kinds: string[]; evidence: string;
@@ -194,7 +195,14 @@ export default function PresenterVideo() {
       {job && (
         <div className="mt-4 space-y-3">
           {job.note && <p className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs leading-relaxed text-slate-300">{job.note}</p>}
-          {job.brief && <pre className="whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-ink-900/50 p-3 font-sans text-sm leading-relaxed text-slate-300">{job.brief}</pre>}
+          {job.brief && (
+            <>
+              <pre className="whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-ink-900/50 p-3 font-sans text-sm leading-relaxed text-slate-300">{job.brief}</pre>
+              {/* A script is read from a phone while filming. It has to leave
+                  this screen or it is not a script, it is a paragraph. */}
+              <CopyOut text={job.brief} filename="script.txt" label="Copy the script" />
+            </>
+          )}
           {job.jobRef && <p className="text-xs text-slate-400">Provider job: <span className="font-mono">{job.jobRef}</span></p>}
         </div>
       )}

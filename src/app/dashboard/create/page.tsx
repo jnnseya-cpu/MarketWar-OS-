@@ -12,6 +12,7 @@ import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { brandDefaults } from "@/shared/brand";
 import { authedFetch } from "@/frontend/api-client";
+import CopyOut from "@/components/CopyOut";
 
 type Decision = {
   best: { id: string; label: string; route: string; agentId?: string; api?: string; acuClass: string; acuEstimate: number; essentialQuestions: string[]; confidence: number };
@@ -173,6 +174,7 @@ export default function CreatePage() {
                     <Pill tone={built.mode === "live" ? "good" : "info"}>{built.mode === "live" ? "Live intelligence" : "Demo intelligence"}</Pill>
                   </div>
                   <AgentMarkdown text={built.output} />
+                  <div className="mt-3"><CopyOut text={built.output} filename="marketwar-output.md" mime="text/markdown" label="Copy it" /></div>
                 </div>
               ) : (
                 <div className="flex min-h-[160px] items-center justify-center gap-2 text-sm text-slate-500">

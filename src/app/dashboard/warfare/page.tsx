@@ -10,6 +10,7 @@ import { Loader2, Swords, Target, Brain, BadgePercent, Image as ImageIcon, PenLi
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import CopyOut from "@/components/CopyOut";
 
 type Ecosystem = {
   vertical: string;
@@ -180,6 +181,8 @@ export default function WarfarePage() {
               <p className="mb-3 text-base font-semibold text-white">{eco.copy.headline}</p>
               <p className="label">AIDA</p><pre className="mb-3 whitespace-pre-wrap text-sm text-slate-300">{eco.copy.aida}</pre>
               <p className="label">PAS</p><pre className="mb-3 whitespace-pre-wrap text-sm text-slate-300">{eco.copy.pas}</pre>
+              {/* This copy exists to be pasted into an ad platform. */}
+              <CopyOut text={`AIDA\n\n${eco.copy.aida}\n\nPAS\n\n${eco.copy.pas}`} filename="ad-copy.txt" label="Copy both" />
               <p className="label">Hooks</p><ul className="space-y-1 text-sm text-slate-300">{eco.copy.hooks.map((h) => <li key={h}>· {h}</li>)}</ul>
               <p className="mt-2 text-sm text-emerald-300">CTA: {eco.copy.cta}</p>
             </div>

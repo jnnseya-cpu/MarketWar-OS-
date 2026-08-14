@@ -13960,3 +13960,78 @@ test("feature pages: the links resolve and the cluster is genuinely interlinked"
   const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
   assert.match(sitemap, /FEATURE_PAGES\.map/, "the answer pages are not in the sitemap");
 });
+
+// ---------------------------------------------------------------------------
+// §92 — WORK THE CUSTOMER CANNOT TAKE AWAY IS WORK THEY CANNOT USE.
+//
+// The ad canvas taught this expensively: the engine was fine, the surface had
+// no export, and a person could do the whole job and end holding a file no feed
+// accepts. Sweeping for the same shape found five more surfaces rendering
+// generated output with no route off the screen.
+//
+// The email preview was the worst. When sending is not configured — the normal
+// state until a domain is verified — copying the message out is the ONLY way
+// that engine produces anything, and there was no copy button. A feature that
+// cannot be used, that looks exactly like a feature that works.
+//
+// This test is the rule, not the fix: it enumerates every surface that renders
+// generated output and fails if one has no way to take it away.
+// ---------------------------------------------------------------------------
+test("every surface that produces something lets the customer take it away", () => {
+  const roots = [
+    ...execSync('find src/components -name "*.tsx"', { encoding: "utf8" }).split("\n"),
+    ...execSync('find src/app/dashboard -name "page.tsx"', { encoding: "utf8" }).split("\n"),
+  ].filter(Boolean);
+
+  // Renders generated output: an agent result, a preformatted block, or HTML
+  // the platform produced.
+  const PRODUCES = /AgentMarkdown|whitespace-pre-wrap|<pre[\s>]|srcDoc=/;
+  // Offers a way off the screen: clipboard, a file, or the shared controls.
+  const RELEASES = /clipboard|CopyOut|ExportButton|downloadPng|downloadSvg|createObjectURL|toBlob|\.download\s*=/;
+
+  // Infrastructure and surfaces whose output is not the customer's work. Each
+  // has to earn its place here in writing.
+  const EXEMPT = {
+    "src/components/ui.tsx": "The shared primitives, including AgentMarkdown itself. It renders other people's output; the surfaces that use it carry the control.",
+    "src/components/SiteJsonLd.tsx": "Emits structured data into our own <head>. There is no customer artefact here.",
+    "src/app/dashboard/sentinel/page.tsx": "Security detections about this deployment, not work the customer produced. Exporting an intrusion log is not a job anybody has.",
+    "src/app/dashboard/audit/page.tsx": "The signed-in audit view. The public /audit page is the one customers use and it renders its findings inline.",
+    "src/app/dashboard/inbox/page.tsx": "Messages the customer already received — they exist in the mailbox they came from.",
+    "src/app/dashboard/ai-visibility/page.tsx": "Measured scores rather than an artefact; the numbers are the answer and there is nothing to paste elsewhere.",
+    "src/app/dashboard/chains/page.tsx": "Step status for a running chain. The output of each step is exported by the surface that produced it.",
+  };
+
+  const trapped = [];
+  for (const f of roots) {
+    const src = readFileSync(f, "utf8");
+    if (!PRODUCES.test(src)) continue;
+    if (RELEASES.test(src)) continue;
+    if (EXEMPT[f]) continue;
+    trapped.push(f);
+  }
+
+  assert.deepEqual(trapped, [],
+    "these render work the customer cannot take away — the defect that made the ad canvas useless");
+
+  // The exemption list must stay short and stay honest. A growing list of
+  // reasons is how a rule stops being one.
+  assert.ok(Object.keys(EXEMPT).length <= 10, "the exemption list is becoming the rule");
+  for (const [file, why] of Object.entries(EXEMPT)) {
+    assert.ok(existsSync(new URL(`../${file}`, import.meta.url)), `${file} is exempted and does not exist`);
+    assert.ok(why.length > 50, `${file}'s exemption is not explained`);
+  }
+});
+
+test("the copy control fails honestly when the browser refuses", () => {
+  // navigator.clipboard needs a secure context and a user gesture and is
+  // blocked outright in some embedded browsers. A button that silently does
+  // nothing is worse than no button, because the person believes they have the
+  // text and pastes an empty clipboard into an email to a customer.
+  const src = readFileSync(new URL("../src/components/CopyOut.tsx", import.meta.url), "utf8");
+  assert.match(src, /catch \{/, "a clipboard failure is not handled at all");
+  assert.match(src, /setFailed\(true\)/);
+  assert.match(src, /selectNodeContents/, "there is no fallback a person can actually use");
+  assert.match(src, /press Ctrl\/Cmd\+C/, "the fallback does not tell the person what to do");
+  // And the fallback needs something real to select.
+  assert.match(src, /ref=\{holder\}/);
+});

@@ -13,6 +13,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { MERGE_VARS, mergeTokens, tokenWarnings } from "@/shared/merge-tokens";
 import EmailPreview from "@/components/EmailPreview";
+import CopyOut from "@/components/CopyOut";
 
 type Template = { id: string; brandId: string; name: string; subject: string; html: string; updatedAt: string };
 
@@ -440,6 +441,14 @@ export default function EmailTemplatesPage() {
               <div className="rounded-lg border border-ink-700 bg-white">
                 <div className="border-b border-slate-200 px-4 py-2 text-xs text-slate-600">Subject: <span className="font-semibold text-slate-800">{previewSubject || "(none)"}</span></div>
                 <iframe title="preview" className="h-[360px] w-full rounded-b-lg bg-white" srcDoc={previewHtml || "<p style='font-family:system-ui;color:#94a3b8;padding:16px'>Nothing to preview yet.</p>"} />
+                {/* A template that cannot leave this screen is a template that
+                    cannot be sent — and until a sending domain is verified,
+                    pasting it into your own inbox is the only route it has. */}
+                {previewHtml && (
+                  <div className="border-t border-white/10 p-3">
+                    <CopyOut text={previewHtml} filename="email-template.html" mime="text/html" label="Copy the HTML" />
+                  </div>
+                )}
               </div>
             )}
 
