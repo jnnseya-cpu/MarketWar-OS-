@@ -14169,3 +14169,20 @@ test("the engineering directive is recorded and loads with every session", () =>
   const claudeLines = claude.split("\n").length;
   assert.ok(claudeLines < 160, `CLAUDE.md is ${claudeLines} lines — past that it is skimmed, and a skimmed rule is not a rule`);
 });
+
+test("the sitemap can never be taken down by a slow blog store", () => {
+  // Search Console reports a crawler timeout as "Couldn't fetch", which reads
+  // exactly like a broken route and sends you looking in the wrong place. The
+  // static pages are assembled before the database is touched, so a slow or
+  // unreachable store costs the blog posts and nothing else.
+  const src = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
+  assert.match(src, /Promise\.race/, "listPosts is awaited unbounded — a slow store hangs the whole sitemap");
+  assert.match(src, /blog-store timed out/);
+  assert.match(src, /catch \{/, "a store failure still takes the file down");
+
+  // The static half must be built BEFORE the awaited call, or a timeout loses
+  // everything anyway.
+  const staticAt = src.indexOf("const pages: MetadataRoute.Sitemap = STATIC.map");
+  const awaitAt = src.indexOf("await Promise.race");
+  assert.ok(staticAt > 0 && awaitAt > staticAt, "the static pages are assembled after the database call");
+});

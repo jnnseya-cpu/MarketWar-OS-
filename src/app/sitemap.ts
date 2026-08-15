@@ -56,8 +56,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Never let a blog-store failure take the whole sitemap down: a sitemap
   // missing its posts is a bad day, a 500 on /sitemap.xml is an invisible site.
   try {
-    // Published only — a draft in the sitemap invites a crawler to a 404.
-    const posts = await listPosts();
+    // BOUNDED. `listPosts` reaches Firestore, and a sitemap that waits on a
+    // slow database is a sitemap a crawler gives up on — Search Console reports
+    // that as "Couldn't fetch" with no further detail, which is indistinguishable
+    // from the route being broken.
+    //
+    // The static pages are already assembled above, so a timeout costs the blog
+    // posts and nothing else. Failing to list posts must never cost the whole
+    // file. (Directive rule 21: external services need timeouts.)
+    const posts = await Promise.race([
+      listPosts(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("blog-store timed out")), 5_000)),
+    ]);
     // The evergreen cluster is what the site is meant to rank for, and its
     // pillar is the page the spokes exist to concentrate authority on — so they
     // do not sit at the same priority as an ordinary post.
