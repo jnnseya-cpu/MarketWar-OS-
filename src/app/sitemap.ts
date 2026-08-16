@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { listPosts } from "@/backend/blog-store";
 import { SEO_ARTICLES } from "@/shared/seo-articles";
 import { FEATURE_PAGES } from "@/shared/feature-pages";
+import { siteOrigin } from "@/shared/site";
 
 // We sell SEO and shipped no sitemap.
 //
@@ -14,7 +15,7 @@ import { FEATURE_PAGES } from "@/shared/feature-pages";
 // a static list would silently stop covering them the day autopilot publishes.
 export const revalidate = 3600;
 
-const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
+const SITE = siteOrigin();
 
 const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }[] = [
   { path: "", priority: 1.0, changeFrequency: "weekly" },

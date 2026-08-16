@@ -8,7 +8,7 @@ across 40 numbered sections. It is useful for archaeology and useless for
 knowing where you are, which is why this file exists. Do not add another
 numbered section in place of updating this one.
 
-Last updated: 2026-08-13.
+Last updated: 2026-08-15.
 
 ---
 
@@ -101,6 +101,11 @@ happening.
   `creator-agents.ts` and is not wired to it.
 - The landing-page builder and the onboarding flow have not been walked
   end-to-end for the export defect described in §6. They are the next two.
+- The canonical origin is now defined once in `src/shared/site.ts`, and the SEO
+  surface (sitemap, robots, blog and site JSON-LD, feature pages) uses it. Six
+  API routes still carry their own copy of the same expression. They work, so
+  they were left alone mid-fix rather than migrated for tidiness — recorded here
+  so it is not rediscovered as new.
 
 ---
 
@@ -149,6 +154,10 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `9d…` | Breadcrumb URLs made absolute; one canonical origin for the SEO surface |
+| `e73738a` | The sitemap's database call bounded so a slow store cannot hide the site |
+| `b1c2c3d` | The engineering directive recorded where it loads every session |
+| `fb4bfe1` | One current-state document, replaced rather than appended |
 | `decc8db` | The capability report was guessing env vars and called working video dark |
 | `a39e45d` | Seven surfaces rendered work the customer could not take away |
 | `7bc36aa` | 14 answer pages, titled after buyer questions, each with a proof and a limit |

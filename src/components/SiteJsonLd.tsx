@@ -13,8 +13,9 @@
 // machines that cannot tell an aspiration from a fact.
 
 import { legalEntityConfigured } from "@/components/LegalEntity";
+import { siteOrigin } from "@/shared/site";
 
-const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
+const SITE = siteOrigin();
 const ENTITY = process.env.NEXT_PUBLIC_LEGAL_ENTITY_NAME || "";
 
 const DESCRIPTION =

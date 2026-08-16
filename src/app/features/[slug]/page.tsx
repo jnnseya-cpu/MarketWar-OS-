@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import { FEATURE_PAGES, featureBySlug } from "@/shared/feature-pages";
+import { siteUrl } from "@/shared/site";
 
 export const dynamicParams = false;
 export function generateStaticParams() {
@@ -42,8 +43,11 @@ export default function FeaturePage({ params }: { params: { slug: string } }) {
       {
         "@type": "BreadcrumbList",
         itemListElement: [
-          { "@type": "ListItem", position: 1, name: "Answers", item: "/features" },
-          { "@type": "ListItem", position: 2, name: p.title, item: `/features/${p.slug}` },
+          // ABSOLUTE, always. Google reads `item` as `@id`, and a relative
+          // path is not a valid URL — which is exactly the warning Search
+          // Console raised against these pages.
+          { "@type": "ListItem", position: 1, name: "Answers", item: siteUrl("/features") },
+          { "@type": "ListItem", position: 2, name: p.title, item: siteUrl(`/features/${p.slug}`) },
         ],
       },
     ],

@@ -14186,3 +14186,61 @@ test("the sitemap can never be taken down by a slow blog store", () => {
   const awaitAt = src.indexOf("await Promise.race");
   assert.ok(staticAt > 0 && awaitAt > staticAt, "the static pages are assembled after the database call");
 });
+
+// ---------------------------------------------------------------------------
+// §94 — STRUCTURED DATA URLS ARE ABSOLUTE, ALWAYS.
+//
+// Search Console: "Invalid URL in field 'id' (in 'itemListElement.item')". The
+// features pages emitted `item: "/features"` — a relative path where schema.org
+// requires a URL, because Google reads `item` as `@id`.
+//
+// The deeper cause was that the origin expression had been copy-pasted into ten
+// files with no shared definition, so "what is our origin" had ten answers and
+// no owner. One definition now, and a test that fails on any relative URL in
+// any JSON-LD block rather than waiting for Search Console to notice.
+// ---------------------------------------------------------------------------
+const siteMod = await import("../src/shared/site.ts");
+
+test("every structured-data URL is absolute", () => {
+  // The helper itself.
+  assert.match(siteMod.siteOrigin(), /^https?:\/\//);
+  assert.equal(siteMod.siteUrl("/features"), `${siteMod.siteOrigin()}/features`);
+  assert.equal(siteMod.siteUrl("features"), `${siteMod.siteOrigin()}/features`, "a path without a leading slash is not made absolute");
+  // Already-absolute input passes through untouched, so it is safe to wrap.
+  assert.equal(siteMod.siteUrl("https://example.com/x"), "https://example.com/x");
+  // No trailing slash, ever — a duplicate of the same page under two URLs.
+  assert.ok(!siteMod.siteOrigin().endsWith("/"));
+
+  // No JSON-LD emitter may hand schema.org a relative path in a URL field.
+  const emitters = execSync('grep -rl "@context\\|application/ld+json" src/app src/components --include=*.tsx', { encoding: "utf8" })
+    .split("\n").filter(Boolean);
+  assert.ok(emitters.length >= 3, "the JSON-LD sweep found almost nothing — it has stopped working");
+
+  const bad = [];
+  for (const f of emitters) {
+    const src = readFileSync(f, "utf8");
+    // A URL-bearing field assigned a bare string starting with "/" or a
+    // template literal starting with "/" — both relative, both invalid.
+    for (const m of src.matchAll(/\b(item|url|@id|logo|image|sameAs)\s*:\s*(["'`])\/[^"'`]*\2/g)) {
+      bad.push(`${f} → ${m[0].slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(bad, [], "these emit a relative URL into structured data, which Search Console reports as an invalid id");
+});
+
+test("the site origin has one definition, not ten", () => {
+  // A value with ten definitions is a value that is eventually wrong in nine of
+  // them — and this is the same expression the sitemap and robots.txt use, so a
+  // wrong fallback would be wrong everywhere at once.
+  const dupes = execSync(
+    'grep -rln "NEXT_PUBLIC_PRODUCTION_URL || \\"https://www.marketwaros.com\\"" src --include=*.ts --include=*.tsx || true',
+    { encoding: "utf8" }).split("\n").filter(Boolean).filter((f) => !f.endsWith("shared/site.ts"));
+
+  // The SEO surface — everything that publishes a URL a crawler reads — is
+  // migrated. The API routes still carry their own copy and are working, so
+  // they are recorded rather than touched mid-fix (directive rule 33).
+  for (const f of ["src/app/sitemap.ts", "src/app/robots.ts", "src/app/blog/[slug]/page.tsx", "src/components/SiteJsonLd.tsx"]) {
+    assert.ok(!dupes.includes(f), `${f} still defines its own origin instead of using the shared one`);
+    assert.match(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), /siteOrigin\(\)/, `${f} does not use the shared origin`);
+  }
+});

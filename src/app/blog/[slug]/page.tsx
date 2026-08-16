@@ -7,10 +7,11 @@ import { SEO_ARTICLES } from "@/shared/seo-articles";
 import { AgentMarkdown } from "@/components/ui";
 import { SiteHeader, SiteFooter } from "@/components/marketing";
 import BlogArticleClient from "@/components/BlogArticleClient";
+import { siteOrigin } from "@/shared/site";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
+const SITE = siteOrigin();
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const post = await getPost(params.slug).catch(() => null);

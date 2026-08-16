@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { siteOrigin } from "@/shared/site";
 
 // robots.txt, which the product scores customers on having.
 //
@@ -13,7 +14,7 @@ import type { MetadataRoute } from "next";
 //   CUSTOMER-HOSTED PAGES ARE NOT LISTED HERE. /b/<brand>/<slug> belongs to the
 //   customer; those pages are indexable, but they are not ours to put in our
 //   sitemap.
-const SITE = (process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://www.marketwaros.com").replace(/\/$/, "");
+const SITE = siteOrigin();
 
 export default function robots(): MetadataRoute.Robots {
   return {
