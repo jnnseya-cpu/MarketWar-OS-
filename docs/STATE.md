@@ -185,7 +185,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
-| `pending` | Channel health and the eight pre-publish checks |
+| `12e0f67` | Channel health and the eight pre-publish checks |
 | `8c68772` | The command bar — the routing brain finally has a surface |
 | `bad945a` | Never post the same thing twice — the publication ledger |
 | `88f6280` | The 92-section Growth Engine PRD mapped to what is actually built |
