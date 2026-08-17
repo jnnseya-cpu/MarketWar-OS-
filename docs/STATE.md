@@ -74,6 +74,11 @@ The honest list, and it is not short. No provider, no card, no configuration:
 - **The generation cache** — a double click is one generation, not two charges.
 - **Teams and agencies** — a brand can now have members besides its owner, with
   ten roles and ten permissions. Nobody can grant more than they hold.
+- **The installed app opens branded on every platform** — Chrome builds its
+  splash from the manifest, iOS gets 32 `apple-touch-startup-image` files across
+  16 device geometries in both orientations, and the in-app launch screen covers
+  the gap between the OS splash and the session resolving. Regenerate with
+  `npm run splash`.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
 - **The weekly newsletter** — every registered user, Tuesday 09:00 UTC, selling

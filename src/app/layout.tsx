@@ -4,6 +4,7 @@ import "./globals.css";
 import PWARegister from "@/components/PWARegister";
 import SiteJsonLd from "@/components/SiteJsonLd";
 import CookieConsent from "@/components/CookieConsent";
+import { splashLinks } from "@/shared/pwa-splash";
 
 const display = Space_Grotesk({
   subsets: ["latin"],
@@ -45,6 +46,19 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
+      <head>
+        {/* iOS LAUNCH IMAGES.
+            Android needs nothing here — Chrome builds its splash from the
+            manifest's name, background colour and 512px icon, all of which are
+            already declared. iOS ignores the manifest for this entirely and
+            uses these, matched on device geometry AND pixel ratio AND
+            orientation; with no match it opens the app on a white rectangle.
+            The list and the files both come from src/shared/pwa-splash.ts, so a
+            link can never point at an image that was never generated. */}
+        {splashLinks().map((l) => (
+          <link key={l.href + l.media} rel={l.rel} media={l.media} href={l.href} />
+        ))}
+      </head>
       <body className="font-body">
         <SiteJsonLd />
         {children}

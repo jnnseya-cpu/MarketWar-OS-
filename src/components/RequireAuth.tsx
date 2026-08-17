@@ -11,8 +11,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { firebaseAuth, firebaseConfigured } from "@/frontend/firebase-client";
+import AppSplash from "@/components/AppSplash";
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -33,11 +33,10 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   }, [router]);
 
   if (status === "checking") {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
-      </div>
-    );
+    // The launch screen, not a bare spinner. This frame is the hand-over from
+    // the operating system's splash, and until now it changed the colour of the
+    // screen twice on the way into an app that had not finished opening.
+    return <AppSplash label="Opening MarketWar OS" />;
   }
   return <>{children}</>;
 }

@@ -3,7 +3,7 @@
 // Run: npm test    (no network, no API keys)
 
 import { test } from "node:test";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -15971,4 +15971,106 @@ test("newsletter: the unsubscribe page is never indexed", () => {
   const layout = readFileSync(new URL("../src/app/unsubscribe/layout.tsx", import.meta.url), "utf8");
   assert.match(layout, /index: false/,
     "a crawler following an unsubscribe link out of a leaked email would remove somebody who wanted to stay");
+});
+
+// ---------------------------------------------------------------------------
+// PWA LAUNCH SCREENS.
+//
+// Android already worked: Chrome builds a splash from the manifest's name,
+// background colour and 512px icon, all long since declared. iOS ignores the
+// manifest for this and shows a WHITE RECTANGLE unless an
+// apple-touch-startup-image matches the device exactly.
+//
+// The failure this guards is specific: a link tag whose file does not exist is
+// a white flash with extra steps, and it is invisible in review because the
+// page renders perfectly on a desktop.
+// ---------------------------------------------------------------------------
+const splash = await import("../src/shared/pwa-splash.ts");
+
+test("splash: every declared device has both images, and they are real", () => {
+  for (const device of splash.SPLASH_DEVICES) {
+    for (const orientation of splash.ORIENTATIONS) {
+      const rel = splash.splashFile(device, orientation);
+      const file = new URL(`../public${rel}`, import.meta.url);
+      assert.ok(existsSync(file), `${device.label} (${orientation}) has a link and NO FILE — that is a white flash on a real device`);
+      // A zero-byte or near-empty PNG would pass an existence check and fail on
+      // the phone. 800 bytes is below anything sharp produces for these sizes.
+      assert.ok(statSync(file).size > 800, `${rel} is too small to be a real launch image`);
+    }
+  }
+});
+
+test("splash: no generated file is left unreferenced", () => {
+  const dir = new URL("../public/brand/splash/", import.meta.url);
+  const referenced = new Set(
+    splash.SPLASH_DEVICES.flatMap((d) => splash.ORIENTATIONS.map((o) => splash.splashFile(d, o).split("/").pop())),
+  );
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".png")) continue;
+    assert.ok(referenced.has(f), `public/brand/splash/${f} is shipped and nothing links to it — dead weight`);
+  }
+  assert.equal(referenced.size, readdirSync(dir).filter((f) => f.endsWith(".png")).length);
+});
+
+test("splash: the media query carries all four clauses", () => {
+  // Dropping the pixel ratio makes an iPhone 11 and an 11 Pro Max collide —
+  // same CSS size, different ratio — and one of them gets nothing.
+  for (const device of splash.SPLASH_DEVICES) {
+    for (const orientation of splash.ORIENTATIONS) {
+      const q = splash.splashMedia(device, orientation);
+      assert.match(q, /device-width: \d+px/, `${device.id} has no device-width`);
+      assert.match(q, /device-height: \d+px/, `${device.id} has no device-height`);
+      assert.match(q, /-webkit-device-pixel-ratio: \d/, `${device.id} has no pixel ratio — two devices would collide on it`);
+      assert.match(q, new RegExp(`orientation: ${orientation}`), `${device.id} has no orientation`);
+    }
+  }
+});
+
+test("splash: no two devices claim the same media query", () => {
+  const seen = new Map();
+  for (const l of splash.splashLinks()) {
+    assert.ok(!seen.has(l.media), `two launch images match the same device: "${seen.get(l.media)}" and "${l.label}" — iOS picks one and the other never appears`);
+    seen.set(l.media, l.label);
+  }
+  assert.equal(seen.size, splash.SPLASH_DEVICES.length * 2);
+});
+
+test("splash: landscape is the portrait geometry turned over", () => {
+  for (const device of splash.SPLASH_DEVICES) {
+    const p = splash.splashPixels(device, "portrait");
+    const l = splash.splashPixels(device, "landscape");
+    assert.equal(p.width, l.height, `${device.id} landscape is not the portrait size rotated`);
+    assert.equal(p.height, l.width);
+    assert.equal(p.width, device.width * device.ratio, `${device.id} portrait width is not CSS width × ratio`);
+  }
+});
+
+test("splash: the links are actually in the document head", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /splashLinks\(\)/, "the launch images exist and nothing references them — iOS would still flash white");
+  assert.match(layout, /<head>/, "the links are not in the head, where Safari is the only thing that reads them");
+  assert.match(layout, /apple-touch-startup-image|l\.rel/, "the rel is not the one Safari looks for");
+});
+
+test("splash: Android is left alone, and the manifest is why", () => {
+  // Chrome needs name + background_color + a 512px icon. If any of those goes
+  // missing the Android splash silently stops working, and nobody would think
+  // to look in the manifest.
+  const manifest = JSON.parse(readFileSync(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"));
+  assert.ok(manifest.name, "the manifest has no name — Chrome's generated splash needs one");
+  assert.equal(manifest.background_color, splash.SPLASH_BACKGROUND,
+    "the Android splash background and the iOS launch images are different colours");
+  assert.ok(manifest.icons.some((i) => i.sizes === "512x512"),
+    "no 512px icon — Chrome will not generate a splash at all");
+});
+
+test("splash: the launch screen paints without waiting for hydration", () => {
+  const src = readFileSync(new URL("../src/components/AppSplash.tsx", import.meta.url), "utf8");
+  assert.ok(!src.includes('"use client"'),
+    "the launch screen is a client component, so it renders after hydration — which is the blank frame it exists to remove");
+  assert.ok(!/useState|useEffect/.test(src), "the launch screen has state, so it cannot paint on the first frame");
+  assert.match(src, /SPLASH_BACKGROUND/, "the launch screen hardcodes its colour instead of sharing the manifest's");
+
+  const guard = readFileSync(new URL("../src/components/RequireAuth.tsx", import.meta.url), "utf8");
+  assert.match(guard, /<AppSplash/, "the auth check still shows a bare spinner, so the app changes colour twice while opening");
 });
