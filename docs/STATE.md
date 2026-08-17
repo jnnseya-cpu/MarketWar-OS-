@@ -59,6 +59,8 @@ and no configuration:
 - **The generation cache** — a double click is one generation, not two charges;
   an identical request inside the window reuses the answer instead of paying
   for it again.
+- **Channel health and the pre-publish check** — the eight checks run before
+  anything is enqueued, and a check that cannot run never reports as passed.
 - **The command bar** — one box on every dashboard screen (Cmd/Ctrl-K): say
   what you want and it names the engine that does it, what it will ask, and the
   cost in ACUs before anything runs.
@@ -113,12 +115,11 @@ department — already exists (`orchestrator.ts` + `brand-memory.ts` +
 `chain-exec.ts`). Read that file before building any of it; it is the map that
 stops the same work being done twice. The build order it sets, highest first:
 
-1. §84 connection health and §85 the pre-publish validation chain.
-2. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
+1. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
    place, which is the additive-only law unhonoured where a customer's own work
    lives.
-3. §53/51/52 paid-media guardrails on top of `budget.ts`.
-4. §27 creative fatigue — currently advertised in settings with no engine.
+2. §53/51/52 paid-media guardrails on top of `budget.ts`.
+3. §27 creative fatigue — currently advertised in settings with no engine.
 
 **Known gaps in the product (real, not urgent):**
 
@@ -184,6 +185,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `pending` | Channel health and the eight pre-publish checks |
 | `8c68772` | The command bar — the routing brain finally has a surface |
 | `bad945a` | Never post the same thing twice — the publication ledger |
 | `88f6280` | The 92-section Growth Engine PRD mapped to what is actually built |

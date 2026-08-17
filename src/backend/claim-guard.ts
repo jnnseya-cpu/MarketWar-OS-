@@ -53,6 +53,12 @@ const STAT_PATTERNS: { re: RegExp; why: string }[] = [
   { re: /\b\d{1,3}(?:\.\d+)?\s?x\s+(?:more|faster|better|higher|growth|roi|return)\b/gi, why: "a multiplier" },
   { re: /\b(?:trusted by|used by|join|over|more than)\s+[\d,]{3,}\+?\s+(?:businesses|companies|customers|users|clients|teams|brands)/gi, why: "a customer count" },
   { re: /\b[\d,]{3,}\+?\s+(?:businesses|companies|customers|users|clients)\s+(?:trust|use|rely)/gi, why: "a customer count" },
+  // "87% of businesses see results in 30 days" — the exact shape the platform's
+  // own doctrine bans by name ("no invented benchmarks, no NN% of businesses")
+  // and which nothing here matched, because the patterns above all require the
+  // percentage to sit next to a comparison word. A bare proportion of a
+  // population is the most quoted fabricated statistic in marketing copy.
+  { re: /\b\d{1,3}(?:\.\d+)?\s?%\s+of\s+(?:businesses|companies|customers|users|clients|people|marketers|buyers|shoppers|consumers|brands|teams)\b/gi, why: "a proportion of a population" },
 ];
 
 // Scan one block of agent output. `suppliedFacts` is whatever the user actually

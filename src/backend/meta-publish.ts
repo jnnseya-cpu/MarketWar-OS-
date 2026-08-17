@@ -21,9 +21,11 @@ if (typeof window !== "undefined") {
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { haltFor } from "@/backend/emergency-stop";
 import {
-  claimPublication, settlePublished, settleFailed, looksDefinite,
+  claimPublication, settlePublished, settleFailed, looksDefinite, listPublications,
   type Publication, type RemoteVerifier,
 } from "@/backend/publication-ledger";
+import { channelHealth } from "@/backend/connection-health";
+import { preflight } from "@/backend/publish-preflight";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -279,6 +281,27 @@ async function publishOnce(
   nowISO: string,
   send: () => Promise<MetaPostResult>,
 ): Promise<MetaPostResult> {
+  // EVERYTHING THAT COULD HAVE BEEN KNOWN BEFORE THE POST WENT OUT.
+  //
+  // Runs before the claim, because a post that cannot succeed should not
+  // consume a publication record either. Only a FAILED check stops it — a check
+  // that could not run (an aspect ratio with no dimensions, an approval nobody
+  // stated) is reported and does not block, so this cannot refuse work that
+  // used to go out.
+  const history = await listPublications(input.brandId, 200);
+  const pre = preflight({
+    channel: platform,
+    text: input.text,
+    mediaUrls: input.mediaUrls,
+    connected: true,
+    health: channelHealth({ channel: platform, connected: true, history }),
+    nowISO,
+  });
+  if (!pre.ok) {
+    const first = pre.checks.find((c) => c.verdict === "fail");
+    return { platform, ok: false, error: `${pre.summary}${first?.fix ? ` ${first.fix}` : ""}` };
+  }
+
   const claim = await claimPublication({
     brandId: input.brandId, channel: platform, text: input.text, mediaUrls: input.mediaUrls,
     nowISO, verifyRemote: metaVerifier(conn, input.text),

@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { Plug, ShieldCheck, Hand, Building2, Sparkles, MousePointerClick } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import ChannelHealth from "@/components/ChannelHealth";
 
 type Integration = {
   provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: "connected" | "disconnected"; manualFallback: string[];
@@ -41,6 +42,11 @@ export default function IntegrationsPage() {
         subtitle="MarketWar OS owns the intelligence, data and workflow. Every external platform (Meta, Google, TikTok, WhatsApp, Stripe, Shopify…) is an optional connector isolated behind one adapter layer, and every external action has a manual-mode fallback — so the OS stays fully functional with everything disconnected. Where a connector runs on MarketWar's own infrastructure it is managed for you (no keys); where it touches your own money or accounts it connects in one click — and either way, no single provider is ever a dependency."
         actions={data && <div className="flex gap-2"><Pill tone="info">{data.connectedCount}/{data.integrations.length} connected</Pill><Pill tone="good">{data.platformManagedCount} managed for you</Pill></div>}
       />
+
+      {/* Health BEFORE the connector list. "Connected" is the list's answer and
+          it is the wrong question — a token that expired last Tuesday is still
+          in the list, still green, and cannot publish anything. */}
+      <ChannelHealth />
 
       {data && (
         <>

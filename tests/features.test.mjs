@@ -14744,3 +14744,184 @@ test("navigation: no destination is listed twice", () => {
   const dupes = Array.from(seen.entries()).filter(([, n]) => n > 1).map(([k]) => k);
   assert.deepEqual(dupes, [], "these navigation entries appear more than once");
 });
+
+// ---------------------------------------------------------------------------
+// CONNECTION HEALTH + PUBLISH PREFLIGHT.
+//
+// Two halves of one failure: publishing attempts something that could have been
+// known to be impossible beforehand.
+//
+// The single most important assertion in this block is that a check which
+// CANNOT RUN never reports as passed. A preflight that says "8 of 8 passed"
+// while three of them silently did nothing is worse than no preflight, because
+// it converts ignorance into a green tick somebody then relies on.
+// ---------------------------------------------------------------------------
+const health = await import("../src/backend/connection-health.ts");
+const pre = await import("../src/backend/publish-preflight.ts");
+
+const T = (iso, over = {}) => ({
+  id: `p-${iso}`, brandId: "b", channel: "facebook", contentHash: "h",
+  state: "published", claimedAt: iso, settledAt: iso, attempts: 1, ...over,
+});
+
+test("connection health: no failures means no failures — never a prediction", () => {
+  const fresh = health.channelHealth({ channel: "facebook", connected: true, history: [] });
+  assert.equal(fresh.state, "connected");
+  assert.equal(fresh.recentFailures, 0);
+  // A token-expiry countdown would be a fabrication dressed as a diagnosis.
+  assert.ok(!/expir|likely|probably|should|estimate/i.test(fresh.note),
+    "the health note is predicting rather than reporting what was recorded");
+});
+
+test("connection health: an expired token is read from what the platform said", () => {
+  const h = health.channelHealth({
+    channel: "facebook", connected: true, nowMs: Date.parse("2026-08-17T00:00:00Z"),
+    history: [T("2026-08-16T10:00:00Z", { state: "failed", error: "Error validating access token: Session has expired (code 190)" })],
+  });
+  assert.equal(h.state, "action_required");
+  assert.deepEqual(h.faults, ["expired_token"]);
+  assert.match(h.fix, /Reconnect/i);
+  assert.equal(h.recentFailures, 1);
+});
+
+test("connection health: a success after a failure clears it", () => {
+  const h = health.channelHealth({
+    channel: "facebook", connected: true, nowMs: Date.parse("2026-08-17T00:00:00Z"),
+    history: [
+      T("2026-08-15T10:00:00Z", { state: "failed", error: "Session has expired (code 190)" }),
+      T("2026-08-16T10:00:00Z"),
+    ],
+  });
+  assert.equal(h.state, "connected", "a reconnected channel still showed amber — that is how a warning becomes wallpaper");
+  assert.deepEqual(h.faults, []);
+});
+
+test("connection health: a rate limit alone is not something to fix", () => {
+  const h = health.channelHealth({
+    channel: "instagram", connected: true, nowMs: Date.parse("2026-08-17T00:00:00Z"),
+    history: [T("2026-08-16T10:00:00Z", { channel: "instagram", state: "failed", error: "Application request limit reached" })],
+  });
+  assert.equal(h.state, "connected", "a rate limit turned the light amber — the platform is asking us to wait, not reporting a fault");
+  assert.deepEqual(h.faults, ["rate_limited"]);
+});
+
+test("connection health: an unrecognised error is not given a confident diagnosis", () => {
+  assert.equal(health.classifyFault("Something went wrong on our end"), "publish_failing",
+    "an unclassifiable error was diagnosed anyway, which sends somebody to reconnect an account that was never the problem");
+  assert.equal(health.classifyFault("(#200) Requires pages_manage_posts permission"), "insufficient_permission");
+  assert.equal(health.classifyFault("Error validating access token"), "expired_token");
+});
+
+test("connection health: old failures fall out of the window", () => {
+  const h = health.channelHealth({
+    channel: "facebook", connected: true, nowMs: Date.parse("2026-08-17T00:00:00Z"),
+    history: [T("2026-06-01T10:00:00Z", { state: "failed", error: "Session has expired" })],
+  });
+  assert.equal(h.state, "connected", "a failure from ten weeks ago is history, not health");
+});
+
+test("preflight: a check that cannot run NEVER reports as passed", () => {
+  const r = pre.preflight({
+    channel: "instagram", text: "A perfectly ordinary caption about our shop.",
+    mediaUrls: ["https://example.com/a.jpg"], connected: true,
+    // No dimensions and no approval stated — both genuinely unknown.
+  });
+  const ratio = r.checks.find((c) => c.id === "aspect_ratio");
+  const approval = r.checks.find((c) => c.id === "approval");
+  assert.equal(ratio.verdict, "cannot_check", "an unmeasured aspect ratio was reported as acceptable");
+  assert.equal(approval.verdict, "cannot_check", "unknown approval was treated as approval");
+  assert.ok(r.unchecked.includes("aspect_ratio") && r.unchecked.includes("approval"));
+  assert.match(r.summary, /could not be run/i, "the summary hid the checks that did not run");
+  assert.ok(!/All 8 checks passed/.test(r.summary), "it claimed a clean sweep it did not have");
+});
+
+test("preflight: it catches the things that silently waste an afternoon", () => {
+  const noMedia = pre.preflight({ channel: "instagram", text: "hello", connected: true });
+  assert.equal(noMedia.ok, false);
+  assert.ok(noMedia.failed.includes("asset"), "a text-only Instagram post was allowed through");
+
+  const tooLong = pre.preflight({ channel: "x", text: "a".repeat(400), connected: true });
+  assert.ok(tooLong.failed.includes("caption"), "a 400-character post to X was allowed through to be truncated mid-sentence");
+
+  const preview = pre.preflight({ channel: "facebook", text: "hi", mediaUrls: ["blob:local-preview"], connected: true });
+  assert.ok(preview.failed.includes("asset"), "a blob: preview was sent to a platform that cannot fetch it");
+
+  const past = pre.preflight({ channel: "facebook", text: "hi", connected: true, scheduledAt: "2020-01-01T00:00:00Z", nowISO: "2026-08-17T00:00:00Z" });
+  assert.ok(past.failed.includes("schedule"));
+
+  const disconnected = pre.preflight({ channel: "facebook", text: "hi", connected: false });
+  assert.ok(disconnected.failed.includes("connection"));
+});
+
+test("preflight: a bad aspect ratio is caught when the dimensions ARE known", () => {
+  const wide = pre.preflight({
+    channel: "instagram", text: "hi", mediaUrls: ["https://example.com/a.jpg"],
+    mediaDimensions: { width: 1920, height: 400 }, connected: true,
+  });
+  assert.ok(wide.failed.includes("aspect_ratio"), "a 4.8:1 banner was accepted for an Instagram feed post");
+
+  const square = pre.preflight({
+    channel: "instagram", text: "hi", mediaUrls: ["https://example.com/a.jpg"],
+    mediaDimensions: { width: 1080, height: 1080 }, connected: true,
+  });
+  assert.equal(square.checks.find((c) => c.id === "aspect_ratio").verdict, "pass");
+});
+
+test("preflight: the policy check reuses the claim guard rather than a second scanner", () => {
+  const src = readFileSync(new URL("../src/backend/publish-preflight.ts", import.meta.url), "utf8");
+  assert.match(src, /from "@\/backend\/claim-guard"/,
+    "the preflight has its own compliance logic — two scanners under different names is how they end up disagreeing");
+  // A FABRICATED TESTIMONIAL BLOCKS. The claim guard treats an endorsement from
+  // a person who did not say it as illegal advertising, and it is right to.
+  const fake = pre.preflight({
+    channel: "facebook",
+    text: 'Our customers love us. "This company doubled my revenue in a month" — Sarah Whitfield',
+    connected: true,
+  });
+  assert.ok(fake.failed.includes("policy"), "an invented testimonial was allowed through to publication");
+
+  // A SUPERLATIVE OR A LOOSE FIGURE DOES NOT BLOCK — blocking would refuse posts
+  // that go out today — but it must NOT report as a pass either. The spec is
+  // explicit: flag uncertain content rather than publishing it silently.
+  const loose = pre.preflight({
+    channel: "facebook",
+    text: "We are the best plumbers in Birmingham and guaranteed to double your revenue.",
+    connected: true,
+  });
+  assert.equal(loose.ok, true, "a warning-level claim blocked a post, which refuses work that goes out today");
+  assert.ok(loose.review.includes("policy"), "an unsubstantiated superlative reported as a clean pass");
+  assert.equal(loose.checks.find((c) => c.id === "policy").verdict, "needs_review");
+  assert.match(loose.summary, /needs a look/i, "the summary hid the thing a person should read");
+});
+
+test("preflight: the statistic the doctrine bans by name is finally caught", () => {
+  // "no invented benchmarks, no NN% of businesses" has been a written rule with
+  // no pattern behind it — every existing statistic pattern required the
+  // percentage to sit next to a comparison word, so a bare proportion of a
+  // population sailed through.
+  const claims = readFileSync(new URL("../src/backend/claim-guard.ts", import.meta.url), "utf8");
+  assert.match(claims, /proportion of a population/,
+    "the claim guard still has no rule for the claim shape the platform bans by name");
+
+  const r = pre.preflight({ channel: "facebook", text: "87% of businesses see results within 30 days.", connected: true });
+  assert.ok(r.review.includes("policy"), "\"87% of businesses\" was published with nothing said about it");
+  assert.equal(r.ok, true, "it must flag rather than block — the copy may be defensible");
+});
+
+test("preflight: a clean post with everything known passes cleanly", () => {
+  const good = pre.preflight({
+    channel: "facebook", text: "Open until 8pm on Fridays this month.",
+    connected: true, approved: true, nowISO: "2026-08-17T00:00:00Z",
+  });
+  assert.equal(good.ok, true, good.summary);
+  assert.deepEqual(good.failed, []);
+});
+
+test("preflight: it runs before the Graph call, and only a FAILED check stops a post", () => {
+  const src = readFileSync(new URL("../src/backend/meta-publish.ts", import.meta.url), "utf8");
+  assert.match(src, /preflight\(/, "native publishing does not run the pre-publish checks");
+  assert.ok(src.indexOf("const pre = preflight(") < src.indexOf("const claim = await claimPublication("),
+    "the preflight runs after the publication is claimed, so a post that cannot succeed still burns a record");
+  assert.match(src, /if \(!pre\.ok\)/,
+    "publishing blocks on something other than a failed check — an unknown must not refuse work that used to go out");
+});

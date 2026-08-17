@@ -1,6 +1,6 @@
 # Autonomous Growth & Creative Intelligence Engine — coverage map
 
-The owner's PRD runs to 99 numbered sections. This maps every one of them to
+The owner's PRD runs to 113 numbered sections. This maps every one of them to
 what is actually in `src/`, so the next session extends the gap instead of
 rebuilding the 80% that already exists.
 
@@ -9,7 +9,7 @@ sections are delivered, never appended to. `docs/STATE.md` remains the single
 description of where the platform stands overall.
 
 Verified mechanically on 2026-08-17 by reading module exports and searching for
-each concept, not by recollection. 204 backend modules, 1,133 tests.
+each concept, not by recollection. 208 backend modules, 1,162 tests. §108's four classes are used throughout: EXISTS ✅ / PARTIAL 🟡 / MISSING ❌.
 
 ---
 
@@ -119,15 +119,15 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 81 | Recursion limits | bounded by construction — chain steps are a flat list, so depth is 1 — plus `agent-budget.ts` cost ceiling | ✅ (by construction) |
 | 82 | Human-in-the-loop for sensitive operations | `orchestrator.ts` (`effectFor` — spend/send/publish always queue), `approvals.ts`, `payout-approvals.ts` | ✅ |
 | 83 | Provider adapters | `gateway.ts`, `image-gateway.ts`, `video-gateway.ts`, `avatar-gateway.ts`, `integrations.ts` | ✅ |
-| 84 | **Social connection health (expired token, permissions, rate limit)** | `connections.ts` reports connected/not connected only — no token expiry, permission or rate-limit state | ❌ |
+| 84 | Social connection health (expired token, permissions, rate limit) | `connection-health.ts` + `/api/connection-health` + `ChannelHealth.tsx` on the Integration Hub — **delivered this session** | ✅ |
 
 ## §85–92 — publishing safety, rights, audit
 
 | § | Requirement | Where it lives | State |
 |---|---|---|---|
-| 85 | **Pre-publish validation chain** | nothing as a chain. The pieces exist scattered (`claim-guard.ts`, `compliance.ts`, `approvals.ts`, `meta-publish.ts`) | ❌ |
+| 85 | Pre-publish validation chain | `publish-preflight.ts` — all eight checks, run before the claim in `meta-publish.ts` — **delivered this session** | ✅ |
 | 86 | Retry without duplicate posting (`external_publication_id`) | `publication-ledger.ts` — **delivered this session**, wired into `meta-publish.ts` | ✅ |
-| 87 | Creative compliance checker | `claim-guard.ts` (`claimReport` — runs on every agent output before the customer sees it), `compliance.ts` (regulated categories), `rights-guard.ts` | ✅ |
+| 87 | Creative compliance checker (flag Needs Review, never silent) | `claim-guard.ts` (`claimReport` — runs on every agent output before the customer sees it), `compliance.ts` (regulated categories), `rights-guard.ts` | ✅ |
 | 88 | User content rights & ownership metadata | `rights-guard.ts`, `likeness-consent.ts` | 🟡 rights checks yes; per-asset ownership metadata and source tracking no |
 | 89 | **AI training / data privacy control (workspace ON/OFF)** | nothing | ❌ |
 | 90 | Data deletion | `DeleteAccount` component, `work-library.ts` (`deleteWork`), `connections.ts` (`deleteConnection`) | 🟡 account and item deletion yes; brand/workspace deletion, queues and retention policy no |
@@ -146,6 +146,24 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 98 | **Platform KPIs (MarketWar's own)** | `admin-economics.ts` covers revenue, cost and margin; the product funnel metrics — time to first campaign, first lead, regeneration rate, publishing success — are not tracked | ❌ |
 | 99 | One growth company, not fifty tools | the command bar is the answer to the navigation; `NAV` now carries 64 destinations with the duplicate removed | 🟡 the box is in; the fifteen-item navigation the section recommends is not |
 
+## §100–113 — surface, sequencing, and the rules of engagement
+
+| § | Requirement | Where it lives | State |
+|---|---|---|---|
+| 100 | AI Team screen with live agent state | `shared/warlord-roster.ts` (26 agents, division, mission, KPI, honest live/activate/roadmap status), `/dashboard/ai-agents`, `/dashboard/command` | 🟡 the roster and its status are real; per-agent *current task*, discoveries, cost and impact are not tracked |
+| 101 | Campaign creation wizard | `/dashboard/campaigns`, `GuideWizard.tsx` | 🟡 a builder and a guide exist; not the nine-step wizard with an advanced bypass |
+| 102 | **One-click campaign from Brand Brain context** | the context exists (`brand-memory.ts`) and the engines exist; the single button that runs the whole thing from one sentence does not | ❌ |
+| 103 | **"Let MarketWar grow my business" autonomous mode** | `/dashboard/autopilot` runs cycles; the configuration block (budget, targets, allowed/forbidden channels, max CPA, approval threshold) is not one screen | 🟡 |
+| 104 | P0 build list (20 items) | 18 of the 20 are ✅ above. The two that are not: content calendar views (§14) and carousel card controls (§21) | 🟡 |
+| 105 | P1 build list (13 items) | 7 ✅ / 6 open — comment intelligence, creative fatigue, paid testing, scale engine, agency mode, deeper attribution | 🟡 |
+| 106 | P2 build list | not started, and correctly so — it sits on top of P1 | ❌ |
+| 107 | Non-functional: stability, idempotency, observability, performance, security, scalability | provider failover + `demoFallbackAllowed`; idempotency in `payout-execute.ts`, `publication-ledger.ts`, `generation-cache.ts`; `guard.ts` + `sentinel.ts` + `human-gate.ts` + `instruction-firewall.ts`; server-side keys only | 🟡 strong on stability, idempotency and security; **observability is the weak one** — there is no structured log of every AI execution and integration call (see §91) |
+| 108 | `auditExistingFeature()` before building | **this document** | ✅ |
+| 109 | Existing functionality stays operational; incremental introduction | every delivery this session extended an existing module or added a new one behind an opt-in; 1,162 tests green throughout | 🟡 no formal feature-flag system — additions are opt-in by signature instead |
+| 110 | Definition of done (15 criteria) | followed per delivery — UI, API, persistence, errors, tests, build. **Not met platform-wide:** audit log (§91) and mobile verification are not part of any current gate | 🟡 |
+| 111 | Required tests incl. the full E2E loop | 1,162 unit/integration tests, mutation-checked. **The ten-step E2E loop (URL → … → next campaign) has no automated coverage** | 🟡 |
+| 112–113 | Differentiator and target end-state | the acquisition half — prospecting, outreach, Share2Earn, attribution — is what the platform already has and Turbine does not | 🟡 direction, not a module |
+
 ---
 
 ## Delivered this session
@@ -158,6 +176,15 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§84 Connection health** — `connection-health.ts`. Every state derived from
+  recorded publish attempts rather than from whether a row exists. A success
+  after a failure clears it; a rate limit is not a fault; an unclassifiable error
+  is reported as "failing, and here is what it said" rather than given a
+  confident wrong diagnosis.
+- **§85 Pre-publish validation** — `publish-preflight.ts`, all eight checks, run
+  before the publication is claimed. A check that CANNOT run never reports as a
+  pass, and §87's "Needs Review" is a real verdict rather than a silent pass.
+  The policy check calls the existing claim guard; nothing is duplicated.
 - **§93 Command bar** — `CommandBar.tsx`, mounted on every dashboard screen and
   opened with Cmd/Ctrl-K. The routing brain (`intent-router.ts`, `/api/intent`)
   had existed the whole time with no surface calling it. Three intents added so
