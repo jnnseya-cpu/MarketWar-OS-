@@ -28,6 +28,8 @@ const seed = (s: string): number => {
   return Math.abs(h);
 };
 
+import { DEFAULT_GUARDRAILS, type Guardrails } from "@/backend/paid-guardrails";
+
 const round = (n: number) => Math.round(n);
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -102,10 +104,17 @@ function modelCampaigns(business: string, monthlyBudgetGbp: number): BudgetCampa
   });
 }
 
-function verdictFor(spend: number, revenue: number): { verdict: BudgetVerdict; roas: number } {
+// The thresholds now come from the guardrails rather than being written into
+// this function. A florist at 70% margin and an agency at 15% cannot share a
+// scale floor, and until now they had to.
+//
+// DEFAULTS REPRODUCE THE PREVIOUS BEHAVIOUR EXACTLY — minimumRoas 1, scaleRoas 3
+// are the numbers this file already used. Making a hardwired threshold
+// configurable must never quietly change it, and a test pins that.
+function verdictFor(spend: number, revenue: number, g: Guardrails = DEFAULT_GUARDRAILS): { verdict: BudgetVerdict; roas: number } {
   const roas = spend > 0 ? revenue / spend : 0;
-  if (spend > 0 && roas < 1) return { verdict: "STOP", roas };
-  if (roas >= 3) return { verdict: "SCALE", roas };
+  if (spend > 0 && roas < g.minimumRoas) return { verdict: "STOP", roas };
+  if (roas >= g.scaleRoas) return { verdict: "SCALE", roas };
   return { verdict: "FIX", roas };
 }
 

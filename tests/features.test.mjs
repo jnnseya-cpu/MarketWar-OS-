@@ -15191,3 +15191,141 @@ test("library: a deleted item can be brought back from its own history", async (
   assert.ok(back && back.ok, "a deleted item could not be recovered — delete was destroying paid-for work with no way back");
   assert.equal((await workLib.getWork("brand-a", "w2")).output, "work worth keeping");
 });
+
+// ---------------------------------------------------------------------------
+// PAID-MEDIA GUARDRAILS (§51/52/53).
+//
+// budget.ts already decides SCALE/FIX/STOP with thresholds written into the
+// function. What was missing: those thresholds as configurable fields, a ceiling
+// that "AI cannot exceed budgets" actually computes, and a scale step that is a
+// step rather than a multiplication.
+//
+// The assertion that separates a guardrail from a number generator: IT REFUSES
+// TO JUDGE THIN EVIDENCE.
+// ---------------------------------------------------------------------------
+const rails = await import("../src/backend/paid-guardrails.ts");
+const budgetShield = await import("../src/backend/budget.ts");
+
+test("guardrails: four clicks is not a verdict", () => {
+  const d = rails.stopLoss({ name: "new", spendGbp: 8, revenueGbp: 0, conversions: 0 });
+  assert.equal(d.action, "cannot_judge", "a campaign with £8 of spend was given a confident verdict");
+  assert.deepEqual(d.reasons, []);
+  assert.match(d.detail, /Nothing can be concluded/i);
+
+  // And the same spend past the test cap IS a decision — "not working" and "not
+  // known yet" are different questions.
+  const spent = rails.stopLoss({ name: "old", spendGbp: 400, revenueGbp: 0 }, { maxTestSpendGbp: 150 });
+  assert.equal(spent.action, "stop");
+  assert.ok(spent.reasons.includes("test_spend_exceeded"));
+});
+
+test("guardrails: a platform error or a compliance flag stops it without a sample size", () => {
+  const err = rails.stopLoss({ name: "c", spendGbp: 5, platformError: "Ad rejected: prohibited claim" });
+  assert.equal(err.action, "stop", "spend kept running against a campaign the platform refuses");
+  assert.deepEqual(err.reasons, ["platform_error"]);
+
+  const comp = rails.stopLoss({ name: "c", spendGbp: 5, complianceIssue: "unevidenced statistic" });
+  assert.ok(comp.reasons.includes("compliance_issue"));
+});
+
+test("guardrails: every stop names the numbers that produced it", () => {
+  const d = rails.stopLoss({ name: "c", spendGbp: 200, revenueGbp: 80, conversions: 10 }, { minimumRoas: 2 });
+  assert.equal(d.action, "stop");
+  assert.ok(d.reasons.includes("roas_below_minimum"));
+  assert.equal(d.evidence.spendGbp, 200);
+  assert.equal(Math.round(d.evidence.roas * 100) / 100, 0.4);
+  assert.equal(d.evidence.cpaGbp, 20);
+  assert.match(d.detail, /0\.40×/, "the reason does not quote the figure it is based on");
+});
+
+test("guardrails: a CPA from too few conversions warns rather than kills", () => {
+  // £90 over 2 conversions is £45 each, above a £20 ceiling — but two
+  // conversions cannot carry that conclusion on their own.
+  const d = rails.stopLoss({ name: "c", spendGbp: 90, revenueGbp: 300, conversions: 2 }, { maxCpaGbp: 20, minimumRoas: 1 });
+  assert.ok(!d.reasons.includes("cpa_over_max"),
+    "a cost per customer read from two conversions was treated as grounds to kill the campaign");
+  assert.match(d.detail, /too few/i);
+
+  // With enough conversions it does fire.
+  const firm = rails.stopLoss({ name: "c", spendGbp: 900, revenueGbp: 3000, conversions: 20 }, { maxCpaGbp: 20, minimumRoas: 1 });
+  assert.ok(firm.reasons.includes("cpa_over_max"), "a £45 cost per customer over 20 conversions did not trip a £20 ceiling");
+});
+
+test("guardrails: scaling is one small step, never a multiplication", () => {
+  const s = rails.scaleStep({ campaign: { name: "w", spendGbp: 400, revenueGbp: 1600 }, currentBudgetGbp: 100 });
+  assert.equal(s.action, "scale");
+  assert.equal(s.toGbp, 120, "the default step is not +20%");
+  assert.equal(s.stepPct, 20);
+
+  // A configured ceiling is obeyed…
+  const capped = rails.scaleStep({ campaign: { name: "w", spendGbp: 400, revenueGbp: 1600 }, currentBudgetGbp: 100 }, { maximumScalePct: 10 });
+  assert.equal(capped.toGbp, 110);
+
+  // …and no single step may ever more than double, whatever is asked for.
+  const greedy = rails.scaleStep({ campaign: { name: "w", spendGbp: 400, revenueGbp: 1600 }, currentBudgetGbp: 100, authorisedPct: 900 });
+  assert.ok(greedy.toGbp <= 200, "an authorised step multiplied the budget nine-fold in one move");
+});
+
+test("guardrails: a loser is never scaled, and a thin winner is not one", () => {
+  const loser = rails.scaleStep({ campaign: { name: "l", spendGbp: 400, revenueGbp: 400 }, currentBudgetGbp: 100 });
+  assert.equal(loser.action, "hold");
+  assert.equal(loser.toGbp, 100, "budget was raised on a 1× campaign");
+
+  const thin = rails.scaleStep({ campaign: { name: "t", spendGbp: 10, revenueGbp: 90 }, currentBudgetGbp: 100 });
+  assert.equal(thin.action, "cannot_judge", "a 9× return on £10 of spend was treated as a proven winner");
+});
+
+test("guardrails: a budget ceiling trims the step instead of being ignored", () => {
+  const s = rails.scaleStep(
+    { campaign: { name: "w", spendGbp: 400, revenueGbp: 1600 }, currentBudgetGbp: 100, spentThisMonthGbp: 940 },
+    { monthlyBudgetGbp: 1000 },
+  );
+  assert.equal(s.toGbp, 60, "the scale step blew through the monthly ceiling");
+  assert.equal(s.cappedByBudget, true);
+});
+
+test("guardrails: \"AI cannot exceed budgets\" is computed, not promised", () => {
+  const over = rails.withinBudget({ proposedGbp: 500, spentTodayGbp: 90 }, { dailyBudgetGbp: 100 });
+  assert.equal(over.allowedGbp, 10, "a spend larger than the remaining daily budget was allowed in full");
+  assert.equal(over.limit, "daily");
+
+  const done = rails.withinBudget({ proposedGbp: 50, spentThisMonthGbp: 1000 }, { monthlyBudgetGbp: 1000 });
+  assert.equal(done.allowed, false, "spend continued past an exhausted monthly budget");
+  assert.equal(done.allowedGbp, 0);
+
+  // The tightest ceiling wins, not the first one checked.
+  const many = rails.withinBudget(
+    { proposedGbp: 500, spentTodayGbp: 0, spentThisMonthGbp: 0, campaignSpentGbp: 0 },
+    { dailyBudgetGbp: 400, campaignBudgetGbp: 50, monthlyBudgetGbp: 5000 },
+  );
+  assert.equal(many.allowedGbp, 50);
+  assert.equal(many.limit, "campaign");
+
+  // And with nothing set, it says so rather than inventing a limit.
+  const none = rails.withinBudget({ proposedGbp: 500 });
+  assert.equal(none.allowed, true);
+  assert.match(none.reason, /No budget ceiling is set/i);
+});
+
+test("guardrails: a scale floor below the stop floor is impossible by construction", () => {
+  const g = rails.guardrailsFrom({ minimumRoas: 4, scaleRoas: 2 });
+  assert.ok(g.scaleRoas >= g.minimumRoas,
+    "a campaign could be both a winner and a loser at the same return");
+});
+
+test("guardrails: making budget.ts configurable did not change what it decides", () => {
+  // The whole risk of this change. Defaults must reproduce the old hardwired
+  // thresholds — ROAS under 1 stops, 3 or above scales — exactly.
+  assert.equal(rails.DEFAULT_GUARDRAILS.minimumRoas, 1);
+  assert.equal(rails.DEFAULT_GUARDRAILS.scaleRoas, 3);
+
+  const report = budgetShield.protectBudget("Test Co", 1000, [
+    { name: "winner", spendGbp: 100, revenueGbp: 400, orders: 10 },
+    { name: "middling", spendGbp: 100, revenueGbp: 200, orders: 5 },
+    { name: "waster", spendGbp: 100, revenueGbp: 50, orders: 1 },
+  ]);
+  const by = Object.fromEntries(report.campaigns.map((c) => [c.name, c.verdict]));
+  assert.equal(by.winner, "SCALE");
+  assert.equal(by.middling, "FIX");
+  assert.equal(by.waster, "STOP");
+});

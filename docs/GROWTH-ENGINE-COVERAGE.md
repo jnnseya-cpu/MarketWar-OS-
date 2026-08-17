@@ -82,9 +82,9 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 48 | Share2Earn escalation + spend caps | `share2earn.ts`, `creator-engine.ts`, `promotable.ts` (`marginAllows`) | ✅ |
 | 49 | Share2Earn AI selection scoring | `promotable.ts`, `creator-intel.ts` | 🟡 eligibility and margin are computed; the five-factor score is not |
 | 50 | **Autonomous paid boost (organic → small paid → scale)** | nothing. `amplify.ts` recommends amplification but not the staged-validation ladder | ❌ |
-| 51 | Budget guardrails | `budget.ts` (`protectBudget`, SCALE/FIX/STOP), `agent-budget.ts` (daily ACU ceiling), `acu.ts` | 🟡 caps exist; `max_cpa` / `minimum_roas` / `max_test_spend` as named fields do not |
-| 52 | **Scale winner engine (+20% step)** | nothing | ❌ |
-| 53 | **Stop-loss engine** | `budget.ts` gets close with a STOP verdict; the threshold set (CPA, test cap, ROAS floor, compliance) is not there | ❌ |
+| 51 | Budget guardrails | `paid-guardrails.ts` (`withinBudget`, every §51 field by name) + `budget.ts` + `agent-budget.ts` — **delivered this session** | ✅ |
+| 52 | Scale winner engine (+20% step) | `paid-guardrails.ts` (`scaleStep`) — **delivered this session** | ✅ |
+| 53 | Stop-loss engine | `paid-guardrails.ts` (`stopLoss`, all six triggers) — **delivered this session** | ✅ |
 | 54 | Campaign profitability (contribution after all costs) | `unit-economics.ts`, `roi-engine.ts`, `profit-guard-economics.ts` | 🟡 the arithmetic exists; Share2Earn rewards and AI generation cost are not both subtracted in one figure |
 | 55 | AI cost governor | `acu.ts` (`quoteAcu`, `profitCheck`, `MARGIN_FLOOR = 2`), `agent-budget.ts`, `modelgate.ts` (`estimateAndReserve`, `reconcile`) | ✅ |
 | 56 | Asset reuse engine | `work-library.ts` | 🟡 the library exists; nothing searches it before generating |
@@ -98,8 +98,8 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | § | Requirement | Where it lives | State |
 |---|---|---|---|
 | 61 | Never duplicate jobs (idempotency key) | `payout-execute.ts` (claim before provider call), `generation-cache.ts` (in-flight coalescing), `modelgate.ts` | ✅ |
-| 62 | **Asset version control** | nothing. `work-library.ts` patches and deletes in place — no `asset_versions`, no parent version | ❌ |
-| 63 | **Undo / restore** | nothing | ❌ |
+| 62 | Asset version control | `asset-versions.ts`, wired into `work-library.saveWork` — **delivered this session** | ✅ |
+| 63 | Undo / restore | `asset-versions.restoreVersion` + `work-library.restoreDeleted` — **delivered this session** | ✅ |
 | 64 | Creative approval audit | `approvals.ts` (`transition` records actor, role, note) | 🟡 approver and time yes; version, channel and publication time no |
 | 65 | **Agency / multi-brand hierarchy** | nothing. `brand-access.ts` scopes to a brand; Organisation → Workspace → Client does not exist | ❌ |
 | 66 | **Client approval portal (secure link, no account)** | nothing | ❌ |
@@ -131,7 +131,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 88 | User content rights & ownership metadata | `rights-guard.ts`, `likeness-consent.ts` | 🟡 rights checks yes; per-asset ownership metadata and source tracking no |
 | 89 | **AI training / data privacy control (workspace ON/OFF)** | nothing | ❌ |
 | 90 | Data deletion | `DeleteAccount` component, `work-library.ts` (`deleteWork`), `connections.ts` (`deleteConnection`) | 🟡 account and item deletion yes; brand/workspace deletion, queues and retention policy no |
-| 91 | **Auditability (previous_value / new_value / reason)** | `sentinel.ts` records security events only | ❌ |
+| 91 | Auditability (previous_value / new_value / reason) | `audit-log.ts` + `/api/audit-log` — **delivered this session** | ✅ |
 | 92 | **Global search across entities** | `search.ts` is web search, not a search of the customer's own campaigns, creatives and results | ❌ |
 
 ## §93–99 — the surface
@@ -176,6 +176,16 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§91 + §107 Audit log** — `audit-log.ts`. The value before and the value
+  after, redacted by field name AND by value shape, append-only. AI executions
+  and integration calls are recorded through it as metadata only.
+- **§62/63 Asset versions and restore** — `asset-versions.ts`. Restoring is
+  itself additive: putting version 1 back creates version 4 and leaves 2 and 3
+  alone. Deleting a library item no longer destroys its history.
+- **§51/52/53 Paid-media guardrails** — `paid-guardrails.ts`. Refuses to judge
+  thin evidence, scales one +20% step at a time, and computes budget ceilings
+  rather than promising them. `budget.ts`'s thresholds are now configurable with
+  defaults that reproduce its behaviour exactly.
 - **§84 Connection health** — `connection-health.ts`. Every state derived from
   recorded publish attempts rather than from whether a row exists. A success
   after a failure clears it; a rate limit is not a fault; an unclassifiable error
@@ -201,19 +211,17 @@ trail**, and **paid-media guardrails**. Those are the build list.
 Ranked by the standing hierarchy — stability, then correctness, then security,
 then UX, then features — not by PRD number.
 
-1. **§84 connection health** and **§85 the pre-publish validation chain.** Both
-   are the same failure: publishing attempts something that could have been known
-   to be impossible beforehand.
-2. **§62/63 asset versions and restore.** `work-library.ts` patches and deletes
-   in place, which is the additive-only law not being honoured in the one place a
-   customer's own work lives.
-3. **§53/51/52 the paid-media guardrails.** Stop-loss, the named budget fields
-   and the staged scale step. `budget.ts` already produces the verdict; these are
-   thresholds and a ladder on top of it, not a new engine.
-4. **§27 creative fatigue.** Currently advertised in settings with nothing behind
-   it, which is worse than absent.
-5. **§91 the audit trail**, then **§65/66 agency mode**, then §32, §38, §41,
-   §70, §77, §80, §89, §92.
+1. **§27 creative fatigue.** Currently advertised in the settings page with
+   nothing behind it, which is worse than absent — the dial moves and nothing
+   happens.
+2. **§111 the ten-step E2E loop.** 1,191 tests cover the engines individually;
+   nothing exercises URL → brand → strategy → campaign → creative → approval →
+   schedule → publish → analytics → learning as one run. That is the test that
+   would prove the closed loop actually closes.
+3. **§65/66 agency mode and the client approval portal.**
+4. **§102/103 one-click campaign and autonomous mode** — the engines and the
+   Brand Brain context both exist; what is missing is the single button.
+5. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
 
 ## Two things found while mapping this
 

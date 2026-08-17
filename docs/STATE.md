@@ -59,6 +59,13 @@ and no configuration:
 - **The generation cache** — a double click is one generation, not two charges;
   an identical request inside the window reuses the answer instead of paying
   for it again.
+- **Versions and restore** — nothing the customer paid for is overwritten; a
+  restore adds a version rather than rewriting the chain, and a deleted item can
+  be brought back from its own history.
+- **Paid-media guardrails** — stop-loss, the +20% scale step and computed budget
+  ceilings, all of which refuse to judge thin evidence rather than guessing.
+- **The audit log** — the value before and the value after, with credentials
+  redacted by value shape as well as by field name.
 - **Channel health and the pre-publish check** — the eight checks run before
   anything is enqueued, and a check that cannot run never reports as passed.
 - **The command bar** — one box on every dashboard screen (Cmd/Ctrl-K): say
@@ -115,11 +122,11 @@ department — already exists (`orchestrator.ts` + `brand-memory.ts` +
 `chain-exec.ts`). Read that file before building any of it; it is the map that
 stops the same work being done twice. The build order it sets, highest first:
 
-1. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
+1. §27 creative fatigue — advertised in settings with no engine behind it — `work-library.ts` patches and deletes in
    place, which is the additive-only law unhonoured where a customer's own work
    lives.
-2. §53/51/52 paid-media guardrails on top of `budget.ts`.
-3. §27 creative fatigue — currently advertised in settings with no engine.
+2. §111 the ten-step E2E loop has no automated coverage.
+3. §65/66 agency mode — currently advertised in settings with no engine.
 
 **Known gaps in the product (real, not urgent):**
 
@@ -185,6 +192,9 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `pending` | Paid-media guardrails — stop-loss, the scale step, computed ceilings |
+| `da7791a` | Never overwrite somebody's work — asset versions and restore |
+| `3d1394a` | Who changed this, from what, to what, and why — the audit log |
 | `12e0f67` | Channel health and the eight pre-publish checks |
 | `8c68772` | The command bar — the routing brain finally has a surface |
 | `bad945a` | Never post the same thing twice — the publication ledger |
