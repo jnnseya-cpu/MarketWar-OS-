@@ -181,7 +181,8 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
-| `pending` | Never post the same thing twice — the publication ledger |
+| `bad945a` | Never post the same thing twice — the publication ledger |
+| `88f6280` | The 92-section Growth Engine PRD mapped to what is actually built |
 | `f6ca62f` | Never pay twice for the same answer — the generation cache |
 | `4f929f1` | One switch that stops the platform acting on the world |
 | `9d…` | Breadcrumb URLs made absolute; one canonical origin for the SEO surface |
