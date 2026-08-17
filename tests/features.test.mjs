@@ -15329,3 +15329,186 @@ test("guardrails: making budget.ts configurable did not change what it decides",
   assert.equal(by.middling, "FIX");
   assert.equal(by.waster, "STOP");
 });
+
+// ---------------------------------------------------------------------------
+// CREATIVE FATIGUE (§27).
+//
+// The settings page has advertised "swap fatigued creatives at midnight UTC" as
+// a capability you can dial up, and nothing has ever detected fatigue. An
+// unmounted card carried "Creative fatigue score 58" — an invented number in a
+// field named `measured`.
+//
+// The assertion that matters: A DECLINING NUMBER IS NOT FATIGUE. A detector that
+// fires on "this week is lower than last week" fires constantly, everybody
+// learns to ignore it, and the one time it is right nobody looks.
+// ---------------------------------------------------------------------------
+const fatigue = await import("../src/backend/creative-fatigue.ts");
+
+const W = (label, over = {}) => ({ label, impressions: 50_000, clicks: 1_500, engagements: 900, conversions: 60, spendGbp: 300, reach: 25_000, ...over });
+
+test("fatigue: a real, significant decline from peak is called", () => {
+  const r = fatigue.detectFatigue({
+    creative: "Friday platter reel",
+    windows: [
+      W("week 1", { clicks: 1_500 }),          // 3.0% CTR
+      W("week 2", { clicks: 2_000 }),          // 4.0% — the peak
+      W("week 3", { clicks: 1_800 }),
+      W("week 4", { clicks: 900 }),            // 1.8% — a real collapse on 50k
+    ],
+  });
+  assert.equal(r.state, "fatigued", r.headline);
+  const ctr = r.signals.find((s) => s.id === "ctr");
+  assert.equal(ctr.verdict, "declined");
+  assert.equal(ctr.peak, 4, "the comparison is not against the creative's own peak");
+  assert.ok(ctr.pValue < 0.05, "a decline was called without clearing the significance test");
+  assert.match(ctr.detail, /p=/, "the finding does not show the number behind it");
+});
+
+test("fatigue: a wobble is NOT fatigue", () => {
+  // A fall that a small sample explains. This is the case a naive detector
+  // fires on constantly until nobody reads it any more.
+  const r = fatigue.detectFatigue({
+    creative: "Small-sample creative",
+    windows: [
+      { label: "week 1", impressions: 800, clicks: 32, conversions: 2, spendGbp: 20, reach: 700 },   // 4.0%
+      { label: "week 2", impressions: 800, clicks: 24, conversions: 1, spendGbp: 20, reach: 720 },   // 3.0%
+    ],
+  });
+  assert.notEqual(r.state, "fatigued", "a 25% fall on 800 impressions was called fatigue — that detector fires forever");
+  const ctr = r.signals.find((s) => s.id === "ctr");
+  assert.equal(ctr.verdict, "drifting");
+  assert.match(ctr.detail, /could be noise/i);
+});
+
+test("fatigue: it compares against the PEAK, not the start", () => {
+  // Opened slowly, found its audience, then decayed. Against week 1 this looks
+  // healthy; against its peak it is worn out.
+  const r = fatigue.detectFatigue({
+    creative: "Slow starter",
+    windows: [
+      W("week 1", { clicks: 500 }),    // 1.0%
+      W("week 2", { clicks: 2_500 }),  // 5.0% — peak
+      W("week 3", { clicks: 600 }),    // 1.2% — above week 1, far below peak
+    ],
+  });
+  const ctr = r.signals.find((s) => s.id === "ctr");
+  assert.equal(ctr.peak, 5, "it compared to the first window instead of the best one");
+  assert.equal(r.state, "fatigued", "a creative that decayed from its peak was called healthy because it beat week one");
+});
+
+test("fatigue: too little data is answered honestly, not guessed", () => {
+  const thin = fatigue.detectFatigue({
+    creative: "Brand new",
+    windows: [{ label: "day 1", impressions: 200, clicks: 10 }],
+  });
+  assert.equal(thin.state, "cannot_judge");
+  assert.deepEqual(thin.signals, []);
+  assert.match(thin.recommendation, /Keep it running/i);
+  assert.match(thin.headline, /Not enough data/i);
+});
+
+test("fatigue: a thin reporting period cannot become the verdict", () => {
+  // The case that survived a mutation until this test existed. A healthy
+  // creative plus one tiny final period: if thin windows are not dropped, that
+  // period becomes "recent" and 3 clicks on 100 impressions decides everything.
+  const r = fatigue.detectFatigue({
+    creative: "Healthy with a stub period",
+    windows: [
+      W("week 1", { clicks: 1_500 }),
+      W("week 2", { clicks: 1_550 }),
+      // 100 impressions, 1 click — a 1% rate that means nothing.
+      { label: "week 3 (partial)", impressions: 100, clicks: 1, conversions: 0, spendGbp: 1, reach: 95 },
+    ],
+  });
+  assert.equal(r.windowsUsed, 2, "a 100-impression period was used as evidence");
+  assert.equal(r.recentLabel, "week 2", "the verdict was read off a partial reporting period");
+  assert.equal(r.state, "fresh", "a stub period killed a creative that is still working");
+});
+
+test("fatigue: a signal with no figures says so instead of passing", () => {
+  const r = fatigue.detectFatigue({
+    creative: "Clicks only",
+    windows: [
+      { label: "w1", impressions: 50_000, clicks: 2_000 },
+      { label: "w2", impressions: 50_000, clicks: 800 },
+    ],
+  });
+  for (const id of ["engagement", "conversion", "cpa", "saturation"]) {
+    const s = r.signals.find((x) => x.id === id);
+    assert.equal(s.verdict, "cannot_check", `${id} reported a verdict with none of the figures it needs`);
+  }
+  // But the one that CAN be checked still works.
+  assert.equal(r.signals.find((s) => s.id === "ctr").verdict, "declined");
+  assert.equal(r.state, "fatigued");
+});
+
+test("fatigue: saturation is diagnosed as an audience problem, not a creative one", () => {
+  const r = fatigue.detectFatigue({
+    creative: "Saturated",
+    windows: [
+      W("w1", { impressions: 50_000, reach: 40_000 }),  // frequency 1.25
+      W("w2", { impressions: 50_000, reach: 41_000 }),
+      W("w3", { impressions: 90_000, reach: 42_000 }),  // frequency 2.14, reach flat
+    ],
+  });
+  const sat = r.signals.find((s) => s.id === "saturation");
+  assert.equal(sat.verdict, "declined", "the same people seeing it repeatedly was not detected");
+  assert.match(sat.detail, /running out of audience/i);
+  assert.match(r.recommendation, /audience before touching the creative/i,
+    "it recommended new artwork for a problem no artwork fixes");
+});
+
+test("fatigue: a rising cost per customer on a handful of conversions does not declare", () => {
+  const r = fatigue.detectFatigue({
+    creative: "Thin conversions",
+    windows: [
+      W("w1", { conversions: 40, spendGbp: 200 }),          // £5
+      W("w2", { conversions: 2, spendGbp: 200, clicks: 1_500 }), // £100 — on two
+    ],
+  });
+  const cpa = r.signals.find((s) => s.id === "cpa");
+  assert.equal(cpa.verdict, "drifting", "a cost per customer read from two conversions was treated as a finding");
+  assert.match(cpa.detail, /too few to act on/i);
+});
+
+test("fatigue: nothing here produces a score", () => {
+  const r = fatigue.detectFatigue({ creative: "c", windows: [W("w1"), W("w2")] });
+  const dump = JSON.stringify(r);
+  assert.ok(!/"score"|"fatigueScore"|"rating"/.test(dump),
+    "a fatigue score appeared — that is the invented number the unmounted BVI card carried");
+  // Scanned against CODE, not prose. The first version of this flagged the
+  // doctrine line that says there is no such scale, which is the test being
+  // wrong rather than the module.
+  const src = readFileSync(new URL("../src/backend/creative-fatigue.ts", import.meta.url), "utf8")
+    .replace(/\/\/.*$/gm, "")                       // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, "")               // block comments
+    .replace(/(["'`])(?:\\.|(?!\1)[\s\S])*\1/g, '""'); // string and template literals
+  assert.ok(!/\b(score|rating)\b/i.test(src), "a score or rating appeared in the fatigue engine's code");
+  assert.ok(!/0\s*[-–]\s*100/.test(src), "a 0–100 scale crept into the fatigue engine");
+});
+
+test("fatigue: a still-working creative is left alone", () => {
+  const r = fatigue.detectFatigue({
+    creative: "Still working",
+    windows: [W("w1"), W("w2"), W("w3", { clicks: 1_550 })],
+  });
+  assert.equal(r.state, "fresh");
+  assert.match(r.recommendation, /Leave it running/i);
+  assert.ok(!/replace|fresh variants/i.test(r.recommendation), "it recommended replacing something that is working");
+});
+
+test("fatigue: the sweep puts the worn-out ones first", () => {
+  const s = fatigue.fatigueSweep([
+    { creative: "healthy", windows: [W("w1"), W("w2")] },
+    { creative: "worn", windows: [W("w1", { clicks: 2_500 }), W("w2", { clicks: 700 })] },
+  ]);
+  assert.equal(s.reports[0].creative, "worn", "a rotation job would have worked through the healthy one first");
+  assert.equal(s.fatigued, 1);
+});
+
+test("fatigue: the settings page no longer advertises a job that does not exist", () => {
+  const src = readFileSync(new URL("../src/app/dashboard/settings/page.tsx", import.meta.url), "utf8");
+  assert.ok(!src.includes("Swap fatigued creatives at midnight UTC"),
+    "the autonomy dial still promises an overnight swap that nothing performs");
+  assert.match(src, /Creative rotation/, "the capability was removed rather than made honest");
+});

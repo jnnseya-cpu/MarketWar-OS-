@@ -53,7 +53,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 24 | Variant factory without cost explosion | `creative-optimizer.ts` (`buildTestMatrix`, capped at 12) | ✅ |
 | 25 | Test → learn → win | `experiments.ts` (Wilson intervals, two-proportion tests, required sample size), `creative-optimizer.ts` (`classifyPerformance`) | ✅ |
 | 26 | Creative winner memory | `creative-learning.ts` (`learnFromExperiments`, `applyLearning`) | ✅ |
-| 27 | **Creative fatigue detector** | nothing. Named in the settings page as "Swap fatigued creatives at midnight UTC" with no engine, and in an unmounted card as a fabricated score | ❌ |
+| 27 | Creative fatigue detector | `creative-fatigue.ts` — significance-tested against the creative's own peak, no score — **delivered this session** | ✅ |
 | 28 | Auto-scheduling, best-time | `posting-time.ts` (`bestPostingTimes`, refuses to judge below 40 clicks / 300 opens), `visibility-schedule.ts` | ✅ |
 | 29 | Approval modes | `approvals.ts`, `orchestrator.ts` (`effectFor` — anything that is not a draft is queued), `campaign-architect.ts` (`autonomyGate`) | ✅ |
 | 30 | **Emergency stop** | `emergency-stop.ts` — **delivered this session** | ✅ |
@@ -176,6 +176,11 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§27 Creative fatigue** — `creative-fatigue.ts`. Measured against the
+  creative's own peak, every fall put through the two-proportion test
+  `experiments.ts` already owns. No score. The settings page's "swap fatigued
+  creatives at midnight UTC" — a job nothing performed — now says what the
+  platform actually does.
 - **§91 + §107 Audit log** — `audit-log.ts`. The value before and the value
   after, redacted by field name AND by value shape, append-only. AI executions
   and integration calls are recorded through it as metadata only.
@@ -211,17 +216,14 @@ trail**, and **paid-media guardrails**. Those are the build list.
 Ranked by the standing hierarchy — stability, then correctness, then security,
 then UX, then features — not by PRD number.
 
-1. **§27 creative fatigue.** Currently advertised in the settings page with
-   nothing behind it, which is worse than absent — the dial moves and nothing
-   happens.
-2. **§111 the ten-step E2E loop.** 1,191 tests cover the engines individually;
+1. **§111 the ten-step E2E loop.** 1,191 tests cover the engines individually;
    nothing exercises URL → brand → strategy → campaign → creative → approval →
    schedule → publish → analytics → learning as one run. That is the test that
    would prove the closed loop actually closes.
-3. **§65/66 agency mode and the client approval portal.**
-4. **§102/103 one-click campaign and autonomous mode** — the engines and the
+2. **§65/66 agency mode and the client approval portal.**
+3. **§102/103 one-click campaign and autonomous mode** — the engines and the
    Brand Brain context both exist; what is missing is the single button.
-5. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
+4. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
 
 ## Two things found while mapping this
 

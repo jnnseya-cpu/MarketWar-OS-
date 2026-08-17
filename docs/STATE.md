@@ -59,6 +59,9 @@ and no configuration:
 - **The generation cache** — a double click is one generation, not two charges;
   an identical request inside the window reuses the answer instead of paying
   for it again.
+- **Creative fatigue** — a worn-out creative detected against its own peak,
+  significance-tested so a wobble is never mistaken for decline, and diagnosed
+  by which signal moved rather than with a score.
 - **Versions and restore** — nothing the customer paid for is overwritten; a
   restore adds a version rather than rewriting the chain, and a deleted item can
   be brought back from its own history.
@@ -122,11 +125,11 @@ department — already exists (`orchestrator.ts` + `brand-memory.ts` +
 `chain-exec.ts`). Read that file before building any of it; it is the map that
 stops the same work being done twice. The build order it sets, highest first:
 
-1. §27 creative fatigue — advertised in settings with no engine behind it — `work-library.ts` patches and deletes in
+1. §111 the ten-step E2E loop has no automated coverage. — `work-library.ts` patches and deletes in
    place, which is the additive-only law unhonoured where a customer's own work
    lives.
-2. §111 the ten-step E2E loop has no automated coverage.
-3. §65/66 agency mode — currently advertised in settings with no engine.
+2. §65/66 agency mode and the client approval portal.
+3. §102/103 the one-click campaign and autonomous-mode buttons — currently advertised in settings with no engine.
 
 **Known gaps in the product (real, not urgent):**
 
@@ -192,6 +195,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `pending` | Creative fatigue — a winner that stopped winning |
 | `2e5e699` | Paid-media guardrails — stop-loss, the scale step, computed ceilings |
 | `da7791a` | Never overwrite somebody's work — asset versions and restore |
 | `3d1394a` | Who changed this, from what, to what, and why — the audit log |
