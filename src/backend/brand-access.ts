@@ -29,9 +29,19 @@ import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { requireAuth } from "@/backend/guard";
 import { record as recordSecurityEvent, actorFor } from "@/backend/sentinel";
 import type { Role } from "@/shared/roles";
+import { roleFor } from "@/backend/membership";
+import type { WorkspaceRole } from "@/shared/workspace";
 
 export type BrandAccess =
-  | { ok: true; enforced: boolean; uid: string | null; role: Role | null }
+  | {
+      ok: true; enforced: boolean; uid: string | null; role: Role | null;
+      /**
+       * How this uid reached the brand. `owner` is the account that claimed it;
+       * a workspace role means somebody granted them access explicitly. Absent
+       * when isolation is not enforced (demo/CI).
+       */
+      workspaceRole?: WorkspaceRole;
+    }
   | { ok: false; status: number; error: string };
 
 const COLLECTION = "brands";
@@ -74,12 +84,24 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
     });
 
     if (verdict === "denied") {
+      // NOT THE OWNER — but possibly invited.
+      //
+      // Until this existed the answer stopped here, which is why `team_member`
+      // has been a role nobody could use: a teammate could not open their own
+      // company's brand. A grant is EXPLICIT and RECORDED; nothing is inferred
+      // from a shared domain or a similar name, and the owner check above is
+      // untouched, so no existing access changed.
+      const granted = await roleFor(uid, brandId);
+      if (granted) {
+        return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: granted };
+      }
       // One of these is a stale tab. Five in half an hour is somebody trying ids,
       // which is exactly the shape Sentinel's tenant-probing rule looks for.
       recordSecurityEvent({ at: new Date().toISOString(), kind: "tenant_denied", actor: actorFor(req, uid), brandId, detail: "brand belongs to another account" });
       return { ok: false, status: 403, error: "This brand belongs to another account" };
     }
-    return { ok: true, enforced: true, uid, role: auth.role };
+    // The owner. Always the widest role, and no grant can take it away.
+    return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: "owner" };
   } catch {
     // Fail closed: never fall through to serving another brand's data.
     return { ok: false, status: 503, error: "Brand access check temporarily unavailable" };

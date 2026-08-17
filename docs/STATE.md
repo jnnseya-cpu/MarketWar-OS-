@@ -20,8 +20,8 @@ brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
 Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
-`shared`) enforced by `scripts/check-layers.mjs`. 211 backend modules, 131 API
-routes, 66 dashboard pages, 1,216 tests including one end-to-end run of the
+`shared`) enforced by `scripts/check-layers.mjs`. 213 backend modules, 131 API
+routes, 66 dashboard pages, 1,236 tests including one end-to-end run of the
 whole growth loop.
 
 ---
@@ -72,6 +72,8 @@ The honest list, and it is not short. No provider, no card, no configuration:
 - **The audit log** — the value before and the value after, credentials redacted
   by value shape as well as by field name.
 - **The generation cache** — a double click is one generation, not two charges.
+- **Teams and agencies** — a brand can now have members besides its owner, with
+  ten roles and ten permissions. Nobody can grant more than they hold.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
 
@@ -111,8 +113,8 @@ cannot succeed.
 
 **Next in the product, in order:**
 
-1. §65/66 agency mode and the client approval portal — Organisation → Workspace
-   → Client does not exist.
+1. The client approval portal has an engine and NO surface — `/portal/[token]`
+   and a share button are what make it usable. Until then it ships nothing.
 2. §102/103 the one-click campaign and autonomous-mode buttons. Every engine and
    the Brand Brain context exist; the single button does not.
 3. §32 platform adaptation (one master asset → native per-channel versions),

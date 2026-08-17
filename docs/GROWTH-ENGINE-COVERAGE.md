@@ -101,9 +101,9 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 62 | Asset version control | `asset-versions.ts`, wired into `work-library.saveWork` — **delivered this session** | ✅ |
 | 63 | Undo / restore | `asset-versions.restoreVersion` + `work-library.restoreDeleted` — **delivered this session** | ✅ |
 | 64 | Creative approval audit | `approvals.ts` (`transition` records actor, role, note) | 🟡 approver and time yes; version, channel and publication time no |
-| 65 | **Agency / multi-brand hierarchy** | nothing. `brand-access.ts` scopes to a brand; Organisation → Workspace → Client does not exist | ❌ |
-| 66 | **Client approval portal (secure link, no account)** | nothing | ❌ |
-| 67–68 | Team roles and permissions | `guard.ts` (scopes), `brand-access.ts` | 🟡 authentication and brand scoping are enforced server-side; the ten-role matrix is not |
+| 65 | Agency / multi-brand hierarchy | `membership.ts` (workspaces group brands; grants inherited) + `brand-access.ts` now consults grants — **delivered this session** | 🟡 engine + isolation wired; no agency dashboard yet |
+| 66 | Client approval portal (secure link, no account) | `client-portal.ts` — signed, single-item, expiring, revocable — **engine delivered this session; the route and page are not built** | 🟡 |
+| 67–68 | Team roles and permissions | `shared/workspace.ts` (all ten roles, all ten permissions) + `membership.ts` enforcement — **delivered this session** | ✅ |
 | 69 | Growth command centre | `src/app/dashboard/command`, `command-summary.ts`, `warlord.ts` | ✅ |
 | 70 | **AI activity feed** | nothing | ❌ |
 | 71 | Agent explainability ("why this") | `opportunity-radar.ts` (reasons), `acquisition.ts` (`diagnose`), `orchestrator.ts` (per-step reason) | 🟡 several engines explain themselves; there is no uniform "why" on every recommendation |
@@ -176,6 +176,15 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§65/67/68 Workspaces, roles and membership** — `shared/workspace.ts` and
+  `membership.ts`. This closed a gap that predates the PRD: `resolveBrandAccess`
+  granted a brand to exactly one uid, so `team_member` — declared in
+  `shared/roles.ts` since the beginning — could never be used. Access is now
+  owner, or an explicit recorded grant, and nothing else.
+- **§66 Client approval portal** — `client-portal.ts`. Signed, single-item,
+  expiring, revocable; refuses to ISSUE without a durable secret. **The engine
+  is done and the route and page are not built**, so it is not yet usable by a
+  client.
 - **§111 The ten-step E2E loop** — `tests/loop.test.mjs`. One brand's real
   output threaded from URL through strategy, campaign, creative, approval,
   schedule, publish, analytics and learning back into the next campaign. Every
@@ -222,10 +231,13 @@ trail**, and **paid-media guardrails**. Those are the build list.
 Ranked by the standing hierarchy — stability, then correctness, then security,
 then UX, then features — not by PRD number.
 
-1. **§65/66 agency mode and the client approval portal.**
-2. **§102/103 one-click campaign and autonomous mode** — the engines and the
+1. **§66's route and page** — the portal engine has no surface, which is this
+   codebase's own recurring defect. `/portal/[token]` plus a "share for approval"
+   button is what makes it real.
+2. **§65's agency dashboard** — all clients, spend, approvals in one view.
+3. **§102/103 one-click campaign and autonomous mode** — the engines and the
    Brand Brain context both exist; what is missing is the single button.
-3. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
+4. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
 
 ## Two things found while mapping this
 

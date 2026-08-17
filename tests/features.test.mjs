@@ -15512,3 +15512,290 @@ test("fatigue: the settings page no longer advertises a job that does not exist"
     "the autonomy dial still promises an overnight swap that nothing performs");
   assert.match(src, /Creative rotation/, "the capability was removed rather than made honest");
 });
+
+// ---------------------------------------------------------------------------
+// WORKSPACES, ROLES AND MEMBERSHIP (§65/67/68).
+//
+// resolveBrandAccess granted a brand to exactly one uid and denied everybody
+// else. Correct isolation, and the reason `team_member` — a role this platform
+// has declared since the beginning — could never be used: a teammate could not
+// open their own company's brand.
+//
+// The tests that matter are the ones that prove this widened access ONLY where
+// somebody explicitly granted it. A membership model that leaks is worse than no
+// membership model, because the thing it breaks is tenant isolation.
+// ---------------------------------------------------------------------------
+const ws = await import("../src/backend/membership.ts");
+const wsRoles = await import("../src/shared/workspace.ts");
+
+test("workspace roles: a client can approve and nothing else", () => {
+  assert.equal(wsRoles.can("client", "approve"), true);
+  for (const p of ["create", "edit", "publish", "spend", "manage_billing", "invite_users", "export_data"]) {
+    assert.equal(wsRoles.can("client", p), false, `a client can ${p} — that turns a sign-off into a production cycle nobody scoped`);
+  }
+});
+
+test("workspace roles: planning a budget and releasing money are different acts", () => {
+  assert.equal(wsRoles.can("strategist", "create"), true);
+  assert.equal(wsRoles.can("strategist", "spend"), false,
+    "the person who designs the campaign can also release the money against it");
+  assert.equal(wsRoles.can("marketing_manager", "spend"), true, "nobody below owner can commit the agreed budget");
+});
+
+test("workspace roles: contact details are their own permission", () => {
+  assert.equal(wsRoles.can("analyst", "access_leads"), false,
+    "a role that reads charts can also read real people's phone numbers");
+  assert.equal(wsRoles.can("analyst", "export_data"), true);
+  assert.equal(wsRoles.can("read_only", "export_data"), false, "read-only can take data out");
+  assert.deepEqual(wsRoles.permissionsOf("read_only"), [], "read-only can do something");
+});
+
+test("workspace roles: only the owner may change the billing arrangement", () => {
+  for (const r of wsRoles.WORKSPACE_ROLES) {
+    if (r === "owner") continue;
+    assert.equal(wsRoles.can(r, "manage_billing"), false, `${r} can change the plan and the card`);
+  }
+  assert.equal(wsRoles.can("owner", "manage_billing"), true);
+});
+
+test("membership: a granted teammate can reach the brand; a stranger still cannot", async () => {
+  ws.__resetMembership();
+  const granted = await ws.grant({
+    scope: "brand", targetId: "brand-a", uid: "uid:mate",
+    role: "creative", grantedBy: "uid:owner", bypassPermissionCheck: true,
+  });
+  assert.equal(granted.ok, true);
+
+  assert.equal(await ws.roleFor("uid:mate", "brand-a"), "creative");
+  assert.equal(await ws.roleFor("uid:stranger", "brand-a"), null,
+    "somebody with no grant at all resolved a role — that is a tenant leak");
+  assert.equal(await ws.roleFor("uid:mate", "brand-b"), null,
+    "a grant on one brand reached another brand");
+});
+
+test("membership: NOBODY CAN GRANT MORE THAN THEY HOLD", async () => {
+  ws.__resetMembership();
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:owner", role: "owner", grantedBy: "uid:owner", bypassPermissionCheck: true });
+  // An admin can invite — but not mint an owner.
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:admin", role: "admin", grantedBy: "uid:owner" });
+
+  const escalate = await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:admin", role: "owner", grantedBy: "uid:admin" });
+  assert.equal(escalate.ok, false, "an admin promoted themselves to owner in one call");
+  assert.match(escalate.error, /cannot grant/i);
+
+  // And a role with no invite permission cannot grant at all.
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:reviewer", role: "reviewer", grantedBy: "uid:owner" });
+  const sneaky = await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:reviewer", role: "admin", grantedBy: "uid:reviewer" });
+  assert.equal(sneaky.ok, false, "a reviewer granted themselves admin — every permission in the file is now decorative");
+});
+
+test("membership: revoking removes access and is recorded", async () => {
+  ws.__resetMembership();
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:owner", role: "owner", grantedBy: "uid:owner", bypassPermissionCheck: true });
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:temp", role: "creative", grantedBy: "uid:owner" });
+  assert.equal(await ws.roleFor("uid:temp", "brand-a"), "creative");
+
+  const r = await ws.revoke({ scope: "brand", targetId: "brand-a", uid: "uid:temp", revokedBy: "uid:owner" });
+  assert.equal(r.ok, true);
+  assert.equal(await ws.roleFor("uid:temp", "brand-a"), null, "a revoked grant still opened the brand");
+
+  const trail = audit.query({ action: "membership.", limit: 20 });
+  assert.ok(trail.some((e) => e.action === "membership.revoked"), "a revocation left no audit entry");
+});
+
+test("membership: a workspace grant reaches its brands, and nothing else", async () => {
+  ws.__resetMembership();
+  const created = await ws.createWorkspace({ name: "Agency One", createdBy: "uid:agency" });
+  assert.equal(created.ok, true);
+  const id = created.workspace.id;
+
+  await ws.addBrandToWorkspace({ workspaceId: id, brandId: "client-1", actorUid: "uid:agency" });
+  await ws.addBrandToWorkspace({ workspaceId: id, brandId: "client-2", actorUid: "uid:agency" });
+  await ws.grant({ scope: "workspace", targetId: id, uid: "uid:strategist", role: "strategist", grantedBy: "uid:agency" });
+
+  assert.equal(await ws.roleFor("uid:strategist", "client-1"), "strategist");
+  assert.equal(await ws.roleFor("uid:strategist", "client-2"), "strategist");
+  assert.equal(await ws.roleFor("uid:strategist", "someone-elses-brand"), null,
+    "a workspace grant reached a brand that is not in the workspace");
+
+  const reachable = await ws.brandsFor("uid:strategist");
+  assert.deepEqual(reachable.map((b) => b.brandId).sort(), ["client-1", "client-2"]);
+  assert.equal(reachable[0].via, "workspace");
+});
+
+test("membership: the wider of two grants wins, so a new grant never locks somebody out", async () => {
+  ws.__resetMembership();
+  const created = await ws.createWorkspace({ name: "Agency Two", createdBy: "uid:agency" });
+  const id = created.workspace.id;
+  await ws.addBrandToWorkspace({ workspaceId: id, brandId: "client-1", actorUid: "uid:agency" });
+
+  await ws.grant({ scope: "workspace", targetId: id, uid: "uid:person", role: "read_only", grantedBy: "uid:agency" });
+  await ws.grant({ scope: "brand", targetId: "client-1", uid: "uid:person", role: "admin", grantedBy: "uid:agency", bypassPermissionCheck: true });
+
+  assert.equal(await ws.roleFor("uid:person", "client-1"), "admin",
+    "a narrow workspace grant overrode a wider brand grant, locking somebody out of work they were just given");
+});
+
+test("membership: permission checks answer with the role and the reason", async () => {
+  ws.__resetMembership();
+  await ws.grant({ scope: "brand", targetId: "brand-a", uid: "uid:rev", role: "reviewer", grantedBy: "uid:owner", bypassPermissionCheck: true });
+
+  const may = await ws.hasPermission("uid:rev", "brand-a", "approve");
+  assert.equal(may.allowed, true);
+  assert.equal(may.role, "reviewer");
+
+  const mayNot = await ws.hasPermission("uid:rev", "brand-a", "publish");
+  assert.equal(mayNot.allowed, false);
+  assert.match(mayNot.reason, /cannot publish/i);
+
+  const nobody = await ws.hasPermission("uid:nobody", "brand-a", "approve");
+  assert.equal(nobody.allowed, false);
+  assert.equal(nobody.role, null);
+});
+
+test("membership: brand access consults grants but the owner path is untouched", () => {
+  const src = readFileSync(new URL("../src/backend/brand-access.ts", import.meta.url), "utf8");
+  assert.match(src, /roleFor\(uid, brandId\)/, "brand access still ignores grants, so team_member remains unusable");
+  // The grant check must come AFTER the owner verdict, never instead of it.
+  assert.ok(src.indexOf('verdict === "denied"') < src.indexOf("await roleFor(uid, brandId)"),
+    "grants are consulted before ownership is established — that is an isolation change, not an addition");
+  assert.match(src, /workspaceRole: "owner"/, "the owner no longer resolves as owner");
+  // Fail-closed in production without Admin must survive.
+  assert.match(src, /Isolation unavailable/, "the production fail-closed guard was removed");
+});
+
+// ---------------------------------------------------------------------------
+// CLIENT APPROVAL PORTAL (§66).
+//
+// An unauthenticated URL that changes state. Almost all of these tests are about
+// what it refuses.
+// ---------------------------------------------------------------------------
+const portal = await import("../src/backend/client-portal.ts");
+const approvalsMod = await import("../src/backend/approvals.ts");
+
+const ENV = { PORTAL_LINK_SECRET: "a-durable-secret-at-least-16" };
+const T0 = Date.parse("2026-08-17T09:00:00Z");
+
+test("portal: with no durable secret, NO link is issued", () => {
+  const r = portal.mintLink({ itemId: "ap1", brandId: "brand-a", env: {} });
+  assert.equal(r.ok, false, "a link was minted with a per-process key — it verifies on one server and fails on every other");
+  assert.match(r.error, /PORTAL_LINK_SECRET/);
+  assert.equal(portal.portalConfigured({}), false);
+  assert.equal(portal.portalConfigured({ PORTAL_LINK_SECRET: "short" }), false, "a 5-character secret was accepted");
+});
+
+test("portal: a tampered link does not verify", () => {
+  const minted = portal.mintLink({ itemId: "ap1", brandId: "brand-a", nowMs: T0, env: ENV });
+  assert.equal(minted.ok, true);
+  assert.equal(portal.verifyLink(minted.token, { nowMs: T0, env: ENV }).ok, true);
+
+  // Every field, changed one at a time.
+  const [item, brand, expiry, sig] = minted.token.split(".");
+  const forgeries = [
+    `${item}.${Buffer.from("brand-b").toString("base64url")}.${expiry}.${sig}`,   // another brand
+    `${item}.${brand}.${Number(expiry) + 31536000000}.${sig}`,                    // a longer life
+    `${Buffer.from("ap2").toString("base64url")}.${brand}.${expiry}.${sig}`,      // another item
+    `${item}.${brand}.${expiry}.${sig.slice(0, -2)}xy`,                           // a guessed signature
+  ];
+  for (const f of forgeries) {
+    assert.equal(portal.verifyLink(f, { nowMs: T0, env: ENV }).ok, false, `a forged link verified: ${f.slice(0, 40)}`);
+  }
+
+  // And a link signed with a different secret is not ours.
+  const other = portal.mintLink({ itemId: "ap1", brandId: "brand-a", nowMs: T0, env: { PORTAL_LINK_SECRET: "a-different-durable-secret-16" } });
+  assert.equal(portal.verifyLink(other.token, { nowMs: T0, env: ENV }).ok, false,
+    "a link signed with another secret was accepted");
+});
+
+test("portal: links expire, and say so in words a client can act on", () => {
+  const minted = portal.mintLink({ itemId: "ap1", brandId: "brand-a", ttlMs: 60_000, nowMs: T0, env: ENV });
+  assert.equal(portal.verifyLink(minted.token, { nowMs: T0 + 30_000, env: ENV }).ok, true);
+  const late = portal.verifyLink(minted.token, { nowMs: T0 + 90_000, env: ENV });
+  assert.equal(late.ok, false);
+  assert.match(late.error, /expired/i);
+  assert.match(late.error, /nothing is wrong with the work/i, "an expired link reads as a failure of the work rather than of the link");
+});
+
+test("portal: a revoked link stops working", async () => {
+  portal.__resetPortal();
+  const minted = portal.mintLink({ itemId: "ap-revoke", brandId: "brand-a", nowMs: T0, env: ENV });
+  assert.equal(portal.verifyLink(minted.token, { nowMs: T0, env: ENV }).ok, true);
+  await portal.revokeLink("ap-revoke", "uid:owner");
+  const after = portal.verifyLink(minted.token, { nowMs: T0, env: ENV });
+  assert.equal(after.ok, false, "a withdrawn link still opened the item");
+  assert.match(after.error, /withdrawn/i);
+});
+
+test("portal: a client can approve, and can do NOTHING else", async () => {
+  portal.__resetPortal();
+  const item = await approvalsMod.createItem({
+    brandId: "brand-portal", title: "Summer reel", description: "30s cut",
+    createdBy: "uid:agency", nowISO: "2026-08-17T09:00:00.000Z",
+  });
+  await approvalsMod.transition({ id: item.id, action: "submit", actor: "uid:agency", nowISO: "2026-08-17T09:01:00.000Z" });
+
+  const minted = portal.mintLink({ itemId: item.id, brandId: "brand-portal", nowMs: T0, env: ENV });
+  const seen = await portal.view(minted.token, { nowMs: T0, env: ENV });
+  assert.equal(seen.ok, true);
+  assert.deepEqual(seen.view.actions.sort(), ["approve", "reject", "request_changes"],
+    "the client was offered something other than the three decisions");
+  assert.equal(seen.view.title, "Summer reel");
+
+  // Anything outside the three is refused even if the state machine allows it.
+  const forbidden = await portal.act({ token: minted.token, action: "publish", nowMs: T0, env: ENV });
+  assert.equal(forbidden.ok, false, "a client link published something");
+  assert.match(forbidden.error, /only approve, request changes or reject/i);
+
+  const approved = await portal.act({ token: minted.token, action: "approve", clientName: "Sam at Client Co", note: "Happy with this.", nowMs: T0, env: ENV, nowISO: "2026-08-17T10:00:00.000Z" });
+  assert.equal(approved.ok, true, approved.ok ? "" : approved.error);
+  assert.equal(approved.state, "approved");
+});
+
+test("portal: the client's decision goes through the shared state machine", async () => {
+  portal.__resetPortal();
+  const item = await approvalsMod.createItem({
+    brandId: "brand-portal2", title: "Draft not sent", description: "x",
+    createdBy: "uid:agency", nowISO: "2026-08-17T09:00:00.000Z",
+  });
+  // Still a draft — never submitted.
+  const minted = portal.mintLink({ itemId: item.id, brandId: "brand-portal2", nowMs: T0, env: ENV });
+  const r = await portal.act({ token: minted.token, action: "approve", nowMs: T0, env: ENV });
+  assert.equal(r.ok, false, "a client approved something that was never sent for review");
+  assert.match(r.error, /not been sent for review/i);
+  assert.ok(!/draft|in_review/.test(r.error), "the client was shown an internal state name");
+});
+
+test("portal: a link for one item cannot open another brand's item", async () => {
+  portal.__resetPortal();
+  const item = await approvalsMod.createItem({
+    brandId: "brand-real", title: "Real", description: "x",
+    createdBy: "uid:agency", nowISO: "2026-08-17T09:00:00.000Z",
+  });
+  // A validly SIGNED token whose brand does not match the item's.
+  const wrong = portal.mintLink({ itemId: item.id, brandId: "brand-someone-else", nowMs: T0, env: ENV });
+  assert.equal(portal.verifyLink(wrong.token, { nowMs: T0, env: ENV }).ok, true, "the token itself should verify");
+  const seen = await portal.view(wrong.token, { nowMs: T0, env: ENV });
+  assert.equal(seen.ok, false, "a token naming another brand opened this brand's item");
+  assert.match(seen.error, /does not match/i);
+});
+
+test("portal: an already-decided item asks the client for nothing", async () => {
+  portal.__resetPortal();
+  const item = await approvalsMod.createItem({
+    brandId: "brand-done", title: "Done", description: "x",
+    createdBy: "uid:agency", nowISO: "2026-08-17T09:00:00.000Z",
+  });
+  await approvalsMod.transition({ id: item.id, action: "submit", actor: "uid:agency", nowISO: "2026-08-17T09:01:00.000Z" });
+  await approvalsMod.transition({ id: item.id, action: "approve", actor: "uid:agency", nowISO: "2026-08-17T09:02:00.000Z" });
+
+  const minted = portal.mintLink({ itemId: item.id, brandId: "brand-done", nowMs: T0, env: ENV });
+  const seen = await portal.view(minted.token, { nowMs: T0, env: ENV });
+  assert.deepEqual(seen.view.actions, [], "a client was asked to decide something already decided");
+  assert.match(seen.view.note, /already approved/i);
+});
+
+test("portal: every client decision is in the audit trail", async () => {
+  const trail = audit.query({ action: "portal.", limit: 20 });
+  assert.ok(trail.length > 0, "a client approved work and left no audit entry — which is the record an agency needs and cannot fake");
+  assert.ok(trail.some((e) => e.before?.state && e.after?.state), "the entry does not record the state change");
+});
