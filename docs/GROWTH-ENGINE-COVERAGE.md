@@ -1,6 +1,6 @@
 # Autonomous Growth & Creative Intelligence Engine — coverage map
 
-The owner's PRD runs to 92 numbered sections. This maps every one of them to
+The owner's PRD runs to 99 numbered sections. This maps every one of them to
 what is actually in `src/`, so the next session extends the gap instead of
 rebuilding the 80% that already exists.
 
@@ -134,6 +134,18 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 91 | **Auditability (previous_value / new_value / reason)** | `sentinel.ts` records security events only | ❌ |
 | 92 | **Global search across entities** | `search.ts` is web search, not a search of the customer's own campaigns, creatives and results | ❌ |
 
+## §93–99 — the surface
+
+| § | Requirement | Where it lives | State |
+|---|---|---|---|
+| 93 | Global command bar | `intent-router.ts` + `/api/intent` + `CommandBar.tsx` — **the brain existed and nothing called it; the box was delivered this session** | ✅ |
+| 94 | Natural-language workflows into a full plan | `intent-router.ts` routes to the owning engine; `orchestrator.ts` runs the multi-step chain; `campaign-architect.ts` builds the architecture | 🟡 one sentence routes to one engine; it does not yet decompose into the full ten-step ecosystem in a single command |
+| 95 | **Opportunity board with columns** | `opportunity-radar.ts` scores and ranks; there is no board and no lifecycle states | ❌ |
+| 96 | **Growth Score /100 with eight components** | `command-summary.ts` has `moneyScore` with a `measured` count and refuses to score what it cannot count. The eight-component Growth Score does not exist | ❌ |
+| 97 | **Daily AI priority engine (impact/urgency/confidence/effort/cost)** | `command-summary.ts` `BriefItem` carries a priority; nothing computes it from those five factors | ❌ |
+| 98 | **Platform KPIs (MarketWar's own)** | `admin-economics.ts` covers revenue, cost and margin; the product funnel metrics — time to first campaign, first lead, regeneration rate, publishing success — are not tracked | ❌ |
+| 99 | One growth company, not fifty tools | the command bar is the answer to the navigation; `NAV` now carries 64 destinations with the duplicate removed | 🟡 the box is in; the fifteen-item navigation the section recommends is not |
+
 ---
 
 ## Delivered this session
@@ -146,6 +158,11 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§93 Command bar** — `CommandBar.tsx`, mounted on every dashboard screen and
+  opened with Cmd/Ctrl-K. The routing brain (`intent-router.ts`, `/api/intent`)
+  had existed the whole time with no surface calling it. Three intents added so
+  the examples the box itself suggests actually route, and the confidence figure
+  made honest — it read 100% whenever one keyword matched.
 - **§86 Retry without duplicate posting** — `publication-ledger.ts`, wired into
   `meta-publish.ts`. The claim is written before the Graph call; a timeout is
   recorded as UNCERTAIN rather than failed, so the next attempt asks Meta whether

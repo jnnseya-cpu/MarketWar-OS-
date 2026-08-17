@@ -48,6 +48,14 @@ const INTENTS: Intent[] = [
   { id: "whatsapp", label: "WhatsApp campaign / flow", keywords: ["whatsapp", "wa flow", "chat flow", "message flow"], route: "/dashboard/whatsapp", acuClass: "low", indicativeCostGbp: 0.01, essentialQuestions: ["Goal (orders/bookings/qualify)?", "Offer?"] },
   { id: "recovery", label: "Reactivate dead leads / recover revenue", keywords: ["reactivate", "recover", "resurrection", "dead leads", "old customers", "comeback", "win back", "dormant"], route: "/dashboard/recovery", agentId: "revenue-intelligence", acuClass: "medium", indicativeCostGbp: 0.03, essentialQuestions: ["How many old contacts + how old?", "What did they buy?"] },
   { id: "amplify", label: "Referral / viral loop / amplify reach", keywords: ["referral", "viral", "share", "amplify", "network effect", "loop", "retarget"], route: "/dashboard/amplify", agentId: "amplification-strategist", api: "/api/amplify", acuClass: "medium", indicativeCostGbp: 0.02, essentialQuestions: ["What's being shared?", "Reward both sides?"] },
+  // ADDED so the command bar can route the things people actually type. The
+  // three below were each demonstrated by a spoken example — "find 500
+  // prospects in Birmingham", "create next week's growth plan", "why did
+  // conversions fall?" — and every one of them previously fell through to the
+  // full-campaign fallback, which is a real engine giving a wrong-shaped answer.
+  { id: "prospecting", label: "Find prospects / build a target list", keywords: ["prospect", "prospects", "find businesses", "target list", "lead list", "build a list", "icp", "outreach list", "cold email", "cold outreach", "find companies", "b2b leads"], route: "/dashboard/prospecting", acuClass: "medium", indicativeCostGbp: 0.04, essentialQuestions: ["What kind of business are you targeting?", "Which town, city or region?", "How many do you want?"] },
+  { id: "growth_plan", label: "Growth plan for the week ahead", keywords: ["growth plan", "next week", "weekly plan", "plan for the week", "what should we do", "what should i do", "this week", "30 day plan", "90 day plan", "roadmap"], route: "/dashboard/growth-engine", acuClass: "medium", indicativeCostGbp: 0.05, essentialQuestions: ["What is the goal for the period?", "How many hours a week can you give it?", "Budget, if any?"] },
+  { id: "performance_why", label: "Why performance changed", keywords: ["why did", "why are", "fell", "dropped", "declining", "went down", "conversions fall", "sales fall", "sales drop", "traffic drop", "underperform", "not working"], route: "/dashboard/audit", agentId: "business-diagnosis", acuClass: "medium", indicativeCostGbp: 0.04, essentialQuestions: ["What changed, and over what period?", "Which channel or campaign?"] },
 ];
 
 const norm = (s: string) => s.toLowerCase();
@@ -85,7 +93,23 @@ export function detectIntent(prompt: string): IntentDecision {
   const top = matches[0]?.intent ?? fallback;
   const topScore = matches[0]?.score ?? 0;
   const totalScore = matches.reduce((a, m) => a + m.score, 0) || 1;
-  const confidence = matches.length ? Math.round((topScore / totalScore) * 100) : 40;
+
+  // CONFIDENCE IS BOUNDED BY EVIDENCE, NOT ONLY BY DOMINANCE.
+  //
+  // The first version was `topScore / totalScore`, which reads 100% whenever
+  // exactly one intent matched — including on a single weak keyword. That was
+  // harmless while nothing displayed it and dishonest the moment the command
+  // bar did, which is this repository's own rule: never present a number as a
+  // measurement unless something counted it, and never let it claim more than
+  // was counted.
+  //
+  // So two factors, both counted from the same matches:
+  //   • share    — how far ahead of the alternatives this intent is.
+  //   • evidence — how much actually matched. Asymptotic, so a keyword router
+  //                never reports certainty, because it never has any.
+  const share = topScore / totalScore;
+  const evidence = topScore / (topScore + 1);
+  const confidence = matches.length ? Math.round(share * evidence * 100) : 25;
 
   const acuEstimate = quoteAcu({ providerCostGbp: top.indicativeCostGbp, actionClass: top.acuClass }).acus;
 
@@ -101,7 +125,7 @@ export function detectIntent(prompt: string): IntentDecision {
     })),
     note: matches.length
       ? `Detected "${top.label}" — routing to the owned engine, asking only what's essential.`
-      : `No specific goal detected — defaulting to the full campaign engine, which designs the whole ecosystem.`,
+      : `No specific goal detected in that wording — offering the full campaign engine, which designs the whole ecosystem. Say what you want to make, sell or find and it will route more precisely.`,
   };
 }
 

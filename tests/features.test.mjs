@@ -14645,3 +14645,102 @@ test("publications: the Meta publisher claims before it calls the Graph API", ()
   assert.ok(src.indexOf("const claim = await claimPublication(") < src.indexOf("const res = await send();"),
     "the claim is written after the Graph call, which is no protection at all");
 });
+
+// ---------------------------------------------------------------------------
+// COMMAND BAR — one box instead of sixty-five tools.
+//
+// The routing brain already existed and no surface ever sent it a word. These
+// test the two things that decide whether a command box is useful or annoying:
+// does it route what people actually type, and does the number it shows mean
+// anything.
+// ---------------------------------------------------------------------------
+const intent = await import("../src/backend/intent-router.ts");
+
+test("command bar: it routes the things the command box itself invites people to type", () => {
+  // Every one of these is an example the product puts in front of the user. A
+  // box that suggests a phrase and then cannot route it is worse than an empty
+  // box, because it taught somebody to expect something.
+  const expected = [
+    ["Create a campaign for our new product", "full_campaign"],
+    ["Find 500 prospects in Birmingham", "prospecting"],
+    ["Make 5 TikTok videos", "video"],
+    ["Analyse competitors", "competitor"],
+    ["Why did conversions fall?", "performance_why"],
+    ["Create next week's growth plan", "growth_plan"],
+  ];
+  for (const [prompt, id] of expected) {
+    assert.equal(intent.detectIntent(prompt).best.id, id, `"${prompt}" routed to the wrong engine`);
+  }
+});
+
+test("command bar: a keyword router never claims certainty", () => {
+  // The first version read topScore/totalScore, which is 100% whenever exactly
+  // one intent matched — including on a single weak keyword. Harmless while
+  // nothing displayed it; dishonest the moment a screen did.
+  const single = intent.detectIntent("video");
+  assert.equal(single.best.id, "video");
+  assert.ok(single.best.confidence < 100,
+    "one keyword produced total confidence — that is a number claiming more than was counted");
+  assert.ok(single.best.confidence > 0);
+
+  // More evidence must read higher than less, on the same intent.
+  const richer = intent.detectIntent("make a tiktok video reel with a voiceover");
+  assert.ok(richer.best.confidence > single.best.confidence,
+    "more matching evidence did not raise confidence, so the number is not measuring evidence");
+
+  // And a contested prompt must read lower than an uncontested one.
+  const contested = intent.detectIntent("email campaign landing page video");
+  assert.ok(contested.best.confidence < richer.best.confidence,
+    "a prompt that matched four engines was as confident as one that matched a single engine clearly");
+});
+
+test("command bar: nothing is routed as confident when nothing matched", () => {
+  const vague = intent.detectIntent("hello there");
+  assert.ok(vague.best.confidence <= 40, "an unmatched prompt reported a confident routing");
+  assert.match(vague.note, /No specific goal detected/i);
+  assert.equal(vague.best.id, "full_campaign", "the fallback must still be a real engine, not nothing");
+});
+
+test("command bar: every intent points at a route the dashboard actually has", () => {
+  // A router that sends somebody to a page that does not exist is worse than no
+  // router. Checked against the filesystem rather than against a list.
+  for (const item of intent.INTENT_CATALOGUE) {
+    const rel = item.route.replace(/^\/dashboard\/?/, "");
+    const dir = rel ? `src/app/dashboard/${rel}` : "src/app/dashboard";
+    assert.ok(existsSync(dir), `intent "${item.id}" routes to ${item.route}, which has no page`);
+  }
+});
+
+test("command bar: the ACU estimate is quoted, not invented", () => {
+  const d = intent.detectIntent("make me a video");
+  assert.ok(Number.isInteger(d.best.acuEstimate) && d.best.acuEstimate > 0,
+    "the cost shown before the customer commits is not a real quote");
+  // The pricing law: a costlier action class must never quote fewer ACUs than a
+  // cheaper one for the same provider cost.
+  const cheap = intent.detectIntent("write me a hashtag");
+  assert.ok(d.best.acuEstimate > cheap.best.acuEstimate,
+    "a video quoted no more than a hashtag — the estimate is not tracking the action");
+});
+
+test("command bar: it is mounted, and it searches the real navigation", () => {
+  const layout = readFileSync(new URL("../src/app/dashboard/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /<CommandBar \/>/, "the command bar exists and is not mounted — which is how the router sat unused");
+
+  const bar = readFileSync(new URL("../src/components/CommandBar.tsx", import.meta.url), "utf8");
+  assert.match(bar, /from "@\/components\/Sidebar"/,
+    "the command bar keeps its own copy of the navigation, which will drift from the real one");
+  assert.match(bar, /\/api\/intent/, "the command bar does not consult the routing brain");
+});
+
+test("navigation: no destination is listed twice", () => {
+  // Sixty-five entries had one literal duplicate. In a list that long nobody
+  // sees it, and in a search box every duplicate is a wrong-looking result.
+  const src = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  const seen = new Map();
+  for (const m of src.matchAll(/href: "([^"]+)", label: "([^"]+)"/g)) {
+    const key = `${m[1]}|${m[2]}`;
+    seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  const dupes = Array.from(seen.entries()).filter(([, n]) => n > 1).map(([k]) => k);
+  assert.deepEqual(dupes, [], "these navigation entries appear more than once");
+});

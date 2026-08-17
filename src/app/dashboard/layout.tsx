@@ -8,6 +8,7 @@ import RequireAuth from "@/components/RequireAuth";
 import AuthStatusBanner from "@/components/AuthStatusBanner";
 import CapabilityNotice from "@/components/CapabilityNotice";
 import EmergencyStop from "@/components/EmergencyStop";
+import CommandBar from "@/components/CommandBar";
 import GuideWizard from "@/components/GuideWizard";
 import InstallPrompt from "@/components/InstallPrompt";
 import { BrandProvider } from "@/frontend/brand-context";
@@ -46,6 +47,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               because a halt the operator cannot see is a platform that merely
               looks broken. */}
           <EmergencyStop variant="banner" />
+          {/* One box above every screen. The alternative is asking somebody who
+              wants more customers to choose between sixty-five engines, which
+              is asking them to do the platform's job. */}
+          <CommandBar />
           {children}
         </main>
       </div>

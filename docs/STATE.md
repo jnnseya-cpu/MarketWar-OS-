@@ -59,6 +59,9 @@ and no configuration:
 - **The generation cache** — a double click is one generation, not two charges;
   an identical request inside the window reuses the answer instead of paying
   for it again.
+- **The command bar** — one box on every dashboard screen (Cmd/Ctrl-K): say
+  what you want and it names the engine that does it, what it will ask, and the
+  cost in ACUs before anything runs.
 - **The publication ledger** — a publish whose response is lost is recorded as
   uncertain, and the next attempt asks the channel whether the post went up
   rather than posting it a second time under the brand's name.
@@ -102,7 +105,7 @@ happening.
 4. Send the first ten messages. `/dashboard/acquisition` has the text written
    out per brand, with only the blanks a sender knows.
 
-**The Growth Engine PRD (92 sections): `docs/GROWTH-ENGINE-COVERAGE.md`.**
+**The Growth Engine PRD (99 sections): `docs/GROWTH-ENGINE-COVERAGE.md`.**
 
 Roughly three quarters of it was already built. The orchestration layer the
 owner identified as the strongest idea — agents behaving as one growth
@@ -181,6 +184,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `pending` | The command bar — the routing brain finally has a surface |
 | `bad945a` | Never post the same thing twice — the publication ledger |
 | `88f6280` | The 92-section Growth Engine PRD mapped to what is actually built |
 | `f6ca62f` | Never pay twice for the same answer — the generation cache |
