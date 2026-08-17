@@ -192,7 +192,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
-| `pending` | Paid-media guardrails — stop-loss, the scale step, computed ceilings |
+| `2e5e699` | Paid-media guardrails — stop-loss, the scale step, computed ceilings |
 | `da7791a` | Never overwrite somebody's work — asset versions and restore |
 | `3d1394a` | Who changed this, from what, to what, and why — the audit log |
 | `12e0f67` | Channel health and the eight pre-publish checks |
