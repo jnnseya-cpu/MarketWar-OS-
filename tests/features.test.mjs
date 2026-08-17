@@ -15045,3 +15045,149 @@ test("audit: an AI execution is recorded as metadata, never as the prompt", () =
   assert.ok(!/req\.prompt|reqIn\.prompt|guarded\.prompt|r\.text/.test(call),
     "the prompt or the completion is being written into the audit log — that is the customer's own data and there is no reason to hand the log any of it");
 });
+
+// ---------------------------------------------------------------------------
+// ASSET VERSIONS AND RESTORE (§62/63).
+//
+// The Work Library kept the CURRENT state of the customer's work and three
+// operations destroyed the previous one: saving over an id, patching, deleting.
+// That is the additive-only law broken in the file where the customer's own
+// paid-for work lives.
+//
+// The assertion that matters most: RESTORING IS ITSELF ADDITIVE. A history you
+// can rewrite by restoring is not a history.
+// ---------------------------------------------------------------------------
+const versions = await import("../src/backend/asset-versions.ts");
+const workLib = await import("../src/backend/work-library.ts");
+
+const V = (over = {}) => ({ assetId: "a1", brandId: "brand-a", creator: "uid:owner", content: "first draft", ...over });
+
+test("versions: each save keeps the previous state, numbered in order", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "one", nowISO: "2026-08-17T09:00:00Z" }));
+  await versions.recordVersion(V({ content: "two", nowISO: "2026-08-17T10:00:00Z" }));
+  await versions.recordVersion(V({ content: "three", nowISO: "2026-08-17T11:00:00Z" }));
+
+  const all = await versions.listVersions("brand-a", "a1");
+  assert.deepEqual(all.map((v) => v.version), [1, 2, 3]);
+  assert.deepEqual(all.map((v) => v.content), ["one", "two", "three"], "an earlier version was overwritten");
+  assert.equal(all[2].parentVersion, 2, "the chain does not record where a version came from");
+  assert.equal(all[0].parentVersion, undefined, "version 1 claims a parent it cannot have");
+});
+
+test("versions: identical content does not create a new version", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "same" }));
+  const again = await versions.recordVersion(V({ content: "same" }));
+  assert.equal(again.ok, true);
+  assert.equal(again.created, false, "saving unchanged content added a duplicate version");
+  assert.equal((await versions.listVersions("brand-a", "a1")).length, 1);
+});
+
+test("versions: a version carries what produced it, not just the words", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({
+    content: "a caption", prompt: "write a caption for the summer sale",
+    model: "claude-x", settings: { tone: "playful" }, campaignId: "c1",
+  }));
+  const [v] = await versions.listVersions("brand-a", "a1");
+  assert.equal(v.prompt, "write a caption for the summer sale");
+  assert.equal(v.model, "claude-x");
+  assert.equal(v.settings.tone, "playful");
+  assert.equal(v.campaignId, "c1");
+  assert.equal(v.creator, "uid:owner", "a version with no author cannot answer who changed it");
+});
+
+test("versions: RESTORING NEVER DELETES — it adds", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "one", nowISO: "2026-08-17T09:00:00Z" }));
+  await versions.recordVersion(V({ content: "two", nowISO: "2026-08-17T10:00:00Z" }));
+  await versions.recordVersion(V({ content: "three", nowISO: "2026-08-17T11:00:00Z" }));
+
+  const r = await versions.restoreVersion({ brandId: "brand-a", assetId: "a1", version: 1, restoredBy: "uid:owner", nowISO: "2026-08-17T12:00:00Z" });
+  assert.equal(r.ok, true);
+  assert.equal(r.content, "one");
+
+  const all = await versions.listVersions("brand-a", "a1");
+  assert.equal(all.length, 4, "restoring rewrote the history instead of extending it");
+  assert.deepEqual(all.map((v) => v.content), ["one", "two", "three", "one"]);
+  assert.equal(all[3].restoredFrom, 1, "the restored version does not say where it came from");
+  // Somebody who restores by mistake must not have lost what they were on.
+  assert.equal(all[2].content, "three", "the version that was live before the restore was destroyed");
+});
+
+test("versions: restoring what is already showing changes nothing", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "one" }));
+  await versions.recordVersion(V({ content: "two" }));
+  const r = await versions.restoreVersion({ brandId: "brand-a", assetId: "a1", version: 2, restoredBy: "uid:owner" });
+  assert.equal(r.ok, true);
+  assert.equal((await versions.listVersions("brand-a", "a1")).length, 2, "restoring the current version added a pointless entry");
+});
+
+test("versions: one brand can never read or restore another's history", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "ours" }));
+  assert.deepEqual(await versions.listVersions("brand-b", "a1"), [], "another brand read this asset's history");
+  const r = await versions.restoreVersion({ brandId: "brand-b", assetId: "a1", version: 1, restoredBy: "uid:intruder" });
+  assert.equal(r.ok, false, "another brand restored a version of work that is not theirs");
+});
+
+test("versions: an empty version is refused — deleting content is a delete, not a save", async () => {
+  versions.__resetAssetVersions();
+  assert.equal((await versions.recordVersion(V({ content: "   " }))).ok, false);
+  assert.equal((await versions.recordVersion(V({ creator: "" }))).ok, false, "a version with no author was accepted");
+});
+
+test("versions: the history summary counts rather than scores", async () => {
+  versions.__resetAssetVersions();
+  await versions.recordVersion(V({ content: "short" }));
+  await versions.recordVersion(V({ content: "a much longer second draft indeed" }));
+  const h = await versions.versionHistory("brand-a", "a1");
+  assert.equal(h[0].version, 2, "the history is not newest-first");
+  assert.equal(h[0].length, "a much longer second draft indeed".length);
+  assert.equal(h[0].changedChars, "a much longer second draft indeed".length - "short".length);
+  // No invented quality numbers anywhere in it.
+  assert.ok(!("score" in h[0]) && !("quality" in h[0]), "the history invented a score for a change nobody measured");
+});
+
+test("versions: it is append-only", () => {
+  const src = readFileSync(new URL("../src/backend/asset-versions.ts", import.meta.url), "utf8");
+  for (const f of ["export function updateVersion", "export async function updateVersion", "export async function deleteVersion", "export function deleteVersion"]) {
+    assert.ok(!src.includes(f), `asset-versions.ts exports "${f}" — versions that can be edited are not versions`);
+  }
+});
+
+test("library: saving over an item keeps what was there before", async () => {
+  versions.__resetAssetVersions();
+  workLib.__resetWorkLibrary();
+  const item = {
+    id: "w1", brandId: "brand-a", ownerId: "uid:owner", kind: "content",
+    source: "content-factory", sourceName: "Content Factory", title: "Plan",
+    input: { topic: "summer" },
+  };
+  await workLib.saveWork({ ...item, output: "the first plan" }, "2026-08-17T09:00:00Z");
+  await workLib.saveWork({ ...item, output: "the second plan" }, "2026-08-17T10:00:00Z");
+
+  const current = await workLib.getWork("brand-a", "w1");
+  assert.equal(current.output, "the second plan");
+  const chain = await workLib.versionsFor("brand-a", "w1");
+  assert.deepEqual(chain.map((v) => v.content), ["the first plan", "the second plan"],
+    "the library overwrote paid-for work with no way back");
+});
+
+test("library: a deleted item can be brought back from its own history", async () => {
+  versions.__resetAssetVersions();
+  workLib.__resetWorkLibrary();
+  const item = {
+    id: "w2", brandId: "brand-a", ownerId: "uid:owner", kind: "content",
+    source: "content-factory", sourceName: "Content Factory", title: "Plan", input: {},
+  };
+  await workLib.saveWork({ ...item, output: "work worth keeping" }, "2026-08-17T09:00:00Z");
+  assert.equal(await workLib.deleteWork("brand-a", "w2"), true);
+  assert.equal(await workLib.getWork("brand-a", "w2"), null, "delete did not remove it from the library");
+
+  const back = await workLib.restoreDeleted("brand-a", "w2", { ownerId: "uid:owner", kind: "content", source: "content-factory", sourceName: "Content Factory" }, "2026-08-17T11:00:00Z");
+  assert.ok(back && back.ok, "a deleted item could not be recovered — delete was destroying paid-for work with no way back");
+  assert.equal((await workLib.getWork("brand-a", "w2")).output, "work worth keeping");
+});

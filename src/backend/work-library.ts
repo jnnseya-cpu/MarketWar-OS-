@@ -24,6 +24,7 @@ if (typeof window !== "undefined") {
 
 import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { recordVersion, listVersions } from "@/backend/asset-versions";
 
 export type WorkKind = "agent" | "campaign" | "content" | "email" | "page" | "research" | "other";
 
@@ -97,6 +98,21 @@ export async function saveWork(
     updatedAt: nowISO,
   };
 
+  // KEEP THE PREVIOUS STATE BEFORE REPLACING IT.
+  //
+  // `set(..., { merge: true })` below overwrites the stored output, and until
+  // now that content was simply gone — the additive-only law broken in the one
+  // file where the customer's own work lives. The version chain is recorded
+  // first, so even if the write below fails the history is intact. Identical
+  // content does not create a version, so an unchanged re-save costs nothing.
+  await recordVersion({
+    assetId: id, brandId: item.brandId, content: item.output,
+    creator: item.ownerId || item.source || "system",
+    prompt: item.input?.prompt, model: item.input?.model,
+    settings: item.input, campaignId: item.input?.campaignId,
+    nowISO,
+  }).catch(() => null);
+
   if (adminConfigured && adminDb) {
     await adminDb.collection(COLLECTION).doc(docId(id)).set(record, { merge: true });
     return { ok: true, item: record, persisted: true, note: existing ? "Updated in your Library." : "Saved to your Library." };
@@ -153,12 +169,54 @@ export async function latestWork(brandId: string, source: string): Promise<WorkI
   return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
 }
 
+/**
+ * Remove it from the library.
+ *
+ * The item leaves the list, which is what the customer asked for. Its VERSIONS
+ * are not touched, so a delete is recoverable — `versionsFor` still returns the
+ * chain and `restoreDeleted` puts it back. Before this, delete was the one
+ * action in the platform that destroyed paid-for work with no way back.
+ */
 export async function deleteWork(brandId: string, id: string): Promise<boolean> {
   const existing = await getWork(brandId, id);
   if (!existing) return false;          // not owned / not found → no-op
   if (adminConfigured && adminDb) await adminDb.collection(COLLECTION).doc(docId(id)).delete();
   else mem.delete(id);
   return true;
+}
+
+/** Every kept state of one library item, newest first. */
+export async function versionsFor(brandId: string, id: string) {
+  return listVersions(brandId, id);
+}
+
+/**
+ * Put a deleted item back, from its own history.
+ *
+ * Deliberately reconstructs from the newest version rather than from a
+ * tombstone: the versions are the record, so there is one source of truth for
+ * what the work was and no second copy to fall out of step with it.
+ */
+export async function restoreDeleted(
+  brandId: string, id: string, meta: { ownerId: string | null; kind?: WorkKind; source?: string; sourceName?: string }, nowISO: string,
+): Promise<SaveResult | null> {
+  const existing = await getWork(brandId, id);
+  if (existing) return null;            // still there — nothing to restore
+  const versions = await listVersions(brandId, id);
+  const latest = versions[versions.length - 1];
+  if (!latest) return null;             // never had any history
+
+  return saveWork({
+    id,
+    brandId,
+    ownerId: meta.ownerId,
+    kind: meta.kind || "other",
+    source: meta.source || "restored",
+    sourceName: meta.sourceName || "Restored from history",
+    title: titleFrom(latest.content, meta.sourceName || "Restored"),
+    output: latest.content,
+    input: latest.settings || {},
+  }, nowISO);
 }
 
 export async function patchWork(
