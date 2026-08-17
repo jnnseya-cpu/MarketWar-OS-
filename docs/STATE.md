@@ -59,6 +59,9 @@ and no configuration:
 - **The generation cache** — a double click is one generation, not two charges;
   an identical request inside the window reuses the answer instead of paying
   for it again.
+- **The publication ledger** — a publish whose response is lost is recorded as
+  uncertain, and the next attempt asks the channel whether the post went up
+  rather than posting it a second time under the brand's name.
 
 ## 4. What is dark without keys, and the one action for each
 
@@ -107,14 +110,12 @@ department — already exists (`orchestrator.ts` + `brand-memory.ts` +
 `chain-exec.ts`). Read that file before building any of it; it is the map that
 stops the same work being done twice. The build order it sets, highest first:
 
-1. §86 retry without duplicate posting — a timed-out publish that is retried
-   posts twice under the brand's name. The only actively harmful gap.
-2. §84 connection health and §85 the pre-publish validation chain.
-3. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
+1. §84 connection health and §85 the pre-publish validation chain.
+2. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
    place, which is the additive-only law unhonoured where a customer's own work
    lives.
-4. §53/51/52 paid-media guardrails on top of `budget.ts`.
-5. §27 creative fatigue — currently advertised in settings with no engine.
+3. §53/51/52 paid-media guardrails on top of `budget.ts`.
+4. §27 creative fatigue — currently advertised in settings with no engine.
 
 **Known gaps in the product (real, not urgent):**
 
@@ -180,6 +181,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `pending` | Never post the same thing twice — the publication ledger |
 | `f6ca62f` | Never pay twice for the same answer — the generation cache |
 | `4f929f1` | One switch that stops the platform acting on the world |
 | `9d…` | Breadcrumb URLs made absolute; one canonical origin for the SEO surface |

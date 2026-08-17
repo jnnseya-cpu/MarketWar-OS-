@@ -14503,3 +14503,145 @@ test("generation cache: agent runs are brand-scoped and short-lived", () => {
   assert.ok(ttl >= 60_000 && ttl <= 60 * 60_000,
     "the agent cache window must be minutes, not hours — long enough to kill a double click, short enough that coming back later gives a fresh answer");
 });
+
+// ---------------------------------------------------------------------------
+// PUBLICATION LEDGER — never post the same thing twice.
+//
+// The failure: the call reaches Facebook, Facebook creates the post, the
+// response is lost coming back. We see a timeout, call it a failure, retry, and
+// the brand has posted twice under its own name because of us.
+//
+// The tests below are the three outcomes that matter — definitely rejected,
+// definitely up, and nobody knows — plus the one that decides the whole thing:
+// what happens when there is no way to ask.
+// ---------------------------------------------------------------------------
+const pubs = await import("../src/backend/publication-ledger.ts");
+
+const NOW = "2026-08-17T10:00:00.000Z";
+const post = (over = {}) => ({ brandId: "brand-a", channel: "facebook", text: "Half price this Friday only", nowISO: NOW, ...over });
+
+test("publications: the key is content and destination, never the clock", () => {
+  const h = pubs.contentHash({ text: "hello", mediaUrls: ["b", "a"] });
+  assert.equal(h, pubs.contentHash({ text: "hello", mediaUrls: ["a", "b"] }), "media order changed the fingerprint");
+  const k = pubs.publicationKey({ brandId: "b", channel: "facebook", contentHash: h });
+  assert.equal(k, pubs.publicationKey({ brandId: "b", channel: "facebook", contentHash: h }), "the same publication produced two keys");
+  assert.notEqual(k, pubs.publicationKey({ brandId: "b", channel: "instagram", contentHash: h }), "two channels share one key");
+  assert.notEqual(k, pubs.publicationKey({ brandId: "OTHER", channel: "facebook", contentHash: h }), "two brands share one key");
+  assert.notEqual(k, pubs.publicationKey({ brandId: "b", channel: "facebook", contentHash: h, requestId: "again" }),
+    "a deliberate repost cannot be distinguished from an accidental one");
+});
+
+test("publications: a definite rejection releases the claim and a retry is free", async () => {
+  pubs.__resetPublicationLedger();
+  const first = await pubs.claimPublication(post());
+  assert.equal(first.proceed, true);
+  await pubs.settleFailed(first.publication.id, "HTTP 400: Invalid parameter", true, NOW);
+
+  const second = await pubs.claimPublication(post());
+  assert.equal(second.proceed, true, "a post the channel actively rejected must be retryable — nothing exists to duplicate");
+  assert.equal(second.publication.attempts, 2);
+});
+
+test("publications: an uncertain outcome asks the channel before it retries", async () => {
+  pubs.__resetPublicationLedger();
+  const first = await pubs.claimPublication(post());
+  // The call never came back. This is the case the whole module exists for.
+  await pubs.settleFailed(first.publication.id, "timed out after 24s", pubs.looksDefinite("timed out after 24s"), NOW);
+
+  let asked = 0;
+  const retry = await pubs.claimPublication(post({
+    verifyRemote: async () => { asked += 1; return { exists: true, externalPublicationId: "fb_777" }; },
+  }));
+  assert.equal(asked, 1, "the retry did not ask the channel whether the post already existed");
+  assert.equal(retry.proceed, false, "THIS IS THE DUPLICATE — the retry went ahead on a post that was already live");
+  assert.equal(retry.publication.state, "published");
+  assert.equal(retry.publication.externalPublicationId, "fb_777", "the record was not corrected with the channel's own id");
+});
+
+test("publications: if the channel confirms it never landed, the retry proceeds", async () => {
+  pubs.__resetPublicationLedger();
+  const first = await pubs.claimPublication(post());
+  await pubs.settleFailed(first.publication.id, "socket hang up", false, NOW);
+
+  const retry = await pubs.claimPublication(post({ verifyRemote: async () => ({ exists: false }) }));
+  assert.equal(retry.proceed, true, "a confirmed-missing post must be publishable — otherwise a network blip silently drops it");
+  assert.equal(retry.publication.attempts, 2);
+});
+
+test("publications: with no way to ask, nobody posts", async () => {
+  pubs.__resetPublicationLedger();
+  const first = await pubs.claimPublication(post());
+  await pubs.settleFailed(first.publication.id, "fetch failed", false, NOW);
+
+  const retry = await pubs.claimPublication(post()); // no verifier
+  assert.equal(retry.proceed, false, "an unverifiable channel retried on a guess — that is how a brand posts twice");
+  assert.equal(retry.needsHuman, true);
+  assert.match(retry.reason, /check the account/i);
+  // Pinned specifically: the refusal must be because there is NO WAY TO ASK,
+  // not because an accidental call to a missing verifier threw. A mutation that
+  // deleted the guard survived on the generic wording alone.
+  assert.match(retry.reason, /no way to ask/i,
+    "the missing-verifier case is not handled deliberately — it is falling through to the error path");
+  assert.ok(!/undefined is not a function|is not a function/i.test(retry.reason),
+    "the refusal came from a crash rather than from the rule");
+
+  // And a verifier that throws is not treated as "definitely not there".
+  const thrown = await pubs.claimPublication(post({ verifyRemote: async () => { throw new Error("rate limited"); } }));
+  assert.equal(thrown.proceed, false, "a failed existence check was read as permission to post again");
+  assert.equal(thrown.needsHuman, true);
+});
+
+test("publications: an already-published item is never sent again", async () => {
+  pubs.__resetPublicationLedger();
+  const first = await pubs.claimPublication(post());
+  await pubs.settlePublished(first.publication.id, "fb_123", NOW);
+  const again = await pubs.claimPublication(post());
+  assert.equal(again.proceed, false);
+  assert.match(again.reason, /already on facebook/i);
+  assert.match(again.reason, /fb_123/);
+});
+
+test("publications: only an explicit rejection counts as definite", () => {
+  // Conservative on purpose. Every one of these can happen AFTER the post was
+  // created, so calling any of them definite authorises a duplicate.
+  for (const e of ["timed out after 24s", "socket hang up", "ECONNRESET", "fetch failed", "HTTP 500: server error", "HTTP 503", "network error"]) {
+    assert.equal(pubs.looksDefinite(e), false, `"${e}" was treated as a definite failure — a retry would post twice`);
+  }
+  // The cases that actually need the timeout guard rather than falling through
+  // the rejection patterns: a message that mentions BOTH. Without the guard
+  // these read as definite because of one word, and the retry posts twice.
+  // (A mutation removing the guard survived until these were added.)
+  for (const e of [
+    "Request timed out — the access token may be invalid",
+    "socket hang up after an unsupported media upload",
+    "network error: HTTP 400 may not have been reached",
+  ]) {
+    assert.equal(pubs.looksDefinite(e), false,
+      `"${e}" mentions a rejection word and was called definite, but the call timed out — the post may exist`);
+  }
+  for (const e of ["HTTP 400: Invalid parameter", "HTTP 403: permission denied", "The access token expired", "unsupported media type"]) {
+    assert.equal(pubs.looksDefinite(e), true, `"${e}" was treated as uncertain — a genuine rejection can never be retried`);
+  }
+});
+
+test("publications: uncertain attempts are listed for a person to action", async () => {
+  pubs.__resetPublicationLedger();
+  const a = await pubs.claimPublication(post({ text: "one" }));
+  await pubs.settleFailed(a.publication.id, "timed out", false, NOW);
+  const b = await pubs.claimPublication(post({ text: "two" }));
+  await pubs.settlePublished(b.publication.id, "fb_2", NOW);
+  const c = await pubs.claimPublication(post({ text: "three" }));
+  await pubs.settleFailed(c.publication.id, "HTTP 400", true, NOW);
+
+  const open = await pubs.needsHumanCheck("brand-a");
+  assert.deepEqual(open.map((p) => p.state).sort(), ["uncertain"], "the list a person must action is wrong — settled items are in it, or unresolved ones are missing");
+});
+
+test("publications: the Meta publisher claims before it calls the Graph API", () => {
+  const src = readFileSync(new URL("../src/backend/meta-publish.ts", import.meta.url), "utf8");
+  assert.match(src, /claimPublication\(/, "native publishing can still post twice on a retry");
+  assert.match(src, /settleFailed\([\s\S]{0,120}looksDefinite\(/, "a failed publish records a definite/uncertain judgement rather than assuming");
+  // The claim must come before the send, not after it.
+  assert.ok(src.indexOf("const claim = await claimPublication(") < src.indexOf("const res = await send();"),
+    "the claim is written after the Graph call, which is no protection at all");
+});

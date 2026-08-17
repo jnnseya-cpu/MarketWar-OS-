@@ -126,7 +126,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | § | Requirement | Where it lives | State |
 |---|---|---|---|
 | 85 | **Pre-publish validation chain** | nothing as a chain. The pieces exist scattered (`claim-guard.ts`, `compliance.ts`, `approvals.ts`, `meta-publish.ts`) | ❌ |
-| 86 | **Retry without duplicate posting (`external_publication_id`)** | nothing. A publish whose API response times out and is retried will post twice | ❌ |
+| 86 | Retry without duplicate posting (`external_publication_id`) | `publication-ledger.ts` — **delivered this session**, wired into `meta-publish.ts` | ✅ |
 | 87 | Creative compliance checker | `claim-guard.ts` (`claimReport` — runs on every agent output before the customer sees it), `compliance.ts` (regulated categories), `rights-guard.ts` | ✅ |
 | 88 | User content rights & ownership metadata | `rights-guard.ts`, `likeness-consent.ts` | 🟡 rights checks yes; per-asset ownership metadata and source tracking no |
 | 89 | **AI training / data privacy control (workspace ON/OFF)** | nothing | ❌ |
@@ -146,28 +146,29 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§86 Retry without duplicate posting** — `publication-ledger.ts`, wired into
+  `meta-publish.ts`. The claim is written before the Graph call; a timeout is
+  recorded as UNCERTAIN rather than failed, so the next attempt asks Meta whether
+  the post exists instead of creating a second one. A channel with no way to
+  verify gets no retry at all — the attempt is surfaced for a person to check.
 
 ## The build order for what is left
 
 Ranked by the standing hierarchy — stability, then correctness, then security,
 then UX, then features — not by PRD number.
 
-1. **§86 retry without duplicate posting.** A timed-out publish that is retried
-   posts twice under the brand's own name. This is a correctness defect that
-   costs a customer their reputation, and it is the only item on this list that
-   is actively harmful today.
-2. **§84 connection health** and **§85 the pre-publish validation chain.** Both
+1. **§84 connection health** and **§85 the pre-publish validation chain.** Both
    are the same failure: publishing attempts something that could have been known
    to be impossible beforehand.
-3. **§62/63 asset versions and restore.** `work-library.ts` patches and deletes
+2. **§62/63 asset versions and restore.** `work-library.ts` patches and deletes
    in place, which is the additive-only law not being honoured in the one place a
    customer's own work lives.
-4. **§53/51/52 the paid-media guardrails.** Stop-loss, the named budget fields
+3. **§53/51/52 the paid-media guardrails.** Stop-loss, the named budget fields
    and the staged scale step. `budget.ts` already produces the verdict; these are
    thresholds and a ladder on top of it, not a new engine.
-5. **§27 creative fatigue.** Currently advertised in settings with nothing behind
+4. **§27 creative fatigue.** Currently advertised in settings with nothing behind
    it, which is worse than absent.
-6. **§91 the audit trail**, then **§65/66 agency mode**, then §32, §38, §41,
+5. **§91 the audit trail**, then **§65/66 agency mode**, then §32, §38, §41,
    §70, §77, §80, §89, §92.
 
 ## Two things found while mapping this

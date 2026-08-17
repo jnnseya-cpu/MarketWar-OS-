@@ -20,6 +20,10 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { haltFor } from "@/backend/emergency-stop";
+import {
+  claimPublication, settlePublished, settleFailed, looksDefinite,
+  type Publication, type RemoteVerifier,
+} from "@/backend/publication-ledger";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -208,6 +212,99 @@ async function publishInstagram(conn: MetaConnection, text: string, imageUrl?: s
   } catch (e) { return { platform: "instagram", ok: false, error: (e as Error).message }; }
 }
 
+// ASKING META WHETHER A POST WENT UP.
+//
+// The half of "never post twice" that a claim alone cannot do. When an attempt
+// times out, the post may be live; this reads the account's own recent items and
+// looks for the text we sent. Only the last few are checked and only within a
+// short window, because this runs on a retry moments later — a match from last
+// Tuesday would be a different post that happened to say the same thing.
+const VERIFY_WINDOW_MS = 30 * 60 * 1000;
+const VERIFY_LIMIT = 25;
+
+function metaVerifier(conn: MetaConnection, text: string): RemoteVerifier {
+  const wanted = (text || "").trim().slice(0, 200);
+  return async (p: Publication) => {
+    if (!wanted) return { exists: false };
+    const since = Date.now() - VERIFY_WINDOW_MS;
+
+    if (p.channel === "facebook") {
+      const r = await graphGet(`/${conn.pageId}/feed`, {
+        fields: "id,message,created_time", limit: String(VERIFY_LIMIT), access_token: conn.pageAccessToken,
+      });
+      if (!r.ok) throw new Error(graphErr(r.data, r.status));
+      for (const row of (r.data.data as Array<Record<string, unknown>>) || []) {
+        const when = Date.parse(String(row.created_time || ""));
+        if (Number.isFinite(when) && when < since) continue;
+        if (String(row.message || "").trim().startsWith(wanted.slice(0, 80))) {
+          return { exists: true, externalPublicationId: String(row.id || "") };
+        }
+      }
+      return { exists: false };
+    }
+
+    if (p.channel === "instagram" && conn.igUserId) {
+      const r = await graphGet(`/${conn.igUserId}/media`, {
+        fields: "id,caption,timestamp", limit: String(VERIFY_LIMIT), access_token: conn.pageAccessToken,
+      });
+      if (!r.ok) throw new Error(graphErr(r.data, r.status));
+      for (const row of (r.data.data as Array<Record<string, unknown>>) || []) {
+        const when = Date.parse(String(row.timestamp || ""));
+        if (Number.isFinite(when) && when < since) continue;
+        if (String(row.caption || "").trim().startsWith(wanted.slice(0, 80))) {
+          return { exists: true, externalPublicationId: String(row.id || "") };
+        }
+      }
+      return { exists: false };
+    }
+
+    // An unknown channel is not "definitely not there" — it is unknown, and
+    // saying otherwise here would authorise the duplicate.
+    throw new Error(`no way to verify a ${p.channel} post`);
+  };
+}
+
+/**
+ * Publish once, and never twice.
+ *
+ * The claim is written before the Graph call. If the call does not come back,
+ * the outcome is recorded as UNCERTAIN rather than failed, so the next attempt
+ * asks Meta whether the post exists instead of creating a second one.
+ */
+async function publishOnce(
+  conn: MetaConnection,
+  platform: "facebook" | "instagram",
+  input: { brandId: string; text: string; mediaUrls?: string[] },
+  image: string | undefined,
+  nowISO: string,
+  send: () => Promise<MetaPostResult>,
+): Promise<MetaPostResult> {
+  const claim = await claimPublication({
+    brandId: input.brandId, channel: platform, text: input.text, mediaUrls: input.mediaUrls,
+    nowISO, verifyRemote: metaVerifier(conn, input.text),
+  });
+  if (!claim.proceed) {
+    // Already up counts as ok — the customer asked for it to be posted and it
+    // is posted. Reporting a failure would send them to check a feed that
+    // already has exactly what they wanted.
+    const alreadyUp = claim.publication.state === "published";
+    return alreadyUp
+      ? { platform, ok: true, postId: claim.publication.externalPublicationId, error: undefined }
+      : { platform, ok: false, error: claim.reason };
+  }
+
+  const res = await send();
+  if (res.ok) {
+    await settlePublished(claim.publication.id, res.postId || "", nowISO);
+    return res;
+  }
+  // `looksDefinite` is conservative: only an explicit rejection releases the
+  // claim. Everything else stays uncertain, which is what makes the next
+  // attempt ask rather than assume.
+  await settleFailed(claim.publication.id, res.error || "publish failed", looksDefinite(res.error || ""), nowISO);
+  return res;
+}
+
 // Publish natively to whichever of {facebook, instagram} are requested AND
 // connected. Returns per-platform results; the caller merges with Zernio for the
 // remaining platforms. Only http(s) media posts (data:/blob: previews dropped).
@@ -226,8 +323,13 @@ export async function publishNativeMeta(input: { brandId: string; text: string; 
   }
   const image = (input.mediaUrls || []).find((u) => /^https?:\/\//i.test(u));
   const results: MetaPostResult[] = [];
-  if (want.includes("facebook")) results.push(await publishFacebook(conn, input.text, image));
-  if (want.includes("instagram")) results.push(await publishInstagram(conn, input.text, image));
+  const nowISO = new Date().toISOString();
+  if (want.includes("facebook")) {
+    results.push(await publishOnce(conn, "facebook", input, image, nowISO, () => publishFacebook(conn, input.text, image)));
+  }
+  if (want.includes("instagram")) {
+    results.push(await publishOnce(conn, "instagram", input, image, nowISO, () => publishInstagram(conn, input.text, image)));
+  }
   return { handled: want, results };
 }
 
