@@ -15799,3 +15799,176 @@ test("portal: every client decision is in the audit trail", async () => {
   assert.ok(trail.length > 0, "a client approved work and left no audit entry — which is the record an agency needs and cannot fake");
   assert.ok(trail.some((e) => e.before?.state && e.after?.state), "the entry does not record the state change");
 });
+
+// ---------------------------------------------------------------------------
+// THE WEEKLY NEWSLETTER.
+//
+// digest-subscriptions.ts argued against exactly this and was right about the
+// danger: every customer's campaign mail leaves through the same sending
+// domain, so a complaint rate earned here is charged to them. These tests are
+// almost entirely about the four things that make it a newsletter rather than
+// that outcome.
+// ---------------------------------------------------------------------------
+const news = await import("../src/backend/newsletter.ts");
+
+const NENV = { NEWSLETTER_SECRET: "a-durable-newsletter-secret-16" };
+
+test("newsletter: with no durable secret, nothing can be sent", () => {
+  assert.equal(news.newsletterConfigured({}), false);
+  assert.equal(news.newsletterConfigured({ NEWSLETTER_SECRET: "tooshort" }), false);
+  assert.equal(news.newsletterConfigured(NENV), true);
+
+  const route = readFileSync(new URL("../src/app/api/newsletter/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(!newsletterConfigured\(\)\)/,
+    "the send route does not check for a durable secret — unsubscribe links would fail on every server but the one that minted them");
+});
+
+test("newsletter: unsubscribe is one click, permanent, and needs no account", async () => {
+  news.__resetNewsletter();
+  const token = news.unsubscribeToken("reader@example.com", NENV);
+  assert.equal(await news.hasOptedOut("reader@example.com"), false);
+
+  const left = await news.unsubscribe(token, NENV);
+  assert.equal(left.ok, true);
+  assert.equal(left.email, "reader@example.com");
+  assert.equal(await news.hasOptedOut("reader@example.com"), true, "unsubscribing did not stick");
+  // Case and whitespace must not resurrect somebody.
+  assert.equal(await news.hasOptedOut("  Reader@Example.COM "), true, "a capitalised address escaped the opt-out");
+
+  // And the route that does it is reachable WITHOUT a human check, because that
+  // friction is what makes people press "spam" instead.
+  const gate = readFileSync(new URL("../src/backend/human-gate.ts", import.meta.url), "utf8");
+  assert.match(gate, /"\/api\/unsubscribe"/, "the unsubscribe route is behind the human gate");
+  assert.ok(!/PUBLIC_FORM_LANES[\s\S]{0,600}"\/api\/newsletter"/.test(gate),
+    "the SENDING route was exempted from the human gate along with unsubscribe");
+});
+
+test("newsletter: nobody can unsubscribe somebody else by guessing", async () => {
+  news.__resetNewsletter();
+  const forged = `${Buffer.from("victim@example.com").toString("base64url")}.notarealsignature`;
+  const r = await news.unsubscribe(forged, NENV);
+  assert.equal(r.ok, false, "an unsigned token removed somebody from the list");
+  assert.equal(await news.hasOptedOut("victim@example.com"), false);
+
+  // A token from another deployment's secret is not ours either.
+  const other = news.unsubscribeToken("victim@example.com", { NEWSLETTER_SECRET: "a-completely-different-secret" });
+  assert.equal((await news.unsubscribe(other, NENV)).ok, false, "a token signed with another secret was honoured");
+});
+
+test("newsletter: the issue only sells what the deployment can actually deliver", () => {
+  const issue = news.buildIssue({ week: "2026-08-17", unsubscribeHref: "https://example.com/u", env: {} });
+  // With no keys at all, ai_generation is dark. Nothing in the issue may sell it.
+  assert.ok(issue.dark.includes("ai_generation"), "the issue thinks AI generation is live with no provider key set");
+  assert.ok(issue.links.length >= 6, "an issue selling the platform carried almost no links");
+
+  const pages = JSON.parse(readFileSync(new URL("../src/shared/feature-pages.ts", import.meta.url), "utf8").includes("requiresCapability") ? "true" : "false");
+  assert.equal(pages, true, "feature pages cannot declare the capability they need, so a gated one could be mailed out");
+});
+
+test("newsletter: every link in the issue is absolute", () => {
+  const issue = news.buildIssue({ week: "2026-08-17", unsubscribeHref: "https://example.com/u", env: {} });
+  for (const l of issue.links) {
+    assert.match(l.url, /^https?:\/\//, `"${l.label}" is a relative link — in an email that goes nowhere`);
+  }
+  // And the body must not contain a bare relative href either.
+  assert.ok(!/href="\/(?!\/)/.test(issue.html), "the email body contains a relative href");
+});
+
+test("newsletter: nothing in the issue is an invented number", () => {
+  const issue = news.buildIssue({ week: "2026-08-17", unsubscribeHref: "https://example.com/u", env: {} });
+  const body = `${issue.html} ${issue.text}`;
+  for (const pattern of [
+    /join \d[\d,]* (businesses|companies|customers)/i,
+    /\b\d{1,3}% of (businesses|companies|customers|marketers)/i,
+    /trusted by [\d,]{3,}/i,
+    /\b\d{1,3}% (more|faster|better)\b/i,
+  ]) {
+    assert.ok(!pattern.test(body), `the newsletter carries an invented statistic: ${pattern}`);
+  }
+});
+
+test("newsletter: the same week always produces the same issue", () => {
+  const a = news.buildIssue({ week: "2026-08-17", unsubscribeHref: "https://example.com/u", env: {} });
+  const b = news.buildIssue({ week: "2026-08-17", unsubscribeHref: "https://example.com/u", env: {} });
+  assert.equal(a.subject, b.subject, "a resend after a failure would be a different email");
+  assert.deepEqual(a.links.map((l) => l.url), b.links.map((l) => l.url));
+
+  const next = news.buildIssue({ week: "2026-08-24", unsubscribeHref: "https://example.com/u", env: {} });
+  assert.notDeepEqual(a.links.map((l) => l.url), next.links.map((l) => l.url),
+    "every week would carry identical content");
+});
+
+test("newsletter: the week key is Monday-anchored, so a week has one issue", () => {
+  const monday = news.weekKey("2026-08-17T09:00:00Z");
+  for (const day of ["2026-08-17T23:59:00Z", "2026-08-19T12:00:00Z", "2026-08-23T23:00:00Z"]) {
+    assert.equal(news.weekKey(day), monday, `${day} fell into a different week from its own Monday`);
+  }
+  assert.notEqual(news.weekKey("2026-08-24T09:00:00Z"), monday, "the following Monday shares a key with the previous week");
+});
+
+test("newsletter: a person gets one issue a week even if the cron fires twice", async () => {
+  news.__resetNewsletter();
+  const week = news.weekKey("2026-08-17T09:00:00Z");
+  assert.equal(await news.alreadySent(week, "a@example.com"), false);
+  await news.markSent(week, "a@example.com", "2026-08-17T09:00:00Z");
+  assert.equal(await news.alreadySent(week, "a@example.com"), true, "a second cron run would have mailed them again");
+  assert.equal(await news.alreadySent(news.weekKey("2026-08-24T09:00:00Z"), "a@example.com"), false,
+    "next week's issue was suppressed by this week's claim");
+});
+
+test("newsletter: unreadable storage never reads as \"never sent\"", async () => {
+  // One storage blip must not become a second newsletter to the entire list.
+  // This branch is unreachable without Firebase, so the reader is injected —
+  // a mutation removing the guard survived until this test existed.
+  news.__resetNewsletter();
+  const week = news.weekKey("2026-08-17T09:00:00Z");
+  const broken = async () => { throw new Error("firestore unavailable"); };
+  assert.equal(await news.alreadySent(week, "a@example.com", broken), true,
+    "an unreadable claim store was treated as proof nobody had been mailed — that is a duplicate send to everyone");
+
+  // And a store that reads cleanly still answers honestly.
+  assert.equal(await news.alreadySent(week, "a@example.com", async () => false), false);
+  assert.equal(await news.alreadySent(week, "a@example.com", async () => true), true);
+});
+
+test("newsletter: the send is claimed BEFORE the email goes out", () => {
+  const route = readFileSync(new URL("../src/app/api/newsletter/route.ts", import.meta.url), "utf8");
+  assert.ok(route.indexOf("await markSent(") < route.indexOf("const res = await sendEmail("),
+    "the claim is written after the send, so a crash mid-run mails somebody twice on the retry");
+  assert.match(route, /transactional: false/,
+    "the newsletter is marked transactional, which would dodge the emergency stop and be a lie with a compliance edge");
+  assert.match(route, /listUnsubscribe: href/, "the message carries no List-Unsubscribe header");
+  assert.match(route, /haltFor\("send"\)/, "a platform halt does not stop the newsletter");
+});
+
+test("newsletter: with no user register it sends to nobody and says so", async () => {
+  const who = await news.audience();
+  assert.equal(who.recipients.length, 0);
+  assert.match(who.note, /Firebase Admin is not configured|could not be read/i);
+  assert.ok(!/error|failed/i.test(who.note.split(".")[0]),
+    "an empty register is reported as a failure rather than as the truth about the deployment");
+});
+
+test("newsletter: leaving feeds the ONE suppression ledger, not a second one", async () => {
+  // /api/track/unsubscribe has handled brand-campaign opt-outs since long before
+  // the newsletter existed. The lists are genuinely separate — a customer
+  // leaving a brand's campaigns must not stop us writing to that brand's OWNER —
+  // but "never mail this address again" must have one answer, not two.
+  const src = readFileSync(new URL("../src/backend/newsletter.ts", import.meta.url), "utf8");
+  assert.match(src, /from "@\/backend\/email-events"/,
+    "the newsletter keeps its own suppression list, invisible to every other send path in the platform");
+  assert.match(src, /addSuppression\(PLATFORM_LIST/, "opt-outs are not written to the durable shared ledger");
+  assert.match(src, /suppress\(email\)/, "opt-outs do not reach the fast in-memory ledger");
+
+  news.__resetNewsletter();
+  const { suppress: _s, validateAddress: check } = await import("../src/backend/email.ts");
+  await news.unsubscribe(news.unsubscribeToken("gone@example.com", NENV), NENV);
+  assert.equal(check("gone@example.com").sendable, false,
+    "an address that left the newsletter is still sendable by the rest of the platform");
+});
+
+test("newsletter: the unsubscribe page is never indexed", () => {
+  const layout = readFileSync(new URL("../src/app/unsubscribe/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /index: false/,
+    "a crawler following an unsubscribe link out of a leaked email would remove somebody who wanted to stay");
+});

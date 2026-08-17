@@ -45,6 +45,21 @@ export type FeaturePage = {
   proof: string;
   /** The honest limit. Every page carries one; a page with no caveat is an advert. */
   limit: string;
+  /**
+   * The capability this page's feature NEEDS, when it needs one.
+   *
+   * Read by the weekly newsletter, which will not sell a feature a reader's
+   * deployment cannot deliver — clicking through to something gated is the
+   * fastest route to a complaint, and complaints are charged to every customer
+   * sending through the same domain.
+   *
+   * It is unset on every page at the time of writing, and that is a fact rather
+   * than an omission: all fourteen sell arithmetic, the ad canvas, the audit or
+   * isolation, none of which need a provider key. The field exists so the first
+   * page that DOES need one cannot quietly be mailed to somebody who cannot use
+   * it. A test checks the name against the real capability list.
+   */
+  requiresCapability?: string;
   related: string[];
   faq: { q: string; a: string }[];
   body: string;

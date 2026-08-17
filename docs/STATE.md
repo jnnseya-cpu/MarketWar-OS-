@@ -20,8 +20,8 @@ brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
 Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
-`shared`) enforced by `scripts/check-layers.mjs`. 213 backend modules, 131 API
-routes, 66 dashboard pages, 1,236 tests including one end-to-end run of the
+`shared`) enforced by `scripts/check-layers.mjs`. 214 backend modules, 133 API
+routes, 66 dashboard pages, 1,250 tests including one end-to-end run of the
 whole growth loop.
 
 ---
@@ -76,6 +76,11 @@ The honest list, and it is not short. No provider, no card, no configuration:
   ten roles and ten permissions. Nobody can grant more than they hold.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
+- **The weekly newsletter** — every registered user, Tuesday 09:00 UTC, selling
+  what their deployment can actually do, with the feature pages' own proof and
+  limit and a great many links. One-click unsubscribe, no account, honoured
+  instantly and platform-wide. Needs `NEWSLETTER_SECRET` before it sends
+  anything.
 
 ## 4. What is dark without keys, and the one action for each
 
@@ -91,6 +96,7 @@ table over that endpoint — the endpoint asks each module's own check.
 | Generating images | `OPENAI_API_KEY` or `GEMINI_API_KEY` |
 | Rendering video | `GEMINI_API_KEY` (Veo) or `OPENAI_API_KEY` (Sora) |
 | Running work on a schedule | `CRON_SECRET` |
+| Sending the weekly newsletter | `NEWSLETTER_SECRET` (16+ chars) — refuses to send without it, because an unsubscribe link that fails on another server produces spam complaints charged to every customer |
 
 When a capability is dark the dashboard says so before the customer does the
 work, names what still works, and never tells anybody to retry something that
@@ -108,7 +114,9 @@ cannot succeed.
 2. Open `/api/capabilities` on the live deployment. Nothing in this repository
    can see the production environment.
 3. Submit the sitemap in Search Console after the next deploy.
-4. **Send the first ten messages.** `/dashboard/acquisition` has the text written
+4. Set `NEWSLETTER_SECRET` if the weekly newsletter should go out. It is
+   scheduled for Tuesdays and will refuse to send until that exists.
+5. **Send the first ten messages.** `/dashboard/acquisition` has the text written
    out per brand, with only the blanks a sender knows.
 
 **Next in the product, in order:**

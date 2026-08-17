@@ -130,6 +130,12 @@ export const PUBLIC_FORM_LANES = [
   "/api/track",
   "/api/invites",
   "/api/contact",
+  // Leaving the newsletter. Its own route precisely so this exemption cannot
+  // reach the endpoint that SENDS — and because a human check standing between
+  // somebody and the unsubscribe button is the friction that makes them press
+  // "spam" instead, which is charged to every customer sending through this
+  // domain.
+  "/api/unsubscribe",
 ];
 
 /**
