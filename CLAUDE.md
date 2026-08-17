@@ -80,6 +80,9 @@ repeating the same work.
   security/roadmap, Video War Room).
 - `docs/reference/` — verbatim imports of both source documents + the nine
   extraction inventories.
+- `docs/GROWTH-ENGINE-COVERAGE.md` — the 92-section Growth Engine PRD mapped to
+  what is actually in `src/`, with the build order for what is left. Read it
+  before building anything from that spec; three quarters of it already exists.
 - `docs/REQUIREMENTS-COVERAGE.md` — master traceability register (every
   requirement → ✅ code / 📘 blueprint / 📦 backlog). Update it whenever
   requirements are added or shipped.

@@ -8,7 +8,7 @@ across 40 numbered sections. It is useful for archaeology and useless for
 knowing where you are, which is why this file exists. Do not add another
 numbered section in place of updating this one.
 
-Last updated: 2026-08-15.
+Last updated: 2026-08-17.
 
 ---
 
@@ -20,8 +20,8 @@ brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
 Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
-`shared`) enforced by `scripts/check-layers.mjs`. 203 backend modules, 128 API
-routes, 66 dashboard pages, 955 tests.
+`shared`) enforced by `scripts/check-layers.mjs`. 205 backend modules, 129 API
+routes, 66 dashboard pages, 1,133 tests.
 
 ---
 
@@ -53,6 +53,12 @@ and no configuration:
 - **The acquisition run** — named prospects, what was sent, what came back.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
+- **The emergency stop** — one switch that halts marketing sends, publishing,
+  unattended runs, spend and payouts, scoped to a brand or the whole platform.
+  Transactional mail has no lane and cannot be stopped by it.
+- **The generation cache** — a double click is one generation, not two charges;
+  an identical request inside the window reuses the answer instead of paying
+  for it again.
 
 ## 4. What is dark without keys, and the one action for each
 
@@ -93,6 +99,23 @@ happening.
 4. Send the first ten messages. `/dashboard/acquisition` has the text written
    out per brand, with only the blanks a sender knows.
 
+**The Growth Engine PRD (92 sections): `docs/GROWTH-ENGINE-COVERAGE.md`.**
+
+Roughly three quarters of it was already built. The orchestration layer the
+owner identified as the strongest idea — agents behaving as one growth
+department — already exists (`orchestrator.ts` + `brand-memory.ts` +
+`chain-exec.ts`). Read that file before building any of it; it is the map that
+stops the same work being done twice. The build order it sets, highest first:
+
+1. §86 retry without duplicate posting — a timed-out publish that is retried
+   posts twice under the brand's name. The only actively harmful gap.
+2. §84 connection health and §85 the pre-publish validation chain.
+3. §62/63 asset versions and restore — `work-library.ts` patches and deletes in
+   place, which is the additive-only law unhonoured where a customer's own work
+   lives.
+4. §53/51/52 paid-media guardrails on top of `budget.ts`.
+5. §27 creative fatigue — currently advertised in settings with no engine.
+
 **Known gaps in the product (real, not urgent):**
 
 - A brand's promotable catalogue has no bulk import — products go in one at a
@@ -106,6 +129,9 @@ happening.
   API routes still carry their own copy of the same expression. They work, so
   they were left alone mid-fix rather than migrated for tidiness — recorded here
   so it is not rediscovered as new.
+- `src/components/BviCard.tsx` renders twelve fabricated numbers in a field
+  named `measured`. It is not mounted anywhere, so nothing ships it — recorded
+  so that it is never mounted as it stands.
 
 ---
 
@@ -154,6 +180,8 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
+| `f6ca62f` | Never pay twice for the same answer — the generation cache |
+| `4f929f1` | One switch that stops the platform acting on the world |
 | `9d…` | Breadcrumb URLs made absolute; one canonical origin for the SEO surface |
 | `e73738a` | The sitemap's database call bounded so a slow store cannot hide the site |
 | `b1c2c3d` | The engineering directive recorded where it loads every session |
