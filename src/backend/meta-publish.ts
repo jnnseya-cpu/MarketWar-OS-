@@ -26,6 +26,7 @@ import {
 } from "@/backend/publication-ledger";
 import { channelHealth } from "@/backend/connection-health";
 import { preflight } from "@/backend/publish-preflight";
+import { record as auditRecord } from "@/backend/audit-log";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -317,6 +318,22 @@ async function publishOnce(
   }
 
   const res = await send();
+  // §107: every integration call leaves a structured record. The caption is the
+  // brand's own copy and is not repeated here — what matters afterwards is
+  // which channel, which attempt, and what the platform said.
+  auditRecord({
+    actorType: "system", actor: "system:meta-publish",
+    action: res.ok ? "publication.completed" : "publication.failed",
+    resource: "publication", resourceId: claim.publication.id, brandId: input.brandId,
+    before: { state: "claimed" }, after: { state: res.ok ? "published" : "failed" },
+    meta: {
+      channel: platform,
+      attempt: String(claim.publication.attempts),
+      ...(res.postId ? { externalPublicationId: res.postId } : {}),
+      ...(res.error ? { error: res.error.slice(0, 300) } : {}),
+    },
+    nowISO,
+  });
   if (res.ok) {
     await settlePublished(claim.publication.id, res.postId || "", nowISO);
     return res;

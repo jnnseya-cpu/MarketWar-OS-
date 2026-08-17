@@ -10,6 +10,7 @@ if (typeof window !== "undefined") {
 // fallback for zero-config demo (mirrors the creator-engine pattern).
 
 import { createHash } from "crypto";
+import { record as auditRecord } from "@/backend/audit-log";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { TRANSITIONS, canApply, type ApprovalItem, type ApprovalAction, type ApprovalEvent, type ApprovalState } from "@/shared/approvals";
 
@@ -80,6 +81,18 @@ export async function transition(input: { id: string; action: ApprovalAction; ac
   item.history = [...item.history, event];
   item.updatedAt = input.nowISO;
   await save(item);
+  // The audit trail records the CHANGE, not just that something happened. The
+  // item's own history is for the person working on it; this is for the
+  // question asked six months later about who approved what.
+  auditRecord({
+    actorType: "user", actor: input.actor || "unknown",
+    action: `approval.${input.action}`,
+    resource: "approval", resourceId: item.id, brandId: item.brandId,
+    before: { state: from }, after: { state: to },
+    reason: input.note, approvalId: item.id,
+    meta: input.role ? { role: input.role, title: item.title } : { title: item.title },
+    nowISO: input.nowISO,
+  });
   return { ok: true, item };
 }
 

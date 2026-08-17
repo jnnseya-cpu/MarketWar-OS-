@@ -36,6 +36,7 @@ if (typeof window !== "undefined") {
 // take somebody's effort for an outcome that cannot be delivered.
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { record as auditRecord } from "@/backend/audit-log";
 
 /**
  * The exhaustive list of what a halt can stop. An action not in this list runs
@@ -141,6 +142,14 @@ export async function engage(input: EngageInput): Promise<EngageResult> {
     }
   }
 
+  auditRecord({
+    actorType: "user", actor: engagedBy, action: "automation.halted",
+    resource: "emergency_stop", resourceId: scope,
+    brandId: scope === PLATFORM ? undefined : scope,
+    before: { halted: "false" }, after: { halted: "true", lanes: lanes.join(",") },
+    reason, nowISO: halt.engagedAt,
+  });
+
   return {
     ok: true,
     halt,
@@ -186,6 +195,14 @@ export async function release(input: { scope?: string; releasedBy: string; note:
       persisted = false;
     }
   }
+  auditRecord({
+    actorType: "user", actor: releasedBy, action: "automation.released",
+    resource: "emergency_stop", resourceId: scope,
+    brandId: scope === PLATFORM ? undefined : scope,
+    before: { halted: "true", lanes: current.lanes.join(",") }, after: { halted: "false" },
+    reason: note, nowISO: released.releasedAt,
+  });
+
   return { ok: true, released, persisted };
 }
 

@@ -34,6 +34,7 @@ export class AiBudgetExceededError extends Error {
 }
 
 import { cacheKey, lookup, keep, coalesce, type CacheSpec } from "@/backend/generation-cache";
+import { record as auditRecord } from "@/backend/audit-log";
 
 export interface GatewayRequest {
   system: string;
@@ -671,6 +672,11 @@ export async function gatewayComplete(
   if (key && !cacheSpec?.regenerate) {
     const hit = lookup(key);
     if (hit) {
+      auditRecord({
+        actorType: "system", actor: "system:gateway", action: "ai.generate",
+        resource: "generation", brandId: cacheSpec?.scope,
+        meta: { provider: hit.provider, model: hit.model, cached: "true", tier: tierForKey },
+      });
       return {
         text: hit.text,
         provider: hit.provider as ProviderId,
@@ -780,9 +786,35 @@ export async function gatewayComplete(
     throw new Error(`All AI providers failed: ${tried}.${notConfigured}`);
   };
 
-  if (!key) return runProviders();
+  // §107 — a structured record of every AI execution.
+  //
+  // METADATA ONLY, deliberately. The prompt is the customer's own data and can
+  // contain anything they pasted into it; the audit log's redactor would catch a
+  // credential but there is no reason to hand it one. What an operator needs
+  // afterwards is which provider ran, on which model, how long it took and
+  // whether it was paid for — all of which are facts about us, not about them.
+  const auditGeneration = (r: GatewayResponse, extra: Record<string, string> = {}) => {
+    auditRecord({
+      actorType: "system", actor: "system:gateway", action: "ai.generate",
+      resource: "generation", brandId: cacheSpec?.scope,
+      meta: {
+        provider: r.provider, model: r.model, latencyMs: String(r.latencyMs),
+        tier: tierForKey, paid: String(opts.paid === true),
+        attempts: String(r.attempts.length + 1),
+        ...(r.truncated ? { truncated: "true" } : {}),
+        ...extra,
+      },
+    });
+  };
+
+  if (!key) {
+    const plain = await runProviders();
+    auditGeneration(plain);
+    return plain;
+  }
 
   const { result, joined } = await coalesce(key, runProviders);
+  auditGeneration(result, joined ? { coalesced: "true" } : {});
   // Kept AFTER the answer exists, and refused for truncated or empty output —
   // serving half a document for ever is worse than paying for it twice.
   keep({

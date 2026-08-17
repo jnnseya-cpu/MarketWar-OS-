@@ -14925,3 +14925,123 @@ test("preflight: it runs before the Graph call, and only a FAILED check stops a 
   assert.match(src, /if \(!pre\.ok\)/,
     "publishing blocks on something other than a failed check — an unknown must not refuse work that used to go out");
 });
+
+// ---------------------------------------------------------------------------
+// AUDIT LOG — who changed this, from what, to what, and why.
+//
+// The feature is the before/after. The RISK is that an audit log is the single
+// most likely place in a platform to leak a credential: it is handed arbitrary
+// values by every caller, and "log the change" is how an API key ends up in
+// permanent storage. Redaction is therefore what most of these tests are about.
+// ---------------------------------------------------------------------------
+const audit = await import("../src/backend/audit-log.ts");
+
+test("audit: it records the value before and the value after", () => {
+  audit.__resetAuditLog();
+  audit.record({
+    actorType: "user", actor: "uid:owner", action: "budget.updated",
+    resource: "budget", resourceId: "b1", brandId: "brand-a",
+    before: { monthlyBudgetGbp: 500, currency: "GBP" },
+    after: { monthlyBudgetGbp: 5000, currency: "GBP" },
+    reason: "scaling the winner",
+  });
+  const [e] = audit.query({ brandId: "brand-a" });
+  assert.equal(e.before.monthlyBudgetGbp, "500");
+  assert.equal(e.after.monthlyBudgetGbp, "5000");
+  // Only what CHANGED. An unmoved field is not evidence of anything, and
+  // storing the whole object twice doubles the exposure for nothing.
+  assert.ok(!("currency" in e.before), "an unchanged field was recorded, which makes the log unreadable");
+  assert.equal(e.reason, "scaling the winner");
+});
+
+test("audit: a credential is never written, whatever the field is called", () => {
+  audit.__resetAuditLog();
+  audit.record({
+    actorType: "user", actor: "uid:owner", action: "connection.updated",
+    resource: "connection", resourceId: "meta", brandId: "brand-a",
+    before: { pageAccessToken: "EAABwzLixnjYBO1old", notes: "nothing here" },
+    after: {
+      pageAccessToken: "EAABwzLixnjYBO2new",
+      // THE CASE FIELD NAMES CANNOT CATCH: a key pasted into a free-text field.
+      notes: "use sk-proj-abcdefghijklmnopqrstuvwxyz012345 for the API",
+    },
+  });
+  const [e] = audit.query({ brandId: "brand-a" });
+  const dump = JSON.stringify(e);
+  assert.ok(!dump.includes("EAABwzLixnjYBO2new"), "an access token was written into the audit log");
+  assert.ok(!dump.includes("sk-proj-abcdefghijklmnopqrstuvwxyz012345"),
+    "a provider key pasted into a free-text field was written into the audit log — field-name redaction alone is not enough");
+  assert.match(e.after.pageAccessToken, /redacted/);
+  assert.match(e.after.notes, /redacted/);
+});
+
+test("audit: the value-shape rules catch what a field name would miss", () => {
+  const secrets = [
+    "-----BEGIN RSA PRIVATE KEY-----\nMIIEow==",
+    "sk-abcdefghijklmnopqrstuvwx",
+    "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc",
+    "AIzaSyD-abcdefghijklmnopqrstuvwxyz0123",
+    "postgres://user:hunter2@db.example.com:5432/app",
+    "a3f5c9e1b7d2486096e4a1c8f0b3d7e2a9c4f6b1",
+  ];
+  for (const s of secrets) {
+    assert.ok(audit.looksSecret(s), `this would have been written to the log verbatim: ${s.slice(0, 32)}`);
+  }
+  // And ordinary content must survive, or the log becomes useless.
+  for (const ok of ["500", "Half price this Friday", "brand-a", "2026-08-17T10:00:00Z", "instagram", "£25 feeds four"]) {
+    assert.equal(audit.looksSecret(ok), null, `"${ok}" was redacted as a secret — the log would lose its meaning`);
+  }
+});
+
+test("audit: no raw IP address is ever stored", () => {
+  const req = { headers: { get: (n) => (n === "x-forwarded-for" ? "203.0.113.42, 10.0.0.1" : "Mozilla/5.0") } };
+  const a = audit.actorFrom(req, "u1");
+  assert.equal(a.actor, "uid:u1");
+  assert.ok(!JSON.stringify(a).includes("203.0.113.42"), "a raw IP address was kept — that is personal data with a retention duty");
+  // Same request must produce the same fingerprint, or it correlates nothing.
+  assert.equal(a.device, audit.actorFrom(req, "u1").device);
+});
+
+test("audit: it is append-only", () => {
+  const src = readFileSync(new URL("../src/backend/audit-log.ts", import.meta.url), "utf8");
+  for (const forbidden of ["export function update", "export function remove", "export function deleteEntry", "export async function update"]) {
+    assert.ok(!src.includes(forbidden), `audit-log.ts exports "${forbidden}" — a log that can be edited is not an audit log`);
+  }
+  const api = readFileSync(new URL("../src/app/api/audit-log/route.ts", import.meta.url), "utf8");
+  assert.ok(!/export async function (POST|PUT|PATCH|DELETE)/.test(api),
+    "the audit API accepts writes — an entry a caller can author separately is one a caller can author falsely");
+});
+
+test("audit: a trail answers how one thing got to where it is", () => {
+  audit.__resetAuditLog();
+  const base = { actorType: "user", actor: "uid:a", resource: "approval", resourceId: "ap1", brandId: "brand-a" };
+  audit.record({ ...base, action: "approval.submit", before: { state: "draft" }, after: { state: "pending" }, nowISO: "2026-08-17T09:00:00.000Z" });
+  audit.record({ ...base, action: "approval.request_changes", before: { state: "pending" }, after: { state: "changes" }, nowISO: "2026-08-17T10:00:00.000Z" });
+  audit.record({ ...base, action: "approval.approve", before: { state: "changes" }, after: { state: "approved" }, nowISO: "2026-08-17T11:00:00.000Z" });
+
+  const t = audit.trail("approval", "ap1");
+  assert.deepEqual(t.map((e) => e.after.state), ["pending", "changes", "approved"], "the trail is not in the order things happened");
+});
+
+test("audit: the boundaries that change things actually record", () => {
+  // An audit log nothing writes to is the same defect as a router nothing calls.
+  for (const [f, why] of [
+    ["src/backend/approvals.ts", "an approval decision leaves no audit entry"],
+    ["src/backend/emergency-stop.ts", "halting the whole platform leaves no audit entry"],
+    ["src/backend/meta-publish.ts", "an integration call leaves no structured record (§107)"],
+    ["src/backend/gateway.ts", "AI executions leave no structured record (§107)"],
+  ]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    assert.match(src, /auditRecord\(/, why);
+  }
+});
+
+test("audit: an AI execution is recorded as metadata, never as the prompt", () => {
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  const call = src.slice(src.indexOf("const auditGeneration"), src.indexOf("if (!key) {"));
+  assert.match(call, /provider: r\.provider/, "the AI execution record does not say which provider ran");
+  assert.match(call, /latencyMs/, "the AI execution record does not say how long it took");
+  assert.ok(!/req\.prompt|reqIn\.prompt|guarded\.prompt|r\.text/.test(call),
+    "the prompt or the completion is being written into the audit log — that is the customer's own data and there is no reason to hand the log any of it");
+});
