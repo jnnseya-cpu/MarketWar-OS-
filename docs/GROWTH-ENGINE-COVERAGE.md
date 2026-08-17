@@ -161,7 +161,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 108 | `auditExistingFeature()` before building | **this document** | ✅ |
 | 109 | Existing functionality stays operational; incremental introduction | every delivery this session extended an existing module or added a new one behind an opt-in; 1,162 tests green throughout | 🟡 no formal feature-flag system — additions are opt-in by signature instead |
 | 110 | Definition of done (15 criteria) | followed per delivery — UI, API, persistence, errors, tests, build. **Not met platform-wide:** audit log (§91) and mobile verification are not part of any current gate | 🟡 |
-| 111 | Required tests incl. the full E2E loop | 1,162 unit/integration tests, mutation-checked. **The ten-step E2E loop (URL → … → next campaign) has no automated coverage** | 🟡 |
+| 111 | Required tests incl. the full E2E loop | 1,216 tests, mutation-checked, plus `tests/loop.test.mjs` — one brand's real output threaded through all ten steps — **delivered this session** | ✅ |
 | 112–113 | Differentiator and target end-state | the acquisition half — prospecting, outreach, Share2Earn, attribution — is what the platform already has and Turbine does not | 🟡 direction, not a module |
 
 ---
@@ -176,6 +176,12 @@ trail**, and **paid-media guardrails**. Those are the build list.
 - **§57 Generation cache** (with §61 and §55's "never regenerate unnecessarily")
   — `generation-cache.ts`, wired into `gatewayComplete` after the firewall. A
   double click is one generation; the key is content and scope, never the clock.
+- **§111 The ten-step E2E loop** — `tests/loop.test.mjs`. One brand's real
+  output threaded from URL through strategy, campaign, creative, approval,
+  schedule, publish, analytics and learning back into the next campaign. Every
+  assertion checks the SEAM rather than the engine, because a unit test cannot
+  see a value that fails to cross a boundary. It runs with no keys, and names
+  the three steps it could not exercise instead of mocking them.
 - **§27 Creative fatigue** — `creative-fatigue.ts`. Measured against the
   creative's own peak, every fall put through the two-proportion test
   `experiments.ts` already owns. No score. The settings page's "swap fatigued
@@ -216,14 +222,10 @@ trail**, and **paid-media guardrails**. Those are the build list.
 Ranked by the standing hierarchy — stability, then correctness, then security,
 then UX, then features — not by PRD number.
 
-1. **§111 the ten-step E2E loop.** 1,191 tests cover the engines individually;
-   nothing exercises URL → brand → strategy → campaign → creative → approval →
-   schedule → publish → analytics → learning as one run. That is the test that
-   would prove the closed loop actually closes.
-2. **§65/66 agency mode and the client approval portal.**
-3. **§102/103 one-click campaign and autonomous mode** — the engines and the
+1. **§65/66 agency mode and the client approval portal.**
+2. **§102/103 one-click campaign and autonomous mode** — the engines and the
    Brand Brain context both exist; what is missing is the single button.
-4. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
+3. Then §32, §38, §41, §70, §77, §80, §89, §92, §95, §96, §97, §98.
 
 ## Two things found while mapping this
 
