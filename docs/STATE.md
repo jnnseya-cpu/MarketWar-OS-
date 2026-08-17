@@ -195,7 +195,7 @@ Newest first. Full reasoning for any of these is in `REQUIREMENTS-COVERAGE.md`.
 
 | Commit | What |
 |---|---|
-| `pending` | Creative fatigue — a winner that stopped winning |
+| `cd1843b` | Creative fatigue — a winner that stopped winning |
 | `2e5e699` | Paid-media guardrails — stop-loss, the scale step, computed ceilings |
 | `da7791a` | Never overwrite somebody's work — asset versions and restore |
 | `3d1394a` | Who changed this, from what, to what, and why — the audit log |
