@@ -521,8 +521,15 @@ test("every AI surface that has a canned fallback goes through the one predicate
   for (const mod of ["provider", "strategy-run", "growth-plan", "blog-generator"]) {
     const src = fs.readFileSync(`src/backend/${mod}.ts`, "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    assert.match(src, /if \(!demoFallbackAllowed\(\)\) throw new Error\(LIVE_AI_UNAVAILABLE\)/,
+    // The PREDICATE is the invariant. Which honest sentence gets thrown is not:
+    // `provider.ts` throws `aiUnavailableMessage()`, which names what still
+    // works on a deployment with no key instead of telling somebody to retry
+    // something that cannot succeed. Pinning the constant here made the stricter
+    // message look like a regression, so the two halves are asserted separately.
+    assert.match(src, /if \(!demoFallbackAllowed\(\)\) throw new Error\(/,
       `${mod} can still serve invented content to a paying customer`);
+    assert.match(src, /if \(!demoFallbackAllowed\(\)\) throw new Error\((LIVE_AI_UNAVAILABLE|aiUnavailableMessage\(\))\)/,
+      `${mod} refuses, but not with one of the two honest messages`);
     assert.ok(!/process\.env\.REQUIRE_LIVE/.test(src),
       `${mod} still decides for itself instead of asking the one predicate`);
   }

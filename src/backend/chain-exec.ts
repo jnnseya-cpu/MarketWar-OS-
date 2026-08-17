@@ -25,6 +25,7 @@ import { contextFor, remember } from "@/backend/brand-memory";
 import { createItem } from "@/backend/approvals";
 import { runAgent } from "@/backend/provider";
 import { meterAction } from "@/backend/wallet";
+import { haltFor } from "@/backend/emergency-stop";
 import type { AuthResult } from "@/backend/guard";
 
 const STEP_BUDGET_MS = 60_000;
@@ -41,6 +42,17 @@ export async function executeChain(input: {
   createdBy?: string;
 }): Promise<{ ok: false; error: string } | { ok: true; run: ChainRun }> {
   const { brandId, chain: c, nowISO, unattended, auth } = input;
+
+  // The emergency stop, on the unattended path only. A halt means "stop doing
+  // things on your own", not "stop working" — a customer sitting in front of the
+  // screen who presses run is not automation, and locking them out of their own
+  // tools during an incident helps nobody. The steps that would send, publish or
+  // spend are checked again at their own boundaries regardless.
+  if (unattended) {
+    const halt = await haltFor("autonomous", brandId);
+    if (halt.halted) return { ok: false, error: halt.message };
+  }
+
   const agentInput: Record<string, string> = { ...(input.context || {}), brandId };
 
   const result = await runChain({

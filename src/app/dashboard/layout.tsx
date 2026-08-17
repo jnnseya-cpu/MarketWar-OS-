@@ -7,6 +7,7 @@ import UserMenu from "@/components/UserMenu";
 import RequireAuth from "@/components/RequireAuth";
 import AuthStatusBanner from "@/components/AuthStatusBanner";
 import CapabilityNotice from "@/components/CapabilityNotice";
+import EmergencyStop from "@/components/EmergencyStop";
 import GuideWizard from "@/components/GuideWizard";
 import InstallPrompt from "@/components/InstallPrompt";
 import { BrandProvider } from "@/frontend/brand-context";
@@ -41,6 +42,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             customer learns it before they type, wherever they are. */}
         <main className="pad-safe mx-auto max-w-7xl px-5 pb-[calc(2rem+var(--safe-bottom))] pt-8 sm:px-8">
           <CapabilityNotice need="ai_generation" />
+          {/* Nothing at all until something is stopped — and then on every screen,
+              because a halt the operator cannot see is a platform that merely
+              looks broken. */}
+          <EmergencyStop variant="banner" />
           {children}
         </main>
       </div>

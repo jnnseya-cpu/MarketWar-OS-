@@ -19,6 +19,7 @@ if (typeof window !== "undefined") {
 // "meta_connections", mem fallback) and never returned to the browser.
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { haltFor } from "@/backend/emergency-stop";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -215,6 +216,14 @@ export async function publishNativeMeta(input: { brandId: string; text: string; 
   if (!conn) return null;
   const want = input.platforms.filter((p) => p === "facebook" || p === "instagram");
   if (!want.length) return null;
+  // The emergency stop, before the Graph call. Returned as a per-platform
+  // failure rather than null, because null means "not connected" here and an
+  // operator reading "not connected" during a halt would go looking for an
+  // integration fault that does not exist.
+  const halt = await haltFor("publish", input.brandId);
+  if (halt.halted) {
+    return { handled: want, results: want.map((p) => ({ platform: p as "facebook" | "instagram", ok: false, error: halt.message })) };
+  }
   const image = (input.mediaUrls || []).find((u) => /^https?:\/\//i.test(u));
   const results: MetaPostResult[] = [];
   if (want.includes("facebook")) results.push(await publishFacebook(conn, input.text, image));

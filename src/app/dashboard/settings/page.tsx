@@ -10,6 +10,7 @@ import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck,
 import { PageHeader, Pill } from "@/components/ui";
 import AccountCard from "@/components/AccountCard";
 import DeleteAccount from "@/components/DeleteAccount";
+import EmergencyStop from "@/components/EmergencyStop";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -120,6 +121,13 @@ export default function SettingsPage() {
 
       {/* Account — identity, details, password, sign out */}
       <AccountCard />
+
+      {/* The stop is ABOVE the autonomy dial deliberately. The dial is what you
+          set when you have time to think; this is what you press when you do
+          not, and it should not be below seven cards of it. */}
+      <div className="mb-8">
+        <EmergencyStop />
+      </div>
 
       {/* Autonomy dial */}
       <div className="mb-8 card p-5">

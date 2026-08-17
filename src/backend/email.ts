@@ -43,6 +43,7 @@ const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.m
 // auto-process bounces (see docs/EMAIL-GUIDE.md).
 const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
 import { bounceAddressFor } from "@/backend/reply-routing";
+import { haltFor } from "@/backend/emergency-stop";
 
 // SMTP is now served by the sending-node POOL (src/backend/sending-pool.ts). With
 // no pool configured it falls back to the single SMTP_* node — identical to the
@@ -682,6 +683,18 @@ export async function sendEmailBatch(
 ): Promise<SendResult[]> {
   const from = common.from || FROM_DEFAULT;
 
+  // A batch is marketing by definition, so the halt applies to all of it. The
+  // check is here as well as in `sendEmail` because the pooled SMTP path below
+  // does not go through `sendEmail` — a guard on one of two routes out is not a
+  // guard.
+  const halt = await haltFor("send", common.brandId);
+  if (halt.halted) {
+    return items.map(() => ({
+      ok: false, mode: emailConfigured ? "live" : "demo", provider: "emergency-stop",
+      id: null, filteredOut: [], detail: halt.message,
+    }));
+  }
+
   // Pre-send hygiene, before a connection is opened. Blocked addresses never
   // reach the provider — that is the "no bounce back" guarantee, and batching
   // must not weaken it.
@@ -790,10 +803,32 @@ export async function sendEmail(opts: {
   replyTo?: string;
   listUnsubscribe?: string; // RFC 8058 one-click unsubscribe URL
   transactional?: boolean;
+  /** Lets a brand-scoped emergency stop apply. Absent means only a platform-wide halt reaches it. */
+  brandId?: string;
   // When the sending domain is authenticated (sending-domains.ts), the caller
   // passes its DKIM key so the message is signed as that domain — the inbox key.
   dkim?: { domain: string; selector: string; privateKeyPem: string };
 }): Promise<SendResult> {
+  // THE EMERGENCY STOP, CHECKED BEFORE THE PROVIDER IS CONTACTED.
+  //
+  // Transactional mail is deliberately exempt and that exemption lives here
+  // rather than in the stop: a password reset, a receipt or a security notice
+  // must survive the halt, because the incident that made somebody press the
+  // button is exactly when they need to get back into their account.
+  if (!opts.transactional) {
+    const halt = await haltFor("send", opts.brandId);
+    if (halt.halted) {
+      return {
+        ok: false,
+        mode: emailConfigured ? "live" : "demo",
+        provider: "emergency-stop",
+        id: null,
+        filteredOut: [],
+        detail: halt.message,
+      };
+    }
+  }
+
   const verdict = validateAddress(opts.to);
   const roleOk = opts.transactional && verdict.checks.role && verdict.valid && !verdict.checks.suppressed;
   if (!verdict.sendable && !roleOk) {

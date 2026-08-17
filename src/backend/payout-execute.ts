@@ -37,6 +37,7 @@ import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { quoteWithdrawal, rail, type WithdrawalQuote } from "@/backend/payout-fees";
 import { loadIdentity, payoutAllowed } from "@/backend/payout-identity";
 import { record as recordSecurityEvent } from "@/backend/sentinel";
+import { haltFor } from "@/backend/emergency-stop";
 
 export type PayoutState = "claimed" | "sent" | "failed" | "reversed";
 
@@ -90,6 +91,16 @@ export async function executePayout(input: ExecuteInput): Promise<PayoutOutcome>
   if (!creatorId) return { ok: false, error: "creatorId required" };
   if (!(input.requestId || "").trim()) {
     return { ok: false, error: "A requestId is required.", hint: "It is what makes a retry a retry instead of a second withdrawal. Generate one per withdrawal and reuse it if the request has to be sent again." };
+  }
+
+  // 0. THE EMERGENCY STOP — before identity, before the quote, before the claim.
+  //
+  // Money leaving is the one action that cannot be undone by releasing the halt
+  // afterwards, so it is checked first. Nothing is claimed and no idempotency key
+  // is burned: the same requestId works normally once the halt is released.
+  const halt = await haltFor("payout");
+  if (halt.halted) {
+    return { ok: false, error: halt.message, hint: "Release the emergency stop and send the same request again — the requestId is unused, so this is not a duplicate withdrawal." };
   }
 
   // 1. IDENTITY — before anything, including before the quote.

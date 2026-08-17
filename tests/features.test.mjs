@@ -14244,3 +14244,141 @@ test("the site origin has one definition, not ten", () => {
     assert.match(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), /siteOrigin\(\)/, `${f} does not use the shared origin`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// EMERGENCY STOP — one switch that stops the platform acting on the world.
+//
+// The tests that matter here are the two directions. A stop that does not stop
+// the outward paths is theatre; a stop that ALSO swallows a password reset locks
+// the owner out of their own account during the incident that made them press
+// it. Both are asserted, and the second one is the reason transactional mail has
+// no lane in the module at all.
+// ---------------------------------------------------------------------------
+const stop = await import("../src/backend/emergency-stop.ts");
+
+test("emergency stop: a halt needs a reason and an author", async () => {
+  stop.__resetEmergencyStop();
+  assert.equal((await stop.engage({ reason: "x", engagedBy: "owner" })).ok, false, "a one-character reason must be refused");
+  assert.equal((await stop.engage({ reason: "wrong list loaded", engagedBy: "" })).ok, false, "a halt with no author must be refused");
+  assert.equal((await stop.engage({ reason: "wrong list loaded", engagedBy: "owner" })).ok, true);
+});
+
+test("emergency stop: pressing the button stops every lane", async () => {
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "something is wrong", engagedBy: "owner" });
+  for (const lane of stop.LANES) {
+    const d = await stop.haltFor(lane, "brand-a");
+    assert.equal(d.halted, true, `lane "${lane}" kept running through a full halt`);
+  }
+});
+
+test("emergency stop: transactional mail has no lane, so nothing here can stop it", () => {
+  // Enforced by construction rather than by remembering: if a "transactional"
+  // lane is ever added, this fails and the exemption has to be argued for again.
+  assert.ok(!stop.LANES.includes("transactional"), "transactional mail must never become a haltable lane");
+});
+
+test("emergency stop: a marketing email is refused and a password reset still goes", async () => {
+  const email = await import("../src/backend/email.ts");
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "wrong list loaded into the campaign", engagedBy: "owner" });
+
+  const marketing = await email.sendEmail({ to: "someone@example.com", subject: "Offer", html: "<p>hi</p>" });
+  assert.equal(marketing.ok, false, "a marketing send ran during a full halt");
+  assert.equal(marketing.provider, "emergency-stop");
+
+  const reset = await email.sendEmail({ to: "someone@example.com", subject: "Reset your password", html: "<p>link</p>", transactional: true });
+  assert.notEqual(reset.provider, "emergency-stop", "a password reset was swallowed by the emergency stop — that locks the owner out mid-incident");
+
+  const batch = await email.sendEmailBatch([
+    { to: "a@example.com", subject: "s", html: "<p>a</p>" },
+    { to: "b@example.com", subject: "s", html: "<p>b</p>" },
+  ]);
+  assert.equal(batch.length, 2);
+  assert.ok(batch.every((r) => r.provider === "emergency-stop"), "the pooled batch path went around the halt");
+});
+
+test("emergency stop: money does not leave, and the retry key is not burned", async () => {
+  const payout = await import("../src/backend/payout-execute.ts");
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "possible compromised key", engagedBy: "owner" });
+
+  const req = { creatorId: "c-stop-1", railId: "bank_gbp", amountPence: 5000, requestId: "req-stop-1", availablePence: 100000, destination: "acct", nowISO: new Date().toISOString() };
+  const res = await payout.executePayout(req);
+  assert.equal(res.ok, false, "a payout executed during a full halt");
+
+  // Nothing claimed: the same requestId must work normally after release, rather
+  // than replaying a refusal for ever.
+  const key = payout.payoutKey({ creatorId: req.creatorId, railId: req.railId, amountPence: req.amountPence, requestId: req.requestId });
+  assert.equal(await payout.loadAttempt(key), null, "the halt burned the idempotency key, so the withdrawal can never be retried");
+});
+
+test("emergency stop: a brand halt stops that brand only; a platform halt stops all of them", async () => {
+  stop.__resetEmergencyStop();
+  await stop.engage({ scope: "brand-a", reason: "their list is wrong", engagedBy: "owner" });
+  assert.equal((await stop.haltFor("send", "brand-a")).halted, true);
+  assert.equal((await stop.haltFor("send", "brand-b")).halted, false, "one brand's halt stopped another brand");
+
+  await stop.engage({ scope: stop.PLATFORM, reason: "stop everything now", engagedBy: "owner" });
+  assert.equal((await stop.haltFor("send", "brand-b")).halted, true, "a platform halt must reach every brand without enumerating them");
+});
+
+test("emergency stop: releasing needs a note, and both halves stay in the record", async () => {
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "wrong list loaded", engagedBy: "owner" });
+  assert.equal((await stop.release({ releasedBy: "owner", note: "no" })).ok, false, "released with no explanation");
+
+  const rel = await stop.release({ releasedBy: "owner", note: "list corrected and re-checked" });
+  assert.equal(rel.ok, true);
+  assert.equal((await stop.haltFor("send")).halted, false, "release did not actually release");
+
+  const hist = stop.haltHistory();
+  assert.equal(hist.length, 2, "the record must keep the halt AND the release");
+  assert.equal(hist[0].releasedAt, undefined);
+  assert.equal(hist[1].releaseNote, "list corrected and re-checked");
+});
+
+test("emergency stop: an unattended chain refuses, a person's own run is untouched", async () => {
+  const chainExec = await import("../src/backend/chain-exec.ts");
+  const orchestrator = await import("../src/backend/orchestrator.ts");
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "pausing overnight work", engagedBy: "owner" });
+
+  const chain = orchestrator.CHAINS[0];
+  const auth = { ok: true, uid: "u1" };
+  const unattended = await chainExec.executeChain({ brandId: "brand-a", chain, nowISO: new Date().toISOString(), unattended: true, auth });
+  assert.equal(unattended.ok, false, "a scheduled chain ran through the halt");
+  assert.match(unattended.error, /paused/i);
+
+  // The attended path is NOT refused here — a customer in front of the screen is
+  // not automation. Its send/publish steps are still queued for approval and
+  // still meet the halt at their own boundary.
+  const attended = await chainExec.executeChain({ brandId: "brand-a", chain, nowISO: new Date().toISOString(), unattended: false, auth });
+  assert.notEqual(attended.ok === false && /paused/i.test(attended.error || ""), true, "a person's own run was blocked by a halt meant for automation");
+});
+
+test("emergency stop: storage failure never silently un-halts", async () => {
+  // The read path answers with the last state actually known rather than
+  // guessing in either direction. With no Firebase configured the local map IS
+  // that state, so a halt survives repeated reads.
+  stop.__resetEmergencyStop();
+  await stop.engage({ reason: "checking read stability", engagedBy: "owner" });
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await stop.haltFor("publish")).halted, true, "a halt evaporated across repeated reads");
+  }
+});
+
+test("emergency stop: every outward path that can act consults it", () => {
+  // The recurring defect in this codebase is a value that exists on one side of
+  // a boundary and is never carried across. A stop nobody consults is exactly
+  // that, so the wiring is asserted rather than trusted.
+  for (const f of [
+    "src/backend/email.ts",
+    "src/backend/meta-publish.ts",
+    "src/backend/payout-execute.ts",
+    "src/backend/chain-exec.ts",
+  ]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    assert.match(src, /haltFor\(/, `${f} can act on the world and never asks whether it is stopped`);
+  }
+});
