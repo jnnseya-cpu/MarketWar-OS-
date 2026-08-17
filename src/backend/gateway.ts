@@ -33,6 +33,8 @@ export class AiBudgetExceededError extends Error {
   constructor(message: string) { super(message); this.name = "AiBudgetExceededError"; }
 }
 
+import { cacheKey, lookup, keep, coalesce, type CacheSpec } from "@/backend/generation-cache";
+
 export interface GatewayRequest {
   system: string;
   prompt: string;
@@ -49,6 +51,15 @@ export interface GatewayRequest {
    * — so the field is the difference between "defended" and "warned".
    */
   untrusted?: Untrusted[];
+  /**
+   * Reuse an identical earlier answer instead of paying for it again, and make
+   * a double click one generation rather than two.
+   *
+   * Opt-in because it needs a scope and the gateway cannot invent one — see
+   * generation-cache.ts on why a missing scope means no caching at all rather
+   * than caching globally by content.
+   */
+  cache?: CacheSpec;
 }
 
 // Read the caller's target language from the request (x-mw-lang header carries a
@@ -78,6 +89,12 @@ export interface GatewayResponse {
   model: string;
   latencyMs: number;
   attempts: { provider: ProviderId; error: string }[];
+  /** This answer came from an earlier identical request. No provider was called and nothing was spent. */
+  cached?: boolean;
+  /** When the reused answer was originally produced. Present only on a cache hit. */
+  cachedAt?: string;
+  /** An identical request was already running and this one joined it rather than starting a second. */
+  coalesced?: boolean;
 }
 
 export interface ProviderStatus {
@@ -638,6 +655,34 @@ export async function gatewayComplete(
   };
   lastFirewallFindings = guarded.findings;
 
+  // THE GENERATION CACHE — after the firewall, never before it.
+  //
+  // Order matters and it is a security property, not a preference: every
+  // request is inspected whether or not an answer already exists, so a
+  // cache hit can never be the way an unguarded prompt gets through. The key is
+  // built from the GUARDED text for the same reason — what the provider would
+  // actually have been sent is what determines the answer.
+  const cacheSpec = reqIn.cache;
+  const tierForKey = opts.tier ?? "fast";
+  const key = cacheSpec?.scope
+    ? cacheKey({ scope: cacheSpec.scope, system: req.system, prompt: req.prompt, maxTokens: req.maxTokens, lang, tier: tierForKey })
+    : "";
+
+  if (key && !cacheSpec?.regenerate) {
+    const hit = lookup(key);
+    if (hit) {
+      return {
+        text: hit.text,
+        provider: hit.provider as ProviderId,
+        model: hit.model,
+        latencyMs: 0,
+        attempts: [],
+        cached: true,
+        cachedAt: new Date(hit.storedAt).toISOString(),
+      };
+    }
+  }
+
   // Default FAST. A caller that genuinely needs the strongest model says so;
   // the expensive path should be the deliberate one, not the one you get by
   // forgetting to choose.
@@ -649,85 +694,103 @@ export async function gatewayComplete(
   const unconfigured = all.filter((a) => !a.configured()).map((a) => a.id);
   if (candidates.length === 0) throw new GatewayUnconfiguredError();
 
-  const budgetMs = Math.max(MIN_PROVIDER_MS, opts.budgetMs ?? OVERALL_TIMEOUT_MS);
-  const perCallMs = Math.max(MIN_PROVIDER_MS, opts.perCallMs ?? PER_REQUEST_TIMEOUT_MS);
-  const deadline = Date.now() + budgetMs;
-  const attempts: { provider: ProviderId; error: string }[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const adapter = candidates[i];
-    const providersLeft = candidates.length - i;
-    const remaining = deadline - Date.now();
+  // The provider loop, lifted into a function for one reason: an identical
+  // request already in the air must JOIN it rather than start a second. That is
+  // the double click, and a stored-answer cache cannot help during the eight
+  // seconds before there is anything stored.
+  const runProviders = async (): Promise<GatewayResponse> => {
+    const budgetMs = Math.max(MIN_PROVIDER_MS, opts.budgetMs ?? OVERALL_TIMEOUT_MS);
+    const perCallMs = Math.max(MIN_PROVIDER_MS, opts.perCallMs ?? PER_REQUEST_TIMEOUT_MS);
+    const deadline = Date.now() + budgetMs;
+    const attempts: { provider: ProviderId; error: string }[] = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const adapter = candidates[i];
+      const providersLeft = candidates.length - i;
+      const remaining = deadline - Date.now();
 
-    // Out of budget — stop rather than starting a call that cannot finish.
-    if (remaining <= MIN_PROVIDER_MS) {
-      attempts.push({ provider: adapter.id, error: "skipped — overall gateway deadline reached" });
-      break;
-    }
+      // Out of budget — stop rather than starting a call that cannot finish.
+      if (remaining <= MIN_PROVIDER_MS) {
+        attempts.push({ provider: adapter.id, error: "skipped — overall gateway deadline reached" });
+        break;
+      }
 
-    // RESERVE for the fallbacks — never divide the budget among them.
-    //
-    // Handing the first provider the entire deadline is why a slow Anthropic
-    // once produced "anthropic (timed out after 24s); openai (skipped — overall
-    // gateway deadline reached)": the fallback that exists precisely for this
-    // case never got to run.
-    //
-    // But splitting the budget EQUALLY, which is what replaced it, is worse in
-    // a way that took a live failure to see. With three providers configured,
-    // 50s ÷ 3 gave every attempt 16.6s, and a long generation that needs more
-    // than that now failed on all three: "anthropic (timed out after 17s);
-    // openai (timed out after 17s); gemini (timed out after 17s)". Configuring
-    // a third provider had SHORTENED every attempt from 25s to 17s — adding a
-    // fallback made the request impossible, the exact opposite of the point.
-    //
-    // So: give this provider a real attempt, and hold back only the MINIMUM the
-    // providers behind it need. Three doomed 17s attempts help nobody; one
-    // genuine attempt plus a genuine fallback is what reliability actually
-    // means. If that leaves the last provider too little, it is skipped and
-    // says so, rather than being handed a slot that guarantees a timeout.
-    const reserved = MIN_PROVIDER_MS * (providersLeft - 1);
-    const slice = Math.min(perCallMs, Math.max(MIN_PROVIDER_MS, remaining - reserved));
-    const providerDeadline = Math.min(deadline, Date.now() + slice);
+      // RESERVE for the fallbacks — never divide the budget among them.
+      //
+      // Handing the first provider the entire deadline is why a slow Anthropic
+      // once produced "anthropic (timed out after 24s); openai (skipped — overall
+      // gateway deadline reached)": the fallback that exists precisely for this
+      // case never got to run.
+      //
+      // But splitting the budget EQUALLY, which is what replaced it, is worse in
+      // a way that took a live failure to see. With three providers configured,
+      // 50s ÷ 3 gave every attempt 16.6s, and a long generation that needs more
+      // than that now failed on all three: "anthropic (timed out after 17s);
+      // openai (timed out after 17s); gemini (timed out after 17s)". Configuring
+      // a third provider had SHORTENED every attempt from 25s to 17s — adding a
+      // fallback made the request impossible, the exact opposite of the point.
+      //
+      // So: give this provider a real attempt, and hold back only the MINIMUM the
+      // providers behind it need. Three doomed 17s attempts help nobody; one
+      // genuine attempt plus a genuine fallback is what reliability actually
+      // means. If that leaves the last provider too little, it is skipped and
+      // says so, rather than being handed a slot that guarantees a timeout.
+      const reserved = MIN_PROVIDER_MS * (providersLeft - 1);
+      const slice = Math.min(perCallMs, Math.max(MIN_PROVIDER_MS, remaining - reserved));
+      const providerDeadline = Math.min(deadline, Date.now() + slice);
 
-    const started = Date.now();
-    try {
-      const out = await adapter.complete(req, providerDeadline);
-      coolingUntil.delete(adapter.id);   // it works again — restore it at once
-      // Recorded AFTER success, from the counts the provider returned. A failed
-      // call that produced no tokens costs nothing; one that timed out mid-
-      // generation is under-counted, which is stated rather than guessed at.
-      if (out.usage) {
-        recordSpend({
-          provider: adapter.id, model: adapter.model(),
-          inputTokens: out.usage.input, outputTokens: out.usage.output,
-          usd: estimateCost(adapter.model(), out.usage.input, out.usage.output),
-          paid: opts.paid === true,
+      const started = Date.now();
+      try {
+        const out = await adapter.complete(req, providerDeadline);
+        coolingUntil.delete(adapter.id);   // it works again — restore it at once
+        // Recorded AFTER success, from the counts the provider returned. A failed
+        // call that produced no tokens costs nothing; one that timed out mid-
+        // generation is under-counted, which is stated rather than guessed at.
+        if (out.usage) {
+          recordSpend({
+            provider: adapter.id, model: adapter.model(),
+            inputTokens: out.usage.input, outputTokens: out.usage.output,
+            usd: estimateCost(adapter.model(), out.usage.input, out.usage.output),
+            paid: opts.paid === true,
+          });
+        }
+        return {
+          text: out.text,
+          truncated: out.truncated,
+          provider: adapter.id,
+          model: adapter.model(),
+          latencyMs: Date.now() - started,
+          attempts,
+        };
+      } catch (err) {
+        // Demote it so the NEXT request does not spend its slice here first.
+        markProviderCooling(adapter.id);
+        attempts.push({
+          provider: adapter.id,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
-      return {
-        text: out.text,
-        truncated: out.truncated,
-        provider: adapter.id,
-        model: adapter.model(),
-        latencyMs: Date.now() - started,
-        attempts,
-      };
-    } catch (err) {
-      // Demote it so the NEXT request does not spend its slice here first.
-      markProviderCooling(adapter.id);
-      attempts.push({
-        provider: adapter.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
     }
-  }
 
-  // The message matters: a customer seeing "nothing happened" cannot act, but
-  // "every provider timed out" tells them and us exactly what went wrong.
-  const tried = attempts.map((a) => `${a.provider} (${a.error})`).join("; ");
-  const notConfigured = unconfigured.length
-    ? ` Not configured, so never tried: ${unconfigured.join(", ")} — adding ${unconfigured.length === 1 ? "that key" : "one of those keys"} gives the gateway another provider to fall over to.`
-    : " Every configured provider was tried.";
-  throw new Error(`All AI providers failed: ${tried}.${notConfigured}`);
+    // The message matters: a customer seeing "nothing happened" cannot act, but
+    // "every provider timed out" tells them and us exactly what went wrong.
+    const tried = attempts.map((a) => `${a.provider} (${a.error})`).join("; ");
+    const notConfigured = unconfigured.length
+      ? ` Not configured, so never tried: ${unconfigured.join(", ")} — adding ${unconfigured.length === 1 ? "that key" : "one of those keys"} gives the gateway another provider to fall over to.`
+      : " Every configured provider was tried.";
+    throw new Error(`All AI providers failed: ${tried}.${notConfigured}`);
+  };
+
+  if (!key) return runProviders();
+
+  const { result, joined } = await coalesce(key, runProviders);
+  // Kept AFTER the answer exists, and refused for truncated or empty output —
+  // serving half a document for ever is worse than paying for it twice.
+  keep({
+    key, scope: cacheSpec!.scope, text: result.text,
+    provider: result.provider, model: result.model,
+    ttlMs: cacheSpec!.ttlMs, truncated: result.truncated,
+  });
+  return joined ? { ...result, coalesced: true } : result;
 }
 
 // Shared HTTP layer: retries 429/5xx and network errors with exponential

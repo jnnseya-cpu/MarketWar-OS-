@@ -14382,3 +14382,124 @@ test("emergency stop: every outward path that can act consults it", () => {
     assert.match(src, /haltFor\(/, `${f} can act on the world and never asks whether it is stopped`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// GENERATION CACHE — never pay twice for the same answer.
+//
+// Two failures worth catching. A cache whose key includes the clock never hits,
+// which is how a cache ships, is measured as working, and does nothing. And a
+// cache with no tenant scope is a data leak with a performance story attached.
+// ---------------------------------------------------------------------------
+const gcache = await import("../src/backend/generation-cache.ts");
+
+test("generation cache: the key is content and scope, never the clock", async () => {
+  const a = gcache.cacheKey({ scope: "brand-1", system: "s", prompt: "p", maxTokens: 100, tier: "fast" });
+  await new Promise((r) => setTimeout(r, 15));
+  const b = gcache.cacheKey({ scope: "brand-1", system: "s", prompt: "p", maxTokens: 100, tier: "fast" });
+  assert.equal(a, b, "the same request produced a different key moments later — a key with time in it never hits");
+
+  // Everything that changes the answer must change the key.
+  assert.notEqual(a, gcache.cacheKey({ scope: "brand-1", system: "s", prompt: "DIFFERENT", maxTokens: 100, tier: "fast" }));
+  assert.notEqual(a, gcache.cacheKey({ scope: "brand-1", system: "DIFFERENT", prompt: "p", maxTokens: 100, tier: "fast" }));
+  assert.notEqual(a, gcache.cacheKey({ scope: "brand-1", system: "s", prompt: "p", maxTokens: 4000, tier: "fast" }));
+  assert.notEqual(a, gcache.cacheKey({ scope: "brand-1", system: "s", prompt: "p", maxTokens: 100, tier: "deep" }));
+});
+
+test("generation cache: one brand can never read another brand's answer", () => {
+  const mine = gcache.cacheKey({ scope: "brand-a", system: "s", prompt: "p" });
+  const theirs = gcache.cacheKey({ scope: "brand-b", system: "s", prompt: "p" });
+  assert.notEqual(mine, theirs, "an identical prompt from two tenants shares a cache entry");
+});
+
+test("generation cache: a stored answer is returned, and an expired one is not", async () => {
+  gcache.__resetGenerationCache();
+  const key = gcache.cacheKey({ scope: "brand-a", system: "s", prompt: "p" });
+  assert.equal(gcache.lookup(key), null, "an empty cache returned something");
+
+  gcache.keep({ key, scope: "brand-a", text: "the answer", provider: "anthropic", model: "m", ttlMs: 50_000 });
+  assert.equal(gcache.lookup(key)?.text, "the answer");
+
+  const short = gcache.cacheKey({ scope: "brand-a", system: "s", prompt: "expiring" });
+  gcache.keep({ key: short, scope: "brand-a", text: "stale", provider: "anthropic", model: "m", ttlMs: 5 });
+  // Waited past the window rather than reading in the same millisecond it was
+  // written — the first version of this raced the clock and blamed the cache.
+  await new Promise((r) => setTimeout(r, 25));
+  assert.equal(gcache.lookup(short), null, "an expired entry was served as if it were fresh");
+});
+
+test("generation cache: truncated and empty output is never kept", () => {
+  gcache.__resetGenerationCache();
+  const k1 = gcache.cacheKey({ scope: "b", system: "s", prompt: "cut" });
+  assert.equal(gcache.keep({ key: k1, scope: "b", text: "half a doc", provider: "p", model: "m", truncated: true }).stored, false,
+    "half a document was cached and will be served for ever as if it were whole");
+  assert.equal(gcache.lookup(k1), null);
+
+  const k2 = gcache.cacheKey({ scope: "b", system: "s", prompt: "empty" });
+  assert.equal(gcache.keep({ key: k2, scope: "b", text: "   ", provider: "p", model: "m" }).stored, false);
+});
+
+test("generation cache: no scope means no caching at all", () => {
+  gcache.__resetGenerationCache();
+  const k = gcache.cacheKey({ scope: "", system: "s", prompt: "p" });
+  assert.equal(gcache.keep({ key: k, scope: "", text: "x", provider: "p", model: "m" }).stored, false,
+    "a request that does not say whose it is was cached anyway");
+});
+
+test("generation cache: a double click is ONE generation, not two", async () => {
+  gcache.__resetGenerationCache();
+  let calls = 0;
+  const produce = async () => {
+    calls += 1;
+    await new Promise((r) => setTimeout(r, 30));
+    return { text: `answer ${calls}`, provider: "anthropic", model: "m" };
+  };
+  const key = gcache.cacheKey({ scope: "brand-a", system: "s", prompt: "p" });
+
+  // Both presses land while the first is still in the air — the case a stored
+  // cache cannot help with, because nothing is stored yet.
+  const [first, second] = await Promise.all([gcache.coalesce(key, produce), gcache.coalesce(key, produce)]);
+  assert.equal(calls, 1, "the second click started a second provider call — that is two charges for one answer");
+  assert.equal(second.joined, true);
+  assert.equal(first.result.text, second.result.text, "the two clicks got different answers");
+});
+
+test("generation cache: a failed call is not remembered as a failure for ever", async () => {
+  gcache.__resetGenerationCache();
+  const key = gcache.cacheKey({ scope: "brand-a", system: "s", prompt: "flaky" });
+  await assert.rejects(gcache.coalesce(key, async () => { throw new Error("provider down"); }));
+  // The in-flight entry must be gone, or every later identical request replays it.
+  const ok = await gcache.coalesce(key, async () => ({ text: "recovered", provider: "p", model: "m" }));
+  assert.equal(ok.result.text, "recovered", "a failed call stayed in the in-flight map and poisoned every retry");
+  assert.equal(gcache.stats().inFlight, 0);
+});
+
+test("generation cache: Regenerate drops the scope's entries", () => {
+  gcache.__resetGenerationCache();
+  gcache.keep({ key: "k1", scope: "brand-a", text: "a", provider: "p", model: "m" });
+  gcache.keep({ key: "k2", scope: "brand-a", text: "b", provider: "p", model: "m" });
+  gcache.keep({ key: "k3", scope: "brand-b", text: "c", provider: "p", model: "m" });
+  assert.equal(gcache.invalidate("brand-a"), 2);
+  assert.equal(gcache.lookup("k3")?.text, "c", "invalidating one brand dropped another brand's entries");
+});
+
+test("generation cache: the gateway consults it, and only after the firewall", () => {
+  // Order is a security property, not a preference: a cache hit must never be
+  // the route by which an unguarded prompt reaches a provider.
+  const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
+  const firewall = src.indexOf("guardPrompt(");
+  const cacheRead = src.indexOf("lookup(key)");
+  const coalesced = src.indexOf("coalesce(key");
+  assert.ok(firewall > 0 && cacheRead > 0 && coalesced > 0, "the gateway does not use the generation cache at all");
+  assert.ok(firewall < cacheRead, "the cache is consulted BEFORE the instruction firewall — a hit would skip the guard");
+});
+
+test("generation cache: agent runs are brand-scoped and short-lived", () => {
+  const src = readFileSync(new URL("../src/backend/provider.ts", import.meta.url), "utf8");
+  assert.match(src, /cache: scope \? \{ scope,/, "runAgent does not scope its cache to the brand");
+  assert.match(src, /const scope = \(input\.brandId \|\| ""\)/, "runAgent invents a scope instead of using the brand");
+  const mod = /export const AGENT_CACHE_TTL_MS = (\d+) \* (\d+) \* (\d+)/.exec(src);
+  assert.ok(mod, "the agent cache window is not stated as a constant");
+  const ttl = Number(mod[1]) * Number(mod[2]) * Number(mod[3]);
+  assert.ok(ttl >= 60_000 && ttl <= 60 * 60_000,
+    "the agent cache window must be minutes, not hours — long enough to kill a double click, short enough that coming back later gives a fresh answer");
+});

@@ -120,6 +120,15 @@ export interface AgentResult {
   mode: "live" | "demo";
   output: string;
   generatedAt: string;
+  /**
+   * This answer was reused from an identical earlier run rather than generated
+   * again — no provider was called and nothing was spent. Surfaces say so, and
+   * offer Regenerate, rather than letting a customer wonder why the same button
+   * returned the same words.
+   */
+  cached?: boolean;
+  /** When the reused answer was originally produced. Present only when `cached`. */
+  cachedAt?: string;
   // Set by the Claim Guard: anything in this output the customer must not
   // publish as written (invented testimonials, unevidenced statistics,
   // absolute claims). Absent/clean means nothing was flagged.

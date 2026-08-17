@@ -10,6 +10,16 @@ import { aiUnavailableMessage } from "@/backend/capabilities";
 import { withConciseStyle } from "@/backend/agent-style";
 import type { AgentResult } from "@/shared/types";
 
+/**
+ * How long an agent's answer is reused.
+ *
+ * Deliberately short. The cost saving argues for hours and the product argues
+ * for minutes: a customer who presses the same button twice in eight seconds
+ * wants one answer, and a customer who comes back after lunch wants a fresh
+ * one. Fifteen minutes is where a repeat is almost certainly the first case.
+ */
+export const AGENT_CACHE_TTL_MS = 15 * 60 * 1000;
+
 // Runs an agent through the AI Gateway (Claude → OpenAI → Gemini with
 // automatic failover). With no provider keys configured the platform runs in
 // Demo Intelligence mode using the agent's deterministic simulated output,
@@ -23,7 +33,7 @@ export async function runAgent(
    * chat reply, so the route's remaining budget is passed down rather than left
    * to the gateway's chat-sized default.
    */
-  budget?: { budgetMs?: number; perCallMs?: number; paid?: boolean },
+  budget?: { budgetMs?: number; perCallMs?: number; paid?: boolean; regenerate?: boolean },
 ): Promise<AgentResult> {
   const agent = AGENTS[agentId];
   if (!agent) {
@@ -41,10 +51,17 @@ export async function runAgent(
   ].join("\n");
 
   try {
+    // NEVER PAY TWICE FOR THE SAME ANSWER — scoped to the brand, so nothing is
+    // ever shared across tenants, and short enough that a deliberate re-run
+    // later is genuinely fresh. Fifteen minutes is the window in which a repeat
+    // is a double click rather than a request for a different answer; press
+    // Regenerate and it goes straight to the provider.
+    const scope = (input.brandId || "").trim();
     const result = await gatewayComplete({
       system: withConciseStyle(agent.systemPrompt),
       prompt: userPrompt,
       lang,
+      cache: scope ? { scope, ttlMs: AGENT_CACHE_TTL_MS, regenerate: budget?.regenerate } : undefined,
     }, budget ?? {});
     return {
       agentId: agent.id,
@@ -52,6 +69,8 @@ export async function runAgent(
       mode: "live",
       output: result.text,
       generatedAt,
+      cached: result.cached || undefined,
+      cachedAt: result.cachedAt,
       // Code gate: scan what the model produced BEFORE the user can act on it.
       // A prompt rule can be ignored; this cannot. Supplied inputs are passed in
       // so a figure the CUSTOMER gave us is never flagged as fabricated.
