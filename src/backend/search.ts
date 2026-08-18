@@ -121,7 +121,11 @@ export type OpportunityReport = {
   honesty: string;
 };
 
-export async function discoverOpportunity(input: { niche: string; location?: string; currency?: string; model?: "physical_product" | "service" | "digital" }): Promise<OpportunityReport> {
+export async function discoverOpportunity(input: {
+  niche: string; location?: string; currency?: string;
+  model?: "physical_product" | "service" | "digital";
+  launchCity?: string; budgetGbp?: number; priceGbp?: number; unitCostGbp?: number;
+}): Promise<OpportunityReport> {
   const niche = input.niche.trim();
   const location = (input.location || "your area").trim();
   const cur = input.currency || "£";
@@ -163,6 +167,13 @@ export async function discoverOpportunity(input: { niche: string; location?: str
       offer: niche,
       model: input.model || "service",
       location,
+      // CARRIED THROUGH. Without these the on-screen plan is generic while the
+      // downloaded document is specific, which is the same value-not-crossing-a-
+      // boundary defect wearing a third hat.
+      launchCity: input.launchCity,
+      budgetGbp: input.budgetGbp,
+      priceGbp: input.priceGbp,
+      unitCostGbp: input.unitCostGbp,
       currency: cur,
     }),
     honesty: "Scores are estimates from live/demo search signals, not guarantees. Validate demand with a real lead magnet before committing spend.",

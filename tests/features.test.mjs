@@ -16246,7 +16246,11 @@ test("gtm: the plan reaches the screen, and the business model survives the trip
 
   // THE BOUNDARY. The page asks which business model it is; if the API route
   // drops it, a product business silently gets a service plan with no suppliers.
-  assert.match(page, /model \}/, "the page collects a business model and does not send it");
+  // Matched INSIDE the opportunity request body rather than on a trailing
+  // character — the first version broke the moment another field was added
+  // after it, which is the brittleness this suite keeps rediscovering.
+  assert.match(page, /action: "opportunity"[^}]*\bmodel\b/,
+    "the page collects a business model and does not send it with the opportunity request");
 
   // Tested by BEHAVIOUR, not by grep. A mutation that kept the parsing and
   // dropped the value passed the earlier version of this.
@@ -16281,4 +16285,161 @@ test("gtm: the screen shows the UNFINISHED arithmetic rather than hiding it", ()
 
   // And the plan can leave the screen — the trapped-output rule.
   assert.match(view, /CopyOut/, "a plan somebody can read and not keep is a plan they will not work to");
+});
+
+// ---------------------------------------------------------------------------
+// THE DOWNLOADABLE DOCUMENT, THE LOCKED CITY, AND REAL MONEY.
+//
+// "Real budget figures" is the request most likely to produce a fabrication:
+// writing "£2,000 launch budget" over a business whose owner never said they
+// had £2,000 is a number invented for somebody else to spend. So the budget
+// DIVIDES what was supplied and shows shares when nothing was.
+// ---------------------------------------------------------------------------
+
+test("gtm doc: a supplied budget is divided, and the column adds to exactly it", () => {
+  for (const total of [500, 1500, 2317, 99]) {
+    for (const model of ["physical_product", "service"]) {
+      const b = gtmPlan.allocateBudget({ budgetGbp: total, model });
+      assert.equal(b.supplied, true);
+      const summed = b.lines.reduce((a, l) => a + l.amount, 0);
+      assert.equal(summed, total, `${model} at £${total}: the lines add to ${summed}, not to what was supplied`);
+      assert.equal(b.lines.reduce((a, l) => a + l.sharePct, 0), 100, "the shares do not add to 100%");
+    }
+  }
+});
+
+test("gtm doc: with no budget supplied, NOTHING is invented", () => {
+  const b = gtmPlan.allocateBudget({ budgetGbp: undefined, model: "service" });
+  assert.equal(b.supplied, false);
+  assert.equal(b.totalGbp, null, "a launch budget was invented for somebody who never named one");
+  for (const l of b.lines) {
+    assert.equal(l.amount, null, `"${l.item}" carries a pound figure nobody supplied`);
+    assert.ok(l.sharePct > 0, "the share is unknown too, so the line says nothing at all");
+  }
+  assert.match(b.note, /invented for them to spend/i);
+
+  // Zero and nonsense are not budgets either.
+  assert.equal(gtmPlan.allocateBudget({ budgetGbp: 0, model: "service" }).totalGbp, null);
+  assert.equal(gtmPlan.allocateBudget({ budgetGbp: -50, model: "service" }).totalGbp, null);
+});
+
+test("gtm doc: a fifth is held back, and month one barely spends", () => {
+  const b = gtmPlan.allocateBudget({ budgetGbp: 1000, model: "physical_product" });
+  const held = b.lines.filter((l) => l.phase === "Held back").reduce((a, l) => a + l.amount, 0);
+  assert.equal(held, 200, "the reserve is not a fifth — freight and duty land after the quote");
+
+  const monthOne = b.lines.filter((l) => l.phase === "Days 1–30").reduce((a, l) => a + l.sharePct, 0);
+  const monthThree = b.lines.filter((l) => l.phase === "Days 61–90").reduce((a, l) => a + l.sharePct, 0);
+  assert.ok(monthOne <= 30, "month one spends too much — the first month buys evidence, and evidence comes from conversations");
+  assert.ok(monthThree >= 20, "nothing is left to scale the channel that worked");
+
+  // A service has no stock, so its split must not pretend it does.
+  const svc = gtmPlan.allocateBudget({ budgetGbp: 1000, model: "service" });
+  assert.ok(!svc.lines.some((l) => /stock|wholesale/i.test(l.item)), "a service was budgeted for stock it will never buy");
+});
+
+test("gtm doc: the test cap comes from the guardrails, not a second opinion", async () => {
+  const rails = await import("../src/backend/paid-guardrails.ts");
+  const b = gtmPlan.allocateBudget({ budgetGbp: 1000, model: "service" });
+  const test = b.lines.find((l) => /Channel tests/i.test(l.item));
+  assert.match(test.item, new RegExp(String(rails.DEFAULT_GUARDRAILS.maxTestSpendGbp)),
+    "the plan quotes its own test cap instead of the one paid-guardrails.ts already owns");
+  assert.ok(b.rules.some((r) => new RegExp(String(rails.DEFAULT_GUARDRAILS.maxTestSpendGbp)).test(r)));
+});
+
+test("gtm doc: the minimum viable budget is computed from what the plan asks you to do", () => {
+  const physical = gtmPlan.allocateBudget({ model: "physical_product" });
+  const service = gtmPlan.allocateBudget({ model: "service" });
+  assert.ok(physical.minimumViableGbp > service.minimumViableGbp,
+    "a product business and a service need the same floor, which cannot be true — one of them buys stock");
+  assert.match(service.minimumNote, /month one costs nothing but hours/i,
+    "the floor is presented as a barrier to starting rather than as the cost of month two");
+});
+
+test("gtm doc: locking a city makes every instruction concrete", () => {
+  const locked = gtmPlan.lockLaunchCity("Birmingham", "physical_product");
+  assert.equal(locked.locked, true);
+  assert.equal(locked.city, "Birmingham");
+  assert.ok(locked.localMoves.length >= 4);
+  for (const m of locked.localMoves) {
+    assert.match(m, /Birmingham/, `a "local move" that does not name the city is not local: ${m}`);
+  }
+  assert.ok(locked.secondCityWhen.some((s) => /NOT when the first city feels slow/i.test(s)),
+    "nothing warns against opening a second city to escape a first one that is not working");
+
+  // Unlocked must say so loudly rather than quietly writing "your area".
+  const open = gtmPlan.lockLaunchCity("", "service");
+  assert.equal(open.locked, false);
+  assert.match(open.why, /most expensive gap/i);
+  assert.equal(open.localMoves.length, 1, "unlocked, it still pretends to give local instructions");
+});
+
+test("gtm doc: the document contains every section, with nothing dropped", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM({ launchCity: "Birmingham", budgetGbp: 1500, priceGbp: 25, unitCostGbp: 9 }));
+  const md = gtmPlan.toMarkdown(plan, { generatedOn: "2026-08-17" });
+
+  assert.match(md, /^# GO-TO-MARKET — Evandeli/m, "the document is not titled for what it is");
+  for (const heading of [
+    "1. Launch city", "2. The budget", "3. The ninety days", "4. Suppliers and sourcing",
+    "5. Who buys first", "6. The first 100", "7. The acquisition loop",
+    "8. Unit economics", "9. What kills this", "10. Run it here",
+    "11. What this plan does not claim",
+  ]) {
+    assert.ok(md.includes(heading), `the download is missing "${heading}" — a reader has no way to know something was dropped`);
+  }
+
+  // Every phase, every supplier route, every segment, every risk — not a sample.
+  for (const ph of plan.phases) assert.ok(md.includes(ph.title), `phase "${ph.title}" is missing from the document`);
+  for (const r of plan.suppliers.routes) assert.ok(md.includes(r.route), `supplier route "${r.route}" is missing`);
+  for (const seg of plan.segments) assert.ok(md.includes(seg.name), `segment "${seg.name}" is missing`);
+  for (const risk of plan.risks) assert.ok(md.includes(risk.risk), `risk "${risk.risk}" is missing`);
+  for (const h of plan.honesty) assert.ok(md.includes(h), "an honesty line was trimmed from the document — those are the parts that stop somebody losing money");
+
+  assert.ok(md.length > 6000, `the document is only ${md.length} characters — something was truncated`);
+  assert.match(md, /£1,500/, "the supplied budget does not appear in the document");
+  assert.match(md, /Birmingham/, "the locked city does not appear in the document");
+});
+
+test("gtm doc: the filename says what the file is", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM({ business: "Evan's Deli & Co" }));
+  const name = gtmPlan.documentFilename(plan);
+  assert.match(name, /^GO-TO-MARKET-/, "the download is not named for what it is");
+  assert.match(name, /\.md$/);
+  assert.ok(!/[^A-Za-z0-9.\-]/.test(name), `the filename carries characters a filesystem will mangle: ${name}`);
+});
+
+test("gtm doc: the document and the screen come from one function", () => {
+  // A client-side exporter is the version that silently drops the risks a month
+  // after somebody adds a section.
+  const route = readFileSync(new URL("../src/app/api/go-to-market/route.ts", import.meta.url), "utf8");
+  assert.match(route, /toMarkdown\(plan/, "the download is not generated from the same plan the screen renders");
+  assert.match(route, /Content-Disposition/, "the response is not served as a file");
+  assert.match(route, /attachment; filename=/);
+
+  const page = readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /\/api\/go-to-market/, "the page assembles the document in the browser instead of asking the server");
+});
+
+test("gtm doc: a close rate typed as a percentage is not read as a fraction", () => {
+  // Somebody typing "20" meaning 20% would otherwise produce a funnel claiming
+  // five conversations for a hundred customers.
+  const route = readFileSync(new URL("../src/app/api/go-to-market/route.ts", import.meta.url), "utf8");
+  assert.match(route, /rawRate > 1 && rawRate <= 100 \? rawRate \/ 100/,
+    "a close rate typed as 20 would be read as 2,000% and the whole funnel below it would be nonsense");
+});
+
+test("gtm doc: the city and the money reach the on-screen plan too", async () => {
+  const search = await import("../src/backend/search.ts");
+  const report = await search.discoverOpportunity({
+    niche: "family platters", location: "Birmingham", model: "physical_product",
+    launchCity: "Birmingham", budgetGbp: 1500, priceGbp: 25, unitCostGbp: 9,
+  });
+  assert.equal(report.gtm.launchCity.locked, true, "the city was collected and never reached the plan");
+  assert.equal(report.gtm.budget.totalGbp, 1500, "the budget was collected and never reached the plan");
+  assert.match(report.gtm.economics.find((e) => e.line === "Gross margin per sale").value, /£16/,
+    "price and cost were collected and the margin was still not computed");
+
+  const routeSrc = readFileSync(new URL("../src/app/api/search/route.ts", import.meta.url), "utf8");
+  assert.match(routeSrc, /launchCity: str\("launchCity"\)/, "the search route drops the launch city");
+  assert.match(routeSrc, /budgetGbp: money\(body\.budgetGbp\)/, "the search route drops the budget");
 });

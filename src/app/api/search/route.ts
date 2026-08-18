@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, discoverOpportunity, findLocalLeads, keywordResearch, type SearchType } from "@/backend/search";
 import { parseBusinessModel } from "@/backend/go-to-market";
+
+/** A figure typed by a person: "£1,500" and "1500" are the same number. */
+const money = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^\d.-]/g, "")) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { marketLocation } from "@/backend/brand-market";
 import { meterAction } from "@/backend/wallet";
@@ -65,6 +71,10 @@ export async function POST(req: NextRequest) {
       location: await geo(str("location")),
       currency: str("currency"),
       model: parseBusinessModel(body.model),
+      launchCity: str("launchCity") || undefined,
+      budgetGbp: money(body.budgetGbp),
+      priceGbp: money(body.priceGbp),
+      unitCostGbp: money(body.unitCostGbp),
     }));
   }
   if (action === "leads") {

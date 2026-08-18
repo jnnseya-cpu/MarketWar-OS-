@@ -35,6 +35,9 @@ if (typeof window !== "undefined") {
 // it is not a strategy.
 
 import { siteUrl } from "@/shared/site";
+// The test cap comes from the module that already owns "how much may be risked
+// proving something" rather than being a second opinion on the same question.
+import { DEFAULT_GUARDRAILS } from "@/backend/paid-guardrails";
 
 export type GtmInput = {
   business: string;
@@ -42,6 +45,15 @@ export type GtmInput = {
   offer: string;
   model: BusinessModel;
   location?: string;
+  /**
+   * THE ONE CITY THIS LAUNCHES IN.
+   *
+   * Separate from `location` on purpose. A plan written for "the UK" is a plan
+   * with no supplier to call, no group to post in and no Google Business
+   * Profile to claim — every concrete instruction dissolves into a category.
+   * Locking one city is the difference between a document and a decision.
+   */
+  launchCity?: string;
   currency?: string;
   /** Unit price, when known. Drives the arithmetic rather than being decoration. */
   priceGbp?: number;
@@ -92,11 +104,44 @@ export type FunnelMath = {
   note: string;
 };
 
+export type BudgetLine = {
+  phase: "Days 1–30" | "Days 31–60" | "Days 61–90" | "Held back";
+  item: string;
+  /** Pounds, when a budget was supplied. Null when it can only be a share. */
+  amount: number | null;
+  /** The share of the total this line takes. Always known, budget or not. */
+  sharePct: number;
+  why: string;
+};
+
+export type Budget = {
+  supplied: boolean;
+  totalGbp: number | null;
+  currency: string;
+  lines: BudgetLine[];
+  /** What this plan genuinely needs to run, computed from what it asks you to do. */
+  minimumViableGbp: number;
+  minimumNote: string;
+  rules: string[];
+  note: string;
+};
+
+export type LaunchCity = {
+  city: string;
+  locked: boolean;
+  why: string;
+  /** What has to be true before a second city is opened. Not a date. */
+  secondCityWhen: string[];
+  localMoves: string[];
+};
+
 export type GtmPlan = {
   business: string;
   headline: string;
   /** The one sentence the whole plan serves. */
   wedge: string;
+  launchCity: LaunchCity;
+  budget: Budget;
   phases: Phase[];
   suppliers: { applicable: boolean; routes: SupplierRoute[]; diligence: string[]; terms: string[]; note: string };
   segments: Segment[];
@@ -236,12 +281,151 @@ export function firstHundredMath(input: { target?: number; observedCloseRate?: n
 }
 
 // ---------------------------------------------------------------------------
+// The money — dividing a real number, never inventing one
+// ---------------------------------------------------------------------------
+
+/**
+ * The budget, allocated.
+ *
+ * THE LINE THIS WALKS. A go-to-market document is asked for "real budget
+ * figures" and the dishonest way to give them is to write "£2,000 launch
+ * budget" over a business whose owner never said they had £2,000. That is a
+ * number invented for somebody else to spend.
+ *
+ * So: if a budget is supplied, this DIVIDES IT — real pounds, on real line
+ * items, adding to exactly what was given. If none is supplied, every line
+ * still carries its share as a percentage, and the plan says supply the number
+ * and these become pounds. Either way nothing here is conjured.
+ *
+ * THE SHAPE OF THE SPLIT IS AN ARGUMENT, NOT A CONVENTION:
+ *
+ *   • Days 1–30 spend almost nothing on advertising, deliberately. The first
+ *     month buys evidence, and evidence comes from conversations. Paid
+ *     acquisition against an unproven offer funds your own education.
+ *   • Days 31–60 is the only genuine test spend, capped per channel at the same
+ *     figure `paid-guardrails.ts` uses, because that module already owns the
+ *     question of how much may be risked proving something.
+ *   • Days 61–90 is the largest share and it is CONDITIONAL. It is only spent
+ *     behind a channel that produced customers twice.
+ *   • A fifth is HELD BACK and never allocated. The first order always costs
+ *     more than the quote once freight and duty land, and running out of money
+ *     in week ten is what kills a business that was working.
+ */
+export function allocateBudget(input: {
+  budgetGbp?: number;
+  model: BusinessModel;
+  currency?: string;
+}): Budget {
+  const cur = input.currency || "£";
+  const total = Number.isFinite(input.budgetGbp) && (input.budgetGbp as number) > 0
+    ? Math.round(input.budgetGbp as number)
+    : null;
+  const physical = input.model === "physical_product";
+  const testCap = DEFAULT_GUARDRAILS.maxTestSpendGbp;
+
+  // Shares. They add to 100 and the reserve is the last thing touched.
+  const shape: { phase: BudgetLine["phase"]; item: string; sharePct: number; why: string }[] = physical
+    ? [
+        { phase: "Days 1–30", item: "First stock — smallest wholesale order you can sell by hand", sharePct: 25, why: "Twelve units sold to ten people teaches you more than three months of research, and costs less than the research." },
+        { phase: "Days 1–30", item: "Samples, packaging, and getting the thing photographed properly", sharePct: 5, why: "One good photograph outsells a month of adjectives, and you only need one." },
+        { phase: "Days 31–60", item: `Channel tests — no more than ${cur}${testCap} on any single one`, sharePct: 20, why: "Three channels tested properly beats seven gestures, and a cap per channel is what stops one of them quietly eating the month." },
+        { phase: "Days 31–60", item: "Reorder of whatever actually sold", sharePct: 10, why: "Being out of stock in the month it starts working is the most expensive kind of caution." },
+        { phase: "Days 61–90", item: "Scaling the ONE channel that produced customers twice", sharePct: 20, why: "Conditional. If no channel has produced twice, this is not spent — it is held." },
+        { phase: "Held back", item: "Untouched reserve", sharePct: 20, why: "Freight and duty land after the quote, and running out in week ten kills a business that was working." },
+      ]
+    : [
+        { phase: "Days 1–30", item: "Domain, one landing page, and the tools to take a booking or a payment", sharePct: 10, why: "One page, one offer, one button. A five-page site delays you three weeks and converts no better." },
+        { phase: "Days 1–30", item: "Getting in front of people — travel, coffees, a stall, a local event", sharePct: 10, why: "The first customers come from conversations, and conversations have a cost that is not advertising." },
+        { phase: "Days 31–60", item: `Channel tests — no more than ${cur}${testCap} on any single one`, sharePct: 30, why: "The only genuine test spend in the ninety days. Capped per channel so one cannot quietly eat the month." },
+        { phase: "Days 61–90", item: "Scaling the ONE channel that produced customers twice", sharePct: 30, why: "Conditional. If no channel has produced twice, this is not spent — it is held." },
+        { phase: "Held back", item: "Untouched reserve", sharePct: 20, why: "Something always costs more than expected, and running out in week ten kills a business that was working." },
+      ];
+
+  // Pence-exact: the last allocated line takes the rounding so the column adds
+  // to the number that was supplied, not to something near it.
+  const lines: BudgetLine[] = shape.map((l) => ({ ...l, amount: total === null ? null : Math.floor((total * l.sharePct) / 100) }));
+  if (total !== null) {
+    const allocated = lines.reduce((a, l) => a + (l.amount ?? 0), 0);
+    const drift = total - allocated;
+    if (drift !== 0) {
+      const last = lines[lines.length - 1];
+      last.amount = (last.amount ?? 0) + drift;
+    }
+  }
+
+  // WHAT THE PLAN ACTUALLY NEEDS, computed from what it asks you to do rather
+  // than from a figure somebody thought sounded right.
+  const minimum = physical
+    ? Math.round(120 + testCap)   // a smallest wholesale order + one channel test
+    : Math.round(30 + testCap);   // a domain and a page + one channel test
+  const minimumNote = physical
+    ? `${cur}${minimum} is the floor this plan runs on: roughly ${cur}120 for a smallest-possible wholesale order you can sell by hand, plus ${cur}${testCap} for one channel test in month two. Below that you can still do all of month one — the conversations, the reviews, the page — for nothing.`
+    : `${cur}${minimum} is the floor this plan runs on: about ${cur}30 for a domain and a page, plus ${cur}${testCap} for one channel test in month two. Month one costs nothing but hours, so a smaller number is not a blocker to starting.`;
+
+  return {
+    supplied: total !== null,
+    totalGbp: total,
+    currency: cur,
+    lines,
+    minimumViableGbp: minimum,
+    minimumNote,
+    rules: [
+      `Nothing goes on paid acquisition until an offer has converted for free. Paid amplifies what is there, including nothing.`,
+      `No single channel test exceeds ${cur}${testCap} before it has produced a customer.`,
+      `The reserve is not a rainy-day fund, it is the money you have already spent and do not know it yet — freight, duty, the reprint, the thing that broke.`,
+      `Day 61–90 money is CONDITIONAL on a channel producing customers twice. No winner, no spend.`,
+      `When cost per customer exceeds your gross margin with no measured repeat purchase, stop — the answer is the offer, not more budget.`,
+    ],
+    note: total === null
+      ? `No budget was supplied, so these are shares rather than pounds — enter what you can actually put in and every line becomes a real figure. That is deliberate: writing a launch budget for somebody who never named one is a number invented for them to spend.`
+      : `${cur}${total.toLocaleString()} divided across ninety days. The column adds to exactly what you supplied, and a fifth of it is never allocated.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// One city
+// ---------------------------------------------------------------------------
+
+export function lockLaunchCity(city: string | undefined, model: BusinessModel): LaunchCity {
+  const named = (city || "").trim();
+  const c = named || "one city you can reach in an hour";
+  return {
+    city: c,
+    locked: Boolean(named),
+    why: named
+      ? `Everything in this plan is written for ${named} and nowhere else. One city means a real supplier to call, a real group to post in, a real Google Business Profile to claim and real people who can meet you — and it means the reviews, the referrals and the local search all compound in the same place instead of being spread thin across a map.`
+      : `No city is locked, and that is the single most expensive gap in this plan. "Nationwide" has no supplier to call, no group to post in and no profile to claim — every concrete instruction below dissolves into a category. Name the city you can reach in an hour and the plan becomes a set of things to do on Monday.`,
+    secondCityWhen: [
+      "The first city has produced customers from one channel twice, at a cost you can state in pounds.",
+      "Delivery works without you personally being in the room for every one.",
+      "You could stop marketing for a fortnight and still take orders — that is what \"established\" means, and it is the only honest signal to expand.",
+      "NOT when the first city feels slow. A second city does not fix a first city that is not working; it gives you two that are not working.",
+    ],
+    localMoves: named
+      ? [
+          `Claim and complete the Google Business Profile for ${named} — photographs, hours, service area, every field.`,
+          `Join the two or three ${named} groups where your buyers already complain about this, and answer questions for a month before mentioning what you sell.`,
+          `Find the ${named} businesses with the same customers and a different product. One conversation can put you in front of hundreds.`,
+          model === "physical_product"
+            ? `Search the trade directories for wholesalers within reach of ${named} — a supplier you can drive to solves problems a supplier you email cannot.`
+            : `Do the first three jobs in ${named} in person even if the work is remote. What they say while you are in the room is the product.`,
+          `Ask every ${named} customer for a review the same day, and for one introduction at the moment you deliver.`,
+        ]
+      : ["Name the city first. Every move here depends on it."],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The plan
 // ---------------------------------------------------------------------------
 
 export function buildGtmPlan(input: GtmInput): GtmPlan {
   const cur = input.currency || "£";
-  const where = (input.location || "your area").trim();
+  // The LOCKED CITY wins over the loose location. A plan that says "your area"
+  // in one paragraph and "Birmingham" in the next is two plans.
+  const city = lockLaunchCity(input.launchCity || input.location, input.model);
+  const where = city.locked ? city.city : (input.location || "your area").trim();
+  const budget = allocateBudget({ budgetGbp: input.budgetGbp, model: input.model, currency: cur });
   const business = (input.business || "your business").trim();
   const offer = (input.offer || "your offer").trim();
   const physical = input.model === "physical_product";
@@ -387,6 +571,8 @@ export function buildGtmPlan(input: GtmInput): GtmPlan {
 
   return {
     business,
+    launchCity: city,
+    budget,
     headline: `${business}: sell it by hand for 30 days, find the one channel that repeats by day 60, and spend only behind what worked by day 90.`,
     wedge: `Win in ${where} on the specific thing the incumbents are getting wrong — named, guaranteed against, and proved by three reviews before you spend a pound on advertising.`,
     phases,
@@ -457,6 +643,168 @@ export function buildGtmPlan(input: GtmInput): GtmPlan {
       "Timings assume you act every week. A 90-day plan worked at weekends is a 250-day plan, and that is fine as long as you know which one you are running.",
     ],
   };
+}
+
+// ---------------------------------------------------------------------------
+// The document
+// ---------------------------------------------------------------------------
+
+/**
+ * The whole plan as a file somebody can keep.
+ *
+ * Markdown rather than PDF, and that is a decision rather than a shortcut: this
+ * document is meant to be EDITED. The founder will change the city, argue with
+ * the budget split and add the supplier they actually found, and a PDF makes
+ * every one of those a retype. Markdown opens in anything, pastes into Docs and
+ * Word with the headings intact, and prints.
+ *
+ * EVERY SECTION IS HERE. A download that quietly drops the risks or the honesty
+ * block because they did not fit is worse than no download — the reader has no
+ * way to know something is missing, and the parts most likely to be trimmed are
+ * the parts that stop them losing money.
+ */
+export function toMarkdown(plan: GtmPlan, opts: { generatedOn?: string } = {}): string {
+  const cur = plan.budget.currency;
+  const L: string[] = [];
+  const h = (level: number, text: string) => L.push("", `${"#".repeat(level)} ${text}`, "");
+  const p = (text: string) => L.push(text, "");
+  const bullets = (items: string[]) => { for (const i of items) L.push(`- ${i}`); L.push(""); };
+
+  L.push(`# GO-TO-MARKET — ${plan.business}`);
+  L.push("");
+  p(`**${plan.headline}**`);
+  p(plan.wedge);
+  if (opts.generatedOn) p(`_Prepared ${opts.generatedOn}. Every figure below is either supplied by you or computed from something supplied by you._`);
+
+  // --- 1. City -------------------------------------------------------------
+  h(2, `1. Launch city — ${plan.launchCity.city}`);
+  p(plan.launchCity.locked ? `**Locked: ${plan.launchCity.city}.**` : "**Not locked yet — read this first.**");
+  p(plan.launchCity.why);
+  h(3, "What to do here specifically");
+  bullets(plan.launchCity.localMoves);
+  h(3, "A second city only when");
+  bullets(plan.launchCity.secondCityWhen);
+
+  // --- 2. Budget -----------------------------------------------------------
+  h(2, "2. The budget");
+  p(plan.budget.note);
+  L.push(`| Phase | Line | Share | ${plan.budget.supplied ? "Amount" : "Amount (supply a budget)"} |`);
+  L.push("|---|---|---:|---:|");
+  for (const line of plan.budget.lines) {
+    L.push(`| ${line.phase} | ${line.item} | ${line.sharePct}% | ${line.amount === null ? "—" : `${cur}${line.amount.toLocaleString()}`} |`);
+  }
+  if (plan.budget.supplied && plan.budget.totalGbp !== null) {
+    L.push(`| **Total** | | **100%** | **${cur}${plan.budget.totalGbp.toLocaleString()}** |`);
+  }
+  L.push("");
+  for (const line of plan.budget.lines) L.push(`- **${line.item}** — ${line.why}`);
+  L.push("");
+  h(3, "The floor");
+  p(plan.budget.minimumNote);
+  h(3, "Rules the money obeys");
+  bullets(plan.budget.rules);
+
+  // --- 3. The 90 days ------------------------------------------------------
+  h(2, "3. The ninety days");
+  for (const phase of plan.phases) {
+    h(3, `${phase.window} — ${phase.title}`);
+    p(`**Done when:** ${phase.exitCriterion}`);
+    phase.actions.forEach((a, i) => {
+      L.push(`${i + 1}. **${a.do}**`);
+      L.push(`   ${a.why}`);
+      if (a.tool) L.push(`   → ${a.tool}`);
+    });
+    L.push("");
+    p(`**Count at the end:** ${phase.measure.join(" · ")}`);
+  }
+
+  // --- 4. Suppliers --------------------------------------------------------
+  h(2, "4. Suppliers and sourcing");
+  p(plan.suppliers.note);
+  if (plan.suppliers.applicable) {
+    L.push("| Route | Best for | MOQ | Lead time |");
+    L.push("|---|---|---|---|");
+    for (const r of plan.suppliers.routes) L.push(`| ${r.route} | ${r.bestFor} | ${r.typicalMoq} | ${r.leadTime} |`);
+    L.push("");
+    for (const r of plan.suppliers.routes) {
+      h(3, r.route);
+      p(`**Risk:** ${r.risk}`);
+      p(`**First move:** ${r.firstMove}`);
+    }
+    h(3, "Before you place an order");
+    bullets(plan.suppliers.diligence);
+    h(3, "Terms");
+    bullets(plan.suppliers.terms);
+  }
+
+  // --- 5. Segments ---------------------------------------------------------
+  h(2, "5. Who buys first");
+  for (const seg of plan.segments) {
+    h(3, seg.name);
+    p(seg.who);
+    p(`**Why they are first:** ${seg.whyFirst}`);
+    p(`**Where they are:** ${seg.whereTheyAre}`);
+    p(`**"${seg.objection}"** → ${seg.answer}`);
+  }
+
+  // --- 6. First 100 --------------------------------------------------------
+  h(2, `6. The first ${plan.firstHundred.math.target} customers`);
+  p(plan.firstHundred.math.note);
+  if (plan.firstHundred.math.conversationsNeeded !== null) {
+    p(`**${plan.firstHundred.math.conversationsNeeded.toLocaleString()} conversations · ${plan.firstHundred.math.weeklyConversations} a week for 12 weeks.**`);
+  }
+  h(3, "In this order");
+  bullets(plan.firstHundred.sequence);
+  h(3, "Channels");
+  L.push("| Channel | Play | Cost | Realistically |");
+  L.push("|---|---|---|---|");
+  for (const c of plan.firstHundred.channels) L.push(`| ${c.channel} | ${c.play} | ${c.cost} | ${c.realistic} |`);
+  L.push("");
+
+  // --- 7. Acquisition ------------------------------------------------------
+  h(2, "7. The acquisition loop");
+  plan.acquisition.loop.forEach((step, i) => L.push(`${i + 1}. ${step}`));
+  L.push("");
+  h(3, "Keeping it cheap");
+  bullets(plan.acquisition.keepCost);
+  h(3, "When to stop");
+  bullets(plan.acquisition.killCriteria);
+
+  // --- 8. Economics --------------------------------------------------------
+  h(2, "8. Unit economics");
+  L.push("| Line | Value | What it means |");
+  L.push("|---|---|---|");
+  for (const e of plan.economics) L.push(`| ${e.line} | ${e.value} | ${e.how} |`);
+  L.push("");
+
+  // --- 9. Risks ------------------------------------------------------------
+  h(2, "9. What kills this");
+  for (const r of plan.risks) {
+    L.push(`- **${r.risk}**`);
+    L.push(`  - Tell: ${r.tell}`);
+    L.push(`  - Move: ${r.move}`);
+  }
+  L.push("");
+
+  // --- 10. Stack -----------------------------------------------------------
+  h(2, "10. Run it here");
+  L.push("| Job | Where | Why |");
+  L.push("|---|---|---|");
+  for (const m of plan.marketing.stack) L.push(`| ${m.job} | [${m.where}](${m.url}) | ${m.why} |`);
+  L.push("");
+  p(plan.marketing.note);
+
+  // --- 11. Honesty ---------------------------------------------------------
+  h(2, "11. What this plan does not claim");
+  bullets(plan.honesty);
+
+  return L.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
+/** The filename. Named for what it is, not for a timestamp nobody reads. */
+export function documentFilename(plan: GtmPlan): string {
+  const slug = plan.business.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "plan";
+  return `GO-TO-MARKET-${slug}.md`;
 }
 
 export const GTM_DOCTRINE = [

@@ -29,6 +29,12 @@ export default function DiscoverPage() {
   // Asked, not assumed: a service has no supply chain, and defaulting everybody
   // to "product" would hand a consultant five supplier routes they cannot use.
   const [model, setModel] = useState<"physical_product" | "service" | "digital">("service");
+  // The two the plan needs to stop being generic: one city, and real money.
+  const [launchCity, setLaunchCity] = useState("");
+  const [budgetGbp, setBudgetGbp] = useState("");
+  const [priceGbp, setPriceGbp] = useState("");
+  const [unitCostGbp, setUnitCostGbp] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [leads, setLeads] = useState<LeadReport | null>(null);
   const [busy, setBusy] = useState<"" | "opp" | "leads">("");
@@ -39,7 +45,7 @@ export default function DiscoverPage() {
       const res = await authedFetch("/api/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(kind === "opp"
-          ? { action: "opportunity", niche, location, model }
+          ? { action: "opportunity", niche, location, model, launchCity, budgetGbp, priceGbp, unitCostGbp }
           : { action: "leads", category: niche, location }),
       });
       const data = await res.json();
@@ -79,6 +85,34 @@ export default function DiscoverPage() {
             It changes the plan materially — only a physical product has suppliers to source.
           </p>
         </div>
+
+        {/* THE TWO FIELDS THAT STOP THE PLAN BEING GENERIC.
+            A plan for "the UK" has no supplier to call and no profile to claim.
+            A budget nobody supplied cannot be divided into real figures — and
+            inventing one would be writing somebody else's cheque. Both are
+            optional and the plan says plainly what it cannot do without them. */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="label">Launch city</label>
+            <input className="input" value={launchCity} onChange={(e) => setLaunchCity(e.target.value)} placeholder="Birmingham" />
+            <p className="mt-1 text-[11px] text-slate-600">Locks the plan to one place.</p>
+          </div>
+          <div>
+            <label className="label">Budget (£)</label>
+            <input className="input" inputMode="decimal" value={budgetGbp} onChange={(e) => setBudgetGbp(e.target.value)} placeholder="1500" />
+            <p className="mt-1 text-[11px] text-slate-600">Divided across 90 days.</p>
+          </div>
+          <div>
+            <label className="label">Price (£)</label>
+            <input className="input" inputMode="decimal" value={priceGbp} onChange={(e) => setPriceGbp(e.target.value)} placeholder="25" />
+            <p className="mt-1 text-[11px] text-slate-600">What one customer pays.</p>
+          </div>
+          <div>
+            <label className="label">Unit cost (£)</label>
+            <input className="input" inputMode="decimal" value={unitCostGbp} onChange={(e) => setUnitCostGbp(e.target.value)} placeholder="9" />
+            <p className="mt-1 text-[11px] text-slate-600">Landed, not the quote.</p>
+          </div>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => run("opp")} disabled={busy === "opp"}>
             {busy === "opp" ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning…</> : <><Radar className="h-4 w-4" /> Opportunity Radar</>}
@@ -110,7 +144,36 @@ export default function DiscoverPage() {
           the last six inches were missing, for the fourth time this month. */}
       {opp?.gtm && (
         <div className="mb-6">
-          <GtmPlanView plan={opp.gtm} />
+          <GtmPlanView
+            plan={opp.gtm}
+            downloading={downloading}
+            onDownload={async () => {
+              setDownloading(true);
+              try {
+                // Fetched from the server rather than assembled here, so the
+                // document and the screen come from one function and a section
+                // added to one cannot go missing from the other.
+                const res = await authedFetch("/api/go-to-market", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    business: niche, offer: niche, model, launchCity, location,
+                    budgetGbp, priceGbp, unitCostGbp, format: "markdown",
+                  }),
+                });
+                if (!res.ok) return;
+                const text = await res.text();
+                const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1]
+                  || `GO-TO-MARKET-${niche.replace(/\W+/g, "-").toLowerCase()}.md`;
+                const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+                const a = document.createElement("a");
+                a.href = url; a.download = name;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 10_000);
+              } finally {
+                setDownloading(false);
+              }
+            }}
+          />
         </div>
       )}
 

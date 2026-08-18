@@ -21,7 +21,7 @@
 // repository learned the expensive way.
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, CalendarDays, ChevronDown, ChevronUp, Target, Users, Wrench } from "lucide-react";
+import { AlertTriangle, Boxes, CalendarDays, ChevronDown, ChevronUp, Download, Loader2, MapPin, PiggyBank, Target, Users, Wrench } from "lucide-react";
 import CopyOut from "@/components/CopyOut";
 
 type Phase = {
@@ -31,8 +31,17 @@ type Phase = {
 };
 type SupplierRoute = { route: string; bestFor: string; typicalMoq: string; leadTime: string; risk: string; firstMove: string };
 type Segment = { name: string; who: string; whyFirst: string; whereTheyAre: string; objection: string; answer: string };
+type BudgetLine = { phase: string; item: string; amount: number | null; sharePct: number; why: string };
+type Budget = {
+  supplied: boolean; totalGbp: number | null; currency: string;
+  lines: BudgetLine[]; minimumViableGbp: number; minimumNote: string; rules: string[]; note: string;
+};
+type LaunchCity = { city: string; locked: boolean; why: string; secondCityWhen: string[]; localMoves: string[] };
+
 export type GtmPlan = {
   business: string; headline: string; wedge: string;
+  launchCity: LaunchCity;
+  budget: Budget;
   phases: Phase[];
   suppliers: { applicable: boolean; routes: SupplierRoute[]; diligence: string[]; terms: string[]; note: string };
   segments: Segment[];
@@ -69,7 +78,14 @@ function Section({ icon: Icon, title, subtitle, children, defaultOpen = false }:
 
 /** The plan as plain text, so it can leave the screen and go in a document. */
 function asText(p: GtmPlan): string {
+  const cur = p.budget.currency;
   const L: string[] = [`${p.business.toUpperCase()} — GO TO MARKET`, "", p.headline, "", `WEDGE: ${p.wedge}`, ""];
+  L.push(`LAUNCH CITY: ${p.launchCity.city}${p.launchCity.locked ? "" : " (NOT LOCKED)"}`, p.launchCity.why, "");
+  if (p.launchCity.locked) L.push(...p.launchCity.localMoves.map((m) => `  - ${m}`), "");
+  L.push("A SECOND CITY ONLY WHEN", ...p.launchCity.secondCityWhen.map((m) => `  - ${m}`), "");
+  L.push("BUDGET", p.budget.note, "");
+  for (const l of p.budget.lines) L.push(`  ${l.phase} · ${l.item} — ${l.sharePct}%${l.amount === null ? "" : ` (${cur}${l.amount.toLocaleString()})`}`, `    ${l.why}`);
+  L.push("", `  Floor: ${p.budget.minimumNote}`, "", ...p.budget.rules.map((r) => `  - ${r}`), "");
   for (const ph of p.phases) {
     L.push(`${ph.window.toUpperCase()} — ${ph.title}`, `Done when: ${ph.exitCriterion}`, "");
     ph.actions.forEach((a, i) => L.push(`  ${i + 1}. ${a.do}`, `     Why: ${a.why}`, ...(a.tool ? [`     ${a.tool}`] : [])));
@@ -100,8 +116,11 @@ function asText(p: GtmPlan): string {
   return L.join("\n");
 }
 
-export default function GtmPlanView({ plan }: { plan: GtmPlan }) {
+export default function GtmPlanView({
+  plan, onDownload, downloading,
+}: { plan: GtmPlan; onDownload?: () => void; downloading?: boolean }) {
   const math = plan.firstHundred.math;
+  const cur = plan.budget.currency;
 
   return (
     <div className="card p-6">
@@ -111,7 +130,20 @@ export default function GtmPlanView({ plan }: { plan: GtmPlan }) {
           <p className="font-display text-base font-bold leading-snug text-white">{plan.headline}</p>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{plan.wedge}</p>
         </div>
-        <CopyOut text={asText(plan)} filename={`${plan.business.replace(/\W+/g, "-").toLowerCase()}-go-to-market.txt`} label="Copy the plan" />
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {onDownload && (
+            <button
+              type="button"
+              onClick={onDownload}
+              disabled={downloading}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-ink-950 disabled:opacity-50"
+            >
+              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Download GO-TO-MARKET
+            </button>
+          )}
+          <CopyOut text={asText(plan)} label="Copy" compact />
+        </div>
       </div>
 
       {/* THE UNFINISHED ARITHMETIC, IN FRONT RATHER THAN HIDDEN.
@@ -134,6 +166,69 @@ export default function GtmPlanView({ plan }: { plan: GtmPlan }) {
           </>
         )}
       </div>
+
+      <Section
+        icon={MapPin}
+        title={plan.launchCity.locked ? `Launch city — ${plan.launchCity.city}` : "Launch city — not locked"}
+        subtitle={plan.launchCity.locked ? "Everything below is written for this one place" : "The most expensive gap in this plan"}
+        defaultOpen={!plan.launchCity.locked}
+      >
+        <p className={`text-sm leading-relaxed ${plan.launchCity.locked ? "text-slate-400" : "text-amber-100/85"}`}>{plan.launchCity.why}</p>
+        {plan.launchCity.locked && (
+          <>
+            <p className="mb-1.5 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Do these here specifically</p>
+            <ul className="space-y-1">{plan.launchCity.localMoves.map((m) => <li key={m} className="text-xs leading-relaxed text-slate-400">· {m}</li>)}</ul>
+          </>
+        )}
+        <p className="mb-1.5 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">A second city only when</p>
+        <ul className="space-y-1">{plan.launchCity.secondCityWhen.map((m) => <li key={m} className="text-xs leading-relaxed text-slate-400">· {m}</li>)}</ul>
+      </Section>
+
+      <Section
+        icon={PiggyBank}
+        title={plan.budget.supplied && plan.budget.totalGbp !== null ? `Budget — ${cur}${plan.budget.totalGbp.toLocaleString()} across 90 days` : "Budget — shares, until you supply a number"}
+        subtitle={plan.budget.supplied ? "Adds to exactly what you supplied; a fifth is never allocated" : "Nothing here is invented for you to spend"}
+        defaultOpen
+      >
+        <p className={`mb-3 text-sm leading-relaxed ${plan.budget.supplied ? "text-slate-400" : "text-amber-100/85"}`}>{plan.budget.note}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.08] text-slate-500">
+                <th className="pb-1.5 font-semibold">Phase</th>
+                <th className="pb-1.5 font-semibold">Line</th>
+                <th className="pb-1.5 text-right font-semibold">Share</th>
+                <th className="pb-1.5 text-right font-semibold">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.budget.lines.map((l) => (
+                <tr key={l.item} className="border-b border-white/[0.04]">
+                  <td className="py-1.5 pr-2 align-top text-slate-500">{l.phase}</td>
+                  <td className="py-1.5 pr-2 align-top text-slate-300">
+                    {l.item}
+                    <span className="block text-[11px] leading-relaxed text-slate-600">{l.why}</span>
+                  </td>
+                  <td className="py-1.5 pl-2 text-right align-top text-slate-400">{l.sharePct}%</td>
+                  <td className="py-1.5 pl-2 text-right align-top font-semibold text-white">
+                    {l.amount === null ? <span className="text-amber-300">—</span> : `${cur}${l.amount.toLocaleString()}`}
+                  </td>
+                </tr>
+              ))}
+              {plan.budget.supplied && plan.budget.totalGbp !== null && (
+                <tr>
+                  <td className="pt-2 font-semibold text-slate-400" colSpan={2}>Total</td>
+                  <td className="pt-2 text-right font-semibold text-slate-400">100%</td>
+                  <td className="pt-2 text-right font-bold text-emerald-300">{cur}{plan.budget.totalGbp.toLocaleString()}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-slate-400"><span className="font-semibold text-slate-300">The floor:</span> {plan.budget.minimumNote}</p>
+        <p className="mb-1.5 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Rules the money obeys</p>
+        <ul className="space-y-1">{plan.budget.rules.map((r) => <li key={r} className="text-xs leading-relaxed text-slate-400">· {r}</li>)}</ul>
+      </Section>
 
       <Section icon={CalendarDays} title="30 · 60 · 90" subtitle="Each phase ends on something that can be failed" defaultOpen>
         <div className="space-y-4">
