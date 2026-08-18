@@ -16443,3 +16443,47 @@ test("gtm doc: the city and the money reach the on-screen plan too", async () =>
   assert.match(routeSrc, /launchCity: str\("launchCity"\)/, "the search route drops the launch city");
   assert.match(routeSrc, /budgetGbp: money\(body\.budgetGbp\)/, "the search route drops the budget");
 });
+
+test("gtm doc: the printable version carries every section too", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM({ launchCity: "Birmingham", budgetGbp: 1500, priceGbp: 25, unitCostGbp: 9 }));
+  const html = gtmPlan.toHtml(plan, { generatedOn: "2026-08-18" });
+
+  for (const heading of [
+    "1. Launch city", "2. The budget", "3. The ninety days", "4. Suppliers and sourcing",
+    "5. Who buys first", "6. The first 100", "7. The acquisition loop",
+    "8. Unit economics", "9. What kills this", "10. Run it here",
+    "11. What this plan does not claim",
+  ]) {
+    assert.ok(html.includes(heading), `the printable version is missing "${heading}"`);
+  }
+  // The two documents are built from the same plan, so neither may gain a
+  // section the other lacks.
+  const md = gtmPlan.toMarkdown(plan);
+  for (const seg of plan.segments) {
+    assert.ok(html.includes(seg.name) && md.includes(seg.name), `"${seg.name}" is in one document and not the other`);
+  }
+  for (const risk of plan.risks) assert.ok(html.includes(risk.risk), `risk "${risk.risk}" is missing from the printable version`);
+  for (const h of plan.honesty) assert.ok(html.includes(h), "an honesty line was trimmed from the printable version");
+
+  assert.match(html, /@page \{ size: A4/, "there is no print stylesheet, so it prints as a web page");
+  assert.match(html, /page-break-inside: avoid/, "tables and phases can be split across a page break mid-row");
+  assert.match(html, /£1,500/, "the supplied budget does not appear in the printable version");
+});
+
+test("gtm doc: the printable version escapes what it renders", () => {
+  // A business name is user input and this document is HTML.
+  const plan = gtmPlan.buildGtmPlan(GTM({ business: '<script>alert(1)</script> & Co', launchCity: "Leeds" }));
+  const html = gtmPlan.toHtml(plan);
+  assert.ok(!html.includes("<script>alert(1)</script>"), "a business name was rendered into the document unescaped");
+  assert.ok(html.includes("&lt;script&gt;"), "the name was dropped rather than escaped");
+  assert.ok(html.includes("&amp; Co"), "an ampersand in a business name breaks the markup");
+});
+
+test("gtm doc: both formats are served, and named for what they are", () => {
+  const route = readFileSync(new URL("../src/app/api/go-to-market/route.ts", import.meta.url), "utf8");
+  assert.match(route, /toHtml\(plan/, "the printable version is not served");
+  assert.match(route, /format"\) === "html"/, "there is no way to ask for the printable version");
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.match(gtmPlan.documentFilename(plan, "html"), /^GO-TO-MARKET-.*\.html$/);
+  assert.match(gtmPlan.documentFilename(plan), /^GO-TO-MARKET-.*\.md$/);
+});

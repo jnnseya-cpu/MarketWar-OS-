@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  buildGtmPlan, toMarkdown, documentFilename, parseBusinessModel, GTM_DOCTRINE,
+  buildGtmPlan, toMarkdown, toHtml, documentFilename, parseBusinessModel, GTM_DOCTRINE,
 } from "@/backend/go-to-market";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 
@@ -11,6 +11,7 @@ import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 //
 //   format "json"     → the plan as data (default)
 //   format "markdown" → the document, as a file the browser saves
+//   format "html"     → the printable version; every browser prints it to PDF
 //
 // The download is served from the SERVER rather than assembled in the browser
 // for one reason: the document and the on-screen plan then come from the same
@@ -64,6 +65,20 @@ export async function POST(req: NextRequest) {
     budgetGbp: num(body.budgetGbp),
     observedCloseRate: closeRate,
   });
+
+  // The printable version. Every browser turns this into a PDF, which is the
+  // format somebody emails to a partner or takes to a bank — and it costs no
+  // dependency and no render service.
+  if (str("format") === "html") {
+    return new NextResponse(toHtml(plan, { generatedOn: new Date().toISOString().slice(0, 10) }), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Disposition": `inline; filename="${documentFilename(plan, "html")}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   if (str("format") === "markdown") {
     const markdown = toMarkdown(plan, { generatedOn: new Date().toISOString().slice(0, 10) });

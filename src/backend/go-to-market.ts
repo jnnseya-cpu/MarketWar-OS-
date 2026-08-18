@@ -801,10 +801,139 @@ export function toMarkdown(plan: GtmPlan, opts: { generatedOn?: string } = {}): 
   return L.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }
 
+/**
+ * The same document as a printable page.
+ *
+ * Markdown is for editing; this is for the version somebody prints, emails to a
+ * partner or takes to a bank. It is built from the SAME plan object rather than
+ * from the markdown, so neither can gain a section the other lacks.
+ *
+ * Print CSS rather than a PDF library on purpose: every browser turns this into
+ * a PDF, it costs no dependency, and the reader can adjust the paper size. The
+ * page breaks are set so a section never starts two lines before the bottom.
+ */
+export function toHtml(plan: GtmPlan, opts: { generatedOn?: string } = {}): string {
+  const cur = plan.budget.currency;
+  const esc = (v: string) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const B = plan.budget;
+
+  const rows = (head: string[], body: string[][]) => `
+    <table><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+
+  const list = (items: string[]) => `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>GO-TO-MARKET — ${esc(plan.business)}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #14181f; margin: 0; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; letter-spacing: -0.3pt; }
+  h2 { font-size: 13pt; margin: 22pt 0 6pt; padding-bottom: 4pt; border-bottom: 1.5pt solid #0f7a52; color: #0f7a52; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 12pt 0 3pt; page-break-after: avoid; }
+  p { margin: 0 0 7pt; }
+  ul, ol { margin: 0 0 8pt; padding-left: 16pt; }
+  li { margin-bottom: 3pt; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9pt; page-break-inside: avoid; }
+  th { text-align: left; border-bottom: 1pt solid #14181f; padding: 4pt 6pt 4pt 0; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.4pt; }
+  td { border-bottom: 0.5pt solid #d7dbe2; padding: 5pt 6pt 5pt 0; vertical-align: top; }
+  td.num, th.num { text-align: right; padding-right: 0; }
+  .lede { font-size: 12pt; font-weight: 700; margin-bottom: 8pt; }
+  .wedge { border-left: 2.5pt solid #0f7a52; padding-left: 10pt; margin: 0 0 12pt; }
+  .meta { color: #5b6472; font-size: 8.5pt; margin-bottom: 16pt; }
+  .why { color: #5b6472; font-size: 9pt; display: block; margin-top: 2pt; }
+  .callout { border: 1pt solid #c9a227; background: #fdf8e8; padding: 8pt 10pt; margin: 8pt 0 12pt; page-break-inside: avoid; }
+  .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+  .phase { border: 0.75pt solid #d7dbe2; padding: 9pt 11pt; margin-bottom: 9pt; page-break-inside: avoid; }
+  .done { background: #f4f6f9; padding: 5pt 8pt; margin: 4pt 0 7pt; font-size: 9.5pt; }
+  .total td { border-top: 1pt solid #14181f; border-bottom: none; font-weight: 700; }
+  a { color: #0f7a52; text-decoration: none; }
+  footer { margin-top: 20pt; padding-top: 8pt; border-top: 0.5pt solid #d7dbe2; color: #5b6472; font-size: 8pt; }
+</style></head><body>
+
+<h1>GO-TO-MARKET</h1>
+<p class="lede">${esc(plan.business)}</p>
+<p class="wedge">${esc(plan.headline)}<br><span class="why">${esc(plan.wedge)}</span></p>
+${opts.generatedOn ? `<p class="meta">Prepared ${esc(opts.generatedOn)}. Every figure below is either supplied by you or computed from something supplied by you — nothing here is a forecast.</p>` : ""}
+
+<h2>1. Launch city — ${esc(plan.launchCity.city)}</h2>
+${plan.launchCity.locked
+  ? `<p><strong>Locked: ${esc(plan.launchCity.city)}.</strong> ${esc(plan.launchCity.why)}</p>`
+  : `<div class="callout"><p><strong>Not locked yet.</strong> ${esc(plan.launchCity.why)}</p></div>`}
+${plan.launchCity.locked ? `<h3>Do these here specifically</h3>${list(plan.launchCity.localMoves)}` : ""}
+<h3>A second city only when</h3>${list(plan.launchCity.secondCityWhen)}
+
+<h2>2. The budget</h2>
+<p>${esc(B.note)}</p>
+${rows(["Phase", "Line", "Share", "Amount"], [
+  ...B.lines.map((l) => [
+    esc(l.phase),
+    `${esc(l.item)}<span class="why">${esc(l.why)}</span>`,
+    `<span class="num">${l.sharePct}%</span>`,
+    `<span class="num">${l.amount === null ? "—" : `${cur}${l.amount.toLocaleString()}`}</span>`,
+  ]),
+  ...(B.supplied && B.totalGbp !== null
+    ? [["<strong>Total</strong>", "", "<strong>100%</strong>", `<strong>${cur}${B.totalGbp.toLocaleString()}</strong>`]]
+    : []),
+])}
+<h3>The floor</h3><p>${esc(B.minimumNote)}</p>
+<h3>Rules the money obeys</h3>${list(B.rules)}
+
+<h2>3. The ninety days</h2>
+${plan.phases.map((ph) => `
+  <div class="phase">
+    <h3>${esc(ph.window)} — ${esc(ph.title)}</h3>
+    <p class="done"><strong>Done when:</strong> ${esc(ph.exitCriterion)}</p>
+    <ol>${ph.actions.map((a) => `<li><strong>${esc(a.do)}</strong><span class="why">${esc(a.why)}</span>${a.tool ? `<span class="why"><a href="${esc(a.tool)}">${esc(a.tool)}</a></span>` : ""}</li>`).join("")}</ol>
+    <p class="why"><strong>Count at the end:</strong> ${esc(ph.measure.join(" · "))}</p>
+  </div>`).join("")}
+
+<h2>4. Suppliers and sourcing</h2>
+<p>${esc(plan.suppliers.note)}</p>
+${plan.suppliers.applicable ? `
+  ${rows(["Route", "Best for", "MOQ", "Lead time"], plan.suppliers.routes.map((r) => [esc(r.route), esc(r.bestFor), esc(r.typicalMoq), esc(r.leadTime)]))}
+  ${plan.suppliers.routes.map((r) => `<h3>${esc(r.route)}</h3><p><strong>Risk:</strong> ${esc(r.risk)}</p><p><strong>First move:</strong> ${esc(r.firstMove)}</p>`).join("")}
+  <h3>Before you place an order</h3>${list(plan.suppliers.diligence)}
+  <h3>Terms</h3>${list(plan.suppliers.terms)}` : ""}
+
+<h2>5. Who buys first</h2>
+${plan.segments.map((s) => `<h3>${esc(s.name)}</h3><p>${esc(s.who)}</p><p><strong>Why they are first:</strong> ${esc(s.whyFirst)}</p><p><strong>Where they are:</strong> ${esc(s.whereTheyAre)}</p><p><strong>&ldquo;${esc(s.objection)}&rdquo;</strong> → ${esc(s.answer)}</p>`).join("")}
+
+<h2>6. The first ${plan.firstHundred.math.target} customers</h2>
+${plan.firstHundred.math.closeRate === null
+  ? `<div class="callout"><p>${esc(plan.firstHundred.math.note)}</p></div>`
+  : `<p><strong>${plan.firstHundred.math.conversationsNeeded?.toLocaleString()} conversations · ${plan.firstHundred.math.weeklyConversations} a week for 12 weeks.</strong></p><p>${esc(plan.firstHundred.math.note)}</p>`}
+<h3>In this order</h3>${list(plan.firstHundred.sequence)}
+${rows(["Channel", "Play", "Cost", "Realistically"], plan.firstHundred.channels.map((c) => [esc(c.channel), esc(c.play), esc(c.cost), esc(c.realistic)]))}
+
+<h2>7. The acquisition loop</h2>
+<ol>${plan.acquisition.loop.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+<h3>Keeping it cheap</h3>${list(plan.acquisition.keepCost)}
+<h3>When to stop</h3>${list(plan.acquisition.killCriteria)}
+
+<h2>8. Unit economics</h2>
+${rows(["Line", "Value", "What it means"], plan.economics.map((e) => [esc(e.line), `<strong>${esc(e.value)}</strong>`, esc(e.how)]))}
+
+<h2>9. What kills this</h2>
+${rows(["Risk", "The tell", "The move"], plan.risks.map((r) => [`<strong>${esc(r.risk)}</strong>`, esc(r.tell), esc(r.move)]))}
+
+<h2>10. Run it here</h2>
+${rows(["Job", "Where", "Why"], plan.marketing.stack.map((m) => [esc(m.job), `<a href="${esc(m.url)}">${esc(m.where)}</a>`, esc(m.why)]))}
+<p>${esc(plan.marketing.note)}</p>
+
+<h2>11. What this plan does not claim</h2>
+<div class="callout">${list(plan.honesty)}</div>
+
+<footer>GO-TO-MARKET — ${esc(plan.business)} · Produced by MarketWar OS. This document contains no forecast of results; every number is supplied by you or computed from one that was.</footer>
+</body></html>`;
+}
+
 /** The filename. Named for what it is, not for a timestamp nobody reads. */
-export function documentFilename(plan: GtmPlan): string {
+export function documentFilename(plan: GtmPlan, ext: "md" | "html" = "md"): string {
   const slug = plan.business.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "plan";
-  return `GO-TO-MARKET-${slug}.md`;
+  return `GO-TO-MARKET-${slug}.${ext}`;
 }
 
 export const GTM_DOCTRINE = [
