@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, discoverOpportunity, findLocalLeads, keywordResearch, type SearchType } from "@/backend/search";
+import { parseBusinessModel } from "@/backend/go-to-market";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { marketLocation } from "@/backend/brand-market";
 import { meterAction } from "@/backend/wallet";
@@ -53,7 +54,18 @@ export async function POST(req: NextRequest) {
   if (action === "opportunity") {
     const niche = str("niche");
     if (!niche) return NextResponse.json({ error: "niche is required" }, { status: 400 });
-    return NextResponse.json(await discoverOpportunity({ niche, location: await geo(str("location")), currency: str("currency") }));
+    // The business model is CARRIED ACROSS, not dropped. The page asks which it
+    // is because it changes the plan materially — only a physical product has
+    // suppliers to source — and a route that quietly defaults everybody to
+    // "service" would hand a product business no supplier routes at all. This
+    // is the codebase's oldest defect shape: a value that exists on one side of
+    // a boundary and never reaches the other.
+    return NextResponse.json(await discoverOpportunity({
+      niche,
+      location: await geo(str("location")),
+      currency: str("currency"),
+      model: parseBusinessModel(body.model),
+    }));
   }
   if (action === "leads") {
     const category = str("category"); const location = await geo(str("location"));

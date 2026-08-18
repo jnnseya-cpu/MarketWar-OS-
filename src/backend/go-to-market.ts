@@ -40,7 +40,7 @@ export type GtmInput = {
   business: string;
   /** What is being sold. The plan is materially different for goods and services. */
   offer: string;
-  model: "physical_product" | "service" | "digital";
+  model: BusinessModel;
   location?: string;
   currency?: string;
   /** Unit price, when known. Drives the arithmetic rather than being decoration. */
@@ -107,6 +107,23 @@ export type GtmPlan = {
   risks: { risk: string; tell: string; move: string }[];
   honesty: string[];
 };
+
+export const BUSINESS_MODELS = ["physical_product", "service", "digital"] as const;
+export type BusinessModel = (typeof BUSINESS_MODELS)[number];
+
+/**
+ * Read a business model off a request.
+ *
+ * A function rather than an inline check in the route because the route is not
+ * reachable from a test, and a grep for the string it contains is not a test —
+ * a mutation that kept the parsing and dropped the VALUE sailed through one.
+ * Unknown input returns undefined so the caller's own default applies, rather
+ * than this quietly deciding somebody sells a service.
+ */
+export function parseBusinessModel(raw: unknown): BusinessModel | undefined {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return (BUSINESS_MODELS as readonly string[]).includes(v) ? (v as BusinessModel) : undefined;
+}
 
 const money = (n: number, cur = "£") => `${cur}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
 

@@ -10,11 +10,13 @@ import { Loader2, Radar, Search, MapPin, TrendingUp } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
+import GtmPlanView, { type GtmPlan } from "@/components/GtmPlanView";
 
 type Opportunity = {
   niche: string; location: string; opportunityScore: number; demandLevel: string; competitionLevel: string;
   suggestedProduct: string; targetCustomer: string; recommendedPrice: string; launchStrategy: string[];
   signals: { source: string; note: string }[]; honesty: string;
+  gtm?: GtmPlan;
 };
 type Lead = { name: string; website?: string; phone?: string; address?: string; rating?: number; leadScore: number; flags: string[]; outreachAngle: string };
 type LeadReport = { category: string; location: string; mode: string; leads: Lead[]; summary: string };
@@ -24,6 +26,9 @@ const tone = (n: number): "good" | "warn" | "bad" => (n >= 70 ? "good" : n >= 50
 export default function DiscoverPage() {
   const [niche, setNiche] = useState("food delivery");
   const [location, setLocation] = useState("");
+  // Asked, not assumed: a service has no supply chain, and defaulting everybody
+  // to "product" would hand a consultant five supplier routes they cannot use.
+  const [model, setModel] = useState<"physical_product" | "service" | "digital">("service");
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [leads, setLeads] = useState<LeadReport | null>(null);
   const [busy, setBusy] = useState<"" | "opp" | "leads">("");
@@ -34,7 +39,7 @@ export default function DiscoverPage() {
       const res = await authedFetch("/api/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(kind === "opp"
-          ? { action: "opportunity", niche, location }
+          ? { action: "opportunity", niche, location, model }
           : { action: "leads", category: niche, location }),
       });
       const data = await res.json();
@@ -55,6 +60,24 @@ export default function DiscoverPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">Niche / category</label><input className="input" value={niche} onChange={(e) => setNiche(e.target.value)} /></div>
           <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City or area (e.g. your town)" /></div>
+        </div>
+        <div className="mt-4">
+          <label className="label">What are you selling?</label>
+          <div className="flex flex-wrap gap-2">
+            {([["service", "A service"], ["physical_product", "A physical product"], ["digital", "Something digital"]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setModel(id)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${model === id ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300" : "border-white/10 text-slate-400 hover:border-white/20"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-600">
+            It changes the plan materially — only a physical product has suppliers to source.
+          </p>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => run("opp")} disabled={busy === "opp"}>
@@ -79,6 +102,15 @@ export default function DiscoverPage() {
           <div className="mt-3"><p className="label">Launch strategy</p><ol className="space-y-1 text-sm text-slate-300">{opp.launchStrategy.map((s, i) => <li key={i}>{i + 1}. {s}</li>)}</ol></div>
           <div className="mt-3 flex flex-wrap gap-2">{opp.signals.map((s, i) => <Pill key={i} tone="neutral">{s.source}: {s.note}</Pill>)}</div>
           <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-200/80">{opp.honesty}</p>
+        </div>
+      )}
+
+      {/* The plan itself. It has been in the API response since the engine was
+          written and this screen showed four bullets — the engine is right and
+          the last six inches were missing, for the fourth time this month. */}
+      {opp?.gtm && (
+        <div className="mb-6">
+          <GtmPlanView plan={opp.gtm} />
         </div>
       )}
 

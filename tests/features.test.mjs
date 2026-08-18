@@ -16236,3 +16236,49 @@ test("gtm: it arrives as part of the opportunity result, and the old shape survi
   assert.equal(report.gtm.firstHundred.math.closeRate, null,
     "a conversion rate was invented for a niche nobody has sold to yet");
 });
+
+test("gtm: the plan reaches the screen, and the business model survives the trip", () => {
+  // The engine returned ninety days, five supplier routes and four segments
+  // while the page rendered four bullets. Fourth time this month.
+  const page = readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<GtmPlanView/, "the plan is in the API response and the screen still shows four bullets");
+  assert.match(page, /opp\?\.gtm/, "the page does not read the plan off the result");
+
+  // THE BOUNDARY. The page asks which business model it is; if the API route
+  // drops it, a product business silently gets a service plan with no suppliers.
+  assert.match(page, /model \}/, "the page collects a business model and does not send it");
+
+  // Tested by BEHAVIOUR, not by grep. A mutation that kept the parsing and
+  // dropped the value passed the earlier version of this.
+  assert.equal(gtmPlan.parseBusinessModel("physical_product"), "physical_product");
+  assert.equal(gtmPlan.parseBusinessModel("  SERVICE "), "service", "a valid model with stray case or spacing was rejected");
+  assert.equal(gtmPlan.parseBusinessModel("nonsense"), undefined, "an unknown model was accepted");
+  assert.equal(gtmPlan.parseBusinessModel(undefined), undefined,
+    "a missing model resolved to something — the caller's own default must apply, not this quietly deciding somebody sells a service");
+
+  const route = readFileSync(new URL("../src/app/api/search/route.ts", import.meta.url), "utf8");
+  assert.match(route, /model: parseBusinessModel\(body\.model\)/,
+    "the API route does not pass the parsed model into the engine — a product business would get no supplier routes at all");
+});
+
+test("gtm: the screen shows the UNFINISHED arithmetic rather than hiding it", () => {
+  // When no close rate has been observed the maths is deliberately incomplete.
+  // A screen that quietly rendered nothing there would undo the entire reason
+  // the engine refuses to guess.
+  const view = readFileSync(new URL("../src/components/GtmPlanView.tsx", import.meta.url), "utf8");
+  // The TERNARY specifically: the earlier version matched the same expression
+  // in a className above and survived a mutation that replaced the branch.
+  assert.match(view, /\{math\.closeRate === null \? \(/,
+    "the screen does not branch on whether a rate was actually measured");
+  assert.match(view, /math\.note/, "the reason the arithmetic is unfinished is never shown");
+  assert.match(view, /plan\.honesty/, "what the plan does not claim is not rendered");
+  // Structural, not textual — the first version of this matched the word
+  // "collapsed" in the comment explaining that the block is NOT collapsed.
+  const honestyAt = view.indexOf("plan.honesty.map");
+  const lastSectionClose = view.lastIndexOf("</Section>");
+  assert.ok(honestyAt > lastSectionClose,
+    "the honesty block sits inside a collapsible Section — what a plan does not claim is the part somebody about to spend their savings most needs to read");
+
+  // And the plan can leave the screen — the trapped-output rule.
+  assert.match(view, /CopyOut/, "a plan somebody can read and not keep is a plan they will not work to");
+});

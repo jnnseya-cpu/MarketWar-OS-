@@ -85,7 +85,8 @@ The honest list, and it is not short. No provider, no card, no configuration:
   five supplier routes with real minimums and lead times, four buyer segments
   with their objections, and the first-hundred arithmetic. It forecasts nothing:
   where a number cannot be known it says so and gives the method for finding it.
-  Arrives inside every opportunity result.
+  Arrives inside every opportunity result and is rendered on
+  `/dashboard/discover`, with a copy-out so it can leave the screen.
 - **The weekly newsletter** — every registered user, Tuesday 09:00 UTC, selling
   what their deployment can actually do, with the feature pages' own proof and
   limit and a great many links. One-click unsubscribe, no account, honoured
