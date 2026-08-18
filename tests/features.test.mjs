@@ -16074,3 +16074,165 @@ test("splash: the launch screen paints without waiting for hydration", () => {
   const guard = readFileSync(new URL("../src/components/RequireAuth.tsx", import.meta.url), "utf8");
   assert.match(guard, /<AppSplash/, "the auth check still shows a bare spinner, so the app changes colour twice while opening");
 });
+
+// ---------------------------------------------------------------------------
+// THE GO-TO-MARKET PLAN.
+//
+// A go-to-market document is the easiest thing in business to fill with
+// invented numbers — "reach 100 customers in 90 days", "expect 3% conversion",
+// "your CAC will be £40" — and a person who spends their savings against one
+// has been lied to by a spreadsheet.
+//
+// So most of these tests check what the plan REFUSES to say.
+// ---------------------------------------------------------------------------
+const gtmPlan = await import("../src/backend/go-to-market.ts");
+
+const GTM = (over = {}) => ({ business: "Evandeli", offer: "family platters", model: "physical_product", location: "Birmingham", ...over });
+
+test("gtm: it will not invent a conversion rate", () => {
+  const m = gtmPlan.firstHundredMath({ target: 100 });
+  assert.equal(m.closeRate, null, "a conversion rate was invented for a business that has not opened");
+  assert.equal(m.conversationsNeeded, null, "a funnel was computed from a rate nobody measured");
+  assert.match(m.note, /20 conversations/i, "it does not say how to find the missing number");
+  assert.match(m.note, /will not invent/i);
+
+  // With a REAL observed rate it does the arithmetic and shows its working.
+  const known = gtmPlan.firstHundredMath({ target: 100, observedCloseRate: 0.2, weeks: 12 });
+  assert.equal(known.conversationsNeeded, 500);
+  assert.equal(known.weeklyConversations, 42);
+  assert.match(known.note, /20\.0%/);
+});
+
+test("gtm: nowhere does it forecast a result", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  const body = JSON.stringify(plan);
+  for (const forecast of [
+    /you will (get|make|earn|reach) \d/i,
+    /expect (a )?\d+(\.\d+)?% (conversion|close|response)/i,
+    /guaranteed? (revenue|customers|results)/i,
+    /\bwithin \d+ days you will\b/i,
+    /average (business|customer) (sees|gets) \d/i,
+  ]) {
+    assert.ok(!forecast.test(body), `the plan forecasts a result: ${forecast}`);
+  }
+  assert.ok(plan.honesty.some((h) => /no forecast/i.test(h)), "the plan does not say that it contains no forecast");
+});
+
+test("gtm: unit economics say \"cannot be computed\" rather than guessing", () => {
+  const blind = gtmPlan.buildGtmPlan(GTM());
+  const margin = blind.economics.find((e) => e.line === "Gross margin per sale");
+  assert.match(margin.value, /cannot be computed/i, "a margin was produced from no price and no cost");
+  const ceiling = blind.economics.find((e) => e.line.startsWith("Most you can pay"));
+  assert.match(ceiling.value, /unknown/i);
+
+  const known = gtmPlan.buildGtmPlan(GTM({ priceGbp: 25, unitCostGbp: 9 }));
+  assert.match(known.economics.find((e) => e.line === "Gross margin per sale").value, /£16/);
+  assert.match(known.economics.find((e) => e.line.startsWith("Most you can pay")).value, /under £16/);
+});
+
+test("gtm: 30/60/90 each have an exit criterion that can be failed", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.deepEqual(plan.phases.map((p) => p.window), ["Days 1–30", "Days 31–60", "Days 61–90"]);
+  for (const phase of plan.phases) {
+    assert.ok(phase.exitCriterion.length > 40, `${phase.window} has no real exit criterion`);
+    assert.ok(phase.actions.length >= 5, `${phase.window} has ${phase.actions.length} actions — that is a slogan, not a phase`);
+    assert.ok(phase.measure.length >= 3, `${phase.window} measures almost nothing`);
+    for (const a of phase.actions) {
+      assert.ok(a.why && a.why.length > 30, `an action in ${phase.window} says what to do and not why`);
+    }
+  }
+  // Month one must be about selling, not building.
+  assert.match(plan.phases[0].exitCriterion, /taken money/i, "the first 30 days do not require a single sale");
+});
+
+test("gtm: suppliers are real routes with real trade-offs", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.equal(plan.suppliers.applicable, true);
+  assert.ok(plan.suppliers.routes.length >= 5, "the supplier section is a slogan");
+  for (const r of plan.suppliers.routes) {
+    assert.ok(r.typicalMoq && r.leadTime, `${r.route} has no minimum order or lead time — that is the decision being made`);
+    assert.ok(r.risk.length > 30, `${r.route} has no stated downside`);
+    assert.ok(r.firstMove.length > 40, `${r.route} does not say what to actually do first`);
+  }
+  assert.ok(plan.suppliers.diligence.length >= 6, "supplier diligence is thin");
+  assert.ok(plan.suppliers.terms.some((t) => /100% up front/i.test(t)), "nothing warns against paying in full up front");
+  assert.ok(plan.suppliers.terms.some((t) => /Incoterms/i.test(t)), "freight terms are not covered, which is how a pallet never moves");
+
+  // A service has no supply chain and must say so rather than padding.
+  const service = gtmPlan.buildGtmPlan(GTM({ model: "service" }));
+  assert.equal(service.suppliers.applicable, false);
+  assert.deepEqual(service.suppliers.routes, []);
+  assert.match(service.suppliers.note, /no supply chain/i);
+});
+
+test("gtm: the first hundred is sequenced, and paid comes last", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.equal(plan.firstHundred.sequence.length, 4);
+  assert.match(plan.firstHundred.sequence[0], /conversations/i, "the first customers are expected to come from advertising");
+  assert.match(plan.firstHundred.sequence[3], /paid/i);
+  assert.match(plan.firstHundred.sequence[3], /Only then/i, "paid acquisition is not held back until the offer is proven");
+
+  const paid = plan.firstHundred.channels.find((c) => /paid/i.test(c.channel));
+  assert.match(paid.play, /after a channel has worked organically/i);
+  // Every channel states what it realistically produces, including the free ones.
+  for (const c of plan.firstHundred.channels) {
+    assert.ok(c.cost && c.realistic, `${c.channel} does not say what it costs or what it realistically produces`);
+  }
+});
+
+test("gtm: segments explain why each buys FIRST, not just who they are", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.ok(plan.segments.length >= 4);
+  for (const s of plan.segments) {
+    assert.ok(s.whyFirst.length > 40, `${s.name} has no reason to be early`);
+    assert.ok(s.objection && s.answer, `${s.name} has no objection and answer — that is the sales conversation`);
+    assert.ok(s.whereTheyAre.length > 20, `${s.name} does not say where to find them`);
+  }
+});
+
+test("gtm: the tool recommendations are real routes on the real site", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.ok(plan.marketing.stack.length >= 12, "the recommendation is a logo rather than a stack");
+  for (const row of plan.marketing.stack) {
+    assert.match(row.url, /^https?:\/\//, `${row.where} is a relative link`);
+    assert.match(row.url, /marketwaros\.com/, `${row.where} does not point at the platform`);
+    assert.ok(row.why.length > 30, `${row.where} is recommended with no reason`);
+    // Every recommended dashboard route must actually exist.
+    const path = row.url.replace(/^https?:\/\/[^/]+/, "");
+    if (path.startsWith("/dashboard")) {
+      const dir = `src/app${path}`;
+      assert.ok(existsSync(dir), `${row.where} points at ${path}, which has no page`);
+    }
+  }
+  assert.match(plan.marketing.note, /no account, no card and no API key/i,
+    "the recommendation does not say which parts are genuinely free");
+});
+
+test("gtm: it names when to STOP, not only when to start", () => {
+  const plan = gtmPlan.buildGtmPlan(GTM());
+  assert.ok(plan.acquisition.killCriteria.length >= 4, "nothing tells the founder when to stop");
+  assert.ok(plan.acquisition.killCriteria.some((k) => /30 days and no customer/i.test(k)));
+  assert.ok(plan.risks.length >= 5);
+  for (const r of plan.risks) {
+    assert.ok(r.tell.length > 10, `"${r.risk}" has no early warning sign`);
+    assert.ok(r.move.length > 20, `"${r.risk}" has no move`);
+  }
+});
+
+test("gtm: the same inputs always produce the same plan", () => {
+  const a = gtmPlan.buildGtmPlan(GTM());
+  const b = gtmPlan.buildGtmPlan(GTM());
+  assert.deepEqual(a, b, "the plan changes when you reload it, which means it is not a strategy");
+});
+
+test("gtm: it arrives as part of the opportunity result, and the old shape survives", async () => {
+  const search = await import("../src/backend/search.ts");
+  const report = await search.discoverOpportunity({ niche: "family platters", location: "Birmingham", model: "physical_product" });
+  assert.ok(Array.isArray(report.launchStrategy) && report.launchStrategy.length > 0,
+    "the original launchStrategy was replaced rather than kept — anything reading this shape today would break");
+  assert.ok(report.gtm, "the opportunity result carries no go-to-market plan");
+  assert.equal(report.gtm.phases.length, 3);
+  assert.equal(report.gtm.suppliers.applicable, true, "a physical product got no supplier routes");
+  assert.equal(report.gtm.firstHundred.math.closeRate, null,
+    "a conversion rate was invented for a niche nobody has sold to yet");
+});

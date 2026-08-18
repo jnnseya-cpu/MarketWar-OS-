@@ -20,8 +20,8 @@ brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
 Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
-`shared`) enforced by `scripts/check-layers.mjs`. 214 backend modules, 133 API
-routes, 66 dashboard pages, 1,250 tests including one end-to-end run of the
+`shared`) enforced by `scripts/check-layers.mjs`. 215 backend modules, 133 API
+routes, 66 dashboard pages, 1,269 tests including one end-to-end run of the
 whole growth loop.
 
 ---
@@ -81,6 +81,11 @@ The honest list, and it is not short. No provider, no card, no configuration:
   `npm run splash`.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
+- **The go-to-market plan** — 30/60/90 with exit criteria that can be failed,
+  five supplier routes with real minimums and lead times, four buyer segments
+  with their objections, and the first-hundred arithmetic. It forecasts nothing:
+  where a number cannot be known it says so and gives the method for finding it.
+  Arrives inside every opportunity result.
 - **The weekly newsletter** — every registered user, Tuesday 09:00 UTC, selling
   what their deployment can actually do, with the feature pages' own proof and
   limit and a great many links. One-click unsubscribe, no account, honoured

@@ -101,15 +101,27 @@ const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.ro
 // ---------------------------------------------------------------------------
 // Opportunity Discovery — scores a niche/market (spec: the Opportunity agent)
 // ---------------------------------------------------------------------------
+import { buildGtmPlan, type GtmPlan } from "@/backend/go-to-market";
+
 export type OpportunityReport = {
   niche: string; location: string;
   opportunityScore: number; demandLevel: "low" | "medium" | "high"; competitionLevel: "low" | "medium" | "high";
   suggestedProduct: string; targetCustomer: string; recommendedPrice: string; launchStrategy: string[];
   signals: { source: SearchType; note: string }[];
+  /**
+   * The plan somebody can actually work to.
+   *
+   * `launchStrategy` above is four true bullets and nobody has ever opened a
+   * business on "validate with a lead magnet". This is ninety days, suppliers,
+   * segments, the first hundred customers and the arithmetic underneath — kept
+   * ALONGSIDE the bullets rather than replacing them, because everything that
+   * reads this shape today keeps working.
+   */
+  gtm: GtmPlan;
   honesty: string;
 };
 
-export async function discoverOpportunity(input: { niche: string; location?: string; currency?: string }): Promise<OpportunityReport> {
+export async function discoverOpportunity(input: { niche: string; location?: string; currency?: string; model?: "physical_product" | "service" | "digital" }): Promise<OpportunityReport> {
   const niche = input.niche.trim();
   const location = (input.location || "your area").trim();
   const cur = input.currency || "£";
@@ -143,6 +155,16 @@ export async function discoverOpportunity(input: { niche: string; location?: str
       { source: "places", note: `${supply} local providers found${noWebsiteShare > 0.3 ? `; ${Math.round(noWebsiteShare * 100)}% lack a proper website` : ""}.` },
       { source: "news", note: `${news.results.length} recent industry signals for "${niche}".` },
     ],
+    // Deliberately NOT passing a close rate or a margin: neither has been
+    // observed for a business that does not exist yet, and the plan is built to
+    // say so rather than to invent them.
+    gtm: buildGtmPlan({
+      business: niche,
+      offer: niche,
+      model: input.model || "service",
+      location,
+      currency: cur,
+    }),
     honesty: "Scores are estimates from live/demo search signals, not guarantees. Validate demand with a real lead magnet before committing spend.",
   };
 }
