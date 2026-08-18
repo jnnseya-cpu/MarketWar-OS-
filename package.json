@@ -5,7 +5,7 @@
   "overrides": {
     "jose": "^5.10.0"
   },
-  "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
+  "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -18,7 +18,9 @@
     "verify": "npm run check:layers && npm run typecheck && npm run build",
     "check:layers": "node scripts/check-layers.mjs",
     "test": "node --import tsx --test tests/*.test.mjs",
-    "splash": "node scripts/generate-splash.mjs"
+    "splash": "node scripts/generate-splash.mjs",
+    "gtm:doc": "node scripts/build-gtm-doc.mjs && node scripts/verify-gtm-doc.mjs",
+    "gtm:verify": "node scripts/verify-gtm-doc.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
@@ -34,6 +36,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.20",
+    "docx": "^9.7.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.23.1",

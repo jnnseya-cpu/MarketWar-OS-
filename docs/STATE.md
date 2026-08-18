@@ -8,7 +8,7 @@ Two companions, and neither replaces this file:
 section by section. `docs/REQUIREMENTS-COVERAGE.md` is the 4,800-line history,
 useful for archaeology and useless for knowing where you are.
 
-Last updated: 2026-08-17.
+Last updated: 2026-08-18.
 
 ---
 
@@ -81,7 +81,20 @@ The honest list, and it is not short. No provider, no card, no configuration:
   `npm run splash`.
 - **Sentinel** — the human gate, the instruction firewall, counted detections.
 - **The public content** — 13 blog articles in two clusters, 14 answer pages.
-- **The go-to-market plan** — 30/60/90 with exit criteria that can be failed,
+- **MarketWar's OWN go-to-market document** — `docs/GO-TO-MARKET-MarketWar-OS.pdf`
+  and `.docx`, 34 pages: the locked launch city, five buyer segments, the real
+  published price table, the supplier map with the sourcing procedure, the
+  first-hundred arithmetic (which comes to 72 on stated assumptions and says so),
+  30/60/90 with failable exit criteria, three budget levels allocated to the
+  pound, and the first messages written out. Every rate that is not measured is
+  marked ASSUMED and names its replacement evidence; the price table is parsed
+  from `src/backend/subscription.ts` at build time. Rebuild with `npm run
+  gtm:doc` — the build renders and the verifier then asserts every heading,
+  bullet, table cell and quoted line reached both files, and that the prices
+  still match source. Content lives in `scripts/gtm-content.mjs`.
+- **The go-to-market plan ENGINE (for customers' businesses)** — a different
+  thing from the document above: it builds a plan for whatever business the
+  caller describes. 30/60/90 with exit criteria that can be failed,
   five supplier routes with real minimums and lead times, four buyer segments
   with their objections, and the first-hundred arithmetic. It forecasts nothing:
   where a number cannot be known it says so and gives the method for finding it.
