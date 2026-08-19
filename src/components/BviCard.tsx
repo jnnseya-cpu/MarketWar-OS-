@@ -1,54 +1,39 @@
 "use client";
 
-// Business Vitality Index panel — the MOA's composite health score (0–100),
-// recalculated every 15 minutes across 12 weighted dimensions
-// (spec: docs/ai-os/03-agent-ecosystem.md §2.1). Gauge + sparkline + tap-to-
-// expand dimension breakdown, per the Command Centre panel architecture
-// (docs/ai-os/02 §2.0). Demo Intelligence data until Firestore listeners land.
+// Business Vitality Index panel — the MOA's composite health across 12 weighted
+// dimensions (docs/ai-os/03 §2.1), rendered in the Command Centre panel shape
+// (docs/ai-os/02 §2.0).
+//
+// THIS PANEL USED TO INVENT ITS OWN NUMBERS. Twelve hardcoded dimension scores
+// in a field named `measured`, and the values are worth naming so they are
+// recognised if they ever come back: "4.5× vs 2.0× industry benchmark",
+// "CAC £7.38 — 21% of LTV", "Flame Republic spend up 24% in 7 days", and a
+// BVI_HISTORY of twelve weekly points for a business with no history. It was
+// mounted nowhere, which is the only reason it never reached anybody.
+//
+// It now takes its components as a prop and computes nothing itself. Everything
+// it shows either came from a counted source or is labelled as not measured
+// with the thing to connect. When too little of the index is measured there is
+// no composite at all — the gauge is replaced by the reason, because a weighted
+// score over a sixth of its own weight is one number wearing the authority of
+// twelve.
+//
+// The sparkline is gone from the defaults for the same reason: a trajectory is
+// a series of past values, and inventing twelve of them is the same offence in
+// a prettier shape. Pass `history` when a real one exists and it comes back.
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, TrendingUp, HelpCircle } from "lucide-react";
 import { Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
-
-type DimensionStatus = "healthy" | "watch" | "alert";
-
-type Dimension = {
-  name: string;
-  weight: number; // % of composite
-  score: number; // 0–100
-  measured: string;
-  status: DimensionStatus;
-};
-
-// Weights are binding (doc 03 §2.1); demo scores tell the Your business story.
-const DIMENSIONS: Dimension[] = [
-  { name: "Campaign ROAS health", weight: 15, score: 88, measured: "4.5× vs 2.0× industry benchmark", status: "healthy" },
-  { name: "Revenue trend", weight: 15, score: 84, measured: "7-day revenue at 118% of prior week", status: "healthy" },
-  { name: "Lead flow velocity", weight: 12, score: 79, measured: "14 leads/day vs 11 rolling average", status: "healthy" },
-  { name: "Customer acquisition cost", weight: 12, score: 82, measured: "CAC £7.38 — 21% of LTV", status: "healthy" },
-  { name: "Customer retention rate", weight: 10, score: 61, measured: "28% 30-day repeat-purchase rate", status: "watch" },
-  { name: "Audience health", weight: 8, score: 72, measured: "Ad frequency 2.7 — saturation 41%", status: "healthy" },
-  { name: "Dormant revenue risk", weight: 8, score: 44, measured: "38% of database inactive > 90 days", status: "watch" },
-  { name: "Creative fatigue score", weight: 7, score: 58, measured: "Best hook CTR down 22% from peak", status: "watch" },
-  { name: "Competitor threat level", weight: 5, score: 51, measured: "Flame Republic spend up 24% in 7 days", status: "watch" },
-  { name: "Budget efficiency", weight: 4, score: 90, measured: "Pacing on plan, projected ROAS above floor", status: "healthy" },
-  { name: "Opportunity capture rate", weight: 2, score: 67, measured: "2 of 3 high-score opportunities actioned < 48 h", status: "watch" },
-  { name: "Platform engagement", weight: 2, score: 95, measured: "6 active days/week", status: "healthy" },
-];
-
-const BVI_HISTORY = [58, 60, 63, 62, 66, 69, 68, 71, 73, 72, 75, 76];
+import { computeVitality, MIN_COVERAGE_PCT, type VitalityInput, type DimensionStatus } from "@/shared/vitality";
 
 const STATUS_STYLES: Record<DimensionStatus, { dot: string; bar: string }> = {
   healthy: { dot: "bg-emerald-400", bar: SERIES[1] },
   watch: { dot: "bg-amber-400", bar: SERIES[4] },
   alert: { dot: "bg-rose-400", bar: SERIES[3] },
+  unmeasured: { dot: "bg-slate-600", bar: "#334155" },
 };
-
-function compositeScore(): number {
-  const total = DIMENSIONS.reduce((sum, d) => sum + d.score * d.weight, 0);
-  return Math.round(total / 100);
-}
 
 function Gauge({ value }: { value: number }) {
   // 240° arc gauge, 0–100.
@@ -83,46 +68,81 @@ function Gauge({ value }: { value: number }) {
   );
 }
 
-export default function BviCard() {
+export default function BviCard({
+  components = [],
+  history,
+}: {
+  /** Scored components — the `components` array from the Money Score. */
+  components?: VitalityInput[];
+  /** Real past values. Omitted means no trajectory is shown, not a made-up one. */
+  history?: number[];
+}) {
   const [open, setOpen] = useState(false);
-  const bvi = compositeScore();
-  const trend: "rising" | "stable" | "declining" | "critical" = "rising";
+  const v = computeVitality(components);
+  const measured = v.dimensions.filter((d) => d.score !== null);
+  const trend = history && history.length >= 2
+    ? history[history.length - 1] > history[0] ? "rising" : history[history.length - 1] < history[0] ? "declining" : "stable"
+    : null;
 
   return (
     <div className="card p-5">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="font-display font-bold text-white">Business Vitality Index</h2>
-        <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-400">
-          <TrendingUp className="h-3.5 w-3.5" /> {trend}
-        </span>
+        {trend && (
+          <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-400">
+            <TrendingUp className="h-3.5 w-3.5" /> {trend}
+          </span>
+        )}
       </div>
       <p className="mb-3 text-xs text-slate-500">
-        MOA composite across 12 weighted dimensions · recalculated every 15 minutes
+        Weighted across 12 dimensions · {v.coveragePct}% of the weight is measured
       </p>
 
-      <div className="flex justify-center">
-        <Gauge value={bvi} />
-      </div>
-      <div className="mt-3 overflow-hidden">
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">12-week trajectory</p>
-        <Sparkline data={BVI_HISTORY} color={SERIES[1]} width={210} height={44} />
-        <p className="mt-2 text-xs text-slate-400">
-          +18 points since onboarding — dormant-revenue risk is the biggest drag left.
+      {v.score !== null ? (
+        <div className="flex justify-center">
+          <Gauge value={v.score} />
+        </div>
+      ) : (
+        // The refusal, in the place the number would have been.
+        <div className="flex items-start gap-3 rounded-lg border border-ink-700/60 bg-ink-900/40 p-4">
+          <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold text-slate-200">No index yet</p>
+            <p className="mt-1 text-xs text-slate-400">{v.note}</p>
+            {v.missing.length > 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Biggest gap: <span className="text-slate-300">{v.missing[0].name}</span> ({v.missing[0].weight}% of the index) — {v.missing[0].connect}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {history && history.length >= 2 && (
+        <div className="mt-3 overflow-hidden">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">Trajectory · {history.length} points</p>
+          <Sparkline data={history} color={SERIES[1]} width={210} height={44} />
+        </div>
+      )}
+
+      {v.score !== null && v.weakest && (
+        <p className="mt-3 text-xs text-slate-400">
+          Biggest drag: <span className="text-slate-200">{v.weakest.name}</span> at {v.weakest.score}/100.
         </p>
-      </div>
+      )}
 
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((s) => !s)}
         className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-ink-700/60 py-2 text-xs font-semibold text-slate-300 transition hover:border-emerald-500/40 hover:text-white"
       >
         {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        {open ? "Hide dimension breakdown" : "Show 12-dimension breakdown"}
+        {open ? "Hide dimension breakdown" : `Show all 12 dimensions (${measured.length} measured)`}
       </button>
 
       {open && (
         <div className="mt-4 space-y-2.5">
-          {DIMENSIONS.map((d) => {
+          {v.dimensions.map((d) => {
             const s = STATUS_STYLES[d.status];
             return (
               <div key={d.name}>
@@ -132,15 +152,22 @@ export default function BviCard() {
                     {d.name}
                     <span className="text-[10px] text-slate-600">{d.weight}%</span>
                   </span>
-                  <span className="text-xs font-bold text-white">{d.score}</span>
+                  <span className={`text-xs font-bold ${d.score === null ? "text-slate-600" : "text-white"}`}>
+                    {d.score === null ? "not measured" : d.score}
+                  </span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-ink-700/60">
-                  <div className="h-full rounded-full" style={{ width: `${d.score}%`, backgroundColor: s.bar }} />
+                  {d.score !== null && (
+                    <div className="h-full rounded-full" style={{ width: `${d.score}%`, backgroundColor: s.bar }} />
+                  )}
                 </div>
-                <p className="mt-0.5 text-[11px] text-slate-500">{d.measured}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">{d.evidence}</p>
               </div>
             );
           })}
+          <p className="pt-1 text-[11px] text-slate-600">
+            A composite needs at least {MIN_COVERAGE_PCT}% of the weight measured. Below that the dimensions are shown on their own rather than averaged into a number that would look more certain than it is.
+          </p>
         </div>
       )}
     </div>

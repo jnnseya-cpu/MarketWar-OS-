@@ -16661,3 +16661,72 @@ test("spend ceiling: with no shared store the behaviour and the wording are the 
   assert.ok(!/other server instances/.test(s.note));
   spendMod.__resetSpend();
 });
+
+// ---------------------------------------------------------------------------
+// THE BUSINESS VITALITY INDEX — the panel that used to invent its own numbers.
+//
+// Twelve hardcoded dimension scores in a field named `measured`, an industry
+// benchmark nobody measured, and a named competitor's ad spend. Mounted
+// nowhere, which is the only reason it never reached a customer.
+// ---------------------------------------------------------------------------
+const vitality = await import("../src/shared/vitality.ts");
+
+test("vitality: nothing measured produces no index at all", () => {
+  const v = vitality.computeVitality([]);
+  assert.equal(v.score, null, "an index was produced from nothing");
+  assert.equal(v.coveragePct, 0);
+  assert.equal(v.dimensions.length, 12, "a dimension was dropped — the weights are binding");
+  assert.ok(v.dimensions.every((d) => d.score === null && d.status === "unmeasured"));
+  // Every unmeasured dimension has to say what would measure it. A blank is how
+  // a customer concludes the product is broken rather than unconnected.
+  assert.ok(v.dimensions.every((d) => d.connect.length > 10 && d.evidence.includes(d.connect)));
+});
+
+test("vitality: a real ledger is not enough weight for a composite, and it says so", () => {
+  // What the results ledger genuinely measures today.
+  const v = vitality.computeVitality([
+    { name: "Demand Capture", score: 60, note: "leads + orders captured" },
+    { name: "Conversion", score: 40, note: "30% of leads+orders are orders" },
+    { name: "Growth Readiness", score: 70, note: "channel diversity" },
+  ]);
+  assert.equal(v.coveragePct, 16, "lead flow 12 + opportunity capture 2 + platform engagement 2");
+  assert.equal(v.score, null, "16% of the weight produced a composite — one number wearing the authority of twelve");
+  assert.match(v.note, new RegExp(`${vitality.MIN_COVERAGE_PCT}%`));
+  assert.equal(v.weakest.name, "Opportunity capture rate");
+  // And it names the shortest route to a real index, biggest weight first.
+  assert.equal(v.missing[0].weight, 15);
+});
+
+test("vitality: past the threshold it is a WEIGHTED mean of the measured weight only", () => {
+  const v = vitality.computeVitality([
+    { name: "Marketing Efficiency", score: 80, note: "spend connected" },   // ROAS 15 + CAC 12
+    { name: "Retention", score: 40, note: "repeat purchase" },              // 10
+    { name: "Revenue Recovery", score: 60, note: "dormant" },               // 8
+    { name: "Demand Capture", score: 100, note: "ledger" },                 // 12
+    { name: "Competitor Advantage", score: 20, note: "tracking" },          // 5
+  ]);
+  assert.equal(v.coveragePct, 62);
+  // 80*15 + 80*12 + 40*10 + 60*8 + 100*12 + 20*5 = 1200+960+400+480+1200+100 = 4340 over 62
+  assert.equal(v.score, Math.round(4340 / 62));
+  // Dividing by the full 100 would score every unconnected dimension as zero —
+  // the same lie as inventing one, pointed downwards.
+  assert.ok(v.score > Math.round(4340 / 100), "unmeasured dimensions were counted as zero");
+  assert.equal(v.weakest.name, "Competitor threat level");
+});
+
+test("vitality: the panel computes nothing and invents nothing", () => {
+  const raw = readFileSync(new URL("../src/components/BviCard.tsx", import.meta.url), "utf8");
+  // COMMENTS STRIPPED FIRST. The header of that file explains which invented
+  // figures were removed and names them, so a scan of the raw text finds the
+  // explanation and calls it the offence — the third time in this suite that a
+  // check has failed on prose describing the thing it forbids.
+  const card = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const invented of ["4.5×", "£7.38", "Flame Republic", "industry benchmark", "BVI_HISTORY"]) {
+    assert.ok(!card.includes(invented), `the panel still carries an invented figure: ${invented}`);
+  }
+  assert.ok(raw.includes("Flame Republic"), "the comment recording what was removed has gone — strip-comments would then pass vacuously");
+  assert.match(card, /computeVitality\(components\)/, "the panel scores by itself instead of using the shared scorer");
+  // A trajectory is a series of past values. Twelve made-up ones is the same
+  // offence in a prettier shape, so the sparkline only renders with real input.
+  assert.match(card, /history && history\.length >= 2/, "the sparkline can render without real history");
+});
