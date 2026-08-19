@@ -6,7 +6,7 @@
 // appended to an immutable history. Brand-scoped via authedFetch.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, GitPullRequestArrow, Plus, MessageSquare, CheckCircle2, Send } from "lucide-react";
+import { Loader2, GitPullRequestArrow, Plus, MessageSquare, CheckCircle2, Send, Link2, Copy, Check, Ban } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { PageHeader, Pill } from "@/components/ui";
@@ -39,6 +39,12 @@ export default function ApprovalsPage() {
   const [assetUrl, setAssetUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [noteFor, setNoteFor] = useState<Record<string, string>>({});
+  // The share link, per item. `shareable` is asked of the server rather than
+  // guessed from an env var the browser cannot see — the button is not offered
+  // on a deployment that cannot issue a link that works.
+  const [shareable, setShareable] = useState<{ configured: boolean; note: string } | null>(null);
+  const [shareFor, setShareFor] = useState<Record<string, { url: string; expiresAt: string; note: string }>>({});
+  const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!activeBrand) { setLoading(false); return; }
@@ -49,6 +55,42 @@ export default function ApprovalsPage() {
   }, [activeBrand]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Asked once per brand. A deployment with no PORTAL_LINK_SECRET says so here
+  // instead of offering a button that mints a link the client cannot open.
+  useEffect(() => {
+    if (!activeBrand) return;
+    let live = true;
+    api("share_status", { brandId: activeBrand.id })
+      .then((d) => { if (live) setShareable({ configured: Boolean(d.configured), note: String(d.note || "") }); })
+      .catch(() => { if (live) setShareable(null); });
+    return () => { live = false; };
+  }, [activeBrand]);
+
+  async function share(item: ApprovalItem) {
+    if (!activeBrand) return;
+    setBusy(true); setError(null);
+    try {
+      const d = await api("share", { brandId: activeBrand.id, id: item.id });
+      setShareFor((m) => ({ ...m, [item.id]: { url: d.url, expiresAt: d.expiresAt, note: d.note } }));
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function revokeShare(item: ApprovalItem) {
+    if (!activeBrand) return;
+    setBusy(true); setError(null);
+    try {
+      await api("revoke_share", { brandId: activeBrand.id, id: item.id, actor: "you" });
+      setShareFor((m) => { const next = { ...m }; delete next[item.id]; return next; });
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function copyLink(itemId: string, url: string) {
+    try { await navigator.clipboard.writeText(url); setCopied(itemId); setTimeout(() => setCopied(null), 2000); }
+    catch { setError("Could not copy — select the link and copy it manually."); }
+  }
 
   async function create() {
     if (!activeBrand || !title.trim()) return;
@@ -171,6 +213,40 @@ export default function ApprovalsPage() {
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/* Send it to the client who will never make an account. */}
+                    <div className="mt-3 border-t border-ink-800 pt-3">
+                      {shareable && !shareable.configured ? (
+                        <p className="text-xs text-amber-300/90">{shareable.note}</p>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => share(item)} disabled={busy}
+                              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${btnTone.neutral} disabled:opacity-50`}
+                            >
+                              <Link2 className="h-3.5 w-3.5" /> {shareFor[item.id] ? "New link" : "Share with the client"}
+                            </button>
+                            {shareFor[item.id] && (
+                              <>
+                                <button onClick={() => copyLink(item.id, shareFor[item.id].url)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${btnTone.good}`}>
+                                  {copied === item.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied === item.id ? "Copied" : "Copy link"}
+                                </button>
+                                <button onClick={() => revokeShare(item)} disabled={busy} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${btnTone.bad} disabled:opacity-50`}>
+                                  <Ban className="h-3.5 w-3.5" /> Withdraw
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          {shareFor[item.id] && (
+                            <div className="mt-2 space-y-1">
+                              <p className="break-all rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-[11px] text-slate-300">{shareFor[item.id].url}</p>
+                              <p className="text-[11px] text-slate-500">{shareFor[item.id].note}</p>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
 
                     {/* History */}

@@ -16512,6 +16512,249 @@ test("gtm doc: both formats are served, and named for what they are", () => {
 });
 
 // ---------------------------------------------------------------------------
+// THE CLIENT PORTAL'S SURFACE (§66).
+//
+// The engine was finished and shipped nothing, because there was no route and
+// no page — the recurring defect exactly: a value that exists on one side of a
+// boundary and is never carried across. So every test here crosses a seam. None
+// of them re-tests the engine, which already has its own.
+// ---------------------------------------------------------------------------
+test("portal surface: the link an agency copies is a link the client can open", async () => {
+  const { NextRequest } = await import("next/server");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+
+  const approvalsRoute = await import("../src/app/api/approvals/route.ts");
+  const portalRoute = await import("../src/app/api/portal/route.ts");
+  const call = (body) => approvalsRoute.POST(new NextRequest("https://mw.test/api/approvals", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const brandId = "portal-seam-brand";
+  const created = await (await call({ action: "create", brandId, title: "Spring hero video", description: "Check the offer line", actor: "agency" })).json();
+  assert.ok(created.item?.id, "the item was not created");
+  await call({ action: "transition", brandId, id: created.item.id, act: "submit", actor: "agency" });
+
+  const shared = await (await call({ action: "share", brandId, id: created.item.id })).json();
+  assert.ok(shared.url, "no link came back from the share action");
+  assert.match(shared.url, /^https?:\/\/[^/]+\/portal\//, "the link is relative or points somewhere else — a client pastes it into another inbox");
+  assert.ok(shared.expiresAt, "a link with no stated expiry");
+
+  // THE SEAM: take the token out of the URL the agency copies and open it the
+  // way the client's browser does. A mint that produced a token the route
+  // cannot verify is the whole failure this test exists for.
+  const token = shared.url.split("/portal/")[1];
+  const seen = await (await portalRoute.GET(new NextRequest(`https://mw.test/api/portal?token=${encodeURIComponent(token)}`))).json();
+  assert.equal(seen.itemId, created.item.id, "the minted link did not open the item it was minted for");
+  assert.equal(seen.title, "Spring hero video");
+  assert.deepEqual(seen.actions.sort(), ["approve", "reject", "request_changes"], "the client was offered the wrong set of actions");
+
+  // And the decision goes back the other way.
+  const decided = await portalRoute.POST(new NextRequest("https://mw.test/api/portal", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, action: "approve", name: "Priya Anand" }),
+  }));
+  assert.equal(decided.status, 200);
+  assert.equal((await decided.json()).state, "approved");
+
+  // Re-opening shows no buttons: a client is never asked twice.
+  const after = await (await portalRoute.GET(new NextRequest(`https://mw.test/api/portal?token=${encodeURIComponent(token)}`))).json();
+  assert.deepEqual(after.actions, [], "an already-approved item still offered actions");
+  assert.match(after.note, /already approved/i);
+});
+
+test("portal surface: what the public endpoint refuses", async () => {
+  const { NextRequest } = await import("next/server");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+  const portalRoute = await import("../src/app/api/portal/route.ts");
+
+  const noToken = await portalRoute.GET(new NextRequest("https://mw.test/api/portal"));
+  assert.equal(noToken.status, 400);
+
+  const bad = await portalRoute.GET(new NextRequest("https://mw.test/api/portal?token=not.a.real.token"));
+  assert.equal(bad.status, 404, "a bad token should not be distinguishable from a missing item");
+
+  const badAction = await portalRoute.POST(new NextRequest("https://mw.test/api/portal", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: "not.a.real.token", action: "publish" }),
+  }));
+  assert.equal(badAction.status, 400);
+  assert.match((await badAction.json()).error, /approve, request changes or reject/,
+    "a client link accepted an action outside the three");
+
+  // Nothing the portal returns may be cached — these are per-person URLs.
+  const cached = await portalRoute.GET(new NextRequest("https://mw.test/api/portal?token=x.y.z.w"));
+  assert.equal(cached.headers.get("Cache-Control"), "no-store");
+});
+
+test("portal surface: sharing is brand-scoped, and refused when links cannot work", async () => {
+  const { NextRequest } = await import("next/server");
+  const approvalsRoute = await import("../src/app/api/approvals/route.ts");
+  const call = (body) => approvalsRoute.POST(new NextRequest("https://mw.test/api/approvals", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+  const mine = await (await call({ action: "create", brandId: "brand-one", title: "Mine", actor: "a" })).json();
+
+  // Another brand asking for a link to it gets nothing — not an error naming the
+  // item, which would confirm it exists.
+  const stolen = await call({ action: "share", brandId: "brand-two", id: mine.item.id });
+  assert.equal(stolen.status, 404, "a brand minted a link to another brand's item");
+
+  // With no durable secret the button must not be offered at all.
+  delete process.env.PORTAL_LINK_SECRET;
+  const status = await (await call({ action: "share_status", brandId: "brand-one" })).json();
+  assert.equal(status.configured, false);
+  assert.match(status.note, /PORTAL_LINK_SECRET/, "the surface does not say what to set");
+
+  const refused = await call({ action: "share", brandId: "brand-one", id: mine.item.id });
+  assert.equal(refused.status, 503, "a link was issued on a deployment that cannot verify it");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+});
+
+test("portal surface: the client page is not indexable and is not the dashboard", () => {
+  const page = readFileSync(new URL("../src/app/portal/[token]/page.tsx", import.meta.url), "utf8");
+  // Approval links land in email; email archives get crawled. An indexed one
+  // would put a client's unreleased creative in a search result.
+  assert.match(page, /robots:\s*\{[^}]*index:\s*false/s, "the client portal page is indexable");
+  // Structural, not textual: an earlier test in this file failed on the word
+  // "collapsed" inside a comment saying nothing is ever collapsed. What matters
+  // is what the page IMPORTS, so that is what is checked.
+  const imports = [...page.matchAll(/^import[^;]+from\s+"([^"]+)"/gm)].map((m) => m[1]);
+  assert.ok(!imports.some((i) => /Sidebar|BrandSwitcher|DashboardShell|\/dashboard/.test(i)),
+    `the portal page pulls in the dashboard shell (${imports.join(", ")}) — this person is the agency's customer, not ours`);
+  const view = readFileSync(new URL("../src/components/ClientPortalView.tsx", import.meta.url), "utf8");
+  assert.ok(!/authedFetch/.test(view), "the portal view uses the authenticated client — the whole point is that there is no account");
+});
+
+// ---------------------------------------------------------------------------
+// THE PLATFORM'S OWN SPEND CEILING, ACROSS INSTANCES (launch blocker B-9).
+//
+// The ledger was per-process and said so. Saying so did not make it a limit:
+// ten instances meant ten times the ceiling and a cold start put the month back
+// to zero. These tests are about the total being SHARED — and about the two
+// ways sharing goes wrong, which are double-counting your own pushes and
+// letting a paid customer be blocked by somebody else's burn.
+// ---------------------------------------------------------------------------
+const spendMod = await import("../src/backend/ai-spend.ts");
+
+test("spend ceiling: another instance's burn counts against this one", () => {
+  spendMod.__resetSpend();
+  // $6 spent here, $0 known from elsewhere: under a $10 ceiling.
+  spendMod.recordSpend({ provider: "anthropic", model: "claude-sonnet", inputTokens: 0, outputTokens: 0, usd: 6, paid: false, at: new Date().toISOString() });
+  assert.equal(spendMod.spendVerdict(false, new Date(), 10).allowed, true);
+
+  // The shared document now reads $11: our own $6 plus $5 from somewhere else.
+  // The ceiling must bite, and before this change it would not have — that is
+  // the whole defect.
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 11, unpaidUsd: 11, calls: 2 });
+  const v = spendMod.spendVerdict(false, new Date(), 10);
+  assert.equal(v.allowed, false, "a ceiling that ignores every other instance is not a ceiling");
+  assert.equal(v.spentUsd, 11);
+  assert.match(v.reason, /monthly AI budget is spent/);
+});
+
+test("spend ceiling: this instance's own pushes are not counted twice", () => {
+  spendMod.__resetSpend();
+  spendMod.recordSpend({ provider: "openai", model: "gpt-5", inputTokens: 0, outputTokens: 0, usd: 4, paid: false, at: new Date().toISOString() });
+  // The shared document CONTAINS this instance's own $4 — that is what a
+  // refresh reads back. Counting it again would trip the ceiling at half its
+  // stated value, and nobody would be able to tell from the message why.
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 4, unpaidUsd: 4, calls: 1 });
+  const s = spendMod.spendThisMonth();
+  assert.equal(s.unpaidUsd, 4, "this instance's own spend was counted twice");
+  assert.equal(s.calls, 1);
+});
+
+test("spend ceiling: a paying customer is never blocked by another instance's burn", () => {
+  spendMod.__resetSpend();
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 999, unpaidUsd: 999, calls: 40 });
+  const v = spendMod.spendVerdict(true, new Date(), 10);
+  assert.equal(v.allowed, true, "a customer who paid was refused to protect the owner's budget");
+});
+
+test("spend ceiling: with no shared store the behaviour and the wording are the old ones", () => {
+  spendMod.__resetSpend();
+  spendMod.recordSpend({ provider: "gemini", model: "gemini-2.5-flash", inputTokens: 0, outputTokens: 0, usd: 2, paid: false, at: new Date().toISOString() });
+  const s = spendMod.spendThisMonth();
+  assert.equal(s.unpaidUsd, 2);
+  // Firebase is unconfigured in the test environment, so the note must say the
+  // count is per-instance rather than claim a shared total it does not have.
+  assert.match(s.note, /per server instance/, "with no shared store the note must not imply the total is shared");
+  assert.ok(!/other server instances/.test(s.note));
+  spendMod.__resetSpend();
+});
+
+// ---------------------------------------------------------------------------
+// THE BUSINESS VITALITY INDEX — the panel that used to invent its own numbers.
+//
+// Twelve hardcoded dimension scores in a field named `measured`, an industry
+// benchmark nobody measured, and a named competitor's ad spend. Mounted
+// nowhere, which is the only reason it never reached a customer.
+// ---------------------------------------------------------------------------
+const vitality = await import("../src/shared/vitality.ts");
+
+test("vitality: nothing measured produces no index at all", () => {
+  const v = vitality.computeVitality([]);
+  assert.equal(v.score, null, "an index was produced from nothing");
+  assert.equal(v.coveragePct, 0);
+  assert.equal(v.dimensions.length, 12, "a dimension was dropped — the weights are binding");
+  assert.ok(v.dimensions.every((d) => d.score === null && d.status === "unmeasured"));
+  // Every unmeasured dimension has to say what would measure it. A blank is how
+  // a customer concludes the product is broken rather than unconnected.
+  assert.ok(v.dimensions.every((d) => d.connect.length > 10 && d.evidence.includes(d.connect)));
+});
+
+test("vitality: a real ledger is not enough weight for a composite, and it says so", () => {
+  // What the results ledger genuinely measures today.
+  const v = vitality.computeVitality([
+    { name: "Demand Capture", score: 60, note: "leads + orders captured" },
+    { name: "Conversion", score: 40, note: "30% of leads+orders are orders" },
+    { name: "Growth Readiness", score: 70, note: "channel diversity" },
+  ]);
+  assert.equal(v.coveragePct, 16, "lead flow 12 + opportunity capture 2 + platform engagement 2");
+  assert.equal(v.score, null, "16% of the weight produced a composite — one number wearing the authority of twelve");
+  assert.match(v.note, new RegExp(`${vitality.MIN_COVERAGE_PCT}%`));
+  assert.equal(v.weakest.name, "Opportunity capture rate");
+  // And it names the shortest route to a real index, biggest weight first.
+  assert.equal(v.missing[0].weight, 15);
+});
+
+test("vitality: past the threshold it is a WEIGHTED mean of the measured weight only", () => {
+  const v = vitality.computeVitality([
+    { name: "Marketing Efficiency", score: 80, note: "spend connected" },   // ROAS 15 + CAC 12
+    { name: "Retention", score: 40, note: "repeat purchase" },              // 10
+    { name: "Revenue Recovery", score: 60, note: "dormant" },               // 8
+    { name: "Demand Capture", score: 100, note: "ledger" },                 // 12
+    { name: "Competitor Advantage", score: 20, note: "tracking" },          // 5
+  ]);
+  assert.equal(v.coveragePct, 62);
+  // 80*15 + 80*12 + 40*10 + 60*8 + 100*12 + 20*5 = 1200+960+400+480+1200+100 = 4340 over 62
+  assert.equal(v.score, Math.round(4340 / 62));
+  // Dividing by the full 100 would score every unconnected dimension as zero —
+  // the same lie as inventing one, pointed downwards.
+  assert.ok(v.score > Math.round(4340 / 100), "unmeasured dimensions were counted as zero");
+  assert.equal(v.weakest.name, "Competitor threat level");
+});
+
+test("vitality: the panel computes nothing and invents nothing", () => {
+  const raw = readFileSync(new URL("../src/components/BviCard.tsx", import.meta.url), "utf8");
+  // COMMENTS STRIPPED FIRST. The header of that file explains which invented
+  // figures were removed and names them, so a scan of the raw text finds the
+  // explanation and calls it the offence — the third time in this suite that a
+  // check has failed on prose describing the thing it forbids.
+  const card = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const invented of ["4.5×", "£7.38", "Flame Republic", "industry benchmark", "BVI_HISTORY"]) {
+    assert.ok(!card.includes(invented), `the panel still carries an invented figure: ${invented}`);
+  }
+  assert.ok(raw.includes("Flame Republic"), "the comment recording what was removed has gone — strip-comments would then pass vacuously");
+  assert.match(card, /computeVitality\(components\)/, "the panel scores by itself instead of using the shared scorer");
+  // A trajectory is a series of past values. Twelve made-up ones is the same
+  // offence in a prettier shape, so the sparkline only renders with real input.
+  assert.match(card, /history && history\.length >= 2/, "the sparkline can render without real history");
+});
+
+// ---------------------------------------------------------------------------
 // NAVIGATION ON A PHONE — reported from the installed app: "no menu, no
 // hamburger sign of menu".
 //

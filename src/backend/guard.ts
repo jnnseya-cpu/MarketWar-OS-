@@ -48,8 +48,12 @@ const ADMIN_EMAILS = new Set(
 // The limiter itself is a BURST guard and stays per-instance by design: it has
 // to answer synchronously before every handler, and a database round-trip in
 // front of that would add latency to everything and fail open when the store is
-// slow. Denial-of-wallet is stopped by the things that count pounds — the
-// customer's durable ACU wallet, and the platform's own monthly ceiling.
+// slow. Per-instance counting means N instances allow N x limit bursts, which is
+// worth accepting for a burst guard and is NOT worth accepting for money — so
+// the money protection was moved instead. ai-spend.ts keeps the platform's
+// monthly ceiling in a SHARED total, and the customer's own ACU wallet was
+// always durable. Denial-of-wallet is stopped by the things that count pounds,
+// not by the thing that counts requests.
 // ---------------------------------------------------------------------------
 export { rateLimit, clientKey, ipHash, __resetRateLimits } from "@/backend/rate-limit";
 import { ipHash } from "@/backend/rate-limit";
