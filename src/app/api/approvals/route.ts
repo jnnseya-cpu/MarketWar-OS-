@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { createItem, listItems, getItem, transition, addComment } from "@/backend/approvals";
+import { mintLink, revokeLink, portalConfigured, DEFAULT_TTL_MS, MAX_TTL_MS } from "@/backend/client-portal";
+import { siteUrl } from "@/shared/site";
 import type { ApprovalAction } from "@/shared/approvals";
 
 // Collaboration & Approvals API — brand-scoped. Every action verifies the caller
@@ -65,6 +67,40 @@ export async function POST(req: NextRequest) {
       const r = await addComment({ id: s("id"), actor: s("actor") || "you", role: s("role"), note: s("note"), nowISO });
       return r.ok ? NextResponse.json({ item: r.item }) : NextResponse.json({ error: r.error }, { status: 400 });
     }
+    // SHARE — mint the link an outside client opens.
+    //
+    // Minting lives behind the same brand check as everything else on this
+    // route, because deciding who may be shown an asset is a brand-owner
+    // decision. The link itself is unauthenticated by design; issuing it is not.
+    case "share": {
+      const item = await ownItemOr404(s("id"));
+      if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      const days = typeof b.days === "number" && Number.isFinite(b.days) ? b.days : 0;
+      const ttlMs = days > 0 ? Math.min(days * 24 * 60 * 60 * 1000, MAX_TTL_MS) : DEFAULT_TTL_MS;
+      const minted = mintLink({ itemId: item.id, brandId, ttlMs });
+      if (!minted.ok) return NextResponse.json({ error: minted.error }, { status: 503 });
+      // The absolute URL is built here rather than in the browser: a link that
+      // is pasted into somebody else's inbox cannot be relative, and the origin
+      // has one definition (shared/site.ts) rather than one per surface.
+      return NextResponse.json({
+        url: siteUrl(`/portal/${minted.token}`),
+        expiresAt: minted.expiresAt,
+        note: minted.note,
+      });
+    }
+    case "revoke_share": {
+      const item = await ownItemOr404(s("id"));
+      if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      await revokeLink(item.id, s("actor") || "you", nowISO);
+      return NextResponse.json({ revoked: true, note: "That link no longer opens. Anyone who still has it is told to ask for a new one." });
+    }
+    case "share_status":
+      return NextResponse.json({
+        configured: portalConfigured(),
+        note: portalConfigured()
+          ? "Approval links can be issued on this deployment."
+          : "Approval links are switched off here. Set PORTAL_LINK_SECRET (16+ characters) and redeploy — until then a link would verify on one server and fail on every other, and your client would see an error.",
+      });
     default:
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

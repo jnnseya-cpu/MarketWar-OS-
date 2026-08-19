@@ -16487,3 +16487,119 @@ test("gtm doc: both formats are served, and named for what they are", () => {
   assert.match(gtmPlan.documentFilename(plan, "html"), /^GO-TO-MARKET-.*\.html$/);
   assert.match(gtmPlan.documentFilename(plan), /^GO-TO-MARKET-.*\.md$/);
 });
+
+// ---------------------------------------------------------------------------
+// THE CLIENT PORTAL'S SURFACE (§66).
+//
+// The engine was finished and shipped nothing, because there was no route and
+// no page — the recurring defect exactly: a value that exists on one side of a
+// boundary and is never carried across. So every test here crosses a seam. None
+// of them re-tests the engine, which already has its own.
+// ---------------------------------------------------------------------------
+test("portal surface: the link an agency copies is a link the client can open", async () => {
+  const { NextRequest } = await import("next/server");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+
+  const approvalsRoute = await import("../src/app/api/approvals/route.ts");
+  const portalRoute = await import("../src/app/api/portal/route.ts");
+  const call = (body) => approvalsRoute.POST(new NextRequest("https://mw.test/api/approvals", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const brandId = "portal-seam-brand";
+  const created = await (await call({ action: "create", brandId, title: "Spring hero video", description: "Check the offer line", actor: "agency" })).json();
+  assert.ok(created.item?.id, "the item was not created");
+  await call({ action: "transition", brandId, id: created.item.id, act: "submit", actor: "agency" });
+
+  const shared = await (await call({ action: "share", brandId, id: created.item.id })).json();
+  assert.ok(shared.url, "no link came back from the share action");
+  assert.match(shared.url, /^https?:\/\/[^/]+\/portal\//, "the link is relative or points somewhere else — a client pastes it into another inbox");
+  assert.ok(shared.expiresAt, "a link with no stated expiry");
+
+  // THE SEAM: take the token out of the URL the agency copies and open it the
+  // way the client's browser does. A mint that produced a token the route
+  // cannot verify is the whole failure this test exists for.
+  const token = shared.url.split("/portal/")[1];
+  const seen = await (await portalRoute.GET(new NextRequest(`https://mw.test/api/portal?token=${encodeURIComponent(token)}`))).json();
+  assert.equal(seen.itemId, created.item.id, "the minted link did not open the item it was minted for");
+  assert.equal(seen.title, "Spring hero video");
+  assert.deepEqual(seen.actions.sort(), ["approve", "reject", "request_changes"], "the client was offered the wrong set of actions");
+
+  // And the decision goes back the other way.
+  const decided = await portalRoute.POST(new NextRequest("https://mw.test/api/portal", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, action: "approve", name: "Priya Anand" }),
+  }));
+  assert.equal(decided.status, 200);
+  assert.equal((await decided.json()).state, "approved");
+
+  // Re-opening shows no buttons: a client is never asked twice.
+  const after = await (await portalRoute.GET(new NextRequest(`https://mw.test/api/portal?token=${encodeURIComponent(token)}`))).json();
+  assert.deepEqual(after.actions, [], "an already-approved item still offered actions");
+  assert.match(after.note, /already approved/i);
+});
+
+test("portal surface: what the public endpoint refuses", async () => {
+  const { NextRequest } = await import("next/server");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+  const portalRoute = await import("../src/app/api/portal/route.ts");
+
+  const noToken = await portalRoute.GET(new NextRequest("https://mw.test/api/portal"));
+  assert.equal(noToken.status, 400);
+
+  const bad = await portalRoute.GET(new NextRequest("https://mw.test/api/portal?token=not.a.real.token"));
+  assert.equal(bad.status, 404, "a bad token should not be distinguishable from a missing item");
+
+  const badAction = await portalRoute.POST(new NextRequest("https://mw.test/api/portal", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: "not.a.real.token", action: "publish" }),
+  }));
+  assert.equal(badAction.status, 400);
+  assert.match((await badAction.json()).error, /approve, request changes or reject/,
+    "a client link accepted an action outside the three");
+
+  // Nothing the portal returns may be cached — these are per-person URLs.
+  const cached = await portalRoute.GET(new NextRequest("https://mw.test/api/portal?token=x.y.z.w"));
+  assert.equal(cached.headers.get("Cache-Control"), "no-store");
+});
+
+test("portal surface: sharing is brand-scoped, and refused when links cannot work", async () => {
+  const { NextRequest } = await import("next/server");
+  const approvalsRoute = await import("../src/app/api/approvals/route.ts");
+  const call = (body) => approvalsRoute.POST(new NextRequest("https://mw.test/api/approvals", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+  const mine = await (await call({ action: "create", brandId: "brand-one", title: "Mine", actor: "a" })).json();
+
+  // Another brand asking for a link to it gets nothing — not an error naming the
+  // item, which would confirm it exists.
+  const stolen = await call({ action: "share", brandId: "brand-two", id: mine.item.id });
+  assert.equal(stolen.status, 404, "a brand minted a link to another brand's item");
+
+  // With no durable secret the button must not be offered at all.
+  delete process.env.PORTAL_LINK_SECRET;
+  const status = await (await call({ action: "share_status", brandId: "brand-one" })).json();
+  assert.equal(status.configured, false);
+  assert.match(status.note, /PORTAL_LINK_SECRET/, "the surface does not say what to set");
+
+  const refused = await call({ action: "share", brandId: "brand-one", id: mine.item.id });
+  assert.equal(refused.status, 503, "a link was issued on a deployment that cannot verify it");
+  process.env.PORTAL_LINK_SECRET = "surface-secret-at-least-16-chars";
+});
+
+test("portal surface: the client page is not indexable and is not the dashboard", () => {
+  const page = readFileSync(new URL("../src/app/portal/[token]/page.tsx", import.meta.url), "utf8");
+  // Approval links land in email; email archives get crawled. An indexed one
+  // would put a client's unreleased creative in a search result.
+  assert.match(page, /robots:\s*\{[^}]*index:\s*false/s, "the client portal page is indexable");
+  // Structural, not textual: an earlier test in this file failed on the word
+  // "collapsed" inside a comment saying nothing is ever collapsed. What matters
+  // is what the page IMPORTS, so that is what is checked.
+  const imports = [...page.matchAll(/^import[^;]+from\s+"([^"]+)"/gm)].map((m) => m[1]);
+  assert.ok(!imports.some((i) => /Sidebar|BrandSwitcher|DashboardShell|\/dashboard/.test(i)),
+    `the portal page pulls in the dashboard shell (${imports.join(", ")}) — this person is the agency's customer, not ours`);
+  const view = readFileSync(new URL("../src/components/ClientPortalView.tsx", import.meta.url), "utf8");
+  assert.ok(!/authedFetch/.test(view), "the portal view uses the authenticated client — the whole point is that there is no account");
+});
