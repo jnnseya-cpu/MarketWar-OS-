@@ -46,11 +46,9 @@ const nextConfig = {
   // fails to load at runtime cold-start on Vercel's serverless runtime — every
   // route that imports firebase-admin 500s with a bare "Internal Server Error".
   // Marking it external makes Next load it as a normal node_module at runtime,
-  // which is how the Admin SDK is designed to be consumed. (Next 14.2 key; in
-  // Next 15 this graduates to the top-level `serverExternalPackages`.)
-  experimental: {
-    serverComponentsExternalPackages: ["firebase-admin"],
-  },
+  // which is how the Admin SDK is designed to be consumed. Graduated out of
+  // `experimental` in Next 15 — same behaviour, top-level key.
+  serverExternalPackages: ["firebase-admin"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

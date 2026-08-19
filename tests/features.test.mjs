@@ -16603,3 +16603,61 @@ test("portal surface: the client page is not indexable and is not the dashboard"
   const view = readFileSync(new URL("../src/components/ClientPortalView.tsx", import.meta.url), "utf8");
   assert.ok(!/authedFetch/.test(view), "the portal view uses the authenticated client — the whole point is that there is no account");
 });
+
+// ---------------------------------------------------------------------------
+// THE PLATFORM'S OWN SPEND CEILING, ACROSS INSTANCES (launch blocker B-9).
+//
+// The ledger was per-process and said so. Saying so did not make it a limit:
+// ten instances meant ten times the ceiling and a cold start put the month back
+// to zero. These tests are about the total being SHARED — and about the two
+// ways sharing goes wrong, which are double-counting your own pushes and
+// letting a paid customer be blocked by somebody else's burn.
+// ---------------------------------------------------------------------------
+const spendMod = await import("../src/backend/ai-spend.ts");
+
+test("spend ceiling: another instance's burn counts against this one", () => {
+  spendMod.__resetSpend();
+  // $6 spent here, $0 known from elsewhere: under a $10 ceiling.
+  spendMod.recordSpend({ provider: "anthropic", model: "claude-sonnet", inputTokens: 0, outputTokens: 0, usd: 6, paid: false, at: new Date().toISOString() });
+  assert.equal(spendMod.spendVerdict(false, new Date(), 10).allowed, true);
+
+  // The shared document now reads $11: our own $6 plus $5 from somewhere else.
+  // The ceiling must bite, and before this change it would not have — that is
+  // the whole defect.
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 11, unpaidUsd: 11, calls: 2 });
+  const v = spendMod.spendVerdict(false, new Date(), 10);
+  assert.equal(v.allowed, false, "a ceiling that ignores every other instance is not a ceiling");
+  assert.equal(v.spentUsd, 11);
+  assert.match(v.reason, /monthly AI budget is spent/);
+});
+
+test("spend ceiling: this instance's own pushes are not counted twice", () => {
+  spendMod.__resetSpend();
+  spendMod.recordSpend({ provider: "openai", model: "gpt-5", inputTokens: 0, outputTokens: 0, usd: 4, paid: false, at: new Date().toISOString() });
+  // The shared document CONTAINS this instance's own $4 — that is what a
+  // refresh reads back. Counting it again would trip the ceiling at half its
+  // stated value, and nobody would be able to tell from the message why.
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 4, unpaidUsd: 4, calls: 1 });
+  const s = spendMod.spendThisMonth();
+  assert.equal(s.unpaidUsd, 4, "this instance's own spend was counted twice");
+  assert.equal(s.calls, 1);
+});
+
+test("spend ceiling: a paying customer is never blocked by another instance's burn", () => {
+  spendMod.__resetSpend();
+  spendMod.__setSharedSpend({ month: new Date().toISOString().slice(0, 7), totalUsd: 999, unpaidUsd: 999, calls: 40 });
+  const v = spendMod.spendVerdict(true, new Date(), 10);
+  assert.equal(v.allowed, true, "a customer who paid was refused to protect the owner's budget");
+});
+
+test("spend ceiling: with no shared store the behaviour and the wording are the old ones", () => {
+  spendMod.__resetSpend();
+  spendMod.recordSpend({ provider: "gemini", model: "gemini-2.5-flash", inputTokens: 0, outputTokens: 0, usd: 2, paid: false, at: new Date().toISOString() });
+  const s = spendMod.spendThisMonth();
+  assert.equal(s.unpaidUsd, 2);
+  // Firebase is unconfigured in the test environment, so the note must say the
+  // count is per-instance rather than claim a shared total it does not have.
+  assert.match(s.note, /per server instance/, "with no shared store the note must not imply the total is shared");
+  assert.ok(!/other server instances/.test(s.note));
+  spendMod.__resetSpend();
+});

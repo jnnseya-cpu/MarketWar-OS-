@@ -32,8 +32,20 @@ const ADMIN_EMAILS = new Set(
 );
 
 // ---------------------------------------------------------------------------
-// Rate limiting (in-memory; per-instance). A shared store (Redis/Firestore)
-// is required for multi-instance correctness — tracked as a launch action.
+// Rate limiting (in-memory; per-instance) — and why that is now the right shape
+// rather than an open blocker.
+//
+// This is a BURST guard. It has to answer synchronously, before the handler
+// runs, on every request; a database round-trip in front of that would add
+// latency to everything and fail open the moment the store is slow. Per-instance
+// counting means N instances allow N × limit bursts, which is worth accepting
+// for a burst guard and is NOT worth accepting for money.
+//
+// So the money protection was moved rather than the limiter: `ai-spend.ts` now
+// keeps the platform's monthly ceiling in a SHARED total (fire-and-forget
+// increments, never awaited on the hot path), and the customer's own ACU wallet
+// was always durable. Denial-of-wallet is stopped by the thing that counts
+// pounds, not by the thing that counts requests.
 // ---------------------------------------------------------------------------
 type Bucket = { count: number; resetAt: number };
 const buckets = new Map<string, Bucket>();

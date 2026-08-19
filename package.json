@@ -26,18 +26,23 @@
     "firebase": "^12.16.0",
     "firebase-admin": "^14.1.0",
     "lucide-react": "^0.469.0",
-    "next": "^14.2.21",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "^15.5.23",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sharp": "^0.35.3"
+  },
+  "//overrides": "Next 15.5 pins postcss 8.4.31 and sharp 0.34.5 inside its own tree; both carry advisories that our direct copies do not. Only Next itself can bump them, and the next fixed release is another major. These force the nested copies up to the versions this project already uses everywhere else. Remove an entry the day Next ships it — an override that outlives its reason is how a build starts silently disagreeing with its own lockfile.",
+  "overrides": {
+    "postcss": "^8.5.26",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "autoprefixer": "^10.4.20",
     "docx": "^9.7.1",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.23.1",
     "typescript": "^5.7.2"
