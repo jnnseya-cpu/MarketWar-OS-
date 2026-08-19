@@ -24,8 +24,8 @@ function withRef(url: string, code: string): string {
   }
 }
 
-export default async function ReferralRedirect({ params }: { params: Promise<{ code: string }> }) {
-  const code = ((await params).code || "").toUpperCase();
+export default async function ReferralRedirect({ params }: { params: { code: string } }) {
+  const code = (params.code || "").toUpperCase();
   let dest = "";
   try {
     const sub = await subscriptionByCode(code);

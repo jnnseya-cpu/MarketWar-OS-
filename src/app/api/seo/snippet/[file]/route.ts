@@ -12,9 +12,8 @@ import { getDeployConfig, buildSnippet } from "@/backend/seo-deploy";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ file: string }> }) {
-  const { file } = await params;
-  const brandId = (file || "").replace(/\.js$/i, "").trim();
+export async function GET(_req: NextRequest, { params }: { params: { file: string } }) {
+  const brandId = (params.file || "").replace(/\.js$/i, "").trim();
 
   const js = brandId
     ? buildSnippet(await getDeployConfig(brandId).catch(() => null) ?? { brandId, allowedHosts: [], enabled: false, fixes: [], updatedAt: "" })

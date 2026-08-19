@@ -10,9 +10,8 @@ export function generateStaticParams() {
   return FEATURE_PAGES.map((p) => ({ slug: p.slug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const { slug } = await params;
-  const p = featureBySlug(slug);
+export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
+  const p = featureBySlug(params.slug);
   if (!p) return { title: "Not found · MarketWar OS" };
   return {
     title: `${p.title} · MarketWar OS`,
@@ -26,9 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 // describe what is genuinely on the page, which is the only version worth
 // emitting: structured data that promises something the page does not contain
 // is a manual action waiting to happen.
-export default async function FeaturePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const p = featureBySlug(slug);
+export default function FeaturePage({ params }: { params: { slug: string } }) {
+  const p = featureBySlug(params.slug);
   if (!p) notFound();
 
   const related = p.related.map(featureBySlug).filter(Boolean);

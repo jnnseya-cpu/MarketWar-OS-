@@ -13,9 +13,8 @@ export const dynamic = "force-dynamic";
 
 const SITE = siteOrigin();
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const { slug } = await params;
-  const post = await getPost(slug).catch(() => null);
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const post = await getPost(params.slug).catch(() => null);
   if (!post) return { title: "Article · MarketWar OS" };
   const url = `${SITE}/blog/${post.slug}`;
   return {
@@ -38,9 +37,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function BlogArticlePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const post = await getPost(slug).catch(() => null);
+export default async function BlogArticlePage({ params }: { params: { slug: string } }) {
+  const post = await getPost(params.slug).catch(() => null);
   if (!post || post.status !== "published") notFound();
   const all = await listPosts().catch(() => []);
   // Only genuinely overlapping posts. An empty list renders nothing rather than

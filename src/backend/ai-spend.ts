@@ -24,8 +24,6 @@ if (typeof window !== "undefined") {
 // token counts the providers return. Close enough to run a ceiling on, not a
 // substitute for the invoice, and every figure is labelled.
 
-import { adminDb, adminConfigured } from "@/backend/firebase-admin";
-
 export type ProviderId = "anthropic" | "openai" | "gemini";
 
 /** USD per MILLION tokens. Published list prices; override per deployment. */
@@ -80,138 +78,21 @@ export type SpendEntry = {
   paid: boolean;
 };
 
-// In-process ledger. Deliberately NOT read from Firestore on the hot path: a
-// spend guard that needs a database round-trip before every AI call adds latency
-// to every request and fails open when the database is slow.
-//
-// BUT PER-INSTANCE ACCOUNTING WAS THE WHOLE HOLE.
-//
-// Stating "counted per server instance, so the real total is higher" was honest
-// and still left the ceiling unable to do its job: ten instances meant ten times
-// the ceiling, and a cold start put the month back to zero. That is not a
-// conservative under-count — it is a limit that does not exist.
-//
-// So the total is now SHARED, without putting a round-trip in front of anything:
-//
-//   • Recording stays synchronous and in-memory. The hot path is untouched.
-//   • After recording, a Firestore increment is fired and NOT awaited. A slow or
-//     broken database costs nothing and blocks nobody.
-//   • Reading merges this instance's own rows with the last known shared total,
-//     refreshed at most once every REFRESH_MS. A ceiling check therefore sees
-//     what every other instance has spent, a few seconds stale at worst.
-//
-// Deliberately additive: with Admin unconfigured every line below is skipped and
-// the module behaves exactly as it did before.
+// In-process ledger. Deliberately NOT Firestore: a spend guard that needs a
+// database round-trip before every AI call adds latency to the hot path and
+// fails open when the database is slow. Per-instance accounting under-counts
+// across serverless instances, which is stated rather than hidden — the console
+// limit at the provider is the hard backstop, this is the early one.
 const ledger: SpendEntry[] = [];
 const MAX_ENTRIES = 5_000;
 
 const monthKey = (iso: string) => iso.slice(0, 7);
 
-const SHARED_COLLECTION = "ai_spend_months";
-const REFRESH_MS = 30_000;
-
-/** What other instances have spent this month, and when we last asked. */
-type SharedTotal = { month: string; totalUsd: number; unpaidUsd: number; calls: number; fetchedAtMs: number };
-let shared: SharedTotal | null = null;
-/** Everything this instance has already pushed, so a refresh does not double-count it. */
-const pushed = { month: "", totalUsd: 0, unpaidUsd: 0, calls: 0 };
-let refreshing = false;
-
-/** Null whenever Firebase is unconfigured — which is every test and all of demo mode. */
-function durable() {
-  return adminConfigured && adminDb ? adminDb : null;
-}
-
 export function recordSpend(e: Omit<SpendEntry, "at"> & { at?: string }): SpendEntry {
   const entry: SpendEntry = { ...e, at: e.at ?? new Date().toISOString() };
   ledger.push(entry);
   if (ledger.length > MAX_ENTRIES) ledger.splice(0, ledger.length - MAX_ENTRIES);
-  // Counted whether or not a shared store exists. This is bookkeeping of what
-  // THIS instance recorded, and it is what gets subtracted from the shared total
-  // so a refresh does not count our own calls twice. Tying it to whether
-  // Firestore happens to be configured made the subtraction silently wrong.
-  const month = monthKey(entry.at);
-  if (pushed.month !== month) { pushed.month = month; pushed.totalUsd = 0; pushed.unpaidUsd = 0; pushed.calls = 0; }
-  pushed.totalUsd += entry.usd;
-  if (!entry.paid) pushed.unpaidUsd += entry.usd;
-  pushed.calls += 1;
-  pushSharedSpend(entry);
   return entry;
-}
-
-/**
- * Add one call to the shared total. FIRE AND FORGET — never awaited.
- *
- * `increment` is used rather than read-modify-write because two instances
- * recording at the same moment must both count. A read-then-set here would lose
- * one of them, which is the same defect as charging twice, pointed the other
- * way.
- */
-function pushSharedSpend(entry: SpendEntry): void {
-  const db = durable();
-  if (!db) return;
-  const month = monthKey(entry.at);
-
-  void (async () => {
-    try {
-      const { FieldValue } = await import("firebase-admin/firestore");
-      await db.collection(SHARED_COLLECTION).doc(month).set({
-        month,
-        totalUsd: FieldValue.increment(entry.usd),
-        unpaidUsd: FieldValue.increment(entry.paid ? 0 : entry.usd),
-        calls: FieldValue.increment(1),
-        updatedAt: entry.at,
-      }, { merge: true });
-    } catch {
-      // A failed push means this instance's spend is missing from the shared
-      // document while still being subtracted from it, so the ceiling reads
-      // slightly LOW until the next successful write. The alternative is
-      // failing a customer's request to protect a bookkeeping figure, which
-      // this module exists to refuse. The local ledger still holds every entry,
-      // and the provider console limit is the hard backstop.
-    }
-  })();
-}
-
-/** Refresh the shared total, at most every REFRESH_MS. Never awaited by a caller. */
-function refreshShared(month: string): void {
-  const db = durable();
-  if (!db || refreshing) return;
-  if (shared && shared.month === month && Date.now() - shared.fetchedAtMs < REFRESH_MS) return;
-  refreshing = true;
-  void (async () => {
-    try {
-      const snap = await db.collection(SHARED_COLLECTION).doc(month).get();
-      const v = (snap.data() || {}) as Partial<SharedTotal>;
-      shared = {
-        month,
-        totalUsd: Number(v.totalUsd) || 0,
-        unpaidUsd: Number(v.unpaidUsd) || 0,
-        calls: Number(v.calls) || 0,
-        fetchedAtMs: Date.now(),
-      };
-    } catch {
-      // Leave the previous figure in place. A ceiling that resets to zero
-      // because a read failed is worse than one a few minutes stale.
-    } finally { refreshing = false; }
-  })();
-}
-
-/**
- * What OTHER instances have spent this month.
- *
- * The shared document includes this instance's own pushes, so they are taken
- * back out — otherwise every call would be counted twice the moment a refresh
- * landed, and the ceiling would trip at half its stated value.
- */
-function othersSpend(month: string): { totalUsd: number; unpaidUsd: number; calls: number } {
-  if (!shared || shared.month !== month) return { totalUsd: 0, unpaidUsd: 0, calls: 0 };
-  const mine = pushed.month === month ? pushed : { totalUsd: 0, unpaidUsd: 0, calls: 0 };
-  return {
-    totalUsd: Math.max(0, shared.totalUsd - mine.totalUsd),
-    unpaidUsd: Math.max(0, shared.unpaidUsd - mine.unpaidUsd),
-    calls: Math.max(0, shared.calls - mine.calls),
-  };
 }
 
 export type SpendSummary = {
@@ -226,7 +107,6 @@ export type SpendSummary = {
 
 export function spendThisMonth(now = new Date()): SpendSummary {
   const month = monthKey(now.toISOString());
-  refreshShared(month);
   const rows = ledger.filter((e) => monthKey(e.at) === month);
   const by = new Map<ProviderId, { usd: number; calls: number }>();
   let totalUsd = 0, unpaidUsd = 0;
@@ -236,24 +116,11 @@ export function spendThisMonth(now = new Date()): SpendSummary {
     const cur = by.get(r.provider) ?? { usd: 0, calls: 0 };
     by.set(r.provider, { usd: cur.usd + r.usd, calls: cur.calls + 1 });
   }
-  // Everything the other instances have spent. Zero when Firebase is
-  // unconfigured, so demo mode and every test see exactly the old behaviour.
-  const others = othersSpend(month);
   const round = (n: number) => Math.round(n * 100) / 100;
-  const sharedKnown = others.calls > 0 || others.totalUsd > 0;
   return {
-    month,
-    totalUsd: round(totalUsd + others.totalUsd),
-    unpaidUsd: round(unpaidUsd + others.unpaidUsd),
-    calls: rows.length + others.calls,
+    month, totalUsd: round(totalUsd), unpaidUsd: round(unpaidUsd), calls: rows.length,
     byProvider: [...by.entries()].map(([provider, v]) => ({ provider, usd: round(v.usd), calls: v.calls })).sort((a, b) => b.usd - a.usd),
-    note: `Estimated from published token prices and the counts the providers returned — close enough to run a ceiling on, not a substitute for the invoice. ${
-      sharedKnown
-        ? `Includes $${round(others.totalUsd).toFixed(2)} recorded by other server instances (refreshed at most every ${Math.round(REFRESH_MS / 1000)}s, so it can be seconds stale). The per-provider split below is this instance's own calls only.`
-        : durable()
-          ? "Shared across server instances; no spend from another instance has been read yet."
-          : "Counted per server instance, because no shared store is configured — the real total across instances is higher. The console limit at the provider is the hard backstop."
-    }`,
+    note: `Estimated from published token prices and the counts the providers returned — close enough to run a ceiling on, not a substitute for the invoice. Counted per server instance, so the real total across instances is higher; the console limit at the provider is the hard backstop.`,
   };
 }
 
@@ -293,13 +160,4 @@ export function spendVerdict(paid: boolean, now = new Date(), ceilingUsd?: numbe
 }
 
 /** Test seam — the ledger is process state and would otherwise leak between cases. */
-export function __resetSpend(): void {
-  ledger.length = 0;
-  shared = null;
-  pushed.month = ""; pushed.totalUsd = 0; pushed.unpaidUsd = 0; pushed.calls = 0;
-}
-
-/** Test seam. Stands in for what other instances have recorded, without a database. */
-export function __setSharedSpend(v: { month: string; totalUsd: number; unpaidUsd: number; calls: number } | null): void {
-  shared = v ? { ...v, fetchedAtMs: Date.now() } : null;
-}
+export function __resetSpend(): void { ledger.length = 0; }

@@ -16,23 +16,21 @@ export const dynamic = "force-dynamic";
 
 type Params = { brandId: string; slug: string };
 
-export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
-  const { brandId, slug } = await params;
-  const page = await getPage(brandId, slug).catch(() => null);
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const page = await getPage(params.brandId, params.slug).catch(() => null);
   if (!page) return { title: "Page not found" };
   return { title: page.headline, description: page.subheadline };
 }
 
-export default async function HostedLandingPage({ params }: { params: Promise<Params> }) {
-  const { brandId, slug } = await params;
-  const page = await getPage(brandId, slug).catch(() => null);
+export default async function HostedLandingPage({ params }: { params: Params }) {
+  const page = await getPage(params.brandId, params.slug).catch(() => null);
   if (!page || !page.live) notFound();
 
   // Count the visit server-side, so it is recorded even for a visitor with
   // JavaScript disabled or an ad blocker that eats client-side beacons. A
   // failure here must never stop the page rendering — the customer is paying
   // for the page, not for the counter.
-  await recordPageEvent(brandId, slug, "view").catch(() => {});
+  await recordPageEvent(params.brandId, params.slug, "view").catch(() => {});
 
   const cols = page.brandColours && page.brandColours.length ? page.brandColours : ["#1F6FEB", "#0B7285"];
   const primary = cols[0];
