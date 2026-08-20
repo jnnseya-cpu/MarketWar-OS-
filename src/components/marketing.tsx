@@ -5,40 +5,14 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { BrandLockup } from "@/components/Logo";
+import { FOOTER_NAV as NAV_COLUMNS, HEADER_NAV } from "@/components/marketing-nav";
+import SiteMobileNav from "@/components/SiteMobileNav";
 
-// Canonical public-site navigation (grouped for the footer).
-export const FOOTER_NAV: { title: string; links: [string, string][] }[] = [
-  {
-    title: "Company",
-    links: [
-      ["About", "/about"],
-      ["Industries", "/industries"],
-      ["Blog", "/blog"],
-      ["Contact", "/contact"],
-    ],
-  },
-  {
-    title: "Product",
-    links: [
-      ["Free website audit", "/audit"],
-      ["Answers", "/features"],
-      ["How it works", "/how-it-works"],
-      ["Developers", "/developers"],
-      ["Get started", "/get-started"],
-      ["Growth & Influencers", "/growth"],
-      ["Join SHARE2EARN", "/share2earn"],
-    ],
-  },
-  {
-    title: "Legal & status",
-    links: [
-      ["Terms of Service", "/terms"],
-      ["Privacy Policy", "/privacy"],
-      ["All policies", "/policies"],
-      ["Platform status", "/status"],
-    ],
-  },
-];
+// Canonical public-site navigation. The list itself lives in marketing-nav so
+// the mobile drawer (a client component) can read it without dragging this
+// whole shell into the browser bundle; it is re-exported here so every existing
+// import of FOOTER_NAV from "@/components/marketing" keeps working.
+export { FOOTER_NAV, HEADER_NAV } from "@/components/marketing-nav";
 
 export function SiteHeader() {
   return (
@@ -48,14 +22,16 @@ export function SiteHeader() {
           <BrandLockup />
         </Link>
         <nav className="hidden items-center gap-6 text-sm font-semibold text-slate-300 md:flex">
-          <Link href="/how-it-works" className="hover:text-white">How it works</Link>
-          <Link href="/industries" className="hover:text-white">Industries</Link>
-          <Link href="/developers" className="hover:text-white">Developers</Link>
-          <Link href="/growth" className="hover:text-white">Growth</Link>
+          {HEADER_NAV.map(([label, href]) => (
+            <Link key={href} href={href} className="hover:text-white">{label}</Link>
+          ))}
         </nav>
         <div className="flex items-center gap-3">
           <Link href="/login" className="hidden text-sm font-semibold text-slate-300 hover:text-white sm:block">Sign in</Link>
           <Link href="/get-started" className="rounded-lg bg-emerald-500 px-3.5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400">Get started</Link>
+          {/* Below md the nav above is hidden and, until this existed, nothing
+              replaced it — the whole public site was a logo and one button. */}
+          <SiteMobileNav />
         </div>
       </div>
     </header>
@@ -75,7 +51,7 @@ export function SiteFooter() {
               The AI-powered customer-acquisition operating system. One account, every brand, one predictable bill.
             </p>
           </div>
-          {FOOTER_NAV.map((col) => (
+          {NAV_COLUMNS.map((col) => (
             <div key={col.title}>
               <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{col.title}</p>
               <ul className="space-y-2.5">

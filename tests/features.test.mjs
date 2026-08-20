@@ -13101,7 +13101,12 @@ test("public: the no-application door actually exists on the site", () => {
   // And it is reachable: sitemap and footer, not an orphan page.
   const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
   assert.match(sitemap, /path: "\/share2earn"/);
-  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8");
+  // The shell plus the nav list it re-exports. The links moved into
+  // marketing-nav.ts so the phone drawer could read them without pulling the
+  // whole shell into the browser bundle; the invariant is about the SITE
+  // navigation, not about which file holds the array.
+  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8")
+    + readFileSync(new URL("../src/components/marketing-nav.ts", import.meta.url), "utf8");
   assert.match(marketing, /"\/share2earn"/);
 });
 
@@ -13657,7 +13662,12 @@ test("the free audit is genuinely free, findable, and the first thing asked for"
   // Findable: sitemap, footer, and the landing page's primary button.
   const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
   assert.match(sitemap, /path: "\/audit"/, "the front door is not in the sitemap");
-  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8");
+  // The shell plus the nav list it re-exports. The links moved into
+  // marketing-nav.ts so the phone drawer could read them without pulling the
+  // whole shell into the browser bundle; the invariant is about the SITE
+  // navigation, not about which file holds the array.
+  const marketing = readFileSync(new URL("../src/components/marketing.tsx", import.meta.url), "utf8")
+    + readFileSync(new URL("../src/components/marketing-nav.ts", import.meta.url), "utf8");
   assert.match(marketing, /"\/audit"/, "the front door is not in the site navigation");
   const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
   assert.match(landing, /Audit my website free/, "the landing page still asks a stranger to sign up first");
@@ -16486,4 +16496,80 @@ test("gtm doc: both formats are served, and named for what they are", () => {
   const plan = gtmPlan.buildGtmPlan(GTM());
   assert.match(gtmPlan.documentFilename(plan, "html"), /^GO-TO-MARKET-.*\.html$/);
   assert.match(gtmPlan.documentFilename(plan), /^GO-TO-MARKET-.*\.md$/);
+});
+
+// ---------------------------------------------------------------------------
+// NAVIGATION ON A PHONE — reported from the installed app: "no menu, no
+// hamburger sign of menu".
+//
+// The dashboard has had a drawer since the PWA shipped. The PUBLIC site never
+// got one: SiteHeader's nav is `hidden … md:flex`, "Sign in" is `hidden
+// sm:block`, and nothing replaced either below those widths. On a phone the
+// whole public site was a logo and one button.
+//
+// Same shape as every other defect in this repository — built on one side of a
+// boundary, never carried across. So these tests are the RULE rather than the
+// fix: a header that hides its navigation has to offer another way to it.
+// ---------------------------------------------------------------------------
+test("phone nav: every header that hides its nav offers a drawer instead", () => {
+  const shells = [
+    ["src/components/marketing.tsx", "the public site"],
+    ["src/app/dashboard/layout.tsx", "the dashboard"],
+  ];
+  for (const [file, what] of shells) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    // A nav that only appears at a breakpoint...
+    const hidesNav = /<nav[^>]*className="[^"]*hidden[^"]*(?:md|lg):flex/.test(src)
+      || /<aside[^>]*className="[^"]*hidden[^"]*lg:flex/.test(src)
+      || /lg:hidden/.test(src);
+    if (!hidesNav) continue;
+    // ...must be paired with something that opens one below it.
+    // RENDERED, not merely imported. Checking for the identifier passed while
+    // the element was deleted from the JSX and only the import remained — which
+    // is precisely the state that ships a phone with no menu.
+    assert.match(src, /<(Site)?MobileNav\s*\/?>/,
+      `${what} hides its navigation on small screens and never renders a drawer — that is a phone with no menu`);
+  }
+});
+
+test("phone nav: the public drawer reaches everything the footer does", () => {
+  const nav = readFileSync(new URL("../src/components/marketing-nav.ts", import.meta.url), "utf8");
+  const drawer = readFileSync(new URL("../src/components/SiteMobileNav.tsx", import.meta.url), "utf8");
+
+  // Reads the shared list rather than carrying a copy. A second copy is how a
+  // phone menu ends up missing the page somebody added last week.
+  assert.match(drawer, /FOOTER_NAV.*from "@\/components\/marketing-nav"/, "the drawer keeps its own copy of the links");
+  assert.ok(!/\["About", "\/about"\]/.test(drawer), "the drawer has hardcoded links of its own");
+
+  // The two the header itself hides below sm/md have to be in the drawer, or
+  // somebody with an account cannot get into it from a phone.
+  assert.match(drawer, /href="\/login"/, "no way to sign in from a phone");
+  assert.match(drawer, /href="\/get-started"/);
+  // The free audit is the front door and is not buried in a list.
+  assert.match(drawer, /href="\/audit"/);
+
+  assert.match(nav, /HEADER_NAV/, "the header links are not shared, so the drawer can drift from them");
+});
+
+test("phone nav: the drawer is portalled out of the blurred header", () => {
+  for (const f of ["../src/components/SiteMobileNav.tsx", "../src/components/MobileNav.tsx"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    // backdrop-filter on an ancestor makes it the containing block for every
+    // fixed descendant, so `fixed inset-0` resolves against the header's box
+    // and the drawer opens as a strip. Paid for once already in MobileNav.
+    assert.match(src, /createPortal\(/, `${f} renders its drawer in place — it will be clipped by the blurred header`);
+    assert.match(src, /document\.body,?\s*\)/, `${f} does not portal to <body>`);
+  }
+});
+
+test("phone nav: the human gate's failure screen is not a dead end", () => {
+  const page = readFileSync(new URL("../src/app/verify-human/page.tsx", import.meta.url), "utf8");
+  // In the installed app there is no address bar and, on iOS, no back button.
+  // A check that keeps failing left somebody on a screen with one button and
+  // nothing else. A gate that fails to a challenge rather than a lockout has to
+  // include the door out of the challenge.
+  assert.match(page, /href="\/"/, "no way back to the site from a failed human check");
+  assert.match(page, /href="\/login"/);
+  assert.match(page, /href="\/contact"/, "no way to ask for help when the check will not pass");
 });
