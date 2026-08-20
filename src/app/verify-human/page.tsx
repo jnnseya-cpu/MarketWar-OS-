@@ -15,6 +15,7 @@
 //              laptop now.
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
 import { runHumanCheck } from "@/frontend/human-check";
@@ -76,6 +77,20 @@ function Verify() {
         <div className="w-full rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
           <p className="text-sm text-amber-100">{error}</p>
           <button onClick={() => void run()} className="mt-3 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400">Try again</button>
+        </div>
+      )}
+
+      {/* A WAY OUT, AND IT HAS TO BE HERE.
+          This page had no link on it anywhere. In the installed app there is no
+          address bar and, on iOS, no back button — so a check that fails leaves
+          somebody on a screen with a "Try again" button and nothing else, for
+          as long as it keeps failing. A gate that fails to a challenge rather
+          than a lockout has to include the door out of the challenge. */}
+      {error && (
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+          <Link href="/" className="font-semibold text-slate-300 underline underline-offset-4 hover:text-white">Back to the site</Link>
+          <Link href="/login" className="font-semibold text-slate-300 underline underline-offset-4 hover:text-white">Sign in</Link>
+          <Link href="/contact" className="font-semibold text-slate-300 underline underline-offset-4 hover:text-white">Get help</Link>
         </div>
       )}
 
