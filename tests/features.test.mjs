@@ -4965,7 +4965,20 @@ test("pwa: the service worker never serves a cached number as a live one", () =>
     "a failed page load must fall back to the offline page, not a stale copy of the page asked for");
   assert.doesNotMatch(sw, /caches\.match\(req\)\.then\(\(cached\) => cached \|\| caches\.match\("\/"\)\)/,
     "the old fallback served whatever stale page happened to be cached");
-  assert.match(sw, /MAX_ENTRIES/, "an unbounded cache eventually gets the whole origin evicted");
+  // Every cache that GROWS with use must be bounded, or the browser eventually
+  // evicts the whole origin's storage. Checked by behaviour rather than by the
+  // name of a constant: this used to pin `MAX_ENTRIES`, and splitting the one
+  // shared bucket into separate asset and page budgets broke the test while
+  // making the thing it was protecting strictly better.
+  const trimmed = [...sw.matchAll(/trim\((\w+),\s*(\w+)\)/g)].map((m) => m[1]);
+  const written = [...sw.matchAll(/caches\.open\((\w+)\)\.then\(\(c\) => c\.put\(/g)].map((m) => m[1]);
+  assert.ok(written.length > 0, "nothing is being cached at all");
+  for (const cache of new Set(written)) {
+    assert.ok(trimmed.includes(cache), `${cache} grows with use and is never trimmed — an unbounded cache gets the whole origin evicted`);
+  }
+  for (const cap of [...sw.matchAll(/const (MAX_\w+) = (\d+);/g)]) {
+    assert.ok(Number(cap[2]) > 0, `${cap[1]} is not a real cap`);
+  }
 });
 
 test("pwa: the offline page ships and is precached before it is needed", () => {
@@ -16954,4 +16967,103 @@ test("recorder: the camera is composited into the recorded stream, not just swit
 
   // A blocked camera is said out loud rather than discovered afterwards.
   assert.match(src, /camDenied/, "a refused camera silently records screen-only");
+});
+
+// ---------------------------------------------------------------------------
+// THE DOOR EVERYBODY COMES THROUGH.
+//
+// /api/auth/human is the human check: no account yet, no database needed, no
+// identity involved. It nonetheless imported firebase-admin twice over —
+// through guard.ts for requireAuth, and through wallet.ts for a PUT branch the
+// GET never touches — so it paid to initialise the whole Admin SDK, gRPC and
+// protobufjs on every cold start.
+//
+// When a serverless invocation exceeds its limit the platform returns its own
+// HTML error page. The browser cannot parse that as our JSON, and the person is
+// told the security check could not start with nothing that says why. A slow
+// door is a door some people find shut.
+// ---------------------------------------------------------------------------
+test("human check: the GET path pulls nothing heavy into its module graph", () => {
+  const route = readFileSync(new URL("../src/app/api/auth/human/route.ts", import.meta.url), "utf8");
+  const topImports = [...route.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+
+  // guard.ts and wallet.ts both reach firebase-admin. Neither may be a
+  // TOP-LEVEL import here — the PUT branch loads them when it needs them.
+  assert.ok(!topImports.includes("@/backend/guard"),
+    "the challenge endpoint imports guard.ts at module scope, which drags firebase-admin into every cold start");
+  assert.ok(!topImports.includes("@/backend/wallet"),
+    "the challenge endpoint imports wallet.ts at module scope for a branch the GET never reaches");
+  assert.ok(topImports.includes("@/backend/rate-limit"), "rate limiting is not coming from the light module");
+
+  // And they ARE still reachable where they are genuinely needed.
+  assert.match(route, /await Promise\.all\(\[\s*import\("@\/backend\/guard"\),\s*import\("@\/backend\/wallet"\),?\s*\]\)/,
+    "the PUT branch no longer loads auth and the wallet");
+});
+
+test("human check: the light rate limiter has no firebase in its own graph", () => {
+  const rl = readFileSync(new URL("../src/backend/rate-limit.ts", import.meta.url), "utf8");
+  const topImports = [...rl.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+  assert.deepEqual(topImports, [], `rate-limit.ts must import nothing at module scope; it imports ${topImports.join(", ")}`);
+  // Sentinel reaches firebase-admin, so it is loaded only on the refusal branch.
+  assert.match(rl, /await import\("@\/backend\/sentinel"\)/, "sentinel is not loaded lazily");
+
+  // guard.ts keeps working for every existing caller.
+  const guard = readFileSync(new URL("../src/backend/guard.ts", import.meta.url), "utf8");
+  assert.match(guard, /export \{ rateLimit, clientKey, ipHash, __resetRateLimits \} from "@\/backend\/rate-limit"/,
+    "guard.ts stopped re-exporting the limiter — every existing import of it breaks");
+});
+
+test("human check: the limiter still limits, and still reports the refusal", async () => {
+  const { rateLimit, __resetRateLimits } = await import("../src/backend/rate-limit.ts");
+  __resetRateLimits();
+  const now = 1_000_000;
+  assert.equal(rateLimit("t:1.2.3.4", 3, 60_000, now).ok, true);
+  assert.equal(rateLimit("t:1.2.3.4", 3, 60_000, now).ok, true);
+  assert.equal(rateLimit("t:1.2.3.4", 3, 60_000, now).ok, true);
+  const blocked = rateLimit("t:1.2.3.4", 3, 60_000, now);
+  assert.equal(blocked.ok, false, "a fourth call inside the window was allowed");
+  assert.ok(blocked.retryAfterSec > 0 && blocked.retryAfterSec <= 60);
+  // A different caller is unaffected, and the window does expire.
+  assert.equal(rateLimit("t:9.9.9.9", 3, 60_000, now).ok, true, "one caller's flood blocked everybody");
+  assert.equal(rateLimit("t:1.2.3.4", 3, 60_000, now + 60_001).ok, true, "the window never reopens");
+  __resetRateLimits();
+});
+
+test("human check: a failure says what actually happened", () => {
+  const client = readFileSync(new URL("../src/frontend/human-check.ts", import.meta.url), "utf8");
+  // The status is the ONLY thing that distinguishes a gate refusal from a rate
+  // limit from a crashed invocation from a dead network. Throwing it away is why
+  // a report of this failure could not be acted on.
+  assert.match(client, /answered \$\{cr\.status\}/, "the HTTP status is still being discarded");
+  // A 5xx or a network fault is retried once rather than becoming a dead end.
+  assert.match(client, /cr\.status >= 500/, "a server fault is not retried");
+  assert.match(client, /cr = await getChallenge\(\)/, "there is no second attempt");
+});
+
+// ---------------------------------------------------------------------------
+// THE SERVICE WORKER'S OWN FALLBACK.
+//
+// The offline page was precached FIRST into a single shared cache trimmed
+// oldest-first — so it was the FIRST entry evicted once eighty things had
+// accumulated. The fallback stopped existing at exactly the point it was needed.
+// ---------------------------------------------------------------------------
+test("service worker: the offline page cannot be evicted by ordinary browsing", () => {
+  const sw = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
+
+  // The precache is its own cache, and nothing trims it.
+  assert.match(sw, /caches\.open\(PRECACHE_CACHE\)/, "the offline page is not precached into its own cache");
+  assert.ok(!/trim\(PRECACHE_CACHE/.test(sw), "the precache is being trimmed — the offline page can be evicted again");
+
+  // Pages and assets have separate budgets so neither can evict the other.
+  assert.match(sw, /trim\(ASSET_CACHE, MAX_ASSETS\)/);
+  assert.match(sw, /trim\(PAGE_CACHE, MAX_PAGES\)/);
+  assert.ok(!/MAX_ENTRIES/.test(sw), "the single shared budget is still there");
+
+  // Activation must not delete the caches this version is using.
+  assert.match(sw, /keys\.filter\(\(k\) => !OWNED\.includes\(k\)\)/, "activation would delete its own caches");
+
+  // The rules that were already right and must stay: API traffic untouched,
+  // pages network-first, no stale page served in place of a fresh one.
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)[\s\S]{0,40}return;/, "the worker started caching API responses");
+  assert.match(sw, /caches\.match\(OFFLINE_URL\)/, "the offline fallback is gone");
 });

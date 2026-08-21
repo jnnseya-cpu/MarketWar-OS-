@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+// LIGHT IMPORTS ONLY, AND THAT IS THE POINT OF THIS BLOCK.
+//
+// This is the door everybody comes through before they have an account. It needs
+// no database and no identity, and it used to drag the entire Firebase Admin SDK
+// — plus gRPC and protobufjs — into its module graph through guard.ts and
+// wallet.ts, paying to initialise all of it on every cold start.
+//
+// A slow door is a door some people find shut: when a serverless invocation
+// exceeds its limit the platform returns its own HTML error page, the browser
+// cannot parse it as our JSON, and the person is told the security check could
+// not start with no way to tell why. Nothing below this line touches
+// firebase-admin; the two branches that genuinely need it import it themselves,
+// at the moment they need it.
+import { rateLimit, clientKey } from "@/backend/rate-limit";
 import {
   issueChallenge, verifyHumanCheck, verifyHumanToken, bindingFor,
   isDisposableEmail, humanCheckStatus,
 } from "@/backend/human-check";
-import { claimSignupGrant, getWallet, signupGrantClaimed, FREE_SIGNUP_ACUS } from "@/backend/wallet";
 import { issueSession, bindingFor as gateBinding, HUMAN_COOKIE, SESSION_TTL_MS, gateStatus } from "@/backend/human-gate";
 
 // The human check behind signup and login.
@@ -89,6 +101,12 @@ export async function PUT(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "human-claim"), 20, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Too many attempts — wait a moment." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
+  // Loaded here, not at the top: this is the only branch that needs an identity
+  // or a wallet, and it runs after somebody already has an account.
+  const [{ requireAuth }, { claimSignupGrant, getWallet, signupGrantClaimed, FREE_SIGNUP_ACUS }] = await Promise.all([
+    import("@/backend/guard"),
+    import("@/backend/wallet"),
+  ]);
   const auth = await requireAuth(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 

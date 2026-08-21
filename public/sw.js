@@ -14,17 +14,39 @@
 //   • /api, auth and webhook traffic is never touched — those carry
 //     credentials and must stay fresh.
 //
-// Bump CACHE to invalidate everything on the next activation.
-const CACHE = "marketwar-os-v3";
+// Bump the version to invalidate everything on the next activation.
+//
+// THREE CACHES, NOT ONE, AND THE REASON IS A BUG THAT WAS ALREADY HERE.
+//
+// Everything used to share a single 80-entry bucket trimmed oldest-first. Two
+// things followed, both bad:
+//
+//   • The offline page was PRECACHED FIRST, so it was the FIRST thing evicted
+//     once eighty entries had accumulated. The fallback stopped existing at
+//     exactly the point it was needed, and the user got a bare line of text
+//     instead of the page built for the purpose.
+//   • Static chunks and visited pages competed for the same eighty slots. A
+//     Next build has far more chunks than that on its own, so the cache
+//     thrashed and bought a fraction of what it looked like it bought.
+//
+// The precache is now its own cache and is never trimmed. Pages and assets have
+// separate budgets, so neither can evict the other.
+const VERSION = "v4";
+const PRECACHE_CACHE = `marketwar-os-precache-${VERSION}`;
+const ASSET_CACHE = `marketwar-os-assets-${VERSION}`;
+const PAGE_CACHE = `marketwar-os-pages-${VERSION}`;
+const OWNED = [PRECACHE_CACHE, ASSET_CACHE, PAGE_CACHE];
 const OFFLINE_URL = "/offline.html";
 
 // The only things worth precaching: the offline page must be there BEFORE the
 // network goes away, or the fallback has nothing to fall back to.
 const PRECACHE = [OFFLINE_URL, "/brand/icon-192.png", "/manifest.webmanifest"];
 
-// A cap, because a network-first cache of every page a user visits grows without
-// limit and eventually gets the whole origin's storage evicted by the browser.
-const MAX_ENTRIES = 80;
+// Caps, because a cache that grows without limit eventually gets the whole
+// origin's storage evicted by the browser. The precache has no cap: it holds
+// three small files that must always be there.
+const MAX_ASSETS = 120;
+const MAX_PAGES = 40;
 
 async function trim(cacheName, max) {
   const cache = await caches.open(cacheName);
@@ -36,7 +58,7 @@ async function trim(cacheName, max) {
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE)
+    caches.open(PRECACHE_CACHE)
       .then((c) => c.addAll(PRECACHE))
       // A precache miss must not stop the worker installing — an app that fails
       // to install because one icon 404'd is worse than one without a fallback.
@@ -48,7 +70,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => !OWNED.includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -82,7 +104,7 @@ self.addEventListener("fetch", (event) => {
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res.ok) {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).then(() => trim(CACHE, MAX_ENTRIES)).catch(() => {});
+          caches.open(ASSET_CACHE).then((c) => c.put(req, copy)).then(() => trim(ASSET_CACHE, MAX_ASSETS)).catch(() => {});
         }
         return res;
       })),
@@ -98,7 +120,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy)).then(() => trim(CACHE, MAX_ENTRIES)).catch(() => {});
+            caches.open(PAGE_CACHE).then((c) => c.put(req, copy)).then(() => trim(PAGE_CACHE, MAX_PAGES)).catch(() => {});
           }
           return res;
         })

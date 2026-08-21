@@ -32,79 +32,31 @@ const ADMIN_EMAILS = new Set(
 );
 
 // ---------------------------------------------------------------------------
-// Rate limiting (in-memory; per-instance) — and why that is now the right shape
-// rather than an open blocker.
+// Rate limiting — now in its own module, and re-exported here.
 //
-// This is a BURST guard. It has to answer synchronously, before the handler
-// runs, on every request; a database round-trip in front of that would add
-// latency to everything and fail open the moment the store is slow. Per-instance
-// counting means N instances allow N × limit bursts, which is worth accepting
-// for a burst guard and is NOT worth accepting for money.
+// `rateLimit` and `clientKey` are pure arithmetic over a Map, and they lived in
+// this file, which imports firebase-admin for `requireAuth`. So every route that
+// only wanted a rate limit pulled the whole Admin SDK into its module graph and
+// paid to initialise it on each cold start — worst of all on /api/auth/human,
+// the door everybody comes through BEFORE they have an account, which needs no
+// database and no identity at all.
 //
-// So the money protection was moved rather than the limiter: `ai-spend.ts` now
-// keeps the platform's monthly ceiling in a SHARED total (fire-and-forget
-// increments, never awaited on the hot path), and the customer's own ACU wallet
-// was always durable. Denial-of-wallet is stopped by the thing that counts
-// pounds, not by the thing that counts requests.
+// Re-exported rather than moved, so every existing import of rateLimit or
+// clientKey from "@/backend/guard" keeps working. Routes that want the light
+// path import from "@/backend/rate-limit" directly.
+//
+// The limiter itself is a BURST guard and stays per-instance by design: it has
+// to answer synchronously before every handler, and a database round-trip in
+// front of that would add latency to everything and fail open when the store is
+// slow. Per-instance counting means N instances allow N x limit bursts, which is
+// worth accepting for a burst guard and is NOT worth accepting for money — so
+// the money protection was moved instead. ai-spend.ts keeps the platform's
+// monthly ceiling in a SHARED total, and the customer's own ACU wallet was
+// always durable. Denial-of-wallet is stopped by the things that count pounds,
+// not by the thing that counts requests.
 // ---------------------------------------------------------------------------
-type Bucket = { count: number; resetAt: number };
-const buckets = new Map<string, Bucket>();
-
-// The limiter keys on IP, and nothing ever removed a spent bucket. A caller
-// rotating source addresses therefore grew the map for as long as the instance
-// lived — the defence against a flood was itself the thing the flood consumed.
-// Expired buckets are swept whenever the map gets large; the sweep is O(n) but
-// runs rarely, and every entry it touches is already past its window.
-const MAX_BUCKETS = 10_000;
-function sweepExpired(now: number): void {
-  for (const [k, v] of buckets) if (now >= v.resetAt) buckets.delete(k);
-  // Still full of live windows: drop the oldest so memory stays bounded. Those
-  // callers get a fresh allowance, which is the safe direction to fail — a
-  // limiter that runs the instance out of memory blocks everyone.
-  if (buckets.size >= MAX_BUCKETS) {
-    const oldest = [...buckets.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt).slice(0, Math.floor(MAX_BUCKETS / 2));
-    for (const [k] of oldest) buckets.delete(k);
-  }
-}
-
-export function rateLimit(key: string, limit: number, windowMs: number, now: number): { ok: boolean; remaining: number; retryAfterSec: number } {
-  if (buckets.size >= MAX_BUCKETS) sweepExpired(now);
-  const b = buckets.get(key);
-  if (!b || now >= b.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true, remaining: limit - 1, retryAfterSec: 0 };
-  }
-  if (b.count >= limit) {
-    // Sentinel sees every rate limit without a single route being edited, because
-    // the key already carries the route and the caller. A control that depends on
-    // a hundred call sites remembering to report is a control with a hundred
-    // places to be forgotten.
-    const [route, ...rest] = key.split(":");
-    recordSecurityEvent({
-      at: new Date(now).toISOString(),
-      kind: "rate_limited",
-      actor: `ip:${ipHash(rest.join(":"))}`,
-      path: route,
-      detail: `limit ${limit} per ${Math.round(windowMs / 1000)}s`,
-    });
-    return { ok: false, remaining: 0, retryAfterSec: Math.ceil((b.resetAt - now) / 1000) };
-  }
-  b.count += 1;
-  return { ok: true, remaining: limit - b.count, retryAfterSec: 0 };
-}
-
-/** The caller in a security log is a hash, never an address. */
-function ipHash(ip: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < ip.length; i++) { h ^= ip.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-  return h.toString(16).padStart(8, "0");
-}
-
-export function clientKey(req: Request, route: string): string {
-  const xff = req.headers.get("x-forwarded-for") || "";
-  const ip = xff.split(",")[0].trim() || "local";
-  return `${route}:${ip}`;
-}
+export { rateLimit, clientKey, ipHash, __resetRateLimits } from "@/backend/rate-limit";
+import { ipHash } from "@/backend/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Authentication + role authorisation

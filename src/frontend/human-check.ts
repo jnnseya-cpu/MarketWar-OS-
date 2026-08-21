@@ -26,10 +26,36 @@ export async function runHumanCheck(input: {
 }): Promise<HumanCheckOutcome> {
   try {
     input.onStage?.("requesting");
-    const cr = await fetch("/api/auth/human", { method: "GET", cache: "no-store" });
+
+    // ASK TWICE BEFORE GIVING UP, AND SAY WHAT WENT WRONG.
+    //
+    // The old version threw away the one fact worth having. Any non-OK response
+    // whose body was not our JSON — a platform timeout, a crashed invocation, a
+    // proxy error page — collapsed into "could not start the security check",
+    // which is indistinguishable from a rate limit, a gate refusal and a dead
+    // network. Somebody stuck on that screen could not tell us why, and neither
+    // could we.
+    //
+    // So: the status goes in the message, and a 5xx or a network fault is
+    // retried once. Transient platform errors stop being somebody's dead end.
+    const getChallenge = async (): Promise<Response | null> => {
+      try { return await fetch("/api/auth/human", { method: "GET", cache: "no-store" }); }
+      catch { return null; }
+    };
+    let cr = await getChallenge();
+    if (!cr || cr.status >= 500) {
+      await new Promise((r) => setTimeout(r, 900));
+      cr = await getChallenge();
+    }
+    if (!cr) {
+      return { ok: false, error: "Could not reach the server to start the security check. Check your connection and try again.", retryable: true };
+    }
     if (!cr.ok) {
-      const d = await cr.json().catch(() => ({}));
-      return { ok: false, error: d.error || "Could not start the security check. Try again in a moment.", retryable: true };
+      const d = await cr.json().catch(() => ({} as { error?: string }));
+      // A body of ours always carries `error`; anything else is the platform
+      // talking, and the status is then the only thing that identifies it.
+      const detail = d.error || `The server answered ${cr.status}${cr.status >= 500 ? " — that is a fault on our side, not yours" : ""}.`;
+      return { ok: false, error: `Could not start the security check. ${detail}`, retryable: true };
     }
     const { challenge } = await cr.json();
     if (!challenge?.nonce) return { ok: false, error: "The security check did not load. Reload the page and try again.", retryable: true };
