@@ -154,3 +154,39 @@ export function captureSize(screenW: number, screenH: number, maxW = 1920): { w:
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
   return { w: even(sw * scale), h: even(sh * scale) };
 }
+
+/**
+ * The tracks that go into the file.
+ *
+ * THIS FUNCTION EXISTS BECAUSE A MUTATION SURVIVED.
+ *
+ * The component was tested with three separate greps — that the canvas is
+ * captured, that a MediaRecorder is built, and that the camera is drawn. All
+ * three still matched after the recorded stream was switched back to the raw
+ * display capture, which is the ORIGINAL BUG: the display stream cannot contain
+ * the presenter, so the camera light comes on and the file has no face in it.
+ * Three true statements about the parts, and nothing about the wire between
+ * them. Grepping source is not a test.
+ *
+ * So the decision is a value now. It is handed the canvas's video tracks and
+ * never the display's — the wrong source cannot be expressed through this
+ * signature — and the component builds its stream from what comes back.
+ *
+ * A missing video track is REFUSED rather than recorded around: MediaRecorder
+ * with audio alone produces a file that plays as sound with a black frame,
+ * which looks like a corrupt video rather than a clear failure.
+ */
+export function recordingTracks<T>(input: { canvasVideo: T[]; mixedAudio: T[] }):
+  { ok: true; tracks: T[] } | { ok: false; error: string } {
+  const video = input.canvasVideo || [];
+  const audio = input.mixedAudio || [];
+  if (video.length === 0) {
+    return {
+      ok: false,
+      error: "This browser did not give us a video track for the recording. Nothing was recorded — try a recent desktop Chrome, Edge or Firefox.",
+    };
+  }
+  // Video first. Some players show the first track's dimensions as the file's,
+  // and an audio-led track list is read as an audio file by more than one tool.
+  return { ok: true, tracks: [...video, ...audio] };
+}
