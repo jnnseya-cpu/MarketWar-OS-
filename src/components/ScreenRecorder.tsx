@@ -39,7 +39,7 @@ import {
   CircleDot, AlertTriangle, Move,
 } from "lucide-react";
 import {
-  presenterRect, cornerPlacement, coverCrop, placementFromDrag, nearestCorner, captureSize,
+  presenterRect, cornerPlacement, coverCrop, placementFromDrag, nearestCorner, captureSize, recordingTracks,
   SIZE_FRACTION, type PresenterSize, type PresenterShape, type Corner, type Placement,
 } from "@/shared/recorder-layout";
 
@@ -290,7 +290,15 @@ export default function ScreenRecorder() {
       rafRef.current = requestAnimationFrame(loop);
 
       const canvasStream = canvas.captureStream(30);
-      const combined = new MediaStream([...canvasStream.getVideoTracks(), ...mixedAudio]);
+      // The COMPOSITED canvas, never the raw display capture — the display
+      // stream cannot contain the presenter, and that swap was the original bug.
+      const chosen = recordingTracks({ canvasVideo: canvasStream.getVideoTracks(), mixedAudio });
+      if (!chosen.ok) {
+        stopRaf(); cleanupStreams();
+        setError(chosen.error);
+        return;
+      }
+      const combined = new MediaStream(chosen.tracks);
 
       const mime = mimeRef.current;
       const rec = new MediaRecorder(combined, mime ? { mimeType: mime } : undefined);

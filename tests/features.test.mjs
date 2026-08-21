@@ -16706,11 +16706,24 @@ test("recorder: the camera is composited into the recorded stream, not just swit
   const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  // The recording IS the canvas. Recording the display stream directly is the
-  // shape that cannot contain a presenter.
-  assert.match(src, /canvas\.captureStream\(/, "the recorder does not record the composited canvas");
-  assert.match(src, /new MediaRecorder\(combined/, "something other than the combined stream is being recorded");
+  // THE RECORDED STREAM IS BUILT FROM THE CANVAS, AND THIS IS ASSERTED ON THE
+  // WIRE RATHER THAN ON THE PARTS.
+  //
+  // The first version of this test checked three things separately: that the
+  // canvas is captured, that a MediaRecorder is built, and that the camera is
+  // drawn. A mutation that switched the recorded stream back to the raw display
+  // capture — the original bug, the one where the file has no face in it — left
+  // all three matching and SURVIVED. Three true statements about the parts and
+  // nothing about the wire between them.
+  assert.match(src, /canvas\.captureStream\(/, "the recorder does not capture the composited canvas");
   assert.match(src, /drawImage\(camVid/, "the camera is never drawn onto the recording");
+  assert.match(src, /recordingTracks\(\{ canvasVideo: canvasStream\.getVideoTracks\(\), mixedAudio \}\)/,
+    "the recorded tracks are not chosen from the canvas capture");
+  assert.match(src, /new MediaStream\(chosen\.tracks\)/,
+    "the recorded stream is assembled from something other than the chosen tracks");
+  // And the raw display capture must not be the video source anywhere.
+  assert.ok(!/new MediaStream\(\[[^\]]*display\.getVideoTracks/.test(src),
+    "the raw display stream is being recorded — it cannot contain the presenter");
 
   // Audio is MIXED to one track. Two audio tracks means WebM keeps the first
   // and silently drops the second, so a narrated demo comes back unnarrated.
@@ -16823,4 +16836,29 @@ test("service worker: the offline page cannot be evicted by ordinary browsing", 
   // pages network-first, no stale page served in place of a fresh one.
   assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)[\s\S]{0,40}return;/, "the worker started caching API responses");
   assert.match(sw, /caches\.match\(OFFLINE_URL\)/, "the offline fallback is gone");
+});
+
+test("recorder: the track list refuses to make a video with no video in it", () => {
+  const v = { kind: "video" };
+  const a = { kind: "audio" };
+
+  const ok = rec.recordingTracks({ canvasVideo: [v], mixedAudio: [a] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.tracks, [v, a], "video must come first — an audio-led list is read as an audio file by more than one tool");
+
+  // A silent screen recording is legitimate.
+  const silent = rec.recordingTracks({ canvasVideo: [v], mixedAudio: [] });
+  assert.equal(silent.ok, true);
+  assert.deepEqual(silent.tracks, [v]);
+
+  // No video is a refusal, not a recording. MediaRecorder with audio alone
+  // produces a file that plays as sound over a black frame, which reads as a
+  // corrupt video rather than as a clear failure.
+  const none = rec.recordingTracks({ canvasVideo: [], mixedAudio: [a] });
+  assert.equal(none.ok, false, "an audio-only file was produced and called a recording");
+  assert.match(none.error, /Nothing was recorded/);
+
+  // The signature cannot express the original bug: the display stream is not a
+  // parameter, so there is no way to record it by mistake.
+  assert.ok(!/display/i.test(rec.recordingTracks.toString()), "the display stream leaked into the decision");
 });
