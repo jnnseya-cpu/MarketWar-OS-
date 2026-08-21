@@ -16816,3 +16816,142 @@ test("phone nav: the human gate's failure screen is not a dead end", () => {
   assert.match(page, /href="\/login"/);
   assert.match(page, /href="\/contact"/, "no way to ask for help when the check will not pass");
 });
+
+// ---------------------------------------------------------------------------
+// THE PRESENTER ON THE RECORDING.
+//
+// "Webcam on" acquired the camera and never put the track anywhere: it was
+// fetched, pushed onto a cleanup array, and left out of the recorded stream.
+// The light came on, the presenter believed they were in shot, and the file had
+// no face in it. The most expensive version of the boundary defect — it takes
+// somebody's camera permission AND their take and returns neither.
+//
+// The media stack cannot run in Node, so the tests split: the arithmetic that
+// can be wrong is a pure module and tested directly, and the wiring is asserted
+// against the component's structure.
+// ---------------------------------------------------------------------------
+const rec = await import("../src/shared/recorder-layout.ts");
+
+test("presenter layout: dragged anywhere, it never leaves the frame", () => {
+  const base = { canvasW: 1920, canvasH: 1080, camW: 640, camH: 480, size: "medium" };
+  // Well past every edge, including negatives.
+  for (const p of [{ x: -5, y: -5 }, { x: 9, y: 9 }, { x: 1, y: 1 }, { x: 0, y: 1.5 }, { x: -0.2, y: 0.4 }]) {
+    const r = rec.presenterRect({ ...base, placement: p });
+    assert.ok(r.x >= 0 && r.y >= 0, `presenter at ${JSON.stringify(p)} went off the top/left: ${JSON.stringify(r)}`);
+    assert.ok(r.x + r.w <= base.canvasW, `presenter ran off the right edge: ${JSON.stringify(r)}`);
+    assert.ok(r.y + r.h <= base.canvasH, `presenter ran off the bottom edge: ${JSON.stringify(r)}`);
+  }
+});
+
+test("presenter layout: the box keeps the camera's shape, never a squashed face", () => {
+  const at = (camW, camH) => rec.presenterRect({ canvasW: 1600, canvasH: 900, camW, camH, size: "medium", placement: { x: 0.1, y: 0.1 } });
+  const fourThree = at(640, 480);
+  const sixteenNine = at(1280, 720);
+  assert.equal(fourThree.w, sixteenNine.w, "width should be set by the size preset, not the camera");
+  // 4:3 is taller than 16:9 at the same width. Equal heights would mean the
+  // aspect ratio was thrown away and the picture stretched.
+  assert.ok(fourThree.h > sixteenNine.h, "both cameras produced the same box — the aspect ratio is being ignored");
+  assert.equal(fourThree.h, Math.round(fourThree.w * 3 / 4));
+  // Bigger preset, bigger box — in both dimensions.
+  const large = rec.presenterRect({ canvasW: 1600, canvasH: 900, camW: 640, camH: 480, size: "large", placement: { x: 0, y: 0 } });
+  assert.ok(large.w > fourThree.w && large.h > fourThree.h);
+});
+
+test("presenter layout: a corner preset is a real corner at any size", () => {
+  const geom = { canvasW: 1920, canvasH: 1080, camW: 640, camH: 480 };
+  for (const size of ["small", "medium", "large"]) {
+    for (const corner of ["top-left", "top-right", "bottom-left", "bottom-right"]) {
+      const placement = rec.cornerPlacement({ ...geom, size, corner });
+      const r = rec.presenterRect({ ...geom, size, placement });
+      const nearLeft = r.x < geom.canvasW / 2;
+      const nearTop = r.y < geom.canvasH / 2;
+      assert.equal(`${nearTop ? "top" : "bottom"}-${nearLeft ? "left" : "right"}`, corner,
+        `${corner} at ${size} landed at ${JSON.stringify(r)}`);
+      // Inside the frame, with the margin honoured on the far edges too.
+      assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= geom.canvasW && r.y + r.h <= geom.canvasH);
+      assert.equal(rec.nearestCorner(placement), corner, "the active-corner highlight would show the wrong button");
+    }
+  }
+});
+
+test("presenter layout: the crop fills the box without distorting it", () => {
+  // A 16:9 camera into a square frame: the sides get trimmed, evenly.
+  const wide = rec.coverCrop(1280, 720, 300, 300);
+  assert.equal(wide.h, 720, "a wider source should be trimmed horizontally, not vertically");
+  assert.equal(wide.w, 720);
+  assert.equal(wide.x, (1280 - 720) / 2, "the trim is not centred");
+  assert.equal(wide.y, 0);
+
+  // A tall source into a wide frame: trimmed top and bottom.
+  const tall = rec.coverCrop(480, 640, 320, 180);
+  assert.equal(tall.w, 480);
+  assert.equal(tall.h, 480 / (320 / 180));
+  assert.equal(tall.y, (640 - tall.h) / 2);
+
+  // Degenerate inputs must not produce NaN — a NaN in drawImage throws and
+  // kills the whole compositor loop mid-take.
+  for (const bad of [[0, 0, 100, 100], [100, 100, 0, 0], [-4, 9, 10, 10]]) {
+    const r = rec.coverCrop(...bad);
+    assert.ok(Object.values(r).every(Number.isFinite), `NaN from coverCrop(${bad})`);
+  }
+});
+
+test("presenter layout: a drag on a small preview places it on a big recording", () => {
+  // The preview is 480 wide; the recording is 1920. The placement is normalised,
+  // so it has to mean the same thing on both.
+  const p = rec.placementFromDrag({
+    pointerX: 240, pointerY: 135, previewW: 480, previewH: 270,
+    boxW: 96, boxH: 72, grabX: 48, grabY: 36,
+  });
+  assert.ok(Math.abs(p.x - (240 - 48) / 480) < 1e-9, "the grab offset was ignored — the box jumps to the cursor");
+  assert.ok(Math.abs(p.y - (135 - 36) / 270) < 1e-9);
+
+  // Dragged past the edge, it stops at the edge rather than leaving the frame.
+  const past = rec.placementFromDrag({
+    pointerX: 10_000, pointerY: 10_000, previewW: 480, previewH: 270,
+    boxW: 96, boxH: 72, grabX: 0, grabY: 0,
+  });
+  const r = rec.presenterRect({ canvasW: 1920, canvasH: 1080, camW: 640, camH: 480, size: "medium", placement: past });
+  assert.ok(r.x + r.w <= 1920 && r.y + r.h <= 1080, "a drag past the corner pushed the presenter out of the recording");
+});
+
+test("recording canvas: sized from the share, capped, and even on both axes", () => {
+  // Odd dimensions break 4:2:0 chroma subsampling and the symptom is a green
+  // final column in the finished file, not an error.
+  for (const [w, h] of [[1365, 767], [2560, 1440], [800, 601], [0, 0]]) {
+    const s = rec.captureSize(w, h);
+    assert.equal(s.w % 2, 0, `odd width from ${w}x${h}`);
+    assert.equal(s.h % 2, 0, `odd height from ${w}x${h}`);
+    assert.ok(s.w <= 1920, "the capture was not capped");
+    assert.ok(s.w >= 2 && s.h >= 2);
+  }
+  // Under the cap it is left alone (bar the even-ing), and the shape is kept.
+  const small = rec.captureSize(1280, 720);
+  assert.deepEqual(small, { w: 1280, h: 720 });
+  const big = rec.captureSize(3840, 2160);
+  assert.ok(Math.abs(big.w / big.h - 3840 / 2160) < 0.01, "capping distorted the aspect ratio");
+});
+
+test("recorder: the camera is composited into the recorded stream, not just switched on", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  // The recording IS the canvas. Recording the display stream directly is the
+  // shape that cannot contain a presenter.
+  assert.match(src, /canvas\.captureStream\(/, "the recorder does not record the composited canvas");
+  assert.match(src, /new MediaRecorder\(combined/, "something other than the combined stream is being recorded");
+  assert.match(src, /drawImage\(camVid/, "the camera is never drawn onto the recording");
+
+  // Audio is MIXED to one track. Two audio tracks means WebM keeps the first
+  // and silently drops the second, so a narrated demo comes back unnarrated.
+  assert.match(src, /createMediaStreamDestination\(\)/, "audio sources are not mixed into a single track");
+
+  // The compositor reads the placement from a ref. Reading state inside the
+  // animation closure freezes it at the value it had when recording started —
+  // the box would move on screen and not in the file.
+  assert.match(src, /layoutRef\.current/, "the compositor closes over state, so dragging would not reach the recording");
+  assert.match(src, /const \{ size: s, shape: sh, placement: p, withCam: cam \} = layoutRef\.current/);
+
+  // A blocked camera is said out loud rather than discovered afterwards.
+  assert.match(src, /camDenied/, "a refused camera silently records screen-only");
+});
