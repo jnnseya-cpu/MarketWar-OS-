@@ -5,6 +5,8 @@ import {
 } from "@/backend/admin-economics";
 import { requireAuth } from "@/backend/guard";
 import { adminDb } from "@/backend/firebase-admin";
+import { query as auditQuery } from "@/backend/audit-log";
+import { platformKpis } from "@/shared/platform-kpis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +68,30 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    return NextResponse.json({ error: "Unknown action — use dashboard or recycling" }, { status: 400 });
+    // §98 — MarketWar's own product KPIs, as opposed to its money.
+    //
+    // Wired to what genuinely exists today, which is the AI generation entries
+    // in the audit log. Accounts, regenerations and publish outcomes are NOT
+    // instrumented yet, so those come back as "not enough yet" with what each
+    // one needs. That is the honest state, and a panel of things we cannot yet
+    // see about our own product is more useful than four invented figures.
+    if (action === "product-kpis") {
+      const generations = auditQuery({ action: "ai.generate", limit: 500 })
+        .map((e) => ({ id: e.id, kind: "generated" as const }));
+      return NextResponse.json({
+        ...platformKpis({ accounts: [], generations, publishes: [] }),
+        instrumentation: {
+          measured: ["AI generations, from the audit log"],
+          missing: [
+            "Account signup, first campaign and first lead timestamps — nothing records them yet.",
+            "Regenerations as distinct from first generations — the gateway records one action for both.",
+            "Publish outcomes — the publication ledger has no listing function.",
+          ],
+        },
+      });
+    }
+
+    return NextResponse.json({ error: "Unknown action — use dashboard, recycling or product-kpis" }, { status: 400 });
   } catch {
     // Never 500 the owner console — degrade to the deterministic demo dashboard.
     return NextResponse.json({ ...demoOwnerDashboard(), mode: "demo" });

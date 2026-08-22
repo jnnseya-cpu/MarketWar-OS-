@@ -55,7 +55,9 @@ import {
   Wand2,
   Users,
   Wallet,
-  Workflow, Palette, Trophy,} from "lucide-react";
+  Workflow, Palette, Trophy,
+  History,
+} from "lucide-react";
 
 export const NAV = [
   {
@@ -150,6 +152,8 @@ export const NAV = [
     group: "Account",
     items: [
       { href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet },
+      { href: "/dashboard/find", label: "Find your work", icon: Search },
+      { href: "/dashboard/activity", label: "Activity (what happened)", icon: History },
       { href: "/dashboard/comms", label: "Comms Events", icon: Bell, adminOnly: true },
       { href: "/dashboard/integrations", label: "Integration Hub", icon: Plug },
       { href: "/dashboard/settings", label: "Settings & Security", icon: Settings },

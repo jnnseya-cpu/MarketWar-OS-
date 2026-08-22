@@ -6,6 +6,8 @@ import {
   MAX_STEPS, MIN_CADENCE_DAYS, MAX_CADENCE_DAYS, type DraftChain,
 } from "@/backend/chain-store";
 import { headroom, dailyCapAcu } from "@/backend/agent-budget";
+import { planOneClickCampaign } from "@/shared/campaign-plan";
+import { currentMemory } from "@/backend/brand-memory";
 import { AGENTS } from "@/shared/agents";
 import { gatewayLangFrom } from "@/backend/gateway";
 import { resolveBrandAccess } from "@/backend/brand-access";
@@ -15,6 +17,11 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 //
 // GET  ?brandId=          → chains (built-in + this brand's), agents to build
 //                           with, today's ceiling, and the schedules
+// POST { action: "plan",     brandId, sentence }  → §102: one sentence to a
+//                           costed plan. Says WHICH chain, what it will cost
+//                           against today's remaining cap, which steps stop for
+//                           a person, and which brand facts are missing.
+//                           RUNS NOTHING — the plan is what you approve.
 // POST { action: "run",      chainId, brandId, input? }
 // POST { action: "save",     brandId, chain: { label, goal, steps[] } }
 // POST { action: "delete",   brandId, chainId }
@@ -73,7 +80,30 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (action !== "run") return NextResponse.json({ error: "Unknown action — use run, save, delete or schedule" }, { status: 400 });
+  // §102 — one sentence in, a plan out. Deliberately separate from "run": the
+  // whole value is seeing the cost and the human steps BEFORE anything starts,
+  // and an endpoint that planned and ran in one call would remove that.
+  if (action === "plan") {
+    const sentence = (typeof body.sentence === "string" ? body.sentence : "").trim();
+    if (!sentence) return NextResponse.json({ error: "Say what you want to happen." }, { status: 400 });
+
+    const room = await headroom(brandId, new Date().toISOString());
+    const chains = (await chainsFor(brandId)).map((c) => ({
+      id: c.id, label: c.label, goal: c.goal,
+      steps: c.steps.map((st) => ({ id: st.id, agentId: st.agentId, effect: effectFor(st.agentId, st.effect), purpose: st.purpose, costAcu: st.costAcu })),
+    }));
+    const facts = (await currentMemory(brandId)).map((f) => ({ key: f.key, value: String(f.value ?? "") }));
+
+    return NextResponse.json({
+      plan: planOneClickCampaign({
+        sentence, chains, facts,
+        dailyCapAcu: room.capAcu, spentTodayAcu: room.spentAcu,
+      }),
+      headroom: room,
+    });
+  }
+
+  if (action !== "run") return NextResponse.json({ error: "Unknown action — use plan, run, save, delete or schedule" }, { status: 400 });
 
   const chainId = str("chainId");
   const c = await resolveChain(brandId, chainId);

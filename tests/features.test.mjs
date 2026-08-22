@@ -18062,3 +18062,416 @@ test("autonomy: settings that do nothing say they do nothing", () => {
   assert.match(full.summary, /Level 3, aiming at "more weekend bookings"/);
   assert.match(full.summary, /Never: tiktok/);
 });
+
+// ---------------------------------------------------------------------------
+// §70's SURFACE — the audit log finally has a screen.
+//
+// The log had recorded every change since it shipped and nothing rendered it.
+// `/dashboard/audit` is the WEBSITE audit, a different thing with a confusingly
+// similar name, so the trail was reachable only by calling the API by hand.
+// ---------------------------------------------------------------------------
+test("activity: the feed is a view on the audit route, not a second route", async () => {
+  const { NextRequest } = await import("next/server");
+  const audit = await import("../src/backend/audit-log.ts");
+  const route = await import("../src/app/api/audit-log/route.ts");
+  audit.__resetAuditLog();
+
+  audit.record({ actorType: "agent", actor: "orchestrator", action: "publication.claimed", resource: "post", brandId: "feed-brand", nowISO: "2026-08-22T02:00:00.000Z" });
+  audit.record({ actorType: "agent", actor: "orchestrator", action: "publication.claimed", resource: "post", brandId: "feed-brand", nowISO: "2026-08-22T02:05:00.000Z" });
+  audit.record({ actorType: "user", actor: "uid:me", action: "campaign.created", resource: "campaign", brandId: "feed-brand", nowISO: "2026-08-22T09:00:00.000Z" });
+
+  const get = (qs) => route.GET(new NextRequest(`https://mw.test/api/audit-log?${qs}`));
+
+  const feed = await (await get("brandId=feed-brand&view=feed")).json();
+  assert.equal(feed.unattended.length, 1, "the two agent publishes should fold into one line");
+  assert.equal(feed.unattended[0].count, 2);
+  assert.equal(feed.yours.length, 1);
+  assert.match(feed.headline, /2 things happened without anyone asking/);
+
+  // The SAME entries drive both views, so the feed and the trail cannot
+  // disagree about what happened.
+  const forensic = await (await get("brandId=feed-brand")).json();
+  assert.equal(forensic.entries.length, 3);
+  assert.equal(
+    feed.unattended.reduce((n, e) => n + e.count, 0) + feed.yours.reduce((n, e) => n + e.count, 0),
+    forensic.entries.length,
+    "the feed and the forensic view disagree about how many things happened",
+  );
+
+  // Brand scoping is not re-implemented for the feed — it is the same check.
+  const otherBrand = await (await get("brandId=someone-else&view=feed")).json();
+  assert.equal(otherBrand.unattended.length + otherBrand.yours.length, 0, "one brand's activity leaked into another's feed");
+  audit.__resetAuditLog();
+});
+
+// STRIP COMMENTS BEFORE SCANNING SOURCE.
+//
+// Five tests in this suite have now failed on prose describing the very thing
+// they forbid — a comment saying "buildFeed runs server-side" read as the page
+// calling buildFeed. It is a shared helper now rather than a lesson relearned
+// once per module. Where a rule is about a VALUE rather than a call, forbid the
+// value's shape and not its name.
+const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+test("activity: the page exists, is in the nav, and takes its feed from the server", () => {
+  const raw = readFileSync(new URL("../src/app/dashboard/activity/page.tsx", import.meta.url), "utf8");
+  const page = codeOf(raw);
+  // Built server-side, so the screen and the trail cannot drift.
+  assert.match(page, /view=feed/, "the page builds its own feed in the browser");
+  assert.ok(!/buildFeed/.test(page), "the page re-implements the feed instead of asking for it");
+  // The question people open this page to answer comes first.
+  assert.ok(raw.indexOf("Ran on its own") < raw.indexOf("You and your team"),
+    "your own actions are shown above the unattended ones — that is the wrong question first");
+  // An unmapped action must stay visible on the surface too, not just in the engine.
+  assert.match(raw, /no plain-English name yet/);
+
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /href: "\/dashboard\/activity"/, "the page exists and nothing links to it");
+});
+
+// ---------------------------------------------------------------------------
+// §92's SURFACE — finding your own work.
+// ---------------------------------------------------------------------------
+test("find: searching your own work is brand-scoped and costs nothing", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/search/route.ts");
+  const approvals = await import("../src/backend/approvals.ts");
+
+  await approvals.createItem({
+    brandId: "find-brand", title: "Spring hero video",
+    description: "Check the offer line", createdBy: "you", nowISO: "2026-08-01T00:00:00.000Z",
+  });
+
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/search", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const found = await (await post({ action: "mine", brandId: "find-brand", query: "spring video" })).json();
+  assert.equal(found.hits.length, 1, "the approval was not searchable from the route");
+  assert.equal(found.hits[0].kind, "approval");
+  assert.ok(found.hits[0].href, "a result with no link");
+  assert.deepEqual(found.hits[0].matchedWords.sort(), ["spring", "video"]);
+
+  // Another brand sees nothing of it.
+  const other = await (await post({ action: "mine", brandId: "someone-else", query: "spring video" })).json();
+  assert.equal(other.hits.length, 0, "one brand's work leaked into another's search");
+
+  // A brand is required — work is always somebody's.
+  const unscoped = await post({ action: "mine", query: "spring" });
+  assert.equal(unscoped.status, 400);
+
+  // NOT METERED. A web search spends provider budget per query; looking through
+  // your own files spends nothing, and charging for it would be charging
+  // somebody to find their own work.
+  const src = codeOf(readFileSync(new URL("../src/app/api/search/route.ts", import.meta.url), "utf8"));
+  const meterLine = src.match(/if \(action === "search" \|\| action === "opportunity" \|\| action === "leads"\)/);
+  assert.ok(meterLine, "the metering condition changed shape — check 'mine' is still outside it");
+  assert.ok(!/action === "mine"[^)]*\)\s*\{[\s\S]{0,200}meterAction/.test(src), "searching your own work was metered");
+});
+
+test("find: the page shows WHY each result matched, and never a score", () => {
+  const raw = readFileSync(new URL("../src/app/dashboard/find/page.tsx", import.meta.url), "utf8");
+  const page = codeOf(raw);
+  assert.match(page, /matchedOn\.map/, "the page does not show why a result matched");
+  assert.match(page, /matchedWords/, "the page does not show which words were found");
+  // A list with no reasons is one you either trust completely or not at all.
+  assert.ok(!/\b(relevance|score)\b/i.test(page), "a relevance score appeared on the surface");
+  // The honest empty state comes from the engine's headline, not a hardcoded
+  // "no results" that hides whether the account is empty or the query is.
+  assert.match(page, /result\.headline/);
+  // Checked against the STRIPPED source, not the raw file. The header comment
+  // explains why "no results" is the wrong message, and checking `raw` found
+  // the explanation — the sixth time in this suite, and the second AFTER the
+  // codeOf helper existed. Rendered strings live in JSX and survive stripping,
+  // so `page` is the right input for a rule about what the screen says.
+  assert.ok(!/No results/i.test(page), "the screen says 'no results', which hides whether the account or the query is empty");
+
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /href: "\/dashboard\/find"/, "the page exists and nothing links to it");
+});
+
+// ---------------------------------------------------------------------------
+// §103's SURFACE — the limits, on one screen.
+// ---------------------------------------------------------------------------
+test("autonomy surface: the limits are on the autopilot screen and validated as you type", () => {
+  const form = codeOf(readFileSync(new URL("../src/components/AutonomyLimits.tsx", import.meta.url), "utf8"));
+  // The rules come from the shared module, so the form and any server reading
+  // the config cannot disagree about what is legal.
+  assert.match(form, /validateConfig/, "the form invents its own validation");
+  assert.ok(!/maxCpaGbp > budgetGbp|allowedChannels\.length === 0/.test(form),
+    "a validation rule was re-implemented in the component");
+  // Errors are shown separately from warnings — one stops a cycle, one does not.
+  assert.match(form, /result\.errors\.map/);
+  assert.match(form, /result\.warnings\.map/);
+  // Every field the spec names is on the screen.
+  for (const field of ["target", "maxCpaGbp", "approvalAboveGbp", "allowedChannels", "forbiddenChannels"]) {
+    assert.match(form, new RegExp(field), `the config screen is missing ${field}`);
+  }
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/autopilot/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<AutonomyLimits/, "the form exists and nothing renders it");
+  // Level and budget already lived here; the point of §103 is that the rest is
+  // in the SAME place rather than five screens away.
+  assert.ok(/setLevel/.test(page) && /setBudget/.test(page) && /setLimits/.test(page),
+    "the limits are not next to the level and the budget");
+});
+
+// ---------------------------------------------------------------------------
+// §98's SURFACE — and the instrumentation gap it makes visible.
+// ---------------------------------------------------------------------------
+test("product kpis: the route reports what it can measure and what it cannot", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/admin-economics/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/admin-economics", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "product-kpis" }),
+  }));
+  assert.equal(res.status, 200);
+  const d = await res.json();
+
+  assert.equal(d.kpis.length, 4);
+  // Nothing may be reported as a figure it has not got the observations for.
+  for (const k of d.kpis) {
+    if (k.value !== null) assert.ok(k.observations >= k.required, `${k.id} reported a value from ${k.observations} observations`);
+    else assert.ok(k.note.length > 20, `${k.id} is withheld and does not say what it needs`);
+  }
+
+  // THE GAP IS NAMED. Three of the four are not instrumented, and saying so is
+  // more useful than four invented numbers that would look like measurement.
+  assert.ok(Array.isArray(d.instrumentation.missing) && d.instrumentation.missing.length >= 3,
+    "the instrumentation gap is not stated, so an empty panel reads as a broken one");
+  assert.ok(d.instrumentation.missing.some((m) => /first campaign|first lead/i.test(m)));
+  assert.ok(d.instrumentation.missing.some((m) => /[Rr]egeneration/.test(m)));
+  assert.ok(d.instrumentation.missing.some((m) => /publication ledger|[Pp]ublish/.test(m)));
+});
+
+test("product kpis: the panel shows a withheld figure as withheld, never as zero", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/ProductKpis.tsx", import.meta.url), "utf8"));
+  // The wording itself moved into the shared formatter and is asserted there,
+  // so the panel is checked for USING it rather than for containing the string.
+  assert.match(panel, /k\.value === null/, "the panel does not distinguish a withheld figure from a real one");
+  assert.match(panel, /instrumentation\.missing\.map/, "the panel hides what is still needed");
+  // A withheld figure must never reach a number formatter. Checked as a VALUE
+  // rather than by matching the shape of the JSX — the first version of this
+  // assertion was a regex over the component's own markup, which tests nothing
+  // and failed for reasons unrelated to any defect.
+  assert.match(panel, /formatKpiValue\(k\)/, "the panel formats KPI values inline instead of using the shared formatter");
+  assert.equal(kpi.formatKpiValue({ value: null, unit: "percent", observations: 2, required: 5 }), "not enough yet · 2/5");
+  assert.equal(kpi.formatKpiValue({ value: 60, unit: "percent", observations: 5, required: 5 }), "60%");
+  assert.equal(kpi.formatKpiValue({ value: 3, unit: "days", observations: 5, required: 5 }), "3 days");
+  // NaN is withheld too — a broken number is not a measurement either.
+  assert.match(kpi.formatKpiValue({ value: NaN, unit: "days", observations: 9, required: 5 }), /not enough yet/);
+
+  const admin = codeOf(readFileSync(new URL("../src/app/dashboard/admin/page.tsx", import.meta.url), "utf8"));
+  assert.match(admin, /<ProductKpis \/>/, "the panel exists and nothing renders it");
+});
+
+// ---------------------------------------------------------------------------
+// §102's SURFACE — one sentence, a costed plan, and a SECOND deliberate click.
+// ---------------------------------------------------------------------------
+test("one-click surface: planning and running are separate calls", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/orchestrator/route.ts");
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/orchestrator", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const planned = await post({ action: "plan", brandId: "oneclick-brand", sentence: "launch the new product" });
+  assert.equal(planned.status, 200);
+  const d = await planned.json();
+  assert.ok(d.plan, "no plan came back");
+  assert.ok(typeof d.plan.costAcu === "number");
+  assert.ok(d.headroom && typeof d.headroom.remainingAcu === "number", "the plan does not say what is left today");
+
+  // A sentence is required — the whole feature is starting from words.
+  const empty = await post({ action: "plan", brandId: "oneclick-brand", sentence: "   " });
+  assert.equal(empty.status, 400);
+
+  // PLANNING RUNS NOTHING. The route's plan branch must not execute a chain —
+  // the entire value is seeing the cost and the human steps first.
+  const src = codeOf(readFileSync(new URL("../src/app/api/orchestrator/route.ts", import.meta.url), "utf8"));
+  const planBranch = src.slice(src.indexOf('if (action === "plan")'), src.indexOf('if (action !== "run")'));
+  assert.ok(!/executeChain/.test(planBranch), "planning executes the chain — the approval moment is gone");
+  assert.match(src, /use plan, run, save, delete or schedule/, "the action list was not updated");
+});
+
+test("one-click surface: the plan shows cost, human steps and what is unknown", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/OneClickCampaign.tsx", import.meta.url), "utf8"));
+  assert.match(panel, /action: "plan"/, "the panel does not ask for a plan");
+  assert.match(panel, /action: "run"/, "the panel cannot run what it planned");
+  // Two separate handlers, so a single click cannot do both.
+  assert.match(panel, /const makePlan/);
+  assert.match(panel, /const run =/);
+  // The three things the plan exists to show.
+  assert.match(panel, /needsHuman/, "the steps that stop for a person are not marked");
+  assert.match(panel, /costAcu/, "the cost is not shown");
+  assert.match(panel, /missingFacts/, "what the platform does not know is hidden");
+  // The refusal must reach the screen with its arithmetic intact.
+  assert.match(panel, /plan\.refusal/, "a refusal would be swallowed");
+  // The run button only exists when the plan is runnable.
+  assert.match(panel, /plan\.ok && \(/);
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/chains/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<OneClickCampaign \/>/, "the panel exists and nothing renders it");
+});
+
+// ---------------------------------------------------------------------------
+// §95's SURFACE — the board, with the store enforcing the shared rules.
+// ---------------------------------------------------------------------------
+test("board surface: the store holds no rules of its own", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/opportunity-radar/route.ts");
+  const store = await import("../src/backend/opportunity-board-store.ts");
+  store.__resetBoard();
+
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/opportunity-radar", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const B = { brandId: "board-brand" };
+
+  assert.equal((await post({ ...B, action: "adopt", id: "o1", topic: "Bundle the two best sellers" })).status, 200);
+  // The same thing twice is refused with where it already is.
+  const dupe = await post({ ...B, action: "adopt", id: "o1", topic: "Bundle the two best sellers" });
+  assert.equal(dupe.status, 409);
+  assert.match((await dupe.json()).error, /already on the board/);
+
+  // NOTHING JUMPS TO WON — and a refused move is 400, because the board working
+  // is not the board failing.
+  const cheat = await post({ ...B, action: "move", id: "o1", to: "won", note: "we won" });
+  assert.equal(cheat.status, 400);
+  assert.match((await cheat.json()).error, /Nothing has been done to it yet/);
+
+  // Dropping needs a reason.
+  const silent = await post({ ...B, action: "move", id: "o1", to: "dropped" });
+  assert.equal(silent.status, 400);
+  assert.match((await silent.json()).error, /same idea comes back in six weeks/);
+
+  // The legal path works and the history keeps every move.
+  assert.equal((await post({ ...B, action: "move", id: "o1", to: "chosen" })).status, 200);
+  assert.equal((await post({ ...B, action: "move", id: "o1", to: "in_progress" })).status, 200);
+  const won = await post({ ...B, action: "move", id: "o1", to: "won", note: "Sold 40 in the first week" });
+  assert.equal(won.status, 200);
+  assert.equal((await won.json()).item.history.length, 4);
+
+  // A board is somebody's.
+  assert.equal((await post({ action: "board" })).status, 400);
+
+  // The STORE re-implements no legality. Every refusal above came from the
+  // shared move(), and a second rulebook is how the two drift apart.
+  const src = codeOf(readFileSync(new URL("../src/backend/opportunity-board-store.ts", import.meta.url), "utf8"));
+  assert.match(src, /const result = move\(item/, "the store does not delegate to the shared rules");
+  assert.ok(!/won.*in_progress|ALLOWED|NEEDS_NOTE/.test(src), "a transition table was re-implemented in the store");
+  store.__resetBoard();
+});
+
+test("board surface: what has not moved is shown first, and only legal moves are offered", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/OpportunityBoard.tsx", import.meta.url), "utf8"));
+  // The real failure of a board is the middle column nobody has touched.
+  assert.ok(panel.indexOf("view.stalled") < panel.indexOf("view.columns.map"),
+    "the stalled items are below the columns — that buries the thing that matters");
+  // Buttons come from the shared transition table, so the screen cannot offer a
+  // move the server will refuse.
+  assert.match(panel, /allowedFrom\(i\.column\)/, "the board offers moves it has decided on its own");
+  // A move needing a reason asks for one rather than sending and being refused.
+  assert.match(panel, /window\.prompt/);
+  assert.match(panel, /if \(asked === null\) return;/, "cancelling the prompt would still send the move");
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<OpportunityBoard \/>/, "the board exists and nothing renders it");
+});
+
+// ---------------------------------------------------------------------------
+// WHAT THE LANDING PAGE CLAIMS IS INCLUDED.
+//
+// The page sold the strategy and left out the tools: a reader could not tell
+// that the recorder puts YOU on the recording, that bulk email goes from your
+// own domain with attachments, or that a long video comes back as clips. Those
+// are three separate monthly bills for most buyers and the argument was not
+// being made.
+//
+// A public feature list is a set of PROMISES. These tests exist so the list
+// cannot drift ahead of the code — a page that overstates is a refund in week
+// two, and the platform's whole argument is that its claims are honest.
+// ---------------------------------------------------------------------------
+const inc = await import("../src/shared/included-tools.ts");
+
+test("included: every claim on the page is backed by code that ships", async () => {
+  const has = (path) => { try { readFileSync(new URL(`../${path}`, import.meta.url), "utf8"); return true; } catch { return false; } };
+
+  // Each row, to the module that makes it true. A row with no backing is a
+  // promise nobody can keep.
+  const backing = {
+    "A screen-recording tool": ["src/components/ScreenRecorder.tsx", "src/shared/recorder-layout.ts"],
+    "A video-clipping tool": ["src/components/ClipFinder.tsx"],
+    "An email-sending platform": ["src/backend/email.ts"],
+    "A design tool for ad creative": ["src/components/AdCanvas.tsx"],
+    "A social scheduler": ["src/shared/platform-adaptation.ts"],
+    "A client-approval or proofing tool": ["src/backend/client-portal.ts", "src/app/portal/[token]/page.tsx"],
+    "An A/B testing tool": ["src/backend/experiments.ts", "src/backend/experiment-history.ts"],
+    "An ad-spend monitoring tool": ["src/backend/paid-guardrails.ts"],
+    "A website audit tool": ["src/app/audit/page.tsx", "src/app/api/audit/route.ts"],
+    "A reporting dashboard": ["src/backend/command-summary.ts"],
+    "An activity or audit log": ["src/backend/audit-log.ts", "src/app/dashboard/activity/page.tsx"],
+    "A workflow-automation tool": ["src/backend/orchestrator.ts", "src/backend/chain-exec.ts"],
+  };
+
+  for (const t of inc.INCLUDED_TOOLS) {
+    const files = backing[t.insteadOf];
+    assert.ok(files, `"${t.insteadOf}" is claimed on the landing page and this test does not know what backs it`);
+    for (const f of files) assert.ok(has(f), `"${t.insteadOf}" claims something ${f} would provide, and that file does not exist`);
+  }
+  // And nothing claimed here is absent from the list — the map is the check.
+  assert.equal(Object.keys(backing).length, inc.INCLUDED_TOOLS.length, "a row was added or removed without its backing");
+});
+
+test("included: the two specific claims that were missing are now made", () => {
+  const byKey = Object.fromEntries(inc.INCLUDED_TOOLS.map((t) => [t.insteadOf, t]));
+
+  // SCREEN + YOURSELF, in one file. The reason this feature exists at all is
+  // that "webcam on" used to record nothing.
+  const rec = byKey["A screen-recording tool"].included;
+  assert.match(rec, /yourself on it/i, "the page still does not say you appear IN the recording");
+  assert.match(rec, /draggable|drag/i, "the movable presenter is not mentioned");
+  assert.match(rec, /[Mm]icrophone and system sound/, "the audio mix is not mentioned");
+
+  // BULK EMAIL WITH ATTACHMENTS, from the customer's own domain.
+  const mail = byKey["An email-sending platform"].included;
+  assert.match(mail, /attachments/i, "attachments are still not mentioned anywhere on the page");
+  assert.match(mail, /own authenticated domain/i);
+  assert.match(mail, /DKIM/);
+  assert.equal(byKey["An email-sending platform"].keyless, false, "email needs a verified domain and must not be sold as keyless");
+});
+
+test("included: a limit sits next to the promise, and no competitor or price is invented", () => {
+  const src = readFileSync(new URL("../src/shared/included-tools.ts", import.meta.url), "utf8");
+
+  // Anything needing a connection must say what. A feature list that implies
+  // everything works on day one is the one that produces refunds.
+  for (const t of inc.INCLUDED_TOOLS) {
+    if (!t.keyless) assert.ok(t.limit && t.limit.length > 10, `"${t.insteadOf}" needs a connection and does not say so`);
+  }
+  const { total, keyless, line } = inc.includedSummary();
+  assert.equal(total, inc.INCLUDED_TOOLS.length);
+  assert.equal(keyless, inc.INCLUDED_TOOLS.filter((t) => t.keyless).length);
+  assert.match(line, new RegExp(`${keyless} of them work`), "the summary miscounts what works with no keys");
+
+  // NO COMPETITOR NAMED, NO PRICE INVENTED. "A separate subscription for each"
+  // is true about the market; "£39 a month for X" would be a claim about
+  // somebody else's pricing that nobody here has verified.
+  const code = codeOf(src);
+  assert.ok(!/£\s?\d|\$\s?\d|\d+\s?(?:\/mo|per month)/.test(code), "a price appeared in a list that must not carry one");
+  for (const name of ["Loom", "Mailchimp", "Canva", "Buffer", "Hootsuite", "Opus", "Descript", "Klaviyo"]) {
+    assert.ok(!new RegExp(name, "i").test(code), `${name} is named — this list must not make claims about other people's products`);
+  }
+});
+
+test("included: the section is on the page, above the price", () => {
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /INCLUDED_TOOLS\.map/, "the list exists and the page does not render it");
+  assert.match(page, /includedSummary\(\)\.line/, "the page hardcodes a count instead of deriving it");
+  // The argument lands before the price, not after it.
+  assert.ok(page.indexOf('id="included"') < page.indexOf('id="pricing"'),
+    "the value argument is below the price — that is the wrong order for it");
+  // The limit is rendered, not just stored.
+  assert.match(page, /t\.limit &&/, "the honest limit is stored and never shown");
+});

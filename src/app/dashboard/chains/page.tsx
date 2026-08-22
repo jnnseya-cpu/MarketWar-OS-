@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CalendarClock, ChevronRight, Loader2, Lock, PlayCircle, Plus, Trash2, Workflow } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import OneClickCampaign from "@/components/OneClickCampaign";
 import { useActiveBrand } from "@/frontend/brand-context";
 
 type Effect = "draft" | "spend" | "send" | "publish";
@@ -112,6 +113,9 @@ export default function ChainsPage() {
         subtitle="Each step is handed what the brand's memory holds and what the earlier steps produced, so the output is one connected answer rather than several unrelated ones. Anything that would spend, send or publish stops and waits for you — including overnight."
         actions={<Pill tone="info">drafts freely · acts never</Pill>}
       />
+
+      {/* §102 — say what you want; the plan comes back before anything runs. */}
+      <OneClickCampaign />
 
       {doctrine && <p className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs leading-relaxed text-slate-400">{doctrine}</p>}
 
