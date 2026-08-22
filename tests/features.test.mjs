@@ -18940,20 +18940,38 @@ test("analytics: every event maps to a real Meta event, standard or explicitly c
   }
 });
 
-test("analytics: nothing loads or fires without consent", () => {
+test("analytics: nothing is stored or sent without consent", () => {
   const consent = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8");
   const transport = readFileSync(new URL("../src/frontend/analytics.ts", import.meta.url), "utf8");
 
-  // Both tags sit behind the SAME grant. Two gates is how one of them ends up
-  // loading a tracker for somebody who said no.
-  const grants = consent.match(/choice === "granted"/g) || [];
-  assert.ok(grants.length >= 2, "the Meta Pixel does not load behind the same explicit grant as the container");
-  assert.match(consent, /META_PIXEL_ID/, "the pixel is not wired into the consent gate");
-  assert.ok(!/fbq\('init'/.test(consent.split('choice === "granted" && META_PIXEL_ID')[0] || ""),
-    "the pixel initialises before the grant is checked");
+  // THE CONTAINER still loads only on an explicit grant.
+  assert.match(consent, /choice === "granted" && GTM_ID/, "the container no longer waits for an explicit grant");
 
-  // And the transport refuses too — a tag loaded by any other path still gets
-  // nothing until the visitor has said yes.
+  // THE PIXEL loads for everyone but starts REVOKED, so Meta can see it is
+  // installed while it stores nothing. The order is the part that matters:
+  // revoking AFTER init means the pixel has already had its chance to set a
+  // cookie, which is the whole thing this is meant to prevent.
+  const script = (consent.match(/fbq\('consent','revoke'\);fbq\('init'[^`]*/) || [])[0] || "";
+  assert.ok(script, "the pixel does not initialise revoked — it is either ungated or not loading at all");
+  assert.ok(script.indexOf("'revoke'") < script.indexOf("'init'"),
+    "consent is revoked after init, by which point a cookie may already be set");
+
+  // PageView must not fire at load. Two paths can grant — this script reading
+  // stored consent, and the button handler — so it is guarded to fire once.
+  assert.ok(!/fbq\('init','[^']*'\);fbq\('track','PageView'\)/.test(consent),
+    "PageView fires immediately on load, before anybody has consented");
+  // BOTH grant paths must be guarded, and the guard must WRAP the call rather
+  // than merely appear in the file — the name survives in a type declaration
+  // after the guard itself is deleted, which is a test passing on a word.
+  assert.match(consent, /if\(!window\.__mwFbPv\)\{window\.__mwFbPv=1;fbq\('track','PageView'\);\}/,
+    "the loader fires PageView unguarded — a returning visitor is counted twice on every page");
+  assert.match(consent, /!w\.__mwFbPv[\s\S]{0,80}?w\.fbq\("track", "PageView"\)/,
+    "the button handler fires PageView unguarded, so accepting after a reload double-counts");
+  assert.match(consent, /fbq\("consent", choice === "granted" \? "grant" : "revoke"\)/,
+    "changing the choice does not move Meta's consent state");
+
+  // And the transport refuses regardless, so a tag loaded by any path still
+  // gets nothing until the visitor has said yes.
   assert.match(codeOf(transport), /consentNow\(\) !== "granted"/, "events are sent without checking consent");
 });
 
@@ -19020,4 +19038,63 @@ test("analytics: the pixel id is a real one, and both copies of it agree", () =>
   // The container id is the OTHER shape, and must not have been crossed over.
   const gtm = (gate.match(/NEXT_PUBLIC_GTM_ID\s*\?\?\s*"([^"]+)"/) || [])[1];
   assert.match(gtm || "", /^GTM-[A-Z0-9]+$/, "the GTM container id is not a GTM- code");
+});
+
+// ---------------------------------------------------------------------------
+// /dashboard/video CRASHED IN PRODUCTION: "Cannot read properties of undefined
+// (reading 'join')".
+//
+// The client kept its own hand-written copy of the ad-style type and three
+// fields disagreed with what the server sends. `res.json()` is `any`, so
+// TypeScript compared nothing. The page auto-selects the first format on mount,
+// so it crashed on load, for everyone, every time.
+// ---------------------------------------------------------------------------
+
+test("ad styles: every field the screen reads actually exists on every style", async () => {
+  const { AD_STYLES } = await import("../src/backend/ad-styles.ts");
+  assert.ok(AD_STYLES.length >= 12, "the format list has shrunk");
+
+  for (const s of AD_STYLES) {
+    // `needs` is the one that crashed: declared by the client, rendered with
+    // .join(), and never present on the server at all.
+    assert.ok(Array.isArray(s.needs) && s.needs.length > 0, `${s.id} has no "needs" — the screen calls .join() on it`);
+    assert.ok(s.needs.every((n) => typeof n === "string" && n.length > 3), `${s.id} has an empty entry in "needs"`);
+
+    // failsWhen is ONE sentence. The client used to .map() it, which would have
+    // been the next crash the moment the first was fixed.
+    assert.equal(typeof s.failsWhen, "string", `${s.id}.failsWhen must be a string, not a list`);
+
+    // shots carry their timing INSIDE the string. Rendering {s.seconds}/{s.what}
+    // against these printed "undefineds undefined" — broken, but silently.
+    assert.ok(Array.isArray(s.shots) && s.shots.every((x) => typeof x === "string"), `${s.id}.shots must be plain strings`);
+
+    for (const k of ["id", "label", "looksLike", "camera", "lighting", "hookShape", "audio"]) {
+      assert.equal(typeof s[k], "string", `${s.id}.${k} is missing`);
+    }
+    assert.equal(typeof s.idealSeconds, "number", `${s.id}.idealSeconds is missing`);
+    assert.ok(Array.isArray(s.platforms) && s.platforms.length, `${s.id}.platforms is missing`);
+  }
+});
+
+test("ad styles: the client renders the shape the server sends, not its own", () => {
+  const ui = readFileSync(new URL("../src/components/AdFormats.tsx", import.meta.url), "utf8");
+  const code = codeOf(ui);
+
+  // ONE declaration of the shape, imported. A second hand-written copy is
+  // exactly what drifted, and TypeScript cannot compare it to anything.
+  assert.match(code, /import type \{ AdStyleView as Style \} from "@\/shared\/ad-style-view"/,
+    "the client re-declares the API shape instead of importing it");
+  assert.ok(!/type Style = \{/.test(code), "a local hand-written Style type is back");
+
+  // The two renders that were wrong for the server's actual data.
+  assert.ok(!/failsWhen\.map\(/.test(code), "failsWhen is a string; .map() on it throws");
+  assert.ok(!/s\.seconds|s\.what/.test(code), "shots are plain strings; .seconds and .what are undefined");
+});
+
+test("ad styles: the backend asserts it still matches the published shape", () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/ad-styles.ts", import.meta.url), "utf8"));
+  // The compile-time check is the thing that stops this recurring. Without it
+  // the two sides can drift again and nothing notices until a customer does.
+  assert.match(src, /const _wireShape: AdStyleView\[\] = AD_STYLES/,
+    "nothing checks that AD_STYLES still matches shared/ad-style-view.ts");
 });

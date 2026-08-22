@@ -79,6 +79,32 @@ function broadcast(choice: ConsentChoice): void {
   } catch { /* a browser that cannot dispatch still has the state above */ }
 }
 
+/**
+ * Meta's own consent mode, applied when the visitor changes their mind.
+ *
+ * The pixel script itself is loaded for everyone but INITIALISED REVOKED — it
+ * sets no cookie and sends no event until granted. That is what makes the pixel
+ * detectable by Meta (and by anyone auditing the site) while still storing
+ * nothing on a device without permission. The alternative, not loading the
+ * script at all, is stricter but leaves Meta reporting "no events recorded"
+ * forever, because their checker does not click a cookie banner.
+ *
+ * PageView is fired ONCE, guarded by a window flag. Two things can grant: this
+ * function when a button is pressed, and the loader itself when a returning
+ * visitor's stored "yes" is read at load. Without the flag a returning visitor
+ * would be counted twice on every page.
+ */
+function applyMetaConsent(choice: ConsentChoice): void {
+  const w = window as unknown as { fbq?: (...a: unknown[]) => void; __mwFbPv?: number };
+  // Not loaded yet: the loader reads storage itself, so the state is not lost.
+  if (typeof w.fbq !== "function") return;
+  w.fbq("consent", choice === "granted" ? "grant" : "revoke");
+  if (choice === "granted" && !w.__mwFbPv) {
+    w.__mwFbPv = 1;
+    w.fbq("track", "PageView");
+  }
+}
+
 function pushConsent(choice: ConsentChoice): void {
   const w = window as unknown as { dataLayer?: unknown[] };
   w.dataLayer = w.dataLayer || [];
@@ -89,6 +115,7 @@ function pushConsent(choice: ConsentChoice): void {
     ad_user_data: choice,
     ad_personalization: choice,
   });
+  applyMetaConsent(choice);
   broadcast(choice);
 }
 
@@ -149,11 +176,21 @@ export default function CookieConsent() {
         </>
       ) : null}
 
-      {/* Same grant, same moment. The stub queues any event fired before the
-          script finishes loading, so an early conversion is not lost. */}
-      {choice === "granted" && META_PIXEL_ID ? (
+      {/* LOADED FOR EVERYONE, REVOKED UNTIL ASKED.
+
+          `fbq('consent','revoke')` comes BEFORE init, which is the order Meta
+          documents and the order that matters: revoked after init means the
+          pixel has already had a chance to set a cookie. In this state it stores
+          nothing and sends nothing — it exists, so Meta can see the pixel is
+          installed, and it waits.
+
+          The last block reads the stored choice directly rather than waiting for
+          React, so a returning visitor who already said yes is granted at load
+          instead of a beat later. `__mwFbPv` keeps PageView to one per page
+          across both paths that can grant. */}
+      {META_PIXEL_ID ? (
         <Script id="meta-pixel" strategy="afterInteractive">
-          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('consent','grant');fbq('init','${META_PIXEL_ID}');fbq('track','PageView');`}
+          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('consent','revoke');fbq('init','${META_PIXEL_ID}');try{if(window.localStorage.getItem('${STORAGE_KEY}')==='granted'){fbq('consent','grant');if(!window.__mwFbPv){window.__mwFbPv=1;fbq('track','PageView');}}}catch(e){}`}
         </Script>
       ) : null}
 
