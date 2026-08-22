@@ -1,5 +1,11 @@
 # MarketWar OS — Launch Blockers & External Needs (complete list)
 
+> **Corrected 2026-08-22.** Three entries below had been wrong for weeks —
+> B-11 claimed there was no test suite when there were over a thousand tests.
+> A stale blocker list is worse than none: it gets read as current, and the real
+> blockers hide among the fictional ones. Closed entries are struck through and
+> kept rather than deleted.
+
 **Purpose:** one exhaustive, honest checklist of (A) **every blocker** standing
 between the current build and a full GO, and (B) **every external service/key**
 the platform can use — what it unlocks, whether it's required, and how to switch
@@ -56,10 +62,10 @@ infra. They gate *scale/open-public*, not the invite-only beta.
 | # | Blocker | Severity | Owner | Why it blocks | Action to close |
 |---|---------|----------|-------|---------------|-----------------|
 | **B-8** | **No load / stress / soak test** | P2 | Perf | Behaviour + latency SLOs under real traffic unknown. Gate 6 (Performance) FAILs. | Run k6/Artillery against staging to defined SLOs. |
-| **B-9** | **Rate-limit store is in-memory (per-instance)** | P2 | Eng | On multi-instance hosting the cap is per-instance, weakening denial-of-wallet protection. (`src/backend/guard.ts` uses a `Map`.) | Back the limiter with Firestore/Redis counters. |
+| ~~**B-9**~~ | ~~Rate-limit store is in-memory~~ **CLOSED 2026-08-21 — resolved by moving the protection, not the limiter.** | — | — | The limiter is a BURST guard that has to answer synchronously before every handler; a database round-trip in front of that adds latency to everything and fails open when the store is slow. Per-instance counting is acceptable for bursts and was NOT acceptable for money. | Money protection moved instead: `ai-spend.ts` keeps the platform's monthly ceiling in a SHARED total (fire-and-forget Firestore increments, never awaited, self-pushes subtracted so nothing double-counts), and the customer's ACU wallet was always durable. `guard.ts` records the reasoning. |
 | **B-10** | **No live penetration test** of the deployed environment | P2 | Security | Live-env attack surface unproven. | Commission a pen-test on staging/prod; triage findings. |
-| **B-11** | **No automated test suite** beyond smoke (no unit/integration/e2e) | P2 | Eng | Business-logic regressions (financial/auth) can ship undetected. | Add unit tests for financial + auth logic (Vitest/Jest) + a Playwright e2e for the critical journeys. |
-| **B-12** | **`npm audit`: dependency vulnerabilities** (1 high + moderate at last audit) | P2 | Eng | Known-CVE exposure. | `npm audit fix`; re-scan to zero high. |
+| ~~**B-11**~~ | ~~No automated test suite~~ **CLOSED — this entry was false for weeks and nobody corrected it.** | — | — | There are **1,201 tests** (`npm test`), including `tests/loop.test.mjs`, one brand's real output threaded through all ten steps of the growth loop. | Nothing. Kept visible rather than deleted, because a blocker list that quietly drops entries is a blocker list nobody trusts — and this one was read as true while it was wrong. |
+| **B-12** | **`npm audit`** — was 11 (5 high). Now **6 moderate, 0 high**. | P3 | Eng | The 5 high are gone. The 6 moderate are ONE chain: uuid → teeny-request/gaxios → @google-cloud/storage → firebase-admin. | Left deliberately: npm's own "fix" is firebase-admin 10.3.0, a downgrade of four majors; the advisory is a bounds check in uuid v3/v5/v6 when a buffer is passed, and both consumers were read and call only `v4()` with no buffer, so the path is unreachable. **NEW AND REAL: production runs Next 14, which no longer receives security patches — 21 advisories apply and all are fixed only in 15.5.x+. See `docs/STATE.md` §5 item 1.** |
 | **B-13** | **No AI eval-set metrics** (hallucination / tool-accuracy / unsafe-action) | P2 | AI | Critical-AI quality unmeasured before wide public use. | Build an eval set; measure + gate on thresholds. |
 | **B-14** | **Email inbox-placement (SPF/DKIM/DMARC) not proven** | P2 | Owner | Transactional mail may land in spam. | Authenticate the sending subdomain; send seed-list deliverability test. |
 | **B-15** | **Cross-browser + accessibility matrix not run** | P3 | QA | Keyboard/screen-reader + non-Chromium behaviour unverified. | Run the browser/device + a11y matrix. |
