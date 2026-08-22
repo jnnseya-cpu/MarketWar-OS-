@@ -17690,3 +17690,132 @@ test("kpis: partial measurability is reported as partial", () => {
   assert.equal(r.measured, 1);
   assert.match(r.headline, /1 of 4 product KPIs are measurable/);
 });
+
+// ---------------------------------------------------------------------------
+// §102 — ONE SENTENCE, ONE BUTTON, and §103 — THE AUTONOMY SETTINGS.
+// ---------------------------------------------------------------------------
+const plan = await import("../src/shared/campaign-plan.ts");
+
+const CHAINS = [
+  { id: "viral-launch", label: "Viral launch", goal: "Launch something new and get it seen", keywords: ["launch", "announce", "product"], steps: [
+    { id: "trend", agentId: "opportunity-scout", effect: "draft", purpose: "What is moving", costAcu: 20 },
+    { id: "story", agentId: "content-factory", effect: "draft", purpose: "The content itself", costAcu: 20 },
+    { id: "publish", agentId: "campaign-commander", effect: "publish", purpose: "Put it live", costAcu: 20 },
+  ] },
+  { id: "revenue-review", label: "Revenue review", goal: "Work out what is making money and what is wasting it", keywords: ["revenue", "profit", "wasting"], steps: [
+    { id: "diagnose", agentId: "business-diagnosis", effect: "draft", purpose: "The honest state", costAcu: 30 },
+    { id: "plan", agentId: "marketing-battle-plan", effect: "draft", purpose: "One plan", costAcu: 30 },
+  ] },
+];
+
+test("one-click: it never starts a chain it cannot finish", () => {
+  const p = plan.planOneClickCampaign({
+    sentence: "help me launch the new product",
+    chains: CHAINS, facts: [], dailyCapAcu: 100, spentTodayAcu: 55,
+  });
+  assert.equal(p.ok, false, "a 60-ACU chain was started with 45 ACUs left");
+  assert.equal(p.costAcu, 60);
+  assert.equal(p.remainingAcu, 45);
+  assert.match(p.refusal, /would spend 45 and stop partway/);
+  assert.match(p.refusal, /no campaign and less credit/);
+
+  // With room, it runs and says what is left after.
+  const ok = plan.planOneClickCampaign({
+    sentence: "help me launch the new product",
+    chains: CHAINS, facts: [], dailyCapAcu: 100, spentTodayAcu: 0,
+  });
+  assert.equal(ok.ok, true);
+  assert.match(ok.headline, /60 ACUs, 40 left after/);
+});
+
+test("one-click: the chain is chosen deterministically, and it says why", () => {
+  const a = plan.planOneClickCampaign({ sentence: "what is wasting my money", chains: CHAINS, facts: [], dailyCapAcu: 999, spentTodayAcu: 0 });
+  assert.equal(a.chainId, "revenue-review");
+  assert.match(a.chosenBecause, /"wasting"/);
+
+  // Same sentence, same answer, every time — no provider call in the path.
+  const again = plan.planOneClickCampaign({ sentence: "what is wasting my money", chains: CHAINS, facts: [], dailyCapAcu: 999, spentTodayAcu: 0 });
+  assert.equal(again.chainId, a.chainId);
+  const src = readFileSync(new URL("../src/shared/campaign-plan.ts", import.meta.url), "utf8");
+  assert.ok(!/gateway|fetch\(|await import/.test(src), "choosing an engine should not itself cost a generation");
+
+  // Nothing matches: it says so rather than picking the first chain.
+  const none = plan.planOneClickCampaign({ sentence: "xylophone repairs", chains: CHAINS, facts: [], dailyCapAcu: 999, spentTodayAcu: 0 });
+  assert.equal(none.ok, false);
+  assert.equal(none.chainId, undefined, "a chain was chosen for a sentence that matched nothing");
+  assert.match(none.refusal, /Say it in terms of what you want to happen/);
+});
+
+test("one-click: anything that leaves the building is named up front", () => {
+  const p = plan.planOneClickCampaign({ sentence: "launch the product", chains: CHAINS, facts: [], dailyCapAcu: 999, spentTodayAcu: 0 });
+  assert.deepEqual(p.humanSteps, ["Put it live"]);
+  assert.equal(p.steps.find((s) => s.id === "publish").needsHuman, true);
+  assert.equal(p.steps.find((s) => s.id === "trend").needsHuman, false);
+  // The whole list, not just publish.
+  assert.deepEqual(plan.LEAVES_THE_BUILDING.sort(), ["publish", "send", "spend"]);
+});
+
+test("one-click: missing brand facts are named, not filled in", () => {
+  const p = plan.planOneClickCampaign({
+    sentence: "launch the product", chains: CHAINS,
+    facts: [{ key: "audience.age-band", value: "35-54" }],
+    requiredFacts: { "viral-launch": ["audience.age-band", "offer.winner", "brand.tone"] },
+    dailyCapAcu: 999, spentTodayAcu: 0,
+  });
+  assert.equal(p.ok, true, "a missing fact should warn, not block — the customer may still want it");
+  assert.deepEqual(p.missingFacts, ["offer.winner", "brand.tone"]);
+  assert.match(p.headline, /2 things about your brand are still unknown/);
+  assert.match(p.headline, /generic without them/);
+});
+
+const ac = await import("../src/shared/autonomy-config.ts");
+
+test("autonomy: forbidden always beats allowed", () => {
+  const r = ac.validateConfig({
+    level: 1, target: "more weekend bookings", budgetGbp: 100,
+    allowedChannels: ["meta", "google", "tiktok"], forbiddenChannels: ["tiktok"],
+    maxCpaGbp: 20, approvalAboveGbp: 50,
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.config.allowedChannels, ["meta", "google"], "a forbidden channel survived in the allow-list");
+  assert.ok(r.warnings.some((w) => /treated as forbidden/.test(w)), "the overlap was resolved silently");
+});
+
+test("autonomy: contradictions are refused, not quietly resolved", () => {
+  // A customer may cost more than the entire cycle budget.
+  const impossible = ac.validateConfig({
+    level: 1, target: "growth", budgetGbp: 50, allowedChannels: ["meta"], maxCpaGbp: 200,
+  });
+  assert.equal(impossible.ok, false);
+  assert.ok(impossible.errors.some((e) => /a single customer would consume the entire budget/.test(e)));
+
+  // Money with nowhere to spend it.
+  const nowhere = ac.validateConfig({ level: 1, target: "growth", budgetGbp: 100, allowedChannels: [] });
+  assert.equal(nowhere.ok, false);
+  assert.ok(nowhere.errors.some((e) => /no channel it may be spent on/.test(e)));
+
+  // Autonomy switched on with no stated goal.
+  const aimless = ac.validateConfig({ level: 2, target: "   " });
+  assert.equal(aimless.ok, false);
+  assert.ok(aimless.errors.some((e) => /Autonomy with no stated goal is drift/.test(e)));
+});
+
+test("autonomy: settings that do nothing say they do nothing", () => {
+  const off = ac.validateConfig({ level: 0, budgetGbp: 500, allowedChannels: ["meta"] });
+  assert.equal(off.ok, true);
+  assert.ok(off.warnings.some((w) => /stored and not used/.test(w)),
+    "a screen full of numbers that do nothing is how somebody believes it is running when it is not");
+  assert.match(off.summary, /Autonomy is off/);
+
+  // A budget with no cost-per-customer cap warns rather than blocks.
+  const uncapped = ac.validateConfig({ level: 1, target: "growth", budgetGbp: 100, allowedChannels: ["meta"] });
+  assert.equal(uncapped.ok, true);
+  assert.ok(uncapped.warnings.some((w) => /spending the whole budget on one/.test(w)));
+
+  const full = ac.validateConfig({
+    level: 3, target: "more weekend bookings", budgetGbp: 200,
+    allowedChannels: ["meta"], forbiddenChannels: ["tiktok"], maxCpaGbp: 25, approvalAboveGbp: 100,
+  });
+  assert.match(full.summary, /Level 3, aiming at "more weekend bookings"/);
+  assert.match(full.summary, /Never: tiktok/);
+});
