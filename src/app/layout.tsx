@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Space_Grotesk, Inter } from "next/font/google";
 import "./globals.css";
 import PWARegister from "@/components/PWARegister";
 import SiteJsonLd from "@/components/SiteJsonLd";
 import CookieConsent from "@/components/CookieConsent";
+import AnalyticsRouteTracker from "@/components/AnalyticsRouteTracker";
 import { splashLinks } from "@/shared/pwa-splash";
 
 const display = Space_Grotesk({
@@ -70,6 +72,12 @@ export default function RootLayout({
             only on an explicit grant. Rejecting is exactly as easy as accepting,
             and doing neither leaves it off. */}
         <CookieConsent />
+        {/* Reports client-side navigations, which neither tag can see. It is a
+            no-op without consent, so mounting it here changes nothing for a
+            visitor who said no. */}
+        <Suspense fallback={null}>
+          <AnalyticsRouteTracker />
+        </Suspense>
       </body>
     </html>
   );

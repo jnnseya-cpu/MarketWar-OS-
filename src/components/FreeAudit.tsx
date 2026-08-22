@@ -13,6 +13,7 @@
 
 import { useState } from "react";
 import { ArrowRight, CheckCircle2, Loader2, Search, TriangleAlert } from "lucide-react";
+import { track } from "@/frontend/analytics";
 
 type Finding = { area: string; label: string; severity: string; detail: string };
 type Report = {
@@ -47,6 +48,17 @@ export default function FreeAudit() {
       if (!res.ok) { setError(d.error || "That did not run — try again."); return; }
       setReport(d as Report);
       if (withEmail) setFull(true);
+      // Fired on the RESULT, not the submit. A refused crawl is not an audit and
+      // an address that failed validation is not a lead; counting either would
+      // teach the ad platform to find people who cannot complete the form.
+      // The score is a number, the grade a single letter — the URL and the
+      // address are deliberately not passed, and would be dropped if they were.
+      if ((d as Report).ok) {
+        track(withEmail ? "audit_lead" : "audit_started", {
+          score: typeof (d as Report).score === "number" ? (d as Report).score : undefined,
+          grade: (d as Report).grade,
+        });
+      }
     } catch { setError("Network error — try again."); } finally { setBusy(false); }
   }
 
