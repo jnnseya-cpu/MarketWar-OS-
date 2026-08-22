@@ -18793,3 +18793,56 @@ test("audit guard: a blocked address is refused before a socket opens, with a re
   assert.match(r.error || "", /private network/i, "refused, but the visitor is not told why");
   assert.equal(r.findings.length, 0, "a refused crawl still produced findings");
 });
+
+// ---------------------------------------------------------------------------
+// AUTHENTICATION IS NOT TRANSPORT, AND THE SCREEN MUST NOT CONFLATE THEM.
+//
+// The owner had DNS in place for all three brands and concluded email was set
+// up. The Sending Domains page had told them so: a verified domain said "Live …
+// it sends signed as you", above a paragraph promising that MarketWar's own
+// infrastructure hands the message to the recipient — on a deployment with no
+// sending node, where nothing left at all.
+//
+// DNS is the customer's half, per domain. The sending node is the platform's
+// half, set once for everybody. Both are required and the screen now says so.
+// ---------------------------------------------------------------------------
+
+test("sending: the relay is platform-wide, and no customer supplies credentials", async () => {
+  const pool = readFileSync(new URL("../src/backend/sending-pool.ts", import.meta.url), "utf8");
+  const domains = readFileSync(new URL("../src/backend/sending-domains.ts", import.meta.url), "utf8");
+
+  // The node comes from the environment, never from a brand record.
+  assert.match(codeOf(pool), /process\.env\.MW_SENDING_POOL/, "the pool is not read from the deployment environment");
+  assert.match(codeOf(pool), /process\.env\.SMTP_HOST/, "the single-node fallback is gone");
+
+  // A brand record holds IDENTITY — a domain and a DKIM keypair — and must never
+  // hold transport credentials. If it ever does, "who do I bill for this send"
+  // and "whose reputation is this" both stop having one answer.
+  assert.ok(!/\bpass(word)?\s*:\s*string/.test(domains), "a brand record grew a password field");
+  assert.ok(!/smtpHost|smtpUser|smtpPass/i.test(domains), "per-brand SMTP credentials appeared — the relay is platform-wide");
+
+  // And the per-brand half is exactly the DKIM signing material.
+  assert.match(domains, /export async function signingFor/, "per-brand DKIM signing is gone");
+  assert.match(domains, /privateKeyPem: string;\s*\/\/ SERVER-ONLY/, "the brand's private key is no longer marked server-only");
+});
+
+test("sending: a verified domain does not claim to send when nothing can", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/sending-domains/page.tsx", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/sending-domains/route.ts", import.meta.url), "utf8");
+
+  // The transport answer has to reach the screen at all.
+  assert.match(codeOf(route), /sendingConfigured: emailIsConfigured\(\)/, "the API never reports whether transport exists");
+  assert.match(page, /sendingConfigured/, "the page cannot tell whether anything can be sent");
+
+  // "Live … it sends signed as you" must be behind that condition, not stated
+  // unconditionally next to a verified domain.
+  const liveClaim = page.indexOf("it sends signed as you");
+  const guard = page.indexOf("sendingConfigured === false");
+  assert.ok(liveClaim > -1 && guard > -1 && guard < liveClaim,
+    "the page still promises a verified domain sends, without checking that anything can");
+
+  // And the false case has to say the records are FINE — otherwise the owner
+  // goes and re-does DNS that was never the problem.
+  assert.match(page, /Nothing is wrong with your records/,
+    "the warning does not clear the customer's DNS of blame, so they will re-do work that was correct");
+});
