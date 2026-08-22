@@ -17327,3 +17327,144 @@ test("search: one broken source never empties the whole result", async () => {
   assert.match(src, /unavailable\.push\(g\.name\)/, "a failing source is swallowed silently");
   assert.match(src, /could not be read/, "the caller is not told the result is incomplete");
 });
+
+// ---------------------------------------------------------------------------
+// §97 — WHAT TO DO TODAY, and §95 — THE OPPORTUNITY BOARD.
+//
+// command-summary carried a `priority` that nothing computed, so two items from
+// different engines were never comparable. opportunity-radar ranked topics and
+// then had nowhere to put them: no state, so a topic nobody had looked at and
+// one quietly abandoned were indistinguishable.
+// ---------------------------------------------------------------------------
+const ap = await import("../src/shared/action-priority.ts");
+
+const F = (value, basis) => ({ value, basis });
+
+test("priority: an action missing a factor is unranked, never guessed into the middle", () => {
+  const r = ap.rankActions([
+    { id: "a", title: "Send the ten messages", impact: F(0.9, "5 of 5 targets are named"), urgency: F(0.9, "the offer ends Friday"), confidence: F(0.8, "same message won last month"), effort: F(0.2, "an hour"), cost: F(0.05, "free") },
+    { id: "b", title: "Rebuild the pricing page", urgency: F(0.3, "no deadline"), confidence: F(0.5, "a guess"), effort: F(0.9, "two days"), cost: F(0.4, "a designer") },
+  ]);
+  assert.equal(r.ranked.length, 1);
+  assert.equal(r.unranked.length, 1);
+  assert.deepEqual(r.unranked[0].missing, ["impact"]);
+  assert.match(r.unranked[0].reason, /Guessing would put it in the queue/);
+  // The unranked one must not appear in the ranked list at all.
+  assert.ok(!r.ranked.some((x) => x.id === "b"));
+  assert.equal(r.next.id, "a");
+});
+
+test("priority: a factor with no basis is the same as no factor", () => {
+  const r = ap.rankActions([
+    { id: "a", title: "Do the thing", impact: F(0.9, ""), urgency: F(0.9, "x"), confidence: F(0.9, "x"), effort: F(0.1, "x"), cost: F(0.1, "x") },
+  ]);
+  assert.equal(r.ranked.length, 0, "a number with no stated basis was accepted");
+  assert.deepEqual(r.unranked[0].missing, ["impact"]);
+});
+
+test("priority: effort and cost divide, and cannot be zeroed to jump the queue", () => {
+  const r = ap.rankActions([
+    { id: "cheat", title: "Costs nothing apparently", impact: F(0.5, "x"), urgency: F(0.5, "x"), confidence: F(0.5, "x"), effort: F(0, "x"), cost: F(0, "x") },
+    { id: "real", title: "Genuinely the best action", impact: F(1, "x"), urgency: F(1, "x"), confidence: F(1, "x"), effort: F(0.05, "x"), cost: F(0.05, "x") },
+  ]);
+  assert.ok(Number.isFinite(r.ranked[0].priority), "a zero divisor produced an infinite priority");
+  assert.equal(r.next.id, "real", "a zero-effort claim jumped a genuinely better action");
+  assert.equal(r.ranked.find((x) => x.id === "real").priority, 100);
+});
+
+test("priority: the arithmetic and every basis are printed", () => {
+  const r = ap.rankActions([
+    { id: "a", title: "A", impact: F(0.8, "revenue at risk"), urgency: F(0.6, "ends Friday"), confidence: F(0.7, "prior test"), effort: F(0.3, "an afternoon"), cost: F(0.2, "£40 of ads") },
+  ]);
+  const a = r.ranked[0];
+  assert.match(a.breakdown, /Impact 0\.8 × Urgency 0\.6 × Confidence 0\.7 ÷ \(Effort 0\.3 × Cost 0\.2\)/);
+  assert.match(a.breakdown, /→ \d+\/100$/);
+  assert.equal(a.bases.impact, "revenue at risk");
+  assert.equal(a.bases.cost, "£40 of ads");
+
+  // Out-of-range values are clamped AND the clamping is reported, not hidden.
+  const wild = ap.rankActions([
+    { id: "w", title: "W", impact: F(7, "x"), urgency: F(-2, "x"), confidence: F(0.5, "x"), effort: F(0.5, "x"), cost: F(0.5, "x") },
+  ]);
+  assert.deepEqual(wild.ranked[0].clamped.sort(), ["impact", "urgency"]);
+});
+
+test("priority: nothing rankable says so instead of showing an empty queue", () => {
+  const none = ap.rankActions([]);
+  assert.equal(none.next, null);
+  assert.match(none.headline, /no actions were supplied/);
+  const allBroken = ap.rankActions([{ id: "x", title: "X" }]);
+  assert.equal(allBroken.next, null);
+  assert.match(allBroken.headline, /The only suggested action cannot be ranked yet/);
+});
+
+const ob = await import("../src/shared/opportunity-board.ts");
+
+test("board: nothing jumps straight to won", () => {
+  const item = ob.createItem({ id: "o1", topic: "Bundle the two best sellers", opportunityScore: 74, at: "2026-08-01T00:00:00Z" });
+  assert.equal(item.column, "spotted");
+
+  const cheat = ob.move(item, "won", { at: "2026-08-02T00:00:00Z", by: "you", note: "we won" });
+  assert.equal(cheat.ok, false, "an opportunity reached Won without any work happening");
+  assert.match(cheat.error, /Nothing has been done to it yet/);
+
+  // The real path works.
+  const chosen = ob.move(item, "chosen", { at: "2026-08-02T00:00:00Z", by: "you" });
+  assert.equal(chosen.ok, true);
+  const started = ob.move(chosen.item, "in_progress", { at: "2026-08-03T00:00:00Z", by: "you" });
+  const won = ob.move(started.item, "won", { at: "2026-08-09T00:00:00Z", by: "you", note: "Sold 40 bundles in the first week" });
+  assert.equal(won.ok, true);
+  assert.equal(won.item.column, "won");
+  assert.equal(won.item.history.length, 4, "the history must keep every move");
+});
+
+test("board: an ending without a reason is refused", () => {
+  const item = ob.createItem({ id: "o2", topic: "Try a Saturday send", at: "2026-08-01T00:00:00Z" });
+  const dropped = ob.move(item, "dropped", { at: "2026-08-05T00:00:00Z", by: "you" });
+  assert.equal(dropped.ok, false, "an opportunity was dropped with no reason recorded");
+  assert.match(dropped.error, /same idea comes back in six weeks/);
+
+  const withReason = ob.move(item, "dropped", { at: "2026-08-05T00:00:00Z", by: "you", note: "No Saturday staff to answer replies" });
+  assert.equal(withReason.ok, true);
+  assert.equal(withReason.item.history.at(-1).note, "No Saturday staff to answer replies");
+
+  // And a dropped item can come back — nothing here is deleted.
+  const reopened = ob.move(withReason.item, "spotted", { at: "2026-09-01T00:00:00Z", by: "you" });
+  assert.equal(reopened.ok, true);
+});
+
+test("board: what has not moved is the thing it reports", () => {
+  const NOW = "2026-08-22T00:00:00Z";
+  const fresh = ob.move(
+    ob.createItem({ id: "a", topic: "Fresh idea", at: "2026-08-20T00:00:00Z" }),
+    "chosen", { at: "2026-08-21T00:00:00Z", by: "you" },
+  ).item;
+  // Through Chosen first: the board refuses spotted → in_progress, and the first
+  // version of this test tried exactly that and then read .item off a refusal.
+  const rotting = ob.move(
+    ob.move(
+      ob.createItem({ id: "b", topic: "Winter gift guide", at: "2026-07-01T00:00:00Z" }),
+      "chosen", { at: "2026-07-01T12:00:00Z", by: "you" },
+    ).item,
+    "in_progress", { at: "2026-07-02T00:00:00Z", by: "you" },
+  ).item;
+  const finished = ob.move(
+    ob.move(
+      ob.move(ob.createItem({ id: "c", topic: "Done thing", at: "2026-06-01T00:00:00Z" }), "chosen", { at: "2026-06-02T00:00:00Z", by: "you" }).item,
+      "in_progress", { at: "2026-06-03T00:00:00Z", by: "you" },
+    ).item,
+    "lost", { at: "2026-06-10T00:00:00Z", by: "you", note: "Nobody clicked" },
+  ).item;
+
+  const view = ob.boardView([fresh, rotting, finished], NOW);
+  assert.deepEqual(view.stalled.map((s) => s.id), ["b"], "a terminal item was counted as stalled, or a rotting one was missed");
+  assert.match(view.headline, /has been in In progress for 51 days/);
+
+  // Longest-waiting first inside a column — the thing sitting there is the
+  // thing worth looking at, not the newest arrival.
+  const inProgress = view.columns.find((c) => c.column === "in_progress");
+  assert.deepEqual(inProgress.items.map((i) => i.id), ["b"]);
+  assert.equal(inProgress.items[0].daysInColumn, 51);
+
+  assert.match(ob.boardView([], NOW).headline, /Nothing on the board yet/);
+});
