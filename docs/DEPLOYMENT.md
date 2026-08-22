@@ -200,6 +200,39 @@ from the connected GitHub repo and the email engine flips from demo →
 > `SMTP_USER`/`SMTP_PASS` as sensitive), then redeploy. Either way, these are
 > **host** env vars — they are never stored in GitHub.
 
+### The one DNS record that authorises the relay for EVERY brand
+
+Setting the `SMTP_*` variables makes mail leave. It does not make it *accepted*.
+
+The relay is **platform-wide** — one server for the whole OS, every user and
+every brand. No customer ever supplies SMTP credentials, and there is no
+per-brand relay setting. Each brand's own DNS supplies its *identity* (the DKIM
+key), not its transport.
+
+That works because every brand publishes the same delegated SPF record:
+
+```
+veryxjnn.com.    TXT    v=spf1 include:_spf.marketwaros.com ~all
+evandeli.com.    TXT    v=spf1 include:_spf.marketwaros.com ~all
+```
+
+So the relay's IP is published **once**, on our own domain, and every brand
+inherits it:
+
+```
+_spf.marketwaros.com.   TXT    v=spf1 ip4:<the relay's IP> -all
+```
+
+**If that record is missing or does not list the relay's IP, every brand fails
+SPF at the same moment**, however perfect their own DNS is — and adding a brand
+later needs no DNS change from them, which is the whole point of the `include:`.
+Change `MW_SPF_INCLUDE` only if the delegation host is not `_spf.marketwaros.com`.
+
+DMARC is issued strict (`adkim=s; aspf=s`). The Return-Path sits on
+`bounces.marketwaros.com` so bounces are attributable per brand and per
+recipient, which means **SPF does not align and DKIM does** — DMARC passes on
+DKIM, by design. That is why the DKIM record is the one marked required.
+
 The domain (`marketwaros.com`) and the Stripe webhook
 (`https://marketwaros.com/api/webhooks/stripe`) are the same regardless of host.
 
