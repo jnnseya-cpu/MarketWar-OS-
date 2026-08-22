@@ -17,7 +17,7 @@
     "seed:accounts": "node scripts/seed-accounts.mjs",
     "verify": "npm run check:layers && npm run typecheck && npm run build",
     "check:layers": "node scripts/check-layers.mjs",
-    "test": "node --import tsx --test tests/*.test.mjs",
+    "test": "NODE_ENV=test node --import tsx --test tests/*.test.mjs",
     "splash": "node scripts/generate-splash.mjs",
     "gtm:doc": "node scripts/build-gtm-doc.mjs && node scripts/verify-gtm-doc.mjs",
     "gtm:verify": "node scripts/verify-gtm-doc.mjs"

@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 // HTML produces a confident, entirely fictional report.
 
 import { detectRenderGap, classifyBlock, type RenderGap, type BlockVerdict } from "@/backend/render-gap";
+import { blockedUrlReason, blockedAddressReason, MAX_REDIRECTS } from "@/shared/net-guard";
 
 export type Severity = "pass" | "warn" | "fail";
 export type Finding = {
@@ -72,17 +73,74 @@ function normaliseUrl(raw: string): string | null {
   try { const u = new URL(withScheme); return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null; } catch { return null; }
 }
 
+/**
+ * Does this hostname resolve somewhere we are allowed to fetch?
+ *
+ * The name check alone is not enough: `evil.example.com` is a perfectly ordinary
+ * hostname whose A record is 169.254.169.254. So the name is resolved and every
+ * address it returns is judged, and the fetch is only made if all of them pass.
+ */
+/**
+ * Loopback is reachable ONLY under the test runner, where the suite serves a
+ * real page on 127.0.0.1. Link-local — the cloud metadata address — is never
+ * reachable, in any environment, including this one.
+ */
+const guardOpts = () => ({ allowLoopback: process.env.NODE_ENV === "test" });
+
+async function resolvesPublicly(hostname: string): Promise<string | null> {
+  try {
+    const dns = await import("node:dns/promises");
+    const addrs = await dns.lookup(hostname, { all: true });
+    if (!addrs.length) return "That website's address could not be looked up.";
+    for (const a of addrs) {
+      const bad = blockedAddressReason(a.address, guardOpts());
+      if (bad) return bad;
+    }
+    return null;
+  } catch {
+    return "That website's address could not be looked up.";
+  }
+}
+
+/**
+ * Fetch a page the PUBLIC asked us to fetch.
+ *
+ * Redirects are followed by hand rather than by `redirect: "follow"`, because
+ * following automatically re-introduces exactly what the checks above prevent: a
+ * public URL that answers 302 to http://169.254.169.254/ is fetched by the
+ * runtime with no further questions asked. Every hop is checked as if it were
+ * the address originally typed in.
+ */
 async function fetchPage(url: string, timeoutMs = 12_000): Promise<{ status: number; finalUrl: string; html: string; ms: number; headers: Headers | null } | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   const start = Date.now();
   try {
-    const res = await fetch(url, { signal: ctrl.signal, redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)", Accept: "text/html,application/xhtml+xml" } });
-    const buf = await res.arrayBuffer();
-    const html = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 1_500_000));
-    // Headers come back too: a 403 from Cloudflare and a 403 from an origin are
-    // different problems with different fixes, and only the headers say which.
-    return { status: res.status, finalUrl: res.url || url, html, ms: Date.now() - start, headers: res.headers };
+    let current = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (blockedUrlReason(current, guardOpts())) return null;
+      if (await resolvesPublicly(new URL(current).hostname)) return null;
+
+      const res = await fetch(current, {
+        signal: ctrl.signal,
+        redirect: "manual",
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)", Accept: "text/html,application/xhtml+xml" },
+      });
+
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+      if (location) {
+        // Resolved against the current URL so a relative Location still works.
+        current = new URL(location, current).toString();
+        continue;
+      }
+
+      const buf = await res.arrayBuffer();
+      const html = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 1_500_000));
+      // Headers come back too: a 403 from Cloudflare and a 403 from an origin are
+      // different problems with different fixes, and only the headers say which.
+      return { status: res.status, finalUrl: current, html, ms: Date.now() - start, headers: res.headers };
+    }
+    return null; // too many hops
   } catch { return null; } finally { clearTimeout(t); }
 }
 
@@ -114,6 +172,14 @@ function grade(score: number): CrawlReport["grade"] {
 export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   const url = normaliseUrl(rawUrl);
   if (!url) return { ok: false, url: rawUrl, https: false, score: 0, grade: "F", findings: [], error: "That doesn't look like a valid website address." };
+
+  // REFUSED BEFORE A SOCKET IS OPENED, and with the actual reason. This endpoint
+  // is public and fetches whatever it is handed, so "the destination" is as much
+  // an input to validate as the caller's rate. Saying why also matters: the
+  // person on the other end has usually mistyped something, and a generic "could
+  // not be read" makes the audit look broken rather than the address wrong.
+  const blocked = blockedUrlReason(url, { allowLoopback: process.env.NODE_ENV === "test" });
+  if (blocked) return { ok: false, url, https: url.startsWith("https:"), score: 0, grade: "F", findings: [], error: blocked };
 
   const page = await fetchPage(url);
   if (!page) {

@@ -18710,3 +18710,86 @@ test("audit: the send actually RUNS — proved by the outcome, not by a grep", a
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// THE PUBLIC AUDIT MUST NOT FETCH THE INSIDE OF THE NETWORK.
+//
+// /api/audit is unauthenticated and fetches whatever address it is handed —
+// that is the point of a free website audit. It rate-limited the CALLER and
+// never checked the DESTINATION, and it returns the page's title, description
+// and content in the response, so it was a request-forgery with the answer
+// handed back. The metadata service on 169.254.169.254 is the address that
+// matters: it issues cloud credentials to anything that asks.
+// ---------------------------------------------------------------------------
+
+test("audit guard: the addresses that must never be fetched", async () => {
+  const { blockedUrlReason, isPrivateAddress } = await import("../src/shared/net-guard.ts");
+
+  const mustBlock = [
+    "http://169.254.169.254/latest/meta-data/",   // AWS/most clouds: credentials
+    "http://metadata.google.internal/",           // GCP, by name
+    "http://127.0.0.1:8080/admin",
+    "http://[::1]:8080/",
+    "http://localhost:3000/",
+    "http://10.0.0.5/",
+    "http://192.168.1.1/",
+    "http://172.16.4.4/",
+    "http://0.0.0.0/",
+    "http://[::ffff:127.0.0.1]/",                 // IPv4-mapped loopback
+    "http://printer.local/",
+    "http://vault.internal/",
+    "file:///etc/passwd",
+    "gopher://evil/",
+  ];
+  for (const u of mustBlock) {
+    assert.ok(blockedUrlReason(u), `${u} would be fetched on a stranger's behalf`);
+  }
+
+  // And ordinary customer websites must still audit, or the guard has eaten the
+  // product. A blocklist that blocks everything passes every security test.
+  for (const u of ["https://evandeli.com/", "http://example.co.uk/page?q=1", "https://8.8.8.8/"]) {
+    assert.equal(blockedUrlReason(u), null, `${u} is a normal address and was refused`);
+  }
+
+  // The range checks themselves, including the boundaries where off-by-one hides.
+  assert.equal(isPrivateAddress("172.15.255.255"), false, "172.15 is public and was blocked");
+  assert.equal(isPrivateAddress("172.16.0.0"), true, "the private range starts at 172.16");
+  assert.equal(isPrivateAddress("172.31.255.255"), true, "the private range ends at 172.31");
+  assert.equal(isPrivateAddress("172.32.0.0"), false, "172.32 is public and was blocked");
+  assert.equal(isPrivateAddress("169.254.0.1"), true, "link-local is where cloud metadata lives");
+  assert.equal(isPrivateAddress("169.253.0.1"), false, "169.253 is public and was blocked");
+});
+
+test("audit guard: the loopback seam does not open the metadata address", async () => {
+  const { blockedUrlReason, blockedAddressReason } = await import("../src/shared/net-guard.ts");
+  // The suite serves a real page on 127.0.0.1, so loopback is permitted under
+  // the test runner. That relaxation must reach loopback and NOTHING else — if
+  // it ever widens to "private", this endpoint hands out cloud credentials.
+  const open = { allowLoopback: true };
+  assert.equal(blockedUrlReason("http://127.0.0.1:9/", open), null, "the test seam does not work");
+  assert.ok(blockedUrlReason("http://169.254.169.254/", open), "the test seam exposed the metadata service");
+  assert.ok(blockedUrlReason("http://10.0.0.1/", open), "the test seam exposed the private range");
+  assert.ok(blockedAddressReason("169.254.169.254", open), "a resolved metadata address passed the seam");
+});
+
+test("audit guard: a redirect cannot walk into the network", () => {
+  const src = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
+  const code = codeOf(src);
+  // `redirect: "follow"` hands the whole chain to the runtime, which asks
+  // nothing — so a public URL answering 302 to the metadata service is fetched
+  // with the first check already passed. Every hop has to be re-checked.
+  assert.ok(!/redirect: "follow"/.test(code), "redirects are followed without re-checking the destination");
+  assert.match(code, /redirect: "manual"/, "the redirect chain is not being walked by hand");
+  assert.match(code, /blockedUrlReason\(current/, "a redirect hop is not re-checked against the guard");
+  assert.match(code, /resolvesPublicly\(new URL\(current\)/, "a redirect hop is not re-resolved");
+  // A name is not enough: evil.example.com can hold an A record of 169.254.169.254.
+  assert.match(code, /dns/, "the hostname is never resolved, so only literal IPs are caught");
+});
+
+test("audit guard: a blocked address is refused before a socket opens, with a reason", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const r = await crawlSite("http://169.254.169.254/latest/meta-data/");
+  assert.equal(r.ok, false, "the metadata service was crawled");
+  assert.match(r.error || "", /private network/i, "refused, but the visitor is not told why");
+  assert.equal(r.findings.length, 0, "a refused crawl still produced findings");
+});
