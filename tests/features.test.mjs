@@ -18314,3 +18314,68 @@ test("one-click surface: the plan shows cost, human steps and what is unknown", 
   const page = codeOf(readFileSync(new URL("../src/app/dashboard/chains/page.tsx", import.meta.url), "utf8"));
   assert.match(page, /<OneClickCampaign \/>/, "the panel exists and nothing renders it");
 });
+
+// ---------------------------------------------------------------------------
+// §95's SURFACE — the board, with the store enforcing the shared rules.
+// ---------------------------------------------------------------------------
+test("board surface: the store holds no rules of its own", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/opportunity-radar/route.ts");
+  const store = await import("../src/backend/opportunity-board-store.ts");
+  store.__resetBoard();
+
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/opportunity-radar", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const B = { brandId: "board-brand" };
+
+  assert.equal((await post({ ...B, action: "adopt", id: "o1", topic: "Bundle the two best sellers" })).status, 200);
+  // The same thing twice is refused with where it already is.
+  const dupe = await post({ ...B, action: "adopt", id: "o1", topic: "Bundle the two best sellers" });
+  assert.equal(dupe.status, 409);
+  assert.match((await dupe.json()).error, /already on the board/);
+
+  // NOTHING JUMPS TO WON — and a refused move is 400, because the board working
+  // is not the board failing.
+  const cheat = await post({ ...B, action: "move", id: "o1", to: "won", note: "we won" });
+  assert.equal(cheat.status, 400);
+  assert.match((await cheat.json()).error, /Nothing has been done to it yet/);
+
+  // Dropping needs a reason.
+  const silent = await post({ ...B, action: "move", id: "o1", to: "dropped" });
+  assert.equal(silent.status, 400);
+  assert.match((await silent.json()).error, /same idea comes back in six weeks/);
+
+  // The legal path works and the history keeps every move.
+  assert.equal((await post({ ...B, action: "move", id: "o1", to: "chosen" })).status, 200);
+  assert.equal((await post({ ...B, action: "move", id: "o1", to: "in_progress" })).status, 200);
+  const won = await post({ ...B, action: "move", id: "o1", to: "won", note: "Sold 40 in the first week" });
+  assert.equal(won.status, 200);
+  assert.equal((await won.json()).item.history.length, 4);
+
+  // A board is somebody's.
+  assert.equal((await post({ action: "board" })).status, 400);
+
+  // The STORE re-implements no legality. Every refusal above came from the
+  // shared move(), and a second rulebook is how the two drift apart.
+  const src = codeOf(readFileSync(new URL("../src/backend/opportunity-board-store.ts", import.meta.url), "utf8"));
+  assert.match(src, /const result = move\(item/, "the store does not delegate to the shared rules");
+  assert.ok(!/won.*in_progress|ALLOWED|NEEDS_NOTE/.test(src), "a transition table was re-implemented in the store");
+  store.__resetBoard();
+});
+
+test("board surface: what has not moved is shown first, and only legal moves are offered", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/OpportunityBoard.tsx", import.meta.url), "utf8"));
+  // The real failure of a board is the middle column nobody has touched.
+  assert.ok(panel.indexOf("view.stalled") < panel.indexOf("view.columns.map"),
+    "the stalled items are below the columns — that buries the thing that matters");
+  // Buttons come from the shared transition table, so the screen cannot offer a
+  // move the server will refuse.
+  assert.match(panel, /allowedFrom\(i\.column\)/, "the board offers moves it has decided on its own");
+  // A move needing a reason asks for one rather than sending and being refused.
+  assert.match(panel, /window\.prompt/);
+  assert.match(panel, /if \(asked === null\) return;/, "cancelling the prompt would still send the move");
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<OpportunityBoard \/>/, "the board exists and nothing renders it");
+});

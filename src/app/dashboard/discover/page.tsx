@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Loader2, Radar, Search, MapPin, TrendingUp } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import OpportunityBoard from "@/components/OpportunityBoard";
 import { authedFetch } from "@/frontend/api-client";
 import GtmPlanView, { type GtmPlan } from "@/components/GtmPlanView";
 
@@ -61,6 +62,9 @@ export default function DiscoverPage() {
         subtitle="Scan live web data — Search, News, Places, Shopping — to discover profitable niches, score demand vs competition, and turn the map into a scored local lead list. External search is an optional accelerator: the OS works with zero config (structured demo) and switches to live Google data with a Serper key."
         actions={<Pill tone="info">Opportunity Radar · Lead Hunter · demo-safe</Pill>}
       />
+
+      {/* §95 — scoring had nowhere to put its result until this. */}
+      <OpportunityBoard />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
