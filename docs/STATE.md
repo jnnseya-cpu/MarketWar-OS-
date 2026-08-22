@@ -3,10 +3,9 @@
 **This file describes where things stand right now. It is REPLACED, never
 appended to.** If you read one document about this platform, read this one.
 
-Two companions, and neither replaces this file:
-`docs/GROWTH-ENGINE-COVERAGE.md` answers "has the 113-section PRD been built?"
-section by section. `docs/REQUIREMENTS-COVERAGE.md` is the 4,800-line history,
-useful for archaeology and useless for knowing where you are.
+Two companions, neither a replacement: `docs/GROWTH-ENGINE-COVERAGE.md` answers
+"has the 113-section PRD been built?" section by section, and
+`docs/REQUIREMENTS-COVERAGE.md` is the 4,800-line history, for archaeology only.
 
 Last updated: 2026-08-22.
 
@@ -20,8 +19,8 @@ brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
 Next.js, TypeScript strict, three layers (`backend` / `frontend` / `shared`)
-enforced by `scripts/check-layers.mjs`. 219 backend modules, 45 shared modules,
-170 API routes, 65 dashboard pages, **1,201 tests** including one end-to-end run
+enforced by `scripts/check-layers.mjs`. 220 backend modules, 46 shared modules,
+170 API routes, 67 dashboard pages, **1,382 tests** including one end-to-end run
 of the whole growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
@@ -45,6 +44,11 @@ changing that number — locked launch city, five buyer segments, the real price
 table, supplier sourcing, 30/60/90 with failable exit criteria, three budget
 levels. Rebuild with `npm run gtm:doc`.
 
+The landing page now also names the **12 tools a buyer otherwise pays for
+separately** (`shared/included-tools.ts`) — screen-plus-self recording, bulk
+email with attachments, long video to vertical clips — each with its honest
+limit beside it. No competitor is named and no competitor's price is invented.
+
 ---
 
 ## 3. What works with NO keys at all
@@ -52,8 +56,7 @@ levels. Rebuild with `npm run gtm:doc`.
 No provider, no card, no configuration:
 
 - **The free website audit** (`/audit`) — a real crawl of a real page, findings,
-  and an emailed lead recorded as an inbound prospect. Public, no account. The
-  front door of the whole acquisition machine.
+  an emailed lead recorded as an inbound prospect. Public, no account, no card.
 - **The public site has a menu on a phone** (it did not before 2026-08-21 — the
   nav was `hidden … md:flex` with nothing below it).
 - **The client approval portal** (`/portal/[token]`) — a signed, single-item,
@@ -107,19 +110,18 @@ table over that endpoint — the endpoint asks each module's own check.
 
 **1. RE-LAND NEXT 15 ON PRODUCTION. This is the one with a clock on it.**
 
-Next 14 no longer receives security patches: 21 advisories apply to 14.2.35 —
-App Router XSS, cache poisoning of RSC responses, SSRF in rewrites, middleware
-bypass — and every one is fixed only in 15.5.x or later. The upgrade is built,
-green and on the dev branch (Next 15.5.23, React 19.2.8, eight files awaiting
-`params`, `serverExternalPackages` moved).
+Next 14 no longer receives security patches: 21 advisories apply to 14.2.35 — App
+Router XSS, cache poisoning of RSC responses, SSRF in rewrites, middleware bypass
+— every one fixed only in 15.5.x or later. The upgrade is built, green and on the
+dev branch (Next 15.5.23, React 19.2.8, eight files awaiting `params`).
 
-Rolled off production on 2026-08-21 as a precaution during a live
-`/verify-human` failure, NOT because it was proved to be the cause: the Next 15
-build serves that endpoint locally at 200 through the real middleware, and
-production could not be reached from the build container to confirm anything.
+Rolled off production on 2026-08-21 as a precaution during a live `/verify-human`
+failure, NOT because it was proved to be the cause: the Next 15 build serves that
+endpoint locally at 200 through the real middleware, and production could not be
+reached from the build container to confirm anything either way.
 
-**To close it:** deploy the dev branch to a Vercel preview, open
-`/api/auth/human` and `/verify-human` there, and if both answer, merge.
+**To close it:** deploy the dev branch to a Vercel preview, open `/api/auth/human`
+and `/verify-human` there, and if both answer, merge.
 
 **Owner actions (nothing in code can substitute):**
 
@@ -132,31 +134,30 @@ production could not be reached from the build container to confirm anything.
 7. **Send the first ten messages.** `/dashboard/acquisition` has the text
    written out per brand, with only the blanks a sender knows.
 
-**Surfaces: six of seven built.** `/dashboard/activity` (§70, which also gave
-the audit log its first screen — `/dashboard/audit` is the WEBSITE audit),
+**Surfaces: six of seven built.** `/dashboard/activity` (§70 — it also gave the
+audit log its first screen; `/dashboard/audit` is the WEBSITE audit),
 `/dashboard/find` (§92), the board on `/dashboard/discover` (§95), the KPI panel
-on `/dashboard/admin` (§98), the one-click planner on `/dashboard/chains` (§102),
-and the limits on `/dashboard/autopilot` (§103).
+on `/dashboard/admin` (§98), the planner on `/dashboard/chains` (§102), the
+limits on `/dashboard/autopilot` (§103).
 
 **§97's queue is deliberately NOT built, and this is the reason.** It ranks
 actions from impact, urgency, confidence, effort and cost, each requiring a
 stated basis — and nothing in the platform produces those. Every action would
 come back unranked, so the screen would be a second panel of refusals sitting
 beside `command-summary`'s working "next best action" and competing with it. It
-needs factor instrumentation first; a screen that is emptier than the one next
-to it is not progress.
+needs factor instrumentation first; a screen emptier than its neighbour is not
+progress.
 
 **Genuinely not built:**
 
 - §50 autonomous paid boost — the staged organic → small paid → scale ladder.
-- §77 content performance knowledge graph — facts are key/value; there are no
-  typed entities and relationships.
+- §77 content knowledge graph — facts are key/value, no typed entities or edges.
 - §80 agent message bus — chains are sequential by construction, which is a
   deliberate simplification rather than an oversight.
 - §14 content calendar views, §21 carousel card controls.
 - §100 per-agent current task, discoveries, cost and impact.
-- A brand's promotable catalogue has no bulk import.
-- `matchProgrammes` has an API route and no discovery surface.
+- No bulk import for a brand's catalogue; `matchProgrammes` has an API route and
+  no discovery surface. (Task 13.)
 
 **Security debt, with the reasoning:**
 
@@ -183,9 +184,8 @@ upload, the intent router nothing ever called.
 
 **When something looks broken, check the boundary before the logic.**
 
-**And a second one, which is about tests rather than code.**
-
-**A test that passes for a reason unrelated to what it tests.** Six mutations
+**And a second class, about tests rather than code: a test that passes for a
+reason unrelated to what it tests.** Six mutations
 survived this audit, every one because the assertion was true by accident: three
 greps proved the recorder's parts existed and nothing proved they were wired
 together; a prefix check cannot detect a mid-word cut, because a mid-word cut is
