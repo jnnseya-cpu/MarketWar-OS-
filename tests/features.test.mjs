@@ -17106,3 +17106,105 @@ test("comments: the queue puts money first, then reputation, and is stable", () 
   assert.match(noBuyers.headline, /1 complaint in public/);
   assert.match(ci.triage([]).headline, /No comments/);
 });
+
+// ---------------------------------------------------------------------------
+// §32 — PLATFORM ADAPTATION.
+//
+// The failure this replaces is pasting one caption into six boxes: the link is
+// dead on Instagram, the caption is cut mid-word on X, the hashtags trip
+// TikTok's limit, and the 4:5 image is letterboxed into a 9:16 slot. Every one
+// of those is silent.
+// ---------------------------------------------------------------------------
+const adapt = await import("../src/shared/platform-adaptation.ts");
+
+test("adaptation: the call to action survives the cut", () => {
+  const master = {
+    body: "We have been quietly rebuilding the whole range for eight months. ".repeat(12).trim(),
+    cta: "Order yours before Friday",
+    link: "https://example.com/shop",
+  };
+  const [onX] = adapt.adaptAsset(master, ["x"]);
+  assert.equal(onX.ok, true);
+  assert.ok(onX.caption.length <= 280, `X caption is ${onX.caption.length} characters`);
+  // The whole point: the ask is still there.
+  assert.match(onX.caption, /Order yours before Friday/,
+    "the body was allowed to eat the call to action — the post now asks for nothing");
+  assert.match(onX.caption, /https:\/\/example\.com\/shop/, "the link was dropped on a channel where it works");
+  assert.ok(onX.changes.some((c) => /shortened/i.test(c)), "the body was cut silently");
+});
+
+test("adaptation: a caption is never cut mid-word", () => {
+  const long = "supercalifragilistic expialidocious antidisestablishmentarianism floccinaucinihilipilification";
+  for (const max of [20, 33, 47, 60]) {
+    const out = adapt.trimToWord(long, max);
+    assert.ok(out.length <= max, `${out.length} > ${max}`);
+    if (out) {
+      const withoutEllipsis = out.replace(/…$/, "");
+      // Whatever survived must be whole words from the original.
+      assert.ok(long.startsWith(withoutEllipsis), `cut mid-word at ${max}: ${JSON.stringify(out)}`);
+      assert.ok(!/\s$/.test(withoutEllipsis), "left trailing whitespace before the ellipsis");
+    }
+  }
+  // Short enough already: untouched, and no ellipsis added.
+  assert.equal(adapt.trimToWord("short one", 40), "short one");
+});
+
+test("adaptation: a dead link is replaced rather than published", () => {
+  const master = { body: "New drop today.", cta: "Grab one", link: "https://example.com/drop" };
+  const [ig] = adapt.adaptAsset(master, ["instagram"]);
+  assert.ok(!ig.caption.includes("https://example.com/drop"),
+    "a non-clickable URL was published into an Instagram caption");
+  assert.match(ig.caption, /link in bio/i);
+  assert.ok(ig.changes.some((c) => /not clickable/i.test(c)), "the substitution was not reported");
+  assert.ok(ig.warnings.some((w) => /bio link/i.test(w)), "nobody was told the bio link has to be set");
+
+  // And where links DO work, the URL is left alone.
+  const [li] = adapt.adaptAsset(master, ["linkedin"]);
+  assert.match(li.caption, /https:\/\/example\.com\/drop/);
+});
+
+test("adaptation: it refuses rather than shipping a post with no ask", () => {
+  // Built against the channel's real limit rather than eyeballed. The first
+  // version of this test used a CTA of 187 characters against a 250-character
+  // channel and asserted a refusal that could not happen — the test's premise
+  // was wrong, not the code, and it is worth pinning that the numbers are real.
+  const spec = adapt.CHANNELS.instagram_story;
+  const cta = `Use the code SPRINGCLEAN at the checkout ${"and tell a friend ".repeat(20)}`.slice(0, spec.captionMax + 10);
+  assert.ok(cta.length > spec.captionMax, "the fixture no longer exceeds the limit it is meant to exceed");
+  const [story] = adapt.adaptAsset({ body: "Anything at all.", cta }, ["instagram_story"]);
+  assert.equal(story.ok, false, "a CTA longer than the whole caption limit was silently truncated");
+  assert.match(story.refusal, /call to action alone/i);
+  assert.match(story.refusal, /Shorten the CTA/);
+});
+
+test("adaptation: hashtags and dimensions come from the channel, not the master", async () => {
+  const master = {
+    body: "Short body.", cta: "Come and see",
+    hashtags: Array.from({ length: 12 }, (_, i) => `#tag${i + 1}`),
+  };
+  const out = adapt.adaptAsset(master, ["tiktok", "whatsapp", "instagram"]);
+  const byId = Object.fromEntries(out.map((o) => [o.channel, o]));
+
+  assert.equal(byId.tiktok.hashtags.length, 8);
+  assert.equal(byId.whatsapp.hashtags.length, 0, "WhatsApp does not use hashtags");
+  assert.ok(byId.whatsapp.changes.some((c) => /does not use hashtags/i.test(c)));
+  assert.equal(byId.instagram.hashtags.length, 12, "under the limit, all of them should survive");
+
+  // Dimensions are the shared table's, not a second copy.
+  const { FORMAT_DIMENSIONS } = await import("../src/shared/creative.ts");
+  assert.deepEqual(byId.tiktok.image, FORMAT_DIMENSIONS.tiktok);
+  assert.deepEqual(byId.instagram.image, FORMAT_DIMENSIONS.instagram);
+  const src = readFileSync(new URL("../src/shared/platform-adaptation.ts", import.meta.url), "utf8");
+  assert.ok(!/w:\s*1080,\s*h:\s*1920/.test(src), "a second table of dimensions was written");
+});
+
+test("adaptation: the summary counts and does not flatter", () => {
+  const clean = adapt.adaptAsset({ body: "Tiny.", cta: "Go" }, ["linkedin", "facebook"]);
+  assert.match(adapt.adaptationSummary(clean), /All 2 channels take the master as it stands/);
+
+  const mixed = adapt.adaptAsset(
+    { body: "x".repeat(3000), cta: "Buy", hashtags: ["#a", "#b", "#c", "#d"] },
+    ["x", "linkedin"],
+  );
+  assert.match(adapt.adaptationSummary(mixed), /needed changes, all listed/);
+});
