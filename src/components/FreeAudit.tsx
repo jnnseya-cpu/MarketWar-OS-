@@ -19,6 +19,8 @@ type Report = {
   ok: boolean; error?: string; gated?: boolean;
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
+  /** Whether the copy's promise to email the report was actually kept. */
+  emailed?: boolean; emailNote?: string;
 };
 
 const sev = (s: string) =>
@@ -122,6 +124,11 @@ export default function FreeAudit() {
           {full && (
             <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 text-xs leading-relaxed text-emerald-100">
               That is the whole audit — every check we could measure on your page. Nothing above is an estimate or an industry average.
+              {/* SAY WHICH IT WAS. Telling everybody to check their inbox is how
+                  the promise got broken silently in the first place. */}
+              {report.emailed
+                ? " A copy is on its way to your inbox as well, so you do not have to keep this page open."
+                : " It is all on this page — copy it before you close the tab, because we could not email you a copy just now."}
             </p>
           )}
         </div>
