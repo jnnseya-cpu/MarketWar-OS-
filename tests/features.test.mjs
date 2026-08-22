@@ -17604,3 +17604,89 @@ test("consent: withdrawing stops future use and does not pretend to undo the pas
   assert.equal(nothing.ok, false);
   assert.match(nothing.error, /nothing to withdraw/i);
 });
+
+// ---------------------------------------------------------------------------
+// §98 — MARKETWAR'S OWN NUMBERS.
+//
+// admin-economics covers the money. Nothing tracked whether the PRODUCT works:
+// how long to a first campaign, how long to a first lead, how often generated
+// work is thrown away, and how often a publish actually lands.
+// ---------------------------------------------------------------------------
+const kpi = await import("../src/shared/platform-kpis.ts");
+
+const acct = (id, up, camp, lead) => ({ id, signedUpAt: up, firstCampaignAt: camp, firstLeadAt: lead });
+
+test("kpis: with no customers, every figure is withheld rather than shown as zero", () => {
+  const r = kpi.platformKpis({ accounts: [], generations: [], publishes: [] });
+  assert.equal(r.measured, 0);
+  assert.ok(r.kpis.every((k) => k.value === null), "a figure was reported from nothing");
+  assert.ok(r.kpis.every((k) => k.observations === 0));
+  assert.ok(r.kpis.every((k) => /Nothing to measure yet/.test(k.note)));
+  assert.match(r.headline, /the honest answer rather than a fault/);
+});
+
+test("kpis: a figure below the threshold is withheld and says how far off it is", () => {
+  const accounts = [
+    acct("1", "2026-08-01T00:00:00Z", "2026-08-03T00:00:00Z"),
+    acct("2", "2026-08-01T00:00:00Z", "2026-08-05T00:00:00Z"),
+  ];
+  const r = kpi.platformKpis({ accounts, generations: [], publishes: [] });
+  const ttc = r.kpis.find((k) => k.id === "time_to_first_campaign");
+  assert.equal(ttc.value, null, "a median was computed from two accounts");
+  assert.equal(ttc.observations, 2);
+  assert.equal(ttc.required, kpi.MIN_OBSERVATIONS);
+  assert.match(ttc.note, /2 of the 5 needed/);
+  assert.match(ttc.note, /read as a trend the first time it moved/);
+});
+
+test("kpis: time-to-first counts only the accounts that got there", () => {
+  const accounts = [
+    acct("1", "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"),
+    acct("2", "2026-08-01T00:00:00Z", "2026-08-03T00:00:00Z"),
+    acct("3", "2026-08-01T00:00:00Z", "2026-08-04T00:00:00Z"),
+    acct("4", "2026-08-01T00:00:00Z", "2026-08-05T00:00:00Z"),
+    acct("5", "2026-08-01T00:00:00Z", "2026-08-11T00:00:00Z"),
+    // Signed up a year ago and never made one. Counting this as "365 days"
+    // would measure how long ago they joined, not how long the product takes.
+    acct("6", "2025-08-01T00:00:00Z"),
+  ];
+  const r = kpi.platformKpis({ accounts, generations: [], publishes: [] });
+  const ttc = r.kpis.find((k) => k.id === "time_to_first_campaign");
+  assert.equal(ttc.observations, 5, "an account with no campaign was counted");
+  assert.equal(ttc.value, 3, "median of 1,2,3,4,10 is 3");
+  assert.match(ttc.note, /Accounts that never did are not counted/);
+});
+
+test("kpis: an uncertain publish is neither a success nor a failure", () => {
+  const publishes = [
+    { id: "1", outcome: "published" }, { id: "2", outcome: "published" },
+    { id: "3", outcome: "published" }, { id: "4", outcome: "failed" },
+    { id: "5", outcome: "uncertain" },
+  ];
+  const r = kpi.platformKpis({ accounts: [], generations: [], publishes });
+  const ps = r.kpis.find((k) => k.id === "publish_success_rate");
+  // 3 of 5 confirmed. NOT 3/4 (which would quietly drop the uncertain one) and
+  // NOT 4/5 (which would count it as a success).
+  assert.equal(ps.value, 60);
+  assert.match(ps.note, /1 came back uncertain and is counted as neither/);
+});
+
+test("kpis: the regeneration rate is stated so nobody optimises it the wrong way", () => {
+  const generations = [
+    { id: "1", kind: "generated" }, { id: "2", kind: "regenerated" },
+    { id: "3", kind: "generated" }, { id: "4", kind: "regenerated" },
+    { id: "5", kind: "generated" }, { id: "6", kind: "regenerated" },
+  ];
+  const r = kpi.platformKpis({ accounts: [], generations, publishes: [] });
+  const rr = r.kpis.find((k) => k.id === "regeneration_rate");
+  assert.equal(rr.value, 50);
+  assert.equal(rr.observations, 6);
+  assert.match(rr.note, /Lower is better/, "a rate where lower is better must say so, or it gets driven upwards");
+});
+
+test("kpis: partial measurability is reported as partial", () => {
+  const generations = Array.from({ length: 6 }, (_, i) => ({ id: String(i), kind: i % 2 ? "regenerated" : "generated" }));
+  const r = kpi.platformKpis({ accounts: [], generations, publishes: [] });
+  assert.equal(r.measured, 1);
+  assert.match(r.headline, /1 of 4 product KPIs are measurable/);
+});
