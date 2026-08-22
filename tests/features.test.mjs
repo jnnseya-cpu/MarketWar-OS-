@@ -16862,3 +16862,103 @@ test("recorder: the track list refuses to make a video with no video in it", () 
   // parameter, so there is no way to record it by mistake.
   assert.ok(!/display/i.test(rec.recordingTracks.toString()), "the display stream leaked into the decision");
 });
+
+// ---------------------------------------------------------------------------
+// §38 — HAVE WE TRIED THIS BEFORE?
+//
+// experiments.ts knows whether a RUNNING test has a winner. Nothing knew whether
+// the idea being proposed today had already been run and lost, so the generator
+// kept re-proposing angles the brand had paid to disprove.
+//
+// The distinction these tests exist to protect: "we tried it and it lost" and
+// "we tried it and stopped early" are not the same sentence. Collapsing them
+// retires a good idea on no evidence, which is worse than never testing it.
+// ---------------------------------------------------------------------------
+const xh = await import("../src/backend/experiment-history.ts");
+
+test("history: a stopped test is never recorded as a failure", () => {
+  // Abandoned at 30% of the data it needed.
+  assert.equal(xh.outcomeFrom({ verdict: "collecting", progressPct: 30 }), "tried_inconclusive");
+  // Even "no difference" is inconclusive when the sample never arrived.
+  assert.equal(xh.outcomeFrom({ verdict: "no_difference", progressPct: 41 }), "tried_inconclusive");
+  // With the data, no difference is a real answer.
+  assert.equal(xh.outcomeFrom({ verdict: "no_difference", progressPct: 96 }), "tried_no_difference");
+  // A winner is only a win if it went the right way.
+  assert.equal(xh.outcomeFrom({ verdict: "winner", progressPct: 100, absoluteLiftPct: 2.4 }), "tried_and_won");
+  assert.equal(xh.outcomeFrom({ verdict: "winner", progressPct: 100, absoluteLiftPct: -3.1 }), "tried_and_lost");
+});
+
+test("history: an untried idea is told plainly that it is untried", async () => {
+  xh.__resetHistory();
+  const v = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Lead with the guarantee", angleFamily: "risk-reversal" });
+  assert.equal(v.status, "untried");
+  assert.equal(v.isEvidence, false);
+  assert.match(v.advice, /Run it/);
+});
+
+test("history: a real loss is evidence; an abandoned run is not", async () => {
+  xh.__resetHistory();
+  const NOW = "2026-08-21T00:00:00.000Z";
+
+  await xh.recordOutcome({
+    brandId: "b1", idea: "Lead with the price", angleFamily: "price", channel: "meta",
+    report: { verdict: "winner", progressPct: 100, absoluteLiftPct: -2.5 },
+    nowISO: "2026-08-01T00:00:00.000Z",
+  });
+  const lost = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Lead with the price", angleFamily: "price", nowISO: NOW });
+  assert.equal(lost.status, "tried_and_lost");
+  assert.equal(lost.isEvidence, true);
+  assert.match(lost.headline, /lost 20 days ago, by 2\.5 points/);
+  assert.match(lost.advice, /Change something real/);
+
+  // A different brand's history is not this brand's history.
+  const other = await xh.checkHistoricalExperiments({ brandId: "b2", idea: "Lead with the price", angleFamily: "price", nowISO: NOW });
+  assert.equal(other.status, "untried");
+
+  // An abandoned run must never be reported as a failure.
+  await xh.recordOutcome({
+    brandId: "b1", idea: "Lead with the delivery speed", angleFamily: "speed",
+    report: { verdict: "collecting", progressPct: 22 },
+    stoppedBecause: "the budget was moved to the spring campaign",
+    nowISO: "2026-08-10T00:00:00.000Z",
+  });
+  const stopped = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Lead with the delivery speed", angleFamily: "speed", nowISO: NOW });
+  assert.equal(stopped.status, "tried_inconclusive");
+  assert.equal(stopped.isEvidence, false, "an abandoned run was presented as evidence");
+  assert.match(stopped.advice, /not on the grounds that it failed/);
+  assert.match(stopped.advice, /budget was moved/, "the reason it stopped is the most useful field and was dropped");
+});
+
+test("history: a concluded result outranks an abandoned one for the same idea", async () => {
+  xh.__resetHistory();
+  const NOW = "2026-08-21T00:00:00.000Z";
+  await xh.recordOutcome({
+    brandId: "b1", idea: "Testimonial from a named customer", angleFamily: "social-proof",
+    report: { verdict: "collecting", progressPct: 12 }, nowISO: "2026-08-19T00:00:00.000Z",
+  });
+  await xh.recordOutcome({
+    brandId: "b1", idea: "Testimonial from a named customer", angleFamily: "social-proof",
+    report: { verdict: "winner", progressPct: 100, absoluteLiftPct: 3.2 }, nowISO: "2026-07-01T00:00:00.000Z",
+  });
+  const v = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Testimonial from a named customer", angleFamily: "social-proof", nowISO: NOW });
+  assert.equal(v.status, "tried_and_won", "a newer abandoned run buried an older real result");
+  assert.match(v.advice, /Use it rather than re-testing/);
+  assert.equal(v.matches.length, 2, "both records should still be shown");
+});
+
+test("history: evidence ages, and a channel match alone is not a match", async () => {
+  xh.__resetHistory();
+  const NOW = "2026-08-21T00:00:00.000Z";
+  await xh.recordOutcome({
+    brandId: "b1", idea: "Bundle two products together", angleFamily: "bundle", channel: "email",
+    report: { verdict: "winner", progressPct: 100, absoluteLiftPct: 4 },
+    nowISO: "2025-09-01T00:00:00.000Z", // well over the stale threshold
+  });
+  const old = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Bundle two products together", angleFamily: "bundle", nowISO: NOW });
+  assert.equal(old.matches[0].stale, true);
+  assert.match(old.advice, /hint rather than an answer/, "a year-old result was stated with the confidence of a fresh one");
+
+  // Everything runs on some channel, so sharing one proves nothing.
+  const unrelated = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Try a completely different concept", channel: "email", nowISO: NOW });
+  assert.equal(unrelated.status, "untried", "a shared channel alone was treated as having tried the idea");
+});
