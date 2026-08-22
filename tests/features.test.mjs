@@ -18189,3 +18189,29 @@ test("find: the page shows WHY each result matched, and never a score", () => {
   const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
   assert.match(sidebar, /href: "\/dashboard\/find"/, "the page exists and nothing links to it");
 });
+
+// ---------------------------------------------------------------------------
+// §103's SURFACE — the limits, on one screen.
+// ---------------------------------------------------------------------------
+test("autonomy surface: the limits are on the autopilot screen and validated as you type", () => {
+  const form = codeOf(readFileSync(new URL("../src/components/AutonomyLimits.tsx", import.meta.url), "utf8"));
+  // The rules come from the shared module, so the form and any server reading
+  // the config cannot disagree about what is legal.
+  assert.match(form, /validateConfig/, "the form invents its own validation");
+  assert.ok(!/maxCpaGbp > budgetGbp|allowedChannels\.length === 0/.test(form),
+    "a validation rule was re-implemented in the component");
+  // Errors are shown separately from warnings — one stops a cycle, one does not.
+  assert.match(form, /result\.errors\.map/);
+  assert.match(form, /result\.warnings\.map/);
+  // Every field the spec names is on the screen.
+  for (const field of ["target", "maxCpaGbp", "approvalAboveGbp", "allowedChannels", "forbiddenChannels"]) {
+    assert.match(form, new RegExp(field), `the config screen is missing ${field}`);
+  }
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/autopilot/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<AutonomyLimits/, "the form exists and nothing renders it");
+  // Level and budget already lived here; the point of §103 is that the rest is
+  // in the SAME place rather than five screens away.
+  assert.ok(/setLevel/.test(page) && /setBudget/.test(page) && /setLimits/.test(page),
+    "the limits are not next to the level and the budget");
+});

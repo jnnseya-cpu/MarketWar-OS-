@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Loader2, Moon, ShieldCheck, Zap, CheckCircle2, Clock, Building2, Wallet, ArrowRight, Mail } from "lucide-react";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import AutonomyLimits, { type Limits } from "@/components/AutonomyLimits";
 import { authedFetch } from "@/frontend/api-client";
 
 type Action = { id: string; kind: string; title: string; rationale: string; channel: string; riskCategory: string; requiredLevel: number; projectedValueGbp: number; decision: "auto_executed" | "queued_for_approval"; basis?: "real" | "estimate" };
@@ -20,6 +21,12 @@ const LEVELS = ["L0 · Draft", "L1 · Approve each", "L2 · Campaign approval", 
 export default function AutopilotPage() {
   const { activeBrand } = useActiveBrand();
   const [level, setLevel] = useState(3);
+  // The rest of what governs a cycle. Kept next to the level and the budget
+  // because scattering them is how somebody ends up with autonomy on and no
+  // idea what it may do.
+  const [limits, setLimits] = useState<Limits>({
+    target: "", allowedChannels: [], forbiddenChannels: [], maxCpaGbp: 0, approvalAboveGbp: 0,
+  });
   const [budget, setBudget] = useState("0");
   const [run, setRun] = useState<Run | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,6 +120,13 @@ export default function AutopilotPage() {
         </button>
         <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><Moon className="h-3.5 w-3.5" /> Schedule this nightly (cron → POST /api/autopilot/nightly) and it runs while you sleep — see docs/AUTOPILOT.md.</p>
       </div>
+
+      <AutonomyLimits
+        level={level}
+        budgetGbp={Number(budget) || 0}
+        limits={limits}
+        onChange={setLimits}
+      />
 
       {/* Morning digest email */}
       <div className="mb-6 card p-5">
