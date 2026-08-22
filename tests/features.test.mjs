@@ -17205,3 +17205,33 @@ test("history: evidence ages, and a channel match alone is not a match", async (
   const unrelated = await xh.checkHistoricalExperiments({ brandId: "b1", idea: "Try a completely different concept", channel: "email", nowISO: NOW });
   assert.equal(unrelated.status, "untried", "a shared channel alone was treated as having tried the idea");
 });
+
+test("history: one shared word is not a shared idea, and neither is two out of ten", async () => {
+  // WHY THIS EXISTS: a mutation replacing the whole overlap rule with
+  // `shared >= 1` SURVIVED. The stop-word list happened to reduce the earlier
+  // cases to zero shared words, so the floor and the half-rule were never
+  // exercised — the tests passed for a reason that was not the rule under test.
+  xh.__resetHistory();
+  const NOW = "2026-08-22T00:00:00.000Z";
+  const loser = { verdict: "winner", progressPct: 100, absoluteLiftPct: -4 };
+
+  // ONE shared meaningful word. Two genuinely different offers.
+  await xh.recordOutcome({ brandId: "bw", idea: "Free delivery on the first order", report: loser, nowISO: NOW });
+  const oneWord = await xh.checkHistoricalExperiments({ brandId: "bw", idea: "Delivery in ninety minutes", nowISO: NOW });
+  assert.equal(oneWord.status, "untried",
+    "one word in common was treated as the same idea — an untried offer would be reported as already disproved");
+
+  // TWO shared words out of five each: still mostly different, still not the
+  // same idea. This is the half-rule, and it has its own mutation.
+  xh.__resetHistory();
+  await xh.recordOutcome({ brandId: "bw", idea: "Seasonal bundle discount for returning shoppers", report: loser, nowISO: NOW });
+  const twoOfFive = await xh.checkHistoricalExperiments({ brandId: "bw", idea: "Bundle discount for brand visitors arriving", nowISO: NOW });
+  assert.equal(twoOfFive.status, "untried", "two words out of five each was treated as the same idea");
+
+  // And a genuinely contained idea DOES match, or the rule is just off.
+  xh.__resetHistory();
+  await xh.recordOutcome({ brandId: "bw", idea: "Customer testimonial video with named results", report: loser, nowISO: NOW });
+  const contained = await xh.checkHistoricalExperiments({ brandId: "bw", idea: "Customer testimonial", nowISO: NOW });
+  assert.equal(contained.status, "tried_and_lost", "a short idea contained in a tested one was missed entirely");
+  assert.ok(contained.matches[0].matchedOn.includes("wording"));
+});
