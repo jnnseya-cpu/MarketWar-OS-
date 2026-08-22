@@ -18128,3 +18128,64 @@ test("activity: the page exists, is in the nav, and takes its feed from the serv
   const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
   assert.match(sidebar, /href: "\/dashboard\/activity"/, "the page exists and nothing links to it");
 });
+
+// ---------------------------------------------------------------------------
+// §92's SURFACE — finding your own work.
+// ---------------------------------------------------------------------------
+test("find: searching your own work is brand-scoped and costs nothing", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/search/route.ts");
+  const approvals = await import("../src/backend/approvals.ts");
+
+  await approvals.createItem({
+    brandId: "find-brand", title: "Spring hero video",
+    description: "Check the offer line", createdBy: "you", nowISO: "2026-08-01T00:00:00.000Z",
+  });
+
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/search", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const found = await (await post({ action: "mine", brandId: "find-brand", query: "spring video" })).json();
+  assert.equal(found.hits.length, 1, "the approval was not searchable from the route");
+  assert.equal(found.hits[0].kind, "approval");
+  assert.ok(found.hits[0].href, "a result with no link");
+  assert.deepEqual(found.hits[0].matchedWords.sort(), ["spring", "video"]);
+
+  // Another brand sees nothing of it.
+  const other = await (await post({ action: "mine", brandId: "someone-else", query: "spring video" })).json();
+  assert.equal(other.hits.length, 0, "one brand's work leaked into another's search");
+
+  // A brand is required — work is always somebody's.
+  const unscoped = await post({ action: "mine", query: "spring" });
+  assert.equal(unscoped.status, 400);
+
+  // NOT METERED. A web search spends provider budget per query; looking through
+  // your own files spends nothing, and charging for it would be charging
+  // somebody to find their own work.
+  const src = codeOf(readFileSync(new URL("../src/app/api/search/route.ts", import.meta.url), "utf8"));
+  const meterLine = src.match(/if \(action === "search" \|\| action === "opportunity" \|\| action === "leads"\)/);
+  assert.ok(meterLine, "the metering condition changed shape — check 'mine' is still outside it");
+  assert.ok(!/action === "mine"[^)]*\)\s*\{[\s\S]{0,200}meterAction/.test(src), "searching your own work was metered");
+});
+
+test("find: the page shows WHY each result matched, and never a score", () => {
+  const raw = readFileSync(new URL("../src/app/dashboard/find/page.tsx", import.meta.url), "utf8");
+  const page = codeOf(raw);
+  assert.match(page, /matchedOn\.map/, "the page does not show why a result matched");
+  assert.match(page, /matchedWords/, "the page does not show which words were found");
+  // A list with no reasons is one you either trust completely or not at all.
+  assert.ok(!/\b(relevance|score)\b/i.test(page), "a relevance score appeared on the surface");
+  // The honest empty state comes from the engine's headline, not a hardcoded
+  // "no results" that hides whether the account is empty or the query is.
+  assert.match(page, /result\.headline/);
+  // Checked against the STRIPPED source, not the raw file. The header comment
+  // explains why "no results" is the wrong message, and checking `raw` found
+  // the explanation — the sixth time in this suite, and the second AFTER the
+  // codeOf helper existed. Rendered strings live in JSX and survive stripping,
+  // so `page` is the right input for a rule about what the screen says.
+  assert.ok(!/No results/i.test(page), "the screen says 'no results', which hides whether the account or the query is empty");
+
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /href: "\/dashboard\/find"/, "the page exists and nothing links to it");
+});

@@ -9,6 +9,8 @@ const money = (v: unknown): number | undefined => {
 };
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { marketLocation } from "@/backend/brand-market";
+import { globalSearch } from "@/backend/global-search";
+import { resolveBrandAccess } from "@/backend/brand-access";
 import { meterAction } from "@/backend/wallet";
 
 // Real-Time Search & Opportunity Intelligence API (Serper-inspired).
@@ -16,6 +18,12 @@ import { meterAction } from "@/backend/wallet";
 // POST { action: "opportunity", niche, location?, currency? } → opportunity score
 // POST { action: "leads", category, location }             → scored local leads
 // POST { action: "keywords", seed, location? }             → keyword/PAA proxy
+// POST { action: "mine", brandId, query }                  → YOUR OWN work (§92)
+//
+// "mine" searches what the customer MADE — approvals, brand facts, past
+// experiments — and is deliberately NOT metered: a web search spends real
+// provider budget per query, and looking through your own saved work spends
+// nothing. Charging for it would be charging somebody to find their own files.
 // GET → search types + doctrine + live/demo status
 
 export const runtime = "nodejs";
@@ -49,6 +57,16 @@ export async function POST(req: NextRequest) {
   if (action === "search" || action === "opportunity" || action === "leads") {
     const meter = await meterAction(auth, "search");
     if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
+  }
+
+  // The customer's own work. Brand-scoped like everything else, and free.
+  if (action === "mine") {
+    const brandId = (str("brandId") || "").trim();
+    const query = (str("query") || "").trim();
+    if (!brandId) return NextResponse.json({ error: "brandId is required — your work is always somebody's." }, { status: 400 });
+    const access = await resolveBrandAccess(req, brandId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    return NextResponse.json(await globalSearch({ brandId, query, limit: 30 }));
   }
 
   if (action === "search") {

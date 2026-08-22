@@ -152,6 +152,7 @@ export const NAV = [
     group: "Account",
     items: [
       { href: "/dashboard/billing", label: "Billing & ACUs", icon: Wallet },
+      { href: "/dashboard/find", label: "Find your work", icon: Search },
       { href: "/dashboard/activity", label: "Activity (what happened)", icon: History },
       { href: "/dashboard/comms", label: "Comms Events", icon: Bell, adminOnly: true },
       { href: "/dashboard/integrations", label: "Integration Hub", icon: Plug },
