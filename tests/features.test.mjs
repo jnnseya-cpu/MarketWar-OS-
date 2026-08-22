@@ -17235,3 +17235,117 @@ test("history: one shared word is not a shared idea, and neither is two out of t
   assert.equal(contained.status, "tried_and_lost", "a short idea contained in a tested one was missed entirely");
   assert.ok(contained.matches[0].matchedOn.includes("wording"));
 });
+
+// ---------------------------------------------------------------------------
+// §41 — COMMENT INTELLIGENCE.
+//
+// engagement.ts classifies EMAIL replies. A public comment is a different
+// problem: it is permanent, everybody can read it, and the money is in one
+// class ("how much?") while the damage is in another (a complaint answered with
+// a sales line).
+// ---------------------------------------------------------------------------
+const ci = await import("../src/shared/comment-intelligence.ts");
+
+test("comments: a complaint can never receive a sales draft", () => {
+  for (const text of [
+    "Still waiting on my order, three weeks now and no one has replied",
+    "Arrived broken and I want a refund",
+    "Absolutely terrible, charged twice and cancelled my order",
+  ]) {
+    const v = ci.classifyComment(text);
+    assert.equal(v.intent, "complaint", `misread as ${v.intent}: ${text}`);
+    assert.equal(v.handling, "route_to_human");
+    // The draft acknowledges and moves it private. It must not sell anything.
+    assert.ok(v.draftReply, "a complaint should still get something to say");
+    assert.ok(!/buy|order now|offer|discount|deal|shop/i.test(v.draftReply),
+      `a complaint was answered with a sales line: ${v.draftReply}`);
+    assert.match(v.draftReply, /sorry/i);
+  }
+});
+
+test("comments: hostility gets no generated reply at all", () => {
+  for (const text of ["You are all scammers", "This is a fraud, I'm calling trading standards"]) {
+    const v = ci.classifyComment(text);
+    assert.equal(v.intent, "hostile");
+    assert.equal(v.draftReply, undefined, "a generated reply was offered to an accusation");
+    assert.equal(v.handling, "route_to_human");
+  }
+});
+
+test("comments: somebody asking to buy outranks everything", () => {
+  const v = ci.classifyComment("How much is this?");
+  assert.equal(v.intent, "buying_intent");
+  assert.equal(v.handling, "reply_now");
+  assert.equal(v.priority, 1);
+
+  // A price question is NOT an objection here, which is the email module's read.
+  const withGripe = ci.classifyComment("How much is it? The last one was late");
+  assert.equal(withGripe.intent, "buying_intent",
+    "a customer with money was filed as a complaint because they also grumbled");
+
+  for (const text of ["Where can I buy these", "Do you deliver to Leeds?", "Link please", "DM me the details"]) {
+    assert.equal(ci.classifyComment(text).intent, "buying_intent", `missed a buyer: ${text}`);
+  }
+});
+
+test("comments: nothing is auto-sent, and an unclear comment is called unclear", () => {
+  const src = readFileSync(new URL("../src/shared/comment-intelligence.ts", import.meta.url), "utf8");
+  assert.ok(!/autoSend|auto_send|sendReply/i.test(src), "an auto-send path exists in a public channel");
+
+  // Every draft that exists is flagged as one.
+  for (const text of ["How much?", "Love this", "Arrived broken"]) {
+    const v = ci.classifyComment(text);
+    if (v.draftReply) assert.equal(v.isDraft, true, `a draft was not marked as a draft: ${text}`);
+  }
+
+  // Nothing matched: say so rather than guessing.
+  for (const text of ["🔥🔥🔥", "ok", ""]) {
+    const v = ci.classifyComment(text);
+    assert.equal(v.intent, "unclear", `guessed an intent for: ${JSON.stringify(text)}`);
+    assert.equal(v.matched, false);
+    assert.deepEqual(v.signals, []);
+    assert.equal(v.handling, "route_to_human");
+  }
+  // And there is no confidence NUMBER anywhere — matched is a fact, not a score.
+  assert.ok(!/confidence:\s*\d|score:\s*\d/.test(src), "a fabricated confidence number crept in");
+});
+
+test("comments: spam is hidden, praise is answered, and the reason is shown", () => {
+  const spam = ci.classifyComment("Check my page, make $500 a day with crypto");
+  assert.equal(spam.intent, "spam");
+  assert.equal(spam.handling, "hide_or_ignore");
+
+  const praise = ci.classifyComment("Love this, best service I've had");
+  assert.equal(praise.intent, "praise");
+  assert.ok(praise.draftReply);
+
+  // The phrase that decided it is carried, so a person can disagree with the
+  // reason rather than just the verdict.
+  assert.ok(spam.signals.length > 0 && praise.signals.length > 0);
+  assert.match(praise.signals.join(" ").toLowerCase(), /love this|best service/);
+});
+
+test("comments: the queue puts money first, then reputation, and is stable", () => {
+  const { queue, counts, headline } = ci.triage([
+    { id: "a", text: "Love this" },
+    { id: "b", text: "Arrived broken, I want a refund" },
+    { id: "c", text: "How much is it?" },
+    { id: "d", text: "Follow back!" },
+    { id: "e", text: "What time do you open?" },
+    { id: "f", text: "Where can I buy one" },
+  ]);
+  assert.deepEqual(queue.map((q) => q.id), ["c", "f", "b", "e", "a", "d"]);
+  assert.equal(counts.buying_intent, 2);
+  assert.equal(counts.complaint, 1);
+  assert.match(headline, /2 people are asking to buy/);
+
+  // Same priority keeps arrival order — a queue that reorders on something
+  // invisible is a queue people stop trusting.
+  const stable = ci.triage([{ id: "x", text: "How much?" }, { id: "y", text: "Price?" }]);
+  assert.deepEqual(stable.queue.map((q) => q.id), ["x", "y"]);
+
+  // With no buyers, the headline names the next thing that matters.
+  const noBuyers = ci.triage([{ id: "z", text: "Still waiting, nobody has replied" }]);
+  assert.match(noBuyers.headline, /1 complaint in public/);
+  assert.match(ci.triage([]).headline, /No comments/);
+});
