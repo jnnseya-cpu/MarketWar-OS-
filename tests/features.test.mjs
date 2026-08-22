@@ -18846,3 +18846,178 @@ test("sending: a verified domain does not claim to send when nothing can", () =>
   assert.match(page, /Nothing is wrong with your records/,
     "the warning does not clear the customer's DNS of blame, so they will re-do work that was correct");
 });
+
+// ---------------------------------------------------------------------------
+// META PIXEL + GOOGLE TAG — ONE EVENT LIST, TWO DESTINATIONS, NO PERSONAL DATA.
+//
+// Both were asked for "in everything". The way that goes wrong is an fbq() here
+// and a dataLayer.push() there, drifting until the two dashboards disagree about
+// how many signups there were and nobody can say which is right. So there is one
+// canonical list, the transport fans out, and no feature file touches either SDK.
+// ---------------------------------------------------------------------------
+
+const analyticsEvents = await import("../src/shared/analytics-events.ts");
+
+test("analytics: no personal data can reach Meta or Google", () => {
+  const { sanitiseParams } = analyticsEvents;
+
+  // The allowlist is the mechanism. A blocklist fails the first time somebody
+  // passes `contact` or a free-text note containing an address — and it fails
+  // INVISIBLY, because the event still sends.
+  const out = sanitiseParams({
+    email: "jane@example.com",
+    contact: "jane@example.com",
+    name: "Jane Smith",
+    to: "someone@example.com",
+    note: "call Jane about her plumbing business on 07700 900123",
+    url: "https://janes-plumbing.co.uk",
+    brandId: "brand_123",
+    // The ones that ARE allowed:
+    plan: "growth", value: 49, currency: "GBP",
+  });
+
+  assert.deepEqual(Object.keys(out).sort(), ["currency", "plan", "value"],
+    "a parameter outside the allowlist reached the payload");
+  const serialised = JSON.stringify(out);
+  assert.ok(!serialised.includes("@"), "an email address survived into an event sent to a third party");
+  assert.ok(!/Jane|plumbing|07700/.test(serialised), "a person, a business or a phone number survived");
+});
+
+test("analytics: an allowlisted key still cannot smuggle an address or prose", () => {
+  const { sanitiseParams } = analyticsEvents;
+  // `source` is allowed — but the value has to stay an identifier.
+  assert.deepEqual(sanitiseParams({ source: "jane@example.com" }), {}, "an address passed through an allowed key");
+  assert.deepEqual(sanitiseParams({ source: "x".repeat(41) }), {}, "a long free-text value passed through");
+  assert.deepEqual(sanitiseParams({ source: "audit-page" }), { source: "audit-page" }, "a legitimate value was dropped");
+  // A metric must be a number, or it arrives at Meta as a broken value.
+  assert.deepEqual(sanitiseParams({ value: "£49" }), {}, "a money value arrived as a string");
+  assert.deepEqual(sanitiseParams({ value: Number.NaN }), {}, "NaN was reported as a conversion value");
+});
+
+test("analytics: a money event without a real amount is not sent at all", () => {
+  const { buildPayload } = analyticsEvents;
+  // A Purchase with no value trains the bidding on a conversion worth nothing,
+  // which is worse than not reporting it.
+  assert.equal(buildPayload("purchase", {}), null, "a purchase with no amount was sent");
+  assert.equal(buildPayload("purchase", { value: "49" }), null, "a purchase value arrived as a string");
+  const ok = buildPayload("purchase", { value: 49 });
+  assert.ok(ok, "a genuine purchase was refused");
+  assert.equal(ok.params.value, 49);
+  assert.equal(ok.params.currency, "GBP", "currency must default rather than be omitted");
+
+  // A non-money event needs no value and must not grow one.
+  const free = buildPayload("start_free_plan", { plan: "free" });
+  assert.ok(free && free.params.value === undefined, "a free activation carried a money value");
+
+  // An invented name is refused — nobody configured a conversion for it.
+  assert.equal(buildPayload("some_made_up_event", {}), null, "an event outside the canonical list was sent");
+});
+
+test("analytics: every event maps to a real Meta event, standard or explicitly custom", () => {
+  const { MW_EVENTS, META_STANDARD, metaCall, isStandard } = analyticsEvents;
+  assert.ok(MW_EVENTS.length >= 15, "the event list has shrunk");
+
+  const names = MW_EVENTS.map((e) => e.name);
+  assert.equal(new Set(names).size, names.length, "two events share a name");
+
+  for (const e of MW_EVENTS) {
+    const call = metaCall(e);
+    if (isStandard(e)) {
+      // Meta only optimises for its own set — a typo here is a conversion that
+      // can never be selected as a campaign objective.
+      assert.ok(META_STANDARD.includes(call.event), `${e.name} claims to be standard but "${call.event}" is not a Meta standard event`);
+      assert.equal(call.method, "track");
+    } else {
+      assert.equal(call.method, "trackCustom", `${e.name} is custom and must not use track()`);
+    }
+    assert.ok(e.means && e.means.length > 10, `${e.name} does not say what it means`);
+  }
+
+  // The events an ad campaign is actually optimised for must be standard.
+  for (const n of ["sign_up", "audit_lead", "begin_checkout", "purchase", "subscribe"]) {
+    const e = MW_EVENTS.find((x) => x.name === n);
+    assert.ok(e && isStandard(e), `${n} must be a Meta STANDARD event or no campaign can optimise for it`);
+  }
+});
+
+test("analytics: nothing loads or fires without consent", () => {
+  const consent = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8");
+  const transport = readFileSync(new URL("../src/frontend/analytics.ts", import.meta.url), "utf8");
+
+  // Both tags sit behind the SAME grant. Two gates is how one of them ends up
+  // loading a tracker for somebody who said no.
+  const grants = consent.match(/choice === "granted"/g) || [];
+  assert.ok(grants.length >= 2, "the Meta Pixel does not load behind the same explicit grant as the container");
+  assert.match(consent, /META_PIXEL_ID/, "the pixel is not wired into the consent gate");
+  assert.ok(!/fbq\('init'/.test(consent.split('choice === "granted" && META_PIXEL_ID')[0] || ""),
+    "the pixel initialises before the grant is checked");
+
+  // And the transport refuses too — a tag loaded by any other path still gets
+  // nothing until the visitor has said yes.
+  assert.match(codeOf(transport), /consentNow\(\) !== "granted"/, "events are sent without checking consent");
+});
+
+test("analytics: feature code never touches fbq or dataLayer directly", () => {
+  // The rule that keeps the two dashboards agreeing. Only the consent gate (which
+  // loads the tags and pushes Consent Mode defaults) and the transport may.
+  const allowed = new Set([
+    "src/components/CookieConsent.tsx",
+    "src/frontend/analytics.ts",
+  ]);
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      const rel = full.replace(/^.*?\/src\//, "src/");
+      if (allowed.has(rel)) continue;
+      const code = codeOf(readFileSync(full, "utf8"));
+      if (/\bfbq\s*\(|\bdataLayer\b/.test(code)) offenders.push(rel);
+    }
+  };
+  walk(new URL("../src", import.meta.url).pathname);
+  assert.deepEqual(offenders, [], `these files call an analytics SDK directly instead of track(): ${offenders.join(", ")}`);
+});
+
+test("analytics: the conversion points are actually wired", () => {
+  const wired = [
+    ["src/components/AuthForm.tsx", /track\((?:mode === "login" \? "login" : )?"sign_up"/, "signup"],
+    ["src/components/FreeAudit.tsx", /"audit_lead"/, "the audit lead — the warmest signal this business gets"],
+    ["src/app/dashboard/billing/page.tsx", /track\("begin_checkout"/, "checkout"],
+    ["src/components/AnalyticsRouteTracker.tsx", /trackPageView/, "client-side page views"],
+  ];
+  for (const [file, re, what] of wired) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.match(codeOf(src), re, `${what} is not tracked`);
+  }
+
+  // Fired on the RESULT, not the submit: a signup reported when the button is
+  // pressed counts every failed attempt as a customer.
+  const auth = readFileSync(new URL("../src/components/AuthForm.tsx", import.meta.url), "utf8");
+  assert.ok(auth.indexOf("createUserWithEmailAndPassword") < auth.indexOf('track(mode === "login"'),
+    "signup is reported before the account exists");
+});
+
+test("analytics: the pixel id is a real one, and both copies of it agree", () => {
+  const gate = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8");
+  const transport = readFileSync(new URL("../src/frontend/analytics.ts", import.meta.url), "utf8");
+
+  const idOf = (src) => (src.match(/NEXT_PUBLIC_META_PIXEL_ID\s*(?:\?\?|\|\|)\s*"(\d+)"/) || [])[1];
+  const gateId = idOf(gate), transportId = idOf(transport);
+
+  assert.ok(gateId, "the consent gate has no Meta Pixel id");
+  assert.ok(transportId, "the transport has no Meta Pixel id");
+  // THE FAILURE THIS CATCHES: the gate loads the pixel and the transport, reading
+  // a different id, declines to send to it. The pixel then reports page views
+  // and not one conversion, which looks like working analytics for weeks.
+  assert.equal(gateId, transportId, "the pixel id in the consent gate and the transport have drifted apart");
+
+  // A Meta Pixel id is 15-16 digits. A GTM-style code pasted here would load a
+  // container that does not exist and fail silently.
+  assert.match(gateId, /^\d{15,16}$/, `"${gateId}" is not a Meta Pixel id — those are 15-16 digits, not a GTM- code`);
+
+  // The container id is the OTHER shape, and must not have been crossed over.
+  const gtm = (gate.match(/NEXT_PUBLIC_GTM_ID\s*\?\?\s*"([^"]+)"/) || [])[1];
+  assert.match(gtm || "", /^GTM-[A-Z0-9]+$/, "the GTM container id is not a GTM- code");
+});

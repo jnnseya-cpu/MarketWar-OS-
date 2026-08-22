@@ -32,6 +32,18 @@ import Script from "next/script";
 
 const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID ?? "GTM-MFF3H6F8";
 
+// The Meta Pixel loads through THIS gate, not a second one.
+//
+// A separate component would have to re-derive "may I load?" from storage, and
+// two components answering that question independently is how one of them ends
+// up loading a tracker for somebody who said no. There is one gate; it now
+// carries two tags. With no ID set nothing renders — the pixel is simply absent
+// on a deployment that has not configured one.
+// A Pixel ID is not a credential — it is public in the page source of every site
+// that runs one, which is why it sits here as a default like the container ID
+// rather than in a secret. An env var still overrides it per deployment.
+const META_PIXEL_ID = (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "1080646761094543").trim();
+
 // Bump when the purposes change — an old "yes" must not silently cover new use.
 const STORAGE_KEY = "mw-cookie-consent-v1";
 
@@ -50,6 +62,23 @@ export function readConsent(): ConsentChoice | null {
   }
 }
 
+/**
+ * The event everything else listens to.
+ *
+ * Consent used to live only in this component's own state, so nothing else could
+ * ask "may I track?" without re-reading storage and guessing when it changed.
+ * Broadcasting it means there is still exactly ONE place a choice is made, and
+ * the pixel, the tag and the event transport all follow it rather than each
+ * keeping a copy that can go stale.
+ */
+export const CONSENT_EVENT = "mw:consent";
+
+function broadcast(choice: ConsentChoice): void {
+  try {
+    window.dispatchEvent(new CustomEvent(CONSENT_EVENT, { detail: choice }));
+  } catch { /* a browser that cannot dispatch still has the state above */ }
+}
+
 function pushConsent(choice: ConsentChoice): void {
   const w = window as unknown as { dataLayer?: unknown[] };
   w.dataLayer = w.dataLayer || [];
@@ -60,6 +89,7 @@ function pushConsent(choice: ConsentChoice): void {
     ad_user_data: choice,
     ad_personalization: choice,
   });
+  broadcast(choice);
 }
 
 export default function CookieConsent() {
@@ -117,6 +147,14 @@ export default function CookieConsent() {
             />
           </noscript>
         </>
+      ) : null}
+
+      {/* Same grant, same moment. The stub queues any event fired before the
+          script finishes loading, so an early conversion is not lost. */}
+      {choice === "granted" && META_PIXEL_ID ? (
+        <Script id="meta-pixel" strategy="afterInteractive">
+          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('consent','grant');fbq('init','${META_PIXEL_ID}');fbq('track','PageView');`}
+        </Script>
       ) : null}
 
       {choice === null ? (

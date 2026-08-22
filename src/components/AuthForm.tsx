@@ -13,6 +13,7 @@ import { BrandLockup } from "@/components/Logo";
 import { firebaseAuth } from "@/frontend/firebase-client";
 import { authedFetch } from "@/frontend/api-client";
 import { runHumanCheck, claimSignupAllowance } from "@/frontend/human-check";
+import { track } from "@/frontend/analytics";
 
 type PublicInvite = { token: string; companyName: string; planId: string; brands: number; status: string };
 
@@ -202,6 +203,12 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       // Spend the token on the free allowance. Best-effort: never block entry to
       // the platform on it — it can be claimed from Billing instead.
       await claimSignupAllowance(authedFetch).catch(() => null);
+      // AFTER the account exists, not when the button was pressed. A signup
+      // reported on submit counts every failed attempt as a customer, and the
+      // ad platform then optimises for people who cannot complete the form.
+      // No address is passed — `track` would drop it, and it should never be
+      // reachable in the first place.
+      track(mode === "login" ? "login" : "sign_up");
       router.push(dest);
     } catch (err) {
       setError(friendlyAuthError(err));

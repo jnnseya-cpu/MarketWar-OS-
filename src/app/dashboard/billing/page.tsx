@@ -13,6 +13,7 @@ import { useEffect, useCallback, useState } from "react";
 import { Check, Loader2, Wallet, Zap, TrendingUp, Star } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
+import { track } from "@/frontend/analytics";
 
 type PlanEconomics = {
   id: string; name: string; monthlyGbp: number; annualGbp: number; annualSavingGbp: number;
@@ -97,8 +98,25 @@ export default function BillingPage() {
       if (!res.ok) { setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: r?.error || "Could not start checkout." }); return; }
       // Free needs no payment — reflect it immediately rather than sending the
       // customer to a checkout for £0.
-      if (r.free) { setCheckout({ ok: true, mode: "live", url: null, acus: 0, note: r.note || "Free plan activated." }); load(); return; }
-      if (r.url) { window.location.href = r.url; return; }
+      if (r.free) {
+        // Its own event, with no value. Reporting a £0 Purchase would tell Meta
+        // this platform's customers are worth nothing and train the bidding on
+        // exactly that.
+        track("start_free_plan", { plan: planId, cycle });
+        setCheckout({ ok: true, mode: "live", url: null, acus: 0, note: r.note || "Free plan activated." }); load(); return;
+      }
+      if (r.url) {
+        // begin_checkout, NOT purchase — Stripe has not taken any money yet, and
+        // the customer may never complete. The purchase is recorded on the
+        // confirmed return, where the amount is known to be real.
+        // The amount comes from the economics the server already sent for this
+        // page, not from a price re-typed here. A second copy of the price table
+        // would drift from the real one and quietly report the wrong revenue.
+        const plan = data?.plans.find((p) => p.id === planId);
+        const value = cycle === "annual" ? plan?.annualGbp : plan?.monthlyGbp;
+        track("begin_checkout", { plan: planId, cycle, value, currency: "GBP" });
+        window.location.href = r.url; return;
+      }
       setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: r.note || "Payments are not configured on this deployment yet." });
     } catch {
       setCheckout({ ok: false, mode: "demo", url: null, acus: 0, note: "Network error — the plan was not changed." });

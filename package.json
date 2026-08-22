@@ -19,6 +19,7 @@
     "check:layers": "node scripts/check-layers.mjs",
     "test": "NODE_ENV=test node --import tsx --test tests/*.test.mjs",
     "splash": "node scripts/generate-splash.mjs",
+    "social": "node scripts/build-social-assets.mjs",
     "gtm:doc": "node scripts/build-gtm-doc.mjs && node scripts/verify-gtm-doc.mjs",
     "gtm:verify": "node scripts/verify-gtm-doc.mjs"
   },
