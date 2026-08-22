@@ -28,6 +28,7 @@ import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
 import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
+import { INCLUDED_TOOLS, includedSummary } from "@/shared/included-tools";
 import { BrandLockup } from "@/components/Logo";
 
 const PILLARS = [
@@ -588,6 +589,62 @@ export default function LandingPage() {
               </figcaption>
             </figure>
           ))}
+        </div>
+      </section>
+
+      {/* ================ WHAT YOU WOULD OTHERWISE PAY FOR ================ */}
+      {/*
+          The page sold the strategy and left out the tools. A reader could not
+          tell that the recorder puts YOU on the recording, that bulk email goes
+          from your own domain with attachments, or that a long video comes back
+          as clips — and those are three separate monthly bills for most people.
+
+          Every row names something that ships. Where a key is needed the row
+          says so: a feature list that overstates is a refund in week two.
+      */}
+      <section id="included" className="border-t border-white/5 py-24">
+        <div className="mx-auto max-w-5xl px-5">
+          <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">One subscription, not eleven</p>
+          <h2 className="mx-auto max-w-3xl text-center font-display text-3xl font-bold text-white sm:text-5xl">
+            The tools you are already paying for, included
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
+            {includedSummary().line}
+          </p>
+
+          <div className="mt-12 divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/40">
+            {INCLUDED_TOOLS.map((t) => (
+              <div key={t.insteadOf} className="grid gap-2 p-5 sm:grid-cols-[220px_1fr] sm:gap-6">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500">Instead of</p>
+                  <p className="mt-1 font-display text-sm font-bold text-white">{t.insteadOf}</p>
+                  {t.keyless ? (
+                    <span className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+                      Works with no keys
+                    </span>
+                  ) : (
+                    <span className="mt-2 inline-block rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      Needs one connection
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[15px] leading-relaxed text-slate-300">{t.included}</p>
+                  {/* The limit is printed next to the promise, not in a footnote. */}
+                  {t.limit && <p className="mt-1.5 text-xs text-slate-500">{t.limit}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-400">
+            Every one of these is behind the same monthly price and the same credit allowance. There is no per-tool bill,
+            no per-seat surprise on the tools, and nothing here is a separate add-on.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <a href="/audit" className="btn-primary">Audit my website free</a>
+            <a href="#pricing" className="rounded-lg border border-white/10 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:bg-white/5">See the price</a>
+          </div>
         </div>
       </section>
 

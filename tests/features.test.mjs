@@ -18379,3 +18379,99 @@ test("board surface: what has not moved is shown first, and only legal moves are
   const page = codeOf(readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8"));
   assert.match(page, /<OpportunityBoard \/>/, "the board exists and nothing renders it");
 });
+
+// ---------------------------------------------------------------------------
+// WHAT THE LANDING PAGE CLAIMS IS INCLUDED.
+//
+// The page sold the strategy and left out the tools: a reader could not tell
+// that the recorder puts YOU on the recording, that bulk email goes from your
+// own domain with attachments, or that a long video comes back as clips. Those
+// are three separate monthly bills for most buyers and the argument was not
+// being made.
+//
+// A public feature list is a set of PROMISES. These tests exist so the list
+// cannot drift ahead of the code — a page that overstates is a refund in week
+// two, and the platform's whole argument is that its claims are honest.
+// ---------------------------------------------------------------------------
+const inc = await import("../src/shared/included-tools.ts");
+
+test("included: every claim on the page is backed by code that ships", async () => {
+  const has = (path) => { try { readFileSync(new URL(`../${path}`, import.meta.url), "utf8"); return true; } catch { return false; } };
+
+  // Each row, to the module that makes it true. A row with no backing is a
+  // promise nobody can keep.
+  const backing = {
+    "A screen-recording tool": ["src/components/ScreenRecorder.tsx", "src/shared/recorder-layout.ts"],
+    "A video-clipping tool": ["src/components/ClipFinder.tsx"],
+    "An email-sending platform": ["src/backend/email.ts"],
+    "A design tool for ad creative": ["src/components/AdCanvas.tsx"],
+    "A social scheduler": ["src/shared/platform-adaptation.ts"],
+    "A client-approval or proofing tool": ["src/backend/client-portal.ts", "src/app/portal/[token]/page.tsx"],
+    "An A/B testing tool": ["src/backend/experiments.ts", "src/backend/experiment-history.ts"],
+    "An ad-spend monitoring tool": ["src/backend/paid-guardrails.ts"],
+    "A website audit tool": ["src/app/audit/page.tsx", "src/app/api/audit/route.ts"],
+    "A reporting dashboard": ["src/backend/command-summary.ts"],
+    "An activity or audit log": ["src/backend/audit-log.ts", "src/app/dashboard/activity/page.tsx"],
+    "A workflow-automation tool": ["src/backend/orchestrator.ts", "src/backend/chain-exec.ts"],
+  };
+
+  for (const t of inc.INCLUDED_TOOLS) {
+    const files = backing[t.insteadOf];
+    assert.ok(files, `"${t.insteadOf}" is claimed on the landing page and this test does not know what backs it`);
+    for (const f of files) assert.ok(has(f), `"${t.insteadOf}" claims something ${f} would provide, and that file does not exist`);
+  }
+  // And nothing claimed here is absent from the list — the map is the check.
+  assert.equal(Object.keys(backing).length, inc.INCLUDED_TOOLS.length, "a row was added or removed without its backing");
+});
+
+test("included: the two specific claims that were missing are now made", () => {
+  const byKey = Object.fromEntries(inc.INCLUDED_TOOLS.map((t) => [t.insteadOf, t]));
+
+  // SCREEN + YOURSELF, in one file. The reason this feature exists at all is
+  // that "webcam on" used to record nothing.
+  const rec = byKey["A screen-recording tool"].included;
+  assert.match(rec, /yourself on it/i, "the page still does not say you appear IN the recording");
+  assert.match(rec, /draggable|drag/i, "the movable presenter is not mentioned");
+  assert.match(rec, /[Mm]icrophone and system sound/, "the audio mix is not mentioned");
+
+  // BULK EMAIL WITH ATTACHMENTS, from the customer's own domain.
+  const mail = byKey["An email-sending platform"].included;
+  assert.match(mail, /attachments/i, "attachments are still not mentioned anywhere on the page");
+  assert.match(mail, /own authenticated domain/i);
+  assert.match(mail, /DKIM/);
+  assert.equal(byKey["An email-sending platform"].keyless, false, "email needs a verified domain and must not be sold as keyless");
+});
+
+test("included: a limit sits next to the promise, and no competitor or price is invented", () => {
+  const src = readFileSync(new URL("../src/shared/included-tools.ts", import.meta.url), "utf8");
+
+  // Anything needing a connection must say what. A feature list that implies
+  // everything works on day one is the one that produces refunds.
+  for (const t of inc.INCLUDED_TOOLS) {
+    if (!t.keyless) assert.ok(t.limit && t.limit.length > 10, `"${t.insteadOf}" needs a connection and does not say so`);
+  }
+  const { total, keyless, line } = inc.includedSummary();
+  assert.equal(total, inc.INCLUDED_TOOLS.length);
+  assert.equal(keyless, inc.INCLUDED_TOOLS.filter((t) => t.keyless).length);
+  assert.match(line, new RegExp(`${keyless} of them work`), "the summary miscounts what works with no keys");
+
+  // NO COMPETITOR NAMED, NO PRICE INVENTED. "A separate subscription for each"
+  // is true about the market; "£39 a month for X" would be a claim about
+  // somebody else's pricing that nobody here has verified.
+  const code = codeOf(src);
+  assert.ok(!/£\s?\d|\$\s?\d|\d+\s?(?:\/mo|per month)/.test(code), "a price appeared in a list that must not carry one");
+  for (const name of ["Loom", "Mailchimp", "Canva", "Buffer", "Hootsuite", "Opus", "Descript", "Klaviyo"]) {
+    assert.ok(!new RegExp(name, "i").test(code), `${name} is named — this list must not make claims about other people's products`);
+  }
+});
+
+test("included: the section is on the page, above the price", () => {
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /INCLUDED_TOOLS\.map/, "the list exists and the page does not render it");
+  assert.match(page, /includedSummary\(\)\.line/, "the page hardcodes a count instead of deriving it");
+  // The argument lands before the price, not after it.
+  assert.ok(page.indexOf('id="included"') < page.indexOf('id="pricing"'),
+    "the value argument is below the price — that is the wrong order for it");
+  // The limit is rendered, not just stored.
+  assert.match(page, /t\.limit &&/, "the honest limit is stored and never shown");
+});
