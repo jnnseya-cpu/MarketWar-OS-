@@ -17133,20 +17133,35 @@ test("adaptation: the call to action survives the cut", () => {
   assert.ok(onX.changes.some((c) => /shortened/i.test(c)), "the body was cut silently");
 });
 
-test("adaptation: a caption is never cut mid-word", () => {
-  const long = "supercalifragilistic expialidocious antidisestablishmentarianism floccinaucinihilipilification";
-  for (const max of [20, 33, 47, 60]) {
+test("adaptation: a caption is cut at a word boundary, not wherever the count runs out", () => {
+  // WHY THIS IS WRITTEN THIS WAY: the first version asserted only that the
+  // result was a PREFIX of the original — which a hard mid-word truncation also
+  // satisfies. A mutation replacing the whole word-boundary search with a blunt
+  // slice SURVIVED. The property that actually matters is where the cut LANDS,
+  // so that is what is checked: whatever is left must be followed in the
+  // original by a space or the end of the string, never by another letter.
+  const long = "We rebuilt the whole range over eight months and it shows in every single detail";
+  for (const max of [20, 30, 45, 60, 78]) {
     const out = adapt.trimToWord(long, max);
     assert.ok(out.length <= max, `${out.length} > ${max}`);
-    if (out) {
-      const withoutEllipsis = out.replace(/…$/, "");
-      // Whatever survived must be whole words from the original.
-      assert.ok(long.startsWith(withoutEllipsis), `cut mid-word at ${max}: ${JSON.stringify(out)}`);
-      assert.ok(!/\s$/.test(withoutEllipsis), "left trailing whitespace before the ellipsis");
-    }
+    const kept = out.replace(/…$/, "");
+    if (!kept) continue;
+    assert.ok(long.startsWith(kept), `not a prefix at ${max}: ${JSON.stringify(out)}`);
+    const rest = long.slice(kept.length);
+    assert.ok(rest === "" || /^\s/.test(rest),
+      `cut mid-word at ${max}: kept ${JSON.stringify(kept)}, next character was ${JSON.stringify(rest[0])}`);
+    assert.ok(!/\s$/.test(kept), "left trailing whitespace before the ellipsis");
   }
-  // Short enough already: untouched, and no ellipsis added.
+
+  // Short enough already: untouched, and no ellipsis invented.
   assert.equal(adapt.trimToWord("short one", 40), "short one");
+
+  // THE UNAVOIDABLE CASE, pinned rather than pretended away. A single token
+  // longer than the whole limit has no boundary to cut at, so it is cut where
+  // the count runs out — the guarantee is "at a boundary when one exists".
+  const oneWord = "antidisestablishmentarianism";
+  const forced = adapt.trimToWord(oneWord, 12);
+  assert.ok(forced.length <= 12 && oneWord.startsWith(forced.replace(/…$/, "")));
 });
 
 test("adaptation: a dead link is replaced rather than published", () => {
