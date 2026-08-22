@@ -8,21 +8,26 @@ Two companions, and neither replaces this file:
 section by section. `docs/REQUIREMENTS-COVERAGE.md` is the 4,800-line history,
 useful for archaeology and useless for knowing where you are.
 
-Last updated: 2026-08-18.
+Last updated: 2026-08-22.
 
 ---
 
 ## 1. What this is
 
-An AI marketing operating system for small businesses. 55 engines behind one
+An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on two
 brands: **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com,
 enterprise programme intelligence).
 
-Next.js 14 App Router, TypeScript strict, three layers (`backend` / `frontend` /
-`shared`) enforced by `scripts/check-layers.mjs`. 215 backend modules, 133 API
-routes, 66 dashboard pages, 1,269 tests including one end-to-end run of the
-whole growth loop.
+Next.js, TypeScript strict, three layers (`backend` / `frontend` / `shared`)
+enforced by `scripts/check-layers.mjs`. 219 backend modules, 45 shared modules,
+170 API routes, 65 dashboard pages, **1,201 tests** including one end-to-end run
+of the whole growth loop.
+
+**Two branches, and they are NOT mirrors right now.** `main` is production and
+sits on **Next 14**; `claude/marketwar-os-platform-xrgg5r` carries everything
+plus the **Next 15 / React 19** upgrade. See §5, item 1 — this is the most
+important outstanding thing in the file.
 
 ---
 
@@ -35,79 +40,59 @@ count and states the cause from the counts alone; with nothing sent, the
 diagnosis is not the product, the price, the site or the copy, because none of
 them has been in front of a buyer.
 
+`docs/GO-TO-MARKET-MarketWar-OS.pdf` (and `.docx`) is the 34-page plan for
+changing that number — locked launch city, five buyer segments, the real price
+table, supplier sourcing, 30/60/90 with failable exit criteria, three budget
+levels. Rebuild with `npm run gtm:doc`.
+
 ---
 
 ## 3. What works with NO keys at all
 
-The honest list, and it is not short. No provider, no card, no configuration:
+No provider, no card, no configuration:
 
 - **The free website audit** (`/audit`) — a real crawl of a real page, findings,
   and an emailed lead recorded as an inbound prospect. Public, no account. The
   front door of the whole acquisition machine.
-- **The command bar** — one box on every dashboard screen (Cmd/Ctrl-K): say what
-  you want, and it names the engine that does it, what it will ask, and the cost
-  in ACUs before anything runs.
-- **The ad canvas** — your own photo in, a postable PNG out at real placement
-  size, contrast-checked.
-- **All pricing and margin arithmetic** — ProfitGuard, the commission ladder,
-  product eligibility. Every refusal is computed.
-- **The paid-media guardrails** — stop-loss, the +20% scale step, computed budget
-  ceilings. All refuse to judge thin evidence rather than guessing.
-- **The payout engine** — fee quotes across nine rails, identity gating, tax
-  position. Money moves only with provider keys; everything up to it is real.
-- **The emergency stop** — one switch halting sends, publishing, unattended runs,
-  spend and payouts. Transactional mail has no lane and cannot be stopped by it.
-- **The publication ledger** — a publish whose response is lost is recorded as
-  uncertain, and the next attempt asks the channel whether the post went up
-  rather than posting a second time under the brand's name.
-- **The pre-publish checks** — all eight, and a check that cannot run never
-  reports as passed.
-- **Channel health** — read from recorded publish attempts, not from whether a
-  connection row exists.
-- **Versions and restore** — nothing paid for is overwritten; restoring adds a
-  version rather than rewriting the chain; a deleted item comes back from its own
-  history.
-- **Creative fatigue** — a worn-out creative detected against its own peak,
-  significance-tested so a wobble is never mistaken for decline. No score.
-- **The audit log** — the value before and the value after, credentials redacted
-  by value shape as well as by field name.
-- **The generation cache** — a double click is one generation, not two charges.
-- **Teams and agencies** — a brand can now have members besides its owner, with
-  ten roles and ten permissions. Nobody can grant more than they hold.
-- **The installed app opens branded on every platform** — Chrome builds its
-  splash from the manifest, iOS gets 32 `apple-touch-startup-image` files across
-  16 device geometries in both orientations, and the in-app launch screen covers
-  the gap between the OS splash and the session resolving. Regenerate with
-  `npm run splash`.
-- **Sentinel** — the human gate, the instruction firewall, counted detections.
-- **The public content** — 13 blog articles in two clusters, 14 answer pages.
-- **MarketWar's OWN go-to-market document** — `docs/GO-TO-MARKET-MarketWar-OS.pdf`
-  and `.docx`, 34 pages: the locked launch city, five buyer segments, the real
-  published price table, the supplier map with the sourcing procedure, the
-  first-hundred arithmetic (which comes to 72 on stated assumptions and says so),
-  30/60/90 with failable exit criteria, three budget levels allocated to the
-  pound, and the first messages written out. Every rate that is not measured is
-  marked ASSUMED and names its replacement evidence; the price table is parsed
-  from `src/backend/subscription.ts` at build time. Rebuild with `npm run
-  gtm:doc` — the build renders and the verifier then asserts every heading,
-  bullet, table cell and quoted line reached both files, and that the prices
-  still match source. Content lives in `scripts/gtm-content.mjs`.
-- **The go-to-market plan ENGINE (for customers' businesses)** — a different
-  thing from the document above: it builds a plan for whatever business the
-  caller describes. 30/60/90 with exit criteria that can be failed,
-  five supplier routes with real minimums and lead times, four buyer segments
-  with their objections, and the first-hundred arithmetic. It forecasts nothing:
-  where a number cannot be known it says so and gives the method for finding it.
-  Locks one launch city and divides a real budget across the 90 days — the
-  column adds to exactly what was supplied, a fifth is never allocated, and
-  nothing is invented when no budget was given. Rendered on
-  `/dashboard/discover` and downloadable as `GO-TO-MARKET-<business>.md`,
-  generated server-side so the document and the screen cannot drift apart.
-- **The weekly newsletter** — every registered user, Tuesday 09:00 UTC, selling
-  what their deployment can actually do, with the feature pages' own proof and
-  limit and a great many links. One-click unsubscribe, no account, honoured
-  instantly and platform-wide. Needs `NEWSLETTER_SECRET` before it sends
-  anything.
+- **The public site has a menu on a phone** (it did not before 2026-08-21 — the
+  nav was `hidden … md:flex` with nothing below it).
+- **The client approval portal** (`/portal/[token]`) — a signed, single-item,
+  expiring link an outside client opens with no account.
+- **The screen recorder puts the presenter IN the file** — screen and camera
+  composited onto a canvas that *is* the recording, draggable mid-take, with mic
+  and system audio mixed to one track.
+- **The command bar** (Cmd/Ctrl-K), the **ad canvas**, and all **pricing and
+  margin arithmetic** — every refusal computed, never guessed.
+- **The paid-media guardrails**, the **payout engine** (nine rails, quoted before
+  money moves), and the **emergency stop** — five lanes; transactional mail has
+  no lane and cannot be stopped by it.
+- **The publication ledger** — a publish whose response is lost is uncertain, and
+  the next attempt asks the channel rather than posting twice.
+- **The eight pre-publish checks** (one that cannot run never passes), **channel
+  health**, **versions and restore**, **creative fatigue**, **the audit log**,
+  **the generation cache**, and **teams** (ten roles, nobody granting wider than
+  they hold).
+- **Splash screens on every platform** — `npm run splash`.
+- **Sentinel** — human gate, instruction firewall, counted detections.
+- **13 blog articles, 14 answer pages.** The **weekly newsletter** needs
+  `NEWSLETTER_SECRET` before it sends anything.
+
+**Built in the 2026-08-21/22 audit** — eleven PRD sections plus two rebuilds,
+all pure, keyless and mutation-checked. Each is listed with its module in
+`docs/GROWTH-ENGINE-COVERAGE.md`: §32 platform adaptation, §38 experiment
+history, §41 comment intelligence, §70 activity feed, §89 training consent,
+§92 entity search, §95 opportunity board, §97 action priority, §98 platform
+KPIs, §102 campaign plan, §103 autonomy config, plus `shared/vitality.ts` and
+`shared/recorder-layout.ts`.
+
+They share one property worth stating: **each refuses to produce a number or an
+action it cannot stand behind** — a stopped test is not a failure, a caption cut
+never drops the call to action, a public complaint never gets a sales draft, a
+median from one account is withheld, a chain that cannot finish never starts.
+
+**None of them has a surface yet.** See §5.
+
+---
 
 ## 4. What is dark without keys, and the one action for each
 
@@ -116,77 +101,105 @@ table over that endpoint — the endpoint asks each module's own check.
 
 | Capability | One action |
 |---|---|
-| AI writing and strategy | `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` / `GEMINI_API_KEY`) |
+| AI, images, video | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` |
 | Taking money | `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` |
-| Saving work between visits | `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` |
+| Persistence | `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` |
 | Sending email | the sending pool with verified DNS, or `RESEND_API_KEY` / `SENDGRID_API_KEY` |
-| Generating images | `OPENAI_API_KEY` or `GEMINI_API_KEY` |
-| Rendering video | `GEMINI_API_KEY` (Veo) or `OPENAI_API_KEY` (Sora) |
-| Running work on a schedule | `CRON_SECRET` |
-| Sending the weekly newsletter | `NEWSLETTER_SECRET` (16+ chars) — refuses to send without it, because an unsubscribe link that fails on another server produces spam complaints charged to every customer |
-
-When a capability is dark the dashboard says so before the customer does the
-work, names what still works, and never tells anybody to retry something that
-cannot succeed.
+| Scheduled work | `CRON_SECRET` · Newsletter: `NEWSLETTER_SECRET` |
+| **Client approval links** | **`PORTAL_LINK_SECRET`** (16+ chars). Refuses to ISSUE without it — a link that verifies on one server and fails on every other makes the agency look broken to their own customer. |
 
 ---
 
 ## 5. Outstanding — the whole list, deduplicated
 
+**1. RE-LAND NEXT 15 ON PRODUCTION. This is the one with a clock on it.**
+
+Next 14 no longer receives security patches: 21 advisories apply to 14.2.35 —
+App Router XSS, cache poisoning of RSC responses, SSRF in rewrites, middleware
+bypass — and every one is fixed only in 15.5.x or later. The upgrade is built,
+green and on the dev branch (Next 15.5.23, React 19.2.8, eight files awaiting
+`params`, `serverExternalPackages` moved).
+
+Rolled off production on 2026-08-21 as a precaution during a live
+`/verify-human` failure, NOT because it was proved to be the cause: the Next 15
+build serves that endpoint locally at 200 through the real middleware, and
+production could not be reached from the build container to confirm anything.
+
+**To close it:** deploy the dev branch to a Vercel preview, open
+`/api/auth/human` and `/verify-human` there, and if both answer, merge.
+
 **Owner actions (nothing in code can substitute):**
 
-1. Set `HUMAN_CHECK_SECRET` in production. Without it the human gate signs
-   sessions with a per-process key and cannot enforce; it stays in observe mode
-   deliberately rather than bouncing customers.
-2. Open `/api/capabilities` on the live deployment. Nothing in this repository
-   can see the production environment.
-3. Submit the sitemap in Search Console after the next deploy.
-4. Set `NEWSLETTER_SECRET` if the weekly newsletter should go out. It is
-   scheduled for Tuesdays and will refuse to send until that exists.
-5. **Send the first ten messages.** `/dashboard/acquisition` has the text written
-   out per brand, with only the blanks a sender knows.
+2. Set `HUMAN_CHECK_SECRET` in production. Without it the human gate signs
+   sessions with a per-process key and stays in observe mode.
+3. Set `PORTAL_LINK_SECRET` if client approval links should work.
+4. Open `/api/capabilities` on the live deployment.
+5. Submit the sitemap in Search Console.
+6. Set `NEWSLETTER_SECRET` if the weekly newsletter should go out.
+7. **Send the first ten messages.** `/dashboard/acquisition` has the text
+   written out per brand, with only the blanks a sender knows.
 
-**Next in the product, in order:**
+**Engines built, surfaces not yet built.** Everything in §3's audit table is a
+tested engine with no screen in front of it. That is the defect class this
+repository produces most often (see §6), so it is written down rather than
+assumed obvious: §70's feed, §92's search box, §95's board, §97's queue, §98's
+admin panel, §102's button and §103's settings form all need a surface before a
+customer sees any of them.
 
-1. The client approval portal has an engine and NO surface — `/portal/[token]`
-   and a share button are what make it usable. Until then it ships nothing.
-2. §102/103 the one-click campaign and autonomous-mode buttons. Every engine and
-   the Brand Brain context exist; the single button does not.
-3. §32 platform adaptation (one master asset → native per-channel versions),
-   §38 `checkHistoricalExperiments`, §41 comment intelligence, §70 the AI
-   activity feed, §77 the knowledge graph, §80 the agent message bus,
-   §89 the AI-training opt-out, §92 global search, §95–98.
+**Genuinely not built:**
 
-**Known smaller gaps:**
-
+- §50 autonomous paid boost — the staged organic → small paid → scale ladder.
+- §77 content performance knowledge graph — facts are key/value; there are no
+  typed entities and relationships.
+- §80 agent message bus — chains are sequential by construction, which is a
+  deliberate simplification rather than an oversight.
+- §14 content calendar views, §21 carousel card controls.
+- §100 per-agent current task, discoveries, cost and impact.
 - A brand's promotable catalogue has no bulk import.
-- `matchProgrammes` exists in `creator-agents.ts` and is not wired to discovery.
-- Six API routes still carry their own copy of the origin expression. They work,
-  so they were left rather than migrated for tidiness.
-- `src/components/BviCard.tsx` renders twelve fabricated numbers in a field named
-  `measured`. **It is mounted nowhere** and must not be mounted as it stands.
+- `matchProgrammes` has an API route and no discovery surface.
+
+**Security debt, with the reasoning:**
+
+- 6 moderate npm advisories, one chain (uuid → gaxios → @google-cloud/storage →
+  firebase-admin), left deliberately: npm's own "fix" is a four-major downgrade
+  of firebase-admin, and the advisory covers uuid v3/v5/v6 with a buffer while
+  both consumers call only `v4()` without one. Unreachable path.
+- The rate limiter is per-instance BY DESIGN and `guard.ts` says why. Money is
+  protected by the things that count pounds: the durable ACU wallet, and
+  `ai-spend.ts`'s now-SHARED monthly ceiling.
 
 ---
 
 ## 6. The defect class that keeps recurring
 
-Worth stating once, because it has now produced six separate bugs.
-
 **A value that exists on one side of a boundary and is never carried across.**
+Nine instances now, four of them from this audit alone: the client portal engine
+shipped with no route or page; the screen recorder acquired the camera and never
+put the track in the file; the public site's nav existed only above a
+breakpoint; a cost-per-customer breach was computed and silently dropped.
+Earlier ones: the wallet's commission band, the capability report's guessed env
+vars, seven surfaces with no way to take work away, the ad canvas with no
+upload, the intent router nothing ever called.
 
-- The wallet computed a commission without asking which band the person was on.
-- The capability report guessed environment variables instead of asking the
-  module that owns them.
-- Seven surfaces rendered generated output with no way to take it away.
-- The ad canvas supported photos and had no upload.
-- The intent router had an API in front of it and no surface ever sent it a word.
-- A cost-per-customer breach was computed and then silently dropped, because the
-  branch that would have reported it was never reachable.
+**When something looks broken, check the boundary before the logic.**
 
-Every one was at the surface, not in an engine. The engines keep turning out to
-be right. **When something looks broken, check the boundary before the logic** —
-and `tests/loop.test.mjs` now runs one brand's real output through all ten steps
-of the growth loop precisely because unit tests cannot see a seam.
+**And a second one, which is about tests rather than code.**
+
+**A test that passes for a reason unrelated to what it tests.** Six mutations
+survived this audit, every one because the assertion was true by accident: three
+greps proved the recorder's parts existed and nothing proved they were wired
+together; a prefix check cannot detect a mid-word cut, because a mid-word cut is
+a prefix; a one-item column is sorted correctly by every comparator; a fold's
+reason sat on the oldest entry and folds read the newest; an overlap floor was
+never exercised because an earlier fix had reduced every case to zero; and a
+refusal fixture was shorter than the limit it was meant to exceed.
+
+**A test that passes is not evidence until something has broken it.** Mutations
+run in a git worktree (`git worktree add /tmp/mutant`) sharing the repo's
+`node_modules`, so the main tree stays clean while they run.
+
+Four tests have also failed on their own explanatory comments. Strip comments
+before scanning source, and forbid the THING rather than the word.
 
 ---
 
@@ -196,11 +209,10 @@ Full standard: `docs/ENGINEERING-DIRECTIVE.md`. `CLAUDE.md` carries the
 compressed version that loads every session. Beyond it:
 
 - **Additive only.** Nothing delivered is deleted or downgraded.
-- **Never present a number as a measurement unless something counted it.** No
-  risk scores, no invented benchmarks, no `NN% of businesses`.
+- **Never present a number as a measurement unless something counted it.**
 - **Never take somebody's effort for an outcome you cannot deliver.**
-- **Profit margin on AI actions is never below 100%** (price ≥ 2× provider cost),
-  won on a lower cost base rather than by breaching the floor.
+- **Profit margin on AI actions is never below 100%** (price ≥ 2× provider cost).
 - **Verify before shipping:** `npm run typecheck`, `npm run build`, the layer
   check, the test suite. Mutate the new tests to prove they are not decorative.
-- Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main`.
+- Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` — except
+  while §5 item 1 is open, where the branches deliberately differ.

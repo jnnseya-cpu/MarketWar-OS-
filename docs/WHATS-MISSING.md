@@ -1,6 +1,10 @@
 # MarketWar OS — What's Missing (keys, connectors, gaps)
 
-**Current, honest status of every external dependency** (updated this session).
+**Current, honest status of every external dependency.**
+
+> **Reviewed 2026-08-22.** The KEY table below is still accurate. The ❌ build
+> list in §5 was not: several of those modules now exist. `docs/STATE.md` §5 is
+> the current outstanding list and this file is the env-var reference.
 ✅ = live/confirmed · ⚙️ = set but needs one finishing step · ❌ = not wired yet.
 The platform runs and sells in demo mode without the ⚙️/❌ items; this list is what
 unlocks each layer's *real* effect. Set keys in **Vercel → Project → Settings →

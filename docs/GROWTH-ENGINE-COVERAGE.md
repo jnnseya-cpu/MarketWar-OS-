@@ -9,7 +9,7 @@ sections are delivered, never appended to. `docs/STATE.md` remains the single
 description of where the platform stands overall.
 
 Verified mechanically on 2026-08-17 by reading module exports and searching for
-each concept, not by recollection. 208 backend modules, 1,162 tests. §108's four classes are used throughout: EXISTS ✅ / PARTIAL 🟡 / MISSING ❌.
+each concept, not by recollection. 219 backend modules, 1,201 tests (2026-08-22). §108's four classes are used throughout: EXISTS ✅ / PARTIAL 🟡 / MISSING ❌.
 
 ---
 
@@ -58,16 +58,16 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 29 | Approval modes | `approvals.ts`, `orchestrator.ts` (`effectFor` — anything that is not a draft is queued), `campaign-architect.ts` (`autonomyGate`) | ✅ |
 | 30 | **Emergency stop** | `emergency-stop.ts` — **delivered this session** | ✅ |
 | 31 | Multi-channel publishing | `meta-publish.ts` (native FB/IG), `zernio.ts` (long tail), `youtube.ts`, `whatsapp.ts` | ✅ |
-| 32 | **Platform adaptation engine** | nothing. No module turns one master asset into native per-channel versions | ❌ |
+| 32 | **Platform adaptation engine** | `shared/platform-adaptation.ts` — one master into native per-channel versions; the CTA is budgeted first and kept whole, cuts are reported, a non-clickable link becomes 'link in bio' | ✅ |
 | 33 | Performance analytics | `page-analytics.ts`, `email-metrics.ts`, `roi-engine.ts`, `reporting.ts` | ✅ |
 | 34 | Cross-channel attribution | `attribution.ts` (`attributeChannels`, `viralToRevenue`) | ✅ |
 | 35 | Revenue-first optimisation | `roi-engine.ts`, `profit-guard.ts`, `unit-economics.ts` | ✅ |
 | 36 | AI performance analyst ("why did sales fall?") | `acquisition.ts` (`diagnose` — six branches, first is `nobody_asked`), `render-gap.ts` | ✅ |
 | 37 | Growth memory classes | `brand-memory.ts` (dotted namespaces + `AGENT_INTERESTS`) | ✅ |
-| 38 | **`checkHistoricalExperiments()`** | nothing. `experiments.ts` has the statistics; nothing asks "have we tried this and did it fail?" | ❌ |
+| 38 | **`checkHistoricalExperiments()`** | `backend/experiment-history.ts` — `checkHistoricalExperiments`; a stopped test is never recorded as a failure | ✅ |
 | 39 | Persona engine | `segments.ts`, `buyer-psychology.ts` | ✅ |
 | 40 | Audience intelligence | `segments.ts`, `posting-time.ts`, `engagement.ts` | ✅ |
-| 41 | **Comment intelligence** | nothing. `engagement.ts` has `suggestReply` for email threads; no comment classification into buying intent | ❌ |
+| 41 | **Comment intelligence** | `shared/comment-intelligence.ts` — buying intent outranks everything, a complaint can never receive a sales draft, hostility gets no draft | ✅ |
 | 42 | Review intelligence → campaigns | `review-requests.ts`, `reputation.ts`, `customer-voice.ts` | ✅ |
 | 43 | Content → lead loop | `landing.ts`, `funnel-checkout.ts`, `inbound.ts` | 🟡 destinations exist; content with no objective is not flagged |
 | 44 | Lead magnet generator | `offer-forge.ts` | ✅ |
@@ -105,7 +105,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 66 | Client approval portal (secure link, no account) | `client-portal.ts` — signed, single-item, expiring, revocable — **engine delivered this session; the route and page are not built** | 🟡 |
 | 67–68 | Team roles and permissions | `shared/workspace.ts` (all ten roles, all ten permissions) + `membership.ts` enforcement — **delivered this session** | ✅ |
 | 69 | Growth command centre | `src/app/dashboard/command`, `command-summary.ts`, `warlord.ts` | ✅ |
-| 70 | **AI activity feed** | nothing | ❌ |
+| 70 | **AI activity feed** | `shared/activity-feed.ts` — unattended work separated from your own; an unmapped action is shown, not hidden | ✅ |
 | 71 | Agent explainability ("why this") | `opportunity-radar.ts` (reasons), `acquisition.ts` (`diagnose`), `orchestrator.ts` (per-step reason) | 🟡 several engines explain themselves; there is no uniform "why" on every recommendation |
 | 72 | Confidence score | `brand-memory.ts` (per-fact confidence), `market-research.ts`, `video-intelligence.ts` | 🟡 present where something measured it; not a uniform band on recommendations |
 | 73 | Company-wide autonomy levels | settings page dial, `campaign-architect.ts` (`autonomyGate`), `orchestrator.ts` | ✅ |
@@ -115,7 +115,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 77 | **Content performance knowledge graph** | nothing. Facts are key/value in `brand-memory.ts`; there are no typed entities and relationships | ❌ |
 | 78 | Core database entities | `brand-store.ts`, `contacts.ts`, `ledger.ts`, `work-library.ts`, `chain-store.ts`, `landing-store.ts`, `blog-store.ts`, `settings-store.ts`, `ad-canvas-store.ts` | 🟡 most named collections have a home; `organisations`, `workspaces`, `asset_versions`, `audit_logs` do not |
 | 79 | Agent execution model (per-agent schema, budget, timeout) | `shared/agents.ts`, `orchestrator.ts` (`ChainStep` cost + effect), `agent-budget.ts` | 🟡 objective, tools, budget and timeout exist; `input_schema` / `output_schema` are not declared |
-| 80 | **Agent message bus / event subscriptions** | nothing. Chains are sequential by construction, which is a deliberate simplification, not an event bus | ❌ |
+| 80 | **Agent message bus / event subscriptions** | nothing. Chains are sequential by construction, which is a deliberate simplification | ❌ |
 | 81 | Recursion limits | bounded by construction — chain steps are a flat list, so depth is 1 — plus `agent-budget.ts` cost ceiling | ✅ (by construction) |
 | 82 | Human-in-the-loop for sensitive operations | `orchestrator.ts` (`effectFor` — spend/send/publish always queue), `approvals.ts`, `payout-approvals.ts` | ✅ |
 | 83 | Provider adapters | `gateway.ts`, `image-gateway.ts`, `video-gateway.ts`, `avatar-gateway.ts`, `integrations.ts` | ✅ |
@@ -129,10 +129,10 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 86 | Retry without duplicate posting (`external_publication_id`) | `publication-ledger.ts` — **delivered this session**, wired into `meta-publish.ts` | ✅ |
 | 87 | Creative compliance checker (flag Needs Review, never silent) | `claim-guard.ts` (`claimReport` — runs on every agent output before the customer sees it), `compliance.ts` (regulated categories), `rights-guard.ts` | ✅ |
 | 88 | User content rights & ownership metadata | `rights-guard.ts`, `likeness-consent.ts` | 🟡 rights checks yes; per-asset ownership metadata and source tracking no |
-| 89 | **AI training / data privacy control (workspace ON/OFF)** | nothing | ❌ |
+| 89 | **AI training / data privacy control (workspace ON/OFF)** | `shared/training-consent.ts` — off until somebody turns it on; 'never asked' and 'refused' are different answers | ✅ |
 | 90 | Data deletion | `DeleteAccount` component, `work-library.ts` (`deleteWork`), `connections.ts` (`deleteConnection`) | 🟡 account and item deletion yes; brand/workspace deletion, queues and retention policy no |
 | 91 | Auditability (previous_value / new_value / reason) | `audit-log.ts` + `/api/audit-log` — **delivered this session** | ✅ |
-| 92 | **Global search across entities** | `search.ts` is web search, not a search of the customer's own campaigns, creatives and results | ❌ |
+| 92 | **Global search across entities** | `shared/entity-search.ts` + `backend/global-search.ts` — every term must appear, no relevance percentage, a failing source is named | ✅ |
 
 ## §93–99 — the surface
 
@@ -140,10 +140,10 @@ trail**, and **paid-media guardrails**. Those are the build list.
 |---|---|---|---|
 | 93 | Global command bar | `intent-router.ts` + `/api/intent` + `CommandBar.tsx` — **the brain existed and nothing called it; the box was delivered this session** | ✅ |
 | 94 | Natural-language workflows into a full plan | `intent-router.ts` routes to the owning engine; `orchestrator.ts` runs the multi-step chain; `campaign-architect.ts` builds the architecture | 🟡 one sentence routes to one engine; it does not yet decompose into the full ten-step ecosystem in a single command |
-| 95 | **Opportunity board with columns** | `opportunity-radar.ts` scores and ranks; there is no board and no lifecycle states | ❌ |
-| 96 | **Growth Score /100 with eight components** | `command-summary.ts` has `moneyScore` with a `measured` count and refuses to score what it cannot count. The eight-component Growth Score does not exist | ❌ |
-| 97 | **Daily AI priority engine (impact/urgency/confidence/effort/cost)** | `command-summary.ts` `BriefItem` carries a priority; nothing computes it from those five factors | ❌ |
-| 98 | **Platform KPIs (MarketWar's own)** | `admin-economics.ts` covers revenue, cost and margin; the product funnel metrics — time to first campaign, first lead, regeneration rate, publishing success — are not tracked | ❌ |
+| 95 | **Opportunity board with columns** | `shared/opportunity-board.ts` — lifecycle with reasons required to drop, nothing jumps to Won, reports what has not moved | ✅ |
+| 96 | **Growth Score /100 with eight components** | `command-summary.ts` `moneyScore` — ten components, honest, refuses to score what it cannot count. NOT rebuilt: one source of truth per concept | ✅ |
+| 97 | **Daily AI priority engine (impact/urgency/confidence/effort/cost)** | `shared/action-priority.ts` — impact/urgency/confidence/effort/cost, every factor requiring its basis; missing factors leave it UNRANKED | ✅ |
+| 98 | **Platform KPIs (MarketWar's own)** | `shared/platform-kpis.ts` — time to first campaign/lead, regeneration rate, publishing success; withheld below five observations | ✅ |
 | 99 | One growth company, not fifty tools | the command bar is the answer to the navigation; `NAV` now carries 64 destinations with the duplicate removed | 🟡 the box is in; the fifteen-item navigation the section recommends is not |
 
 ## §100–113 — surface, sequencing, and the rules of engagement
@@ -152,11 +152,18 @@ trail**, and **paid-media guardrails**. Those are the build list.
 |---|---|---|---|
 | 100 | AI Team screen with live agent state | `shared/warlord-roster.ts` (26 agents, division, mission, KPI, honest live/activate/roadmap status), `/dashboard/ai-agents`, `/dashboard/command` | 🟡 the roster and its status are real; per-agent *current task*, discoveries, cost and impact are not tracked |
 | 101 | Campaign creation wizard | `/dashboard/campaigns`, `GuideWizard.tsx` | 🟡 a builder and a guide exist; not the nine-step wizard with an advanced bypass |
-| 102 | **One-click campaign from Brand Brain context** | the context exists (`brand-memory.ts`) and the engines exist; the single button that runs the whole thing from one sentence does not | ❌ |
-| 103 | **"Let MarketWar grow my business" autonomous mode** | `/dashboard/autopilot` runs cycles; the configuration block (budget, targets, allowed/forbidden channels, max CPA, approval threshold) is not one screen | 🟡 |
+| 102 | **One-click campaign from Brand Brain context** | `shared/campaign-plan.ts` — one sentence to a costed plan; never starts a chain it cannot finish | ✅ |
+| 103 | **"Let MarketWar grow my business" autonomous mode** | `/dashboard/autopilot` runs cycles; `shared/autonomy-config.ts` is now the one validated config block — budget, target, allowed/forbidden channels, max CPA, approval threshold. Forbidden beats allowed; contradictions are refused rather than resolved quietly. **The screen that renders it does not exist yet.** | 🟡 |
 | 104 | P0 build list (20 items) | 18 of the 20 are ✅ above. The two that are not: content calendar views (§14) and carousel card controls (§21) | 🟡 |
 | 105 | P1 build list (13 items) | 7 ✅ / 6 open — comment intelligence, creative fatigue, paid testing, scale engine, agency mode, deeper attribution | 🟡 |
 | 106 | P2 build list | not started, and correctly so — it sits on top of P1 | ❌ |
+
+> **2026-08-22 audit.** The ❌ rows above were re-verified against the code, not
+> recollection, and eleven were built: §32, §38, §41, §70, §89, §92, §95, §97,
+> §98, §102 and §103. Each is a tested, mutation-checked engine with NO SURFACE
+> yet — that gap is recorded in `docs/STATE.md` §5, because an engine with no
+> screen ships nothing and this repository has made that mistake repeatedly.
+> §50, §77 and §80 remain genuinely unbuilt.
 | 107 | Non-functional: stability, idempotency, observability, performance, security, scalability | provider failover + `demoFallbackAllowed`; idempotency in `payout-execute.ts`, `publication-ledger.ts`, `generation-cache.ts`; `guard.ts` + `sentinel.ts` + `human-gate.ts` + `instruction-firewall.ts`; server-side keys only | 🟡 strong on stability, idempotency and security; **observability is the weak one** — there is no structured log of every AI execution and integration call (see §91) |
 | 108 | `auditExistingFeature()` before building | **this document** | ✅ |
 | 109 | Existing functionality stays operational; incremental introduction | every delivery this session extended an existing module or added a new one behind an opt-in; 1,162 tests green throughout | 🟡 no formal feature-flag system — additions are opt-in by signature instead |
