@@ -17535,12 +17535,19 @@ test("feed: a reason is carried only when one entry had one", () => {
   assert.equal(single.unattended[0].reason, "CTR fell below its own peak");
 
   // A reason attached to a fold of three would be describing the wrong thing.
+  //
+  // THE NEWEST ENTRY CARRIES THE REASON, deliberately. Entries are sorted
+  // newest-first before folding, so a fixture with the reason on the OLDEST one
+  // leaves `first.reason` undefined whether the rule is applied or not — which
+  // is exactly why the first version of this assertion could not catch the
+  // mutation that dropped the rule.
   const folded = feed.buildFeed([
-    E("1", "2026-08-22T02:00:00Z", "agent", "a", "creative.paused", { reason: "CTR fell" }),
-    E("2", "2026-08-22T02:01:00Z", "agent", "a", "creative.paused", { reason: "different reason" }),
-    E("3", "2026-08-22T02:02:00Z", "agent", "a", "creative.paused"),
+    E("1", "2026-08-22T02:00:00Z", "agent", "a", "creative.paused"),
+    E("2", "2026-08-22T02:01:00Z", "agent", "a", "creative.paused", { reason: "a different reason" }),
+    E("3", "2026-08-22T02:02:00Z", "agent", "a", "creative.paused", { reason: "CTR fell below its own peak" }),
   ]);
   assert.equal(folded.unattended[0].count, 3);
+  assert.equal(folded.unattended[0].ids[0], "3", "the fixture no longer puts the newest entry first");
   assert.equal(folded.unattended[0].reason, undefined, "one entry's reason was applied to three actions");
 });
 
