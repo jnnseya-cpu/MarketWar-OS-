@@ -25,10 +25,9 @@ enforced by `scripts/check-layers.mjs`. 219 backend modules, 45 shared modules,
 of the whole growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
-`claude/marketwar-os-platform-xrgg5r` is identical except for the **Next 15 /
-React 19** upgrade — verified by diffing the two, which returns only
-`package.json`, `next.config.mjs` and the eight files that await `params`.
-Everything else is on both. See §5 item 1.
+the dev branch is identical except for the **Next 15 / React 19** upgrade —
+diffing them returns only `package.json`, `next.config.mjs` and the eight files
+that await `params`. See §5 item 1.
 
 ---
 
