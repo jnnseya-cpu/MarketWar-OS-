@@ -17482,3 +17482,118 @@ test("board: what has not moved is the thing it reports", () => {
 
   assert.match(ob.boardView([], NOW).headline, /Nothing on the board yet/);
 });
+
+// ---------------------------------------------------------------------------
+// §70 — THE ACTIVITY FEED, and §89 — MAY WE LEARN FROM YOUR WORK.
+// ---------------------------------------------------------------------------
+const feed = await import("../src/shared/activity-feed.ts");
+
+const E = (id, at, actorType, actor, action, extra = {}) =>
+  ({ id, at, actorType, actor, action, resource: "thing", ...extra });
+
+test("feed: what ran on its own is separated from what you did", () => {
+  const f = feed.buildFeed([
+    E("1", "2026-08-22T02:00:00Z", "agent", "orchestrator", "publication.claimed"),
+    E("2", "2026-08-22T09:00:00Z", "user", "uid:me", "campaign.created"),
+    E("3", "2026-08-22T02:00:00Z", "system", "cron", "email.sent"),
+  ]);
+  assert.deepEqual(f.unattended.map((e) => e.action).sort(), ["email.sent", "publication.claimed"]);
+  assert.deepEqual(f.yours.map((e) => e.action), ["campaign.created"]);
+  assert.ok(f.unattended.every((e) => e.unattended === true));
+  assert.match(f.headline, /2 things happened without anyone asking/);
+});
+
+test("feed: runs are folded with a real count, and never across days", () => {
+  const f = feed.buildFeed([
+    E("1", "2026-08-22T02:00:00Z", "agent", "orchestrator", "publication.claimed"),
+    E("2", "2026-08-22T02:05:00Z", "agent", "orchestrator", "publication.claimed"),
+    E("3", "2026-08-22T02:09:00Z", "agent", "orchestrator", "publication.claimed"),
+    E("4", "2026-08-21T23:50:00Z", "agent", "orchestrator", "publication.claimed"),
+  ]);
+  assert.equal(f.unattended.length, 2, "entries from two different days were folded into one line");
+  assert.equal(f.unattended[0].count, 3);
+  assert.equal(f.unattended[0].text, "Published 3 posts");
+  assert.deepEqual(f.unattended[0].ids, ["3", "2", "1"], "the fold must keep every id it covers");
+  assert.equal(f.unattended[1].count, 1);
+  assert.equal(f.unattended[1].text, "Published a post");
+});
+
+test("feed: an action with no phrasing is shown, not hidden", () => {
+  const f = feed.buildFeed([
+    E("1", "2026-08-22T02:00:00Z", "agent", "orchestrator", "budget.rebalanced.overnight"),
+  ]);
+  assert.equal(f.unattended.length, 1, "an unmapped event was dropped — that is the one that went wrong");
+  assert.equal(f.unattended[0].recognised, false);
+  assert.match(f.unattended[0].text, /budget rebalanced overnight/);
+  assert.deepEqual(f.unmappedActions, ["budget.rebalanced.overnight"]);
+});
+
+test("feed: a reason is carried only when one entry had one", () => {
+  const single = feed.buildFeed([
+    E("1", "2026-08-22T02:00:00Z", "agent", "a", "creative.paused", { reason: "CTR fell below its own peak" }),
+  ]);
+  assert.equal(single.unattended[0].reason, "CTR fell below its own peak");
+
+  // A reason attached to a fold of three would be describing the wrong thing.
+  const folded = feed.buildFeed([
+    E("1", "2026-08-22T02:00:00Z", "agent", "a", "creative.paused", { reason: "CTR fell" }),
+    E("2", "2026-08-22T02:01:00Z", "agent", "a", "creative.paused", { reason: "different reason" }),
+    E("3", "2026-08-22T02:02:00Z", "agent", "a", "creative.paused"),
+  ]);
+  assert.equal(folded.unattended[0].count, 3);
+  assert.equal(folded.unattended[0].reason, undefined, "one entry's reason was applied to three actions");
+});
+
+test("feed: nothing at all, and nothing unattended, say different things", () => {
+  assert.match(feed.buildFeed([]).headline, /Nothing has happened yet/);
+  const onlyMine = feed.buildFeed([E("1", "2026-08-22T09:00:00Z", "user", "uid:me", "campaign.created")]);
+  assert.match(onlyMine.headline, /Nothing ran on its own/);
+});
+
+const tc = await import("../src/shared/training-consent.ts");
+
+test("consent: the absence of a decision is a no, and says which kind of no", () => {
+  const fresh = tc.initialConsent("w1");
+  const d = tc.mayUseForTraining(fresh);
+  assert.equal(d.allowed, false, "a workspace nobody asked was treated as consenting");
+  assert.equal(d.state, "never_asked");
+  assert.match(d.reason, /Absence of a decision is not permission/);
+
+  // No record at all behaves identically — a missing row is not a yes.
+  assert.equal(tc.mayUseForTraining(null).allowed, false);
+  assert.equal(tc.mayUseForTraining(undefined).state, "never_asked");
+
+  // "Never asked" and "refused" are different answers.
+  const refused = tc.setConsent(fresh, "refused", { by: "uid:owner", at: "2026-08-22T00:00:00Z" });
+  assert.equal(refused.ok, true);
+  const rd = tc.mayUseForTraining(refused.record);
+  assert.equal(rd.state, "refused");
+  assert.match(rd.reason, /Do not ask again/);
+});
+
+test("consent: a decision must be attributed", () => {
+  const r = tc.setConsent(tc.initialConsent("w1"), "granted", { by: "  ", at: "2026-08-22T00:00:00Z" });
+  assert.equal(r.ok, false, "consent was changed with nobody's name against it");
+  assert.match(r.error, /is not a decision, it is an edit/);
+});
+
+test("consent: withdrawing stops future use and does not pretend to undo the past", () => {
+  const granted = tc.setConsent(tc.initialConsent("w1"), "granted", { by: "uid:owner", at: "2026-06-01T00:00:00Z" });
+  assert.equal(tc.mayUseForTraining(granted.record).allowed, true);
+  assert.equal(granted.record.firstGrantedAt, "2026-06-01T00:00:00Z");
+
+  const withdrawn = tc.setConsent(granted.record, "withdrawn", { by: "uid:owner", at: "2026-08-22T00:00:00Z" });
+  assert.equal(withdrawn.ok, true);
+  assert.equal(tc.mayUseForTraining(withdrawn.record).allowed, false);
+  assert.match(withdrawn.note, /from now on/);
+  // The honest part: no claim that anything already trained on can be undone.
+  assert.match(withdrawn.irreversible, /cannot be taken back out/);
+  assert.match(withdrawn.irreversible, /2026-06-01/);
+  assert.ok(!/delete|erase|removed from the model/i.test(withdrawn.irreversible),
+    "a promise was made that nobody can keep");
+
+  // Withdrawing something never granted is refused rather than recorded.
+  const nothing = tc.setConsent(tc.initialConsent("w2"), "withdrawn", { by: "uid:owner", at: "2026-08-22T00:00:00Z" });
+  assert.equal(nothing.ok, false);
+  assert.match(nothing.error, /nothing to withdraw/i);
+});
