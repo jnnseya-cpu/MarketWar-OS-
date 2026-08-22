@@ -151,3 +151,21 @@ export const KPI_DOCTRINE = [
   "The regeneration rate is the best proxy the platform has for whether its output is any good, and lower is better — it is stated that way so nobody optimises it upwards.",
   "With no customers, 'none of these can be reported' is the honest answer rather than a fault.",
 ];
+
+/**
+ * How a KPI is written on a screen.
+ *
+ * A VALUE RATHER THAN A TERNARY IN A COMPONENT, and for the reason the recorder
+ * taught: a rule that lives only in JSX can only be checked by matching the
+ * shape of the JSX, which is not a test of anything. Here the null case is a
+ * branch that can be called with null and asserted.
+ *
+ * A withheld figure never reaches a number formatter — it is written as what it
+ * is, with how far off it is.
+ */
+export function formatKpiValue(k: Pick<Kpi, "value" | "unit" | "observations" | "required">): string {
+  if (k.value === null || !Number.isFinite(k.value as number)) {
+    return `not enough yet · ${k.observations}/${k.required}`;
+  }
+  return k.unit === "days" ? `${k.value} days` : `${k.value}%`;
+}

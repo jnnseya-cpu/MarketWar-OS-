@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2, ShieldAlert, TrendingUp } from "lucide-react";
 import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import ProductKpis from "@/components/ProductKpis";
 import AdminInvites from "@/components/AdminInvites";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -171,6 +172,9 @@ export default function AdminPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="card p-5">
               <div className="mb-3 flex items-center gap-2">
+          {/* Whether the PRODUCT works, as opposed to the money. */}
+          <ProductKpis />
+
                 <ShieldAlert className="h-4 w-4 text-rose-400" />
                 <h2 className="font-display font-bold text-white">Kill-switches & governance</h2>
               </div>

@@ -18215,3 +18215,53 @@ test("autonomy surface: the limits are on the autopilot screen and validated as 
   assert.ok(/setLevel/.test(page) && /setBudget/.test(page) && /setLimits/.test(page),
     "the limits are not next to the level and the budget");
 });
+
+// ---------------------------------------------------------------------------
+// §98's SURFACE — and the instrumentation gap it makes visible.
+// ---------------------------------------------------------------------------
+test("product kpis: the route reports what it can measure and what it cannot", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/admin-economics/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/admin-economics", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "product-kpis" }),
+  }));
+  assert.equal(res.status, 200);
+  const d = await res.json();
+
+  assert.equal(d.kpis.length, 4);
+  // Nothing may be reported as a figure it has not got the observations for.
+  for (const k of d.kpis) {
+    if (k.value !== null) assert.ok(k.observations >= k.required, `${k.id} reported a value from ${k.observations} observations`);
+    else assert.ok(k.note.length > 20, `${k.id} is withheld and does not say what it needs`);
+  }
+
+  // THE GAP IS NAMED. Three of the four are not instrumented, and saying so is
+  // more useful than four invented numbers that would look like measurement.
+  assert.ok(Array.isArray(d.instrumentation.missing) && d.instrumentation.missing.length >= 3,
+    "the instrumentation gap is not stated, so an empty panel reads as a broken one");
+  assert.ok(d.instrumentation.missing.some((m) => /first campaign|first lead/i.test(m)));
+  assert.ok(d.instrumentation.missing.some((m) => /[Rr]egeneration/.test(m)));
+  assert.ok(d.instrumentation.missing.some((m) => /publication ledger|[Pp]ublish/.test(m)));
+});
+
+test("product kpis: the panel shows a withheld figure as withheld, never as zero", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/ProductKpis.tsx", import.meta.url), "utf8"));
+  // The wording itself moved into the shared formatter and is asserted there,
+  // so the panel is checked for USING it rather than for containing the string.
+  assert.match(panel, /k\.value === null/, "the panel does not distinguish a withheld figure from a real one");
+  assert.match(panel, /instrumentation\.missing\.map/, "the panel hides what is still needed");
+  // A withheld figure must never reach a number formatter. Checked as a VALUE
+  // rather than by matching the shape of the JSX — the first version of this
+  // assertion was a regex over the component's own markup, which tests nothing
+  // and failed for reasons unrelated to any defect.
+  assert.match(panel, /formatKpiValue\(k\)/, "the panel formats KPI values inline instead of using the shared formatter");
+  assert.equal(kpi.formatKpiValue({ value: null, unit: "percent", observations: 2, required: 5 }), "not enough yet · 2/5");
+  assert.equal(kpi.formatKpiValue({ value: 60, unit: "percent", observations: 5, required: 5 }), "60%");
+  assert.equal(kpi.formatKpiValue({ value: 3, unit: "days", observations: 5, required: 5 }), "3 days");
+  // NaN is withheld too — a broken number is not a measurement either.
+  assert.match(kpi.formatKpiValue({ value: NaN, unit: "days", observations: 9, required: 5 }), /not enough yet/);
+
+  const admin = codeOf(readFileSync(new URL("../src/app/dashboard/admin/page.tsx", import.meta.url), "utf8"));
+  assert.match(admin, /<ProductKpis \/>/, "the panel exists and nothing renders it");
+});
