@@ -17462,9 +17462,23 @@ test("board: what has not moved is the thing it reports", () => {
 
   // Longest-waiting first inside a column — the thing sitting there is the
   // thing worth looking at, not the newest arrival.
-  const inProgress = view.columns.find((c) => c.column === "in_progress");
-  assert.deepEqual(inProgress.items.map((i) => i.id), ["b"]);
+  //
+  // TWO items in the column, deliberately. The first version of this assertion
+  // had one, so reversing the sort changed nothing and the mutation survived: a
+  // single-element list is sorted correctly by every comparator there is.
+  const alsoInProgress = ob.move(
+    ob.move(
+      ob.createItem({ id: "d", topic: "Newer in-progress thing", at: "2026-08-18T00:00:00Z" }),
+      "chosen", { at: "2026-08-18T12:00:00Z", by: "you" },
+    ).item,
+    "in_progress", { at: "2026-08-19T00:00:00Z", by: "you" },
+  ).item;
+  const view2 = ob.boardView([fresh, rotting, finished, alsoInProgress], NOW);
+  const inProgress = view2.columns.find((c) => c.column === "in_progress");
+  assert.deepEqual(inProgress.items.map((i) => i.id), ["b", "d"],
+    "the newest arrival was put above the one that has been sitting there for weeks");
   assert.equal(inProgress.items[0].daysInColumn, 51);
+  assert.equal(inProgress.items[1].daysInColumn, 3);
 
   assert.match(ob.boardView([], NOW).headline, /Nothing on the board yet/);
 });
