@@ -17466,3 +17466,107 @@ test("adaptation: the summary counts and does not flatter", () => {
   );
   assert.match(adapt.adaptationSummary(mixed), /needed changes, all listed/);
 });
+
+// ---------------------------------------------------------------------------
+// §92 — SEARCHING THE CUSTOMER'S OWN WORK.
+//
+// search.ts is WEB search. Nothing searched the things the customer made, so
+// finding last month's campaign meant remembering which screen it was on.
+// ---------------------------------------------------------------------------
+const es = await import("../src/shared/entity-search.ts");
+
+const ENTITIES = [
+  { id: "1", kind: "approval", title: "Spring hero video", subtitle: "in review", body: "Check the offer line before it goes out", href: "/dashboard/approvals", at: "2026-08-01T00:00:00Z" },
+  { id: "2", kind: "experiment", title: "Free delivery over fifty pounds", subtitle: "tried and won", body: "price angle", href: "/dashboard/experiments", at: "2026-07-01T00:00:00Z" },
+  { id: "3", kind: "brand_fact", title: "audience age band", subtitle: "measured", body: "Mostly 35 to 54 in the spring survey", href: "/dashboard/brand-brain", at: "2026-08-10T00:00:00Z" },
+  { id: "4", kind: "approval", title: "Autumn teaser", subtitle: "draft", body: "Nothing to do with spring at all", href: "/dashboard/approvals", at: "2026-08-20T00:00:00Z" },
+];
+
+test("search: every term must appear, or a two-word query returns the account", () => {
+  // "spring" alone is in three of the four.
+  const one = es.searchEntities("spring", ENTITIES);
+  assert.equal(one.hits.length, 3);
+
+  // Both words: only the entity that has both.
+  const two = es.searchEntities("spring video", ENTITIES);
+  assert.deepEqual(two.hits.map((h) => h.id), ["1"]);
+  assert.deepEqual(two.hits[0].matchedWords.sort(), ["spring", "video"]);
+});
+
+test("search: where it matched decides the order, recency only breaks ties", () => {
+  const r = es.searchEntities("spring", ENTITIES);
+  // Entity 4 is the NEWEST but only mentions spring in its body; entity 1 has it
+  // in the title. A newer irrelevant thing must never outrank an older exact one.
+  assert.equal(r.hits[0].id, "1", "a body match outranked a title match on recency");
+  assert.ok(r.hits[0].matchedOn.includes("title"));
+  // The two body-only matches tie on field and fall back to recency, so the
+  // newer one comes first. What must NOT happen is either of them leading.
+  assert.deepEqual(r.hits.slice(1).map((h) => h.id), ["4", "3"]);
+  assert.ok(r.hits.slice(1).every((h) => !h.matchedOn.includes("title")));
+
+  // An exact phrase beats everything.
+  const phrase = es.searchEntities("free delivery", ENTITIES);
+  assert.equal(phrase.hits[0].id, "2");
+  assert.ok(phrase.hits[0].matchedOn.includes("exact_phrase"));
+});
+
+test("search: no relevance score is invented anywhere", () => {
+  // COMMENTS STRIPPED FIRST. This is the fourth test in this suite to fail on
+  // prose describing the very thing it forbids — the file explains that a
+  // relevance score is deliberately absent, and the scan found the explanation.
+  // Code is what is checked; the comment is checked separately, below.
+  const raw = readFileSync(new URL("../src/shared/entity-search.ts", import.meta.url), "utf8");
+  const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  // And it forbids the THING, not the word. The first version banned
+  // "relevance" outright and then tripped on the doctrine line that says a
+  // relevance percentage is deliberately absent. What must not exist is a
+  // NUMBER: a computed score, ratio or percentage attached to a result.
+  assert.ok(!/\b(relevance|score|confidence|match(Score|Pct|Percent))\s*[:=]\s*[\d(]/i.test(src),
+    "a numeric relevance score is computed — that is a figure nothing measured");
+  assert.ok(!/Math\.round\([^)]*\/\s*terms\.length/.test(src), "a match percentage is being derived from the term count");
+  assert.match(raw, /NO RELEVANCE PERCENTAGE/, "the rule is no longer written down, so stripping comments would pass vacuously");
+  const hit = es.searchEntities("spring", ENTITIES).hits[0];
+  assert.ok(!("score" in hit) && !("relevance" in hit));
+  // What it DOES carry is where it matched and which words were found.
+  assert.ok(Array.isArray(hit.matchedOn) && hit.matchedOn.length > 0);
+  assert.ok(Array.isArray(hit.matchedWords));
+  assert.ok(hit.href, "a result you cannot click is a result you cannot use");
+});
+
+test("search: common words are dropped, and the drop is said out loud", () => {
+  const { terms, ignored } = es.queryTerms("the spring video for our brand");
+  assert.deepEqual(terms, ["spring", "video", "brand"]);
+  assert.ok(ignored.includes("the") && ignored.includes("for") && ignored.includes("our"));
+
+  // A query made entirely of common words is refused with a reason, not run.
+  const useless = es.searchEntities("the and for", ENTITIES);
+  assert.deepEqual(useless.hits, []);
+  assert.match(useless.headline, /appear everywhere/);
+  assert.equal(useless.terms.length, 0);
+});
+
+test("search: an empty result says what was searched, so it is not mistaken for an empty account", () => {
+  const none = es.searchEntities("submarine", ENTITIES);
+  assert.deepEqual(none.hits, []);
+  assert.match(none.headline, /Nothing in your 4 saved items contains "submarine"/);
+  assert.equal(none.totalSearched, 4);
+});
+
+test("search: one broken source never empties the whole result", async () => {
+  const gs = await import("../src/backend/global-search.ts");
+  const approvalsMod = await import("../src/backend/approvals.ts");
+  await approvalsMod.createItem({
+    brandId: "search-brand", title: "Winter lookbook shoot",
+    description: "Book the studio", createdBy: "you", nowISO: new Date().toISOString(),
+  });
+
+  const r = await gs.globalSearch({ brandId: "search-brand", query: "winter lookbook" });
+  assert.ok(r.hits.some((h) => h.title === "Winter lookbook shoot"), "the approval was not searchable");
+  assert.equal(r.hits[0].kind, "approval");
+
+  // The gatherers are individually wrapped, so a thrown source is NAMED rather
+  // than turning the whole search into an empty account.
+  const src = readFileSync(new URL("../src/backend/global-search.ts", import.meta.url), "utf8");
+  assert.match(src, /unavailable\.push\(g\.name\)/, "a failing source is swallowed silently");
+  assert.match(src, /could not be read/, "the caller is not told the result is incomplete");
+});
