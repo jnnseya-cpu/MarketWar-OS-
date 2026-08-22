@@ -125,9 +125,50 @@ export async function POST(req: NextRequest) {
     }
   } catch { /* a failed record must never cost the visitor their report */ }
 
+  // AND ACTUALLY SEND IT.
+  //
+  // The form says "One address, used to send you this report". Recording the
+  // prospect and rendering the findings on the page satisfied us and not them:
+  // the visitor was told something would arrive, and nothing ever did. It is
+  // sent here, and whether it went is reported back rather than assumed — with
+  // no sending server the send is refused, and saying "check your inbox" then
+  // would be the same broken promise with extra steps.
+  let emailed = false;
+  let emailNote = "";
+  try {
+    const { sendEmail } = await import("@/backend/email");
+    const { auditEmailHtml, auditEmailSubject } = await import("@/shared/audit-email");
+    const finalUrl = report.finalUrl || report.url;
+    const sent = await sendEmail({
+      to: email,
+      subject: auditEmailSubject({ url: finalUrl, score: report.score }),
+      html: auditEmailHtml({
+        url: finalUrl,
+        score: report.score,
+        grade: report.grade,
+        findings: measured.map((f) => ({ area: f.area, label: f.label, severity: f.severity, detail: f.detail })),
+        unmeasuredCount: ranked.filter((f) => f.measured === false).length,
+        title: report.title,
+      }),
+      // They asked for this specific document, one time. That is transactional,
+      // and it must not be stoppable by a marketing halt — a stranger left
+      // holding nothing is exactly the reputational damage the stop exists to
+      // avoid causing.
+      transactional: true,
+    });
+    emailed = sent.ok;
+    if (!sent.ok) emailNote = sent.failure === "not_configured" ? "no sending server is configured on this deployment" : sent.detail;
+  } catch (e) {
+    emailNote = e instanceof Error ? e.message : "the send failed";
+  }
+
   return NextResponse.json({
     ok: true,
     gated: false,
+    // Whether the promise on the form was kept. The page reads this instead of
+    // telling everybody to check an inbox nothing was sent to.
+    emailed,
+    emailNote,
     url: report.finalUrl || report.url,
     score: report.score,
     grade: report.grade,

@@ -3534,8 +3534,14 @@ test("email send: it stops cleanly and reports what really went out", () => {
 test("email send: warm-up is credited before the response, so a retry cannot double-send", () => {
   const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
   const record = src.indexOf("recordWarmupSends(brandId, today, sent)");
-  const respond = src.indexOf("return NextResponse.json({\n      mode: emailConfigured");
-  assert.ok(record > -1 && respond > -1 && record < respond,
+  // Anchored on a field unique to the campaign response rather than on the exact
+  // text of its first line: this test broke on an edit that changed the wording
+  // and not the ordering, which is a test failing for a reason unrelated to what
+  // it tests — the second defect class in STATE.md §6, in a test guarding the first.
+  const respond = src.indexOf("sendMode: lastBatchMode");
+  assert.ok(record > -1, "the warm-up allowance is no longer credited at all");
+  assert.ok(respond > -1, "the campaign response is gone");
+  assert.ok(record < respond,
     "what was delivered must be counted BEFORE the reply, or a timeout loses the tally");
 });
 
@@ -18474,4 +18480,316 @@ test("included: the section is on the page, above the price", () => {
     "the value argument is below the price — that is the wrong order for it");
   // The limit is rendered, not just stored.
   assert.match(page, /t\.limit &&/, "the honest limit is stored and never shown");
+});
+
+// ---------------------------------------------------------------------------
+// MAIL THAT NEVER LEFT THE MACHINE MUST NEVER REPORT ITSELF AS SENT.
+//
+// The owner's report: "all messages send never reached inbox and user never had
+// a feedback or anything back to his inbox". Two causes, both live:
+//
+//   1. `sendEmail` returned `ok: true` in demo mode, for a message sent to
+//      nobody. Every counter, metric, digest and screen downstream inherited it,
+//      so a deployment with no sending server reported campaigns as sent.
+//   2. The free audit asked for an address with the words "used to send you this
+//      report" and never called the email module at all.
+//
+// These tests are the ones that would have caught either.
+// ---------------------------------------------------------------------------
+
+test("email: with no provider configured, a send is NOT reported as ok", async () => {
+  const mail = await import("../src/backend/email.ts");
+  const stopMod = await import("../src/backend/emergency-stop.ts");
+  stopMod.__resetEmergencyStop();
+
+  // The test environment has no sending server, which is the exact condition.
+  assert.equal(mail.emailIsConfigured(), false, "this test only means something with no provider configured");
+
+  const r = await mail.sendEmail({ to: "someone@example.com", subject: "s", html: "<p>x</p>", transactional: true });
+  assert.equal(r.ok, false, "a message that was sent to nobody reported ok — this is the whole defect");
+  assert.equal(r.mode, "demo");
+  assert.equal(r.failure, "not_configured", "the reason must be distinguishable from a bad address");
+  assert.equal(r.id, null, "an id implies a provider accepted it; none did");
+  // And it must say what to do, because "demo" alone told nobody anything.
+  assert.match(r.detail, /MW_SENDING_POOL|SMTP_HOST|RESEND_API_KEY|SENDGRID_API_KEY/,
+    "the refusal does not name a single thing the owner could set");
+});
+
+test("email: a batch with no provider reports every address as not sent", async () => {
+  const mail = await import("../src/backend/email.ts");
+  const stopMod = await import("../src/backend/emergency-stop.ts");
+  stopMod.__resetEmergencyStop();
+
+  const out = await mail.sendEmailBatch([
+    { to: "a@example.com", subject: "s", html: "<p>a</p>" },
+    { to: "b@example.com", subject: "s", html: "<p>b</p>" },
+  ]);
+  assert.equal(out.length, 2);
+  assert.ok(out.every((r) => r.ok === false), "a batch reported sends that never happened");
+  assert.ok(out.every((r) => r.failure === "not_configured"), "the batch path lost the reason the single path carries");
+});
+
+test("email: 'not configured' is never the same outcome as a bad address", async () => {
+  const mail = await import("../src/backend/email.ts");
+  const stopMod = await import("../src/backend/emergency-stop.ts");
+  stopMod.__resetEmergencyStop();
+
+  // A genuinely unsendable address is refused BEFORE the provider check, and it
+  // must stay distinguishable — one means clean your list, the other means set
+  // an environment variable, and treating them alike sends people to the wrong
+  // job entirely.
+  const bad = await mail.sendEmail({ to: "not-an-address", subject: "s", html: "<p>x</p>" });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.failure, "hygiene", "a malformed address was folded in with a missing provider");
+
+  const fine = await mail.sendEmail({ to: "someone@example.com", subject: "s", html: "<p>x</p>", transactional: true });
+  assert.equal(fine.failure, "not_configured");
+  assert.notEqual(bad.failure, fine.failure, "the two causes are indistinguishable to any caller");
+});
+
+test("email: the send route never counts unsent mail as sent, failed, or spent", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  const code = codeOf(route);
+
+  // Counted apart. Folding these into `failed` is what sent somebody off to
+  // clean a list that was never the problem.
+  assert.match(code, /notConfigured\+\+/, "unsent-because-unconfigured is not counted separately");
+  assert.match(code, /failure === "not_configured"/, "the route does not read the reason the facade gives it");
+  // `attempted` must not absorb it — nothing was attempted for those addresses.
+  assert.match(code, /const attempted = sent \+ failed;/, "attempted now includes addresses nothing was tried for");
+  assert.ok(!/sent \+ failed \+ notConfigured|notConfigured \+ sent/.test(code),
+    "unattempted addresses were added into an attempt count");
+});
+
+test("email: the status endpoint answers NOW, not at import time", () => {
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  const get = codeOf(route).split("export async function GET")[1] || "";
+  assert.ok(get, "the status endpoint is gone");
+  // The frozen constant cannot answer "I set the variable, is it live now?"
+  assert.ok(!/emailConfigured \?/.test(get), "the status endpoint reads a constant frozen at import");
+  assert.match(get, /emailIsConfigured|activeEmailProvider/, "the status endpoint does not ask on demand");
+  // And it must state the consequence rather than the word "demo", which every
+  // reader has taken to mean "fine, it is simulating".
+  assert.match(get, /willAnythingArrive|toGoLive/, "the status endpoint reports a mode and no consequence");
+});
+
+test("email: every decision inside the facade asks on demand", () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8"));
+  // The constants stay exported — other modules import them and nothing
+  // delivered is removed — but no BRANCH may be taken on one, or setting the
+  // variable will not change behaviour until the process restarts.
+  assert.ok(!/if \(smtpConfigured\)|if \(!emailConfigured\)|smtpConfigured \?/.test(src),
+    "a send decision still branches on a constant frozen at import");
+  assert.match(src, /if \(!emailIsConfigured\(\)\)/, "the demo check does not ask on demand");
+  assert.match(src, /if \(poolConfigured\(\)\)/, "the SMTP check does not ask on demand");
+});
+
+test("audit: the report the form promises is actually sent", () => {
+  const route = readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8");
+  const code = codeOf(route);
+  // The defect was that this file never mentioned email at all.
+  assert.match(code, /sendEmail\(/, "the audit collects an address to send a report and never sends one");
+  assert.match(code, /auditEmailHtml/, "the audit sends something other than the report it measured");
+  assert.match(code, /transactional: true/, "the report a stranger asked for can be swallowed by a marketing halt");
+  // And the outcome is reported rather than assumed.
+  assert.match(code, /emailed/, "whether the promise was kept is never reported back");
+});
+
+test("audit: the page states which happened instead of promising an inbox", () => {
+  const ui = readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8");
+  assert.match(ui, /report\.emailed/, "the page tells everybody to check an inbox regardless of whether anything was sent");
+  // Both branches must exist — a component that only ever says "sent" is the
+  // broken promise again.
+  const full = ui.split("{full && (")[1] || "";
+  assert.match(full, /could not email/i, "there is no wording for the case where nothing was sent");
+});
+
+test("audit email: a hostile page title cannot inject markup into the inbox", async () => {
+  const { auditEmailHtml, escapeHtml } = await import("../src/shared/audit-email.ts");
+  // The visitor names a URL and we fetch it, so the title and every finding
+  // detail come from a page we do not control. The recipient of this email never
+  // even visited it.
+  const html = auditEmailHtml({
+    url: "https://example.com/x?a=1&b=2",
+    score: 62,
+    grade: "C",
+    title: `</h1><script>alert(1)</script>`,
+    findings: [{ area: "SEO", label: `<img src=x onerror=alert(2)>`, severity: "fail", detail: `"><script>alert(3)</script>` }],
+  });
+  // FORBID THE TAG, NOT THE WORD. `onerror=` survives escaping as inert text and
+  // asserting on the substring fails on correctly-escaped output — which is the
+  // repository's own recorded lesson about tests that check the wrong thing.
+  // What must not exist is a TAG that a mail client would act on.
+  assert.ok(!/<script/i.test(html), "a script tag from a crawled page reached the email body");
+  assert.ok(!/<img/i.test(html), "an img tag from a crawled page reached the email body");
+  // And prove the escaping is why, rather than the payload having been dropped:
+  // silently discarding it would also pass the two checks above.
+  assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), "the hostile title was not escaped into the body");
+  assert.ok(html.includes("&lt;img src=x onerror=alert(2)&gt;"), "the hostile finding label was not escaped into the body");
+  // The ampersand in the real URL must survive as an entity, not as a raw &.
+  assert.ok(!/a=1&b=2/.test(html) && /a=1&amp;b=2/.test(html), "the URL was not escaped");
+  // All five, in one string, checked against the literal expected output — an
+  // assertion that compares the function to itself proves nothing.
+  assert.equal(escapeHtml(`<a href="x">&'`), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+});
+
+test("audit email: it reports only what was measured, and says so", async () => {
+  const { auditEmailHtml, auditEmailSubject, hostOf } = await import("../src/shared/audit-email.ts");
+  const html = auditEmailHtml({
+    url: "https://www.example.com/page",
+    score: 71,
+    grade: "B",
+    findings: [
+      { area: "SEO", label: "No meta description", severity: "fail", detail: "The page has none." },
+      { area: "Mobile", label: "Viewport set", severity: "pass", detail: "Correct." },
+    ],
+    unmeasuredCount: 3,
+  });
+  // An unread check is not a failed check, and the email must not blur them.
+  assert.match(html, /3 further checks could not be read/);
+  assert.match(html, /left out of the score entirely rather than counted against you/);
+  // The counts in the headline are derived from the findings, not passed in.
+  assert.match(html, /1 thing is costing you traffic/, "the headline count is not derived from the findings");
+  assert.equal(hostOf("https://www.example.com/page"), "example.com");
+  assert.match(auditEmailSubject({ url: "https://www.example.com/p", score: 71 }), /example\.com scored 71\/100/);
+});
+
+test("audit: the send actually RUNS — proved by the outcome, not by a grep", async () => {
+  // A source grep for `sendEmail(` survives a mutation that keeps the call in
+  // the file and never executes it. This drives the real handler against a real
+  // local page and reads a value only the send itself can produce: with no
+  // provider configured the facade returns `not_configured`, and the route turns
+  // that into this exact note. A route that skips the send cannot produce it.
+  const { NextRequest } = await import("next/server");
+  const auditRoute = await import("../src/app/api/audit/route.ts");
+
+  await withStallingServer(
+    (req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><html lang="en"><head><title>A Real Page</title>
+        <meta name="description" content="Something to measure."></head>
+        <body><h1>Hello</h1><p>${"word ".repeat(60)}</p></body></html>`);
+    },
+    async (base) => {
+      const res = await auditRoute.POST(new NextRequest("https://mw.test/api/audit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: base, email: "visitor@example.com" }),
+      }));
+      const d = await res.json();
+      assert.equal(d.ok, true, "the audit itself did not run");
+      assert.equal(d.gated, false, "the full report was withheld from somebody who gave an address");
+
+      // THE WIRING PROOF. This deployment has no sending server, so the honest
+      // outcome is "not sent, and here is why" — and only a send that ran can
+      // report it.
+      assert.equal(d.emailed, false, "a send was reported as succeeding with no provider configured");
+      assert.match(d.emailNote, /no sending server is configured/i,
+        "the route never actually called the send — the report the form promised is not being produced");
+
+      // AND IT SURVIVES THE EMERGENCY STOP. A stranger asked for one specific
+      // document about their own website; leaving them with nothing because
+      // somebody paused the marketing is exactly the reputational damage the
+      // stop exists to prevent causing. Checked by behaviour, because a grep for
+      // `transactional: true` passes on any file that merely contains the words.
+      const stopMod = await import("../src/backend/emergency-stop.ts");
+      stopMod.__resetEmergencyStop();
+      await stopMod.engage({ reason: "wrong list loaded", engagedBy: "owner" });
+      try {
+        const halted = await auditRoute.POST(new NextRequest("https://mw.test/api/audit", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: base, email: "second@example.com" }),
+        }));
+        const h = await halted.json();
+        assert.match(h.emailNote, /no sending server is configured/i,
+          "the visitor's own report was swallowed by the marketing emergency stop");
+      } finally {
+        stopMod.__resetEmergencyStop();
+      }
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// THE PUBLIC AUDIT MUST NOT FETCH THE INSIDE OF THE NETWORK.
+//
+// /api/audit is unauthenticated and fetches whatever address it is handed —
+// that is the point of a free website audit. It rate-limited the CALLER and
+// never checked the DESTINATION, and it returns the page's title, description
+// and content in the response, so it was a request-forgery with the answer
+// handed back. The metadata service on 169.254.169.254 is the address that
+// matters: it issues cloud credentials to anything that asks.
+// ---------------------------------------------------------------------------
+
+test("audit guard: the addresses that must never be fetched", async () => {
+  const { blockedUrlReason, isPrivateAddress } = await import("../src/shared/net-guard.ts");
+
+  const mustBlock = [
+    "http://169.254.169.254/latest/meta-data/",   // AWS/most clouds: credentials
+    "http://metadata.google.internal/",           // GCP, by name
+    "http://127.0.0.1:8080/admin",
+    "http://[::1]:8080/",
+    "http://localhost:3000/",
+    "http://10.0.0.5/",
+    "http://192.168.1.1/",
+    "http://172.16.4.4/",
+    "http://0.0.0.0/",
+    "http://[::ffff:127.0.0.1]/",                 // IPv4-mapped loopback
+    "http://printer.local/",
+    "http://vault.internal/",
+    "file:///etc/passwd",
+    "gopher://evil/",
+  ];
+  for (const u of mustBlock) {
+    assert.ok(blockedUrlReason(u), `${u} would be fetched on a stranger's behalf`);
+  }
+
+  // And ordinary customer websites must still audit, or the guard has eaten the
+  // product. A blocklist that blocks everything passes every security test.
+  for (const u of ["https://evandeli.com/", "http://example.co.uk/page?q=1", "https://8.8.8.8/"]) {
+    assert.equal(blockedUrlReason(u), null, `${u} is a normal address and was refused`);
+  }
+
+  // The range checks themselves, including the boundaries where off-by-one hides.
+  assert.equal(isPrivateAddress("172.15.255.255"), false, "172.15 is public and was blocked");
+  assert.equal(isPrivateAddress("172.16.0.0"), true, "the private range starts at 172.16");
+  assert.equal(isPrivateAddress("172.31.255.255"), true, "the private range ends at 172.31");
+  assert.equal(isPrivateAddress("172.32.0.0"), false, "172.32 is public and was blocked");
+  assert.equal(isPrivateAddress("169.254.0.1"), true, "link-local is where cloud metadata lives");
+  assert.equal(isPrivateAddress("169.253.0.1"), false, "169.253 is public and was blocked");
+});
+
+test("audit guard: the loopback seam does not open the metadata address", async () => {
+  const { blockedUrlReason, blockedAddressReason } = await import("../src/shared/net-guard.ts");
+  // The suite serves a real page on 127.0.0.1, so loopback is permitted under
+  // the test runner. That relaxation must reach loopback and NOTHING else — if
+  // it ever widens to "private", this endpoint hands out cloud credentials.
+  const open = { allowLoopback: true };
+  assert.equal(blockedUrlReason("http://127.0.0.1:9/", open), null, "the test seam does not work");
+  assert.ok(blockedUrlReason("http://169.254.169.254/", open), "the test seam exposed the metadata service");
+  assert.ok(blockedUrlReason("http://10.0.0.1/", open), "the test seam exposed the private range");
+  assert.ok(blockedAddressReason("169.254.169.254", open), "a resolved metadata address passed the seam");
+});
+
+test("audit guard: a redirect cannot walk into the network", () => {
+  const src = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
+  const code = codeOf(src);
+  // `redirect: "follow"` hands the whole chain to the runtime, which asks
+  // nothing — so a public URL answering 302 to the metadata service is fetched
+  // with the first check already passed. Every hop has to be re-checked.
+  assert.ok(!/redirect: "follow"/.test(code), "redirects are followed without re-checking the destination");
+  assert.match(code, /redirect: "manual"/, "the redirect chain is not being walked by hand");
+  assert.match(code, /blockedUrlReason\(current/, "a redirect hop is not re-checked against the guard");
+  assert.match(code, /resolvesPublicly\(new URL\(current\)/, "a redirect hop is not re-resolved");
+  // A name is not enough: evil.example.com can hold an A record of 169.254.169.254.
+  assert.match(code, /dns/, "the hostname is never resolved, so only literal IPs are caught");
+});
+
+test("audit guard: a blocked address is refused before a socket opens, with a reason", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const r = await crawlSite("http://169.254.169.254/latest/meta-data/");
+  assert.equal(r.ok, false, "the metadata service was crawled");
+  assert.match(r.error || "", /private network/i, "refused, but the visitor is not told why");
+  assert.equal(r.findings.length, 0, "a refused crawl still produced findings");
 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { emailConfigured, filterList, sendEmail, sendEmailBatch, lastBatchMode, validateAttachments, type EmailAttachment } from "@/backend/email";
+import { emailConfigured, emailIsConfigured, filterList, sendEmail, sendEmailBatch, lastBatchMode, validateAttachments, type EmailAttachment } from "@/backend/email";
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
@@ -285,6 +285,9 @@ export async function POST(req: NextRequest) {
     const byEmail = new Map(eligible.map((c) => [(c.email as string).toLowerCase(), c]));
 
     let sent = 0, failed = 0;
+    // Addresses nothing was even attempted for, because this deployment has no
+    // sending server. Kept apart from `failed` so the two are never added up.
+    let notConfigured = 0;
     let stoppedEarly = false;
     const sendDeadline = Date.now() + SEND_BUDGET_MS;
     const failures: string[] = [];
@@ -328,11 +331,18 @@ export async function POST(req: NextRequest) {
       if (r.ok) {
         sent++;
         try { await recordEvent({ brandId, email: to, type: "sent", at: new Date().toISOString(), campaign }); } catch { /* stats best-effort */ }
+      } else if (r.failure === "not_configured") {
+        // NOT A FAILED ADDRESS. There is no sending server on this deployment,
+        // so this address was never contacted and nothing about it is wrong.
+        // Counting it as failed is what sent people off to clean a list that was
+        // fine, and it must not reach the metrics or the warm-up ledger either —
+        // an allowance spent on messages that do not exist is spent for real.
+        notConfigured++;
       } else {
         failed++; if (failures.length < 10) failures.push(to);
         // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
         // so it's never retried. Async bounces arrive via /api/webhooks/email.
-        if (r.provider !== "demo-pool" && (/\b5\d\d\b/.test(r.detail || "") || r.provider === "hygiene-filter")) {
+        if (/\b5\d\d\b/.test(r.detail || "") || r.failure === "hygiene") {
           try { await recordEvent({ brandId, email: to, type: "bounce", at: new Date().toISOString(), campaign }); } catch { /* best-effort */ }
         }
       }
@@ -340,14 +350,19 @@ export async function POST(req: NextRequest) {
     // Count what actually went out against today's warm-up allowance.
     if (sent > 0) { try { await recordWarmupSends(brandId, today, sent); } catch { /* counter best-effort */ } }
     const dailyRemaining = Math.max(0, warm.remaining - sent);
+    // `notConfigured` is NOT added in: nothing was attempted for those addresses.
     const attempted = sent + failed;
     // Anything the budget cut off is still sendable and must be counted as such,
     // or the customer thinks the campaign finished when most of it never went.
-    const notReached = batch.length - attempted;
+    const notReached = batch.length - attempted - notConfigured;
+    const live = emailIsConfigured();
     return NextResponse.json({
-      mode: emailConfigured ? "live" : "demo",
+      mode: live ? "live" : "demo",
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
       attempted, sent, failed, failures,
+      // Reported separately and never folded into `failed` — these addresses are
+      // still perfectly sendable the moment a sending server exists.
+      notConfigured,
       stoppedEarly, notReached,
       // Which path actually ran. Reported because the alternative is inferring it
       // from a throughput number, which is how a stale deploy and a real cap look
@@ -356,21 +371,39 @@ export async function POST(req: NextRequest) {
       remaining: Math.max(0, sendable.length - attempted),
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
-      note: emailConfigured
+      note: live
         ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
-        : "Demo mode — no sending server configured, so nothing left the machine. Set SMTP_HOST/USER/PASS to send for real.",
+        : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set MW_SENDING_POOL (or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then run this again and they all still go.`,
     });
   }
 
   return NextResponse.json({ error: "Unknown action — use validate, send or send_campaign" }, { status: 400 });
 }
 
+// THE ENDPOINT SOMEBODY OPENS WHEN NOTHING IS ARRIVING.
+//
+// It read the frozen import-time constants, so it could not answer the one
+// question worth asking here — "I set the variable, is it live NOW?" — and it
+// never said what to do about a "demo" it reported. Both fixed: asked on demand,
+// and it names the action.
 export async function GET() {
-  const { emailProvider } = await import("@/backend/email");
+  const { activeEmailProvider, emailIsConfigured: live } = await import("@/backend/email");
+  const provider = activeEmailProvider();
+  const configured = live();
   return NextResponse.json({
     engine: "M-34 AI Transactional Email Engine",
-    mode: emailConfigured ? "live" : "demo",
-    provider: emailProvider, // "smtp" | "resend" | "sendgrid" | "demo" — no credentials
+    mode: configured ? "live" : "demo",
+    provider, // "smtp" | "resend" | "sendgrid" | "demo" — never a credential
+    // Unambiguous, because "demo" has been read as "fine, it is simulating" by
+    // everyone who has ever looked at it, including while real campaigns were
+    // being reported as sent.
+    sending: configured,
+    willAnythingArrive: configured
+      ? "Yes — a provider is configured. Delivery still depends on SPF/DKIM/DMARC and reputation."
+      : "No. Nothing sent from this deployment reaches anybody, and every send is reported as not sent.",
+    toGoLive: configured
+      ? null
+      : "Set MW_SENDING_POOL (or SMTP_HOST + SMTP_USER + SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then redeploy and reopen this endpoint.",
     from: process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>",
     hygiene: ["syntax", "disposable-domain", "role-address", "suppression-ledger"],
     doctrine: "Inbox placement is earned: authentication + warm-up + consent + hygiene. Bounces are prevented pre-send and never repeated.",

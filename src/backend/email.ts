@@ -49,16 +49,33 @@ import { haltFor } from "@/backend/emergency-stop";
 // no pool configured it falls back to the single SMTP_* node — identical to the
 // original single-node behaviour, no extra infrastructure. Adding nodes is a
 // config change (MW_SENDING_POOL), not a code change.
-// Evaluated on demand, not frozen at module load. A module-level constant is
-// impossible to re-read, which turns "the variable is set but sending is still
-// in demo mode" into an unanswerable question.
-export const smtpConfigured = poolConfigured();
+// READ THESE ON DEMAND, NOT OFF THE CONSTANTS BELOW.
+//
+// The constants are frozen at import. The comment here used to claim they were
+// evaluated on demand, which was simply false, and it turned "I set the variable
+// and sending is still dark" into an unanswerable question. They are kept
+// because other modules import them and nothing delivered gets removed — but
+// every decision inside this file now calls the FUNCTIONS.
 export function emailIsConfigured(): boolean {
   return Boolean(poolConfigured() || process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
 }
+/** Snapshot at import. Prefer `poolConfigured()`. */
+export const smtpConfigured = poolConfigured();
+/** Snapshot at import. Prefer `emailIsConfigured()`. */
 export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
 
-// The active sending path, for status surfaces (never exposes credentials).
+/**
+ * The active sending path, asked NOW. Status surfaces must use this rather than
+ * the constant below, or they answer with whatever was true at import.
+ */
+export function activeEmailProvider(): "smtp" | "resend" | "sendgrid" | "demo" {
+  if (poolConfigured()) return "smtp";
+  if (process.env.RESEND_API_KEY) return "resend";
+  if (process.env.SENDGRID_API_KEY) return "sendgrid";
+  return "demo";
+}
+
+/** Snapshot at import. Prefer `activeEmailProvider()`. */
 export const emailProvider: "smtp" | "resend" | "sendgrid" | "demo" = smtpConfigured
   ? "smtp"
   : RESEND_KEY
@@ -648,12 +665,33 @@ async function sendViaSmtp(
 // ---------------------------------------------------------------------------
 
 export type SendResult = {
+  /**
+   * A PROVIDER ACCEPTED THIS MESSAGE FOR DELIVERY. Nothing weaker.
+   *
+   * This used to be `true` in demo mode, for a message that was never sent to
+   * anybody. Every counter, metric and digest downstream inherited that, so a
+   * deployment with no sending server reported campaigns as sent, recorded
+   * "sent" events against addresses that were never contacted, and burned the
+   * warm-up allowance — while not one message existed. The owner's report was
+   * "all messages send never reached inbox", and the platform's own screens had
+   * been agreeing that they had.
+   *
+   * `ok` therefore means accepted by a provider. It is never true for a message
+   * that did not leave the machine.
+   */
   ok: boolean;
   mode: "live" | "demo";
   provider: string;
   id: string | null;
   filteredOut: EmailVerdict[];
   detail: string;
+  /**
+   * WHY it did not go, when it did not. `not_configured` is deliberately its own
+   * value: "200 addresses failed" sends somebody off to clean their list, when
+   * the truth is that this deployment has no sending server and the list was
+   * never the problem.
+   */
+  failure?: "not_configured" | "halted" | "hygiene" | "provider";
 };
 
 /**
@@ -690,8 +728,8 @@ export async function sendEmailBatch(
   const halt = await haltFor("send", common.brandId);
   if (halt.halted) {
     return items.map(() => ({
-      ok: false, mode: emailConfigured ? "live" : "demo", provider: "emergency-stop",
-      id: null, filteredOut: [], detail: halt.message,
+      ok: false, mode: emailIsConfigured() ? "live" as const : "demo" as const, provider: "emergency-stop",
+      id: null, filteredOut: [], failure: "halted" as const, detail: halt.message,
     }));
   }
 
@@ -705,15 +743,17 @@ export async function sendEmailBatch(
   for (const v of verdicts) {
     if (!v.verdict.sendable) {
       results.set(v.item.to, {
-        ok: false, mode: emailConfigured ? "live" : "demo", provider: "hygiene-filter",
-        id: null, filteredOut: [v.verdict], detail: `blocked pre-send: ${v.verdict.reason}`,
+        ok: false, mode: emailIsConfigured() ? "live" : "demo", provider: "hygiene-filter",
+        id: null, filteredOut: [v.verdict], failure: "hygiene",
+        detail: `blocked pre-send: ${v.verdict.reason}`,
       });
     }
   }
 
   const fromDomain = angleAddr(from).split("@")[1] || "";
   const day = new Date().toISOString().slice(0, 10);
-  const node = smtpConfigured ? pickNode(fromDomain, day) : null;
+  // poolConfigured(), not the frozen constant — see the note on `smtpConfigured`.
+  const node = poolConfigured() ? pickNode(fromDomain, day) : null;
 
   if (node && sendableItems.length) {
     try {
@@ -820,10 +860,11 @@ export async function sendEmail(opts: {
     if (halt.halted) {
       return {
         ok: false,
-        mode: emailConfigured ? "live" : "demo",
+        mode: emailIsConfigured() ? "live" : "demo",
         provider: "emergency-stop",
         id: null,
         filteredOut: [],
+        failure: "halted",
         detail: halt.message,
       };
     }
@@ -836,27 +877,36 @@ export async function sendEmail(opts: {
     // here, before any provider is contacted.
     return {
       ok: false,
-      mode: emailConfigured ? "live" : "demo",
+      mode: emailIsConfigured() ? "live" : "demo",
       provider: "hygiene-filter",
       id: null,
       filteredOut: [verdict],
+      failure: "hygiene",
       detail: `blocked pre-send: ${verdict.reason}`,
     };
   }
 
-  if (!emailConfigured) {
+  // NOTHING WAS SENT, SO THIS IS NOT A SUCCESS.
+  //
+  // Asked on demand rather than read off the module-level constant: that constant
+  // is frozen at import, so "I set the variable and it is still in demo mode" was
+  // unanswerable, which is a bad position to be in while mail is going nowhere.
+  if (!emailIsConfigured()) {
     return {
-      ok: true,
+      ok: false,
       mode: "demo",
-      provider: "demo-pool",
-      id: `demo_${Date.now().toString(36)}`,
+      provider: "not-configured",
+      id: null,
       filteredOut: [],
-      detail: "Demo mode — send simulated. Add RESEND_API_KEY or SENDGRID_API_KEY to go live.",
+      failure: "not_configured",
+      detail:
+        "No sending server is configured on this deployment, so nothing left the machine. " +
+        "Set the sending pool (MW_SENDING_POOL or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY.",
     };
   }
 
   let smtpError = "";
-  if (smtpConfigured) {
+  if (poolConfigured()) {
     // Route through the pool: the sending domain gets a stable home node (its IP),
     // spreading domains across the fleet. One node → same as the single-node setup.
     const fromDomain = angleAddr(opts.from || FROM_DEFAULT).split("@")[1] || "";
@@ -911,6 +961,7 @@ export async function sendEmail(opts: {
     provider: "pool-exhausted",
     id: null,
     filteredOut: [],
+    failure: "provider",
     detail: smtpError ? `SMTP send failed: ${smtpError}` : "all providers failed — send queued for retry",
   };
 }
