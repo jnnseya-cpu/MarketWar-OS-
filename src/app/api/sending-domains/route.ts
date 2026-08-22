@@ -53,7 +53,18 @@ export async function GET(req: NextRequest) {
   const ownerDomains = access.uid ? await listDomainsForOwner(access.uid) : [];
   const seen = new Set(brandDomains.map((d) => d.domain));
   const domains = [...brandDomains, ...ownerDomains.filter((d) => !seen.has(d.domain))];
-  return NextResponse.json({ domains });
+
+  // AUTHENTICATION AND TRANSPORT ARE TWO DIFFERENT THINGS, and this screen only
+  // ever reported the first. A verified domain said "Live … it sends signed as
+  // you" next to a promise that MarketWar's own infrastructure hands the message
+  // to the recipient — on a deployment with no sending node configured, where
+  // nothing leaves at all. The owner reasonably concluded sending was set up.
+  //
+  // DNS is the customer's half and is per domain. The sending node is the
+  // platform's half, set once for the whole deployment. Both are required, so
+  // both are reported here.
+  const { emailIsConfigured } = await import("@/backend/email");
+  return NextResponse.json({ domains, sendingConfigured: emailIsConfigured() });
 }
 
 export async function DELETE(req: NextRequest) {

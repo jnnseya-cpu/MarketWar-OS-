@@ -38,6 +38,9 @@ export default function SendingDomainsPage() {
   const [adding, setAdding] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  // Whether this deployment can transmit AT ALL. Null until the first load, so
+  // the warning never flashes up before the answer is known.
+  const [sendingConfigured, setSendingConfigured] = useState<boolean | null>(null);
 
   const load = useCallback(async (brandId: string) => {
     setBusy(true);
@@ -45,6 +48,7 @@ export default function SendingDomainsPage() {
       const res = await authedFetch(`/api/sending-domains?brandId=${encodeURIComponent(brandId)}`);
       const d = await res.json().catch(() => ({}));
       setDomains(Array.isArray(d.domains) ? d.domains : []);
+      setSendingConfigured(typeof d.sendingConfigured === "boolean" ? d.sendingConfigured : null);
     } catch { setDomains([]); } finally { setBusy(false); }
   }, []);
 
@@ -194,19 +198,47 @@ export default function SendingDomainsPage() {
                 ))}
               </div>
 
+              {/* "Live" MEANS AUTHENTICATED, NOT SENDING. Saying it sends signed
+                  as you, on a deployment that cannot transmit, is what made the
+                  owner believe email was set up while nothing was leaving. */}
               {d.status === "verified" && (
-                <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300">
-                  <ShieldCheck className="h-3.5 w-3.5" /> Live. Set the campaign From to an address on <span className="font-mono">{d.domain}</span> in the Email Center and it sends signed as you.
-                </p>
+                sendingConfigured === false ? (
+                  <p className="mt-3 flex items-start gap-1.5 text-xs text-amber-300">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-semibold">Authenticated, but this deployment cannot send yet.</span> Your DNS is
+                      correct and <span className="font-mono">{d.domain}</span> will sign as you the moment a sending server is
+                      configured — that is one platform-wide setting, not something you do per domain. Until then nothing leaves,
+                      and every send says so rather than reporting success.
+                    </span>
+                  </p>
+                ) : (
+                  <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300">
+                    <ShieldCheck className="h-3.5 w-3.5" /> Live. Set the campaign From to an address on <span className="font-mono">{d.domain}</span> in the Email Center and it sends signed as you.
+                  </p>
+                )
               )}
             </div>
           ))}
 
           <div className="card border-amber-500/20 bg-amber-500/[0.04] p-4 text-xs text-amber-200/90">
-            <p className="mb-1 font-bold">How delivery works</p>
+            <p className="mb-1 font-bold">How delivery works — it takes two halves</p>
             <p className="text-amber-200/70">
-              Authentication (these DNS records + DKIM) is what makes inboxes trust your mail. The messages are handed to recipient servers by MarketWar&apos;s own sending infrastructure — no third-party email provider is involved. Your domain reputation is your own, built as you send.
+              <span className="font-semibold text-amber-200">Your half, per domain:</span> the DNS records above. Authentication
+              (DKIM + SPF + DMARC) is what makes inboxes trust your mail, and it is why your domain reputation is your own, built
+              as you send.{" "}
+              <span className="font-semibold text-amber-200">The platform&apos;s half, once for everyone:</span> the sending
+              server that actually hands each message to the recipient — MarketWar&apos;s own infrastructure, no third-party
+              provider. You never configure that one, and no customer ever supplies SMTP credentials.
             </p>
+            {/* Stated rather than implied. A verified domain with no transport is
+                the exact state that reads as "everything is set up". */}
+            {sendingConfigured === false && (
+              <p className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/[0.07] p-2 font-semibold text-rose-200">
+                On this deployment the second half is missing: no sending server is configured, so no mail leaves for any brand or
+                any user, however perfect the DNS above is. Nothing is wrong with your records.
+              </p>
+            )}
           </div>
         </>
       )}
