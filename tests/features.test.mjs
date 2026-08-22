@@ -18265,3 +18265,52 @@ test("product kpis: the panel shows a withheld figure as withheld, never as zero
   const admin = codeOf(readFileSync(new URL("../src/app/dashboard/admin/page.tsx", import.meta.url), "utf8"));
   assert.match(admin, /<ProductKpis \/>/, "the panel exists and nothing renders it");
 });
+
+// ---------------------------------------------------------------------------
+// §102's SURFACE — one sentence, a costed plan, and a SECOND deliberate click.
+// ---------------------------------------------------------------------------
+test("one-click surface: planning and running are separate calls", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/orchestrator/route.ts");
+  const post = (body) => route.POST(new NextRequest("https://mw.test/api/orchestrator", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  const planned = await post({ action: "plan", brandId: "oneclick-brand", sentence: "launch the new product" });
+  assert.equal(planned.status, 200);
+  const d = await planned.json();
+  assert.ok(d.plan, "no plan came back");
+  assert.ok(typeof d.plan.costAcu === "number");
+  assert.ok(d.headroom && typeof d.headroom.remainingAcu === "number", "the plan does not say what is left today");
+
+  // A sentence is required — the whole feature is starting from words.
+  const empty = await post({ action: "plan", brandId: "oneclick-brand", sentence: "   " });
+  assert.equal(empty.status, 400);
+
+  // PLANNING RUNS NOTHING. The route's plan branch must not execute a chain —
+  // the entire value is seeing the cost and the human steps first.
+  const src = codeOf(readFileSync(new URL("../src/app/api/orchestrator/route.ts", import.meta.url), "utf8"));
+  const planBranch = src.slice(src.indexOf('if (action === "plan")'), src.indexOf('if (action !== "run")'));
+  assert.ok(!/executeChain/.test(planBranch), "planning executes the chain — the approval moment is gone");
+  assert.match(src, /use plan, run, save, delete or schedule/, "the action list was not updated");
+});
+
+test("one-click surface: the plan shows cost, human steps and what is unknown", () => {
+  const panel = codeOf(readFileSync(new URL("../src/components/OneClickCampaign.tsx", import.meta.url), "utf8"));
+  assert.match(panel, /action: "plan"/, "the panel does not ask for a plan");
+  assert.match(panel, /action: "run"/, "the panel cannot run what it planned");
+  // Two separate handlers, so a single click cannot do both.
+  assert.match(panel, /const makePlan/);
+  assert.match(panel, /const run =/);
+  // The three things the plan exists to show.
+  assert.match(panel, /needsHuman/, "the steps that stop for a person are not marked");
+  assert.match(panel, /costAcu/, "the cost is not shown");
+  assert.match(panel, /missingFacts/, "what the platform does not know is hidden");
+  // The refusal must reach the screen with its arithmetic intact.
+  assert.match(panel, /plan\.refusal/, "a refusal would be swallowed");
+  // The run button only exists when the plan is runnable.
+  assert.match(panel, /plan\.ok && \(/);
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/chains/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /<OneClickCampaign \/>/, "the panel exists and nothing renders it");
+});
