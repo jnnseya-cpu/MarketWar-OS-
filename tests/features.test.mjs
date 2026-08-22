@@ -18062,3 +18062,69 @@ test("autonomy: settings that do nothing say they do nothing", () => {
   assert.match(full.summary, /Level 3, aiming at "more weekend bookings"/);
   assert.match(full.summary, /Never: tiktok/);
 });
+
+// ---------------------------------------------------------------------------
+// §70's SURFACE — the audit log finally has a screen.
+//
+// The log had recorded every change since it shipped and nothing rendered it.
+// `/dashboard/audit` is the WEBSITE audit, a different thing with a confusingly
+// similar name, so the trail was reachable only by calling the API by hand.
+// ---------------------------------------------------------------------------
+test("activity: the feed is a view on the audit route, not a second route", async () => {
+  const { NextRequest } = await import("next/server");
+  const audit = await import("../src/backend/audit-log.ts");
+  const route = await import("../src/app/api/audit-log/route.ts");
+  audit.__resetAuditLog();
+
+  audit.record({ actorType: "agent", actor: "orchestrator", action: "publication.claimed", resource: "post", brandId: "feed-brand", nowISO: "2026-08-22T02:00:00.000Z" });
+  audit.record({ actorType: "agent", actor: "orchestrator", action: "publication.claimed", resource: "post", brandId: "feed-brand", nowISO: "2026-08-22T02:05:00.000Z" });
+  audit.record({ actorType: "user", actor: "uid:me", action: "campaign.created", resource: "campaign", brandId: "feed-brand", nowISO: "2026-08-22T09:00:00.000Z" });
+
+  const get = (qs) => route.GET(new NextRequest(`https://mw.test/api/audit-log?${qs}`));
+
+  const feed = await (await get("brandId=feed-brand&view=feed")).json();
+  assert.equal(feed.unattended.length, 1, "the two agent publishes should fold into one line");
+  assert.equal(feed.unattended[0].count, 2);
+  assert.equal(feed.yours.length, 1);
+  assert.match(feed.headline, /2 things happened without anyone asking/);
+
+  // The SAME entries drive both views, so the feed and the trail cannot
+  // disagree about what happened.
+  const forensic = await (await get("brandId=feed-brand")).json();
+  assert.equal(forensic.entries.length, 3);
+  assert.equal(
+    feed.unattended.reduce((n, e) => n + e.count, 0) + feed.yours.reduce((n, e) => n + e.count, 0),
+    forensic.entries.length,
+    "the feed and the forensic view disagree about how many things happened",
+  );
+
+  // Brand scoping is not re-implemented for the feed — it is the same check.
+  const otherBrand = await (await get("brandId=someone-else&view=feed")).json();
+  assert.equal(otherBrand.unattended.length + otherBrand.yours.length, 0, "one brand's activity leaked into another's feed");
+  audit.__resetAuditLog();
+});
+
+// STRIP COMMENTS BEFORE SCANNING SOURCE.
+//
+// Five tests in this suite have now failed on prose describing the very thing
+// they forbid — a comment saying "buildFeed runs server-side" read as the page
+// calling buildFeed. It is a shared helper now rather than a lesson relearned
+// once per module. Where a rule is about a VALUE rather than a call, forbid the
+// value's shape and not its name.
+const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+test("activity: the page exists, is in the nav, and takes its feed from the server", () => {
+  const raw = readFileSync(new URL("../src/app/dashboard/activity/page.tsx", import.meta.url), "utf8");
+  const page = codeOf(raw);
+  // Built server-side, so the screen and the trail cannot drift.
+  assert.match(page, /view=feed/, "the page builds its own feed in the browser");
+  assert.ok(!/buildFeed/.test(page), "the page re-implements the feed instead of asking for it");
+  // The question people open this page to answer comes first.
+  assert.ok(raw.indexOf("Ran on its own") < raw.indexOf("You and your team"),
+    "your own actions are shown above the unattended ones — that is the wrong question first");
+  // An unmapped action must stay visible on the surface too, not just in the engine.
+  assert.match(raw, /no plain-English name yet/);
+
+  const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+  assert.match(sidebar, /href: "\/dashboard\/activity"/, "the page exists and nothing links to it");
+});
