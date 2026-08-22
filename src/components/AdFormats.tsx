@@ -14,14 +14,11 @@ import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import CopyOut from "@/components/CopyOut";
+// The shape the API actually sends. Imported rather than re-declared: the
+// hand-written version of this type is what crashed /dashboard/video.
+import type { AdStyleView as Style } from "@/shared/ad-style-view";
 
-type Style = {
-  id: string; label: string; looksLike: string;
-  shots: { seconds: number; what: string }[];
-  camera: string; lighting: string; hookShape: string; audio: string;
-  idealSeconds: number; failsWhen: string[]; disclosure?: string;
-  platforms: string[]; needs: string[];
-};
+
 type Brief = {
   style: Style; prompt: string; seconds: number;
   checklist: string[]; disclosure: string; warnings: string[];
@@ -106,9 +103,7 @@ export default function AdFormats() {
           <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">You need</p>
           <p className="mb-2 text-xs text-slate-400">{selected.needs.join(" · ")}</p>
           <p className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wide text-amber-400/80"><TriangleAlert className="h-3 w-3" /> It fails when</p>
-          <ul className="space-y-0.5">
-            {selected.failsWhen.map((f, i) => <li key={i} className="text-xs leading-relaxed text-slate-500">· {f}</li>)}
-          </ul>
+          <p className="text-xs leading-relaxed text-slate-500">{selected.failsWhen}</p>
         </div>
       )}
 
@@ -127,9 +122,7 @@ export default function AdFormats() {
             <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">The shot list — {brief.seconds}s</p>
             <ol className="space-y-1.5">
               {brief.style.shots.map((s, i) => (
-                <li key={i} className="text-sm leading-relaxed text-slate-300">
-                  <span className="mr-2 font-mono text-xs text-slate-500">{s.seconds}s</span>{s.what}
-                </li>
+                <li key={i} className="text-sm leading-relaxed text-slate-300">{s}</li>
               ))}
             </ol>
           </div>

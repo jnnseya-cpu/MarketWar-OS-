@@ -3,6 +3,8 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import type { AdStyleView } from "@/shared/ad-style-view";
+
 // Ad styles — the formats that actually run on short-form feeds.
 //
 // The video gateway could render anything and was told nothing: a prompt went
@@ -48,8 +50,10 @@ export type AdStyle = {
   /** Seconds. What this format needs to work — not what a model defaults to. */
   idealSeconds: number;
   platforms: string[];
-  /** Why it fails, so the brief can avoid it. */
+  /** Why it fails, so the brief can avoid it. ONE sentence, not a list. */
   failsWhen: string;
+  /** What you must physically have to film it. Rendered under "You need". */
+  needs: string[];
   /** Anything the law or the platform requires on this format. */
   disclosure?: string;
 };
@@ -75,6 +79,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "to-camera",
     idealSeconds: 20,
     platforms: ["TikTok", "Instagram Reels", "Facebook", "YouTube Shorts"],
+    needs: [
+      "A real customer willing to be filmed — not an actor",
+      "Their phone, their room, their words",
+      "Written permission to use their face and name",
+    ],
     failsWhen: "It looks lit, scripted or shot in a studio — the whole format's credibility is that it does not.",
     disclosure: "If the person was paid, gifted or is an employee, that must be disclosed on the video itself (ASA/CAP in the UK, FTC in the US). A testimonial must be a real customer's real experience.",
   },
@@ -95,6 +104,12 @@ export const AD_STYLES: AdStyle[] = [
     audio: "interview",
     idealSeconds: 22,
     platforms: ["TikTok", "Instagram Reels", "YouTube Shorts"],
+    needs: [
+      "A public street with actual footfall",
+      "A visible handheld microphone — it is what makes strangers stop",
+      "Verbal consent on camera from every person who appears",
+      "Someone to hold the camera while you ask",
+    ],
     failsWhen: "The answers sound written. One genuinely unhelpful answer left in makes the rest believable.",
     disclosure: "Everyone recognisable on camera needs a release, and a paid or briefed respondent is not a member of the public — say so.",
   },
@@ -114,6 +129,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "interview",
     idealSeconds: 30,
     platforms: ["Instagram Reels", "TikTok", "LinkedIn", "YouTube Shorts"],
+    needs: [
+      "Two chairs and two microphones in frame",
+      "Two cameras, or one long take you can cut between angles",
+      "A guest, and a real conversation to cut from",
+    ],
     failsWhen: "It starts at the beginning of the conversation. The beginning is never the hook — the Clip Finder exists to find where the hook actually is.",
   },
   {
@@ -132,6 +152,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "to-camera",
     idealSeconds: 25,
     platforms: ["LinkedIn", "Instagram Reels", "TikTok", "Facebook"],
+    needs: [
+      "The founder, on camera, willing to be recognised",
+      "A phone at chest height and a window",
+      "One thing you are prepared to say plainly",
+    ],
     failsWhen: "It becomes an About Us. Nobody watches an About Us.",
   },
   {
@@ -151,6 +176,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "voiceover",
     idealSeconds: 20,
     platforms: ["TikTok", "Instagram Reels", "Facebook", "YouTube Shorts"],
+    needs: [
+      "Two scenes that match — same room, same light, same lens",
+      "The problem, filmable rather than described",
+      "A voiceover recorded somewhere quiet",
+    ],
     failsWhen: "The problem is exaggerated into slapstick — the viewer stops believing the solution too.",
   },
   {
@@ -164,6 +194,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "ambient",
     idealSeconds: 18,
     platforms: ["TikTok", "Instagram Reels", "Facebook"],
+    needs: [
+      "The genuine before, filmed BEFORE — it cannot be staged afterwards",
+      "A tripod, so both halves are framed identically",
+      "Proof the after is the same subject, not a different one",
+    ],
     failsWhen: "Anything changes between the two shots except the thing being sold.",
     disclosure: "A before/after that implies a result must be a real, typical result — an atypical one needs saying so. This is enforced in health, beauty and finance.",
   },
@@ -178,6 +213,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "ambient",
     idealSeconds: 20,
     platforms: ["TikTok", "Instagram Reels", "YouTube Shorts"],
+    needs: [
+      "A sealed product nobody has opened",
+      "An overhead rig or a second pair of hands",
+      "A clean surface and one light",
+    ],
     failsWhen: "The packaging gets more screen time than the product.",
   },
   {
@@ -191,6 +231,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "voiceover",
     idealSeconds: 20,
     platforms: ["YouTube Shorts", "TikTok", "Instagram Reels", "LinkedIn"],
+    needs: [
+      "The product, working, in real conditions",
+      "Close-focus capability — most phones need macro mode",
+      "A voiceover, because hands cannot explain themselves",
+    ],
     failsWhen: "It shows the easy part. The viewer wants to see the bit they are worried about.",
   },
   {
@@ -204,6 +249,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "voiceover",
     idealSeconds: 25,
     platforms: ["TikTok", "Instagram Reels"],
+    needs: [
+      "Access to the actual day — the van, the site, the kitchen",
+      "Permission from anyone who appears in the background",
+      "Enough footage to cut, which is far more than you think",
+    ],
     failsWhen: "It becomes an advert wearing a routine. If the product appears in the first three seconds, it is an advert.",
   },
   {
@@ -217,6 +267,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "to-camera",
     idealSeconds: 22,
     platforms: ["TikTok", "Instagram Reels", "LinkedIn", "YouTube Shorts"],
+    needs: [
+      "A myth your customers genuinely believe",
+      "Evidence you can show on camera, not assert",
+      "Somewhere quiet enough for a clean to-camera take",
+    ],
     failsWhen: "The 'myth' is a straw man nobody believes. And a claim made here is a claim you must be able to substantiate.",
     disclosure: "Factual claims in this format are advertising claims. They must be substantiated before publication — the Truth Layer blocks the ones that are not.",
   },
@@ -231,6 +286,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "to-camera",
     idealSeconds: 20,
     platforms: ["TikTok", "Instagram Reels"],
+    needs: [
+      "The screenshot or post you are reacting to",
+      "The right to show it — a public post, with the handle visible or blurred",
+      "A plain wall or a green screen, evenly lit",
+    ],
     failsWhen: "The screenshot is unreadable at phone size, or it is somebody else's content used without permission.",
     disclosure: "Reacting to third-party content is not automatically fair dealing. Use your own screenshots, or content you have the right to show.",
   },
@@ -245,6 +305,11 @@ export const AD_STYLES: AdStyle[] = [
     audio: "voiceover",
     idealSeconds: 26,
     platforms: ["TikTok", "Instagram Reels", "YouTube Shorts", "LinkedIn"],
+    needs: [
+      "One filmable moment per item — five items means five setups",
+      "A voiceover recorded in one take so the pace holds",
+      "Ruthlessness: anything that does not earn its second is cut",
+    ],
     failsWhen: "Items are the same weight. Put the strongest first, not last — this is not a countdown show.",
   },
 ];
@@ -337,3 +402,15 @@ export function stylesForPlatform(platform: string): AdStyle[] {
   if (!p) return AD_STYLES;
   return AD_STYLES.filter((s) => s.platforms.some((x) => x.toLowerCase().includes(p)));
 }
+
+// THE WIRE SHAPE IS CHECKED, NOT ASSUMED.
+//
+// /dashboard/video crashed in production because the client kept its own
+// hand-written copy of this type and three fields disagreed with reality.
+// `res.json()` is `any`, so nothing ever compared them. This line does: if
+// AD_STYLES stops matching what `shared/ad-style-view.ts` promises — a renamed
+// field, a string that becomes an array, a field quietly dropped — the build
+// fails here, in front of whoever changed it, rather than in front of a
+// customer.
+const _wireShape: AdStyleView[] = AD_STYLES;
+void _wireShape;
