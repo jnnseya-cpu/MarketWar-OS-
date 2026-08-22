@@ -20,7 +20,9 @@ import { readConsent, CONSENT_EVENT, type ConsentChoice } from "@/components/Coo
 type Fbq = ((...args: unknown[]) => void) & { queue?: unknown[]; loaded?: boolean };
 type W = Window & { dataLayer?: unknown[]; fbq?: Fbq };
 
-export const META_PIXEL_ID = (process.env.NEXT_PUBLIC_META_PIXEL_ID || "").trim();
+// Must match the gate's default, or the tag loads and the transport declines to
+// use it — the pixel would then report page views and not one conversion.
+export const META_PIXEL_ID = (process.env.NEXT_PUBLIC_META_PIXEL_ID || "1080646761094543").trim();
 
 /**
  * Consent, cached for the page and refreshed when the visitor changes it.

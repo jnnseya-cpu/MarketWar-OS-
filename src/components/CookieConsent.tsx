@@ -39,7 +39,10 @@ const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID ?? "GTM-MFF3H6F8";
 // up loading a tracker for somebody who said no. There is one gate; it now
 // carries two tags. With no ID set nothing renders — the pixel is simply absent
 // on a deployment that has not configured one.
-const META_PIXEL_ID = (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "").trim();
+// A Pixel ID is not a credential — it is public in the page source of every site
+// that runs one, which is why it sits here as a default like the container ID
+// rather than in a secret. An env var still overrides it per deployment.
+const META_PIXEL_ID = (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "1080646761094543").trim();
 
 // Bump when the purposes change — an old "yes" must not silently cover new use.
 const STORAGE_KEY = "mw-cookie-consent-v1";

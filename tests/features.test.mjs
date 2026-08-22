@@ -18998,3 +18998,26 @@ test("analytics: the conversion points are actually wired", () => {
   assert.ok(auth.indexOf("createUserWithEmailAndPassword") < auth.indexOf('track(mode === "login"'),
     "signup is reported before the account exists");
 });
+
+test("analytics: the pixel id is a real one, and both copies of it agree", () => {
+  const gate = readFileSync(new URL("../src/components/CookieConsent.tsx", import.meta.url), "utf8");
+  const transport = readFileSync(new URL("../src/frontend/analytics.ts", import.meta.url), "utf8");
+
+  const idOf = (src) => (src.match(/NEXT_PUBLIC_META_PIXEL_ID\s*(?:\?\?|\|\|)\s*"(\d+)"/) || [])[1];
+  const gateId = idOf(gate), transportId = idOf(transport);
+
+  assert.ok(gateId, "the consent gate has no Meta Pixel id");
+  assert.ok(transportId, "the transport has no Meta Pixel id");
+  // THE FAILURE THIS CATCHES: the gate loads the pixel and the transport, reading
+  // a different id, declines to send to it. The pixel then reports page views
+  // and not one conversion, which looks like working analytics for weeks.
+  assert.equal(gateId, transportId, "the pixel id in the consent gate and the transport have drifted apart");
+
+  // A Meta Pixel id is 15-16 digits. A GTM-style code pasted here would load a
+  // container that does not exist and fail silently.
+  assert.match(gateId, /^\d{15,16}$/, `"${gateId}" is not a Meta Pixel id — those are 15-16 digits, not a GTM- code`);
+
+  // The container id is the OTHER shape, and must not have been crossed over.
+  const gtm = (gate.match(/NEXT_PUBLIC_GTM_ID\s*\?\?\s*"([^"]+)"/) || [])[1];
+  assert.match(gtm || "", /^GTM-[A-Z0-9]+$/, "the GTM container id is not a GTM- code");
+});
