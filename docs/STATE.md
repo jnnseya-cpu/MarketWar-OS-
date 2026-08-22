@@ -70,27 +70,20 @@ No provider, no card, no configuration:
   the next attempt asks the channel rather than posting twice.
 - **The eight pre-publish checks** (one that cannot run never passes), **channel
   health**, **versions and restore**, **creative fatigue**, **the audit log**,
-  **the generation cache**, and **teams** (ten roles, nobody granting wider than
-  they hold).
-- **Splash screens on every platform** — `npm run splash`.
-- **Sentinel** — human gate, instruction firewall, counted detections.
+  **the generation cache**, **teams** (ten roles), **Sentinel**, and **splash
+  screens on every platform** (`npm run splash`).
 - **13 blog articles, 14 answer pages.** The **weekly newsletter** needs
   `NEWSLETTER_SECRET` before it sends anything.
 
-**Built in the 2026-08-21/22 audit** — eleven PRD sections plus two rebuilds,
-all pure, keyless and mutation-checked. Each is listed with its module in
-`docs/GROWTH-ENGINE-COVERAGE.md`: §32 platform adaptation, §38 experiment
-history, §41 comment intelligence, §70 activity feed, §89 training consent,
-§92 entity search, §95 opportunity board, §97 action priority, §98 platform
-KPIs, §102 campaign plan, §103 autonomy config, plus `shared/vitality.ts` and
-`shared/recorder-layout.ts`.
+**Built in the 2026-08-21/22 audit** — eleven PRD sections (§32, §38, §41, §70,
+§89, §92, §95, §97, §98, §102, §103) plus `shared/vitality.ts` and
+`shared/recorder-layout.ts`. Modules and behaviour: `GROWTH-ENGINE-COVERAGE.md`.
 
-They share one property worth stating: **each refuses to produce a number or an
-action it cannot stand behind** — a stopped test is not a failure, a caption cut
-never drops the call to action, a public complaint never gets a sales draft, a
-median from one account is withheld, a chain that cannot finish never starts.
-
-**None of them has a surface yet.** See §5.
+They share one property: **each refuses to produce a number or an action it
+cannot stand behind** — a stopped test is not a failure, a caption cut never
+drops the call to action, a public complaint never gets a sales draft, a median
+from one account is withheld, a chain that cannot finish never starts. Six of
+the seven have surfaces now; see §5 for the one that does not and why.
 
 ---
 
@@ -139,12 +132,19 @@ production could not be reached from the build container to confirm anything.
 7. **Send the first ten messages.** `/dashboard/acquisition` has the text
    written out per brand, with only the blanks a sender knows.
 
-**Engines built, surfaces not yet built.** Everything in §3's audit table is a
-tested engine with no screen in front of it. That is the defect class this
-repository produces most often (see §6), so it is written down rather than
-assumed obvious: §70's feed, §92's search box, §95's board, §97's queue, §98's
-admin panel, §102's button and §103's settings form all need a surface before a
-customer sees any of them.
+**Surfaces: six of seven built.** `/dashboard/activity` (§70, which also gave
+the audit log its first screen — `/dashboard/audit` is the WEBSITE audit),
+`/dashboard/find` (§92), the board on `/dashboard/discover` (§95), the KPI panel
+on `/dashboard/admin` (§98), the one-click planner on `/dashboard/chains` (§102),
+and the limits on `/dashboard/autopilot` (§103).
+
+**§97's queue is deliberately NOT built, and this is the reason.** It ranks
+actions from impact, urgency, confidence, effort and cost, each requiring a
+stated basis — and nothing in the platform produces those. Every action would
+come back unranked, so the screen would be a second panel of refusals sitting
+beside `command-summary`'s working "next best action" and competing with it. It
+needs factor instrumentation first; a screen that is emptier than the one next
+to it is not progress.
 
 **Genuinely not built:**
 
