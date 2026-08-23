@@ -20215,3 +20215,41 @@ test("recorder: recording a whole monitor warns about the mirror", () => {
   assert.match(src, /hall of mirrors/i, "the warning does not describe what the person is actually seeing");
   assert.match(code, /selfBrowserSurface: "exclude"/, "the recorder's own tab is no longer excluded from the picker");
 });
+
+// ---------------------------------------------------------------------------
+// GOOGLE CONSENT — ask for what this connection needs, and say what Google will
+// say before Google says it.
+// ---------------------------------------------------------------------------
+
+test("google: connecting YouTube does not also ask for the Business Profile", async () => {
+  const g = await import("../src/backend/google-auth.ts");
+  // Bundling every scope into one consent meant somebody connecting YouTube to
+  // read their own captions was also asked to hand over management of their
+  // Google Business Profile. It makes an already-frightening screen worse and
+  // every scope then has to be justified for every user at verification.
+  assert.equal(g.scopesFor("youtube"), "https://www.googleapis.com/auth/youtube.force-ssl");
+  assert.ok(!g.scopesFor("youtube").includes("business.manage"), "a YouTube connect still asks for Business Profile management");
+  assert.ok(!g.scopesFor("youtube").includes("webmasters"), "a YouTube connect still asks for Search Console");
+
+  assert.equal(g.scopesFor("search"), "https://www.googleapis.com/auth/webmasters.readonly");
+  // "all" stays available for the combined connect, so nothing already working breaks.
+  for (const s of ["webmasters.readonly", "business.manage", "youtube.force-ssl"]) {
+    assert.ok(g.scopesFor("all").includes(s), `the combined consent lost ${s}`);
+  }
+
+  const ui = readFileSync(new URL("../src/components/ConnectYouTube.tsx", import.meta.url), "utf8");
+  assert.match(ui, /purpose=youtube/, "the YouTube button still requests every scope");
+});
+
+test("google: the screen says what the consent will say, before it says it", () => {
+  const ui = readFileSync(new URL("../src/components/ConnectYouTube.tsx", import.meta.url), "utf8");
+  // Downloading caption text requires youtube.force-ssl and Google offers
+  // nothing narrower, so its consent screen mentions editing and deleting
+  // videos. Promising "never posting, editing or deleting" and stopping there
+  // meant the customer was contradicted by Google one click later.
+  assert.match(ui, /Google will ask for more than that/i,
+    "the screen does not warn that Google's consent will be broader than our promise");
+  assert.match(ui, /no narrower one to ask for/i, "it does not explain why the permission is broad");
+  assert.match(ui, /a promise we keep, not a limit Google enforces/i,
+    "it presents our self-imposed limit as though Google enforced it");
+});

@@ -38,7 +38,7 @@ export default function ConnectYouTube() {
     if (!activeBrand?.id) return;
     setBusy(true); setError("");
     try {
-      const r = await authedFetch(`/api/google/connect?brandId=${encodeURIComponent(activeBrand.id)}`, {
+      const r = await authedFetch(`/api/google/connect?brandId=${encodeURIComponent(activeBrand.id)}&purpose=youtube`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       });
       const d = await r.json();
@@ -72,7 +72,18 @@ export default function ConnectYouTube() {
         {[
           "Read: the caption tracks of videos on your own channel.",
           "Never: the video file itself — YouTube does not permit that, and nothing here downloads one.",
-          "Never: posting, editing or deleting anything on your channel.",
+          // WHAT GOOGLE IS ABOUT TO SAY, SAID FIRST.
+          //
+          // This used to promise "never posting, editing or deleting" and stop
+          // there. Google's own consent screen then says the app can "See, edit,
+          // and permanently delete your YouTube videos" — because downloading
+          // the text of a caption track requires youtube.force-ssl, and Google
+          // offers nothing narrower. So the customer read a reassurance from us
+          // and was immediately contradicted by Google, which is worse than
+          // having said nothing. The limit is real; it is ours, not the
+          // permission's, and it has to be described as exactly that.
+          "Never: posting, editing or deleting anything on your channel — but read the next line before you click.",
+          "Google will ask for more than that. Downloading the words from a caption track needs YouTube's broad permission, and there is no narrower one to ask for, so the consent screen will mention editing and deleting videos. This platform calls two endpoints — list captions, download a caption — and nothing else. That is a promise we keep, not a limit Google enforces.",
           "Yours alone: each brand connects its own account, and the platform's connection is never used on your behalf.",
         ].map((line) => (
           <li key={line} className="flex items-start gap-2 text-xs leading-relaxed text-slate-500">
