@@ -19289,3 +19289,120 @@ test("meta webhook: Meta's nested payload flattens to events the engine understa
     assert.deepEqual(normaliseMetaEvents(junk, () => "b1"), [], "malformed input did not degrade quietly");
   }
 });
+
+// ---------------------------------------------------------------------------
+// FOLLOWER → CUSTOMER. It is an identity problem before it is a messaging one.
+//
+// A follower is a handle; a customer is an email address on an invoice. Nothing
+// here could say they were the same human, so a brand could not tell that the
+// person who commented "price" in March is the person who paid in April — and
+// therefore could not tell which post earned the money.
+// ---------------------------------------------------------------------------
+
+const identity = await import("../src/shared/identity.ts");
+
+const idRec = (over = {}) => ({
+  id: "i1", brandId: "b1", keys: [], createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z", ...over,
+});
+const idKey = (channel, value, firstSeenISO = "2026-01-01T00:00:00.000Z") =>
+  ({ channel, value, source: "test", firstSeenISO });
+
+test("identity: the same person written differently is still one key", () => {
+  const { normaliseKey, keyId } = identity;
+  // Presentation differences are how duplicates survive: @Name, name, and the
+  // profile URL are one account.
+  assert.equal(normaliseKey("instagram", "@AxionOS"), "axionos");
+  assert.equal(normaliseKey("instagram", "https://instagram.com/AxionOS/"), "axionos");
+  assert.equal(normaliseKey("email", "  Jane@Example.COM "), "jane@example.com");
+  assert.equal(normaliseKey("phone", "+44 7700 900123"), "+447700900123");
+  assert.equal(normaliseKey("phone", "(07700) 900-123"), "07700900123");
+
+  // Rubbish must not become an identity key — a key nobody can be reached on
+  // will merge strangers together later.
+  assert.equal(normaliseKey("phone", "123"), "", "a 3-digit string became a phone identity");
+  assert.equal(keyId("email", "   "), null);
+  assert.equal(keyId("instagram", "@axionos"), "instagram:axionos");
+});
+
+test("identity: a wrong merge is worse than no merge", () => {
+  const { shouldMerge } = identity;
+
+  // Merged: a shared handle. One Instagram account cannot belong to two people.
+  const a = idRec({ keys: [idKey("instagram", "@jane_plumbing")] });
+  const b = idRec({ id: "i2", keys: [idKey("instagram", "jane_plumbing"), idKey("email", "jane@example.com")] });
+  const yes = shouldMerge(a, b);
+  assert.equal(yes.merge, true, "the same handle did not merge");
+  assert.equal(yes.on, "instagram:jane_plumbing");
+
+  // NOT merged on a name. There are many John Smiths, and fusing two of them
+  // is close to unrecoverable and means showing one person another's data.
+  const n1 = idRec({ displayName: "John Smith", keys: [idKey("instagram", "@js1")] });
+  const n2 = idRec({ id: "i3", displayName: "John Smith", keys: [idKey("instagram", "@js2")] });
+  const name = shouldMerge(n1, n2);
+  assert.equal(name.merge, false, "two people were merged because they share a name");
+  assert.equal(name.suggest, true, "the hint was thrown away instead of offered to a human");
+  assert.match(name.reason, /cannot be undone|not evidence/i);
+
+  // NEVER across brands, whatever the evidence — that would leak one customer's
+  // contact into another customer's account.
+  const t1 = idRec({ keys: [idKey("email", "jane@example.com")] });
+  const t2 = idRec({ id: "i4", brandId: "b2", keys: [idKey("email", "jane@example.com")] });
+  const cross = shouldMerge(t1, t2);
+  assert.equal(cross.merge, false, "identities were joined across tenants");
+  assert.equal(cross.suggest, false, "a cross-tenant join was even suggested");
+
+  // Nothing in common: no merge, no suggestion, no guess.
+  const u = shouldMerge(idRec({ keys: [idKey("instagram", "@a")] }), idRec({ id: "i5", keys: [idKey("instagram", "@b")] }));
+  assert.equal(u.merge, false); assert.equal(u.suggest, false);
+});
+
+test("identity: merging keeps the earliest sighting and never drops a prospect", () => {
+  const { mergeIdentities, keyId } = identity;
+  const a = idRec({
+    keys: [idKey("instagram", "@jane", "2026-03-01T00:00:00.000Z")],
+    createdAt: "2026-03-01T00:00:00.000Z",
+  });
+  const b = idRec({
+    id: "i2", prospectId: "p_9",
+    keys: [idKey("instagram", "@Jane", "2026-01-15T00:00:00.000Z"), idKey("email", "jane@example.com", "2026-04-01T00:00:00.000Z")],
+    createdAt: "2026-01-15T00:00:00.000Z",
+  });
+  const m = mergeIdentities(a, b, "2026-08-22T00:00:00.000Z");
+
+  // Two spellings of one handle collapse to one key.
+  assert.equal(m.keys.length, 2, "the same handle survived twice under different casing");
+  const ig = m.keys.find((k) => keyId(k.channel, k.value) === "instagram:jane");
+  assert.equal(ig.firstSeenISO, "2026-01-15T00:00:00.000Z", "the merge lost when we first met this person");
+  // A record already in the pipeline is never dropped by a merge.
+  assert.equal(m.prospectId, "p_9", "the merge discarded the prospect record");
+  assert.equal(m.createdAt, "2026-01-15T00:00:00.000Z");
+});
+
+test("identity: the ladder says what somebody did, never what we hope", () => {
+  const { ladderStage, LADDER } = identity;
+  assert.deepEqual([...LADDER], ["follower", "engaged", "lead", "qualified", "customer"]);
+
+  const follower = ladderStage({ followed: true });
+  assert.equal(follower.stage, "follower");
+  // The advice matters as much as the stage: pitching a follower is how an
+  // account gets muted.
+  assert.match(follower.nextAction, /do not pitch/i);
+
+  assert.equal(ladderStage({ followed: true, engagements: 2 }).stage, "engaged");
+  assert.equal(ladderStage({ engagements: 2, hasContactDetail: true }).stage, "lead");
+  assert.equal(ladderStage({ hasContactDetail: true, qualifiedAnswers: 2 }).stage, "qualified");
+
+  // Money outranks everything, and the reason cites the actual amount.
+  const paid = ladderStage({ paidGbp: 240 });
+  assert.equal(paid.stage, "customer");
+  assert.match(paid.reason, /£240/);
+
+  // Every rung must justify itself — a stage with no reason is a guess wearing
+  // a label, which is the one thing this platform does not ship.
+  for (const input of [{}, { followed: true }, { engagements: 5 }, { hasContactDetail: true }, { paidGbp: 1 }]) {
+    const r = ladderStage(input);
+    assert.ok(r.reason && r.reason.length > 8, `no reason given for ${JSON.stringify(input)}`);
+    assert.ok(r.nextAction && r.nextAction.length > 8, `no next action for ${JSON.stringify(input)}`);
+  }
+});

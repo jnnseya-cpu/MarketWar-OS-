@@ -98,9 +98,21 @@ The knowledge it needs largely exists; the **turn-taking conversation does not**
 - `backend/contacts.ts` (216) — the consent-aware vault.
 - `backend/prospecting.ts` (233) — `buildICP`, `searchProspects`, `scoreDeal`.
 
-**Missing:** social handles as identity, and **cross-channel identity
-resolution** (merging one person seen on two channels). That merge is the whole
-difficulty; the rest of the field list is largely present.
+**Now built:** `shared/identity.ts` — social handles as identity keys,
+normalisation (so `@Jane`, `jane` and the profile URL are one key), and merge
+rules that join ONLY on evidence one platform account cannot share: a handle, a
+verified email, a phone number. A matching **name never merges** — it raises a
+suggestion for a human, because fusing two people is close to unrecoverable and
+means showing one person another's data. Never across tenants, whatever the
+evidence.
+
+It also carries the **follower → customer ladder**: follower → engaged → lead →
+qualified → customer, each rung computed from something the person actually did
+and each returning its own `reason` and `nextAction`. A follower is explicitly
+not pitched.
+
+**Still missing:** the store behind it, and writing an identity when a trigger
+fires (the webhook's brand lookup is still unwired).
 
 ### 6. Lead scoring + routing — 🟡 partial
 
@@ -189,7 +201,7 @@ HTTP-request node, and third-party connectors (Zapier, HubSpot, Shopify…).
 1. Inbound social webhooks — ✅ Instagram/Messenger built; WhatsApp and TikTok absent
 2. Comment/DM/story trigger engine — ✅ matching built; **delivery and a rule surface still missing**
 3. Multi-turn AI conversation with escalation
-4. Cross-channel identity resolution
+4. Cross-channel identity resolution — ✅ rules and ladder built; **store and wiring missing**
 5. Conversational data capture
 6. A branching visual flow canvas
 7. Meta Conversions API server-side ← *the one with no approval blocker*
