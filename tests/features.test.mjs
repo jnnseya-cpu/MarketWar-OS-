@@ -16805,9 +16805,14 @@ test("phone nav: the public drawer reaches everything the footer does", () => {
   assert.ok(!/\["About", "\/about"\]/.test(drawer), "the drawer has hardcoded links of its own");
 
   // The two the header itself hides below sm/md have to be in the drawer, or
-  // somebody with an account cannot get into it from a phone.
-  assert.match(drawer, /href="\/login"/, "no way to sign in from a phone");
-  assert.match(drawer, /href="\/get-started"/);
+  // somebody with an account cannot get into it from a phone. The sign-in link
+  // now comes from SiteAuthLinks, which shows "Sign in" when signed out and a
+  // way back to the dashboard when signed in — so the guarantee is followed
+  // through the indirection rather than dropped with it.
+  assert.match(drawer, /SiteAuthLinks/, "no way to sign in from a phone");
+  const authLinks = readFileSync(new URL("../src/components/SiteAuthLinks.tsx", import.meta.url), "utf8");
+  assert.match(authLinks, /signInHref = "\/login"/, "the drawer's sign-in link no longer reaches /login");
+  assert.match(drawer, /ctaHref="\/get-started"/);
   // The free audit is the front door and is not buried in a list.
   assert.match(drawer, /href="\/audit"/);
 
@@ -20252,4 +20257,130 @@ test("google: the screen says what the consent will say, before it says it", () 
   assert.match(ui, /no narrower one to ask for/i, "it does not explain why the permission is broad");
   assert.match(ui, /a promise we keep, not a limit Google enforces/i,
     "it presents our self-imposed limit as though Google enforced it");
+});
+
+// ---------------------------------------------------------------------------
+// CREATING A BRAND. Reported from production: "new brand can't get saved and
+// been created." Three separate defects on that one path, all found by tracing
+// it rather than by reading the switcher, which looks correct in isolation.
+// ---------------------------------------------------------------------------
+
+test("a new brand keeps the market and identity the form collected", async () => {
+  const { newBrand } = await import("../src/shared/brand.ts");
+
+  const market = { countries: [{ code: "GB", tier: "primary" }], cities: ["Manchester"] };
+  const b = newBrand({
+    name: "Evan Deli", industry: "Trades", product: "Plumbing",
+    targetMarket: market, logoUrl: "https://x/logo.png",
+    brandColours: ["#199e70"], productImageUrl: "https://x/hero.jpg",
+  });
+
+  // The switcher asks "Where you sell" and tells the user every module uses it.
+  // newBrand built its result field by field and simply never listed it, so the
+  // answer was dropped on CREATE while updateBrand's spread kept it on EDIT —
+  // the field survived if you saved a brand twice and vanished if you saved it
+  // once. Nothing downstream could tell the difference between "not asked" and
+  // "asked, answered, thrown away".
+  assert.deepEqual(b.targetMarket, market, "targetMarket was dropped when the brand was created");
+  assert.equal(b.logoUrl, "https://x/logo.png", "the logo was dropped when the brand was created");
+  assert.deepEqual(b.brandColours, ["#199e70"], "brand colours were dropped when the brand was created");
+  assert.equal(b.productImageUrl, "https://x/hero.jpg", "the product image was dropped when the brand was created");
+});
+
+test("a brand named like an existing one gets its own id, and the caller is told which", async () => {
+  const { resolveBrandId, newBrand } = await import("../src/shared/brand.ts");
+
+  assert.equal(resolveBrandId("acme", []), "acme", "a free id was changed for no reason");
+  assert.equal(resolveBrandId("acme", ["acme"]), "acme-2");
+  assert.equal(resolveBrandId("acme", ["acme", "acme-2"]), "acme-3", "it reused an id that is already taken");
+  assert.equal(resolveBrandId("acme", ["acme-2"]), "acme", "it skipped a free id");
+
+  // Two brands with the same name slug to the same base id, which is the whole
+  // reason this function exists.
+  assert.equal(newBrand({ name: "Acme Ltd" }).id, newBrand({ name: "acme  ltd!" }).id,
+    "the collision case this guards is no longer reachable — check the slug rule before deleting the guard");
+});
+
+test("the brand store resolves the new id BEFORE it hands it to anything", () => {
+  const src = codeOf(readFileSync(new URL("../src/frontend/brand-context.tsx", import.meta.url), "utf8"));
+  // lastIndexOf, not indexOf: "addBrand:" also appears in the context TYPE and
+  // again in the no-provider fallback, and slicing between the first of each
+  // gave a one-line type declaration that contains no implementation at all.
+  // The first version of this test "failed" on that empty slice — a check that
+  // fails for a reason unrelated to what it tests is the same defect as one
+  // that passes for one.
+  const add = src.slice(src.lastIndexOf("addBrand:"), src.lastIndexOf("updateBrand:"));
+  assert.match(add, /setActiveId\(/, "addBrand's implementation is no longer where this test expects it");
+
+  const resolvedAt = add.indexOf("resolveBrandId");
+  const updaterAt = add.indexOf("setBrands(");
+  assert.ok(resolvedAt !== -1, "addBrand no longer resolves the id collision at all");
+
+  // THE DEFECT THIS PINS. The collision loop used to live inside the setBrands
+  // updater and assign to a variable captured from the enclosing scope. React
+  // defers that updater past the end of addBrand, so setActiveId and the server
+  // push both ran with the PRE-collision id: creating a second brand of the same
+  // name selected the OLD brand — indistinguishable from "it was never created" —
+  // and pushed the new brand's details onto the old brand's id, overwriting a
+  // real brand in the account.
+  assert.ok(resolvedAt < updaterAt,
+    "the id is resolved inside the state updater again, so the caller gets the pre-collision id");
+  assert.doesNotMatch(add.slice(updaterAt), /\bbrand\s*=\s*\{/,
+    "the setBrands updater assigns to a captured variable again — its result cannot be read by the caller");
+});
+
+test("the add-brand form cannot put its own submit button out of reach", () => {
+  const src = readFileSync(new URL("../src/components/BrandSwitcher.tsx", import.meta.url), "utf8");
+  const headerAt = src.indexOf('{editingId ? "Edit brand" : "New brand"}');
+  assert.ok(headerAt !== -1, "the add/edit panel is no longer where this test expects it");
+  // The panel's own container opens BEFORE that header, so the slice has to
+  // start above it or the height constraint being asserted on is not in it.
+  const panel = src.slice(src.lastIndexOf("<div", src.lastIndexOf("<div", headerAt) - 1));
+
+  // WHY THIS IS A REAL FAILURE AND NOT A STYLE POINT. The panel is a dropdown
+  // inside a `fixed inset-y-0` sidebar. Content past the bottom of the viewport
+  // in a fixed element is not merely off-screen — there is nothing to scroll, so
+  // it cannot be reached at all. Eight inputs plus the market picker are taller
+  // than the space under the switcher on a laptop, so "Create brand" sat under
+  // the fold and no brand could be created. The brand LIST branch had been
+  // capped at max-h-72; this branch was never given the same treatment.
+  assert.match(panel, /max-h-\[calc\(100vh-/, "the add/edit panel is unbounded again and can run past the viewport");
+
+  const scrollAt = panel.indexOf("overflow-y-auto");
+  assert.ok(scrollAt !== -1, "the fields no longer scroll, so a tall market picker pushes the button off-screen");
+
+  // And the button must be a SIBLING of the scroll area, not inside it: a button
+  // that scrolls away with the fields is the same trap one level down. Counting
+  // the tags between them proves it is outside rather than assuming it.
+  const submitAt = panel.indexOf("onClick={submit}");
+  assert.ok(submitAt > scrollAt, "the submit button moved above the fields");
+  const between = panel.slice(scrollAt, submitAt);
+  const opened = (between.match(/<div\b/g) || []).length;
+  const closed = (between.match(/<\/div>/g) || []).length;
+  assert.ok(closed > opened,
+    "the submit button is nested inside the scrolling fields again — it must sit outside them to stay on screen");
+});
+
+test("the public header does not tell a signed-in owner to log in", () => {
+  // Reported from production: "when you're already logged in and click the logo
+  // it takes you out and need to re login again." The session was never lost —
+  // the sidebar logo links to "/", and every public header rendered "Log in" and
+  // "Get started" as fixed links that had never asked whether anyone was signed
+  // in. The owner believed they had been signed out and authenticated again.
+  const links = readFileSync(new URL("../src/components/SiteAuthLinks.tsx", import.meta.url), "utf8");
+  assert.match(links, /useAuthUser/, "the header links no longer read the auth state at all");
+  assert.match(links, /href="\/dashboard"/, "a signed-in visitor is given no way back into the product");
+  // It must claim NEITHER state while the persisted session is still rehydrating.
+  assert.match(codeOf(links), /if \(loading\) return/,
+    "the header commits to a signed-out state before the session has finished loading");
+
+  // Every public header has to go through it. A second one left hard-coded is
+  // the same bug on a different page, which is how this one survived: the
+  // landing page and the shared marketing shell each had their own copy.
+  for (const f of ["../src/app/page.tsx", "../src/components/marketing.tsx", "../src/components/SiteMobileNav.tsx"]) {
+    const src = codeOf(readFileSync(new URL(f, import.meta.url), "utf8"));
+    assert.match(src, /SiteAuthLinks/, `${f} still renders its own account links`);
+    assert.doesNotMatch(src, /href="\/login"/,
+      `${f} still links straight to /login without checking whether anyone is signed in`);
+  }
 });

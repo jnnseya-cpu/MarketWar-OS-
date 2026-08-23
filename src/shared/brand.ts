@@ -66,6 +66,22 @@ export function brandDefaults(brand: Brand | null | undefined): Record<string, s
 // Palette accents for brand avatars (from src/shared/palette.ts SERIES).
 const BRAND_COLORS = ["#3987e5", "#199e70", "#c98500", "#9085e9", "#e66767", "#d55181", "#d95926"];
 
+/**
+ * The first free id for a new brand, given the ids already in use.
+ *
+ * Ids are a slug of the name, so two brands called the same thing collide. This
+ * is pure and separate from the store because the CALLER has to know the final
+ * id — it is what gets selected and what gets sent to the server — and resolving
+ * it inside a React state updater hands the caller the pre-collision id instead.
+ */
+export function resolveBrandId(baseId: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  if (!used.has(baseId)) return baseId;
+  let n = 2;
+  while (used.has(`${baseId}-${n}`)) n++;
+  return `${baseId}-${n}`;
+}
+
 export function newBrand(input: Partial<Brand> & { name: string }): Brand {
   // Deterministic id + colour from the name (no Date.now/Math.random — keeps
   // demo + tests stable; collisions resolved by the store on add).
@@ -83,6 +99,17 @@ export function newBrand(input: Partial<Brand> & { name: string }): Brand {
     website: input.website ?? "",
     goal: input.goal ?? "",
     color: input.color ?? BRAND_COLORS[hash % BRAND_COLORS.length],
+    // CARRIED ACROSS, because they were not.
+    //
+    // The switcher asks "Where you sell" and says every module uses it, and
+    // onboarding can arrive with a logo and brand colours already chosen — and
+    // every one of those was dropped here on CREATE while `updateBrand`'s
+    // spread kept them on EDIT. So the answer survived if you saved a brand
+    // twice and vanished if you saved it once.
+    targetMarket: input.targetMarket,
+    logoUrl: input.logoUrl,
+    brandColours: input.brandColours,
+    productImageUrl: input.productImageUrl,
     bvi: input.bvi,
     acuBurnMonth: input.acuBurnMonth,
   };

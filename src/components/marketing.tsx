@@ -7,6 +7,7 @@ import Link from "next/link";
 import { BrandLockup } from "@/components/Logo";
 import { FOOTER_NAV as NAV_COLUMNS, HEADER_NAV } from "@/components/marketing-nav";
 import SiteMobileNav from "@/components/SiteMobileNav";
+import SiteAuthLinks from "@/components/SiteAuthLinks";
 
 // Canonical public-site navigation. The list itself lives in marketing-nav so
 // the mobile drawer (a client component) can read it without dragging this
@@ -27,8 +28,11 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <Link href="/login" className="hidden text-sm font-semibold text-slate-300 hover:text-white sm:block">Sign in</Link>
-          <Link href="/get-started" className="rounded-lg bg-emerald-500 px-3.5 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400">Get started</Link>
+          <SiteAuthLinks
+            signInLabel="Sign in"
+            signInClassName="hidden text-sm font-semibold text-slate-300 hover:text-white sm:block"
+            ctaHref="/get-started"
+          />
           {/* Below md the nav above is hidden and, until this existed, nothing
               replaced it — the whole public site was a logo and one button. */}
           <SiteMobileNav />

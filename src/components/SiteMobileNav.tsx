@@ -32,6 +32,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { FOOTER_NAV } from "@/components/marketing-nav";
+import SiteAuthLinks from "@/components/SiteAuthLinks";
 
 export default function SiteMobileNav() {
   const [open, setOpen] = useState(false);
@@ -118,12 +119,12 @@ export default function SiteMobileNav() {
                   them here, somebody who already has an account has no way into
                   it from a phone. */}
               <div className="space-y-2 border-t border-ink-700/60 pt-5">
-                <Link href="/login" className="block rounded-lg border border-white/10 px-3 py-2.5 text-center text-sm font-semibold text-slate-200 hover:bg-ink-800">
-                  Sign in
-                </Link>
-                <Link href="/get-started" className="block rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-center text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20">
-                  Get started
-                </Link>
+                <SiteAuthLinks
+                  signInLabel="Sign in"
+                  signInClassName="block rounded-lg border border-white/10 px-3 py-2.5 text-center text-sm font-semibold text-slate-200 hover:bg-ink-800"
+                  ctaHref="/get-started"
+                  ctaClassName="block rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-center text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
+                />
               </div>
             </nav>
           </div>
