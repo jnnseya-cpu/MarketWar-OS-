@@ -19098,3 +19098,44 @@ test("ad styles: the backend asserts it still matches the published shape", () =
   assert.match(src, /const _wireShape: AdStyleView\[\] = AD_STYLES/,
     "nothing checks that AD_STYLES still matches shared/ad-style-view.ts");
 });
+
+// ---------------------------------------------------------------------------
+// The ManyChat gap register must stay true, or it becomes the thing it exists
+// to prevent: a document that sends somebody to rebuild what already works, or
+// to trust a module that was deleted. The last coverage doc went stale exactly
+// this way and cost a month of re-derived context.
+// ---------------------------------------------------------------------------
+
+test("manychat register: every module it cites actually exists", () => {
+  const doc = readFileSync(new URL("../docs/MANYCHAT-GAP-COVERAGE.md", import.meta.url), "utf8");
+
+  // Every `backend/x.ts` or `shared/x.ts` named in the register.
+  const cited = [...doc.matchAll(/`(backend|shared|frontend)\/([a-z0-9-]+)\.ts`/g)]
+    .map((m) => `src/${m[1]}/${m[2]}.ts`);
+  assert.ok(cited.length >= 12, "the register stopped citing evidence — it is now opinion");
+
+  const missing = [...new Set(cited)].filter((rel) => {
+    try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); return false; } catch { return true; }
+  });
+  assert.deepEqual(missing, [], `the register cites modules that do not exist: ${missing.join(", ")}`);
+});
+
+test("manychat register: what it calls absent is still absent", () => {
+  // If one of these gets built, the register must be updated in the same change.
+  // A doc that says "no inbound social webhook" while one exists is how the same
+  // work gets done twice.
+  const absent = [
+    ["src/app/api/webhooks/meta/route.ts", "an inbound Meta webhook now exists — update §3"],
+    ["src/backend/meta-capi.ts", "Meta Conversions API now exists — update §13"],
+  ];
+  for (const [rel, why] of absent) {
+    let exists = true;
+    try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); } catch { exists = false; }
+    assert.equal(exists, false, why);
+  }
+
+  // And the claim that the inbox runs on demo data — the moment real ingestion
+  // lands, §7 is wrong and must be re-read.
+  const inbox = readFileSync(new URL("../src/backend/inbox.ts", import.meta.url), "utf8");
+  assert.match(inbox, /demoThreads/, "inbox.ts no longer has demoThreads — §7 of the register is out of date");
+});
