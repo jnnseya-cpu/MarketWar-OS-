@@ -20,7 +20,9 @@ import { authedFetch } from "@/frontend/api-client";
 type Band = { id: string; programme: string; label: string; minFollowers: number; creatorPct: string; totalPct: string; requires: string };
 type Action = { id: string; label: string; measuredBy: string; payableNow: boolean; blockedReason?: string; pencePerUnit: number | null; dailyUnitCap: number };
 type Kind = { id: string; label: string; asks: string };
-type Mission = { id: string; title: string; kind: string; budgetPence: number; reservedPence: number; closesAt: string; fundingMode?: string; rewards: { label: string }[] };
+type Mission = { id: string; title: string; kind: string; budgetPence: number; reservedPence: number; closesAt: string; fundingMode?: string; rewards: { label: string }[];
+  /** True only when the brand's float actually holds the reservation. */
+  funded?: boolean };
 type Line = { label: string; pence: number; kind: "in" | "cost" | "protected" | "reward" };
 type Capacity = { capacity: { headline: string; caveat: string; availablePence: number; ratePct: number }; rate: { why: string }; split: { label: string; pence: number }[]; perTransaction: { note: string } };
 type Flow = { ok: boolean; error?: string; hint?: string; lines?: Line[]; note?: string; economics?: { growthPoolPence: number; protectedMarginPence: number; contributionPence: number; breakEvenRoas: number; minPermittedRoas: number; notes: string[] } };
@@ -317,7 +319,18 @@ export default function Share2Earn() {
               <li key={m.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.06] bg-ink-900/50 p-2.5 text-xs">
                 <span className="font-semibold text-white">{m.title}</span>
                 <span className="text-slate-500">{m.kind.replace(/_/g, " ")}</span>
-                <span className="ml-auto text-emerald-300">{money(m.reservedPence)} reserved of {money(m.budgetPence)}</span>
+                {/* "RESERVED" IS A CLAIM ABOUT MONEY, MADE TO THE PUBLIC.
+                    This said "£X reserved" for every mission, on a page anybody
+                    can read, while nothing held the money — it was a number on a
+                    record. It now says reserved only when the brand's float
+                    actually holds it, and says plainly when it does not, because
+                    somebody is deciding whether to do work on the strength of
+                    this line. */}
+                {m.funded ? (
+                  <span className="ml-auto text-emerald-300">{money(m.reservedPence)} held for this mission</span>
+                ) : (
+                  <span className="ml-auto text-amber-300">{money(m.budgetPence)} budgeted — not yet funded</span>
+                )}
               </li>
             ))}
           </ul>
