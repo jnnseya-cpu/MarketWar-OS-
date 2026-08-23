@@ -19812,3 +19812,146 @@ test("site audit: a dimension is a measurement or a stated refusal, never a hash
   assert.match(route, /instantAudit\(site!, \{ audit: deep\.audit, extraction: deep\.extraction \}\)/,
     "the route no longer passes the crawl to the audit, so nothing can be measured");
 });
+
+// ---------------------------------------------------------------------------
+// CUSTODY — the brand's float, where "reserved" stops being a word.
+//
+// `reservedPence` was a number on a record while a PUBLIC page told creators
+// "£X reserved" and "money that already exists". Nothing held it and nothing
+// collected it. These tests hold the law that replaced that:
+//
+//     available + held + paidOut === toppedUp - refunded
+// ---------------------------------------------------------------------------
+
+const flt = await import("../src/shared/float-ledger.ts");
+
+const fe = (kind, pence, ref, at) => ({ id: `${kind}-${ref}`, brandId: "b1", kind, pence, ref, at });
+
+test("float: every penny is in exactly one of three places, always", () => {
+  const { floatState, conserves } = flt;
+  const entries = [
+    fe("topup", 50000, "pi_1", "2026-08-01T00:00:00.000Z"),
+    fe("hold", 20000, "m_1", "2026-08-02T00:00:00.000Z"),
+    fe("payout", 5000, "a_1", "2026-08-03T00:00:00.000Z"),
+    fe("release", 3000, "m_1", "2026-08-04T00:00:00.000Z"),
+    fe("topup", 10000, "pi_2", "2026-08-05T00:00:00.000Z"),
+    fe("refund", 2000, "re_1", "2026-08-06T00:00:00.000Z"),
+    fe("clawback", 1000, "a_1", "2026-08-07T00:00:00.000Z"),
+  ];
+  const s = floatState(entries);
+  assert.ok(conserves(s), `the float stopped balancing: ${JSON.stringify(s)}`);
+
+  // Walked by hand, because this is money and the arithmetic must be checkable.
+  assert.equal(s.toppedUpPence, 60000);
+  assert.equal(s.refundedPence, 2000);
+  assert.equal(s.heldPence, 20000 - 5000 - 3000);          // 12000
+  assert.equal(s.paidOutPence, 5000 - 1000);               // 4000
+  assert.equal(s.availablePence, 50000 - 20000 + 3000 + 10000 - 2000 + 1000); // 42000
+  assert.equal(s.availablePence + s.heldPence + s.paidOutPence, 60000 - 2000);
+
+  // Order must not change the answer — entries arrive out of order from a store.
+  const shuffled = [...entries].reverse();
+  assert.deepEqual(floatState(shuffled), s, "the balance depends on the order rows came back in");
+});
+
+test("float: a payout consumes the hold, not the spendable balance", () => {
+  const { floatState } = flt;
+  // If a payout came out of `available`, paying a creator would silently free
+  // the reservation that was protecting them.
+  const s = floatState([
+    fe("topup", 10000, "pi_1", "2026-08-01T00:00:00.000Z"),
+    fe("hold", 6000, "m_1", "2026-08-02T00:00:00.000Z"),
+    fe("payout", 2000, "a_1", "2026-08-03T00:00:00.000Z"),
+  ]);
+  assert.equal(s.availablePence, 4000, "the payout came out of the spendable balance");
+  assert.equal(s.heldPence, 4000, "the hold was not consumed by the payout");
+  assert.equal(s.paidOutPence, 2000);
+});
+
+test("float: it refuses to promise money that is not there", () => {
+  const { floatState, requestHold, requestPayout, requestRefund } = flt;
+  const s = floatState([fe("topup", 10000, "pi_1", "2026-08-01T00:00:00.000Z")]);
+
+  // THE DEFECT THIS REPLACES: a mission promising £5,000 on a £200 float. The
+  // creators would have done the work by the time anyone noticed.
+  const over = requestHold(s, 50000, "m_big");
+  assert.equal(over.ok, false);
+  assert.equal(over.shortfallPence, 40000, "the shortfall is not stated, so nobody knows how much to top up");
+  assert.match(over.error, /a bounty that is displayed is a debt/i);
+
+  assert.equal(requestHold(s, 10000, "m_ok").ok, true, "a hold within the balance was refused");
+  assert.equal(requestHold(s, 0, "m_zero").ok, false);
+
+  // Paying more than is held would spend another mission's reservation.
+  const held = floatState([...[fe("topup", 10000, "pi_1", "2026-08-01T00:00:00.000Z")], fe("hold", 3000, "m_1", "2026-08-02T00:00:00.000Z")]);
+  const overPay = requestPayout(held, 5000, "a_1");
+  assert.equal(overPay.ok, false);
+  assert.match(overPay.error, /held against another mission/i);
+  assert.equal(requestPayout(held, 3000, "a_1").ok, true);
+
+  // A hold is a PROMISE. The brand cannot take it back while the mission runs.
+  const refund = requestRefund(held, 9000, "req_1");
+  assert.equal(refund.ok, false, "money promised to creators was refundable to the brand");
+  assert.match(refund.error, /promised to creators/i);
+  assert.equal(requestRefund(held, 7000, "req_1").ok, true, "unreserved money should be refundable");
+});
+
+test("float: the store credits only a confirmed payment, and never twice", async () => {
+  const store = await import("../src/backend/brand-float.ts");
+  store.__resetFloat();
+  const at = "2026-08-20T00:00:00.000Z";
+
+  // A retried webhook must not credit a payment the brand made once.
+  const first = await store.creditTopUp("b1", 25000, "pi_abc", at);
+  assert.equal(first.ok, true);
+  assert.equal(first.state.availablePence, 25000);
+
+  const retry = await store.creditTopUp("b1", 25000, "pi_abc", "2026-08-20T00:05:00.000Z");
+  assert.equal(retry.ok, true);
+  assert.equal(retry.state.availablePence, 25000, "a retried webhook credited the float twice");
+  assert.equal(retry.state.toppedUpPence, 25000);
+
+  // A top-up with no payment reference cannot be idempotent, so it is refused.
+  assert.equal((await store.creditTopUp("b1", 100, "", at)).ok, false);
+
+  // Hold, pay, and the law still holds at every step.
+  const hold = await store.holdForMission("b1", 10000, "m_1", at);
+  assert.equal(hold.ok, true);
+  assert.equal(hold.state.availablePence, 15000);
+  assert.equal(hold.state.heldPence, 10000);
+
+  const pay = await store.payoutFromHold("b1", 4000, "a_1", at);
+  assert.equal(pay.ok, true);
+  assert.equal(pay.state.heldPence, 6000);
+  assert.equal(pay.state.paidOutPence, 4000);
+  assert.ok(flt.conserves(pay.state), "the float stopped balancing after a real payout");
+
+  // Over-holding is refused against the LIVE balance, not a stale one.
+  const tooMuch = await store.holdForMission("b1", 999999, "m_2", at);
+  assert.equal(tooMuch.ok, false);
+  assert.ok(tooMuch.shortfallPence > 0);
+});
+
+test("float: with no Stripe key it refuses to pretend a top-up happened", async () => {
+  const store = await import("../src/backend/brand-float.ts");
+  const saved = process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
+  try {
+    const r = await store.startTopUp({ brandId: "b1", pence: 10000, returnUrl: "https://example.com" });
+    assert.equal(r.ok, false, "a top-up was reported as started with no payment provider configured");
+    assert.match(r.error, /STRIPE_SECRET_KEY/);
+    assert.match(r.error, /no mission can be funded/i);
+  } finally {
+    if (saved === undefined) delete process.env.STRIPE_SECRET_KEY; else process.env.STRIPE_SECRET_KEY = saved;
+  }
+});
+
+test("share2earn: the public page claims 'reserved' only when money is held", () => {
+  const ui = readFileSync(new URL("../src/components/Share2Earn.tsx", import.meta.url), "utf8");
+  // This is a funding claim made to members of the public who are deciding
+  // whether to do work on the strength of it.
+  assert.match(ui, /m\.funded \?/, "the page states a reservation without checking whether anything is held");
+  assert.match(ui, /not yet funded/i, "there is no wording for an unfunded mission, so every mission still reads as funded");
+  assert.ok(!/\{money\(m\.reservedPence\)\} reserved of \{money\(m\.budgetPence\)\}/.test(ui),
+    "the unconditional 'reserved of budget' claim is still on the public page");
+});
