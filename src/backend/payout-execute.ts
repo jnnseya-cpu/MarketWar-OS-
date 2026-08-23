@@ -323,3 +323,48 @@ export const EXECUTE_DOCTRINE = [
   "Nothing is ever reported as sent without a reference from the provider. With no rail connected this says so plainly rather than showing a success — here the lie would be about somebody's wages.",
   "The identity gate runs before the fee quote, which runs before anything moves. Each one refuses rather than warns.",
 ];
+
+// ---------------------------------------------------------------------------
+// REVERSING A PAYOUT
+// ---------------------------------------------------------------------------
+//
+// Lives HERE, and not in `clawback.ts` where it was first written, because the
+// invariant this file holds is that every call to a payout provider is in one
+// place. A reversal moves money just as a payout does — it simply moves it the
+// other way — and a second file talking to the rail is exactly how the platform
+// once grew two payout paths where the weaker one paid more.
+//
+// Idempotent at the rail with the caller's own key: reversing twice would take
+// money from a creator that was never theirs to lose.
+export async function reversePayout(input: {
+  railId: string;
+  /** The provider's reference from the original payout. */
+  providerRef: string;
+  pence: number;
+  /** Stable across retries of the SAME reversal. */
+  idempotencyKey: string;
+}): Promise<{ ok: true; ref: string } | { ok: false; error: string }> {
+  const key = (process.env.STRIPE_SECRET_KEY || "").trim();
+  if (input.railId !== "stripe_bank" && input.railId !== "stripe_card") {
+    return { ok: false, error: `Payouts on ${input.railId} cannot be recalled once sent.` };
+  }
+  if (!key) return { ok: false, error: "Stripe is not connected on this deployment, so nothing can be reversed." };
+  if (!input.providerRef) return { ok: false, error: "No provider reference from the original payout, so there is nothing to reverse." };
+
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/transfers/${encodeURIComponent(input.providerRef)}/reversals`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Idempotency-Key": input.idempotencyKey,
+      },
+      body: new URLSearchParams({ amount: String(Math.max(0, Math.round(input.pence))) }),
+    });
+    const d = (await res.json().catch(() => null)) as { id?: string; error?: { message?: string } } | null;
+    if (!res.ok || !d?.id) return { ok: false, error: `Stripe ${res.status}: ${d?.error?.message || "no reversal id returned"}` };
+    return { ok: true, ref: d.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not reach Stripe." };
+  }
+}
