@@ -20166,3 +20166,52 @@ test("float screen: it is mounted, and says which variable is missing", () => {
   assert.match(ui, /view\.canTopUp \?/, "the screen offers a top-up that cannot work");
   assert.match(ui, /\{view\.note\}/, "with no payment provider the panel says nothing about why");
 });
+
+// ---------------------------------------------------------------------------
+// THE RECORDER ASKS FOR THE CAMERA BEFORE IT ASKS FOR THE SCREEN.
+//
+// Reported from a real take: the screen recorded, the presenter was not in it,
+// and the only warning arrived AFTER the recording had started. The camera was
+// requested second, so a person chose a screen, began recording, and discovered
+// they were absent — and if permission was blocked on an earlier visit Chrome
+// shows no prompt at all, so it failed silently.
+// ---------------------------------------------------------------------------
+
+test("recorder: the camera is requested before the screen picker", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8");
+  const code = codeOf(src);
+
+  const cam = code.indexOf("getUserMedia({ video:");
+  const screen = code.indexOf("getDisplayMedia(");
+  assert.ok(cam > -1 && screen > -1, "the recorder no longer acquires both a camera and a screen");
+  assert.ok(cam < screen,
+    "the camera is still requested after the screen picker — a blocked camera is then discovered mid-take, with the recording already running");
+
+  // And a block must ABORT rather than record a take the person is not in.
+  assert.match(code, /if \(camDenied\) \{[\s\S]{0,200}?setPhase\("idle"\)/,
+    "a blocked camera no longer stops the take, so it records the screen alone after the person asked to be on it");
+});
+
+test("recorder: a blocked camera is told how to unblock it", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8");
+  // "Allow the camera for this site" is not instructions. Chrome hides the
+  // control behind an icon most people have never pressed, and once blocked it
+  // never prompts again — so the old message left them stuck.
+  assert.match(src, /CAMERA_BLOCKED_HELP/, "there is no help text for a blocked camera");
+  assert.match(src, /address bar/i, "the help does not say where the control is");
+  assert.match(src, /reload/i, "the help omits the reload, without which the change does not take effect");
+  // And it must reassure that nothing was lost, because the fear is a wasted take.
+  assert.match(src, /your take is safe/i, "the help does not say whether the recording was lost");
+});
+
+test("recorder: recording a whole monitor warns about the mirror", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8");
+  const code = codeOf(src);
+  // selfBrowserSurface excludes this TAB from the picker; it cannot exclude the
+  // tab from a whole MONITOR. Choosing "Entire Screen" therefore records the
+  // recorder recording itself, and the first take comes back unusable.
+  assert.match(code, /displaySurface === "monitor"/,
+    "nothing notices that the whole screen was chosen, so the hall-of-mirrors take is only discovered in playback");
+  assert.match(src, /hall of mirrors/i, "the warning does not describe what the person is actually seeing");
+  assert.match(code, /selfBrowserSurface: "exclude"/, "the recorder's own tab is no longer excluded from the picker");
+});
