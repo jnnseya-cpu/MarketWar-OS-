@@ -23,6 +23,7 @@ import {
   Zap,
 } from "lucide-react";
 import HeroMockup from "@/components/HeroMockup";
+import SiteAuthLinks from "@/components/SiteAuthLinks";
 import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
@@ -184,15 +185,9 @@ export default function LandingPage() {
             <Link href="/about" className="transition hover:text-white">About</Link>
           </nav>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="hidden text-sm font-semibold text-slate-300 transition hover:text-white sm:block">
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
-            >
-              Get started
-            </Link>
+            <SiteAuthLinks
+              ctaClassName="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
+            />
           </div>
         </div>
       </header>

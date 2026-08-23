@@ -63,6 +63,14 @@ const CORNERS: { id: Corner; label: string }[] = [
   { id: "bottom-right", label: "Bottom right" },
 ];
 
+// What to actually DO about a blocked camera. "Allow the camera for this site"
+// is not instructions — Chrome hides the control behind an icon most people
+// have never pressed, and once blocked it never prompts again.
+const CAMERA_BLOCKED_HELP =
+  "Your browser is blocking the camera for this site, so nothing was recorded — your take is safe. " +
+  "To fix it: click the camera or padlock icon at the left of the address bar, set Camera to Allow, reload this page, then start again. " +
+  "Or turn \u201cShow me on screen\u201d off and record the screen alone.";
+
 export default function ScreenRecorder() {
   const [supported, setSupported] = useState(true);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -221,6 +229,34 @@ export default function ScreenRecorder() {
       // `selfBrowserSurface: "exclude"` keeps this tab out of the list, because
       // recording the recorder produces the infinite-mirror effect and a
       // confusing first take.
+      // THE CAMERA IS ASKED FOR FIRST, AND THAT ORDER IS THE WHOLE FIX.
+      //
+      // It used to be requested AFTER the screen picker, which meant: the user
+      // chose a screen, sharing started, and only then did the camera fail —
+      // and if permission had been blocked on a previous visit, Chrome shows no
+      // prompt at all, so it failed silently. The person recorded a whole take
+      // before discovering they were not in it.
+      //
+      // Asking first means a block is discovered while nothing is being
+      // recorded, and the take is never wasted.
+      let camStream: MediaStream | null = null;
+      let camDenied = false;
+      if (withCam) {
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        } catch {
+          camDenied = true;
+        }
+        if (camDenied) {
+          // Stop BEFORE the screen picker. Recording a take the person is not in,
+          // when they asked to be in it, is the failure this whole component was
+          // rewritten to prevent.
+          setPhase("idle");
+          setNote(CAMERA_BLOCKED_HELP);
+          return;
+        }
+      }
+
       const display = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30, displaySurface: "monitor" },
         audio: true,
@@ -242,21 +278,15 @@ export default function ScreenRecorder() {
       screenVid.muted = true;
       await screenVid.play().catch(() => { /* autoplay is allowed here — this is a user gesture */ });
 
-      // THE CAMERA, ACTUALLY IN THE RECORDING.
-      let camDenied = false;
-      if (withCam) {
-        try {
-          const cam = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-          streamsRef.current.push(cam);
-          const camVid = camVidRef.current!;
-          camVid.srcObject = cam;
-          camVid.muted = true;
-          await camVid.play().catch(() => { /* same */ });
-          setCamLive(true);
-        } catch {
-          camDenied = true;
-          setCamLive(false);
-        }
+      // THE CAMERA, ACTUALLY IN THE RECORDING. Already acquired above, so by
+      // this point it is known to work — there is no failure left to discover.
+      if (camStream) {
+        streamsRef.current.push(camStream);
+        const camVid = camVidRef.current!;
+        camVid.srcObject = camStream;
+        camVid.muted = true;
+        await camVid.play().catch(() => { /* same */ });
+        setCamLive(true);
       }
 
       // ONE audio track, mixed. Two tracks means the second is dropped.
@@ -322,7 +352,13 @@ export default function ScreenRecorder() {
       // Said plainly and at the start, not discovered afterwards. A recording
       // that quietly lacks the thing somebody switched on is the whole defect
       // this rewrite exists to remove.
-      if (camDenied) setNote("The camera was blocked, so this is recording the screen only. Stop, allow the camera for this site, and start again to include yourself.");
+      // THE INFINITE MIRROR. Choosing "Entire Screen" while this page is on that
+      // screen records the recorder recording itself, forever. `selfBrowserSurface`
+      // excludes this TAB from the picker but cannot exclude it from a whole
+      // monitor. Said here rather than left to be discovered in playback.
+      if ((settings as { displaySurface?: string }).displaySurface === "monitor") {
+        setNote("Recording the whole screen — including this window, which is why the preview looks like a hall of mirrors. To avoid it, stop and choose the single window or tab you are demonstrating instead.");
+      }
     } catch (e) {
       const msg = (e as Error).name === "NotAllowedError"
         ? "Screen capture was cancelled or blocked."

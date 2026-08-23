@@ -7,7 +7,7 @@
 // Firestore (businesses.ownerId) without changing consumers.
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { type Brand, SEED_BRANDS, newBrand } from "@/shared/brand";
+import { type Brand, SEED_BRANDS, newBrand, resolveBrandId } from "@/shared/brand";
 import { authedFetch } from "@/frontend/api-client";
 import { firebaseAuth } from "@/frontend/firebase-client";
 
@@ -124,14 +124,20 @@ export function BrandProvider({ children }: { children: ReactNode }) {
       ready,
       setActive: (id) => setActiveId(id),
       addBrand: (input) => {
-        let brand = newBrand(input);
-        setBrands((prev) => {
-          // Resolve id collisions deterministically.
-          let id = brand.id, n = 2;
-          while (prev.some((b) => b.id === id)) id = `${brand.id}-${n++}`;
-          brand = { ...brand, id };
-          return [...prev, brand];
-        });
+        // The id is resolved HERE, against the brands this render can see, and
+        // not inside the setBrands updater.
+        //
+        // It used to be resolved inside the updater, which React defers past the
+        // end of this function — so `setActiveId` and the server push both ran
+        // with the PRE-collision id. Adding a second brand whose name slugs to an
+        // existing one therefore switched the user to the OLD brand (the new one
+        // looked like it was never created) and pushed the new brand's details to
+        // the old brand's id, overwriting a real brand on the server.
+        const base = newBrand(input);
+        const brand = { ...base, id: resolveBrandId(base.id, brands.map((b) => b.id)) };
+        // Still guarded inside the updater: two adds in one tick would both see
+        // the same `brands`, and the list is the only place that can be sure.
+        setBrands((prev) => (prev.some((b) => b.id === brand.id) ? prev : [...prev, brand]));
         setActiveId(brand.id);
         pushBrandRemote(brand); // persist to the account immediately
         return brand;

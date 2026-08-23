@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/backend/guard";
-import { hasOAuthClient, googleConsentUrl, signState } from "@/backend/google-auth";
+import { hasOAuthClient, googleConsentUrl, signState, type GoogleConnectPurpose } from "@/backend/google-auth";
 
 // Starts the in-app Google connect flow (no OAuth Playground). Admin-only. Returns
 // the Google consent URL (Search Console + Business Profile scopes, offline access)
@@ -35,7 +35,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Set GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET in Vercel first, then Connect Google." }, { status: 400 });
   }
   const redirectUri = `${req.nextUrl.origin}/api/google/callback`;
-  return NextResponse.json({ url: googleConsentUrl(redirectUri, signState(brandId)), redirectUri, brandId: brandId || undefined });
+  // Only the scopes this connection needs. A YouTube connect asks for YouTube,
+  // not for management of the customer's Google Business Profile as well.
+  const raw = req.nextUrl.searchParams.get("purpose") || "";
+  const purpose: GoogleConnectPurpose = raw === "youtube" || raw === "search" || raw === "business" ? raw : "all";
+  return NextResponse.json({ url: googleConsentUrl(redirectUri, signState(brandId), purpose), redirectUri, brandId: brandId || undefined, purpose });
 }
 
 // Is this brand connected? The screens need to know before they offer a button,

@@ -134,12 +134,25 @@ export default function BrandSwitcher() {
               </div>
             </>
           ) : (
-            <div className="p-1.5">
-              <div className="mb-2 flex items-center justify-between">
+            // BOUNDED, AND THE BUTTON IS OUTSIDE THE SCROLL AREA.
+            //
+            // This form lives in a dropdown inside a `fixed inset-y-0` sidebar,
+            // so anything past the bottom of the viewport is not merely
+            // off-screen — it cannot be scrolled to at all. Eight inputs plus
+            // the market picker are taller than the space below the switcher on
+            // a laptop, so "Create brand" sat under the fold and the brand could
+            // not be created. The list branch above was capped at max-h-72 and
+            // this branch was never given the same treatment.
+            //
+            // The fields scroll; the submit button is a SIBLING of the scroll
+            // area, not a child, so it is always on screen no matter how tall
+            // the market picker grows.
+            <div className="flex max-h-[calc(100vh-10rem)] flex-col p-1.5">
+              <div className="mb-2 flex shrink-0 items-center justify-between">
                 <p className="text-xs font-bold text-white">{editingId ? "Edit brand" : "New brand"}</p>
                 <button type="button" onClick={() => { setAdding(false); setEditingId(null); }} className="text-slate-500 hover:text-white"><X className="h-3.5 w-3.5" /></button>
               </div>
-              <div className="space-y-1.5">
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-0.5">
                 {([
                   ["name", "Brand / business name *"],
                   ["industry", "Industry"],
@@ -159,10 +172,10 @@ export default function BrandSwitcher() {
                   />
                 ))}
                 <div className="pt-1"><MarketPicker value={market} onChange={setMarket} /></div>
-                <button type="button" onClick={submit} disabled={!form.name.trim()} className="mt-1 w-full rounded-md bg-emerald-500 px-2.5 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-40">
-                  {editingId ? "Save changes" : "Create brand"}
-                </button>
               </div>
+              <button type="button" onClick={submit} disabled={!form.name.trim()} className="mt-2 w-full shrink-0 rounded-md bg-emerald-500 px-2.5 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-40">
+                {editingId ? "Save changes" : "Create brand"}
+              </button>
             </div>
           )}
         </div>

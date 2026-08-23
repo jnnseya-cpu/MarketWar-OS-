@@ -106,7 +106,32 @@ async function mintOAuthUserToken(brandRefresh?: string | null): Promise<string 
 // added as test users on the Cloud project while everyone else sees the
 // unverified-app warning. That is a deployment fact, not a code one, and it is
 // recorded here so nobody wonders later why consent looks different.
-const OAUTH_SCOPES = "https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/youtube.force-ssl";
+const SCOPE_SEARCH_CONSOLE = "https://www.googleapis.com/auth/webmasters.readonly";
+const SCOPE_BUSINESS_PROFILE = "https://www.googleapis.com/auth/business.manage";
+const SCOPE_YOUTUBE = "https://www.googleapis.com/auth/youtube.force-ssl";
+
+const OAUTH_SCOPES = `${SCOPE_SEARCH_CONSOLE} ${SCOPE_BUSINESS_PROFILE} ${SCOPE_YOUTUBE}`;
+
+/**
+ * ASK FOR WHAT THIS CONNECTION NEEDS, NOT FOR EVERYTHING.
+ *
+ * One bundled consent meant somebody connecting YouTube to read their own
+ * captions was also asked to hand over management of their Google Business
+ * Profile. That makes an already-frightening screen worse, it is the opposite of
+ * what Google's own guidance asks for, and it makes verification harder because
+ * every scope in the bundle has to be justified for every user.
+ *
+ * `include_granted_scopes` means a brand that later connects Search Console
+ * keeps YouTube — the grants accumulate rather than replacing each other.
+ */
+export type GoogleConnectPurpose = "all" | "youtube" | "search" | "business";
+
+export function scopesFor(purpose: GoogleConnectPurpose): string {
+  if (purpose === "youtube") return SCOPE_YOUTUBE;
+  if (purpose === "search") return SCOPE_SEARCH_CONSOLE;
+  if (purpose === "business") return SCOPE_BUSINESS_PROFILE;
+  return OAUTH_SCOPES;
+}
 function stateSecret(): string { return env("GOOGLE_OAUTH_CLIENT_SECRET") || "marketwar-google-state"; }
 export function signState(brandId?: string): string {
   // Short-lived, HMAC-signed nonce so only URLs the app generated are accepted.
@@ -138,10 +163,10 @@ export function verifyState(state: string, maxAgeSec = 900): boolean {
   try { const { t } = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t: number }; return Math.floor(Date.now() / 1000) - t <= maxAgeSec; } catch { return false; }
 }
 // Build the Google consent URL. offline + prompt=consent forces a refresh token.
-export function googleConsentUrl(redirectUri: string, state: string): string {
+export function googleConsentUrl(redirectUri: string, state: string, purpose: GoogleConnectPurpose = "all"): string {
   const qs = new URLSearchParams({
     client_id: env("GOOGLE_OAUTH_CLIENT_ID"), redirect_uri: redirectUri, response_type: "code",
-    scope: OAUTH_SCOPES, access_type: "offline", prompt: "consent", include_granted_scopes: "true", state,
+    scope: scopesFor(purpose), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state,
   });
   return `${AUTH_URL}?${qs}`;
 }
