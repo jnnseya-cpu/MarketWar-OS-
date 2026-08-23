@@ -21,7 +21,9 @@
     "splash": "node scripts/generate-splash.mjs",
     "social": "node scripts/build-social-assets.mjs",
     "gtm:doc": "node scripts/build-gtm-doc.mjs && node scripts/verify-gtm-doc.mjs",
-    "gtm:verify": "node scripts/verify-gtm-doc.mjs"
+    "gtm:verify": "node scripts/verify-gtm-doc.mjs",
+    "ads:doc": "node scripts/build-ads-doc.mjs && node scripts/verify-ads-doc.mjs",
+    "ads:verify": "node scripts/verify-ads-doc.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",

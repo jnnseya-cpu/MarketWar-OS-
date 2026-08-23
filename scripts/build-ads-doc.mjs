@@ -1,29 +1,23 @@
-// Build MarketWar OS's own go-to-market document as .docx AND .pdf.
+// Build the Facebook launch campaign bundle as .docx, .pdf and .html.
 //
-//   npm run gtm:doc
+//   npm run ads:doc
 //
-// Both files come from scripts/gtm-content.mjs, so the Word file and the PDF
-// cannot say different things — the same reason the customer-facing plan
-// renders its download server-side rather than assembling it in the browser.
-// The PDF is produced by printing the HTML render with the Chromium already on
-// the machine; no render service, no extra dependency.
-//
-// Prices in the document are parsed from src/backend/subscription.ts by
-// scripts/gtm-facts.mjs, which throws rather than printing a remembered table.
-//
-// The rendering itself lives in scripts/doc-render.mjs, shared with the ads
-// bundle. This file is now only "which content, to which filenames".
+// Content is scripts/ads-content.mjs; rendering is scripts/doc-render.mjs,
+// shared with the go-to-market document so the two cannot drift apart in
+// appearance. Prices, tool counts and the free-audit gate come from
+// scripts/ads-facts.mjs, which reads them out of src/ and throws rather than
+// letting an advert quote a number the website does not charge.
 
 import { Packer } from "docx";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DOC } from "./gtm-content.mjs";
+import { DOC } from "./ads-content.mjs";
 import { buildDocx, buildHtml, renderPdf } from "./doc-render.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(here, "..", "docs");
-const BASE = "GO-TO-MARKET-MarketWar-OS";
+const BASE = "FACEBOOK-LAUNCH-CAMPAIGN";
 
 const generatedOn = new Date().toISOString().slice(0, 10);
 
