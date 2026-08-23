@@ -29,6 +29,11 @@ export const DOC = {
   title: "MarketWar OS — Go-To-Market",
   subtitle: "The first 100 customers, 90 days, and the money it takes",
   strapline: "marketwaros.com",
+  // Cover notes. {date} is filled in at build time.
+  notes: [
+    "Prepared {date}. Prices and guardrail figures are read from the platform's own source at build time.",
+    "Every rate that could not be measured is marked ASSUMED and names the evidence that replaces it.",
+  ],
   sections: [
 
     // ---------------------------------------------------------------- 0

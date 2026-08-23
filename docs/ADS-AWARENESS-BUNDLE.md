@@ -1,5 +1,14 @@
 # Facebook awareness campaign — copy-and-paste bundle
 
+> **Superseded, and kept.** The current bundle is `docs/FACEBOOK-LAUNCH-CAMPAIGN.docx`
+> (also `.pdf` / `.html`), built by `npm run ads:doc` from `scripts/ads-content.mjs`.
+> That version runs the **Traffic** objective rather than Awareness and argues the
+> case in its §0, adds a sixth advert, Reels/Stories cuts and Facebook Page copy,
+> and — the reason it exists — reads every price, tool count and product claim out
+> of `src/` at build time so an advert can never quote a number the website does
+> not charge. This file stays as the record of the first bundle; nothing in it is
+> false, it simply predates those checks.
+
 **Product:** MarketWar OS · **Destination:** https://www.marketwaros.com
 **Launch city:** Manchester (locked in the GTM plan) · **Currency:** GBP
 
