@@ -8,7 +8,9 @@
 // hosted landing rather than a MarketWar signup.
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { subscriptionByCode, getProgramme } from "@/backend/creator-engine";
+import { recordClick } from "@/backend/referral-clicks";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,28 @@ export default async function ReferralRedirect({ params }: { params: Promise<{ c
       const prog = await getProgramme(sub.programmeId);
       // The brand's own CTA destination — where the code always leads.
       if (prog?.destinationUrl) dest = withRef(prog.destinationUrl, code);
+
+      // RECORD THE CLICK. This used to redirect and write nothing, so there was
+      // no evidence behind any attribution claim and no way to see a creator
+      // sending a thousand clicks from one machine. Only a salted hash of the
+      // address is kept — the visitor is a member of the public who clicked a
+      // link and has consented to nothing.
+      //
+      // Awaited, but it never throws and never blocks on a failure: the visitor
+      // is mid-journey to the brand's site, and losing a click costs far less
+      // than losing the customer.
+      try {
+        const h = await headers();
+        await recordClick({
+          code,
+          brandId: prog?.brandId || sub.programmeId,
+          programmeId: sub.programmeId,
+          ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+          ua: h.get("user-agent"),
+          referer: h.get("referer"),
+          nowISO: new Date().toISOString(),
+        });
+      } catch { /* a counter must never cost a conversion */ }
     }
   } catch { /* fall through */ }
   // Valid code → brand destination. Unknown code / no destination set → home.

@@ -19501,3 +19501,251 @@ test("settlement: the existing model already refuses commission on money the mer
   const cancelled = s2e.netEligibleValue({ checkoutTotalPence: 12000, productPence: 10000, cancelled: true });
   assert.equal(cancelled.eligiblePence, 0, "a cancelled order still earned a commission");
 });
+
+// ---------------------------------------------------------------------------
+// THE CREATOR REVENUE CHAIN — the two breaks, closed.
+//
+// Break one: the buyer pays on the BRAND'S site and nothing told us. Break two:
+// whether a renewal earns anything was undecided. Both minted or withheld money,
+// so these are the strictest tests in the suite.
+// ---------------------------------------------------------------------------
+
+const refattr = await import("../src/shared/referral-attribution.ts");
+
+test("attribution: last click inside the window wins, and a later click cannot claim it", () => {
+  const { attributeSale } = refattr;
+  const sale = "2026-08-20T12:00:00.000Z";
+  const clicks = [
+    { code: "ABC", atISO: "2026-08-01T09:00:00.000Z" },
+    { code: "ABC", atISO: "2026-08-18T09:00:00.000Z" }, // the winner
+    { code: "OTHER", atISO: "2026-08-19T09:00:00.000Z" },
+  ];
+  const r = attributeSale({ code: "abc", saleAtISO: sale, clicks });
+  assert.equal(r.attributed, true);
+  assert.equal(r.clickAtISO, "2026-08-18T09:00:00.000Z", "last click did not win");
+  assert.equal(r.ageDays, 2);
+
+  // A click AFTER the sale cannot have caused it — otherwise a creator posting
+  // a link the day after somebody bought gets credited with the purchase.
+  const after = attributeSale({ code: "ABC", saleAtISO: sale, clicks: [{ code: "ABC", atISO: "2026-08-21T09:00:00.000Z" }] });
+  assert.equal(after.attributed, false, "a click after the sale was credited");
+
+  // Outside the window.
+  const stale = attributeSale({ code: "ABC", saleAtISO: sale, clicks: [{ code: "ABC", atISO: "2026-01-01T09:00:00.000Z" }] });
+  assert.equal(stale.attributed, false);
+  assert.match(stale.reason, /30 days/);
+
+  // No click at all, and no code at all.
+  assert.equal(attributeSale({ code: "ABC", saleAtISO: sale, clicks: [] }).attributed, false);
+  assert.equal(attributeSale({ code: "", saleAtISO: sale, clicks }).attributed, false);
+});
+
+test("attribution: the window is bounded at both ends", () => {
+  const { attributionWindowDays, MIN_ATTRIBUTION_WINDOW_DAYS, MAX_ATTRIBUTION_WINDOW_DAYS } = refattr;
+  assert.equal(attributionWindowDays(undefined), 30);
+  // Zero would pay nobody; unbounded would pay everybody forever.
+  assert.equal(attributionWindowDays(0), MIN_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(-5), MIN_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(9999), MAX_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(Number.NaN), 30);
+});
+
+test("renewals: the policy is explicit, bounded and liability is knowable", () => {
+  const { renewalCommissionable, maxLiabilityPence, DEFAULT_RENEWAL_POLICY } = refattr;
+
+  // The first payment always earns, on every policy.
+  for (const policy of [{ mode: "first_only" }, { mode: "months", months: 12 }, { mode: "forever" }]) {
+    assert.equal(renewalCommissionable(1, policy).commissionable, true, `first payment refused under ${policy.mode}`);
+  }
+  assert.equal(renewalCommissionable(2, { mode: "first_only" }).commissionable, false);
+  assert.equal(renewalCommissionable(12, DEFAULT_RENEWAL_POLICY).commissionable, true);
+  assert.equal(renewalCommissionable(13, DEFAULT_RENEWAL_POLICY).commissionable, false, "the 12-month bound was not enforced");
+  assert.equal(renewalCommissionable(99, { mode: "forever" }).commissionable, true);
+
+  // Every verdict explains itself — a creator has to be able to read why.
+  for (const n of [1, 2, 13]) assert.ok(renewalCommissionable(n, DEFAULT_RENEWAL_POLICY).reason.length > 10);
+
+  // Liability must be knowable BEFORE it is offered, so it can be capped.
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "first_only" }), 25);
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "months", months: 12 }), 25 * 12);
+  // `forever` returns null, not a big number — an unbounded liability has no
+  // maximum, and a guess returned as a limit would be treated as one.
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "forever" }), null);
+});
+
+test("postback: it refuses anything that would produce a wrong payment", async () => {
+  const { parsePostback } = await import("../src/backend/conversion-postback.ts");
+  const good = {
+    brandId: "b1", ref: "abc", orderId: "o-1", currency: "gbp",
+    checkoutTotalPence: 12000, lines: { productPence: 10000, taxPence: 1500, deliveryPence: 500 },
+    paidAtISO: "2026-08-20T12:00:00.000Z",
+  };
+  const ok = parsePostback(good);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.postback.ref, "ABC", "the code was not normalised, so it will not match a click");
+  assert.equal(ok.postback.paymentNumber, 1);
+
+  // A total with no product line would force a guess, and a guessed commission
+  // is a wrong payment — so it is refused with the reason.
+  const noLines = parsePostback({ ...good, lines: {} });
+  assert.equal(noLines.ok, false);
+  assert.match(noLines.error, /productPence/);
+
+  // The idempotency key is not optional.
+  assert.equal(parsePostback({ ...good, orderId: "" }).ok, false);
+  assert.match(parsePostback({ ...good, orderId: "" }).error, /retry pays twice/);
+
+  // Nonsense that would silently mis-pay.
+  assert.equal(parsePostback({ ...good, paidAtISO: "not-a-date" }).ok, false);
+  assert.equal(parsePostback({ ...good, ref: "" }).ok, false);
+  assert.equal(parsePostback({ ...good, lines: { productPence: 99999 } }).ok, false, "product value above the checkout total was accepted");
+});
+
+test("postback: a forged or unsigned order cannot mint commission", async () => {
+  const cp = await import("../src/backend/conversion-postback.ts");
+  const { createHmac } = await import("node:crypto");
+  const saved = process.env.POSTBACK_ROOT_SECRET;
+  process.env.POSTBACK_ROOT_SECRET = "root_test_secret";
+  try {
+    const body = JSON.stringify({ brandId: "b1", orderId: "o-1" });
+    const secretB1 = cp.derivedSecretFor("b1");
+    const secretB2 = cp.derivedSecretFor("b2");
+    assert.ok(secretB1 && secretB2 && secretB1 !== secretB2, "two brands share a postback secret");
+
+    const sig = "sha256=" + createHmac("sha256", secretB1).update(body, "utf8").digest("hex");
+    assert.equal(cp.verifyPostbackSignature(body, sig, secretB1).valid, true);
+    assert.equal(cp.verifyPostbackSignature(body, null, secretB1).valid, false, "an unsigned order was accepted");
+    assert.equal(cp.verifyPostbackSignature(body + " ", sig, secretB1).valid, false, "a tampered body kept its signature");
+    // THE ONE THAT MATTERS: brand 2 cannot sign brand 1's orders.
+    assert.equal(cp.verifyPostbackSignature(body, sig, secretB2).valid, false, "one brand's secret validated another brand's order");
+
+    // No secret configured must REFUSE. This endpoint mints money owed.
+    const off = cp.verifyPostbackSignature(body, sig, null);
+    assert.equal(off.valid, false);
+    assert.match(off.reason, /POSTBACK_ROOT_SECRET/);
+  } finally {
+    if (saved === undefined) delete process.env.POSTBACK_ROOT_SECRET; else process.env.POSTBACK_ROOT_SECRET = saved;
+  }
+});
+
+test("ledger: one sale accrues once, however many times it is posted", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+
+  const input = {
+    brandId: "b1", code: "ABC", orderId: "o-1", checkoutTotalPence: 12000,
+    lines: { checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500 },
+    paymentNumber: 1, recurring: false,
+    paidAtISO: "2026-08-20T12:00:00.000Z", nowISO: "2026-08-20T12:00:01.000Z", policy,
+  };
+
+  const first = await ledger.accrue(input);
+  assert.equal(first.ok, true);
+  assert.equal(first.created, true);
+  // 0.5% of PRODUCT value only — tax and delivery cannot fund a commission.
+  assert.equal(first.accrual.eligiblePence, 10000);
+  assert.equal(first.accrual.earnedPence, 50);
+  // Inside the refund window, so earned but not released.
+  assert.equal(first.accrual.releasedPence, 0);
+  assert.equal(first.accrual.state, "pending");
+
+  // THE DOUBLE-PAY TEST. Checkouts retry; a second row would pay twice.
+  const again = await ledger.accrue(input);
+  assert.equal(again.created, false, "a retried order created a second accrual");
+  assert.equal(again.accrual.id, first.accrual.id);
+
+  const bal = await ledger.balanceFor("ABC");
+  assert.equal(bal.orders, 1, "one sale counted twice");
+  assert.equal(bal.releasedPence, 0);
+  assert.equal(bal.heldPence, 50);
+});
+
+test("ledger: a refund voids it, and says what must be clawed back", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+
+  // A sale old enough that the refund window has closed and it was released.
+  const r = await ledger.accrue({
+    brandId: "b1", code: "ZZZ", orderId: "o-9", checkoutTotalPence: 20000,
+    lines: { checkoutTotalPence: 20000, productPence: 20000 },
+    paymentNumber: 1, recurring: false,
+    paidAtISO: "2026-01-01T00:00:00.000Z", nowISO: "2026-08-20T00:00:00.000Z", policy,
+  });
+  assert.equal(r.accrual.state, "settled", "the refund window should have closed on a January sale");
+  assert.equal(r.accrual.releasedPence, 100);
+
+  // A chargeback lands afterwards. The row is NOT deleted — the history has to
+  // survive — and the already-released amount is reported for clawback rather
+  // than quietly forgotten, because a status change cannot un-pay somebody.
+  const v = await ledger.voidAccrual(r.accrual.id, "Chargeback received", "2026-08-21T00:00:00.000Z");
+  assert.equal(v.accrual.state, "void");
+  assert.equal(v.accrual.voidReason, "Chargeback received");
+  assert.equal(v.clawbackPence, 100, "money already paid out was not flagged for clawback");
+  assert.ok(v.accrual.voidedAt, "the void has no timestamp");
+
+  // Voiding twice must not double the clawback.
+  assert.equal((await ledger.voidAccrual(r.accrual.id, "again", "2026-08-22T00:00:00.000Z")).clawbackPence, 0);
+
+  const bal = await ledger.balanceFor("ZZZ");
+  assert.equal(bal.voidedPence, 100);
+  assert.equal(bal.orders, 0, "a voided order still counted as a live one");
+});
+
+test("ledger: a renewal beyond the policy earns nothing, and says why", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+  const base = {
+    brandId: "b1", code: "SUB", orderId: "sub-1", checkoutTotalPence: 4900,
+    lines: { checkoutTotalPence: 4900, productPence: 4900 },
+    recurring: true, paidAtISO: "2026-08-01T00:00:00.000Z", nowISO: "2026-08-20T00:00:00.000Z", policy,
+  };
+  const m12 = await ledger.accrue({ ...base, orderId: "sub-12", paymentNumber: 12 });
+  assert.equal(m12.ok, true, "payment 12 should be inside the default 12-month policy");
+
+  const m13 = await ledger.accrue({ ...base, orderId: "sub-13", paymentNumber: 13 });
+  assert.equal(m13.ok, false, "payment 13 earned a commission beyond the stated policy");
+  assert.match(m13.reason, /first 12 payments/);
+});
+
+test("clicks: a refresh is not a second click, and no raw address is stored", async () => {
+  const clicks = await import("../src/backend/referral-clicks.ts");
+  clicks.__resetClicks();
+  const at = "2026-08-20T12:00:00.000Z";
+  const one = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "203.0.113.9", ua: "Mozilla", nowISO: at });
+  assert.equal(one.recorded, true);
+  assert.equal(one.row.code, "ABC", "the code was not normalised, so it will never match a sale");
+
+  // Same visitor a minute later — a refresh, not a visit. Paying per click for
+  // this is paying for a page reload.
+  const dup = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "203.0.113.9", ua: "Mozilla", nowISO: "2026-08-20T12:01:00.000Z" });
+  assert.equal(dup.recorded, false);
+  assert.match(dup.reason, /refresh/i);
+
+  // A different visitor does count.
+  const other = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "198.51.100.4", ua: "Mozilla", nowISO: at });
+  assert.equal(other.recorded, true);
+
+  // THE PRIVACY LINE. The visitor consented to nothing; a raw IP is personal
+  // data. Only a salted hash may exist anywhere in the record.
+  const rows = await clicks.listClicks("ABC");
+  const dump = JSON.stringify(rows);
+  assert.ok(!dump.includes("203.0.113.9"), "a raw IP address was stored");
+  assert.ok(!dump.includes("198.51.100.4"), "a raw IP address was stored");
+  assert.ok(!dump.includes("Mozilla"), "a raw user agent was stored");
+
+  // The salt is per-code AND per-day, so hashes cannot be joined into a trail.
+  const h1 = clicks.visitorHash({ code: "ABC", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-20" });
+  const h2 = clicks.visitorHash({ code: "ABC", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-21" });
+  const h3 = clicks.visitorHash({ code: "XYZ", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-20" });
+  assert.notEqual(h1, h2, "the same visitor is traceable across days");
+  assert.notEqual(h1, h3, "the same visitor is traceable across codes");
+
+  // A full referring URL can carry a session token — host only.
+  assert.equal(clicks.refererHostOf("https://www.instagram.com/p/abc?session=SECRET"), "instagram.com");
+});
