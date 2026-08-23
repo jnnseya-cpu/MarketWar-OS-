@@ -90,15 +90,42 @@ export async function listPosts(opts?: { includeDrafts?: boolean }): Promise<Blo
 }
 
 export async function incrementViews(slug: string): Promise<number> {
+  // THE READ PATH KNEW ABOUT EVERGREEN ARTICLES AND THE WRITE PATH DID NOT.
+  //
+  // The thirteen evergreen articles are code, not rows — deliberately, so the
+  // pages the site ranks for exist on a deployment with no Firestore. `getPost`
+  // falls back to `evergreen()`, so they render. This did not, so `snap.exists`
+  // was false and `mem.get` was undefined for every one of them: it returned 0,
+  // the client set the counter to the 0 it was handed, and every article showed
+  // "0 views" forever however many people read it.
+  //
+  // Counting one now CREATES the row from the evergreen definition. The article
+  // stays code; only its view count becomes stored, which is the one part of it
+  // that is not knowable at build time.
+  const seed = (): BlogPost | null => evergreen().find((p) => p.slug === slug) ?? null;
+
   if (adminConfigured && adminDb) {
     const ref = adminDb.collection(COLLECTION).doc(slug);
     const snap = await ref.get();
-    if (!snap.exists) return 0;
+    if (!snap.exists) {
+      const ever = seed();
+      if (!ever) return 0;
+      // `set` with the whole post, so a later read gets a complete row rather
+      // than a document containing nothing but a number.
+      await ref.set({ ...ever, views: 1 }, { merge: true });
+      return 1;
+    }
     await ref.update({ views: FieldValue.increment(1) });
     return ((snap.data() as BlogPost).views || 0) + 1;
   }
-  const p = mem.get(slug);
-  if (!p) return 0;
+
+  let p = mem.get(slug);
+  if (!p) {
+    const ever = seed();
+    if (!ever) return 0;
+    p = { ...ever };
+    mem.set(slug, p);
+  }
   p.views += 1;
   return p.views;
 }

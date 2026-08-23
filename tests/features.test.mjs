@@ -19749,3 +19749,66 @@ test("clicks: a refresh is not a second click, and no raw address is stored", as
   // A full referring URL can carry a session token — host only.
   assert.equal(clicks.refererHostOf("https://www.instagram.com/p/abc?session=SECRET"), "instagram.com");
 });
+
+// ---------------------------------------------------------------------------
+// TWO REPORTED DEFECTS: blog views stuck at zero, SEO scores blank.
+//
+// Both were the same shape — a read path that knew something and a write path
+// that did not. The evergreen articles render because `getPost` falls back to
+// `evergreen()`; `incrementViews` had no such fallback, so it returned 0 for
+// every one of them. The site audit deep-crawls when given a URL; the screen
+// never sent one, so every dimension honestly answered "not measured" and the
+// whole score read as broken.
+// ---------------------------------------------------------------------------
+
+test("blog: an evergreen article actually counts views", async () => {
+  const store = await import("../src/backend/blog-store.ts");
+  const slugs = store.evergreenSlugs();
+  assert.ok(slugs.length >= 5, "the evergreen cluster has shrunk");
+
+  const slug = slugs[0];
+  // It renders — the read path always knew about these.
+  const post = await store.getPost(slug);
+  assert.ok(post, "an evergreen article no longer resolves");
+  assert.equal(post.views, 0, "the evergreen definition should start at zero");
+
+  // THE DEFECT: this returned 0 forever, because no row existed to increment.
+  const first = await store.incrementViews(slug);
+  assert.equal(first, 1, "counting a view on an evergreen article returned 0 — every article showed 0 views forever");
+  assert.equal(await store.incrementViews(slug), 2, "the second view did not accumulate");
+
+  // And the count must survive a read, not live only inside the counter.
+  const after = await store.getPost(slug);
+  assert.equal(after.views, 2, "the view count was not persisted, so the page renders 0 again on reload");
+
+  // An unknown slug still counts nothing rather than inventing a row.
+  assert.equal(await store.incrementViews("no-such-article-anywhere"), 0);
+});
+
+test("site audit: the screen sends the URL it already has", () => {
+  const ui = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  const code = codeOf(ui);
+
+  // The route deep-crawls only when given a url. Without one every dimension
+  // returns null and the customer sees a blank score — a correct refusal for
+  // the wrong reason, which reads exactly like a broken feature.
+  assert.match(code, /action: "audit", site, url: website/,
+    "the audit is requested without a url, so nothing is ever crawled and every score is null");
+  assert.match(code, /action: "attack", site, url: website/,
+    "the attack map is requested without a url — same failure, same blank result");
+});
+
+test("site audit: a dimension is a measurement or a stated refusal, never a hash", () => {
+  const src = readFileSync(new URL("../src/backend/siteraid.ts", import.meta.url), "utf8");
+  const code = codeOf(src);
+  // The old `sscore` hash produced stable, plausible, entirely invented numbers.
+  // It must not come back — this is the defect STATE.md records as the
+  // fabricated-numbers landmine.
+  assert.ok(!/function sscore/.test(code), "the hash-based score generator is back in siteraid");
+  assert.match(src, /score: number \| null/, "a dimension can no longer report that it measured nothing");
+
+  // And the evidence is what makes a score possible at all.
+  const route = codeOf(readFileSync(new URL("../src/app/api/siteraid/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /instantAudit\(site!, \{ audit: deep\.audit, extraction: deep\.extraction \}\)/,
+    "the route no longer passes the crawl to the audit, so nothing can be measured");
+});
