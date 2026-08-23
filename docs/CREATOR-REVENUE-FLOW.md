@@ -215,11 +215,39 @@ creator would silently free the reservation that was protecting them.
 
 Then point the brand's checkout at `POST /api/conversions` on a completed order.
 
-## Still wanted, and honestly not built
+## The three that were outstanding — now built
 
-- **A Shopify / WooCommerce / Stripe adaptor.** A small business will not write a
-  postback by hand. The endpoint is done; the plugin that calls it is not.
-- **Chargeback clawback execution.** Step 8 *computes* `clawbackPence`; recovering
-  it from a creator who has already withdrawn needs a rail-level reversal.
-- **Brand-facing float top-up screen.** `startTopUp` returns a Checkout URL;
-  nothing renders a button yet.
+**Shopify / WooCommerce / Stripe adaptor** — `shared/order-adaptors.ts` ·
+`backend/platform-webhooks.ts` · `app/api/conversions/[platform]/route.ts`
+
+Each platform's OWN order webhook is accepted as-is, verified with that
+platform's own scheme, and translated. `GET /api/conversions/{platform}` returns
+the setup steps. The trap it avoids: Shopify and Woo send money as decimal
+strings, and `parseFloat("1.15") * 100` is `114.99999999999999` — every amount is
+parsed by splitting on the decimal point with integer arithmetic, never through
+a float. Woo's `total` INCLUDES tax and shipping, so product value is derived
+from line items rather than taken. Stripe's timestamp is checked as well as its
+signature: without that, a captured signature is valid forever and an old order
+can be replayed to accrue a second commission — with a perfectly genuine
+signature.
+
+**Chargeback clawback** — `backend/clawback.ts`, delegating to
+`payout-execute.ts` → `reversePayout`
+
+Two outcomes, and the second is the honest one. Stripe transfers are reversed at
+the rail. PayPal, Wise and mobile money **cannot be recalled** — so a DEBT is
+recorded against the creator and offset against future earnings, never silently
+written off and **never reported as recovered**. `applyDebt` takes what a payout
+can cover and waits for the rest: a creator who can withdraw nothing until an old
+debt clears simply stops selling. The reversal lives in `payout-execute.ts`
+because exactly one file in this codebase may talk to a payout provider, and a
+reversal is money moving too.
+
+**Float top-up screen** — `components/BrandFloat.tsx` on
+`/dashboard/partner-network` · `app/api/brand-float/route.ts`
+
+Available / reserved / paid, each with what it means. It says plainly that
+reserved money is **promised to creators and not refundable while a mission
+runs** — before the brand adds money, not when they try to withdraw it. With no
+Stripe key the button is absent and the panel says which variable is missing,
+so it cannot be mistaken for a bug.

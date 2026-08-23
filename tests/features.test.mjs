@@ -19955,3 +19955,214 @@ test("share2earn: the public page claims 'reserved' only when money is held", ()
   assert.ok(!/\{money\(m\.reservedPence\)\} reserved of \{money\(m\.budgetPence\)\}/.test(ui),
     "the unconditional 'reserved of budget' claim is still on the public page");
 });
+
+// ---------------------------------------------------------------------------
+// THE ADAPTOR, THE CLAWBACK AND THE FLOAT SCREEN.
+//
+// A small business will not write an HMAC-signed postback by hand, so each
+// platform's own order webhook is accepted and translated. The trap is money as
+// a decimal string: Shopify and Woo send "1.15", and parseFloat("1.15") * 100 is
+// 114.99999999999999.
+// ---------------------------------------------------------------------------
+
+const adaptors = await import("../src/shared/order-adaptors.ts");
+
+test("adaptor: money never goes through a float", () => {
+  const { decimalToPence } = adaptors;
+  assert.equal(decimalToPence("120.00"), 12000);
+  assert.equal(decimalToPence("9.99"), 999);
+  assert.equal(decimalToPence("1.15"), 115, "the classic binary-floating-point penny");
+  assert.equal(decimalToPence("0.07"), 7);
+  assert.equal(decimalToPence("1234567.89"), 123456789, "a large order lost precision");
+  assert.equal(decimalToPence("9.9"), 990, "one decimal place must pad, not truncate");
+  // Sub-penny is dropped rather than rounded UP into money the merchant never took.
+  assert.equal(decimalToPence("9.999"), 999);
+  assert.equal(decimalToPence("12"), 1200);
+  assert.equal(decimalToPence(12.34), 1234);
+  // Rubbish must be zero, never NaN — NaN pence propagates into a commission.
+  for (const junk of ["", "abc", null, undefined, {}, "12.34.56", "-5.00"]) {
+    const v = decimalToPence(junk);
+    assert.ok(Number.isInteger(v) && v >= 0, `decimalToPence(${JSON.stringify(junk)}) produced ${v}`);
+  }
+});
+
+test("adaptor: a Shopify order becomes the right commissionable value", () => {
+  const { fromShopify } = adaptors;
+  const r = fromShopify({
+    id: 4567, currency: "GBP",
+    total_price: "132.00", subtotal_price: "110.00", total_tax: "22.00",
+    total_shipping_price_set: { shop_money: { amount: "5.00" } },
+    note_attributes: [{ name: "mw_ref", value: "abc123" }],
+    processed_at: "2026-08-20T10:00:00Z",
+    refunds: [],
+  });
+  assert.equal(r.ok, true, r.ok === false ? r.error : "");
+  assert.equal(r.order.ref, "ABC123", "the code was not normalised, so it will never match a click");
+  assert.equal(r.order.orderId, "shopify_4567", "the id is not namespaced, so two platforms could collide");
+  // Commission is on product value ONLY — tax and delivery are excluded.
+  assert.equal(r.order.lines.productPence, 11000);
+  assert.equal(r.order.lines.taxPence, 2200);
+  assert.equal(r.order.lines.deliveryPence, 500);
+
+  // The landing URL is the fallback when the shop did not set an attribute.
+  const viaUrl = fromShopify({
+    id: 1, subtotal_price: "10.00", total_price: "10.00",
+    landing_site: "/products/thing?utm_source=ig&mw_ref=XYZ789",
+  });
+  assert.equal(viaUrl.ok, true);
+  assert.equal(viaUrl.order.ref, "XYZ789");
+
+  // No code is not an error — it is an ordinary order nobody earned.
+  const none = fromShopify({ id: 2, subtotal_price: "10.00" });
+  assert.equal(none.ok, false);
+  assert.match(none.error, /No referral code/);
+
+  // A refunded order carries the refund through, so the commission voids.
+  const refunded = fromShopify({
+    id: 3, subtotal_price: "50.00", total_price: "50.00",
+    note_attributes: [{ name: "mw_ref", value: "AAA111" }],
+    refunds: [{ transactions: [{ amount: "50.00" }] }],
+  });
+  assert.equal(refunded.order.lines.refundedPence, 5000);
+});
+
+test("adaptor: WooCommerce derives product value rather than trusting the total", () => {
+  const { fromWoo } = adaptors;
+  const r = fromWoo({
+    id: 99, currency: "GBP", status: "completed",
+    total: "132.00", total_tax: "22.00", shipping_total: "5.00",
+    line_items: [{ total: "60.00" }, { total: "50.00" }],
+    meta_data: [{ key: "mw_ref", value: "woo777" }],
+    date_paid_gmt: "2026-08-20T10:00:00",
+    refunds: [],
+  });
+  assert.equal(r.ok, true, r.ok === false ? r.error : "");
+  // Woo's `total` INCLUDES tax and shipping, so taking it as product value would
+  // pay commission on both.
+  assert.equal(r.order.lines.productPence, 11000);
+  assert.equal(r.order.checkoutTotalPence, 13200);
+  assert.equal(r.order.orderId, "woo_99");
+  assert.ok(r.order.paidAtISO.endsWith("Z"), "the timestamp is not valid ISO, so attribution cannot parse it");
+
+  const cancelled = fromWoo({ id: 100, status: "refunded", line_items: [{ total: "10.00" }], meta_data: [{ key: "mw_ref", value: "woo777" }] });
+  assert.equal(cancelled.order.lines.cancelled, true);
+});
+
+test("adaptor: Stripe is already in pence and knows which payment it is", () => {
+  const { fromStripe } = adaptors;
+  const r = fromStripe({
+    type: "checkout.session.completed", created: 1787000000,
+    data: { object: {
+      id: "cs_123", currency: "gbp", amount_total: 13200, amount_subtotal: 11000,
+      total_details: { amount_tax: 2200, amount_shipping: 0, amount_discount: 0 },
+      metadata: { mw_ref: "STRIPE9" },
+    } },
+  });
+  assert.equal(r.ok, true, r.ok === false ? r.error : "");
+  assert.equal(r.order.lines.productPence, 11000);
+  assert.equal(r.order.paymentNumber, 1);
+  assert.equal(r.order.recurring, false);
+
+  // A renewal invoice is a later payment, which the renewal policy then judges.
+  const inv = fromStripe({
+    type: "invoice.paid", created: 1787000000,
+    data: { object: { id: "in_9", currency: "gbp", amount_paid: 4900, subscription: "sub_1",
+      metadata: { mw_ref: "STRIPE9", mw_payment_number: "5" } } },
+  });
+  assert.equal(inv.order.recurring, true);
+  assert.equal(inv.order.paymentNumber, 5, "a renewal was reported as the first payment, so it would always be commissionable");
+});
+
+test("adaptor: each platform's signature scheme, and the replay window", async () => {
+  const pw = await import("../src/backend/platform-webhooks.ts");
+  const { createHmac } = await import("node:crypto");
+  const body = JSON.stringify({ id: 1 });
+
+  // Shopify and Woo are base64, not hex — a hex digest is the usual mistake.
+  const shopSig = createHmac("sha256", "shop_secret").update(body, "utf8").digest("base64");
+  assert.equal(pw.verifyShopify(body, shopSig, "shop_secret").valid, true);
+  assert.equal(pw.verifyShopify(body, createHmac("sha256", "shop_secret").update(body).digest("hex"), "shop_secret").valid, false, "a hex digest was accepted as base64");
+  assert.equal(pw.verifyShopify(body, null, "shop_secret").valid, false);
+  assert.equal(pw.verifyShopify(body + " ", shopSig, "shop_secret").valid, false, "a tampered body kept its signature");
+  // No secret must refuse — this endpoint creates money owed.
+  assert.equal(pw.verifyShopify(body, shopSig, "").valid, false);
+
+  const wooSig = createHmac("sha256", "woo_secret").update(body, "utf8").digest("base64");
+  assert.equal(pw.verifyWoo(body, wooSig, "woo_secret").valid, true);
+  assert.equal(pw.verifyWoo(body, wooSig, "other_secret").valid, false);
+
+  // Stripe signs `${t}.${body}` and the TIMESTAMP is part of the check. Without
+  // it a captured signature stays valid forever and an old order can be replayed
+  // to accrue a second commission — with a perfectly genuine signature.
+  const now = 1787000000000;
+  const t = Math.floor(now / 1000);
+  const v1 = createHmac("sha256", "whsec").update(`${t}.${body}`, "utf8").digest("hex");
+  assert.equal(pw.verifyStripeWebhook(body, `t=${t},v1=${v1}`, now, "whsec").valid, true);
+
+  const old = pw.verifyStripeWebhook(body, `t=${t},v1=${v1}`, now + 3600_000, "whsec");
+  assert.equal(old.valid, false, "an hour-old event with a genuine signature was replayable");
+  assert.match(old.reason, /replayed event carries a genuine signature/);
+  assert.equal(pw.verifyStripeWebhook(body, "t=abc,v1=def", now, "whsec").valid, false);
+});
+
+test("clawback: it never claims a recovery that did not happen", async () => {
+  const cb = await import("../src/backend/clawback.ts");
+  cb.__resetClawbacks();
+  const at = "2026-08-20T00:00:00.000Z";
+
+  // Nothing was released, so nothing is owed and nothing is taken.
+  const none = await cb.clawback({ creatorId: "c1", accrualId: "a0", pence: 0, reason: "chargeback", nowISO: at });
+  assert.equal(none.outcome, "nothing_owed");
+  assert.equal(none.outstandingPence, 0);
+  assert.match(none.explanation, /nothing has been taken from you/i);
+
+  // A rail that cannot be recalled: a DEBT, stated plainly, never written off
+  // and never reported as recovered.
+  const paypal = await cb.clawback({ creatorId: "c1", accrualId: "a1", pence: 5000, railId: "paypal", payoutRef: "pp_1", reason: "chargeback", nowISO: at });
+  assert.equal(paypal.outcome, "debt_recorded");
+  assert.equal(paypal.outstandingPence, 5000);
+  assert.match(paypal.explanation, /cannot be recalled/i);
+  assert.match(paypal.explanation, /offset against what you earn next/i);
+  assert.ok(!/recovered|returned/i.test(paypal.explanation), "a debt was described as if the money came back");
+
+  // Idempotent: a chargeback webhook firing twice must not claw back twice.
+  const again = await cb.clawback({ creatorId: "c1", accrualId: "a1", pence: 5000, railId: "paypal", reason: "chargeback", nowISO: at });
+  assert.equal(again.id, paypal.id);
+  assert.equal(await cb.outstandingFor("c1"), 5000, "a repeated chargeback doubled the debt");
+});
+
+test("clawback: a debt takes what it can and never blocks a payout entirely", async () => {
+  const { applyDebt } = await import("../src/backend/clawback.ts");
+  {
+    // Partial recovery: the creator still gets paid something. A creator who can
+    // withdraw nothing until an old debt clears simply stops selling.
+    const partial = applyDebt(3000, 5000);
+    assert.equal(partial.payablePence, 0);
+    assert.equal(partial.recoveredPence, 3000);
+    assert.equal(partial.stillOwedPence, 2000);
+
+    const cleared = applyDebt(8000, 5000);
+    assert.equal(cleared.payablePence, 3000, "the debt swallowed more than it was owed");
+    assert.equal(cleared.recoveredPence, 5000);
+    assert.equal(cleared.stillOwedPence, 0);
+
+    // No debt: nothing is touched.
+    const clean = applyDebt(4000, 0);
+    assert.equal(clean.payablePence, 4000);
+    // Never negative, whatever it is handed.
+    const weird = applyDebt(-100, -50);
+    assert.ok(weird.payablePence >= 0 && weird.recoveredPence >= 0 && weird.stillOwedPence >= 0);
+  }
+});
+
+test("float screen: it is mounted, and says which variable is missing", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/partner-network/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<BrandFloat \/>/, "custody exists with nothing rendering it, so no mission can be funded");
+
+  const ui = readFileSync(new URL("../src/components/BrandFloat.tsx", import.meta.url), "utf8");
+  // A brand must be told BEFORE they add money that a reservation is a promise.
+  assert.match(ui, /Not refundable while they run/i, "the screen does not say that reserved money cannot be taken back");
+  // And when Stripe is absent the button is gone — which must not look like a bug.
+  assert.match(ui, /view\.canTopUp \?/, "the screen offers a top-up that cannot work");
+  assert.match(ui, /\{view\.note\}/, "with no payment provider the panel says nothing about why");
+});
