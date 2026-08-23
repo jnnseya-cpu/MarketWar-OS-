@@ -48,16 +48,35 @@ Split/A-B, Webhook, Assign Human, Start Sub-Flow. Chains are deliberately
 sequential (`STATE.md` §5 records §80 as a considered decision, not an oversight)
 — branching is the real change here, not the visuals.
 
-### 3. Social engagement → sales triggers — ⛔ blocked / ❌ absent
+### 3. Social engagement → sales triggers — 🟡 partial (ingestion built, delivery gated)
 
-- `backend/meta-publish.ts` (386 lines) — Meta OAuth and **outbound publishing**
-  only. There is no comment, DM or story ingestion.
-- **No inbound social webhook exists.** `api/webhooks/` holds Stripe, email and
-  zernio; there is no `meta` receiver.
-- `backend/whatsapp.ts` — an **overview surface only**. It makes no Graph API
-  call and cannot send or receive a message.
+**Corrected framing:** App Review gates serving *other people's* accounts. In
+Development Mode you receive real webhooks and send real DMs on accounts you own
+— and AxionOS and VeryX are owned. So this was built and tested rather than
+waited on, and a working integration is what makes the review go well.
 
-This is the largest genuine gap in the spec, and it is the one gated by approval.
+- `app/api/webhooks/meta/route.ts` — the subscription handshake and the signed
+  event endpoint. **HMAC-SHA256 over the raw body, constant-time**, and it
+  REFUSES when no secret is set: this URL is public, and an unverified webhook
+  that acts on its payload lets a stranger drive a customer's Instagram account.
+- `backend/meta-webhook.ts` — flattens Meta's three-deep, per-product payload
+  into one event shape. Malformed input drops one event rather than throwing,
+  because a throw here makes Meta retry the whole batch forever.
+- `shared/social-triggers.ts` — the rule model and matching, pure and fully
+  tested without Meta. Guards the three expensive mistakes: replying to the
+  account's own activity, DMing the same person repeatedly (one interested human
+  is one lead, not four), and substring matching ("priceless" is not a price
+  enquiry).
+- `backend/meta-publish.ts` (386) — Meta OAuth and outbound publishing, already
+  live and sharing the same `FB_APP_SECRET`.
+
+**Still missing:** the connection store lookup (receiving account → brand), so
+the route normalises and counts events without acting on them; DM delivery;
+a surface to write rules on; and WhatsApp/TikTok entirely.
+
+**Still gated:** `instagram_manage_messages` for customer accounts, a WABA for
+WhatsApp. `backend/whatsapp.ts` remains an overview surface that makes no Graph
+API call.
 
 ### 4. AI sales agent — 🟡 partial
 
@@ -167,8 +186,8 @@ HTTP-request node, and third-party connectors (Zapier, HubSpot, Shopify…).
 
 ## What is genuinely absent, in one list
 
-1. Inbound social webhooks — Instagram, WhatsApp, TikTok ⛔
-2. Comment/DM/story trigger engine ⛔
+1. Inbound social webhooks — ✅ Instagram/Messenger built; WhatsApp and TikTok absent
+2. Comment/DM/story trigger engine — ✅ matching built; **delivery and a rule surface still missing**
 3. Multi-turn AI conversation with escalation
 4. Cross-channel identity resolution
 5. Conversational data capture

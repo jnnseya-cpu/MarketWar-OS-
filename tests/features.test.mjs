@@ -19125,7 +19125,6 @@ test("manychat register: what it calls absent is still absent", () => {
   // A doc that says "no inbound social webhook" while one exists is how the same
   // work gets done twice.
   const absent = [
-    ["src/app/api/webhooks/meta/route.ts", "an inbound Meta webhook now exists — update §3"],
     ["src/backend/meta-capi.ts", "Meta Conversions API now exists — update §13"],
   ];
   for (const [rel, why] of absent) {
@@ -19138,4 +19137,155 @@ test("manychat register: what it calls absent is still absent", () => {
   // lands, §7 is wrong and must be re-read.
   const inbox = readFileSync(new URL("../src/backend/inbox.ts", import.meta.url), "utf8");
   assert.match(inbox, /demoThreads/, "inbox.ts no longer has demoThreads — §7 of the register is out of date");
+});
+
+// ---------------------------------------------------------------------------
+// SOCIAL TRIGGERS — comment → DM, and the three ways it goes wrong.
+//
+// The rule model is pure, so the whole engine is testable without Meta, without
+// a network and without an approved app. What needs Meta's permission is
+// DELIVERING a reply; deciding whether one is owed does not, and that decision
+// is where every expensive mistake lives.
+// ---------------------------------------------------------------------------
+
+const triggers = await import("../src/shared/social-triggers.ts");
+
+const rule = (over = {}) => ({
+  id: "r1", brandId: "b1", event: "comment", keywords: ["price"], enabled: true, ...over,
+});
+const ev = (over = {}) => ({
+  brandId: "b1", event: "comment", fromUserId: "u_customer", recipientId: "acct_brand",
+  text: "what is the price?", eventId: "e1", atISO: "2026-08-22T10:00:00.000Z", ...over,
+});
+const never = () => false;
+
+test("triggers: a keyword matches on word boundaries, never as a substring", () => {
+  const { matchesKeyword } = triggers;
+  // The whole point. "priceless" is not a request for a price list, and a DM
+  // that treats it as one is confident nonsense sent to a stranger.
+  assert.equal(matchesKeyword("this is priceless", "price"), false);
+  assert.equal(matchesKeyword("what a surprise", "price"), false);
+  assert.equal(matchesKeyword("PRICE?", "price"), true);
+  assert.equal(matchesKeyword("how much, price!", "price"), true);
+  assert.equal(matchesKeyword("send me the price list", "price list"), true);
+  assert.equal(matchesKeyword("price the list", "price list"), false, "a multi-word keyword must be consecutive");
+  // Accents folded — a phone keyboard should not cost somebody their reply.
+  assert.equal(matchesKeyword("le café", "cafe"), true);
+  // A keyword full of regex metacharacters must be data, never a live pattern.
+  assert.equal(matchesKeyword("anything at all", ".*"), false);
+  assert.equal(matchesKeyword("", "price"), false);
+});
+
+test("triggers: the account never replies to itself", () => {
+  // The brand commenting on its own post arrives identical to a customer's
+  // comment. Without this an automation answers itself, in public, in a loop.
+  const r = triggers.matchTrigger(ev({ fromUserId: "acct_brand" }), [rule()], never);
+  assert.equal(r.fired, false);
+  assert.match(r.reason, /own activity/i);
+});
+
+test("triggers: one interested person is one lead, not four", () => {
+  // Somebody commenting "price" on four posts is one human. Repeat unsolicited
+  // DMs are what gets an Instagram account restricted — and the account belongs
+  // to the customer, not to us.
+  const always = () => true;
+  const r = triggers.matchTrigger(ev(), [rule()], always);
+  assert.equal(r.fired, false);
+  assert.match(r.reason, /already messaged/i);
+
+  // And the cooldown cannot be set to zero, which would be a spam machine.
+  assert.equal(triggers.cooldownHours(rule({ cooldownHours: 0 })), triggers.MIN_COOLDOWN_HOURS);
+  assert.equal(triggers.cooldownHours(rule({ cooldownHours: -5 })), triggers.MIN_COOLDOWN_HOURS);
+  assert.equal(triggers.cooldownHours(rule({})), triggers.DEFAULT_COOLDOWN_HOURS);
+});
+
+test("triggers: it fires only on the right brand, event, post and word", () => {
+  assert.equal(triggers.matchTrigger(ev(), [rule()], never).fired, true, "a plain match did not fire");
+
+  // Every dimension that must NOT fire.
+  assert.equal(triggers.matchTrigger(ev({ brandId: "other" }), [rule()], never).fired, false, "fired for another brand");
+  assert.equal(triggers.matchTrigger(ev({ event: "dm" }), [rule()], never).fired, false, "fired on the wrong event kind");
+  assert.equal(triggers.matchTrigger(ev({ text: "lovely photo" }), [rule()], never).fired, false, "fired without the keyword");
+  assert.equal(triggers.matchTrigger(ev(), [rule({ enabled: false })], never).fired, false, "fired on a disabled rule");
+  assert.equal(triggers.matchTrigger(ev({ mediaId: "p2" }), [rule({ mediaId: "p1" })], never).fired, false, "ignored the post filter");
+  assert.equal(triggers.matchTrigger(ev({ mediaId: "p1" }), [rule({ mediaId: "p1" })], never).fired, true, "the post filter blocked a match it should allow");
+
+  // A rule with no keywords fires on any event of its kind — follow and
+  // story_reply have nothing to match on, so this must be allowed.
+  const follow = triggers.matchTrigger(
+    ev({ event: "follow", text: undefined }),
+    [rule({ event: "follow", keywords: [] })], never);
+  assert.equal(follow.fired, true, "a follow trigger cannot fire, so follow-to-DM is impossible");
+});
+
+test("meta webhook: an unsigned or wrongly signed request is refused", async () => {
+  const mw = await import("../src/backend/meta-webhook.ts");
+  const saved = process.env.FB_APP_SECRET;
+  process.env.FB_APP_SECRET = "test_app_secret";
+  try {
+    const { createHmac } = await import("node:crypto");
+    const body = JSON.stringify({ object: "instagram", entry: [] });
+    const good = "sha256=" + createHmac("sha256", "test_app_secret").update(body, "utf8").digest("hex");
+
+    assert.equal(mw.verifyMetaSignature(body, good).valid, true, "a genuine Meta signature was rejected");
+    assert.equal(mw.verifyMetaSignature(body, null).valid, false, "an unsigned request was accepted");
+    assert.equal(mw.verifyMetaSignature(body, "sha256=deadbeef").valid, false, "a wrong signature was accepted");
+    assert.equal(mw.verifyMetaSignature(body + " ", good).valid, false, "a tampered body kept its signature");
+    // Signed with the wrong key — the case that matters if a secret leaks and
+    // is rotated.
+    const other = "sha256=" + createHmac("sha256", "different").update(body, "utf8").digest("hex");
+    assert.equal(mw.verifyMetaSignature(body, other).valid, false, "a signature from another secret was accepted");
+
+    // NO SECRET MUST REFUSE, not wave it through. This endpoint is public, and
+    // an unverified webhook that acts on its payload lets a stranger drive a
+    // customer's Instagram account.
+    process.env.FB_APP_SECRET = "";
+    const off = mw.verifyMetaSignature(body, good);
+    assert.equal(off.valid, false, "with no secret configured the webhook accepted anything");
+    assert.match(off.reason, /FB_APP_SECRET/);
+  } finally {
+    if (saved === undefined) delete process.env.FB_APP_SECRET; else process.env.FB_APP_SECRET = saved;
+  }
+});
+
+test("meta webhook: Meta's nested payload flattens to events the engine understands", async () => {
+  const { normaliseMetaEvents } = await import("../src/backend/meta-webhook.ts");
+  const body = {
+    object: "instagram",
+    entry: [{
+      id: "acct_brand",
+      time: 1787000000,
+      changes: [{
+        field: "comments",
+        value: { id: "c_1", text: "PRICE please", from: { id: "u_customer" }, media: { id: "m_9" } },
+      }],
+      messaging: [
+        { sender: { id: "u_dm" }, recipient: { id: "acct_brand" }, timestamp: 1787000001000, message: { mid: "m_1", text: "hello" } },
+        { sender: { id: "u_story" }, recipient: { id: "acct_brand" }, timestamp: 1787000002000,
+          message: { mid: "m_2", text: "love this", reply_to: { story: { id: "s_1" } } } },
+        // A read receipt carries no message and must produce nothing.
+        { sender: { id: "u_x" }, recipient: { id: "acct_brand" }, read: { watermark: 1 } },
+      ],
+    }],
+  };
+  const events = normaliseMetaEvents(body, (id) => (id === "acct_brand" ? "b1" : null));
+
+  assert.equal(events.length, 3, "a read receipt was turned into an event, or a real one was lost");
+  const [comment, dm, story] = events;
+  assert.equal(comment.event, "comment");
+  assert.equal(comment.fromUserId, "u_customer");
+  assert.equal(comment.mediaId, "m_9", "the post id was lost, so per-post rules cannot work");
+  assert.equal(comment.eventId, "c_1", "without Meta's own id a redelivery DMs somebody twice");
+  assert.equal(dm.event, "dm");
+  assert.equal(story.event, "story_reply", "a story reply was mistaken for an ordinary DM");
+  assert.equal(story.eventId, "m_2");
+
+  // An event for an account nobody here has connected is not ours — apps are
+  // shared, and this must not throw or guess a brand.
+  assert.deepEqual(normaliseMetaEvents(body, () => null), []);
+  // Garbage must produce nothing rather than throw: a throw inside a webhook
+  // makes Meta retry the whole batch forever.
+  for (const junk of [null, {}, { entry: "no" }, { entry: [{}] }, { entry: [{ id: "acct_brand", changes: [{}] }] }]) {
+    assert.deepEqual(normaliseMetaEvents(junk, () => "b1"), [], "malformed input did not degrade quietly");
+  }
 });
