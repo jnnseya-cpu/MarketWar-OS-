@@ -19406,3 +19406,98 @@ test("identity: the ladder says what somebody did, never what we hope", () => {
     assert.ok(r.nextAction && r.nextAction.length > 8, `no next action for ${JSON.stringify(input)}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// SETTLEMENT — money is neither invented nor lost.
+//
+// The commercial model was already built: netEligibleValue, saleCommissionPence,
+// settlementState and ProfitGuard. What did not exist is the step where money
+// actually moves, and the arithmetic underneath it. Percentages of pennies do
+// not divide evenly; rounding each share separately creates or destroys a penny
+// per order, which across a million orders is a reconciliation failure nobody
+// can find.
+// ---------------------------------------------------------------------------
+
+const settle = await import("../src/shared/settlement-split.ts");
+
+test("settlement: creator + platform + brand always equals what the customer paid", () => {
+  const { splitOrder, conserves } = settle;
+  // Deliberately awkward numbers — odd gross, odd commission, 50% release.
+  for (const gross of [999, 1000, 1237, 4999, 100003, 7]) {
+    for (const commission of [0, 1, 3, 5, 37, 499]) {
+      for (const fee of [0, 2, 99]) {
+        for (const pct of [0, 50, 100]) {
+          const r = splitOrder({ grossPence: gross, commissionPence: commission, platformFeePence: fee, payablePct: pct });
+          if (!r.ok) continue; // refusals are checked separately
+          assert.ok(conserves(gross, r),
+            `£${gross} split into ${r.creatorPence}+${r.platformPence}+${r.brandPence} — a penny was invented or lost`);
+          assert.ok(r.creatorPence >= 0 && r.platformPence >= 0 && r.brandPence >= 0, "a negative share was produced");
+        }
+      }
+    }
+  }
+});
+
+test("settlement: the refund window holds money with the BRAND, not with us", () => {
+  const { splitOrder } = settle;
+  // Nothing released yet — earned, but inside the window.
+  const pending = splitOrder({ grossPence: 10000, commissionPence: 50, platformFeePence: 100, payablePct: 0 });
+  assert.equal(pending.ok, true);
+  assert.equal(pending.creatorPence, 0, "money was released before the refund window closed");
+  assert.equal(pending.heldPence, 50, "the earned-but-unreleased amount was lost");
+  // The held money must remain in the brand's remittance — holding a customer's
+  // money on their behalf is a different regulated activity entirely.
+  assert.equal(pending.brandPence, 10000 - 0 - 100);
+  assert.match(pending.note, /stays with the brand/i);
+
+  // Half released.
+  const half = splitOrder({ grossPence: 10000, commissionPence: 51, platformFeePence: 100, payablePct: 50 });
+  assert.equal(half.creatorPence, 26, "the odd penny was not rounded once, in one place");
+  assert.equal(half.heldPence, 25);
+  assert.equal(half.creatorPence + half.heldPence, 51, "released + held must equal what was earned");
+
+  // Fully settled.
+  const done = splitOrder({ grossPence: 10000, commissionPence: 50, platformFeePence: 100, payablePct: 100 });
+  assert.equal(done.creatorPence, 50);
+  assert.equal(done.heldPence, 0);
+});
+
+test("settlement: it refuses rather than paying out money that never arrived", () => {
+  const { splitOrder } = settle;
+  // Commission + fee exceeding the payment would mean MarketWar funding
+  // somebody else's commission from its own balance sheet — the exact exposure
+  // the whole revenue-locked model exists to avoid.
+  const over = splitOrder({ grossPence: 100, commissionPence: 80, platformFeePence: 40, payablePct: 100 });
+  assert.equal(over.ok, false);
+  assert.match(over.error, /exceed/i);
+
+  // No money arrived at all.
+  assert.equal(splitOrder({ grossPence: 0, commissionPence: 10, platformFeePence: 0, payablePct: 100 }).ok, false);
+
+  // payablePct must come from settlementState, not from a caller's own maths —
+  // an arbitrary percentage here would quietly release money early.
+  for (const bad of [10, 99, -50, 101, 33.3]) {
+    const r = splitOrder({ grossPence: 1000, commissionPence: 10, platformFeePence: 0, payablePct: bad });
+    assert.equal(r.ok, false, `payablePct ${bad} was accepted`);
+    assert.match(r.error, /settlementState/);
+  }
+});
+
+test("settlement: the existing model already refuses commission on money the merchant never keeps", async () => {
+  // Guarding the decision, not re-implementing it: tax, delivery, tips and gift
+  // cards cannot fund a commission, and a refund voids it. If this ever changes,
+  // the creator programme's headline rate stops being honest.
+  const s2e = await import("../src/backend/share2earn.ts");
+  const v = s2e.netEligibleValue({
+    checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500, refundedPence: 0,
+  });
+  assert.equal(v.eligiblePence, 10000, "commission was computed on tax or delivery");
+
+  const refunded = s2e.netEligibleValue({
+    checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500, refundedPence: 10000,
+  });
+  assert.equal(refunded.eligiblePence, 0, "a fully refunded order still earned a commission");
+
+  const cancelled = s2e.netEligibleValue({ checkoutTotalPence: 12000, productPence: 10000, cancelled: true });
+  assert.equal(cancelled.eligiblePence, 0, "a cancelled order still earned a commission");
+});

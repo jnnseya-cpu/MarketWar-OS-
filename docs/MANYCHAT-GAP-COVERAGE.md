@@ -228,3 +228,45 @@ foundations".
 
 Steps 2 and 3 are buildable now, need no permission from anybody, and each is a
 finished vertical rather than a half-built layer.
+
+
+---
+
+## Share2Earn / influencer: who funds the creator commission
+
+The commercial model was **already designed and built** — this was the answer to
+"how does the company pay for the people whose links earned the money":
+
+- `backend/share2earn.ts` — `netEligibleValue` computes commission on PRODUCT
+  value only, net of refunds. Tax, delivery, tips and gift cards are excluded
+  because they are money the merchant never keeps, so they cannot fund a
+  commission. A cancelled or fully refunded order earns nothing.
+- `backend/profit-guard-economics.ts` — `settlementState`: in Cash-Protected
+  Growth (`revenue_locked`) nothing accrues until the customer's money has
+  ARRIVED, it is held through the refund window, and it is **voided** on refund
+  or chargeback. `economicsFor` splits each order into a growth pool and a
+  **protected margin that is never reachable**; `campaignLimits` caps creator
+  commission at a share of the pool.
+- The mission gate refuses to publish a mission that could owe more than its
+  budget, and sale rewards are excluded from the up-front requirement precisely
+  because they fund themselves out of the transaction.
+
+**The gap was custody, not policy.** `reservedPence` was a number written on a
+record: nothing held it, nothing collected it, and `/share2earn` is a PUBLIC
+page that told creators "£X reserved" and "money that already exists". Nothing
+in `payout-execute.ts` or `wallet.ts` reads a mission budget at all.
+
+**Now built:** `shared/settlement-split.ts` — the arithmetic Stripe Connect will
+carry out for one paid order, with one law: **creator + platform + brand equals
+gross, exactly, always.** Shares are whole pence and the remainder goes to the
+brand in one named place, because rounding each share separately creates or
+destroys a penny per order. Money still inside the refund window stays in the
+brand's remittance — holding a customer's money on their behalf is a different,
+regulated activity. It refuses when commission plus fee exceed what the customer
+paid, rather than paying out and invoicing later.
+
+**Still missing:** Stripe Connect itself (onboarding, `application_fee`,
+transfers, and who is merchant of record), collecting the activity-reward budget
+before a mission goes live, and clawback on a chargeback that lands after a
+payout. Until Connect exists, the public "reserved" wording overstates what is
+held and should be corrected in the same change that adds it.
