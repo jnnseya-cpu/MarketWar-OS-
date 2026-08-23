@@ -19098,3 +19098,717 @@ test("ad styles: the backend asserts it still matches the published shape", () =
   assert.match(src, /const _wireShape: AdStyleView\[\] = AD_STYLES/,
     "nothing checks that AD_STYLES still matches shared/ad-style-view.ts");
 });
+
+// ---------------------------------------------------------------------------
+// The ManyChat gap register must stay true, or it becomes the thing it exists
+// to prevent: a document that sends somebody to rebuild what already works, or
+// to trust a module that was deleted. The last coverage doc went stale exactly
+// this way and cost a month of re-derived context.
+// ---------------------------------------------------------------------------
+
+test("manychat register: every module it cites actually exists", () => {
+  const doc = readFileSync(new URL("../docs/MANYCHAT-GAP-COVERAGE.md", import.meta.url), "utf8");
+
+  // Every `backend/x.ts` or `shared/x.ts` named in the register.
+  const cited = [...doc.matchAll(/`(backend|shared|frontend)\/([a-z0-9-]+)\.ts`/g)]
+    .map((m) => `src/${m[1]}/${m[2]}.ts`);
+  assert.ok(cited.length >= 12, "the register stopped citing evidence — it is now opinion");
+
+  const missing = [...new Set(cited)].filter((rel) => {
+    try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); return false; } catch { return true; }
+  });
+  assert.deepEqual(missing, [], `the register cites modules that do not exist: ${missing.join(", ")}`);
+});
+
+test("manychat register: what it calls absent is still absent", () => {
+  // If one of these gets built, the register must be updated in the same change.
+  // A doc that says "no inbound social webhook" while one exists is how the same
+  // work gets done twice.
+  const absent = [
+    ["src/backend/meta-capi.ts", "Meta Conversions API now exists — update §13"],
+  ];
+  for (const [rel, why] of absent) {
+    let exists = true;
+    try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); } catch { exists = false; }
+    assert.equal(exists, false, why);
+  }
+
+  // And the claim that the inbox runs on demo data — the moment real ingestion
+  // lands, §7 is wrong and must be re-read.
+  const inbox = readFileSync(new URL("../src/backend/inbox.ts", import.meta.url), "utf8");
+  assert.match(inbox, /demoThreads/, "inbox.ts no longer has demoThreads — §7 of the register is out of date");
+});
+
+// ---------------------------------------------------------------------------
+// SOCIAL TRIGGERS — comment → DM, and the three ways it goes wrong.
+//
+// The rule model is pure, so the whole engine is testable without Meta, without
+// a network and without an approved app. What needs Meta's permission is
+// DELIVERING a reply; deciding whether one is owed does not, and that decision
+// is where every expensive mistake lives.
+// ---------------------------------------------------------------------------
+
+const triggers = await import("../src/shared/social-triggers.ts");
+
+const rule = (over = {}) => ({
+  id: "r1", brandId: "b1", event: "comment", keywords: ["price"], enabled: true, ...over,
+});
+const ev = (over = {}) => ({
+  brandId: "b1", event: "comment", fromUserId: "u_customer", recipientId: "acct_brand",
+  text: "what is the price?", eventId: "e1", atISO: "2026-08-22T10:00:00.000Z", ...over,
+});
+const never = () => false;
+
+test("triggers: a keyword matches on word boundaries, never as a substring", () => {
+  const { matchesKeyword } = triggers;
+  // The whole point. "priceless" is not a request for a price list, and a DM
+  // that treats it as one is confident nonsense sent to a stranger.
+  assert.equal(matchesKeyword("this is priceless", "price"), false);
+  assert.equal(matchesKeyword("what a surprise", "price"), false);
+  assert.equal(matchesKeyword("PRICE?", "price"), true);
+  assert.equal(matchesKeyword("how much, price!", "price"), true);
+  assert.equal(matchesKeyword("send me the price list", "price list"), true);
+  assert.equal(matchesKeyword("price the list", "price list"), false, "a multi-word keyword must be consecutive");
+  // Accents folded — a phone keyboard should not cost somebody their reply.
+  assert.equal(matchesKeyword("le café", "cafe"), true);
+  // A keyword full of regex metacharacters must be data, never a live pattern.
+  assert.equal(matchesKeyword("anything at all", ".*"), false);
+  assert.equal(matchesKeyword("", "price"), false);
+});
+
+test("triggers: the account never replies to itself", () => {
+  // The brand commenting on its own post arrives identical to a customer's
+  // comment. Without this an automation answers itself, in public, in a loop.
+  const r = triggers.matchTrigger(ev({ fromUserId: "acct_brand" }), [rule()], never);
+  assert.equal(r.fired, false);
+  assert.match(r.reason, /own activity/i);
+});
+
+test("triggers: one interested person is one lead, not four", () => {
+  // Somebody commenting "price" on four posts is one human. Repeat unsolicited
+  // DMs are what gets an Instagram account restricted — and the account belongs
+  // to the customer, not to us.
+  const always = () => true;
+  const r = triggers.matchTrigger(ev(), [rule()], always);
+  assert.equal(r.fired, false);
+  assert.match(r.reason, /already messaged/i);
+
+  // And the cooldown cannot be set to zero, which would be a spam machine.
+  assert.equal(triggers.cooldownHours(rule({ cooldownHours: 0 })), triggers.MIN_COOLDOWN_HOURS);
+  assert.equal(triggers.cooldownHours(rule({ cooldownHours: -5 })), triggers.MIN_COOLDOWN_HOURS);
+  assert.equal(triggers.cooldownHours(rule({})), triggers.DEFAULT_COOLDOWN_HOURS);
+});
+
+test("triggers: it fires only on the right brand, event, post and word", () => {
+  assert.equal(triggers.matchTrigger(ev(), [rule()], never).fired, true, "a plain match did not fire");
+
+  // Every dimension that must NOT fire.
+  assert.equal(triggers.matchTrigger(ev({ brandId: "other" }), [rule()], never).fired, false, "fired for another brand");
+  assert.equal(triggers.matchTrigger(ev({ event: "dm" }), [rule()], never).fired, false, "fired on the wrong event kind");
+  assert.equal(triggers.matchTrigger(ev({ text: "lovely photo" }), [rule()], never).fired, false, "fired without the keyword");
+  assert.equal(triggers.matchTrigger(ev(), [rule({ enabled: false })], never).fired, false, "fired on a disabled rule");
+  assert.equal(triggers.matchTrigger(ev({ mediaId: "p2" }), [rule({ mediaId: "p1" })], never).fired, false, "ignored the post filter");
+  assert.equal(triggers.matchTrigger(ev({ mediaId: "p1" }), [rule({ mediaId: "p1" })], never).fired, true, "the post filter blocked a match it should allow");
+
+  // A rule with no keywords fires on any event of its kind — follow and
+  // story_reply have nothing to match on, so this must be allowed.
+  const follow = triggers.matchTrigger(
+    ev({ event: "follow", text: undefined }),
+    [rule({ event: "follow", keywords: [] })], never);
+  assert.equal(follow.fired, true, "a follow trigger cannot fire, so follow-to-DM is impossible");
+});
+
+test("meta webhook: an unsigned or wrongly signed request is refused", async () => {
+  const mw = await import("../src/backend/meta-webhook.ts");
+  const saved = process.env.FB_APP_SECRET;
+  process.env.FB_APP_SECRET = "test_app_secret";
+  try {
+    const { createHmac } = await import("node:crypto");
+    const body = JSON.stringify({ object: "instagram", entry: [] });
+    const good = "sha256=" + createHmac("sha256", "test_app_secret").update(body, "utf8").digest("hex");
+
+    assert.equal(mw.verifyMetaSignature(body, good).valid, true, "a genuine Meta signature was rejected");
+    assert.equal(mw.verifyMetaSignature(body, null).valid, false, "an unsigned request was accepted");
+    assert.equal(mw.verifyMetaSignature(body, "sha256=deadbeef").valid, false, "a wrong signature was accepted");
+    assert.equal(mw.verifyMetaSignature(body + " ", good).valid, false, "a tampered body kept its signature");
+    // Signed with the wrong key — the case that matters if a secret leaks and
+    // is rotated.
+    const other = "sha256=" + createHmac("sha256", "different").update(body, "utf8").digest("hex");
+    assert.equal(mw.verifyMetaSignature(body, other).valid, false, "a signature from another secret was accepted");
+
+    // NO SECRET MUST REFUSE, not wave it through. This endpoint is public, and
+    // an unverified webhook that acts on its payload lets a stranger drive a
+    // customer's Instagram account.
+    process.env.FB_APP_SECRET = "";
+    const off = mw.verifyMetaSignature(body, good);
+    assert.equal(off.valid, false, "with no secret configured the webhook accepted anything");
+    assert.match(off.reason, /FB_APP_SECRET/);
+  } finally {
+    if (saved === undefined) delete process.env.FB_APP_SECRET; else process.env.FB_APP_SECRET = saved;
+  }
+});
+
+test("meta webhook: Meta's nested payload flattens to events the engine understands", async () => {
+  const { normaliseMetaEvents } = await import("../src/backend/meta-webhook.ts");
+  const body = {
+    object: "instagram",
+    entry: [{
+      id: "acct_brand",
+      time: 1787000000,
+      changes: [{
+        field: "comments",
+        value: { id: "c_1", text: "PRICE please", from: { id: "u_customer" }, media: { id: "m_9" } },
+      }],
+      messaging: [
+        { sender: { id: "u_dm" }, recipient: { id: "acct_brand" }, timestamp: 1787000001000, message: { mid: "m_1", text: "hello" } },
+        { sender: { id: "u_story" }, recipient: { id: "acct_brand" }, timestamp: 1787000002000,
+          message: { mid: "m_2", text: "love this", reply_to: { story: { id: "s_1" } } } },
+        // A read receipt carries no message and must produce nothing.
+        { sender: { id: "u_x" }, recipient: { id: "acct_brand" }, read: { watermark: 1 } },
+      ],
+    }],
+  };
+  const events = normaliseMetaEvents(body, (id) => (id === "acct_brand" ? "b1" : null));
+
+  assert.equal(events.length, 3, "a read receipt was turned into an event, or a real one was lost");
+  const [comment, dm, story] = events;
+  assert.equal(comment.event, "comment");
+  assert.equal(comment.fromUserId, "u_customer");
+  assert.equal(comment.mediaId, "m_9", "the post id was lost, so per-post rules cannot work");
+  assert.equal(comment.eventId, "c_1", "without Meta's own id a redelivery DMs somebody twice");
+  assert.equal(dm.event, "dm");
+  assert.equal(story.event, "story_reply", "a story reply was mistaken for an ordinary DM");
+  assert.equal(story.eventId, "m_2");
+
+  // An event for an account nobody here has connected is not ours — apps are
+  // shared, and this must not throw or guess a brand.
+  assert.deepEqual(normaliseMetaEvents(body, () => null), []);
+  // Garbage must produce nothing rather than throw: a throw inside a webhook
+  // makes Meta retry the whole batch forever.
+  for (const junk of [null, {}, { entry: "no" }, { entry: [{}] }, { entry: [{ id: "acct_brand", changes: [{}] }] }]) {
+    assert.deepEqual(normaliseMetaEvents(junk, () => "b1"), [], "malformed input did not degrade quietly");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FOLLOWER → CUSTOMER. It is an identity problem before it is a messaging one.
+//
+// A follower is a handle; a customer is an email address on an invoice. Nothing
+// here could say they were the same human, so a brand could not tell that the
+// person who commented "price" in March is the person who paid in April — and
+// therefore could not tell which post earned the money.
+// ---------------------------------------------------------------------------
+
+const identity = await import("../src/shared/identity.ts");
+
+const idRec = (over = {}) => ({
+  id: "i1", brandId: "b1", keys: [], createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z", ...over,
+});
+const idKey = (channel, value, firstSeenISO = "2026-01-01T00:00:00.000Z") =>
+  ({ channel, value, source: "test", firstSeenISO });
+
+test("identity: the same person written differently is still one key", () => {
+  const { normaliseKey, keyId } = identity;
+  // Presentation differences are how duplicates survive: @Name, name, and the
+  // profile URL are one account.
+  assert.equal(normaliseKey("instagram", "@AxionOS"), "axionos");
+  assert.equal(normaliseKey("instagram", "https://instagram.com/AxionOS/"), "axionos");
+  assert.equal(normaliseKey("email", "  Jane@Example.COM "), "jane@example.com");
+  assert.equal(normaliseKey("phone", "+44 7700 900123"), "+447700900123");
+  assert.equal(normaliseKey("phone", "(07700) 900-123"), "07700900123");
+
+  // Rubbish must not become an identity key — a key nobody can be reached on
+  // will merge strangers together later.
+  assert.equal(normaliseKey("phone", "123"), "", "a 3-digit string became a phone identity");
+  assert.equal(keyId("email", "   "), null);
+  assert.equal(keyId("instagram", "@axionos"), "instagram:axionos");
+});
+
+test("identity: a wrong merge is worse than no merge", () => {
+  const { shouldMerge } = identity;
+
+  // Merged: a shared handle. One Instagram account cannot belong to two people.
+  const a = idRec({ keys: [idKey("instagram", "@jane_plumbing")] });
+  const b = idRec({ id: "i2", keys: [idKey("instagram", "jane_plumbing"), idKey("email", "jane@example.com")] });
+  const yes = shouldMerge(a, b);
+  assert.equal(yes.merge, true, "the same handle did not merge");
+  assert.equal(yes.on, "instagram:jane_plumbing");
+
+  // NOT merged on a name. There are many John Smiths, and fusing two of them
+  // is close to unrecoverable and means showing one person another's data.
+  const n1 = idRec({ displayName: "John Smith", keys: [idKey("instagram", "@js1")] });
+  const n2 = idRec({ id: "i3", displayName: "John Smith", keys: [idKey("instagram", "@js2")] });
+  const name = shouldMerge(n1, n2);
+  assert.equal(name.merge, false, "two people were merged because they share a name");
+  assert.equal(name.suggest, true, "the hint was thrown away instead of offered to a human");
+  assert.match(name.reason, /cannot be undone|not evidence/i);
+
+  // NEVER across brands, whatever the evidence — that would leak one customer's
+  // contact into another customer's account.
+  const t1 = idRec({ keys: [idKey("email", "jane@example.com")] });
+  const t2 = idRec({ id: "i4", brandId: "b2", keys: [idKey("email", "jane@example.com")] });
+  const cross = shouldMerge(t1, t2);
+  assert.equal(cross.merge, false, "identities were joined across tenants");
+  assert.equal(cross.suggest, false, "a cross-tenant join was even suggested");
+
+  // Nothing in common: no merge, no suggestion, no guess.
+  const u = shouldMerge(idRec({ keys: [idKey("instagram", "@a")] }), idRec({ id: "i5", keys: [idKey("instagram", "@b")] }));
+  assert.equal(u.merge, false); assert.equal(u.suggest, false);
+});
+
+test("identity: merging keeps the earliest sighting and never drops a prospect", () => {
+  const { mergeIdentities, keyId } = identity;
+  const a = idRec({
+    keys: [idKey("instagram", "@jane", "2026-03-01T00:00:00.000Z")],
+    createdAt: "2026-03-01T00:00:00.000Z",
+  });
+  const b = idRec({
+    id: "i2", prospectId: "p_9",
+    keys: [idKey("instagram", "@Jane", "2026-01-15T00:00:00.000Z"), idKey("email", "jane@example.com", "2026-04-01T00:00:00.000Z")],
+    createdAt: "2026-01-15T00:00:00.000Z",
+  });
+  const m = mergeIdentities(a, b, "2026-08-22T00:00:00.000Z");
+
+  // Two spellings of one handle collapse to one key.
+  assert.equal(m.keys.length, 2, "the same handle survived twice under different casing");
+  const ig = m.keys.find((k) => keyId(k.channel, k.value) === "instagram:jane");
+  assert.equal(ig.firstSeenISO, "2026-01-15T00:00:00.000Z", "the merge lost when we first met this person");
+  // A record already in the pipeline is never dropped by a merge.
+  assert.equal(m.prospectId, "p_9", "the merge discarded the prospect record");
+  assert.equal(m.createdAt, "2026-01-15T00:00:00.000Z");
+});
+
+test("identity: the ladder says what somebody did, never what we hope", () => {
+  const { ladderStage, LADDER } = identity;
+  assert.deepEqual([...LADDER], ["follower", "engaged", "lead", "qualified", "customer"]);
+
+  const follower = ladderStage({ followed: true });
+  assert.equal(follower.stage, "follower");
+  // The advice matters as much as the stage: pitching a follower is how an
+  // account gets muted.
+  assert.match(follower.nextAction, /do not pitch/i);
+
+  assert.equal(ladderStage({ followed: true, engagements: 2 }).stage, "engaged");
+  assert.equal(ladderStage({ engagements: 2, hasContactDetail: true }).stage, "lead");
+  assert.equal(ladderStage({ hasContactDetail: true, qualifiedAnswers: 2 }).stage, "qualified");
+
+  // Money outranks everything, and the reason cites the actual amount.
+  const paid = ladderStage({ paidGbp: 240 });
+  assert.equal(paid.stage, "customer");
+  assert.match(paid.reason, /£240/);
+
+  // Every rung must justify itself — a stage with no reason is a guess wearing
+  // a label, which is the one thing this platform does not ship.
+  for (const input of [{}, { followed: true }, { engagements: 5 }, { hasContactDetail: true }, { paidGbp: 1 }]) {
+    const r = ladderStage(input);
+    assert.ok(r.reason && r.reason.length > 8, `no reason given for ${JSON.stringify(input)}`);
+    assert.ok(r.nextAction && r.nextAction.length > 8, `no next action for ${JSON.stringify(input)}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SETTLEMENT — money is neither invented nor lost.
+//
+// The commercial model was already built: netEligibleValue, saleCommissionPence,
+// settlementState and ProfitGuard. What did not exist is the step where money
+// actually moves, and the arithmetic underneath it. Percentages of pennies do
+// not divide evenly; rounding each share separately creates or destroys a penny
+// per order, which across a million orders is a reconciliation failure nobody
+// can find.
+// ---------------------------------------------------------------------------
+
+const settle = await import("../src/shared/settlement-split.ts");
+
+test("settlement: creator + platform + brand always equals what the customer paid", () => {
+  const { splitOrder, conserves } = settle;
+  // Deliberately awkward numbers — odd gross, odd commission, 50% release.
+  for (const gross of [999, 1000, 1237, 4999, 100003, 7]) {
+    for (const commission of [0, 1, 3, 5, 37, 499]) {
+      for (const fee of [0, 2, 99]) {
+        for (const pct of [0, 50, 100]) {
+          const r = splitOrder({ grossPence: gross, commissionPence: commission, platformFeePence: fee, payablePct: pct });
+          if (!r.ok) continue; // refusals are checked separately
+          assert.ok(conserves(gross, r),
+            `£${gross} split into ${r.creatorPence}+${r.platformPence}+${r.brandPence} — a penny was invented or lost`);
+          assert.ok(r.creatorPence >= 0 && r.platformPence >= 0 && r.brandPence >= 0, "a negative share was produced");
+        }
+      }
+    }
+  }
+});
+
+test("settlement: the refund window holds money with the BRAND, not with us", () => {
+  const { splitOrder } = settle;
+  // Nothing released yet — earned, but inside the window.
+  const pending = splitOrder({ grossPence: 10000, commissionPence: 50, platformFeePence: 100, payablePct: 0 });
+  assert.equal(pending.ok, true);
+  assert.equal(pending.creatorPence, 0, "money was released before the refund window closed");
+  assert.equal(pending.heldPence, 50, "the earned-but-unreleased amount was lost");
+  // The held money must remain in the brand's remittance — holding a customer's
+  // money on their behalf is a different regulated activity entirely.
+  assert.equal(pending.brandPence, 10000 - 0 - 100);
+  assert.match(pending.note, /stays with the brand/i);
+
+  // Half released.
+  const half = splitOrder({ grossPence: 10000, commissionPence: 51, platformFeePence: 100, payablePct: 50 });
+  assert.equal(half.creatorPence, 26, "the odd penny was not rounded once, in one place");
+  assert.equal(half.heldPence, 25);
+  assert.equal(half.creatorPence + half.heldPence, 51, "released + held must equal what was earned");
+
+  // Fully settled.
+  const done = splitOrder({ grossPence: 10000, commissionPence: 50, platformFeePence: 100, payablePct: 100 });
+  assert.equal(done.creatorPence, 50);
+  assert.equal(done.heldPence, 0);
+});
+
+test("settlement: it refuses rather than paying out money that never arrived", () => {
+  const { splitOrder } = settle;
+  // Commission + fee exceeding the payment would mean MarketWar funding
+  // somebody else's commission from its own balance sheet — the exact exposure
+  // the whole revenue-locked model exists to avoid.
+  const over = splitOrder({ grossPence: 100, commissionPence: 80, platformFeePence: 40, payablePct: 100 });
+  assert.equal(over.ok, false);
+  assert.match(over.error, /exceed/i);
+
+  // No money arrived at all.
+  assert.equal(splitOrder({ grossPence: 0, commissionPence: 10, platformFeePence: 0, payablePct: 100 }).ok, false);
+
+  // payablePct must come from settlementState, not from a caller's own maths —
+  // an arbitrary percentage here would quietly release money early.
+  for (const bad of [10, 99, -50, 101, 33.3]) {
+    const r = splitOrder({ grossPence: 1000, commissionPence: 10, platformFeePence: 0, payablePct: bad });
+    assert.equal(r.ok, false, `payablePct ${bad} was accepted`);
+    assert.match(r.error, /settlementState/);
+  }
+});
+
+test("settlement: the existing model already refuses commission on money the merchant never keeps", async () => {
+  // Guarding the decision, not re-implementing it: tax, delivery, tips and gift
+  // cards cannot fund a commission, and a refund voids it. If this ever changes,
+  // the creator programme's headline rate stops being honest.
+  const s2e = await import("../src/backend/share2earn.ts");
+  const v = s2e.netEligibleValue({
+    checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500, refundedPence: 0,
+  });
+  assert.equal(v.eligiblePence, 10000, "commission was computed on tax or delivery");
+
+  const refunded = s2e.netEligibleValue({
+    checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500, refundedPence: 10000,
+  });
+  assert.equal(refunded.eligiblePence, 0, "a fully refunded order still earned a commission");
+
+  const cancelled = s2e.netEligibleValue({ checkoutTotalPence: 12000, productPence: 10000, cancelled: true });
+  assert.equal(cancelled.eligiblePence, 0, "a cancelled order still earned a commission");
+});
+
+// ---------------------------------------------------------------------------
+// THE CREATOR REVENUE CHAIN — the two breaks, closed.
+//
+// Break one: the buyer pays on the BRAND'S site and nothing told us. Break two:
+// whether a renewal earns anything was undecided. Both minted or withheld money,
+// so these are the strictest tests in the suite.
+// ---------------------------------------------------------------------------
+
+const refattr = await import("../src/shared/referral-attribution.ts");
+
+test("attribution: last click inside the window wins, and a later click cannot claim it", () => {
+  const { attributeSale } = refattr;
+  const sale = "2026-08-20T12:00:00.000Z";
+  const clicks = [
+    { code: "ABC", atISO: "2026-08-01T09:00:00.000Z" },
+    { code: "ABC", atISO: "2026-08-18T09:00:00.000Z" }, // the winner
+    { code: "OTHER", atISO: "2026-08-19T09:00:00.000Z" },
+  ];
+  const r = attributeSale({ code: "abc", saleAtISO: sale, clicks });
+  assert.equal(r.attributed, true);
+  assert.equal(r.clickAtISO, "2026-08-18T09:00:00.000Z", "last click did not win");
+  assert.equal(r.ageDays, 2);
+
+  // A click AFTER the sale cannot have caused it — otherwise a creator posting
+  // a link the day after somebody bought gets credited with the purchase.
+  const after = attributeSale({ code: "ABC", saleAtISO: sale, clicks: [{ code: "ABC", atISO: "2026-08-21T09:00:00.000Z" }] });
+  assert.equal(after.attributed, false, "a click after the sale was credited");
+
+  // Outside the window.
+  const stale = attributeSale({ code: "ABC", saleAtISO: sale, clicks: [{ code: "ABC", atISO: "2026-01-01T09:00:00.000Z" }] });
+  assert.equal(stale.attributed, false);
+  assert.match(stale.reason, /30 days/);
+
+  // No click at all, and no code at all.
+  assert.equal(attributeSale({ code: "ABC", saleAtISO: sale, clicks: [] }).attributed, false);
+  assert.equal(attributeSale({ code: "", saleAtISO: sale, clicks }).attributed, false);
+});
+
+test("attribution: the window is bounded at both ends", () => {
+  const { attributionWindowDays, MIN_ATTRIBUTION_WINDOW_DAYS, MAX_ATTRIBUTION_WINDOW_DAYS } = refattr;
+  assert.equal(attributionWindowDays(undefined), 30);
+  // Zero would pay nobody; unbounded would pay everybody forever.
+  assert.equal(attributionWindowDays(0), MIN_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(-5), MIN_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(9999), MAX_ATTRIBUTION_WINDOW_DAYS);
+  assert.equal(attributionWindowDays(Number.NaN), 30);
+});
+
+test("renewals: the policy is explicit, bounded and liability is knowable", () => {
+  const { renewalCommissionable, maxLiabilityPence, DEFAULT_RENEWAL_POLICY } = refattr;
+
+  // The first payment always earns, on every policy.
+  for (const policy of [{ mode: "first_only" }, { mode: "months", months: 12 }, { mode: "forever" }]) {
+    assert.equal(renewalCommissionable(1, policy).commissionable, true, `first payment refused under ${policy.mode}`);
+  }
+  assert.equal(renewalCommissionable(2, { mode: "first_only" }).commissionable, false);
+  assert.equal(renewalCommissionable(12, DEFAULT_RENEWAL_POLICY).commissionable, true);
+  assert.equal(renewalCommissionable(13, DEFAULT_RENEWAL_POLICY).commissionable, false, "the 12-month bound was not enforced");
+  assert.equal(renewalCommissionable(99, { mode: "forever" }).commissionable, true);
+
+  // Every verdict explains itself — a creator has to be able to read why.
+  for (const n of [1, 2, 13]) assert.ok(renewalCommissionable(n, DEFAULT_RENEWAL_POLICY).reason.length > 10);
+
+  // Liability must be knowable BEFORE it is offered, so it can be capped.
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "first_only" }), 25);
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "months", months: 12 }), 25 * 12);
+  // `forever` returns null, not a big number — an unbounded liability has no
+  // maximum, and a guess returned as a limit would be treated as one.
+  assert.equal(maxLiabilityPence(4900, 0.005, { mode: "forever" }), null);
+});
+
+test("postback: it refuses anything that would produce a wrong payment", async () => {
+  const { parsePostback } = await import("../src/backend/conversion-postback.ts");
+  const good = {
+    brandId: "b1", ref: "abc", orderId: "o-1", currency: "gbp",
+    checkoutTotalPence: 12000, lines: { productPence: 10000, taxPence: 1500, deliveryPence: 500 },
+    paidAtISO: "2026-08-20T12:00:00.000Z",
+  };
+  const ok = parsePostback(good);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.postback.ref, "ABC", "the code was not normalised, so it will not match a click");
+  assert.equal(ok.postback.paymentNumber, 1);
+
+  // A total with no product line would force a guess, and a guessed commission
+  // is a wrong payment — so it is refused with the reason.
+  const noLines = parsePostback({ ...good, lines: {} });
+  assert.equal(noLines.ok, false);
+  assert.match(noLines.error, /productPence/);
+
+  // The idempotency key is not optional.
+  assert.equal(parsePostback({ ...good, orderId: "" }).ok, false);
+  assert.match(parsePostback({ ...good, orderId: "" }).error, /retry pays twice/);
+
+  // Nonsense that would silently mis-pay.
+  assert.equal(parsePostback({ ...good, paidAtISO: "not-a-date" }).ok, false);
+  assert.equal(parsePostback({ ...good, ref: "" }).ok, false);
+  assert.equal(parsePostback({ ...good, lines: { productPence: 99999 } }).ok, false, "product value above the checkout total was accepted");
+});
+
+test("postback: a forged or unsigned order cannot mint commission", async () => {
+  const cp = await import("../src/backend/conversion-postback.ts");
+  const { createHmac } = await import("node:crypto");
+  const saved = process.env.POSTBACK_ROOT_SECRET;
+  process.env.POSTBACK_ROOT_SECRET = "root_test_secret";
+  try {
+    const body = JSON.stringify({ brandId: "b1", orderId: "o-1" });
+    const secretB1 = cp.derivedSecretFor("b1");
+    const secretB2 = cp.derivedSecretFor("b2");
+    assert.ok(secretB1 && secretB2 && secretB1 !== secretB2, "two brands share a postback secret");
+
+    const sig = "sha256=" + createHmac("sha256", secretB1).update(body, "utf8").digest("hex");
+    assert.equal(cp.verifyPostbackSignature(body, sig, secretB1).valid, true);
+    assert.equal(cp.verifyPostbackSignature(body, null, secretB1).valid, false, "an unsigned order was accepted");
+    assert.equal(cp.verifyPostbackSignature(body + " ", sig, secretB1).valid, false, "a tampered body kept its signature");
+    // THE ONE THAT MATTERS: brand 2 cannot sign brand 1's orders.
+    assert.equal(cp.verifyPostbackSignature(body, sig, secretB2).valid, false, "one brand's secret validated another brand's order");
+
+    // No secret configured must REFUSE. This endpoint mints money owed.
+    const off = cp.verifyPostbackSignature(body, sig, null);
+    assert.equal(off.valid, false);
+    assert.match(off.reason, /POSTBACK_ROOT_SECRET/);
+  } finally {
+    if (saved === undefined) delete process.env.POSTBACK_ROOT_SECRET; else process.env.POSTBACK_ROOT_SECRET = saved;
+  }
+});
+
+test("ledger: one sale accrues once, however many times it is posted", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+
+  const input = {
+    brandId: "b1", code: "ABC", orderId: "o-1", checkoutTotalPence: 12000,
+    lines: { checkoutTotalPence: 12000, productPence: 10000, taxPence: 1500, deliveryPence: 500 },
+    paymentNumber: 1, recurring: false,
+    paidAtISO: "2026-08-20T12:00:00.000Z", nowISO: "2026-08-20T12:00:01.000Z", policy,
+  };
+
+  const first = await ledger.accrue(input);
+  assert.equal(first.ok, true);
+  assert.equal(first.created, true);
+  // 0.5% of PRODUCT value only — tax and delivery cannot fund a commission.
+  assert.equal(first.accrual.eligiblePence, 10000);
+  assert.equal(first.accrual.earnedPence, 50);
+  // Inside the refund window, so earned but not released.
+  assert.equal(first.accrual.releasedPence, 0);
+  assert.equal(first.accrual.state, "pending");
+
+  // THE DOUBLE-PAY TEST. Checkouts retry; a second row would pay twice.
+  const again = await ledger.accrue(input);
+  assert.equal(again.created, false, "a retried order created a second accrual");
+  assert.equal(again.accrual.id, first.accrual.id);
+
+  const bal = await ledger.balanceFor("ABC");
+  assert.equal(bal.orders, 1, "one sale counted twice");
+  assert.equal(bal.releasedPence, 0);
+  assert.equal(bal.heldPence, 50);
+});
+
+test("ledger: a refund voids it, and says what must be clawed back", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+
+  // A sale old enough that the refund window has closed and it was released.
+  const r = await ledger.accrue({
+    brandId: "b1", code: "ZZZ", orderId: "o-9", checkoutTotalPence: 20000,
+    lines: { checkoutTotalPence: 20000, productPence: 20000 },
+    paymentNumber: 1, recurring: false,
+    paidAtISO: "2026-01-01T00:00:00.000Z", nowISO: "2026-08-20T00:00:00.000Z", policy,
+  });
+  assert.equal(r.accrual.state, "settled", "the refund window should have closed on a January sale");
+  assert.equal(r.accrual.releasedPence, 100);
+
+  // A chargeback lands afterwards. The row is NOT deleted — the history has to
+  // survive — and the already-released amount is reported for clawback rather
+  // than quietly forgotten, because a status change cannot un-pay somebody.
+  const v = await ledger.voidAccrual(r.accrual.id, "Chargeback received", "2026-08-21T00:00:00.000Z");
+  assert.equal(v.accrual.state, "void");
+  assert.equal(v.accrual.voidReason, "Chargeback received");
+  assert.equal(v.clawbackPence, 100, "money already paid out was not flagged for clawback");
+  assert.ok(v.accrual.voidedAt, "the void has no timestamp");
+
+  // Voiding twice must not double the clawback.
+  assert.equal((await ledger.voidAccrual(r.accrual.id, "again", "2026-08-22T00:00:00.000Z")).clawbackPence, 0);
+
+  const bal = await ledger.balanceFor("ZZZ");
+  assert.equal(bal.voidedPence, 100);
+  assert.equal(bal.orders, 0, "a voided order still counted as a live one");
+});
+
+test("ledger: a renewal beyond the policy earns nothing, and says why", async () => {
+  const ledger = await import("../src/backend/commission-ledger.ts");
+  const { FUNDING_MODES } = await import("../src/backend/profit-guard-economics.ts");
+  ledger.__resetAccruals();
+  const policy = FUNDING_MODES.find((m) => m.mode === "revenue_locked");
+  const base = {
+    brandId: "b1", code: "SUB", orderId: "sub-1", checkoutTotalPence: 4900,
+    lines: { checkoutTotalPence: 4900, productPence: 4900 },
+    recurring: true, paidAtISO: "2026-08-01T00:00:00.000Z", nowISO: "2026-08-20T00:00:00.000Z", policy,
+  };
+  const m12 = await ledger.accrue({ ...base, orderId: "sub-12", paymentNumber: 12 });
+  assert.equal(m12.ok, true, "payment 12 should be inside the default 12-month policy");
+
+  const m13 = await ledger.accrue({ ...base, orderId: "sub-13", paymentNumber: 13 });
+  assert.equal(m13.ok, false, "payment 13 earned a commission beyond the stated policy");
+  assert.match(m13.reason, /first 12 payments/);
+});
+
+test("clicks: a refresh is not a second click, and no raw address is stored", async () => {
+  const clicks = await import("../src/backend/referral-clicks.ts");
+  clicks.__resetClicks();
+  const at = "2026-08-20T12:00:00.000Z";
+  const one = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "203.0.113.9", ua: "Mozilla", nowISO: at });
+  assert.equal(one.recorded, true);
+  assert.equal(one.row.code, "ABC", "the code was not normalised, so it will never match a sale");
+
+  // Same visitor a minute later — a refresh, not a visit. Paying per click for
+  // this is paying for a page reload.
+  const dup = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "203.0.113.9", ua: "Mozilla", nowISO: "2026-08-20T12:01:00.000Z" });
+  assert.equal(dup.recorded, false);
+  assert.match(dup.reason, /refresh/i);
+
+  // A different visitor does count.
+  const other = await clicks.recordClick({ code: "abc", brandId: "b1", ip: "198.51.100.4", ua: "Mozilla", nowISO: at });
+  assert.equal(other.recorded, true);
+
+  // THE PRIVACY LINE. The visitor consented to nothing; a raw IP is personal
+  // data. Only a salted hash may exist anywhere in the record.
+  const rows = await clicks.listClicks("ABC");
+  const dump = JSON.stringify(rows);
+  assert.ok(!dump.includes("203.0.113.9"), "a raw IP address was stored");
+  assert.ok(!dump.includes("198.51.100.4"), "a raw IP address was stored");
+  assert.ok(!dump.includes("Mozilla"), "a raw user agent was stored");
+
+  // The salt is per-code AND per-day, so hashes cannot be joined into a trail.
+  const h1 = clicks.visitorHash({ code: "ABC", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-20" });
+  const h2 = clicks.visitorHash({ code: "ABC", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-21" });
+  const h3 = clicks.visitorHash({ code: "XYZ", ip: "1.1.1.1", ua: "x", dayISO: "2026-08-20" });
+  assert.notEqual(h1, h2, "the same visitor is traceable across days");
+  assert.notEqual(h1, h3, "the same visitor is traceable across codes");
+
+  // A full referring URL can carry a session token — host only.
+  assert.equal(clicks.refererHostOf("https://www.instagram.com/p/abc?session=SECRET"), "instagram.com");
+});
+
+// ---------------------------------------------------------------------------
+// TWO REPORTED DEFECTS: blog views stuck at zero, SEO scores blank.
+//
+// Both were the same shape — a read path that knew something and a write path
+// that did not. The evergreen articles render because `getPost` falls back to
+// `evergreen()`; `incrementViews` had no such fallback, so it returned 0 for
+// every one of them. The site audit deep-crawls when given a URL; the screen
+// never sent one, so every dimension honestly answered "not measured" and the
+// whole score read as broken.
+// ---------------------------------------------------------------------------
+
+test("blog: an evergreen article actually counts views", async () => {
+  const store = await import("../src/backend/blog-store.ts");
+  const slugs = store.evergreenSlugs();
+  assert.ok(slugs.length >= 5, "the evergreen cluster has shrunk");
+
+  const slug = slugs[0];
+  // It renders — the read path always knew about these.
+  const post = await store.getPost(slug);
+  assert.ok(post, "an evergreen article no longer resolves");
+  assert.equal(post.views, 0, "the evergreen definition should start at zero");
+
+  // THE DEFECT: this returned 0 forever, because no row existed to increment.
+  const first = await store.incrementViews(slug);
+  assert.equal(first, 1, "counting a view on an evergreen article returned 0 — every article showed 0 views forever");
+  assert.equal(await store.incrementViews(slug), 2, "the second view did not accumulate");
+
+  // And the count must survive a read, not live only inside the counter.
+  const after = await store.getPost(slug);
+  assert.equal(after.views, 2, "the view count was not persisted, so the page renders 0 again on reload");
+
+  // An unknown slug still counts nothing rather than inventing a row.
+  assert.equal(await store.incrementViews("no-such-article-anywhere"), 0);
+});
+
+test("site audit: the screen sends the URL it already has", () => {
+  const ui = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  const code = codeOf(ui);
+
+  // The route deep-crawls only when given a url. Without one every dimension
+  // returns null and the customer sees a blank score — a correct refusal for
+  // the wrong reason, which reads exactly like a broken feature.
+  assert.match(code, /action: "audit", site, url: website/,
+    "the audit is requested without a url, so nothing is ever crawled and every score is null");
+  assert.match(code, /action: "attack", site, url: website/,
+    "the attack map is requested without a url — same failure, same blank result");
+});
+
+test("site audit: a dimension is a measurement or a stated refusal, never a hash", () => {
+  const src = readFileSync(new URL("../src/backend/siteraid.ts", import.meta.url), "utf8");
+  const code = codeOf(src);
+  // The old `sscore` hash produced stable, plausible, entirely invented numbers.
+  // It must not come back — this is the defect STATE.md records as the
+  // fabricated-numbers landmine.
+  assert.ok(!/function sscore/.test(code), "the hash-based score generator is back in siteraid");
+  assert.match(src, /score: number \| null/, "a dimension can no longer report that it measured nothing");
+
+  // And the evidence is what makes a score possible at all.
+  const route = codeOf(readFileSync(new URL("../src/app/api/siteraid/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /instantAudit\(site!, \{ audit: deep\.audit, extraction: deep\.extraction \}\)/,
+    "the route no longer passes the crawl to the audit, so nothing can be measured");
+});

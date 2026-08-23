@@ -238,9 +238,13 @@ export default function WebsiteIntelPage() {
         authedFetch("/api/siteraid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
       const [ingestion, audit, dna, attack, truth] = await Promise.all([
         post({ action: "authorise", authorisation }),
-        post({ action: "audit", site, brandId: activeBrand?.id }),
+        // THE URL, WHICH WAS NEVER SENT. The route deep-crawls when it is given
+        // one and can only answer "not measured" when it is not — so every
+        // dimension came back null and the whole score read as broken. The
+        // refusal was correct; it was refusing because nothing had been fetched.
+        post({ action: "audit", site, url: website, brandId: activeBrand?.id }),
         post({ action: "dna", site }),
-        post({ action: "attack", site, brandId: activeBrand?.id }),
+        post({ action: "attack", site, url: website, brandId: activeBrand?.id }),
         post({ action: "truth", claims }),
       ]);
       if (audit?.error) throw new Error(audit.error);
