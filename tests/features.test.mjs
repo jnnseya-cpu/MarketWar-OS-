@@ -20583,3 +20583,30 @@ test("the recorder covers its own preview when it is filming the whole screen", 
   assert.doesNotMatch(code, /CAMERA_BLOCKED_HELP/, "the one-size-fits-all camera message is back");
   assert.match(code, /cameraFailure\(camErrName\)/, "the browser's error name is not used to pick the advice");
 });
+
+test("the work library never claims storage it has not confirmed", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/dashboard/library/page.tsx", import.meta.url), "utf8"));
+
+  // THE DEFECT. `d.durable !== false` reads a MISSING field as a promise: a 401,
+  // an error body, or any response without the flag left `undefined !== false`
+  // — true — so the page claimed durable storage precisely when it had failed to
+  // find out. The deployment has no Firebase Admin, nothing can be saved, and
+  // the warning that says so never appeared once.
+  assert.doesNotMatch(src, /durable\s*!==\s*false/,
+    "an absent durable flag is read as a promise again");
+  assert.match(src, /setDurable\(d\.durable === true\)/,
+    "storage is claimed on anything other than the server actually saying yes");
+
+  // A failed check is not a working store.
+  assert.match(src, /catch \{[\s\S]{0,200}?setDurable\(false\)/,
+    "a failed durability check leaves the page claiming the work is safe");
+
+  // Unknown is a third state: it must not accuse a working store before looking.
+  assert.match(src, /useState<boolean \| null>\(null\)/, "durability starts as a claim rather than as unknown");
+  assert.match(src, /durable === false && \(/, "the warning fires on unknown as well as on a definite no");
+
+  // And the page must stop promising what it cannot do. This is the sentence the
+  // owner read while the library sat permanently empty.
+  assert.match(src, /durable === false[\s\S]{0,200}?no durable store connected/,
+    "the header still promises automatic saving on a deployment that cannot save");
+});

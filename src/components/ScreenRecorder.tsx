@@ -401,8 +401,9 @@ export default function ScreenRecorder() {
         // file is unaffected either way — the recording canvas is what is
         // written — so hiding the on-screen copy costs nothing and removes the
         // cause.
+        // The card over the preview says this. Saying it again underneath, in
+        // different words, reads as two different problems.
         setHidePreview(true);
-        setNote("Recording the whole screen. The preview is hidden while you do, because showing it here would film itself — that is the hall of mirrors. Your recording is fine; press Stop when you are done. To see yourself while presenting, choose a single window or tab instead of the whole screen.");
       }
     } catch (e) {
       const msg = (e as Error).name === "NotAllowedError"
@@ -588,7 +589,10 @@ export default function ScreenRecorder() {
             <MonitorPlay className="h-6 w-6 text-emerald-400" />
             <p className="text-sm font-semibold text-white">Recording the whole screen</p>
             <p className="max-w-sm text-[11px] leading-relaxed text-slate-400">
-              The preview is hidden so it cannot film itself. Your recording is running normally — the timer above is live.
+              The preview is hidden so it cannot film itself — that is what causes the hall of mirrors. Your recording is running normally; press Stop when you are done.
+            </p>
+            <p className="max-w-sm text-[11px] leading-relaxed text-slate-500">
+              Want to watch yourself while you present? Choose a single window or tab instead of the whole screen.
             </p>
           </div>
         )}
