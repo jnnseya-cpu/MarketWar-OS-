@@ -19,10 +19,15 @@ import { Pill } from "@/components/ui";
 import { classifyMediaUrl } from "@/shared/media-url";
 
 type Kind = "trim" | "clips" | "captions_burn" | "brand" | "broll" | "bg_remove" | "upscale";
+// What a job looks like ON THE WIRE, which is not the same thing as what the
+// server's own VideoJob type declares. Everything below `status` is marked
+// optional because this arrives as `await res.json()` — typed `any` — and a
+// document written by an older version of the queue genuinely lacks some of it.
+// Declaring the fields as always-present is what let `outputUrls.map()` ship.
 type Job = {
   id: string; kind: Kind; status: "queued" | "running" | "done" | "failed";
-  outputUrls: string[]; chargedAcu: number; attempts: number; error?: string;
-  createdAt: string; progress?: number;
+  outputUrls?: string[]; chargedAcu?: number; attempts?: number; error?: string;
+  createdAt?: string; progress?: number;
 };
 
 const KINDS: { key: Kind; label: string; blurb: string }[] = [
@@ -353,30 +358,40 @@ export default function RenderFarm({
         <div className="mt-6">
           <h3 className="mb-2 font-display text-sm font-bold text-white">Your renders</h3>
           <div className="space-y-2">
-            {jobs.map((j) => (
+            {jobs.map((j) => {
+              // Read once, and never map the wire's array directly. `outputUrls`
+              // is declared as always present, but the declaration is a claim
+              // about a JSON response nobody checked — and a job written by an
+              // older version of the queue has no such field. Mapping it took
+              // this whole page down on load with "Cannot read properties of
+              // undefined (reading 'map')". The store now fills it in too; this
+              // is the half that does not depend on the server being right.
+              const urls = Array.isArray(j.outputUrls) ? j.outputUrls : [];
+              return (
               <div key={j.id} className="card flex flex-wrap items-center justify-between gap-3 p-3">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-white">
                     {KINDS.find((k) => k.key === j.kind)?.label ?? j.kind}
-                    <span className="ml-2 font-normal text-slate-500">{new Date(j.createdAt).toLocaleString()}</span>
+                    {j.createdAt && <span className="ml-2 font-normal text-slate-500">{new Date(j.createdAt).toLocaleString()}</span>}
                   </p>
                   <p className="mt-0.5 text-[11px] text-slate-500">
                     {j.status === "queued" && "Waiting for a worker…"}
-                    {j.status === "running" && `Rendering… ${j.progress ?? 0}%${j.attempts > 1 ? ` (attempt ${j.attempts})` : ""}`}
-                    {j.status === "done" && `${j.outputUrls.length} file${j.outputUrls.length === 1 ? "" : "s"} ready`}
-                    {j.status === "failed" && `Failed — ${j.error || "render error"}. ${j.chargedAcu} ACUs refunded.`}
+                    {j.status === "running" && `Rendering… ${j.progress ?? 0}%${(j.attempts ?? 0) > 1 ? ` (attempt ${j.attempts})` : ""}`}
+                    {j.status === "done" && `${urls.length} file${urls.length === 1 ? "" : "s"} ready`}
+                    {j.status === "failed" && `Failed — ${j.error || "render error"}. ${j.chargedAcu ?? 0} ACUs refunded.`}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {j.status === "failed" ? <Pill tone="bad">refunded</Pill> : <Pill tone={j.status === "done" ? "good" : "info"}>{j.status}</Pill>}
-                  {j.outputUrls.map((u, i) => (
+                  {urls.map((u, i) => (
                     <a key={u} className="btn-ghost text-xs" href={u} target="_blank" rel="noreferrer" download>
-                      <Download className="h-3.5 w-3.5" /> {j.outputUrls.length > 1 ? `Clip ${i + 1}` : "Download"}
+                      <Download className="h-3.5 w-3.5" /> {urls.length > 1 ? `Clip ${i + 1}` : "Download"}
                     </a>
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

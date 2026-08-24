@@ -357,10 +357,57 @@ export async function advanceBrandCloudJobs(brandId: string): Promise<void> {
   await Promise.all(live.map((j) => advanceCloudJob(j).catch(() => j)));
 }
 
+/**
+ * A stored document is not a VideoJob until something has checked it.
+ *
+ * `d.data() as VideoJob` was a CAST, not a check: it told TypeScript the shape
+ * was guaranteed while guaranteeing nothing. A job written by an earlier version
+ * of this file has no `outputUrls`, and the render farm maps that array for
+ * every row it draws — so one old document took `/dashboard/video` down on load
+ * with "Cannot read properties of undefined (reading 'map')". The same cast made
+ * the sort below a second crash waiting behind the first, since a missing
+ * `createdAt` has no `.localeCompare`.
+ *
+ * Only genuinely empty values are filled in. An absent `outputUrls` means "no
+ * files recorded", which is what `[]` says — nothing is invented. A document
+ * missing its identity or its state is NOT quietly given one: there is no
+ * truthful way to draw a job whose kind and status are unknown, so it is left
+ * out rather than displayed as a guess.
+ */
+export function jobFromStored(data: unknown): VideoJob | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Partial<VideoJob>;
+  if (typeof d.id !== "string" || !d.id) return null;
+  if (typeof d.brandId !== "string" || !d.brandId) return null;
+  if (typeof d.kind !== "string" || !KIND_SET.has(d.kind)) return null;
+  if (typeof d.status !== "string" || !STATUS_SET.has(d.status)) return null;
+
+  const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  return {
+    ...d,
+    id: d.id,
+    brandId: d.brandId,
+    kind: d.kind,
+    status: d.status,
+    sourceUrl: typeof d.sourceUrl === "string" ? d.sourceUrl : "",
+    params: d.params && typeof d.params === "object" ? d.params : {},
+    outputUrls: Array.isArray(d.outputUrls) ? d.outputUrls.filter((u): u is string => typeof u === "string") : [],
+    chargedAcu: num(d.chargedAcu, 0),
+    attempts: num(d.attempts, 0),
+    createdAt: typeof d.createdAt === "string" ? d.createdAt : "",
+  };
+}
+
+const KIND_SET = new Set<string>(["trim", "clips", "captions_burn", "brand", "broll", "bg_remove", "upscale"]);
+const STATUS_SET = new Set<string>(["queued", "running", "done", "failed"]);
+
+/** Newest first, and it cannot throw on a document with no timestamp. */
+const byNewest = (a: VideoJob, b: VideoJob) => (b.createdAt || "").localeCompare(a.createdAt || "");
+
 export async function getVideoJob(id: string): Promise<VideoJob | null> {
   if (useDb()) {
     const s = await adminDb!.collection(COLLECTION).doc(id).get();
-    return s.exists ? (s.data() as VideoJob) : null;
+    return s.exists ? jobFromStored(s.data()) : null;
   }
   return mem.get(id) ?? null;
 }
@@ -368,9 +415,12 @@ export async function getVideoJob(id: string): Promise<VideoJob | null> {
 export async function listVideoJobs(brandId: string, limit = 50): Promise<VideoJob[]> {
   if (useDb()) {
     const snap = await adminDb!.collection(COLLECTION).where("brandId", "==", brandId).limit(limit).get();
-    return snap.docs.map((d) => d.data() as VideoJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return snap.docs
+      .map((d) => jobFromStored(d.data()))
+      .filter((j): j is VideoJob => j !== null)
+      .sort(byNewest);
   }
-  return [...mem.values()].filter((j) => j.brandId === brandId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  return [...mem.values()].filter((j) => j.brandId === brandId).sort(byNewest).slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------

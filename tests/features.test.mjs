@@ -20384,3 +20384,59 @@ test("the public header does not tell a signed-in owner to log in", () => {
       `${f} still links straight to /login without checking whether anyone is signed in`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// /dashboard/video, THE SECOND CRASH. "Cannot read properties of undefined
+// (reading 'map')" — ref 3b53cbcc73. Same shape as the 'join' crash before it:
+// a type that promised a field nothing had checked.
+// ---------------------------------------------------------------------------
+
+test("a stored render job is checked, not cast, before anything renders it", async () => {
+  const { jobFromStored } = await import("../src/backend/video-jobs.ts");
+
+  // THE DOCUMENT THAT TOOK THE PAGE DOWN. Written by an earlier version of the
+  // queue, before `outputUrls: []` was set at creation. `d.data() as VideoJob`
+  // told TypeScript it was a job; the render farm then mapped `outputUrls` for
+  // every row it drew, and the whole page died on load.
+  const old = { id: "j1", brandId: "b1", kind: "trim", status: "queued", createdAt: "2026-01-01T00:00:00Z" };
+  const job = jobFromStored(old);
+  assert.ok(job, "a job with no outputUrls was thrown away rather than repaired");
+  assert.deepEqual(job.outputUrls, [], "outputUrls is still undefined — .map() on it is the reported crash");
+  assert.equal(job.chargedAcu, 0);
+  assert.equal(job.attempts, 0);
+  assert.deepEqual(job.params, {});
+
+  // An absent array means "nothing recorded", which is what [] says. Nothing
+  // else may be invented: a document with no kind or no status cannot be drawn
+  // truthfully, so it is left out rather than given a plausible default.
+  assert.equal(jobFromStored({ id: "j2", brandId: "b1", status: "queued" }), null, "a job with no kind was given one");
+  assert.equal(jobFromStored({ id: "j3", brandId: "b1", kind: "trim" }), null, "a job with no status was given one");
+  assert.equal(jobFromStored({ id: "j4", brandId: "b1", kind: "not-a-kind", status: "queued" }), null, "an unknown kind was accepted");
+  assert.equal(jobFromStored({ brandId: "b1", kind: "trim", status: "queued" }), null, "a job with no id was accepted");
+  assert.equal(jobFromStored(null), null);
+  assert.equal(jobFromStored("nonsense"), null);
+
+  // Real values survive untouched — the repair must not overwrite what is there.
+  const done = jobFromStored({
+    id: "j5", brandId: "b1", kind: "clips", status: "done", createdAt: "2026-02-02T00:00:00Z",
+    outputUrls: ["https://x/1.mp4", 7, "https://x/2.mp4"], chargedAcu: 12, attempts: 2,
+  });
+  assert.deepEqual(done.outputUrls, ["https://x/1.mp4", "https://x/2.mp4"], "a non-string url was rendered as a link");
+  assert.equal(done.chargedAcu, 12);
+  assert.equal(done.attempts, 2);
+});
+
+test("the render farm never maps a list it has not checked", () => {
+  const src = readFileSync(new URL("../src/components/RenderFarm.tsx", import.meta.url), "utf8");
+
+  // The proximate crash, guarded on the client too. The store now repairs the
+  // document, but the client is reading `await res.json()` — typed `any` — and
+  // must not depend on the server having been right.
+  assert.doesNotMatch(codeOf(src), /j\.outputUrls\.map\(/,
+    "the wire's array is mapped directly again — this is the /dashboard/video crash");
+  assert.match(codeOf(src), /Array\.isArray\(j\.outputUrls\)/,
+    "outputUrls is used without checking it is an array");
+  // And the type must not re-assert the guarantee that failed.
+  assert.match(codeOf(src), /outputUrls\?: string\[\]/,
+    "the client type claims outputUrls is always present again");
+});
