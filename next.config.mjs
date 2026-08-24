@@ -33,7 +33,19 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // camera=(self), NOT camera=().
+  //
+  // An empty allowlist denies the feature to EVERY origin — including this one.
+  // So the Screen & Presentation Recorder's camera and microphone were refused
+  // by the browser before any permission dialog could appear, and getUserMedia
+  // rejected with NotAllowedError no matter what the person set in Edge or in
+  // Windows. Every word of help this platform printed about padlock icons and
+  // privacy settings was advice about a cause that did not exist: the site was
+  // blocking itself, and had been since the header was written.
+  //
+  // `self` is the narrow form — this origin only, still denied to every iframe
+  // and third party. geolocation stays fully off: nothing here asks for it.
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
   { key: "X-DNS-Prefetch-Control", value: "on" },
   { key: "Content-Security-Policy", value: csp },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },

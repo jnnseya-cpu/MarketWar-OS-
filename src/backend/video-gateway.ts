@@ -92,8 +92,14 @@ type StartResult = { ref: string } | { error: string };
 // Try the configured model first, then a chain of currently-valid ids, and use
 // the first the key accepts. The last known-good id is remembered so we don't
 // re-probe 404s on every render.
+// FAST FIRST — this order is a pricing decision, not a preference.
+//
+// Veo 3 Fast is published at $0.15/s against Veo 3's $0.40/s. Asking for the
+// flagship first made every social clip cost the customer nearly three times
+// what it needed to. The rest of the chain is unchanged, so a key without Fast
+// access still renders on whatever it does have.
 const VEO_CANDIDATES = [
-  "veo-3.0-generate-001", "veo-3.1-generate-preview", "veo-3.0-fast-generate-001",
+  "veo-3.0-fast-generate-001", "veo-3.0-generate-001", "veo-3.1-generate-preview",
   "veo-2.0-generate-001", "veo-3.0-generate-preview",
 ];
 let workingVeoModel: string | null = null;
@@ -143,20 +149,41 @@ export const DEFAULT_RENDER_SECONDS = 15;
 // reason the panel could not answer "what will this cost me?": there was no
 // answer to give.
 //
-// VIDEO_COST_PER_SECOND_GBP is the ONE number to update when the vendor's rate
-// is confirmed off an invoice; every price below moves with it, and the floor is
-// the same one every other action uses, so a wrong rate cannot quietly become a
-// loss. The default is deliberately on the HIGH side: over-estimating our cost
-// over-charges nobody — it only raises the floor — while under-estimating it
-// sells renders below cost.
-export const VIDEO_COST_PER_SECOND_GBP = Number(process.env.VIDEO_COST_PER_SECOND_GBP || 0.4);
+// THE FIRST ATTEMPT PRICED AN 8-SECOND CLIP AT 1,280 ACUs — £12.80 — and the
+// owner's answer was the right one: "not cheap and we will not be competitive."
+//
+// The mistake was not the margin. It was paying the most expensive rate on the
+// board and then multiplying it. Two things fixed it, and both are the levers
+// the pricing law actually names — win on a lower COST BASE, never by breaching
+// the floor:
+//
+//   1. ROUTE TO THE CHEAP MODEL. Published rates: Veo 3 is $0.40/s, Veo 3 FAST
+//      is $0.15/s, Sora 2 is about $0.10/s at 720p. The candidate order below
+//      now asks for Fast first. A social clip does not need the flagship, and
+//      the failover chain still reaches it.
+//   2. PRICE AT THE FLOOR, NOT THE STANDARD MARKUP. Most actions carry 4x. On
+//      an action whose provider cost is measured in pounds rather than pennies,
+//      4x prices us out of the market. 2x is the owner's hard floor — 100%
+//      margin, never lower — and it is what a big-ticket action is sold at.
+//
+// 8 seconds now costs the customer ~190 ACUs instead of 1,280, and every penny
+// of that is still at least double what the render cost us.
+//
+// VIDEO_COST_PER_SECOND_GBP is the ONE number to update when the rate is
+// confirmed off an invoice; every price moves with it and the floor is enforced
+// by test, so a wrong rate cannot quietly become a loss. The default is Veo 3
+// Fast's published $0.15/s converted to sterling.
+export const VIDEO_COST_PER_SECOND_GBP = Number(process.env.VIDEO_COST_PER_SECOND_GBP || 0.12);
+
+/** The markup video renders are sold at. The owner's hard floor, never below. */
+const VIDEO_MARKUP = 2;
 
 /** What a render of this many seconds costs the customer, in ACUs (1 ACU = 1p). */
 export function videoRenderAcus(seconds: number): number {
   const s = Math.max(1, Math.round(Number(seconds) || DEFAULT_SECONDS));
   const providerCostGbp = VIDEO_COST_PER_SECOND_GBP * s;
   return Math.max(
-    requiredAcus(providerCostGbp).requiredAcus,
+    requiredAcus(providerCostGbp, VIDEO_MARKUP).requiredAcus,
     minimumAcusFor({ providerCostGbp, persistsArtifact: true }).minAcus,
   );
 }
