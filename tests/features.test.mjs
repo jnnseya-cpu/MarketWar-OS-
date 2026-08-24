@@ -20440,3 +20440,82 @@ test("the render farm never maps a list it has not checked", () => {
   assert.match(codeOf(src), /outputUrls\?: string\[\]/,
     "the client type claims outputUrls is always present again");
 });
+
+// ---------------------------------------------------------------------------
+// AI VIDEO RENDER: priced, and the price is on the screen before the click.
+// ---------------------------------------------------------------------------
+
+test("a generated video is charged for, and never below the margin floor", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  // IT WAS NOT METERED AT ALL. Veo and Sora bill per generated second and the
+  // customer paid nothing — a straight breach of the pricing law, and the reason
+  // the panel could not answer "what will this cost me".
+  for (const s of [4, 8, 12, 15]) {
+    const acus = g.videoRenderAcus(s);
+    assert.ok(acus > 0, `${s}s of generated video is still free`);
+    // 1 ACU = 1p, so ACUs and pence compare directly. Price is never below 2x
+    // provider cost — the owner's floor, checked against the real number rather
+    // than a comment claiming it holds.
+    const providerPence = g.VIDEO_COST_PER_SECOND_GBP * s * 100;
+    assert.ok(acus >= providerPence * 2,
+      `${s}s costs ${providerPence}p and sells for ${acus} ACUs — under the 100% margin floor`);
+  }
+
+  // Longer costs more. A flat price would sell 15s at the price of 4s.
+  assert.ok(g.videoRenderAcus(12) > g.videoRenderAcus(4), "length does not affect the price");
+});
+
+test("the panel is quoted the length it will actually get, at that length's price", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  // Veo caps at 8s. Asking for 15 returns 8 — so the quote must be for 8, and
+  // must say so. Charging for 15 seconds of video nobody received is exactly
+  // what this platform exists not to do.
+  const veo = g.videoLengthOptions("veo");
+  const veo15 = veo.find((l) => l.requested === 15);
+  assert.equal(veo15.delivered, 8, "Veo is quoted a length it cannot produce");
+  assert.equal(veo15.acus, g.videoRenderAcus(8), "the customer is quoted for 15s of video Veo will not make");
+  assert.match(veo15.note, /caps at 8 seconds/, "the shortfall is not explained before the click");
+
+  // Sora's longest step is 12, and it accepts nothing between its steps.
+  const sora = g.videoLengthOptions("sora");
+  assert.equal(sora.find((l) => l.requested === 15).delivered, 12);
+  assert.equal(sora.find((l) => l.requested === 8).delivered, 8);
+  assert.equal(sora.find((l) => l.requested === 8).note, "", "an exact match still claims a shortfall");
+
+  // With no engine configured nothing renders, so nothing may be quoted.
+  for (const l of g.videoLengthOptions("demo")) {
+    assert.equal(l.acus, 0, "a deployment with no render engine still quotes a price");
+  }
+
+  // The default the panel opens on is offered.
+  assert.ok(g.OFFERED_SECONDS.includes(g.DEFAULT_RENDER_SECONDS), "the default length is not one of the options");
+});
+
+test("the render panel shows the cost, and never works it out itself", () => {
+  const src = codeOf(readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8"));
+
+  assert.match(src, /ACUs/, "the panel still asks the customer to commit without showing a price");
+  assert.match(src, /d\.lengths/, "the panel no longer reads the server's price list");
+  // A price computed in the browser is a second source of truth about money.
+  assert.doesNotMatch(src, /VIDEO_COST_PER_SECOND|acus\s*=\s*.*\*/, "the panel calculates a price of its own");
+  // The hard-coded option list is what went stale when the model limits moved.
+  assert.doesNotMatch(src, /<option value=\{12\}>/, "the length options are hard-coded again");
+});
+
+test("a blocked camera offers a way to carry on, not just an explanation", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8");
+
+  // Refusing the take is right: recording somebody who believes they are on
+  // camera, and is not, is the failure this component exists to prevent. But the
+  // only way forward was the browser's own permission UI — the very thing the
+  // person could not find — so the recorder was a dead end.
+  assert.match(codeOf(src), /withoutCamera/, "there is no way to record without the camera after a block");
+  assert.match(src, /Record the screen without me/, "the blocked state offers no button, only instructions");
+  assert.match(codeOf(src), /setCamBlocked\(true\)/, "a blocked camera is not remembered, so nothing can offer the way out");
+  // The compositor reads layoutRef, not state, so it must be corrected too or it
+  // draws a camera that was never acquired.
+  assert.match(codeOf(src), /layoutRef\.current = \{ \.\.\.layoutRef\.current, withCam: false \}/,
+    "the draw loop still believes the camera is on");
+});

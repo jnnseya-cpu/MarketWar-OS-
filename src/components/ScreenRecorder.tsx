@@ -83,6 +83,9 @@ export default function ScreenRecorder() {
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Set when the browser refused the camera, so the screen can offer the way
+  // forward instead of leaving the person in the browser's permission UI.
+  const [camBlocked, setCamBlocked] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [sizeKb, setSizeKb] = useState(0);
   const [starting, setStarting] = useState(false);
@@ -214,7 +217,22 @@ export default function ScreenRecorder() {
     rafRef.current = requestAnimationFrame(loop);
   }, [drawFrame]);
 
-  async function start() {
+  async function start(opts?: { withoutCamera?: boolean }) {
+    // A blocked camera used to be a dead end: the take was refused and the only
+    // way forward was the browser's own permission UI, which is exactly the
+    // thing the person could not find. Refusing is still right — recording a
+    // take somebody believes they are in, and is not, is the failure this
+    // component exists to prevent — but it must come with a way to carry on.
+    const useCam = opts?.withoutCamera ? false : withCam;
+    if (opts?.withoutCamera) {
+      setCamBlocked(false);
+      // The toggle has to agree, and layoutRef is written directly because its
+      // effect will not have run before the compositor's first frame — the draw
+      // loop reads layoutRef, not state, so a stale `true` there would have it
+      // compositing a camera that was never acquired.
+      setWithCam(false);
+      layoutRef.current = { ...layoutRef.current, withCam: false };
+    }
     setError(null); setNote(null);
     if (!supported) { setError("This browser can't capture the screen. Use a recent desktop Chrome, Edge or Firefox."); return; }
     setStarting(true);
@@ -241,7 +259,7 @@ export default function ScreenRecorder() {
       // recorded, and the take is never wasted.
       let camStream: MediaStream | null = null;
       let camDenied = false;
-      if (withCam) {
+      if (useCam) {
         try {
           camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
         } catch {
@@ -253,6 +271,7 @@ export default function ScreenRecorder() {
           // rewritten to prevent.
           setPhase("idle");
           setNote(CAMERA_BLOCKED_HELP);
+          setCamBlocked(true);
           return;
         }
       }
@@ -544,9 +563,23 @@ export default function ScreenRecorder() {
       {error && <p className="mt-3 flex items-center gap-1.5 text-sm text-rose-400"><AlertTriangle className="h-4 w-4" /> {error}</p>}
       {note && <p className="mt-3 flex items-center gap-1.5 text-sm text-amber-300"><AlertTriangle className="h-4 w-4" /> {note}</p>}
 
+      {/* The way out of a blocked camera, as a button rather than as homework.
+          The refusal above is correct — nobody should record a take believing
+          they are in it — but "go and change a browser setting" is not a next
+          step somebody can take while they are trying to record something. */}
+      {camBlocked && phase === "idle" && (
+        <button
+          type="button"
+          onClick={() => start({ withoutCamera: true })}
+          className="btn-primary mt-3 text-xs"
+        >
+          <VideoOff className="h-3.5 w-3.5" /> Record the screen without me
+        </button>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {phase !== "recording" ? (
-          <button type="button" onClick={start} disabled={starting} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60">
+          <button type="button" onClick={() => start()} disabled={starting} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60">
             {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleDot className="h-4 w-4" />} {phase === "stopped" ? "Record again" : "Start recording"}
           </button>
         ) : (

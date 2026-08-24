@@ -20,6 +20,9 @@ if (typeof window !== "undefined") {
 
 import { adminDb } from "@/backend/firebase-admin";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
+import { debitAcus, creditAcus } from "@/backend/wallet";
+import { requiredAcus } from "@/backend/subscription";
+import { minimumAcusFor } from "@/backend/unit-economics";
 
 export type VideoRenderStatus = "queued" | "rendering" | "ready" | "failed" | "demo";
 export type VideoProvider = "veo" | "sora" | "demo";
@@ -37,6 +40,8 @@ export type VideoJob = {
    *  carried so a 4-second clip can never again arrive without an explanation. */
   requestedSeconds?: number;
   seconds?: number;
+  /** ACUs actually taken for this render. 0 in demo, and 0 again after a refund. */
+  chargedAcu?: number;
   note: string;
 };
 
@@ -113,6 +118,73 @@ export const VEO_MAX_SECONDS = 8;
 export const VEO_MIN_SECONDS = 4;
 export const SORA_STEPS = [4, 8, 12];
 export const DEFAULT_SECONDS = 8;
+
+// The lengths offered on screen, in the order they are offered.
+export const OFFERED_SECONDS = [4, 8, 12, 15];
+
+// What the panel starts on. Owner's call: 15 seconds, because that is the
+// length a social ad is actually cut to.
+//
+// NO SINGLE CALL PRODUCES IT — Veo caps at 8 and Sora's longest step is 12 — so
+// this default is only defensible because the panel now prints, beside every
+// option and before the click, the length that provider will really return and
+// the ACUs it will really cost. Picking 15 is then an informed choice rather
+// than a promise the engine cannot keep. `DEFAULT_SECONDS` above is a different
+// thing and stays at 8: it is the fallback for an unparseable request, where
+// guessing long would spend the customer's money on a guess.
+export const DEFAULT_RENDER_SECONDS = 15;
+
+// ---------------------------------------------------------------------------
+// WHAT A GENERATED SECOND COSTS, AND THEREFORE WHAT IT SELLS FOR.
+//
+// This engine was not metered AT ALL. Veo and Sora bill us per second of
+// generated video, and the customer was charged nothing for it — a straight
+// breach of the pricing law (price is never below 2x provider cost), and the
+// reason the panel could not answer "what will this cost me?": there was no
+// answer to give.
+//
+// VIDEO_COST_PER_SECOND_GBP is the ONE number to update when the vendor's rate
+// is confirmed off an invoice; every price below moves with it, and the floor is
+// the same one every other action uses, so a wrong rate cannot quietly become a
+// loss. The default is deliberately on the HIGH side: over-estimating our cost
+// over-charges nobody — it only raises the floor — while under-estimating it
+// sells renders below cost.
+export const VIDEO_COST_PER_SECOND_GBP = Number(process.env.VIDEO_COST_PER_SECOND_GBP || 0.4);
+
+/** What a render of this many seconds costs the customer, in ACUs (1 ACU = 1p). */
+export function videoRenderAcus(seconds: number): number {
+  const s = Math.max(1, Math.round(Number(seconds) || DEFAULT_SECONDS));
+  const providerCostGbp = VIDEO_COST_PER_SECOND_GBP * s;
+  return Math.max(
+    requiredAcus(providerCostGbp).requiredAcus,
+    minimumAcusFor({ providerCostGbp, persistsArtifact: true }).minAcus,
+  );
+}
+
+/**
+ * The price list the panel shows, for the provider that will actually serve.
+ *
+ * The price is for what will be DELIVERED, not what was asked for: a request
+ * for 15 seconds comes back as 8 on Veo, and charging for 15 seconds of video
+ * nobody received is the kind of thing this platform exists not to do. Where
+ * they differ the caller gets both numbers and the reason.
+ */
+export function videoLengthOptions(provider?: VideoProvider): {
+  requested: number; delivered: number; acus: number; note: string;
+}[] {
+  const p = provider ?? chosenProvider();
+  return OFFERED_SECONDS.map((requested) => {
+    // With no provider configured nothing renders, so nothing is charged and
+    // the honest delivered length is the one asked for.
+    const delivered = p === "demo" ? requested : supportedSeconds(p, requested);
+    return {
+      requested,
+      delivered,
+      acus: p === "demo" ? 0 : videoRenderAcus(delivered),
+      note: p === "demo" ? "" : durationNote(p, requested, delivered),
+    };
+  });
+}
 
 /** What this provider will actually produce for a requested length. */
 export function supportedSeconds(provider: VideoProvider, requested: number): number {
@@ -305,6 +377,24 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
     return job;
   }
 
+  // PAID FOR BEFORE IT RUNS, AND ONLY FOR WHAT IT DELIVERS.
+  //
+  // The worst case in the chain is taken up front, because failover means we do
+  // not yet know which provider will serve or how long its clip will be — and
+  // starting a render we cannot bill is how an engine ends up given away. The
+  // difference is refunded the moment the real length is known, and the whole
+  // amount is refunded if every provider fails. Nobody is ever charged for a
+  // second of video they did not receive.
+  const worstCaseAcu = Math.max(...chain.map((p) => videoRenderAcus(supportedSeconds(p, requestedSeconds))));
+  const debit = await debitAcus(brandId, worstCaseAcu);
+  if (!debit.ok) {
+    const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
+      requestedSeconds, seconds: 0, chargedAcu: 0,
+      note: `Not enough ACUs — this render costs up to ${worstCaseAcu} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing. Nothing was rendered and nothing was taken.` };
+    await saveJob(job);
+    return job;
+  }
+
   const errors: string[] = [];
   for (const provider of chain) {
     const deliveredSeconds = supportedSeconds(provider, requestedSeconds);
@@ -312,14 +402,20 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
     if ("ref" in started) {
       const failedOver = errors.length > 0;
       const shortfall = durationNote(provider, requestedSeconds, deliveredSeconds);
+      // Charge for the clip that is actually being made, not the worst case.
+      const chargedAcu = videoRenderAcus(deliveredSeconds);
+      if (worstCaseAcu > chargedAcu) await creditAcus(brandId, worstCaseAcu - chargedAcu);
       const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
-        requestedSeconds, seconds: deliveredSeconds,
-        note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
+        requestedSeconds, seconds: deliveredSeconds, chargedAcu,
+        note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — ${chargedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
       await saveJob(job);
       return job;
     }
     errors.push(`${provider}: ${started.error}`);
   }
+
+  // Nothing started, so nothing is owed.
+  await creditAcus(brandId, worstCaseAcu);
 
   // Every configured provider failed — report each reason so it's debuggable.
   const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
@@ -362,6 +458,11 @@ export function videoGatewayStatus() {
     configured: videoGatewayConfigured(),
     provider: chosenProvider(),
     async: true,
+    // The price list, so the panel shows what a length costs BEFORE the click
+    // and never does the arithmetic itself — a price computed in the browser is
+    // a second source of truth about money.
+    lengths: videoLengthOptions(),
+    defaultSeconds: DEFAULT_RENDER_SECONDS,
     note: videoGatewayConfigured()
       ? "Live — renders via Veo/Sora, uploads the MP4 to Storage, and returns a hosted URL to attach to posts."
       : "Demo — the render pipeline, async job model and post-attach are wired; the render engine activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key.",
