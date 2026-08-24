@@ -404,34 +404,43 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
     return job;
   }
 
-  // PAID FOR BEFORE IT RUNS, AND ONLY FOR WHAT IT DELIVERS.
+  // THE QUOTE IS THE PRICE. Never more, whatever the failover does.
   //
-  // The worst case in the chain is taken up front, because failover means we do
-  // not yet know which provider will serve or how long its clip will be — and
-  // starting a render we cannot bill is how an engine ends up given away. The
-  // difference is refunded the moment the real length is known, and the whole
-  // amount is refunded if every provider fails. Nobody is ever charged for a
-  // second of video they did not receive.
-  const worstCaseAcu = Math.max(...chain.map((p) => videoRenderAcus(supportedSeconds(p, requestedSeconds))));
-  const debit = await debitAcus(brandId, worstCaseAcu);
+  // This used to debit the WORST case across the chain, on the reasoning that
+  // failover makes the serving provider unknown. The panel, meanwhile, quoted
+  // the chosen provider's price. With both keys set those are different numbers:
+  // Veo caps a 15s request at 8s (281 ACUs), Sora snaps it to 12s (420), so the
+  // screen said 281 and the wallet was asked for 420. A quote and a charge that
+  // disagree is the one thing a price on a button may never do.
+  //
+  // So the quote is computed once, from the provider that will actually be
+  // tried first, and it is both what is shown and what is taken. Failover can
+  // then only ever deliver LESS — every provider is capped to the length that
+  // was quoted for — and if it does, the difference is refunded. The customer
+  // cannot be surprised upward.
+  const quotedSeconds = supportedSeconds(chain[0], requestedSeconds);
+  const quotedAcu = videoRenderAcus(quotedSeconds);
+  const debit = await debitAcus(brandId, quotedAcu);
   if (!debit.ok) {
     const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
       requestedSeconds, seconds: 0, chargedAcu: 0,
-      note: `Not enough ACUs — this render costs up to ${worstCaseAcu} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing. Nothing was rendered and nothing was taken.` };
+      note: `Not enough ACUs — this render costs ${quotedAcu} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing. Nothing was rendered and nothing was taken.` };
     await saveJob(job);
     return job;
   }
 
   const errors: string[] = [];
   for (const provider of chain) {
-    const deliveredSeconds = supportedSeconds(provider, requestedSeconds);
+    // Capped at the quoted length: a failover provider that could give more must
+    // not, because more seconds is a bigger bill than the one on the button.
+    const deliveredSeconds = Math.min(supportedSeconds(provider, requestedSeconds), quotedSeconds);
     const started = provider === "veo" ? await veoStart(prompt, deliveredSeconds) : await soraStart(prompt, deliveredSeconds);
     if ("ref" in started) {
       const failedOver = errors.length > 0;
       const shortfall = durationNote(provider, requestedSeconds, deliveredSeconds);
-      // Charge for the clip that is actually being made, not the worst case.
-      const chargedAcu = videoRenderAcus(deliveredSeconds);
-      if (worstCaseAcu > chargedAcu) await creditAcus(brandId, worstCaseAcu - chargedAcu);
+      // Charge for the clip that is actually being made, never above the quote.
+      const chargedAcu = Math.min(videoRenderAcus(deliveredSeconds), quotedAcu);
+      if (quotedAcu > chargedAcu) await creditAcus(brandId, quotedAcu - chargedAcu);
       const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
         requestedSeconds, seconds: deliveredSeconds, chargedAcu,
         note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — ${chargedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
@@ -442,7 +451,7 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
   }
 
   // Nothing started, so nothing is owed.
-  await creditAcus(brandId, worstCaseAcu);
+  await creditAcus(brandId, quotedAcu);
 
   // Every configured provider failed — report each reason so it's debuggable.
   const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,

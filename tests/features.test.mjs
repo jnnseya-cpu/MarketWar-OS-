@@ -20610,3 +20610,36 @@ test("the work library never claims storage it has not confirmed", () => {
   assert.match(src, /durable === false[\s\S]{0,200}?no durable store connected/,
     "the header still promises automatic saving on a deployment that cannot save");
 });
+
+test("the video render charges exactly what the button quoted", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  // THE DEFECT. The panel quoted the chosen provider's price while the wallet
+  // was debited the WORST case across the failover chain. With both keys set
+  // those differ: Veo caps a 15s request at 8s, Sora snaps it to 12s — so the
+  // screen said 281 ACUs and the charge attempted 420, and the owner was
+  // refused for a number that appeared nowhere on the page.
+  const veo15 = g.videoLengthOptions("veo").find((l) => l.requested === 15);
+  const sora15 = g.videoLengthOptions("sora").find((l) => l.requested === 15);
+  assert.notEqual(veo15.acus, sora15.acus,
+    "the two providers now quote the same price — this test's premise is gone, check before deleting it");
+
+  const src = codeOf(readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8"));
+
+  // One number: quoted from the provider that is tried first, and taken.
+  assert.doesNotMatch(src, /worstCase/i, "the worst case across the chain is debited again");
+  assert.match(src, /const quotedSeconds = supportedSeconds\(chain\[0\], requestedSeconds\)/,
+    "the quote no longer comes from the provider that will actually be tried first");
+  assert.match(src, /debitAcus\(brandId, quotedAcu\)/, "something other than the quote is being charged");
+
+  // Failover may only ever deliver LESS. A provider that could give more seconds
+  // must not, because more seconds is a bigger bill than the one on the button.
+  assert.match(src, /Math\.min\(supportedSeconds\(provider, requestedSeconds\), quotedSeconds\)/,
+    "a failover provider can deliver more than was quoted, and charge for it");
+  assert.match(src, /Math\.min\(videoRenderAcus\(deliveredSeconds\), quotedAcu\)/,
+    "the charge can exceed the quote again");
+
+  // And the refusal must name the same number the button showed.
+  assert.match(src, /this render costs \$\{quotedAcu\} ACUs/,
+    "the not-enough-ACUs message quotes a number that appears nowhere on the page");
+});
