@@ -31,7 +31,10 @@ export default function LibraryPage() {
   const { activeBrand, ready } = useActiveBrand();
   const [items, setItems] = useState<WorkItem[]>([]);
   const [busy, setBusy] = useState(false);
-  const [durable, setDurable] = useState(true);
+  // null = not asked yet. Neither "yes" nor "no", because the page must not
+  // claim storage it has not confirmed and must not accuse a working store
+  // before it has looked.
+  const [durable, setDurable] = useState<boolean | null>(null);
   const [note, setNote] = useState("");
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -43,9 +46,23 @@ export default function LibraryPage() {
       const res = await authedFetch(`/api/work?brandId=${encodeURIComponent(brandId)}&limit=200`);
       const d = await res.json().catch(() => ({}));
       setItems(Array.isArray(d.items) ? d.items : []);
-      setDurable(d.durable !== false);
+      // `d.durable === true`, NOT `d.durable !== false`.
+      //
+      // The old form read a MISSING field as a promise: a 401, an error body or
+      // any response without the flag left `undefined !== false` — true — so the
+      // page claimed the work was being stored durably precisely when it had
+      // failed to find out. The deployment has no Firebase Admin, nothing can be
+      // saved, and the warning that says so never appeared.
+      //
+      // Storage is only claimed when the server has actually said yes.
+      setDurable(d.durable === true);
       setNote(typeof d.note === "string" ? d.note : "");
-    } catch { setItems([]); } finally { setBusy(false); }
+    } catch {
+      setItems([]);
+      // A failed check is not a working store.
+      setDurable(false);
+      setNote("");
+    } finally { setBusy(false); }
   }, []);
 
   useEffect(() => {
@@ -108,7 +125,9 @@ export default function LibraryPage() {
       <PageHeader
         kicker="Work Library"
         title="Everything the OS has made for you"
-        subtitle="Every plan, campaign and piece of copy is saved automatically the moment it is generated — per brand, searchable, and yours to export. Nothing you paid for disappears because you clicked away."
+        subtitle={durable === false
+          ? "Work is captured here as it is generated, but this deployment has no durable store connected — so it lasts only for the current session. Export anything you need to keep."
+          : "Every plan, campaign and piece of copy is saved automatically the moment it is generated — per brand, searchable, and yours to export. Nothing you paid for disappears because you clicked away."}
         actions={<Pill tone="info">{items.length} saved</Pill>}
       />
 
@@ -122,7 +141,7 @@ export default function LibraryPage() {
 
       {activeBrand && (
         <>
-          {!durable && (
+          {durable === false && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 text-xs text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>{note || "Durable storage is not configured on this deployment, so saved work lasts only for the current session. Export anything you need to keep."}</p>
@@ -148,7 +167,9 @@ export default function LibraryPage() {
               <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-sky-500/10 text-sky-400"><FileText className="h-5 w-5" /></span>
               <h2 className="mt-4 font-display text-lg font-bold text-white">Nothing saved yet for {activeBrand.name}</h2>
               <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-                Run any engine — Content Factory, Email Commander, Campaign Warfare — and the result lands here on its own. You do not have to remember to save.
+                {durable === false
+                  ? "Nothing can be stored on this deployment until a durable store is connected, so results will not appear here however many engines you run. Copy or export what you need from the panel that produced it."
+                  : "Run any engine — Content Factory, Email Commander, Campaign Warfare — and the result lands here on its own. You do not have to remember to save."}
               </p>
             </div>
           )}
