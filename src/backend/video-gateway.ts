@@ -21,6 +21,7 @@ if (typeof window !== "undefined") {
 import { adminDb } from "@/backend/firebase-admin";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 import { debitAcus, creditAcus } from "@/backend/wallet";
+import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
 
@@ -420,7 +421,9 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
   // cannot be surprised upward.
   const quotedSeconds = supportedSeconds(chain[0], requestedSeconds);
   const quotedAcu = videoRenderAcus(quotedSeconds);
-  const debit = await debitAcus(brandId, quotedAcu);
+  // The OWNING ACCOUNT's wallet, not the brand id — see walletIdForBrand.
+  const walletId = await walletIdForBrand(brandId);
+  const debit = await debitAcus(walletId, quotedAcu);
   if (!debit.ok) {
     const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
       requestedSeconds, seconds: 0, chargedAcu: 0,
@@ -440,7 +443,7 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
       const shortfall = durationNote(provider, requestedSeconds, deliveredSeconds);
       // Charge for the clip that is actually being made, never above the quote.
       const chargedAcu = Math.min(videoRenderAcus(deliveredSeconds), quotedAcu);
-      if (quotedAcu > chargedAcu) await creditAcus(brandId, quotedAcu - chargedAcu);
+      if (quotedAcu > chargedAcu) await creditAcus(walletId, quotedAcu - chargedAcu);
       const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
         requestedSeconds, seconds: deliveredSeconds, chargedAcu,
         note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — ${chargedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
@@ -451,7 +454,7 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
   }
 
   // Nothing started, so nothing is owed.
-  await creditAcus(brandId, quotedAcu);
+  await creditAcus(walletId, quotedAcu);
 
   // Every configured provider failed — report each reason so it's debuggable.
   const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,

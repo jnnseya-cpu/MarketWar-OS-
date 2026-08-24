@@ -1223,7 +1223,10 @@ test("the render guard runs before the debit, not after", async () => {
   const src = readFileSync("src/backend/video-jobs.ts", "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const guard = src.indexOf("canRenderKind(input.kind)");
-  const debit = src.indexOf("await debitAcus(input.brandId, cost)");
+  // The brand id no longer names the wallet — spending resolves the OWNING
+  // ACCOUNT first (walletIdForBrand). The property under test is unchanged: the
+  // guard must still come before the money moves.
+  const debit = src.indexOf("await debitAcus(walletId, cost)");
   assert.ok(guard > 0 && debit > 0, "both must exist");
   assert.ok(guard < debit, "the guard must come first");
 });

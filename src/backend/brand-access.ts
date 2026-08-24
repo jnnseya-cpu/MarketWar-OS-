@@ -130,3 +130,26 @@ export async function brandOwnerId(brandId: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * THE WALLET A CHARGE FOR THIS BRAND MUST HIT — the owning ACCOUNT, never the
+ * brand id.
+ *
+ * Money was being credited and debited under two different names. Stripe's
+ * webhook and the admin grant credit `orgId`, which IS the Firebase uid. But
+ * four spending paths — the video gateway, the render queue, the SEO autopilot
+ * and the scheduled trends sweep — called `debitAcus(brandId, …)`. A brand id is
+ * not an account id, so those debits read a wallet nobody had ever paid into: it
+ * returned 0 every time, for ever, however much the customer had bought. That is
+ * exactly what "980 ACUs available" beside "your balance is 0" was.
+ *
+ * It also contradicted the product's own rule — ONE account, ONE bill, many
+ * brands — by giving every brand a separate purse.
+ *
+ * The fallback to the brand id is deliberate and only reachable with no Firebase
+ * Admin, which is the same state in which metering is not enforced at all.
+ */
+export async function walletIdForBrand(brandId: string): Promise<string> {
+  const owner = await brandOwnerId(brandId);
+  return owner || (brandId || "").trim();
+}

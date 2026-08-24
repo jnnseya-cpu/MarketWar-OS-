@@ -23,6 +23,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { debitAcus, creditAcus } from "@/backend/wallet";
+import { walletIdForBrand } from "@/backend/brand-access";
 import { buildRecipe, RecipeError, hostedApiUnsupportedReason } from "@/backend/ffmpeg-recipes";
 import { ffmpegCloudConfigured, submitPass, getTranscode, getDownloadUrl, outputStillFetchable } from "@/backend/ffmpeg-cloud";
 import { uploadPublicMedia } from "@/backend/storage";
@@ -173,7 +174,9 @@ export async function enqueueVideoJob(input: {
   const runnable = canRenderKind(input.kind);
   if (!runnable.ok) return { ok: false, error: runnable.reason };
 
-  const debit = await debitAcus(input.brandId, cost);
+  // The owning ACCOUNT pays, not a purse named after the brand.
+  const walletId = await walletIdForBrand(input.brandId);
+  const debit = await debitAcus(walletId, cost);
   if (!debit.ok) {
     return { ok: false, balanceAcu: debit.balanceAcu, error: `Not enough ACUs — this render costs ${cost} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing.` };
   }
@@ -199,7 +202,7 @@ export async function enqueueVideoJob(input: {
     } else if (!workerConfigured()) {
       // Nothing else can run it — refund immediately rather than parking a paid
       // job in a queue no worker will ever read.
-      await creditAcus(input.brandId, cost);
+      await creditAcus(walletId, cost);
       return { ok: false, error: submitted.error, balanceAcu: debit.balanceAcu + cost };
     }
     // Otherwise fall through: the self-hosted worker will pick it up.
@@ -470,7 +473,7 @@ export async function claimNextJob(workerId: string): Promise<VideoJob | null> {
         tx.set(doc.ref, { ...next, workerId }, { merge: true });
         return { claimed: next };
       });
-      if (outcome?.retire && outcome.retire.chargedAcu > 0) await creditAcus(outcome.retire.brandId, outcome.retire.chargedAcu);
+      if (outcome?.retire && outcome.retire.chargedAcu > 0) await creditAcus(await walletIdForBrand(outcome.retire.brandId), outcome.retire.chargedAcu);
       if (outcome?.claimed) return outcome.claimed;
     }
   }
@@ -491,7 +494,7 @@ async function giveUp(job: VideoJob): Promise<void> {
   const patch = { status: "failed" as const, error: job.error || `Gave up after ${MAX_ATTEMPTS} attempts.`, finishedAt: nowIso() };
   if (useDb()) await adminDb!.collection(COLLECTION).doc(job.id).set(patch, { merge: true });
   else mem.set(job.id, { ...job, ...patch });
-  if (job.chargedAcu > 0) await creditAcus(job.brandId, job.chargedAcu);
+  if (job.chargedAcu > 0) await creditAcus(await walletIdForBrand(job.brandId), job.chargedAcu);
 }
 
 export async function reportProgress(id: string, progress: number): Promise<void> {
@@ -519,7 +522,7 @@ export async function failVideoJob(id: string, error: string): Promise<{ refunde
   else mem.set(id, { ...job, ...patch });
 
   if (!retriable && job.chargedAcu > 0) {
-    await creditAcus(job.brandId, job.chargedAcu);
+    await creditAcus(await walletIdForBrand(job.brandId), job.chargedAcu);
     return { refunded: job.chargedAcu };
   }
   return { refunded: 0 };
