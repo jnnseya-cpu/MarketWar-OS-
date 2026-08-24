@@ -20697,3 +20697,43 @@ test("a brand's spending comes out of the account's wallet, not a purse named af
       `${f} refunds to a wallet named after the brand — a refund must reach the wallet that was charged`);
   }
 });
+
+test("a stored approval is checked before the client portal renders it", async () => {
+  const { approvalFromStored } = await import("../src/backend/approvals.ts");
+
+  // Same cast, higher stakes than the render queue: `s.data() as ApprovalItem`
+  // guaranteed nothing, `decide()` does `[...item.history, event]` — which throws
+  // "not iterable" on a document written before history existed — and the client
+  // portal does `data.history.map(...)`, in front of the agency's own customer.
+  const old = { id: "ap_1", brandId: "b1", title: "Launch poster", state: "in_review" };
+  const item = approvalFromStored(old);
+  assert.ok(item, "a document with no history was thrown away rather than repaired");
+  assert.deepEqual(item.history, [], "history is still undefined — spreading it is the crash");
+  assert.equal(item.state, "in_review", "a real state was overwritten");
+  assert.equal(item.createdBy, "unknown");
+
+  // Nothing is invented beyond genuinely empty values.
+  assert.equal(approvalFromStored({ brandId: "b1" }), null, "an item with no id was accepted");
+  assert.equal(approvalFromStored({ id: "ap_2" }), null, "an item belonging to no brand was accepted");
+  assert.equal(approvalFromStored(null), null);
+  // An unknown state must not be honoured — it decides which actions are legal.
+  assert.equal(approvalFromStored({ id: "a", brandId: "b", state: "totally_approved" }).state, "draft",
+    "an unrecognised state was trusted, so the portal would offer the wrong actions");
+
+  // Real values survive.
+  const live = approvalFromStored({ id: "a", brandId: "b", state: "approved", title: "T", history: [{ action: "approve" }] });
+  assert.equal(live.state, "approved");
+  assert.equal(live.history.length, 1);
+});
+
+test("the approval states have a runtime list that cannot drift from the type", () => {
+  const shared = readFileSync(new URL("../src/shared/approvals.ts", import.meta.url), "utf8");
+  assert.match(shared, /export const APPROVAL_STATES/, "there is no runtime list to check a stored state against");
+  // Both directions, or the guard is decorative: the list may not hold a state
+  // the union lacks, and the union may not gain one the list is missing.
+  assert.match(shared, /readonly ApprovalState\[\] = APPROVAL_STATES/, "the list is not checked against the union");
+  assert.match(shared, /extends \[never\] \? true : false/, "a state added to the union could go missing from the list");
+
+  const store = readFileSync(new URL("../src/backend/approvals.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(codeOf(store), /data\(\) as ApprovalItem/, "a stored approval is cast without checking again");
+});

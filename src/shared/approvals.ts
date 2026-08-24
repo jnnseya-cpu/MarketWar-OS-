@@ -14,6 +14,22 @@ export type ApprovalState =
   | "rejected"
   | "published";
 
+/**
+ * The same states, at RUNTIME — needed to check a state that arrived from
+ * storage, where a union type guarantees nothing.
+ *
+ * The two assertions below make drift a compile error in BOTH directions: the
+ * list cannot hold a state the union does not have, and the union cannot gain a
+ * state the list does not list. A hand-kept copy that silently falls behind is
+ * how a stored "published" item would come back as a draft.
+ */
+export const APPROVAL_STATES = [
+  "draft", "in_review", "changes_requested", "approved", "rejected", "published",
+] as const;
+const _listHoldsOnlyRealStates: readonly ApprovalState[] = APPROVAL_STATES;
+const _listCoversEveryState: [Exclude<ApprovalState, (typeof APPROVAL_STATES)[number]>] extends [never] ? true : false = true;
+void _listHoldsOnlyRealStates; void _listCoversEveryState;
+
 export type ApprovalAction =
   | "submit"          // draft / changes_requested → in_review
   | "approve"         // in_review → approved
