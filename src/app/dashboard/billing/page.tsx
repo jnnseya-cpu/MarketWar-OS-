@@ -131,8 +131,20 @@ export default function BillingPage() {
   const allocation = currentPlan?.monthlyAcus ?? 980;
   const walletLive = Boolean(wallet?.live);
   const spent = walletLive ? (wallet?.lifetimeDebitedAcu ?? 0) : 0;
-  const topUpAcus = 0;
-  const balance = walletLive ? (wallet?.balanceAcu ?? 0) : allocation + topUpAcus - spent;
+
+  // THE BALANCE IS THE BALANCE, or it is not shown at all.
+  //
+  // This used to read `walletLive ? real : allocation` and print the plan's
+  // allocation under the words "of AI usage available". It is not available: the
+  // wallet that `debitAcus` actually reads had never been credited, so the page
+  // showed 980 ACUs while a render was refused for having 0. A number the
+  // spending engine disagrees with is not an estimate, it is a wrong number with
+  // a badge on it.
+  //
+  // null means "no wallet to report". The card then says so instead of modelling
+  // one, and the allocation is shown for what it is — an entitlement that
+  // becomes real ACUs when billing is connected.
+  const balance = walletLive ? (wallet?.balanceAcu ?? 0) : null;
 
   return (
     <div>
@@ -156,8 +168,17 @@ export default function BillingPage() {
           </div>
           <div className="flex items-end justify-between">
             <div>
-              <p className="font-display text-3xl font-bold text-white">{balance.toLocaleString("en-GB")}<span className="ml-1 text-sm font-normal text-slate-400">ACUs</span></p>
-              <p className="mt-1 text-xs text-slate-400">≈ {fmtGbp(balance / 100)} of AI usage available</p>
+              {balance === null ? (
+                <>
+                  <p className="font-display text-3xl font-bold text-slate-500">—<span className="ml-1 text-sm font-normal text-slate-500">ACUs</span></p>
+                  <p className="mt-1 max-w-xs text-xs text-amber-300/90">No wallet is credited on this deployment yet, so metered actions will be refused. The allocation beside this is what your plan grants once billing is connected.</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display text-3xl font-bold text-white">{balance.toLocaleString("en-GB")}<span className="ml-1 text-sm font-normal text-slate-400">ACUs</span></p>
+                  <p className="mt-1 text-xs text-slate-400">≈ {fmtGbp(balance / 100)} of AI usage available</p>
+                </>
+              )}
             </div>
             <button
               onClick={() => { document.getElementById("top-up")?.scrollIntoView({ behavior: "smooth" }); }}
@@ -165,14 +186,18 @@ export default function BillingPage() {
             ><Zap className="h-4 w-4" /> Top up</button>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-ink-800">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${allocation > 0 ? Math.max(2, Math.min(100, Math.round((balance / Math.max(balance, allocation)) * 100))) : 100}%` }} />
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: balance === null ? "0%" : `${allocation > 0 ? Math.max(2, Math.min(100, Math.round((balance / Math.max(balance, allocation)) * 100))) : 100}%` }} />
           </div>
           <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>{spent.toLocaleString("en-GB")} spent{walletLive ? " (lifetime)" : " this cycle"}</span><span>{walletLive ? "Live per-use metering active" : "Live per-use metering activates with billing"}</span></div>
         </div>
         <div className="card p-5 lg:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">This month&apos;s allocation</p>
           <p className="mt-1 font-display text-2xl font-bold text-emerald-400">{allocation.toLocaleString("en-GB")}</p>
-          <p className="text-xs text-slate-400">Your plan&apos;s automatic AI credit — auto-credited each cycle. Add ACUs any time without changing your plan.</p>
+          <p className="text-xs text-slate-400">
+            {walletLive
+              ? "Your plan\u2019s automatic AI credit — auto-credited each cycle. Add ACUs any time without changing your plan."
+              : "What your plan grants per cycle once billing is connected. It is not in the wallet yet, so it cannot be spent."}
+          </p>
         </div>
       </div>
 

@@ -20643,3 +20643,28 @@ test("the video render charges exactly what the button quoted", async () => {
   assert.match(src, /this render costs \$\{quotedAcu\} ACUs/,
     "the not-enough-ACUs message quotes a number that appears nowhere on the page");
 });
+
+test("the ACU wallet never shows a balance the spending engine disagrees with", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/dashboard/billing/page.tsx", import.meta.url), "utf8"));
+
+  // THE DEFECT, reported side by side by the owner: the wallet card said
+  // "980 ACUs · ≈ £9.80 of AI usage available" while a render was refused with
+  // "your balance is 0". The page fell back to the PLAN ALLOCATION whenever the
+  // wallet was not live and printed it as spendable money. debitAcus reads the
+  // real wallet, which had never been credited. A number the spending engine
+  // disagrees with is not an estimate — it is a wrong number wearing a badge.
+  assert.doesNotMatch(src, /balance\s*=\s*walletLive\s*\?[^;]*:\s*allocation/,
+    "the wallet models a balance out of the plan allocation again");
+  assert.match(src, /const balance = walletLive \? \(wallet\?\.balanceAcu \?\? 0\) : null;/,
+    "the balance is not read straight from the wallet, or has no unknown state");
+
+  // Unknown must render as unknown, not as a number.
+  assert.match(src, /balance === null \?/, "an uncredited wallet still prints a figure");
+  assert.match(src, /No wallet is credited on this deployment yet/,
+    "the card does not say why it cannot show a balance");
+  assert.match(src, /will be refused/, "it does not warn that metered actions will fail");
+
+  // And the allocation must stop being described as money already granted.
+  assert.match(src, /It is not in the wallet yet, so it cannot be spent/,
+    "the allocation is still presented as credit that has been applied");
+});
