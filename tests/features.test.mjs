@@ -8952,7 +8952,9 @@ test("the weekly trend sweep charges each brand and skips the ones it cannot", (
   const route = readFileSync(new URL("../src/app/api/trends/scheduled/route.ts", import.meta.url), "utf8");
   // Its own comment used to claim it spent nothing while calling a paid search API.
   assert.ok(!/SPENDS NO AI/.test(route));
-  assert.match(route, /debitAcus\(s\.brandId, ACTION_COST_ACU\.search \* SEARCHES_PER_BRAND\)/);
+  // Charged to the OWNING ACCOUNT's wallet, resolved from the brand — a brand id
+  // is not an account id, and debiting one read a wallet nobody had paid into.
+  assert.match(route, /debitAcus\(await walletIdForBrand\(s\.brandId\), ACTION_COST_ACU\.search \* SEARCHES_PER_BRAND\)/);
   assert.match(route, /skipped\.push\(\{ brandId: s\.brandId, why: `not enough ACUs/);
   // Charged before the crawl and the searches.
   assert.ok(route.indexOf("debitAcus") < route.indexOf("await deepCrawl("));
@@ -20630,7 +20632,7 @@ test("the video render charges exactly what the button quoted", async () => {
   assert.doesNotMatch(src, /worstCase/i, "the worst case across the chain is debited again");
   assert.match(src, /const quotedSeconds = supportedSeconds\(chain\[0\], requestedSeconds\)/,
     "the quote no longer comes from the provider that will actually be tried first");
-  assert.match(src, /debitAcus\(brandId, quotedAcu\)/, "something other than the quote is being charged");
+  assert.match(src, /debitAcus\(walletId, quotedAcu\)/, "something other than the quote is being charged");
 
   // Failover may only ever deliver LESS. A provider that could give more seconds
   // must not, because more seconds is a bigger bill than the one on the button.
@@ -20667,4 +20669,31 @@ test("the ACU wallet never shows a balance the spending engine disagrees with", 
   // And the allocation must stop being described as money already granted.
   assert.match(src, /It is not in the wallet yet, so it cannot be spent/,
     "the allocation is still presented as credit that has been applied");
+});
+
+test("a brand's spending comes out of the account's wallet, not a purse named after the brand", () => {
+  // THE DEFECT, and it was about money. Stripe's webhook and the admin grant
+  // credit `orgId`, which IS the Firebase uid. But four spending paths called
+  // `debitAcus(brandId, …)`. A brand id is not an account id, so those debits
+  // read a wallet nobody had ever paid into — 0 every time, for ever, however
+  // much the customer had bought. It also broke the product's own rule: one
+  // account, one bill, many brands.
+  const access = readFileSync(new URL("../src/backend/brand-access.ts", import.meta.url), "utf8");
+  assert.match(access, /export async function walletIdForBrand/,
+    "there is no single rule for which wallet a brand's charges hit");
+
+  for (const f of [
+    "../src/backend/video-gateway.ts",
+    "../src/backend/video-jobs.ts",
+    "../src/backend/seo-autopilot.ts",
+    "../src/app/api/trends/scheduled/route.ts",
+  ]) {
+    const src = codeOf(readFileSync(new URL(f, import.meta.url), "utf8"));
+    assert.match(src, /walletIdForBrand/, `${f} does not resolve the owning account before spending`);
+    // The brand id must never be handed to the ledger directly again.
+    assert.doesNotMatch(src, /debitAcus\((?:input\.)?(?:s\.)?brandId\b/,
+      `${f} debits a wallet named after the brand again`);
+    assert.doesNotMatch(src, /creditAcus\((?:input\.)?(?:job\.)?brandId\b/,
+      `${f} refunds to a wallet named after the brand — a refund must reach the wallet that was charged`);
+  }
 });

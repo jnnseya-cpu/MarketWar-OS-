@@ -3,6 +3,7 @@ import { listEnabled } from "@/backend/visibility-schedule";
 import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
 import { brandMarket } from "@/backend/brand-market";
+import { walletIdForBrand } from "@/backend/brand-access";
 import { debitAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { cronAuthorised } from "@/backend/guard";
 
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
 
       // Charged before the crawl and the searches, per brand. A scheduled run
       // must be able to refuse one brand and carry on with the rest.
-      const debit = await debitAcus(s.brandId, ACTION_COST_ACU.search * SEARCHES_PER_BRAND);
+      const debit = await debitAcus(await walletIdForBrand(s.brandId), ACTION_COST_ACU.search * SEARCHES_PER_BRAND);
       if (!debit.ok) {
         skipped.push({ brandId: s.brandId, why: `not enough ACUs for this week's trend sweep (needs ${ACTION_COST_ACU.search * SEARCHES_PER_BRAND}, balance ${debit.balanceAcu}) — top up and it resumes on the next run` });
         continue;

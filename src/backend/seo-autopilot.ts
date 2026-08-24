@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 // end up with a half-written post they paid for, or a post they didn't pay for.
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { walletIdForBrand } from "@/backend/brand-access";
 import { generateArticle } from "@/backend/blog-generator";
 import { brandLinkMenu } from "@/backend/blog-links";
 import { savePost, getPost, listPostsForBrand } from "@/backend/blog-store";
@@ -128,7 +129,8 @@ export async function runBrandSeoPost(input: {
   const topic = explicit || plan[existing.length % plan.length];
 
   // CHARGE FIRST. If the wallet can't cover it, generate nothing.
-  const debit = await debitAcus(input.brandId, ACU_PER_POST);
+  const spendWalletId = await walletIdForBrand(input.brandId);
+  const debit = await debitAcus(spendWalletId, ACU_PER_POST);
   if (!debit.ok) {
     return {
       ok: false, charged: 0, balanceAcu: debit.balanceAcu,
@@ -168,7 +170,7 @@ export async function runBrandSeoPost(input: {
     // Generation failed after the debit — refund, so a customer is never charged
     // for a post that does not exist.
     const { creditAcus } = await import("@/backend/wallet");
-    await creditAcus(input.brandId, ACU_PER_POST);
+    await creditAcus(spendWalletId, ACU_PER_POST);
     return { ok: false, charged: 0, error: `Generation failed — your ${ACU_PER_POST} ACUs were refunded. ${e instanceof Error ? e.message : ""}`.trim() };
   }
 }
