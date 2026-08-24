@@ -16990,7 +16990,11 @@ test("recorder: the camera is composited into the recorded stream, not just swit
   assert.match(src, /const \{ size: s, shape: sh, placement: p, withCam: cam \} = layoutRef\.current/);
 
   // A blocked camera is said out loud rather than discovered afterwards.
-  assert.match(src, /camDenied/, "a refused camera silently records screen-only");
+  // camErrName, not the old camDenied boolean: the browser's error NAME is now
+  // carried out of the catch so the advice can match the actual cause. The
+  // property guarded is unchanged — a refused camera must never quietly become
+  // a screen-only take.
+  assert.match(src, /camErrName/, "a refused camera silently records screen-only");
 });
 
 // ---------------------------------------------------------------------------
@@ -20193,7 +20197,7 @@ test("recorder: the camera is requested before the screen picker", () => {
     "the camera is still requested after the screen picker — a blocked camera is then discovered mid-take, with the recording already running");
 
   // And a block must ABORT rather than record a take the person is not in.
-  assert.match(code, /if \(camDenied\) \{[\s\S]{0,200}?setPhase\("idle"\)/,
+  assert.match(code, /if \(camErrName\) \{[\s\S]{0,240}?setPhase\("idle"\)/,
     "a blocked camera no longer stops the take, so it records the screen alone after the person asked to be on it");
 });
 
@@ -20202,11 +20206,15 @@ test("recorder: a blocked camera is told how to unblock it", () => {
   // "Allow the camera for this site" is not instructions. Chrome hides the
   // control behind an icon most people have never pressed, and once blocked it
   // never prompts again — so the old message left them stuck.
-  assert.match(src, /CAMERA_BLOCKED_HELP/, "there is no help text for a blocked camera");
-  assert.match(src, /address bar/i, "the help does not say where the control is");
-  assert.match(src, /reload/i, "the help omits the reload, without which the change does not take effect");
+  // The help moved to shared/camera-errors.ts, where it is chosen by the
+  // browser's error name rather than being one sentence for every cause. The
+  // guarantees below are unchanged; they are just checked where the text lives.
+  assert.match(src, /cameraFailure/, "there is no help text for a blocked camera");
+  const help = readFileSync(new URL("../src/shared/camera-errors.ts", import.meta.url), "utf8");
+  assert.match(help, /address bar/i, "the help does not say where the control is");
+  assert.match(help, /reload/i, "the help omits the reload, without which the change does not take effect");
   // And it must reassure that nothing was lost, because the fear is a wasted take.
-  assert.match(src, /your take is safe/i, "the help does not say whether the recording was lost");
+  assert.match(help, /your take is safe/i, "the help does not say whether the recording was lost");
 });
 
 test("recorder: recording a whole monitor warns about the mirror", () => {
@@ -20518,4 +20526,60 @@ test("a blocked camera offers a way to carry on, not just an explanation", () =>
   // draws a camera that was never acquired.
   assert.match(codeOf(src), /layoutRef\.current = \{ \.\.\.layoutRef\.current, withCam: false \}/,
     "the draw loop still believes the camera is on");
+});
+
+test("a camera that did not open is diagnosed, not guessed at", async () => {
+  const { cameraFailure } = await import("../src/shared/camera-errors.ts");
+
+  // THE REPORT THIS COMES FROM: the owner followed "your browser is blocking the
+  // camera", found the browser already set to Allow, and said "still not
+  // working" — because getUserMedia's error was caught and discarded, and one
+  // sentence was printed for all five causes.
+  const busy = cameraFailure("NotReadableError");
+  assert.match(busy.headline, /already using it/i, "a camera held by another app is still called a browser block");
+  assert.ok(busy.steps.some((s) => /Teams|Zoom/i.test(s)), "it does not name the apps that hold a camera");
+  assert.ok(busy.steps.some((s) => /shutter|camera key/i.test(s)), "it does not mention a laptop privacy shutter");
+  assert.doesNotMatch(busy.steps.join(" "), /padlock/i,
+    "a busy camera is still sent to the browser permission that is already correct");
+
+  // The permission case must cover the OS, not just the browser: a site set to
+  // Allow is still refused when Windows' own camera privacy switch is off, and
+  // that was never mentioned.
+  const denied = cameraFailure("NotAllowedError");
+  assert.match(denied.steps.join(" "), /Windows/i, "the OS-level camera privacy setting is never mentioned");
+  assert.match(denied.steps.join(" "), /padlock|address bar/i, "the browser permission step was lost");
+
+  assert.match(cameraFailure("NotFoundError").headline, /No camera/i);
+  assert.match(cameraFailure("OverconstrainedError").headline, /picture size/i);
+  assert.match(cameraFailure("AbortError").headline, /taken away/i);
+
+  // Every branch names the browser's own error code, so "still not working" can
+  // be answered with which one it was rather than another guess.
+  for (const n of ["NotAllowedError", "NotReadableError", "NotFoundError", "AbortError", "WeirdNewError", "", null]) {
+    const f = cameraFailure(n);
+    assert.ok(f.name, "the error name is dropped again, so a report cannot say which cause it hit");
+    assert.ok(f.steps.length > 0, `no steps offered for ${n}`);
+  }
+  // An unknown name must not be presented as a known cause.
+  assert.match(cameraFailure("SomethingNew").headline, /did not say why/i);
+});
+
+test("the recorder covers its own preview when it is filming the whole screen", () => {
+  const src = readFileSync(new URL("../src/components/ScreenRecorder.tsx", import.meta.url), "utf8");
+  const code = codeOf(src);
+
+  // The hall of mirrors is not a quirk of full-screen capture — it is this
+  // preview, drawn on the screen being captured, filming itself. The old code
+  // warned about it and left the recursion running.
+  assert.match(code, /setHidePreview\(true\)/, "capturing a monitor no longer hides the preview");
+  assert.match(code, /hidePreview &&/, "nothing covers the preview, so the mirror is only described");
+  // Opaque. A translucent cover lets the preview through and the mirror returns.
+  assert.match(code, /hidePreview[\s\S]{0,400}bg-ink-950/,
+    "the cover is not opaque, so the preview still films itself through it");
+  // And it must reset, or the next recording is blank for no reason.
+  assert.match(code, /setHidePreview\(false\)/, "the cover is never cleared, so the next take shows nothing");
+
+  // The single hard-coded blocked-camera sentence must not come back.
+  assert.doesNotMatch(code, /CAMERA_BLOCKED_HELP/, "the one-size-fits-all camera message is back");
+  assert.match(code, /cameraFailure\(camErrName\)/, "the browser's error name is not used to pick the advice");
 });

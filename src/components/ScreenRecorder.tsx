@@ -42,6 +42,7 @@ import {
   presenterRect, cornerPlacement, coverCrop, placementFromDrag, nearestCorner, captureSize, recordingTracks,
   SIZE_FRACTION, type PresenterSize, type PresenterShape, type Corner, type Placement,
 } from "@/shared/recorder-layout";
+import { cameraFailure, type CameraFailure } from "@/shared/camera-errors";
 
 type Phase = "idle" | "recording" | "stopped";
 
@@ -63,13 +64,11 @@ const CORNERS: { id: Corner; label: string }[] = [
   { id: "bottom-right", label: "Bottom right" },
 ];
 
-// What to actually DO about a blocked camera. "Allow the camera for this site"
-// is not instructions — Chrome hides the control behind an icon most people
-// have never pressed, and once blocked it never prompts again.
-const CAMERA_BLOCKED_HELP =
-  "Your browser is blocking the camera for this site, so nothing was recorded — your take is safe. " +
-  "To fix it: click the camera or padlock icon at the left of the address bar, set Camera to Allow, reload this page, then start again. " +
-  "Or turn \u201cShow me on screen\u201d off and record the screen alone.";
+// What to DO about a camera that did not open now lives in
+// shared/camera-errors.ts, keyed on the browser's own error name. The single
+// hard-coded sentence that used to sit here claimed "your browser is blocking
+// the camera" whatever had actually happened — correct for one cause out of
+// five, and useless advice for the other four.
 
 export default function ScreenRecorder() {
   const [supported, setSupported] = useState(true);
@@ -86,6 +85,10 @@ export default function ScreenRecorder() {
   // Set when the browser refused the camera, so the screen can offer the way
   // forward instead of leaving the person in the browser's permission UI.
   const [camBlocked, setCamBlocked] = useState(false);
+  const [camFailure_, setCamFailure] = useState<CameraFailure | null>(null);
+  // True while capturing a whole monitor. The preview is then covered, because
+  // a live preview of the screen, drawn ON that screen, is the hall of mirrors.
+  const [hidePreview, setHidePreview] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [sizeKb, setSizeKb] = useState(0);
   const [starting, setStarting] = useState(false);
@@ -224,6 +227,8 @@ export default function ScreenRecorder() {
     // take somebody believes they are in, and is not, is the failure this
     // component exists to prevent — but it must come with a way to carry on.
     const useCam = opts?.withoutCamera ? false : withCam;
+    setCamFailure(null);
+    setHidePreview(false);
     if (opts?.withoutCamera) {
       setCamBlocked(false);
       // The toggle has to agree, and layoutRef is written directly because its
@@ -258,19 +263,31 @@ export default function ScreenRecorder() {
       // Asking first means a block is discovered while nothing is being
       // recorded, and the take is never wasted.
       let camStream: MediaStream | null = null;
-      let camDenied = false;
+      let camErrName: string | null = null;
       if (useCam) {
         try {
           camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-        } catch {
-          camDenied = true;
+        } catch (e) {
+          // Retry bare, in case the size hints were the problem. `ideal` should
+          // never over-constrain, but some drivers offer exactly one mode and
+          // reject anything expressed at all.
+          try {
+            camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } catch (e2) {
+            // THE NAME IS THE WHOLE POINT. This used to be `catch { }` — the
+            // reason was thrown away and one sentence printed for all five
+            // causes, so somebody whose camera was simply held by Teams was sent
+            // to a browser permission that was already correct, and came back
+            // saying it still did not work.
+            camErrName = (e2 as DOMException)?.name || (e as DOMException)?.name || "Error";
+          }
         }
-        if (camDenied) {
+        if (camErrName) {
           // Stop BEFORE the screen picker. Recording a take the person is not in,
           // when they asked to be in it, is the failure this whole component was
           // rewritten to prevent.
           setPhase("idle");
-          setNote(CAMERA_BLOCKED_HELP);
+          setCamFailure(cameraFailure(camErrName));
           setCamBlocked(true);
           return;
         }
@@ -376,7 +393,16 @@ export default function ScreenRecorder() {
       // excludes this TAB from the picker but cannot exclude it from a whole
       // monitor. Said here rather than left to be discovered in playback.
       if ((settings as { displaySurface?: string }).displaySurface === "monitor") {
-        setNote("Recording the whole screen — including this window, which is why the preview looks like a hall of mirrors. To avoid it, stop and choose the single window or tab you are demonstrating instead.");
+        // COVER THE PREVIEW, do not just warn about it.
+        //
+        // The mirror is not a quirk of full-screen capture; it is this preview,
+        // drawn on the screen being captured, filmed by itself. Warning about it
+        // left the recursion running and put the explanation underneath it. The
+        // file is unaffected either way — the recording canvas is what is
+        // written — so hiding the on-screen copy costs nothing and removes the
+        // cause.
+        setHidePreview(true);
+        setNote("Recording the whole screen. The preview is hidden while you do, because showing it here would film itself — that is the hall of mirrors. Your recording is fine; press Stop when you are done. To see yourself while presenting, choose a single window or tab instead of the whole screen.");
       }
     } catch (e) {
       const msg = (e as Error).name === "NotAllowedError"
@@ -553,6 +579,19 @@ export default function ScreenRecorder() {
         {phase === "idle" && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-slate-600">Your screen appears here while recording</div>
         )}
+        {/* OPAQUE, and that is the point. A translucent cover would still let
+            the preview through to the screen capture and the mirror would come
+            back, fainter. The recording itself is untouched — this covers the
+            on-screen copy, not the canvas being written. */}
+        {phase === "recording" && hidePreview && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-ink-950 px-6 text-center">
+            <MonitorPlay className="h-6 w-6 text-emerald-400" />
+            <p className="text-sm font-semibold text-white">Recording the whole screen</p>
+            <p className="max-w-sm text-[11px] leading-relaxed text-slate-400">
+              The preview is hidden so it cannot film itself. Your recording is running normally — the timer above is live.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Off-screen sources for the compositor. Never shown: the canvas above is
@@ -562,6 +601,24 @@ export default function ScreenRecorder() {
 
       {error && <p className="mt-3 flex items-center gap-1.5 text-sm text-rose-400"><AlertTriangle className="h-4 w-4" /> {error}</p>}
       {note && <p className="mt-3 flex items-center gap-1.5 text-sm text-amber-300"><AlertTriangle className="h-4 w-4" /> {note}</p>}
+
+      {/* The real reason, and the steps that match it. One sentence covering all
+          five causes is what sent somebody to a browser permission that was
+          already correct. The error name is shown so a report of "still not
+          working" can say which one it was. */}
+      {camFailure_ && phase === "idle" && (
+        <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+          <p className="flex items-start gap-1.5 text-sm font-semibold text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {camFailure_.headline}
+          </p>
+          <ul className="mt-2 space-y-1 pl-6">
+            {camFailure_.steps.map((s) => (
+              <li key={s} className="list-disc text-[12px] leading-relaxed text-amber-100/80">{s}</li>
+            ))}
+          </ul>
+          <p className="mt-2 pl-6 text-[10px] uppercase tracking-wide text-slate-500">Reported by the browser as: {camFailure_.name}</p>
+        </div>
+      )}
 
       {/* The way out of a blocked camera, as a button rather than as homework.
           The refusal above is correct — nobody should record a take believing
