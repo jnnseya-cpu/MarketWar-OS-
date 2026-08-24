@@ -22,7 +22,10 @@ export default function VideoRenderAndPublish() {
   const [prompt, setPrompt] = useState("");
   // Asked for, rather than assumed. The renders came back at four seconds
   // because nothing in the chain ever named a length.
-  const [seconds, setSeconds] = useState(8);
+  const [seconds, setSeconds] = useState(15);
+  // The price list, from the server. The browser never computes a price: that
+  // would be a second source of truth about money, and the two would drift.
+  const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; note: string }[]>([]);
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [videoLive, setVideoLive] = useState<boolean | null>(null);
@@ -39,6 +42,20 @@ export default function VideoRenderAndPublish() {
     }).catch(() => {});
     return () => { on = false; };
   }, []);
+
+  // What each length will really deliver, and really cost, on the provider this
+  // deployment is actually configured with.
+  useEffect(() => {
+    let on = true;
+    fetch("/api/video-render").then((r) => r.json()).then((d) => {
+      if (!on || !Array.isArray(d?.lengths)) return;
+      setLengths(d.lengths);
+      if (typeof d.defaultSeconds === "number") setSeconds(d.defaultSeconds);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, []);
+
+  const chosen = lengths.find((l) => l.requested === seconds) || null;
 
   async function start() {
     if (!activeBrand || !prompt.trim()) return;
@@ -81,14 +98,31 @@ export default function VideoRenderAndPublish() {
       <textarea className="input min-h-[70px]" placeholder="e.g. 8-second vertical clip of the flame-grilled platter, steam rising, hands reaching in, warm cinematic lighting" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="label mb-0">Length</label>
-        <select className="input max-w-[150px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
-          <option value={4}>4 seconds</option>
-          <option value={8}>8 seconds</option>
-          <option value={12}>12 seconds (Sora only)</option>
+        {/* The price is on the option, so the choice is made with the cost in
+            view rather than discovered on the bill. Lengths come from the
+            server for the provider actually configured here — a hard-coded list
+            would go stale the day a model's limits change. */}
+        <select className="input max-w-[260px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
+          {(lengths.length ? lengths : [{ requested: 15, delivered: 15, acus: 0, note: "" }]).map((l) => (
+            <option key={l.requested} value={l.requested}>
+              {l.requested} seconds{l.acus ? ` — ${l.acus} ACUs` : ""}
+              {l.delivered !== l.requested ? ` (returns ${l.delivered}s)` : ""}
+            </option>
+          ))}
         </select>
-        <span className="text-[11px] text-slate-500">One call maxes at 8s on Veo and 12s on Sora — longer needs stitching.</span>
       </div>
-      <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />} Render video</button>
+      {chosen && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+          {chosen.acus > 0
+            ? `${chosen.acus} ACUs, charged when the render starts and refunded in full if it fails. You are charged for the ${chosen.delivered} seconds actually produced, never for the length requested.`
+            : "No render engine is configured on this deployment, so nothing renders and nothing is charged."}
+          {chosen.note ? ` ${chosen.note}` : ""}
+        </p>
+      )}
+      <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />}
+        Render video{chosen?.acus ? ` — ${chosen.acus} ACUs` : ""}
+      </button>
 
       {job && (
         <div className="mt-3">
