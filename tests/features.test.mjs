@@ -20737,3 +20737,72 @@ test("the approval states have a runtime list that cannot drift from the type", 
   const store = readFileSync(new URL("../src/backend/approvals.ts", import.meta.url), "utf8");
   assert.doesNotMatch(codeOf(store), /data\(\) as ApprovalItem/, "a stored approval is cast without checking again");
 });
+
+test("the cast checker actually catches a cast, rather than existing", async () => {
+  // DRIVEN, NOT GREPPED. This repository's second recurring defect is a check
+  // that passes for a reason unrelated to what it tests — greps that proved a
+  // thing existed and not that it was wired. So this runs the real checker
+  // against a real fixture tree and asserts on its exit code.
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "casts-"));
+  const src = join(dir, "src");
+  mkdirSync(src);
+  const base = join(dir, "base.json");
+  writeFileSync(base, JSON.stringify({ "data-cast": {}, "json-cast": {} }));
+
+  const run = () => {
+    try {
+      execFileSync("node", ["scripts/check-casts.mjs", `--root=${src}`, `--baseline=${base}`], { encoding: "utf8", stdio: "pipe" });
+      return { code: 0, out: "" };
+    } catch (e) {
+      return { code: e.status, out: `${e.stdout || ""}${e.stderr || ""}` };
+    }
+  };
+
+  // A clean tree passes.
+  writeFileSync(join(src, "clean.ts"), "const k = [1] as const;\nconst v = snap.data();\n");
+  assert.equal(run().code, 0, "the checker fails a tree with nothing wrong in it");
+
+  // A comment naming the pattern must NOT trip it — the exact trap this repo
+  // has fallen into before, on a check that scanned its own explanation.
+  writeFileSync(join(src, "comment.ts"), "// never write snap.data() as VideoJob\n/* d.data() as X */\nconst a = 1;\n");
+  assert.equal(run().code, 0, "a comment about the pattern is treated as the pattern");
+
+  // The stored-document cast that took /dashboard/video down.
+  writeFileSync(join(src, "bad.ts"), "const job = snap.data() as VideoJob;\n");
+  let r = run();
+  assert.equal(r.code, 1, "a new `.data() as` cast does not fail the build");
+  assert.match(r.out, /stored document cast/, "the failure does not say what is wrong");
+  assert.match(r.out, /jobFromStored/, "the failure does not point at the worked example");
+
+  // The wire cast that took the client portal down.
+  writeFileSync(join(src, "bad.ts"), "const d = (await res.json()) as PortalView;\n");
+  r = run();
+  assert.equal(r.code, 1, "a new `.json() as` cast does not fail the build");
+  assert.match(r.out, /HTTP response cast/);
+
+  // THE RATCHET. A baseline allowed to sit above the truth stops being a floor,
+  // so an improvement must fail until the floor is re-recorded.
+  writeFileSync(join(src, "bad.ts"), "const a = 1;\n");
+  writeFileSync(base, JSON.stringify({ "data-cast": { [`${src}/bad.ts`]: 3 }, "json-cast": {} }));
+  r = run();
+  assert.equal(r.code, 1, "the baseline may drift above the real count, which makes it meaningless");
+  assert.match(r.out, /--update/, "it does not say how to record the new floor");
+});
+
+test("the cast checker is wired into verify, and its baseline is honest", async () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.match(pkg.scripts.verify, /check:casts/, "the cast check is not part of verify, so nothing runs it");
+  assert.ok(pkg.scripts["check:casts"], "there is no way to run the cast check");
+
+  // The baseline must match the tree it claims to describe. If it does not, the
+  // checker itself says so — this asserts the committed state is clean.
+  // await import, not require — this file is ESM, and `require is not defined`
+  // is a mistake already made once in this suite.
+  const { execFileSync } = await import("node:child_process");
+  execFileSync("node", ["scripts/check-casts.mjs"], { stdio: "pipe" });
+});
