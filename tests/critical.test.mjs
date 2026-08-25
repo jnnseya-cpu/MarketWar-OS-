@@ -2465,3 +2465,46 @@ test("the webhook route answers 500 on a retriable failure, not 200", async () =
   const catchBlock = src.slice(src.indexOf("} catch (e) {"), src.indexOf("// Automatic revenue attribution"));
   assert.match(catchBlock, /status: 500/, "an exception in the wallet write must not be acknowledged as delivered");
 });
+
+// ---------------------------------------------------------------------------
+// The webhook host is derived, not typed.
+//
+// `MAIN_DOMAIN` was the literal "marketwaros.com" — the apex — while the
+// deployment serves www. Stripe does not follow redirects, so 246 events were
+// recorded against an endpoint that never reached the application. The literal
+// was then copied into five documents, each instructing the owner to configure
+// the one host that could not work.
+// ---------------------------------------------------------------------------
+test("the Stripe endpoint host comes from config or the request, never a bare guess", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sb = await import("../src/backend/stripe-billing.ts");
+
+  // Overridable, so nobody has to edit source to move a domain.
+  assert.match(readFileSync(new URL("../src/backend/stripe-billing.ts", import.meta.url), "utf8"), /process\.env\.MW_SITE_HOST/);
+
+  // A pasted value usually carries a scheme and a trailing slash, and a URL with
+  // two schemes in it fails silently rather than loudly.
+  assert.equal(sb.webhookEndpointUrl("https://example.com/"), "https://example.com/api/webhooks/stripe");
+  assert.equal(sb.webhookEndpointUrl("http://EXAMPLE.com"), "https://EXAMPLE.com/api/webhooks/stripe");
+  assert.equal(sb.webhookEndpointUrl(""), `https://${sb.MAIN_DOMAIN}/api/webhooks/stripe`);
+  assert.doesNotMatch(sb.webhookEndpointUrl("https://x.test"), /https:\/\/https/);
+
+  // The route that tells an operator what to configure must read its own host
+  // rather than print the constant that caused this.
+  const route = readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8");
+  assert.match(route, /webhookEndpointUrl\(req\.headers\.get\("host"\)/, "the GET must report the host it is actually served on");
+});
+
+test("no runbook still points Stripe at a host the code does not name", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sb = await import("../src/backend/stripe-billing.ts");
+  // REQUIREMENTS-COVERAGE is archaeology and is deliberately not edited in
+  // place, so it is excluded — §102 there records the correction instead.
+  for (const doc of ["DEPLOYMENT.md", "GO-LIVE.md", "LAUNCH-BLOCKERS.md", "LAUNCH-READINESS.md"]) {
+    const text = readFileSync(new URL(`../docs/${doc}`, import.meta.url), "utf8");
+    for (const url of text.match(/https:\/\/[a-z0-9.-]+\/api\/webhooks\/stripe/g) || []) {
+      const host = url.slice("https://".length).split("/")[0];
+      assert.equal(host, sb.MAIN_DOMAIN, `${doc} tells Stripe to post to ${host}, which is not the host the code serves (${sb.MAIN_DOMAIN})`);
+    }
+  }
+});

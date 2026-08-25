@@ -234,7 +234,16 @@ recipient, which means **SPF does not align and DKIM does** — DMARC passes on
 DKIM, by design. That is why the DKIM record is the one marked required.
 
 The domain (`marketwaros.com`) and the Stripe webhook
-(`https://marketwaros.com/api/webhooks/stripe`) are the same regardless of host.
+(`https://www.marketwaros.com/api/webhooks/stripe`) are the same regardless of host.
+
+> **Use the host the deployment actually serves — check, do not copy.** This URL
+> was written here as the APEX (`marketwaros.com`) while the site is served on
+> `www.`, and **Stripe does not follow redirects**: every delivery to the apex was
+> recorded as failed without ever reaching the application. Open
+> `/api/health/stripe` and read `webhookDiagnostic.endpointUrl.servingThisRequest`
+> — that is the address to paste into Stripe, and it is derived from a request
+> that certainly arrived rather than from a constant somebody typed. Override with
+> `MW_SITE_HOST` if the canonical host is neither.
 
 ---
 

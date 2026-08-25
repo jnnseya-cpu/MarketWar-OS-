@@ -116,7 +116,7 @@ console **only** — never committed. Public `NEXT_PUBLIC_*` identifiers are saf
 ## 5. Stripe (subscriptions + ACU top-ups)
 
 - [ ] 8 plans (Free → Global) created; price IDs mapped.
-- [ ] **Webhook endpoint:** `https://marketwaros.com/api/webhooks/stripe`
+- [ ] **Webhook endpoint:** `https://www.marketwaros.com/api/webhooks/stripe`
   - Events: `checkout.session.completed`, `customer.subscription.*`, `invoice.*`.
   - Copy the signing secret → `STRIPE_WEBHOOK_SECRET`. Signature is HMAC-SHA256
     verified in `src/backend/stripe-billing.ts` (runtime `nodejs`).

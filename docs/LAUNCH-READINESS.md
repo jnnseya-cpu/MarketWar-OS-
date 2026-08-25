@@ -66,7 +66,7 @@ _Last updated this session._
 These are configuration, not code — verify on the **Go-Live** board.
 
 1. **`STRIPE_WEBHOOK_SECRET` set + the endpoint registered** at
-   `https://marketwaros.com/api/webhooks/stripe`. Without it the webhook fails
+   `https://www.marketwaros.com/api/webhooks/stripe`. Without it the webhook fails
    closed in prod (no credits) — which is safe, but no one gets ACUs. **This is the
    single most important switch for "money in."**
 2. **`STRIPE_SECRET_KEY` live** (you have this) — paid checkout + top-ups.

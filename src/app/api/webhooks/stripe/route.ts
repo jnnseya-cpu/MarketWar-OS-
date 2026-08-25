@@ -104,11 +104,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   return NextResponse.json({
     engine: "Stripe webhook — subscription → ACU allocation",
     doctrine: "Verifies the Stripe signature (Node crypto, no SDK), then maps a small allowlist of billing events to append-only ACU-ledger + subscription outcomes. Idempotent by event id so a redelivered event never double-credits. ACUs are allocated at 20% of the plan price via the subscription engine. Provider/secret values are never returned.",
-    endpointUrl: webhookEndpointUrl(),
+    // The host THIS request arrived on, not a constant. A hard-coded domain is
+    // what sent 246 events to an address that redirected.
+    endpointUrl: webhookEndpointUrl(req.headers.get("host") || undefined),
     handledEvents: HANDLED_EVENTS,
     demo: demoStripe(),
   });

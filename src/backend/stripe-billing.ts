@@ -18,10 +18,43 @@ import crypto from "node:crypto";
 import { PLANS, planEconomics } from "@/backend/subscription";
 import { type RevenueEvent } from "@/shared/results";
 
-export const MAIN_DOMAIN = "marketwaros.com";
+/**
+ * THE HOST STRIPE MUST POST TO.
+ *
+ * THE INCIDENT. This was the literal string "marketwaros.com" — the apex — and
+ * the deployment serves `www.marketwaros.com`. Stripe DOES NOT FOLLOW
+ * REDIRECTS, so every delivery to the apex was recorded against an endpoint
+ * that never reached this application. The value was then copied into five
+ * documents (DEPLOYMENT, GO-LIVE, LAUNCH-BLOCKERS, LAUNCH-READINESS,
+ * REQUIREMENTS-COVERAGE), each instructing the owner to configure precisely the
+ * host that could not work. The documentation WAS the defect, and a hard-coded
+ * guess about somebody else's DNS is what produced it.
+ *
+ * So it is now an env var first, and every caller that HAS a real request
+ * passes the host that request actually arrived on — which is the only host
+ * known for certain to serve this app. `/api/health/stripe` compares the two
+ * and prints the URL to paste into Stripe.
+ *
+ * Set `MW_SITE_HOST` to the canonical host if it is ever neither of these. The
+ * scheme and any trailing slash are stripped, because a pasted value usually
+ * carries them and a URL with two schemes in it fails silently.
+ */
+export const MAIN_DOMAIN = (process.env.MW_SITE_HOST || "www.marketwaros.com")
+  .trim()
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "");
+
 export const STRIPE_WEBHOOK_PATH = "/api/webhooks/stripe";
+
+/**
+ * The endpoint URL to configure in Stripe.
+ *
+ * Pass the request's own host wherever there is one. The default is a
+ * configured guess and is only correct until somebody moves the site.
+ */
 export function webhookEndpointUrl(domain = MAIN_DOMAIN): string {
-  return `https://${domain}${STRIPE_WEBHOOK_PATH}`;
+  const host = (domain || MAIN_DOMAIN).trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  return `https://${host}${STRIPE_WEBHOOK_PATH}`;
 }
 
 // Events we act on (others are acknowledged 200 + ignored, per Stripe guidance).
