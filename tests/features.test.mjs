@@ -13270,10 +13270,24 @@ test("human gate: every request lands in exactly one lane, and an uninvited scri
 
   // A machine lane WITHOUT its credential is refused — that is the difference
   // between "webhooks are allowed" and "anything calling /api/webhooks is".
-  const noSig = await gate.decide({ ...base, path: "/api/webhooks/stripe", hasProviderSignature: false });
-  assert.equal(noSig.allow, false, "an unsigned request walked into the webhook lane");
+  // The METHOD is now part of the question: an unsigned WRITE is still refused,
+  // while an unsigned READ is allowed on the webhook lane only, because those
+  // GETs are self-documenting text or a provider's verification handshake.
+  const noSig = await gate.decide({ ...base, path: "/api/webhooks/stripe", hasProviderSignature: false, method: "POST" });
+  assert.equal(noSig.allow, false, "an unsigned write walked into the webhook lane");
   assert.equal(noSig.lane, "machine");
-  assert.equal((await gate.decide({ ...base, path: "/api/webhooks/stripe", hasProviderSignature: true })).allow, true);
+  assert.equal((await gate.decide({ ...base, path: "/api/webhooks/stripe", hasProviderSignature: true, method: "POST" })).allow, true);
+
+  // META'S VERIFICATION HANDSHAKE. A GET carrying hub.verify_token and no
+  // signature header — refused before this change, so the Meta webhook could
+  // never be verified at all.
+  const metaVerify = await gate.decide({ ...base, path: "/api/webhooks/meta", hasProviderSignature: false, method: "GET" });
+  assert.equal(metaVerify.allow, true, "Meta's verification GET must reach the route that authenticates it");
+
+  // But a read is NOT open on the scheduler lanes, whose GET is the thing that
+  // runs the job and spends the provider budget.
+  assert.equal((await gate.decide({ ...base, path: "/api/blog/daily", method: "GET", cronSecret: "s3cret" })).allow, false, "an anonymous GET must never be able to fire a paid scheduler");
+  assert.equal((await gate.decide({ ...base, path: "/api/seo-autopilot", method: "GET", cronSecret: "s3cret" })).allow, false);
 
   // The scheduler: the bearer, or nothing. And with no CRON_SECRET set it fails
   // CLOSED — an unrecognisable scheduler path is not "open to the scheduler".

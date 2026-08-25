@@ -98,11 +98,28 @@ export const ALWAYS_OPEN_PREFIXES = [
  * gate that claimed to verify a signature it never read would be worse than one
  * that admits it delegates.
  */
-export type MachineLane = { prefix: string; credential: "cron_bearer" | "provider_signature"; what: string };
+export type MachineLane = {
+  prefix: string;
+  credential: "cron_bearer" | "provider_signature";
+  what: string;
+  /**
+   * May an unauthenticated GET/HEAD read this path?
+   *
+   * True only where the GET is a provider's own handshake or self-documenting
+   * text that returns no secret. It is FALSE on every scheduler lane, whose GET
+   * is the thing that runs the job and spends the provider budget.
+   */
+  openToRead?: boolean;
+};
 
 export const MACHINE_LANES: MachineLane[] = [
-  { prefix: "/api/webhooks", credential: "provider_signature", what: "Stripe, email and Zernio webhooks. The route verifies the provider's signature against the raw body." },
-  { prefix: "/api/inbound", credential: "provider_signature", what: "Inbound mail delivered by the mail provider." },
+  // openToRead: the GET on every webhook route is either self-documenting text
+  // with no secret in it, or META'S OWN VERIFICATION HANDSHAKE — which arrives
+  // as a GET carrying `hub.verify_token` and no signature header, and was
+  // therefore refused before it could ever reach the check that authenticates
+  // it. The Meta webhook could not be verified at all.
+  { prefix: "/api/webhooks", credential: "provider_signature", what: "Stripe, email, Meta and Zernio webhooks. The route verifies the provider's signature against the raw body.", openToRead: true },
+  { prefix: "/api/inbound", credential: "provider_signature", what: "Inbound mail delivered by the mail provider — and the dashboard's own inbox, which reads and writes the same store." },
   { prefix: "/api/orchestrator/scheduled", credential: "cron_bearer", what: "The scheduler, authorised by CRON_SECRET, which the owner set." },
   { prefix: "/api/trends/scheduled", credential: "cron_bearer", what: "The scheduler." },
   { prefix: "/api/ai-visibility/scheduled", credential: "cron_bearer", what: "The scheduler." },
@@ -390,6 +407,8 @@ export async function decide(input: {
   authorization?: string | null;
   /** Header names present on the request — a provider signature is one of these. */
   hasProviderSignature?: boolean;
+  /** The HTTP method. A safe read is judged differently from a write. */
+  method?: string;
   cronSecret?: string;
   now?: number;
   env?: Record<string, string | undefined>;
@@ -410,15 +429,42 @@ export async function decide(input: {
       // recognised for is not "open to the scheduler", it is open.
       ? Boolean(cronSecret) && (input.authorization || "").trim() === `Bearer ${cronSecret}`
       : Boolean(input.hasProviderSignature);
-    return {
-      lane: "machine",
-      allow: credentialPresent,
-      observed: credentialPresent ? false : observed,
-      sensitivity,
-      reason: credentialPresent
-        ? `Invited machine: ${machine.what}`
-        : `This path is a machine lane and the request carried no ${machine.credential === "cron_bearer" ? "scheduler credential" : "provider signature"}. A script without the credential has no lane here.`,
-    };
+
+    if (credentialPresent) {
+      return { lane: "machine", allow: true, observed: false, sensitivity, reason: `Invited machine: ${machine.what}` };
+    }
+
+    // A SAFE READ, where the route's GET is a handshake or self-documenting.
+    // Meta's verification is a GET with `hub.verify_token` and no signature, so
+    // the branch below refused the one request that could ever set the webhook
+    // up, and the Stripe route's own diagnostic GET was equally unreachable.
+    const method = (input.method || "GET").toUpperCase();
+    if (machine.openToRead && (method === "GET" || method === "HEAD")) {
+      return { lane: "machine", allow: true, observed: false, sensitivity, reason: `A read on ${machine.prefix} returns no secret, and a provider's verification handshake arrives this way.` };
+    }
+
+    // NOT THE MACHINE — but is it an attributable HUMAN?
+    //
+    // This module's own doctrine is that every request must be attributable
+    // "either to a verified human session or to a machine we invited". This
+    // branch only ever answered the second half, so a path that serves BOTH
+    // refused the person. `/api/inbound` is exactly that path: the mail
+    // provider POSTs deliveries to it AND /dashboard/inbox reads and writes
+    // through it, so the entire inbox was refused in enforced mode by a rule
+    // matched on the prefix alone. A request carrying a session or a bearer
+    // token is not an anonymous script; it falls through and is judged as the
+    // human it claims to be, by the same evaluation as every other route.
+    const attributableHuman = Boolean((input.cookie || "").trim()) || (input.authorization || "").trim().startsWith("Bearer ");
+    if (!attributableHuman) {
+      return {
+        lane: "machine",
+        allow: false,
+        observed,
+        sensitivity,
+        reason: `This path is a machine lane and the request carried no ${machine.credential === "cron_bearer" ? "scheduler credential" : "provider signature"}. A script without the credential has no lane here.`,
+      };
+    }
+    // Falls through to the human evaluation below.
   }
 
   // The public site. Open, and open on purpose.
