@@ -1925,3 +1925,179 @@ test("a body that cannot be sent twice is never half-sent", async () => {
   assert.equal(retry.replayable(undefined), true);
   assert.equal(retry.replayable(new ReadableStream()), false);
 });
+
+// ---------------------------------------------------------------------------
+// Signup attribution — the eight metres between the click and the account.
+//
+// The ledger, the wallet, the cap-and-recycle cycle and the payout rails were
+// all built and tested. Nothing turned "this person arrived on a creator's
+// link" into a row any of it could read, so the sub-10k ACU referral programme
+// could not pay out from a link at all. Every assertion here fails against the
+// code as it was, because none of these functions existed.
+// ---------------------------------------------------------------------------
+const sa = await import("../src/shared/signup-attribution.ts");
+const engine = await import("../src/backend/creator-engine.ts");
+const signupAttr = await import("../src/backend/signup-attribution.ts");
+
+test("a referral code is validated, not trusted, wherever it arrives from", () => {
+  assert.equal(sa.normaliseCode("abc123"), "ABC123");
+  assert.equal(sa.normaliseCode("  mw-creator_7 "), "MW-CREATOR_7");
+  assert.equal(sa.normaliseCode("ab"), null, "too short to be a minted code");
+  assert.equal(sa.normaliseCode("../../etc/passwd"), null);
+  assert.equal(sa.normaliseCode("<script>alert(1)</script>"), null);
+  assert.equal(sa.normaliseCode(null), null);
+  assert.equal(sa.normaliseCode("A".repeat(40)), null);
+  // Both spellings, because the brand redirect writes both.
+  const p = new URLSearchParams("utm_source=x&mw_ref=code99");
+  assert.equal(sa.refFromParams(p), "CODE99");
+});
+
+test("last touch wins, and it restarts the 90 days", () => {
+  const now = Date.UTC(2026, 7, 25);
+  const old = { code: "FIRST1", at: now - 40 * 86_400_000 };
+
+  // A fresh click beats a stored one — the whole rule, in one assertion.
+  assert.deepEqual(sa.lastTouch(old, "SECOND2", now), { code: "SECOND2", at: now });
+  // Re-clicking the same link restarts the clock rather than doing nothing.
+  assert.deepEqual(sa.lastTouch(old, "FIRST1", now), { code: "FIRST1", at: now });
+  // No new click: the stored one survives inside the window.
+  assert.deepEqual(sa.lastTouch(old, null, now), old);
+  // ...and is gone outside it. 91 days, not 89.
+  assert.equal(sa.lastTouch({ code: "FIRST1", at: now - 91 * 86_400_000 }, null, now), null);
+  assert.equal(sa.lastTouch({ code: "FIRST1", at: now - 89 * 86_400_000 }, null, now)?.code, "FIRST1");
+  // A cookie dated in the future is a clock nobody can expire anything with.
+  assert.equal(sa.lastTouch({ code: "FIRST1", at: now + 400 * 86_400_000 }, null, now), null);
+  // Junk in the query string stores nothing rather than storing junk.
+  assert.equal(sa.lastTouch(null, "not a code!", now), null);
+});
+
+test("the cookie round-trips, and a corrupted one reads as absent", () => {
+  const a = { code: "ROUND1", at: 1_756_000_000_000 };
+  assert.deepEqual(sa.decodeAttribution(sa.encodeAttribution(a)), a);
+  for (const bad of ["", "NOCODE", "ABCD.", ".123", "ABCD.notanumber", "ab.123", null, 42]) {
+    assert.equal(sa.decodeAttribution(bad), null, `"${bad}" must not decode to an attribution`);
+  }
+});
+
+test("a signup on a creator's link is linked to the creator — without touching the ledger", async () => {
+  engine.__resetCreatorEngine?.();
+  signupAttr.__resetReferralAttribution();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+
+  const prog = await engine.createProgramme({
+    brandId: "brand_attr", brandName: "Attr Ltd", name: "Referral", product: "MarketWar OS",
+    description: "Send businesses our way", destinationUrl: "", nowISO,
+  });
+  const creator = await engine.upsertCreator({ name: "Ada", email: "ada@example.com", tier: "micro", followers: 800, nowISO });
+  const sub = await engine.subscribe(creator.id, prog.id, nowISO);
+  assert.ok(sub.subscription, `subscribe failed: ${sub.error}`);
+  const code = sub.subscription.code;
+
+  const res = await signupAttr.attributeSignup({ accountId: "acct_new", code, email: "someone@else.com", via: "visit", nowISO });
+  assert.equal(res.ok, true, `attribution refused: ${res.ok === false ? res.reason : ""}`);
+  assert.equal(res.alreadyAttributed, false);
+  assert.equal(res.record.creatorId, creator.id);
+
+  // The link exists and can be read from either end.
+  assert.equal((await signupAttr.getAttribution("acct_new"))?.creatorId, creator.id);
+  assert.deepEqual((await signupAttr.attributionsForCreator(creator.id)).map((r) => r.accountId), ["acct_new"]);
+
+  // AND NOTHING REACHED THE COMMISSION LEDGER.
+  //
+  // The obvious implementation wrote a £0 conversion so the wallet would count
+  // it. fraudScore exists to refuse exactly that: "5 fake £0 conversions would
+  // satisfy the proven-conversion exception and bypass the 10K gate". This
+  // assertion is what keeps a future version of me from re-opening it.
+  assert.equal((await engine.listLedger(creator.id)).length, 0, "a signup is not revenue and must never post as a conversion");
+  const wallet = await engine.creatorWallet(creator.id);
+  assert.equal(wallet.referralCount, 0, "referralCount counts customers who produced revenue — a signup alone is not one");
+  assert.equal(wallet.payableGbp, 0);
+});
+
+test("one account is attributed once, ever", async () => {
+  engine.__resetCreatorEngine?.();
+  signupAttr.__resetReferralAttribution();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const prog = await engine.createProgramme({ brandId: "b_once", brandName: "Once", name: "P", product: "x", description: "d", nowISO });
+  const c1 = await engine.upsertCreator({ name: "One", email: "one@example.com", tier: "micro", followers: 100, nowISO });
+  const c2 = await engine.upsertCreator({ name: "Two", email: "two@example.com", tier: "micro", followers: 100, nowISO });
+  const s1 = await engine.subscribe(c1.id, prog.id, nowISO);
+  const s2 = await engine.subscribe(c2.id, prog.id, nowISO);
+
+  const first = await signupAttr.attributeSignup({ accountId: "acct_dup", code: s1.subscription.code, nowISO });
+  assert.equal(first.ok && first.alreadyAttributed, false);
+
+  // A retried request, a second tab, or a second creator's code arriving late.
+  const again = await signupAttr.attributeSignup({ accountId: "acct_dup", code: s1.subscription.code, nowISO });
+  assert.equal(again.ok && again.alreadyAttributed, true, "a refresh must not mint a second referral");
+  const other = await signupAttr.attributeSignup({ accountId: "acct_dup", code: s2.subscription.code, nowISO });
+  assert.equal(other.ok && other.record.creatorId, c1.id, "the first recorded attribution stands — it cannot be overwritten later");
+
+  assert.equal((await engine.creatorWallet(c2.id)).referralCount, 0, "the second creator must not be credited");
+});
+
+test("a creator cannot refer their own account, and a typo credits nobody", async () => {
+  engine.__resetCreatorEngine?.();
+  signupAttr.__resetReferralAttribution();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const prog = await engine.createProgramme({ brandId: "b_self", brandName: "Self", name: "P", product: "x", description: "d", nowISO });
+  const me = await engine.upsertCreator({ name: "Me", email: "me@example.com", tier: "micro", followers: 100, nowISO });
+  const sub = await engine.subscribe(me.id, prog.id, nowISO);
+
+  const self = await signupAttr.attributeSignup({ accountId: "acct_self", code: sub.subscription.code, email: "ME@Example.com ", nowISO });
+  assert.equal(self.ok, false);
+  assert.match(self.reason, /cannot refer their own/i);
+  assert.equal(await signupAttr.getAttribution("acct_self"), null, "a refused referral stores nothing");
+
+  const typo = await signupAttr.attributeSignup({ accountId: "acct_typo", code: "NOSUCHCODE", nowISO });
+  assert.equal(typo.ok, false);
+  assert.match(typo.reason, /unknown referral code/i);
+  assert.equal(await signupAttr.getAttribution("acct_typo"), null, "a dangling attribution nobody can trace is worse than none");
+});
+
+test("a stored attribution missing its fields reads as absent, never as a wrong creator", () => {
+  // The .data() cast crashed two production pages. This one decides who gets
+  // paid, so it fails towards 'not yet attributed' rather than towards credit.
+  assert.equal(signupAttr.recordFromStored(null), null);
+  assert.equal(signupAttr.recordFromStored({ code: "X1234" }), null, "no accountId, no record");
+  assert.equal(signupAttr.recordFromStored({ accountId: "a", code: "X1234" }), null, "no creatorId, no record");
+  const ok = signupAttr.recordFromStored({ accountId: "a", code: "X1234", creatorId: "cr_1", createdAt: "2026-01-01T00:00:00.000Z" });
+  assert.equal(ok.via, "visit", "an unknown `via` must not read as the stronger claim");
+  assert.equal(ok.touchedAt, "2026-01-01T00:00:00.000Z", "a record written before touchedAt existed falls back rather than emptying");
+});
+
+test("the referral redirect no longer throws the code away", async () => {
+  // The defect: a programme with no destinationUrl redirected to "/" and
+  // discarded the code, so real traffic from a creator's link landed on the
+  // home page with nothing carrying who sent them — and recordClick's
+  // per-day-rotating hash means it could never be reconstructed afterwards.
+  const { GET } = await import("../src/app/r/[code]/route.ts");
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+
+  const bare = await engine.createProgramme({ brandId: "b_bare", brandName: "Bare", name: "NoDest", product: "x", description: "d", nowISO });
+  const withDest = await engine.createProgramme({ brandId: "b_dest", brandName: "Dest", name: "HasDest", product: "x", description: "d", destinationUrl: "https://brand.example/offer?utm=x", nowISO });
+  const cr = await engine.upsertCreator({ name: "Rae", email: "rae@example.com", tier: "micro", followers: 100, nowISO });
+  const a = (await engine.subscribe(cr.id, bare.id, nowISO)).subscription;
+  const b = (await engine.subscribe(cr.id, withDest.id, nowISO)).subscription;
+
+  const call = async (code) => {
+    const res = await GET(new Request(`https://marketwaros.com/r/${code}`), { params: Promise.resolve({ code }) });
+    return new URL(res.headers.get("location"));
+  };
+
+  const noDest = await call(a.code);
+  assert.equal(noDest.pathname, "/", "no destination still lands on our home page");
+  assert.equal(noDest.searchParams.get("ref"), a.code, "and it now CARRIES THE CODE — this is the whole fix");
+
+  const branded = await call(b.code);
+  assert.equal(branded.host, "brand.example", "a configured programme still leads to the brand, never back to us");
+  assert.equal(branded.searchParams.get("ref"), b.code);
+  assert.equal(branded.searchParams.get("mw_ref"), b.code);
+  assert.equal(branded.searchParams.get("utm"), "x", "the brand's own query string survives");
+
+  // A code nobody minted must not create an attribution nobody can trace.
+  const junk = await call("NOSUCHCODE");
+  assert.equal(junk.pathname, "/");
+  assert.equal(junk.searchParams.get("ref"), null);
+});

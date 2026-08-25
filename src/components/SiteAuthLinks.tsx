@@ -21,8 +21,18 @@
 // module scope on both the server and the client, so `loading` starts the same
 // on both and this does not cause a hydration mismatch.
 
+// It also CARRIES THE REFERRAL CODE ONTO THE SIGNUP LINK.
+//
+// A visitor arriving on a creator's link lands on /?ref=CODE and then presses
+// "Get started". Without this the code stops here, and it is the last place it
+// could have survived for anyone who has not accepted cookies — a query
+// parameter needs no consent, so this tier of attribution has to work for
+// everybody. See @/shared/signup-attribution for why there are two tiers.
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthUser } from "@/frontend/use-auth-user";
+import { creditableCode, withReferral } from "@/frontend/referral";
 
 export default function SiteAuthLinks({
   signInHref = "/login",
@@ -41,6 +51,14 @@ export default function SiteAuthLinks({
 }) {
   const { user, loading } = useAuthUser();
 
+  // Read after mount, never during render: the code comes from the URL and the
+  // cookie, and reading either while rendering on the server would produce
+  // markup the browser then disagrees with.
+  const [ref, setRef] = useState<string | null>(null);
+  useEffect(() => {
+    try { setRef(creditableCode()?.code ?? null); } catch { /* a link must never fail to render */ }
+  }, []);
+
   // Nothing is known yet. Hold the space rather than guess.
   if (loading) return <span aria-hidden className="block h-9 w-28" />;
 
@@ -54,8 +72,8 @@ export default function SiteAuthLinks({
 
   return (
     <>
-      <Link href={signInHref} className={signInClassName}>{signInLabel}</Link>
-      <Link href={ctaHref} className={ctaClassName}>{ctaLabel}</Link>
+      <Link href={withReferral(signInHref, ref)} className={signInClassName}>{signInLabel}</Link>
+      <Link href={withReferral(ctaHref, ref)} className={ctaClassName}>{ctaLabel}</Link>
     </>
   );
 }

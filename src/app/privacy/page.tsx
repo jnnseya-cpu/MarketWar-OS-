@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import CookieSettingsLink from "@/components/CookieSettingsLink";
+import { SIGNUP_WINDOW_DAYS } from "@/shared/signup-attribution";
 
 export const metadata: Metadata = {
   title: "Privacy Policy · MarketWar OS",
@@ -60,6 +61,7 @@ export default function PrivacyPage() {
         <H2>10. Cookies</H2>
         <p><strong>Essential cookies</strong> — authentication and security — are always on. They are what makes staying signed in possible, so there is no version of the product that works without them, and we do not ask for consent we would not honour a refusal of.</p>
         <p><strong>Analytics cookies</strong> are set only if you accept them. We use Google Tag Manager to understand which pages help and which do not. Nothing analytical loads until you choose: not on page load, not while the banner is open, and not if you ignore the banner and carry on reading. No choice means no analytics. Rejecting is a single click, in a button the same size and prominence as the one that accepts, and rejecting changes nothing about how the product behaves for you.</p>
+        <p><strong>Referral cookie</strong> (<code>mw_ref</code>) — set only if you accept cookies, and only if you arrived on a creator&rsquo;s referral link. It holds one thing: the referral code and the time you clicked it. It is not an identifier for you, it is never shared with anyone, and it is read only when an account is created, so that the creator who introduced you is credited. It lasts {SIGNUP_WINDOW_DAYS} days from your most recent click. If you refuse cookies nothing is stored on your device at all — the code travels in the web address for that visit only, and refusing changes nothing about the price you pay or how the product works for you. This is affiliate attribution rather than a necessary cookie, which is exactly why it waits for your answer instead of assuming it.</p>
         <p>You can <CookieSettingsLink /> at any time. See also the Cookie Policy in <Link href="/policies" className="text-emerald-400 hover:text-emerald-300">All policies</Link>.</p>
 
         <H2>11. Changes</H2>

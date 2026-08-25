@@ -102,11 +102,17 @@ module's own check. Do not trust this table over it.
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**1. NO SENDING SERVER IS SET, SO NO MAIL LEAVES PRODUCTION.** The reported
-symptom — nothing arrives, nobody hears back — and it is configuration, not code.
-Set `MW_SENDING_POOL` (or `SMTP_HOST`+`SMTP_USER`+`SMTP_PASS`), or
-`RESEND_API_KEY`, or `SENDGRID_API_KEY`; then open `GET /api/email`. Until then
-every send is refused and reported as refused — it used to report success.
+**1. MAIL: THE CREDENTIALS ARE SET; THE DELIVERY IS UNVERIFIED.** The owner
+reports `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` all present in Production since
+24 July, which is what `smtpConfigured` needs — the earlier "no sending server"
+diagnosis is superseded. What has NOT been checked from here is whether the
+server accepts them: this container cannot reach the live site. **To close: open
+`GET /api/health/email` on the deployment.** It runs a real SMTP conversation —
+connect, EHLO, STARTTLS, AUTH — and names the stage it failed at, so a wrong
+port, a blocked outbound 587 or a rejected password each report as themselves.
+If that passes and mail still does not arrive, the cause is upstream of the
+mailer: most routes fail closed at `resolveBrandAccess` while Firebase Admin is
+not initialising (item 3), and a refused route never reaches a send.
 
 **2. RE-LAND NEXT 15. The one with a clock on it.** Next 14 gets no security
 patches: 21 advisories apply to 14.2.35 — App Router XSS, RSC cache poisoning,
@@ -115,6 +121,13 @@ on the dev branch (15.5.23, React 19.2.8); rolled off 2026-08-21 during a live
 `/verify-human` failure as a precaution, NOT because it was proved to be the
 cause. **To close:** deploy the dev branch to a Vercel preview, open
 `/api/auth/human` and `/verify-human`, and if both answer, merge.
+
+**3. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT YET PAID FOR.** §101 built
+the link from a creator's click to the account that signs up — last touch, 90
+days, consent-tiered. Nothing yet posts a commission when that account PAYS US.
+The attribution record exists and the ledger, cap cycle and payout rails exist;
+the hook between them does not, and it must not be faked with a zero-value
+ledger event (that route bypasses the 10k follower gate — see §101).
 
 **Owner actions (nothing in code can substitute):**
 
@@ -167,7 +180,14 @@ those — so the screen would be a second panel of refusals beside
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWELVE instances now. The two worst were live and silent: `sendEmail` returned
+FOURTEEN instances now. The two newest are the same shape as all the others:
+`src/middleware.ts` refused every money route with a machine-readable remedy —
+`humanCheckRequired`, the action needed, where to go — and its own comment
+promised APIs "answer 403 with what to do about it"; nothing in the codebase had
+ever read those three fields, so the screen printed the sentence and stopped
+dead over a filled-in form. And `/r/{CODE}` appended the referral code to the
+brand's URL but nothing on our own side ever read one, so a visitor who reached
+our signup arrived with no trace of who sent them. The two worst were live and silent: `sendEmail` returned
 success in demo mode for mail delivered to nobody, so every counter and screen
 downstream agreed campaigns had been sent — and the free audit asked for an
 address "to send you this report" and never called the email module at all. The
@@ -191,6 +211,11 @@ comparator; a fold's reason sat on the oldest entry and folds read the newest; a
 overlap floor was never exercised; a refusal fixture was shorter than the limit
 it had to exceed; and the ads verifier counted the `IncludedTool` TYPE as a
 thirteenth tool, failing a document that was right.
+
+Two more, both caught by a test written before its code was believed: a signup
+referral written as a £0 conversion looked correct and would have bypassed the
+10k payout gate, and a redirect whose comment said it dropped unknown codes
+carried them anyway. Neither was visible by reading.
 
 **A test that passes is not evidence until something has broken it**, and the
 cure for the wiring case is to drive the real handler and assert on a value only

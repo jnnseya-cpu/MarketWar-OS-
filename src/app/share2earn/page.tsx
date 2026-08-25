@@ -6,6 +6,7 @@ import {
   SIGNUP_DOORS, UPGRADE_PATH, ratePct, SHARE2EARN_RATE, SHARE2EARN_RATE_CAP,
   INFLUENCER_RATE_10K, INFLUENCER_RATE_5K,
 } from "@/shared/creator-program";
+import { SIGNUP_WINDOW_DAYS } from "@/shared/signup-attribution";
 
 export const metadata: Metadata = {
   title: "Join SHARE2EARN · MarketWar OS",
@@ -85,6 +86,28 @@ export default function Share2EarnPage() {
           bonuses rather than cash. That is not a downgrade dressed up: engagement we cannot verify as
           revenue is engagement we cannot honestly pay for, and a programme that pays for unverifiable
           reach is a programme that gets drained by whoever notices first.
+        </p>
+
+        <H2>Who gets credited, and for how long</H2>
+        <p>
+          <strong>Last click wins, for {SIGNUP_WINDOW_DAYS} days.</strong> If someone clicks your link and
+          signs up three weeks later, you are credited. If they click a different creator&rsquo;s link in
+          between, that creator is credited instead — the most recent click before the signup is the one
+          that counts. If nobody&rsquo;s link has been clicked for {SIGNUP_WINDOW_DAYS} days, nobody is
+          credited.
+        </p>
+        <p>
+          One honest limit, because you would find it eventually and it is better said now. The{" "}
+          {SIGNUP_WINDOW_DAYS} days need a small first-party cookie, and a cookie is something the visitor
+          has to agree to — referral attribution is not a &ldquo;necessary&rdquo; cookie under UK law and
+          we are not going to pretend it is. If they decline, <strong>nothing is stored on their device
+          and you are still credited for the visit</strong>: the code travels in the web address from your
+          link through to the signup page, which is how most referred signups happen anyway. What you lose
+          in that case is the person who leaves and comes back a week later.
+        </p>
+        <p className="text-sm text-slate-400">
+          A signup is credited once and once only — a refresh, a second tab or a retried request cannot
+          create a second referral — and you cannot refer your own account.
         </p>
 
         <H2>Getting paid</H2>

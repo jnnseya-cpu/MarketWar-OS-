@@ -11,7 +11,7 @@ const POLICIES: { name: string; href: string; blurb: string; live?: boolean }[] 
   { name: "Terms of Service", href: "/terms", blurb: "The agreement governing your use of the platform.", live: true },
   { name: "Privacy Policy", href: "/privacy", blurb: "How we collect, use, protect and share personal data (UK/EU GDPR-aligned).", live: true },
   { name: "Acceptable Use Policy", href: "/terms", blurb: "No unlawful, deceptive or non-consensual marketing; no fabricated reviews; no bypassing safeguards." },
-  { name: "Cookie Policy", href: "/privacy", blurb: "Essential cookies for auth/security and limited product analytics." },
+  { name: "Cookie Policy", href: "/privacy", blurb: "Essential cookies for auth/security; analytics and the referral cookie only on consent." },
   { name: "Data Processing Addendum (DPA)", href: "/contact", blurb: "For customers acting as controllers — sub-processors, SCCs and security measures. Available on request." },
   { name: "Anti-Spam & Consent Policy", href: "/terms", blurb: "Consent-gated marketing, a 5-touch / 7-day frequency cap, suppression lists and instant opt-out." },
   { name: "Content Rights & AI Disclosure", href: "/terms", blurb: "Rights records, mandatory AI-generated-content disclosure, no impersonation or synthetic testimonials." },
