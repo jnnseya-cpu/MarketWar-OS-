@@ -4951,3 +4951,68 @@ self-referral and unknown codes store nothing; a stored record missing fields
 reads as absent rather than as a wrong creator; and the redirect carries the code
 home when no destination is set — while still dropping a code nobody minted,
 which the comment had claimed and the code had not done.
+
+---
+
+## §102 — 246 Stripe events delivered to a host that redirects (2026-08-25)
+
+Owner report: *"stripe webhook is not working"*, with the Stripe dashboard
+showing the MarketWar endpoint **Active** and **246 events** delivered. Both
+were true, which is why it survived so long.
+
+### The cause, and it was in this repository
+`src/backend/stripe-billing.ts` held `MAIN_DOMAIN = "marketwaros.com"` — the
+APEX — while the deployment serves `www.marketwaros.com`. **Stripe does not
+follow redirects.** Every delivery to the apex was recorded against an endpoint
+that never reached the application.
+
+That literal was then copied into five documents — DEPLOYMENT, GO-LIVE,
+LAUNCH-BLOCKERS, LAUNCH-READINESS and the §603 row of this register — each
+instructing the owner to configure precisely the host that could not work. **The
+documentation was the defect.** A hard-coded guess about somebody else's DNS
+produced it, and five restatements made it look verified.
+
+Confirmed from the deployment by the diagnostic built for it:
+
+```
+"endpointUrl": { "inCode": "https://marketwaros.com/api/webhooks/stripe",
+                 "servingThisRequest": "https://www.marketwaros.com/api/webhooks/stripe",
+                 "matches": false }
+```
+
+### What was eliminated first, and how
+`/api/health/stripe` reported the live key valid and `STRIPE_WEBHOOK_SECRET`
+set; the new `webhookDiagnostic` block then reported the secret well formed
+(`whsec_`, 38 chars) and a signature round trip passing through the same
+verifier the webhook uses. Three of the four candidate causes were ruled out
+before the fourth was named — and the diagnostic states plainly what it still
+cannot see, namely whether the secret belongs to the endpoint Stripe posts to.
+
+### The fix
+`MAIN_DOMAIN` is `MW_SITE_HOST` first and defaults to the host that actually
+serves, with the scheme and trailing slash stripped from any pasted value.
+`webhookEndpointUrl()` takes the host, and every caller with a real request
+passes the one that request arrived on — the only host known for certain to
+serve this app. The four runbooks are corrected and DEPLOYMENT now says to READ
+the address out of `/api/health/stripe` rather than copy a constant.
+
+The §603 row above is left as written: this register is archaeology and is not
+edited in place.
+
+### And a second defect found while looking
+`applyWebhookOutcome` fell through to an in-memory Map when Firebase Admin was
+unavailable and returned `applied: true` with the words "Credited N ACUs"; the
+route answered 200. A 200 is the instruction NOT to retry, so a payment that
+persisted nowhere was acknowledged as delivered. In production that is now a
+refusal and a 500, so Stripe redelivers for three days and the credit lands by
+itself. Idempotency by event id makes the retry safe. Admin turned out to be
+healthy on this deployment, so this was not the live cause — but it was a loaded
+trap on the money path.
+
+### The belief that had to be retracted
+Several sessions carried "Firebase Admin is not initialising in production" as a
+standing assumption and hung diagnoses off it. `/api/health/auth` returns
+`configured: true`, `initError: null`, a valid PEM, matching client and admin
+projects and a passing Identity Toolkit probe. It was **wrong**. STATE.md now
+records the evidence and the instruction to check the endpoint rather than
+inherit the belief.
