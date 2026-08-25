@@ -131,6 +131,25 @@ export type WalletState = {
   lifetimeDebitedAcu: number;
   updatedAt: string;
   /**
+   * WHEN THE SUBSCRIPTION ENDED, and until when a failed payment is forgiven.
+   *
+   * Stripe's `customer.subscription.deleted` was classified as a downgrade and
+   * then discarded: `applyBillingOutcome` refuses any outcome carrying no
+   * credit, so the wallet was never touched and `planId` went on saying
+   * "growth" for ever. Cancelling therefore cost the customer their monthly
+   * allocation — £9.80 of ACUs on a £49 plan — and nothing else, so topping up
+   * on demand was strictly cheaper than subscribing. `invoice.payment_failed`
+   * had the same hole: a card that stopped working bought a permanent free
+   * account.
+   *
+   * Both are absent on every wallet written before this existed, and absent
+   * means "never lapsed" — an existing paying customer is not retro-lapsed by
+   * a field being added.
+   */
+  lapsedAt?: string | null;
+  /** A failed payment is forgiven until this instant, then treated as lapsed. */
+  graceUntil?: string | null;
+  /**
    * Has the one-off free signup allowance been handed over?
    *
    * Optional because wallets created before the human check existed do not
@@ -325,6 +344,28 @@ export async function debitAcus(orgId: string, amountAcu: number): Promise<Debit
 // ---------------------------------------------------------------------------
 export type ApplyResult = { applied: boolean; reason: string; wallet?: WalletState; creditedAcu?: number; planId?: string };
 
+/** How long a failed payment is forgiven before service is restricted. */
+export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * What a billing outcome does to the wallet's ENTITLEMENT, as opposed to its
+ * balance. Purchased ACUs are never taken back — the customer paid for those,
+ * and clawing them back on cancellation is how a chargeback starts.
+ */
+function entitlementPatch(action: string, nowISO: string): Partial<WalletState> {
+  if (action === "downgrade") {
+    // The plan drops to free and the lapse is dated. The balance is untouched.
+    return { planId: "free", cycle: null, lapsedAt: nowISO, graceUntil: null };
+  }
+  if (action === "grace_period") {
+    // Service continues, unchanged, until the grace ends. Only then does the
+    // account read as lapsed — which the entitlement check works out from the
+    // date, so no second webhook is needed to close the window.
+    return { graceUntil: new Date(Date.parse(nowISO) + GRACE_MS).toISOString() };
+  }
+  return {};
+}
+
 export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome): Promise<ApplyResult> {
   const id = (orgId || "").trim();
   const eventId = outcome.eventId;
@@ -332,8 +373,13 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   // Only credit-bearing / plan-activating outcomes touch the wallet.
   const credit = outcome.ledgerEntry?.direction === "credit" ? Math.max(0, Math.round(outcome.ledgerEntry.amountAcu)) : 0;
   const activatesPlan = outcome.action === "allocate_acus" || outcome.action === "renew";
+  // A downgrade and a grace period change what the account is ENTITLED to
+  // without moving a penny. They used to fall through the guard below — which
+  // only asked about credit — so the note describing the downgrade was the only
+  // thing that ever happened.
+  const changesEntitlement = outcome.action === "downgrade" || outcome.action === "grace_period";
   if (!id) return { applied: false, reason: "No org id on the event — cannot credit a wallet (checkout must stamp client_reference_id / metadata.orgId)." };
-  if (credit <= 0 && !activatesPlan) return { applied: false, reason: `Outcome '${outcome.action}' carries no wallet credit.` };
+  if (credit <= 0 && !activatesPlan && !changesEntitlement) return { applied: false, reason: `Outcome '${outcome.action}' carries no wallet credit.` };
 
   if (adminConfigured && adminDb) {
     const walletRef = adminDb.collection(COLLECTION).doc(id);
@@ -343,24 +389,40 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
       if (evSnap.exists) return { applied: false, reason: `Event ${eventId} already processed — idempotent skip.` };
       const wSnap = await tx.get(walletRef);
       const cur = wSnap.exists ? (wSnap.data() as WalletState) : freshWallet(id);
+      const now = nowIso();
       const next: WalletState = {
         ...cur,
         balanceAcu: cur.balanceAcu + credit,
         lifetimeCreditedAcu: cur.lifetimeCreditedAcu + credit,
         planId: outcome.planId ?? cur.planId,
-        updatedAt: nowIso(),
+        // A payment clears any lapse: paying again is the whole point.
+        ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
+        ...entitlementPatch(outcome.action, now),
+        updatedAt: now,
       };
       tx.set(walletRef, next, { merge: false });
       tx.set(eventRef, { eventId, orgId: id, action: outcome.action, creditedAcu: credit, planId: outcome.planId ?? null, at: nowIso() }, { merge: false });
-      return { applied: true, reason: `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`, wallet: next, creditedAcu: credit, planId: outcome.planId };
+      const what = outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
+        : outcome.action === "grace_period" ? `Payment failed — service continues until ${next.graceUntil}.`
+        : `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`;
+      return { applied: true, reason: what, wallet: next, creditedAcu: credit, planId: outcome.planId };
     });
   }
 
   // Mem fallback — idempotent by event id set.
   if (memEvents.has(eventId)) return { applied: false, reason: `Event ${eventId} already processed — idempotent skip.` };
   memEvents.add(eventId);
-  const wallet = await creditAcus(id, credit, outcome.planId);
-  return { applied: true, reason: `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`, wallet, creditedAcu: credit, planId: outcome.planId };
+  const credited = await creditAcus(id, credit, outcome.planId);
+  const patch = {
+    ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
+    ...entitlementPatch(outcome.action, nowIso()),
+  };
+  const wallet: WalletState = Object.keys(patch).length ? { ...credited, ...patch, updatedAt: nowIso() } : credited;
+  if (Object.keys(patch).length) mem.set(id, wallet);
+  const what = outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
+    : outcome.action === "grace_period" ? `Payment failed — service continues until ${wallet.graceUntil}.`
+    : `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`;
+  return { applied: true, reason: what, wallet, creditedAcu: credit, planId: outcome.planId };
 }
 
 // ---------------------------------------------------------------------------

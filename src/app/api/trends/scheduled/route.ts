@@ -4,6 +4,7 @@ import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
 import { brandMarket } from "@/backend/brand-market";
 import { walletIdForBrand } from "@/backend/brand-access";
+import { entitlementFor } from "@/backend/entitlement";
 import { debitAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { cronAuthorised } from "@/backend/guard";
 
@@ -60,9 +61,23 @@ export async function GET(req: NextRequest) {
       // second thing to fill in.
       if (!s.domain) { skipped.push({ brandId: s.brandId, why: "no domain on the schedule — nothing to read subjects from" }); continue; }
 
+      // AUTOMATIONS PAUSE WHEN NOBODY IS PAYING.
+      //
+      // This is unattended work that spends money on our provider bill every
+      // week, for an account that may have cancelled months ago. A balance is
+      // not permission: purchased ACUs stay spendable BY THE CUSTOMER, at a
+      // keyboard, but they do not buy a standing subscription to work that runs
+      // on its own.
+      const walletId = await walletIdForBrand(s.brandId);
+      const ent = await entitlementFor(walletId);
+      if (ent.automationsPaused) {
+        skipped.push({ brandId: s.brandId, why: `automations are paused — ${ent.reason}` });
+        continue;
+      }
+
       // Charged before the crawl and the searches, per brand. A scheduled run
       // must be able to refuse one brand and carry on with the rest.
-      const debit = await debitAcus(await walletIdForBrand(s.brandId), ACTION_COST_ACU.search * SEARCHES_PER_BRAND);
+      const debit = await debitAcus(walletId, ACTION_COST_ACU.search * SEARCHES_PER_BRAND);
       if (!debit.ok) {
         skipped.push({ brandId: s.brandId, why: `not enough ACUs for this week's trend sweep (needs ${ACTION_COST_ACU.search * SEARCHES_PER_BRAND}, balance ${debit.balanceAcu}) — top up and it resumes on the next run` });
         continue;
