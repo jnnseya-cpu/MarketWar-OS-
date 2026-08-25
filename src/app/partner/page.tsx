@@ -105,6 +105,10 @@ function PartnerDashboard() {
   const token = params.get("t") || "";
   const [data, setData] = useState<Portal | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The middleware already tells us HOW to get past a refusal — `action` and
+  // `where` are in the body. This page rendered `error` and dropped both, so a
+  // check that needed re-passing became a screen with nothing on it.
+  const [gate, setGate] = useState<{ action: string; where: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -114,7 +118,11 @@ function PartnerDashboard() {
       try {
         const res = await fetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "partner_portal", token }) });
         const d = await res.json().catch(() => ({}));
-        if (!res.ok) { setError(d.error || "Couldn't load your dashboard."); return; }
+        if (!res.ok) {
+          setError(d.error || "Couldn't load your dashboard.");
+          if (typeof d.where === "string" && d.where) setGate({ action: String(d.action || "verify"), where: d.where });
+          return;
+        }
         setData(d as Portal);
       } catch { setError("Network error — please try again."); }
       finally { setLoading(false); }
@@ -127,6 +135,31 @@ function PartnerDashboard() {
       <ShieldCheck className="h-8 w-8 text-emerald-500/60" />
       <h1 className="font-display text-lg font-bold text-white">Partner dashboard</h1>
       <p className="text-sm text-slate-400">{error}</p>
+      {/* A refusal must always leave somewhere to go. This screen said "pass a
+          check" and offered no way to pass it — the message, a shield, and a
+          dead end on a phone at two in the morning. */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        {gate && (
+          <a
+            href={`${gate.where}?next=${encodeURIComponent(typeof window === "undefined" ? "/partner" : window.location.pathname + window.location.search)}&action=${encodeURIComponent(gate.action)}`}
+            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 hover:bg-emerald-400"
+          >
+            {gate.action === "reverify" ? "Pass the check again" : "Pass the check"}
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={() => { setError(null); setGate(null); setLoading(true); setReloadKey((k) => k + 1); }}
+          className="rounded-lg border border-ink-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-slate-500"
+        >
+          Try again
+        </button>
+      </div>
+      {!token && (
+        <p className="mt-2 max-w-sm text-xs leading-relaxed text-slate-500">
+          Your dashboard link was emailed to you when you joined. If it never arrived, contact support — for your security this page cannot show an existing account&rsquo;s link to whoever opens it.
+        </p>
+      )}
     </div>
   );
 
