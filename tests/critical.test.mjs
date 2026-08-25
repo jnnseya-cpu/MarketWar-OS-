@@ -2336,3 +2336,73 @@ test("a claimed product cannot be deleted out from under the link", async () => 
   // And a different brand cannot delete it either.
   assert.equal((await promo.deleteProduct({ brandId: "not_mine", productId: taken.id })).ok, false);
 });
+
+// ---------------------------------------------------------------------------
+// A programme the brand created by hand had no way to reach a creator.
+//
+// Reported from the live dashboard, with the count on screen: "Your programmes
+// (4)" — SHARE2EARN · MarketWar (Starter), MarketWar (brand), SHARE2EARN ·
+// MarketWar (Growth), SHARE2EARN · MartketWar (Scale) — while the partner claim
+// shelf offered six things, none of which was the brand-scope one.
+//
+// Three of the four were minted by `claimProduct` and each has a product card,
+// so a creator can find them. The fourth was typed into the create form on the
+// Partner Network screen, had no product behind it, and discovery lists
+// PRODUCTS. It was invisible to every creator on the platform, and the only way
+// in was the brand pressing "Subscribe partner" for somebody by hand.
+// ---------------------------------------------------------------------------
+test("a hand-created programme is discoverable, and its auto-minted siblings are not listed twice", async () => {
+  promo.__resetPromotable();
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const brandId = "b_four";
+  await promo.setPolicy({ brandId, mode: "open_catalogue", nowISO });
+
+  const offer = { pricePence: 4_900, cogsPence: 500, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 500 };
+  const product = await promo.saveProduct({ brandId, name: "MarketWar (Growth)", url: "https://mw.test/growth", offer, nowISO });
+
+  // The one somebody typed in: whole-brand scope, no product behind it.
+  await engine.createProgramme({
+    brandId, brandName: "MarketWar", name: "MarketWar", scope: "brand", target: "MarketWar",
+    product: "MarketWar", description: "Promote the whole brand", destinationUrl: "https://mw.test", nowISO,
+  });
+
+  // And the one a claim mints, which the product card already covers.
+  const cr = await engine.upsertCreator({ name: "C", email: "c4@example.com", tier: "micro", followers: 0, nowISO });
+  const pol = await promo.getPolicy(brandId, nowISO);
+  assert.equal((await promo.claimProduct({ creatorId: cr.id, product, policy: pol, brandName: "MarketWar", nowISO })).ok, true);
+  assert.equal((await engine.listProgrammes(brandId)).length, 2, "one typed in, one minted by the claim");
+
+  const joinable = await promo.claimableProgrammes(brandId, pol);
+  assert.deepEqual(joinable.map((g) => g.name), ["MarketWar"], "the hand-created one must be joinable, the minted one must not be listed twice");
+  assert.equal(joinable[0].scope, "brand");
+
+  // And it reaches cross-brand discovery, which is where a new creator looks.
+  const brands = await promo.discoverable();
+  const mine = brands.find((b) => b.brandId === brandId);
+  assert.ok(mine, "the brand must appear in discovery");
+  assert.equal(mine.programmes.length, 1);
+  assert.equal(mine.products.length, 1, "the product is still listed on its own card");
+});
+
+test("a programme with nowhere to send traffic is never offered", async () => {
+  // A tracked code pointing at nothing is a dead link on somebody's post — a
+  // worse outcome than not being listed.
+  promo.__resetPromotable();
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  await promo.setPolicy({ brandId: "b_nodest", mode: "open_catalogue", nowISO });
+  await engine.createProgramme({ brandId: "b_nodest", brandName: "N", name: "No destination", scope: "brand", target: "N", product: "N", description: "d", nowISO });
+  const pol = await promo.getPolicy("b_nodest", nowISO);
+  assert.deepEqual(await promo.claimableProgrammes("b_nodest", pol), []);
+
+  // A paused one is not offered either, and mission-only brands offer nothing.
+  const live = await engine.createProgramme({ brandId: "b_nodest", brandName: "N", name: "Live", scope: "brand", target: "L", product: "L", description: "d", destinationUrl: "https://n.test", nowISO });
+  assert.equal((await promo.claimableProgrammes("b_nodest", pol)).length, 1);
+  await engine.setProgrammeActive(live.id, false, nowISO);
+  assert.deepEqual(await promo.claimableProgrammes("b_nodest", pol), [], "a paused programme must leave discovery");
+
+  await engine.setProgrammeActive(live.id, true, nowISO);
+  const missionOnly = await promo.setPolicy({ brandId: "b_nodest", mode: "mission_only", nowISO });
+  assert.deepEqual(await promo.claimableProgrammes("b_nodest", missionOnly), [], "a mission-only brand offers nothing self-serve");
+});

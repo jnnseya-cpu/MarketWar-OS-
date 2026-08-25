@@ -21,6 +21,7 @@ type WalletData = {
 };
 type Sub = { code: string; link: string; programme: string; brand: string; destinationUrl: string };
 type PublicProduct = { id: string; brandId: string; name: string; url: string; pricePence: number; commissionPence: number; ratePct: number; reason: string };
+type PublicProgramme = { id: string; brandId: string; brandName: string; name: string; scope: string; target: string; description: string; ratePct: string };
 type Portal = { partner: { name: string; tier: string; followers: number; followersVerified: boolean; payoutEligible: boolean; scoutScore?: number }; wallet: WalletData; subscriptions: Sub[] };
 
 const money = (n: number) => `£${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -40,6 +41,12 @@ const money = (n: number) => `£${(n || 0).toLocaleString(undefined, { maximumFr
  */
 function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void }) {
   const [products, setProducts] = useState<PublicProduct[] | null>(null);
+  // PROGRAMMES A BRAND CREATED BY HAND, which had no way to reach a creator at
+  // all. Reported from the live dashboard: a brand had four programmes and only
+  // three were reachable, because the other three were minted by claiming a
+  // product and this shelf lists products. The fourth was typed into the create
+  // form, had no product behind it, and was therefore invisible to everybody.
+  const [programmes, setProgrammes] = useState<PublicProgramme[]>([]);
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,32 +57,36 @@ function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void
         const res = await fetch("/api/share2earn?discover=1");
         if (!res.ok) return;
         const d = await res.json();
-        setProducts((d.brands || []).flatMap((b: { products: PublicProduct[] }) => b.products));
+        setProducts((d.brands || []).flatMap((b: { products?: PublicProduct[] }) => b.products || []));
+        setProgrammes((d.brands || []).flatMap((b: { programmes?: PublicProgramme[] }) => b.programmes || []));
       } catch { /* the dashboard works without it */ }
     })();
   }, []);
 
-  async function claim(productId: string) {
-    setBusy(productId); setError(null); setNote(null);
+  async function claim(id: string, kind: "product" | "programme" = "product") {
+    setBusy(id); setError(null); setNote(null);
     try {
       const res = await fetch("/api/share2earn", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "claim", token, productId }),
+        body: JSON.stringify(kind === "programme"
+          ? { action: "claim", token, programmeId: id }
+          : { action: "claim", token, productId: id }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setError(d.error || "Could not claim that."); return; }
-      setNote(d.note);
+      setNote(d.note || (d.subscription ? `Joined ${d.programme?.name || "that programme"} — your tracked link is below.` : null));
       onClaimed();
     } catch { setError("Network error — please try again."); }
     finally { setBusy(""); }
   }
 
   if (!products) return null;
+  const nothing = products.length === 0 && programmes.length === 0;
 
   return (
     <div className="rounded-xl border border-white/10 bg-ink-900/50 p-5">
       <h2 className="mb-1 flex items-center gap-2 font-display font-bold text-white"><Store className="h-4 w-4 text-emerald-400" /> Claim something to promote</h2>
-      {products.length === 0 ? (
+      {nothing ? (
         <p className="text-sm text-slate-400">No brand has opened a self-serve catalogue yet. When one does, its products appear here and you can take a tracked link without asking anyone.</p>
       ) : (
         <>
@@ -95,6 +106,27 @@ function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void
           </div>
         </>
       )}
+
+      {programmes.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Programmes you can join</p>
+          <p className="mb-2 text-xs text-slate-400">A brand set these up itself rather than listing a single product. Joining issues a tracked link the same way.</p>
+          <div className="space-y-2">
+            {programmes.map((g) => (
+              <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-ink-950/40 p-3 text-sm">
+                <div>
+                  <p className="font-semibold text-white">{g.name}</p>
+                  <p className="text-xs text-slate-500">{g.brandName} · {g.scope === "brand" ? "the whole brand" : g.target} · you earn {g.ratePct} of eligible net value per verified sale</p>
+                </div>
+                <button onClick={() => void claim(g.id, "programme")} disabled={busy === g.id} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60">
+                  {busy === g.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Join
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {note && <p className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-xs leading-relaxed text-emerald-200">{note}</p>}
       {error && <p className="mt-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3 text-xs text-rose-200">{error}</p>}
     </div>

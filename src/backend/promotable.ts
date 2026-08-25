@@ -39,7 +39,7 @@ import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { economicsFor, capacityFromTransaction, type OfferEconomics, type Economics } from "@/backend/profit-guard-economics";
 import { netEligibleValue, productEligible, type Eligibility } from "@/backend/share2earn";
-import { createProgramme, subscribe, listProgrammes, type Subscription } from "@/backend/creator-engine";
+import { createProgramme, subscribe, listProgrammes, getProgramme, type ProgrammeScope, type Subscription } from "@/backend/creator-engine";
 import { SHARE2EARN_RATE, ratePct } from "@/shared/creator-program";
 
 // ---------------------------------------------------------------------------
@@ -404,16 +404,60 @@ export async function openCatalogue(brandId: string, nowISO: string): Promise<Pu
   return products.filter((p) => p.decision.open).map((p) => publicView(p.product, p.decision));
 }
 
+/** A programme a creator can join directly, without a product behind it. */
+export type PublicProgramme = {
+  id: string; brandId: string; brandName: string; name: string;
+  scope: ProgrammeScope; target: string; description: string; ratePct: string;
+};
+
+/**
+ * PROGRAMMES A CREATOR CAN JOIN, as opposed to products they can claim.
+ *
+ * THE HOLE THIS CLOSES, reported from the live dashboard: a brand had four
+ * programmes and only three were reachable. Three of them were minted by
+ * `claimProduct` and each has a product card in the catalogue, so a creator can
+ * find them. The fourth — scope "brand", created by hand on the Partner Network
+ * screen — had NO product behind it, and discovery lists products. It was
+ * therefore invisible to every creator on the platform, and the only way in was
+ * the brand pressing "Subscribe partner" for somebody by hand.
+ *
+ * A programme a brand deliberately created is the clearest possible statement
+ * that it wants creators on it. Leaving it unreachable made the create form a
+ * button that produced nothing anybody could act on.
+ *
+ * The auto-minted ones are EXCLUDED here rather than listed twice: their product
+ * card already carries the price and the commission, which is more than this
+ * shape can say.
+ */
+export async function claimableProgrammes(brandId: string, policy: PromotionPolicy): Promise<PublicProgramme[]> {
+  if (policy.mode === "mission_only") return [];
+  const productNames = new Set((await listProducts(brandId)).map((p) => p.name));
+  const programmes = await listProgrammes(brandId);
+  return programmes
+    .filter((prog) => prog.active !== false)
+    // A code with nowhere to go is worse than no code — it is a dead link on
+    // somebody's post.
+    .filter((prog) => /^https?:\/\//i.test((prog.destinationUrl || "").trim()))
+    // Already represented by its own product card.
+    .filter((prog) => !productNames.has(prog.target))
+    .map((prog) => ({
+      id: prog.id, brandId: prog.brandId, brandName: prog.brandName, name: prog.name,
+      scope: prog.scope, target: prog.target,
+      description: prog.description,
+      ratePct: ratePct(SHARE2EARN_RATE),
+    }));
+}
+
 /**
  * DISCOVERY — what is claimable anywhere right now.
  *
  * A creator who has just joined has no brand in mind, and a catalogue nobody
  * can find is a catalogue nobody claims from. This is the cross-brand view: the
- * brands that opened a catalogue, and only the products that pass both gates,
- * in the public shape. Brands in `mission_only` never appear here at all —
- * their missions are the way in, by their own choice.
+ * brands that opened a catalogue, the products that pass both gates, AND the
+ * programmes the brand created by hand. Brands in `mission_only` never appear
+ * here at all — their missions are the way in, by their own choice.
  */
-export async function discoverable(limit = 60): Promise<{ brandId: string; mode: PromotionMode; products: PublicProduct[] }[]> {
+export async function discoverable(limit = 60): Promise<{ brandId: string; mode: PromotionMode; products: PublicProduct[]; programmes: PublicProgramme[] }[]> {
   let policies: PromotionPolicy[];
   if (useDb()) {
     const q = await adminDb!.collection("promotion_policies").where("mode", "!=", "mission_only").limit(limit).get();
@@ -421,13 +465,16 @@ export async function discoverable(limit = 60): Promise<{ brandId: string; mode:
   } else {
     policies = [...memPolicy.values()].filter((p) => p.mode !== "mission_only").slice(0, limit);
   }
-  const out: { brandId: string; mode: PromotionMode; products: PublicProduct[] }[] = [];
+  const out: { brandId: string; mode: PromotionMode; products: PublicProduct[]; programmes: PublicProgramme[] }[] = [];
   for (const policy of policies) {
     const products = (await listProducts(policy.brandId))
       .map((product) => ({ product, decision: promotionDecision(product, policy) }))
       .filter((p) => p.decision.open)
       .map((p) => publicView(p.product, p.decision));
-    if (products.length) out.push({ brandId: policy.brandId, mode: policy.mode, products });
+    const programmes = await claimableProgrammes(policy.brandId, policy);
+    // A brand with neither is not shown — an empty card teaches a creator to
+    // stop scrolling.
+    if (products.length || programmes.length) out.push({ brandId: policy.brandId, mode: policy.mode, products, programmes });
   }
   return out;
 }
