@@ -31,10 +31,10 @@ import {
 } from "@/backend/payout-approvals";
 import {
   PROMOTION_MODES, PROMOTION_DOCTRINE, catalogue, openCatalogue, setPolicy, saveProduct,
-  getProduct, getPolicy, claimProduct, promotionDecision, discoverable, setProductPaused, deleteProduct,
+  getProduct, getPolicy, claimProduct, promotionDecision, discoverable, setProductPaused, deleteProduct, claimableProgrammes,
 } from "@/backend/promotable";
 import { joinShare2Earn, JOIN_DOCTRINE, bandFor } from "@/backend/share2earn-signup";
-import { getCreator, getCreatorByToken, listSubscriptions } from "@/backend/creator-engine";
+import { getCreator, getCreatorByToken, listSubscriptions, getProgramme, subscribe } from "@/backend/creator-engine";
 import { SIGNUP_DOORS, UPGRADE_PATH } from "@/shared/creator-program";
 import { getBrandById } from "@/backend/brand-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
@@ -76,7 +76,9 @@ export async function GET(req: NextRequest) {
     const brands = await discoverable();
     return NextResponse.json({
       brands,
-      claimable: brands.reduce((n, b) => n + b.products.length, 0),
+      claimable: brands.reduce((n, b) => n + b.products.length + b.programmes.length, 0),
+      claimableProducts: brands.reduce((n, b) => n + b.products.length, 0),
+      claimableProgrammes: brands.reduce((n, b) => n + b.programmes.length, 0),
       doors: SIGNUP_DOORS,
       doctrine: PROMOTION_DOCTRINE,
     });
@@ -91,6 +93,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       mode: policy.mode,
       products: await openCatalogue(promotable, nowISO),
+      // Programmes the brand created by hand. Three of this brand's four were
+      // reachable before this: the auto-minted ones have product cards, and the
+      // one somebody typed in had nothing behind it and was invisible.
+      programmes: await claimableProgrammes(promotable, policy),
       doctrine: PROMOTION_DOCTRINE,
       note: policy.mode === "mission_only"
         ? "This brand promotes by mission only — there is no self-serve catalogue here. Its missions carry the reward and the funded budget."
@@ -295,6 +301,23 @@ export async function POST(req: NextRequest) {
         links: await listSubscriptions(me),
         upgradePath: UPGRADE_PATH,
       });
+    }
+
+    // JOIN A PROGRAMME the brand created by hand. Same identity rules as a
+    // product claim — the creator comes from the credential, never the body.
+    if (str("programmeId")) {
+      const prog = await getProgramme(str("programmeId"));
+      if (!prog || prog.active === false) return NextResponse.json({ error: "That programme is not open." }, { status: 404 });
+      const policy = await getPolicy(prog.brandId, nowISO);
+      const open = await claimableProgrammes(prog.brandId, policy);
+      // Re-derived rather than trusted: a programme id posted straight at this
+      // route must pass the same gate the listing applied.
+      if (!open.some((x) => x.id === prog.id)) {
+        return NextResponse.json({ error: "That programme is not open to self-serve joining. Its brand promotes by mission, or the programme has no destination set." }, { status: 403 });
+      }
+      const sub = await subscribe(me, prog.id, nowISO);
+      if (!sub.subscription) return NextResponse.json({ error: sub.error || "Could not issue a tracked code." }, { status: 400 });
+      return NextResponse.json({ ok: true, subscription: sub.subscription, programme: { id: prog.id, name: prog.name, brandName: prog.brandName } });
     }
 
     const product = await getProduct(str("productId"));
