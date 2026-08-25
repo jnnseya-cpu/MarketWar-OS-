@@ -27,28 +27,82 @@ export const CREATOR_TIERS: CreatorTier[] = [
 // • A creator can subscribe to between 1 and 100 programmes (one per product/
 //   brand campaign they want to promote), and gets a unique code/link PER
 //   subscribed programme.
-// • Payout gate: a creator is only PAID once they have at least 10,000 followers
-//   totalled across all their social platforms + YouTube. Below that they can
-//   still promote and accrue, but nothing is paid out.
+// • NO FOLLOWER GATE ON CASH (owner ruling, 2026-08-25, superseding the original
+//   10,000-follower payout gate). The two rulings had been live together and
+//   contradicted each other on the SAME SCREEN: the partner dashboard showed
+//   "Pending (to 10K)" and "you're on the ACU referral programme" directly above
+//   "SHARE2EARN — 0.5%. Open to everyone. No follower count, no application, no
+//   audience test." The public page, the apply form, the band table and the
+//   outreach copy all sold the second one; only the engine implemented the
+//   first, so a SHARE2EARN creator's cash sat in "pending" for ever.
+//
+//   The gate is replaced by a MINIMUM WITHDRAWAL, which is the control that was
+//   actually wanted: it stops a payout rail's fee eating a 40p balance without
+//   telling anybody they are too small to earn. Money only exists here when a
+//   real sale settled and the brand paid for it, and the abuse the follower gate
+//   was aimed at is covered by the hold, the void handling and payout-trust.ts.
+//
+//   10,000 followers still MATTERS — it is what moves a creator to the 1% band.
+//   It is a rate threshold, not a permission to be paid.
 // • Per referred user: the creator earns 0.75% of that user's verified revenue
 //   and the platform takes 0.25% (1% total) — UNTIL the creator has earned
 //   £20,000 from that user. After that the split flips: the platform takes the
 //   full 1% for the next £20,000, then commission on that user stops.
+/**
+ * The 1% influencer band's follower threshold.
+ *
+ * NAMED FOR WHAT IT USED TO DO. It was the payout gate until the ruling above
+ * replaced that with a withdrawal minimum, and the name is kept because it is
+ * read in a dozen places — but it now decides a RATE, never whether somebody
+ * may be paid. `INFLUENCER_10K_FOLLOWERS` is the same number under the name
+ * that describes it.
+ */
 export const MIN_PAYOUT_FOLLOWERS = 10_000;
+export const INFLUENCER_10K_FOLLOWERS = MIN_PAYOUT_FOLLOWERS;
+
+/**
+ * The smallest amount that can be withdrawn.
+ *
+ * Every rail charges per payment — a 40p withdrawal costs more to send than it
+ * is worth, and a creator who receives 12p after fees learns something worse
+ * about the programme than one who is asked to reach £20 first. It delays a
+ * payment; it never refuses an earning, and the balance is the creator's the
+ * whole time.
+ */
+export const MIN_WITHDRAWAL_GBP = 20;
 export const MIN_PROGRAMMES = 1;
 export const MAX_PROGRAMMES = 100;
-// Sub-10K referral programme: partners below the gate earn ACUs per referral
-// (usable to create a brand + advertise), and AUTO-SWITCH to the main cash
-// programme once they reach 10K verified followers.
+/**
+ * ACUs awarded per referred customer to a creator on the SHARE2EARN band.
+ *
+ * These used to be paid INSTEAD of cash, which is what made the follower gate
+ * visible on the dashboard. They are now paid AS WELL — nobody loses what they
+ * had, and the population that receives them is unchanged.
+ */
 export const SUB10K_ACU_PER_REFERRAL = 250;
 
 export type ProgrammeAssignment = "main" | "acu_referral";
-// Which programme a partner belongs to right now. Main (cash 0.75%) when the
-// 10K gate is met, an admin admitted them, or they've proven 5+ conversions;
-// otherwise the ACU referral programme.
-export function programmeFor(input: { followers: number; verified: boolean; adminOverride?: boolean; provenConversions?: boolean }): ProgrammeAssignment {
-  const gate = input.followers >= MIN_PAYOUT_FOLLOWERS && input.verified;
-  return gate || input.adminOverride || input.provenConversions ? "main" : "acu_referral";
+
+/**
+ * Which programme a partner belongs to right now.
+ *
+ * ALWAYS THE CASH PROGRAMME since the ruling above. The argument is kept —
+ * callers pass what they know and the shape of the answer has not changed — and
+ * `acu_referral` remains a valid assignment so that nothing which stored it
+ * breaks, but nobody is placed in it as a substitute for being paid.
+ */
+export function programmeFor(_input: { followers: number; verified: boolean; adminOverride?: boolean; provenConversions?: boolean }): ProgrammeAssignment {
+  return "main";
+}
+
+/** May this balance be withdrawn yet? A delay, never a refusal to earn. */
+export function withdrawable(payableGbp: number): { ok: boolean; reason: string } {
+  const p = Math.max(0, payableGbp);
+  if (p <= 0) return { ok: false, reason: "No payable balance — everything earned so far has already been paid." };
+  if (p < MIN_WITHDRAWAL_GBP) {
+    return { ok: false, reason: `£${p.toFixed(2)} is yours and stays yours. Withdrawals start at £${MIN_WITHDRAWAL_GBP}, because every rail charges per payment and a smaller one would cost more to send than it is worth.` };
+  }
+  return { ok: true, reason: "" };
 }
 // ---------------------------------------------------------------------------
 // THE COMMISSION LADDER — the one place any payout rate is written down.

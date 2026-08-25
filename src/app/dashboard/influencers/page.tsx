@@ -13,7 +13,7 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
-import { COMMISSION_MODEL, computeCreatorSplit, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K, SHARE2EARN_RATE } from "@/shared/creator-program";
+import { COMMISSION_MODEL, computeCreatorSplit, MIN_PAYOUT_FOLLOWERS, MIN_WITHDRAWAL_GBP, MAX_PROGRAMMES, ratePct, INFLUENCER_RATE_10K, INFLUENCER_RATE_5K, SHARE2EARN_RATE } from "@/shared/creator-program";
 
 type Profile = { profile: string; why: string; whereToFind: string; suggestedTier: string; searchTerms: string[] };
 type Result = { mode: "live" | "scaffold"; business: string; angle: string; profiles: Profile[]; outreachOpener: string; note: string };
@@ -143,7 +143,7 @@ export default function InfluencersPage() {
             <div className="rounded-lg border border-white/[0.08] bg-ink-900/50 p-3"><p className="text-xs text-slate-400">Platform earns</p><p className="font-display text-xl font-bold text-white">£{split.platformGbp.toLocaleString()}</p></div>
           </div>
           <p className="mt-2 text-xs text-slate-500">{split.note}</p>
-          <p className="mt-1 text-[11px] text-slate-600">Payout requires the creator to have {MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ total followers.</p>
+          <p className="mt-1 text-[11px] text-slate-600">{MIN_PAYOUT_FOLLOWERS.toLocaleString()}+ verified followers sets the {ratePct(INFLUENCER_RATE_10K)} band. It is not a payout gate — every creator is paid cash on verified sales from the first one, with withdrawals starting at £{MIN_WITHDRAWAL_GBP}.</p>
         </div>
       </div>
 
@@ -157,7 +157,7 @@ export default function InfluencersPage() {
             {partners.map((p) => (
               <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-3 text-sm">
                 <div><p className="font-semibold text-white">{p.name}</p><p className="text-xs text-slate-500">{p.followers.toLocaleString()} followers · {p.tier}{p.scoutScore != null ? ` · Scout ${p.scoutScore}` : ""}</p></div>
-                {p.payoutEligible ? <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />payable</Pill> : <Pill tone="warn">accruing (sub-10K)</Pill>}
+                <Pill tone="good"><CheckCircle2 className="mr-1 inline h-3 w-3" />payable</Pill>
               </div>
             ))}
           </div>

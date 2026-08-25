@@ -19,7 +19,7 @@ export type PartnerApplication = {
   tier: PartnerTier;
   programmes: number;     // how many programmes (1–100) they subscribe to
   followers: number;      // total followers across all socials + YouTube
-  payoutEligible: boolean; // followers >= 10k gate
+  payoutEligible: boolean; // always true — the 10k gate decides the BAND, not payout
   name: string;
   email: string;
   audience: string;   // where they have reach (channels + size)
@@ -48,7 +48,7 @@ export async function savePartnerApplication(
     tier: input.tier,
     programmes: input.programmes,
     followers: input.followers,
-    payoutEligible: input.followers >= 10_000,
+    payoutEligible: true,
     name: input.name,
     email: input.email,
     audience: input.audience,
