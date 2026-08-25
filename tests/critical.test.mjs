@@ -2508,3 +2508,57 @@ test("no runbook still points Stripe at a host the code does not name", async ()
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// A machine lane matched on the PATH refused the humans who share it.
+//
+// Surfaced by opening a webhook URL in a browser and getting: "This path is a
+// machine lane and the request carried no provider signature." That one is
+// expected. Pulling the thread found three real failures behind the same rule:
+//
+//   1. /api/inbound is BOTH the mail provider's delivery endpoint AND what
+//      /dashboard/inbox reads and writes through. Matched on the prefix alone,
+//      the lane refused every request the dashboard made. The whole page was
+//      dead in enforced mode.
+//   2. Meta's webhook verification is a GET carrying hub.verify_token and no
+//      signature header, so it was refused before it could reach the check that
+//      authenticates it. The Meta webhook could never be verified.
+//   3. The Stripe route's own diagnostic GET was unreachable for the same
+//      reason — while we were using it to diagnose the Stripe webhook.
+//
+// The module's doctrine says every request must be attributable "either to a
+// verified human session or to a machine we invited". This branch only ever
+// answered the second half.
+// ---------------------------------------------------------------------------
+test("a signed-in person is not refused just for using a path a machine also uses", async () => {
+  const binding = "bind";
+  const now = 1_800_000_000_000;
+  const base = { binding, now, env: { HUMAN_CHECK_SECRET: "x" } };
+  const session = await gate.issueSession(binding, now);
+
+  // The dashboard inbox: a real session, on the mail provider's own path.
+  const read = await gate.decide({ ...base, path: "/api/inbound", cookie: session.value, method: "GET" });
+  assert.equal(read.allow, true, "the inbox page was refused by a rule about the mail provider");
+  assert.equal(read.lane, "human", "an attributable person must be judged as a person, not as a failed machine");
+
+  const write = await gate.decide({ ...base, path: "/api/inbound", cookie: session.value, method: "POST" });
+  assert.equal(write.allow, true, "marking a message read is the same person on the same path");
+
+  // A Firebase bearer token counts too — that is how authedFetch identifies.
+  assert.equal((await gate.decide({ ...base, path: "/api/inbound", cookie: "", authorization: "Bearer id-token", method: "POST" })).allow, false,
+    "a bearer alone is not a human session — it falls through and is judged, not waved past");
+
+  // AND THE REFUSAL STILL STANDS for what it was written for: an anonymous
+  // script with no session, no bearer and no signature.
+  const script = await gate.decide({ ...base, path: "/api/inbound", cookie: "", method: "POST" });
+  assert.equal(script.allow, false, "an uninvited script must still have no lane");
+  assert.equal(script.lane, "machine");
+  assert.match(script.reason, /no provider signature/i);
+
+  // A stale session on a machine path is refused as a stale session — by the
+  // human evaluation, with a reverify action — rather than as a missing
+  // signature, which would send the person to fix the wrong thing.
+  const stale = await gate.decide({ ...base, path: "/api/inbound", cookie: (await gate.issueSession(binding, now - gate.SESSION_TTL_MS - 60_000)).value, method: "POST" });
+  assert.equal(stale.allow, false);
+  assert.equal(stale.lane, "human", "the reason given must be the real one");
+});

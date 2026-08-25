@@ -54,6 +54,9 @@ export async function middleware(req: NextRequest) {
     binding: await bindingFor(req),
     authorization: req.headers.get("authorization"),
     hasProviderSignature: SIGNATURE_HEADERS.some((h) => Boolean(req.headers.get(h))),
+    // A machine lane judges a safe READ differently from a write: a provider's
+    // verification handshake arrives as a GET with no signature.
+    method: req.method,
   });
 
   // The decision travels with the request whether or not it blocked, so the
