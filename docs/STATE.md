@@ -3,9 +3,9 @@
 **This file describes where things stand right now. It is REPLACED, never
 appended to.** If you read one document about this platform, read this one.
 
-Two companions, neither a replacement: `docs/GROWTH-ENGINE-COVERAGE.md` answers
-"has the 113-section PRD been built?", and `docs/REQUIREMENTS-COVERAGE.md` is the
-4,800-line history, for archaeology only. Last updated: 2026-08-23.
+Companions: `GROWTH-ENGINE-COVERAGE.md` answers "has the 113-section PRD been
+built?"; `REQUIREMENTS-COVERAGE.md` is the history, for archaeology only.
+Last updated: 2026-08-25.
 
 ---
 
@@ -13,17 +13,16 @@ Two companions, neither a replacement: `docs/GROWTH-ENGINE-COVERAGE.md` answers
 
 An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
-**AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com, enterprise
-programme intelligence).
+**AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com).
 
-Next.js, TypeScript strict, three layers (`backend`/`frontend`/`shared`) enforced
-by `scripts/check-layers.mjs`. 220 backend modules, 47 shared, 170 API routes, 67
-dashboard pages, **1,457 tests** including one end-to-end run of the growth loop.
+Next.js, TypeScript strict, three layers enforced by `scripts/check-layers.mjs`.
+220 backend modules, 170 API routes, 67 dashboard pages, **1,521 tests**
+including one end-to-end run of the growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
-the dev branch is identical except for the **Next 15 / React 19** upgrade —
-diffing them returns only the package files, `next.config.mjs` and the eight
-files that await `params`. See §5 item 1.
+dev is identical but for the **Next 15 / React 19** upgrade — a diff returns only
+the package files, `next.config.mjs` and the files that await `params`. See §5
+item 2.
 
 ---
 
@@ -36,12 +35,11 @@ and states the cause from the counts alone; with nothing sent, the diagnosis is
 not the product, the price, the site or the copy, because none has been in front
 of a buyer. **And see §5 item 1: mail could not have arrived even if sent.**
 
-`docs/GO-TO-MARKET-MarketWar-OS.pdf` (`.docx`) is the plan for changing that
-number — locked launch city, five segments, the real price table, 30/60/90 with
-failable exit criteria. `docs/FACEBOOK-LAUNCH-CAMPAIGN.docx` is the paste-ready
-first campaign (§5 item 6). `npm run gtm:doc` / `ads:doc` rebuild them; both
-parse their prices and the **12 tools a buyer otherwise pays for separately**
-(`shared/included-tools.ts`) out of `src/`, so neither can print a stale number.
+`GO-TO-MARKET-MarketWar-OS.docx` is the plan for changing it — locked launch
+city, five segments, the real price table, 30/60/90 with failable exit criteria.
+`FACEBOOK-LAUNCH-CAMPAIGN.docx` is the paste-ready first campaign (§5 item 6).
+Every doc build parses its prices and the **12 tools a buyer otherwise pays for
+separately** out of `src/`, so none can print a stale number.
 
 ---
 
@@ -57,22 +55,21 @@ No provider, no card, no configuration:
   would otherwise have read the cloud metadata service for anyone who asked.
 - **The client approval portal** (`/portal/[token]`) — a signed, single-item,
   expiring link an outside client opens with no account.
-- **The screen recorder puts the presenter IN the file** — screen and camera
-  composited onto a canvas that *is* the recording, audio mixed to one track.
+- **The screen recorder puts the presenter IN the file** — composited onto a
+  canvas that *is* the recording, audio mixed to one track.
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin
   arithmetic**, the **paid-media guardrails**, the **payout engine** (nine rails,
   quoted before money moves) and the **emergency stop** (five lanes;
   transactional mail has none) — every refusal computed, never guessed.
 - **The publication ledger** — a publish whose response is lost is uncertain, and
   the next attempt asks the channel rather than posting twice.
-- **The eight pre-publish checks** (one that cannot run never passes), **channel
-  health**, **versions and restore**, **creative fatigue**, **the audit log**,
-  **the generation cache**, **teams** (ten roles), **Sentinel**, **splash
-  screens**, **13 blog articles and 14 answer pages**.
+- **The eight pre-publish checks**, **channel health**, **versions and restore**,
+  **creative fatigue**, **the audit log**, **the generation cache**, **teams**
+  (ten roles), **Sentinel**, **13 blog articles and 14 answer pages**.
 
-**Built in the 2026-08-21/22 audit** — eleven PRD sections (§32, §38, §41, §70,
-§89, §92, §95, §97, §98, §102, §103); behaviour in `GROWTH-ENGINE-COVERAGE.md`.
-**Each refuses to produce a number or an action it cannot stand behind.**
+**Built in the 2026-08-21/22 audit** — eleven PRD sections; behaviour in
+`GROWTH-ENGINE-COVERAGE.md`. **Each refuses to produce a number it cannot stand
+behind.**
 
 ---
 
@@ -84,11 +81,10 @@ table over it.
 | Capability | One action |
 |---|---|
 | AI, images, video | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` |
-| Taking money | `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` |
-| Persistence | `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` |
-| **Sending email** | the sending pool with verified DNS, or `RESEND_API_KEY` / `SENDGRID_API_KEY`. **Until one is set, every send is REFUSED and reported as not sent** — it used to return success for mail delivered to nobody. `GET /api/email` says whether anything will arrive. |
 | Scheduled work | `CRON_SECRET` · Newsletter: `NEWSLETTER_SECRET` |
+| **Sending email** | the sending pool with verified DNS, or `RESEND_API_KEY` / `SENDGRID_API_KEY`. **Until one is set every send is REFUSED and reported as not sent** — it used to return success for mail delivered to nobody. |
 | **Client approval links** | **`PORTAL_LINK_SECRET`** (16+ chars). Refuses to ISSUE without it — a link that verifies on one server and fails on every other makes the agency look broken to their own customer. |
+| Stripe, Firebase Admin | Both configured and verified live. |
 
 ---
 
@@ -100,59 +96,64 @@ table over it.
 Whether the server ACCEPTS them is unchecked; this container cannot reach the
 live site. **To close: open `GET /api/health/email`** — it runs a real SMTP
 conversation and names the stage it failed at. If that passes and mail still
-does not arrive, look upstream: routes fail closed while Firebase Admin is not
-initialising, and a refused route never reaches a send.
+does not arrive, read the response body of a failed send rather than assuming a
+cause.
 
-**2. RE-LAND NEXT 15. The one with a clock on it.** Next 14 gets no security
-patches: 21 advisories apply to 14.2.35 — App Router XSS, RSC cache poisoning,
-SSRF in rewrites, middleware bypass — all fixed only in 15.5.x+. Built and green
-on the dev branch (15.5.23, React 19.2.8); rolled off 2026-08-21 during a live
-`/verify-human` failure as a precaution, NOT because it was proved to be the
-cause. **To close:** deploy the dev branch to a Vercel preview, open
+**2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to
+14.2.35 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware
+bypass — all fixed only in 15.5.x+. Built and green on the dev branch; rolled off
+2026-08-21 during a live `/verify-human` failure as a precaution, NOT because it
+was proved to be the cause. **To close:** deploy dev to a Vercel preview, open
 `/api/auth/human` and `/verify-human`, and if both answer, merge.
 
-**3. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
-creator's click to the account that signs up (last touch, 90 days, consent
--tiered). Nothing posts a commission when that account PAYS US. Record, ledger
-and payout rails all exist; the hook does not — and must not be faked with a
-zero-value ledger event, which bypasses the 10k gate.
+**FIREBASE ADMIN IS LIVE.** Confirmed 2026-08-25: `/api/health/auth` returns
+`configured: true`, `initError: null`, valid PEM, project match, Identity Toolkit
+passing. Earlier sessions carried "Admin is not initialising" as a standing
+assumption and hung several diagnoses off it. It was WRONG — check the endpoint,
+never inherit the belief.
+
+**3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid and
+`STRIPE_WEBHOOK_SECRET` set, so the easy causes are out. Left: (a) the wrong
+`whsec_` — that account has SEVEN endpoints, each with its own; (b) the URL —
+`MAIN_DOMAIN` is the APEX while the app serves `www.`, and Stripe does not follow
+redirects. **To close: `/api/health/stripe` → `webhookDiagnostic.endpointUrl`,**
+then read a failed event's response body in Stripe.
+
+**4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
+creator's click to the account that signs up (last touch, 90 days,
+consent-tiered). Nothing posts a commission when that account PAYS US — and it
+must not be faked with a zero-value ledger event, which bypasses the 10k gate.
 
 **Owner actions (nothing in code can substitute):**
-3. `HUMAN_CHECK_SECRET`, or the human gate signs with a per-process key and stays
-   in observe mode. `PORTAL_LINK_SECRET` for approval links, `NEWSLETTER_SECRET`
-   for the weekly send.
+3. `PORTAL_LINK_SECRET`, `NEWSLETTER_SECRET`. (`HUMAN_CHECK_SECRET` is set.)
 4. Open `/api/capabilities` on the live deployment; submit the sitemap.
 5. **Send the first ten messages.** `/dashboard/acquisition` has the text per
    brand, with only the blanks a sender knows.
-6. **Run the first Facebook campaign.** `docs/FACEBOOK-LAUNCH-CAMPAIGN.docx`
-   (`npm run ads:doc`): Traffic objective — NOT Awareness, and §0 argues it —
-   three ad sets, six adverts, creative briefs. Build the five custom audiences
-   FIRST; they cannot be backfilled. `npm run ads:verify` fails if a price or the
-   public audit changes, and then the adverts must come down.
+6. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
+   (`npm run ads:doc`): Traffic, not Awareness, and §0 argues it. Build the five
+   custom audiences FIRST — they cannot be backfilled. `PITCH-CREATIVES.docx`
+   (`npm run pitch:doc`) is the five feature creatives with image briefs; both
+   verifiers fail the build on a stale price or an invented customer.
 
-**Surfaces: six of seven built** — `/dashboard/` activity (§70), find (§92),
-discover (§95), admin KPIs (§98), chains (§102), autopilot (§103).
+**Surfaces: six of seven built** — activity (§70), find (§92), discover (§95),
+admin KPIs (§98), chains (§102), autopilot (§103).
 
 **Genuinely not built:**
 
-- §97's priority queue, DELIBERATELY: it ranks on five inputs that need a stated
-  basis nothing produces — it would be a panel of refusals beside the working
-  "next best action".
-- §50 autonomous paid boost — the staged organic → small paid → scale ladder.
-- §77 content knowledge graph — facts are key/value, no typed entities or edges.
-- §80 agent message bus — chains are sequential by construction, a deliberate
-  simplification rather than an oversight.
-- §14 calendar views, §21 carousel controls, §100 per-agent task/cost/impact.
-- No bulk catalogue import; `matchProgrammes` has an API route and no discovery
-  surface, and there is no public page listing what brands have opened, so a
-  promoter must sign up before they can see anything to promote. (Task 13.)
+- §97's priority queue, DELIBERATELY: five inputs that need a stated basis
+  nothing produces — a panel of refusals beside the working "next best action".
+- §50 autonomous paid boost; §77 content knowledge graph (facts are key/value);
+  §80 agent message bus (chains are sequential by construction, deliberately);
+  §14 calendar views, §21 carousel controls, §100 per-agent cost/impact.
+- No bulk catalogue import, and no PUBLIC page listing what brands have opened —
+  a promoter must sign up before they can see anything to promote. (Programmes
+  and products are now both discoverable once inside; Task 13.)
 
 **Security debt, with the reasoning:**
 
 - 6 moderate npm advisories, one chain (uuid → … → firebase-admin), left
   deliberately: npm's "fix" is a four-major downgrade of firebase-admin, and the
-  advisory covers uuid v3/v5/v6 with a buffer while both consumers call only
-  `v4()` without one. Unreachable path.
+  advisory covers uuid v3/v5/v6 with a buffer that neither consumer passes.
 - The rate limiter is per-instance BY DESIGN and `guard.ts` says why. Money is
   protected by what counts pounds: the ACU wallet and `ai-spend.ts`'s now-SHARED
   monthly ceiling.
@@ -178,8 +179,7 @@ seven surfaces with no way to take work away; the ad canvas with no upload; an
 intent router nothing called.
 
 **When something looks broken, check the boundary before the logic — and when a
-success is reported, check that something actually happened.**
-**And a second class, about tests rather than code: a check that passes — or
+success is reported, check that something actually happened.****And a second class, about tests rather than code: a check that passes — or
 FAILS — for a reason unrelated to what it tests.** TEN now: greps proved the
 recorder's parts existed, not that they were wired, then the same mistake proved
 the audit "sends" mail; a prefix check cannot catch a mid-word cut, because a
