@@ -62,7 +62,11 @@ function formEncode(params: Record<string, string>): string {
 // Stripe Checkout Session stamped with metadata.marketwar_topup + the ACU
 // quantity, so the webhook credits the customer's ACU wallet on payment. No
 // discount (the 4× provider-cost recovery must stay protected). Demo-safe.
-export async function createTopupCheckout(input: { amountGbp: number; acus: number; orgId?: string; planId?: string }): Promise<CheckoutResult & { acus: number }> {
+// NOTE: no `acus` parameter. The count is DERIVED from the amount below and
+// stamped into the metadata, so a caller cannot ask for more ACUs than they are
+// paying for. It used to be accepted and then ignored, which is a loaded gun
+// left for whoever next "fixes" the unused argument by honouring it.
+export async function createTopupCheckout(input: { amountGbp: number; orgId?: string; planId?: string }): Promise<CheckoutResult & { acus: number }> {
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
   // SERVER-AUTHORITATIVE ACU quantity: never trust the client's `acus` (it can be
   // decoupled from the charge → pay £1, claim 1,000,000 ACUs). £1 = 100 ACUs.

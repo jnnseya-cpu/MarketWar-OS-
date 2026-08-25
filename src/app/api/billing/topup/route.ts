@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTopupCheckout } from "@/backend/checkout";
-import { ACU_PER_GBP } from "@/backend/acu";
 import { MIN_TOPUP_GBP } from "@/backend/subscription";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 
@@ -27,7 +26,14 @@ export async function POST(req: NextRequest) {
   if (amountGbp < MIN_TOPUP_GBP) {
     return NextResponse.json({ error: `The minimum top-up is £${MIN_TOPUP_GBP}. Smaller amounts are consumed by payment fees.` }, { status: 400 });
   }
-  const acus = typeof body.acus === "number" && body.acus > 0 ? Math.round(body.acus) : Math.round(amountGbp * ACU_PER_GBP);
+  // HOW MANY ACUs IS NOT THE CLIENT'S TO SAY.
+  //
+  // This read `body.acus` and passed it on. It was saved only by the checkout
+  // ignoring the argument and deriving the count from the amount itself — so
+  // the leak was latent, not absent: honouring that unused parameter, which is
+  // exactly what a tidy-up would do, turns "pay £1" into "get a million ACUs".
+  // The count is derived from the money, at the one place that also sets the
+  // price Stripe charges, and it is not accepted from anywhere else.
 
   // WHOSE WALLET GETS THE ACUs is decided by the session, never by the request.
   // This used to read body.orgId, so the client chose the wallet the webhook
@@ -37,7 +43,7 @@ export async function POST(req: NextRequest) {
   // there is no Admin SDK and uid is null; the checkout still works, and the
   // wallet only activates once accounts are enforced.)
   const result = await createTopupCheckout({
-    amountGbp, acus,
+    amountGbp,
     orgId: auth.uid ?? undefined,
     planId: typeof body.planId === "string" ? body.planId : undefined,
   });
