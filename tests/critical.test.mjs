@@ -2156,3 +2156,66 @@ test("the withdrawal floor delays a payment, and never refuses an earning", asyn
   assert.match(res.reason, /Withdrawals start at £20/);
   assert.doesNotMatch(res.reason, /10,?000|follower/i, "the refusal must not be about followers");
 });
+
+// ---------------------------------------------------------------------------
+// Auto-fill on the Partner Network — the numbers already exist, so stop asking
+// for them twice.
+//
+// Reported live: "ProfitGuard — Price (p) 0.19 … Publish the mission → This
+// mission pays on a sale, so it needs the offer's economics." The catalogue two
+// panels up already held that product at £19.00 with its full economics, and
+// the form made the owner retype all seven in PENCE beside a catalogue printed
+// in POUNDS — so £19 was entered as 0.19 and ProfitGuard was asked what
+// nineteen-hundredths of a penny could afford.
+// ---------------------------------------------------------------------------
+test("the mission form fills its economics from the catalogue, and says what a pence box means", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/components/Share2Earn.tsx", import.meta.url), "utf8");
+
+  // The fill exists and reads the stored offer rather than a typed guess.
+  assert.match(src, /function fillFromProduct/);
+  for (const field of ["pricePence", "cogsPence", "fulfilmentPence", "paymentFeePence", "taxPence", "returnsAllowancePct", "minProtectedMarginPence"]) {
+    assert.match(src, new RegExp(`p\\.offer\\.${field}`), `${field} is not filled from the catalogue`);
+  }
+  // Every pence box echoes itself in pounds — the unit was only in the label,
+  // and a unit that is only in the label is a unit somebody reads once.
+  assert.match(src, /const money2 = /);
+  assert.ok((src.match(/money2\(/g) || []).length >= 6, "each money box must say what it means in pounds");
+
+  // "Already committed" comes from the float's own held total, not from memory.
+  assert.match(src, /d\.heldPence/);
+  assert.match(src, /setCommitted\(String\(d\.heldPence\)\)/);
+
+  // AND "verified contribution generated" is NOT prefilled. The whole 5% ceiling
+  // is computed from it, so a guess in a box labelled "verified" would be the
+  // one number this platform must never invent.
+  // The only thing allowed to write it is the person typing into it. (The first
+  // version of this assertion banned the string `setGenerated(` and caught the
+  // onChange handler — a check failing for a reason unrelated to what it tests,
+  // which is the second defect class this repo tracks.)
+  const writes = src.match(/setGenerated\([^)]*\)/g) || [];
+  assert.deepEqual(
+    [...new Set(writes)].sort(),
+    ["setGenerated(e.target.value)"],
+    "a figure labelled 'verified' must only ever be written by the person typing it",
+  );
+});
+
+test("prefilled forms stop filling the moment somebody types", async () => {
+  const { readFileSync } = await import("node:fs");
+  // A fill that keeps reasserting itself is worse than no fill: it overwrites a
+  // half-finished programme every time the brand context re-renders.
+  for (const [file, flag] of [["../src/app/dashboard/partner-network/page.tsx", "touchedProgramme"], ["../src/components/PromotionCatalogue.tsx", "touched"]]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.match(src, new RegExp(`if \\(!activeBrand \\|\\| ${flag}\\) return;`), `${file} keeps refilling after an edit`);
+    // Only empty boxes are filled — the updater form is what guarantees it.
+    assert.match(src, /setP?\w+\(\(v\) => v \|\|/, `${file} overwrites a value somebody already typed`);
+  }
+  // The catalogue fills identity, never economics: a cost of goods nobody typed
+  // is the one number that must not be invented, because the commission is
+  // checked against it.
+  const cat = readFileSync(new URL("../src/components/PromotionCatalogue.tsx", import.meta.url), "utf8");
+  for (const guessed of ["setPrice((v)", "setCogs((v)", "setFulfil((v)", "setTax((v)"]) {
+    assert.ok(!cat.includes(guessed), `${guessed} — economics must never be prefilled`);
+  }
+});

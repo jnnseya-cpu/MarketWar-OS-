@@ -23,6 +23,24 @@ type Kind = { id: string; label: string; asks: string };
 type Mission = { id: string; title: string; kind: string; budgetPence: number; reservedPence: number; closesAt: string; fundingMode?: string; rewards: { label: string }[];
   /** True only when the brand's float actually holds the reservation. */
   funded?: boolean };
+/**
+ * What a pence box actually means, echoed beside its label.
+ *
+ * These boxes are in pence and the catalogue beside them is in pounds, so £19
+ * was typed in as 0.19 and ProfitGuard was asked what a nineteen-hundredths-of-
+ * a-penny product could afford. A unit that is only written in the label is a
+ * unit somebody reads once.
+ */
+const money2 = (v: string): string => {
+  const n = Number(v);
+  return v.trim() && Number.isFinite(n) && n > 0 ? ` = £${(n / 100).toFixed(2)}` : "";
+};
+
+type CatalogueProduct = {
+  id: string; name: string;
+  offer: { pricePence: number; cogsPence?: number; fulfilmentPence?: number; paymentFeePence?: number; taxPence?: number; returnsAllowancePct?: number; minProtectedMarginPence?: number };
+};
+
 type Line = { label: string; pence: number; kind: "in" | "cost" | "protected" | "reward" };
 type Capacity = { capacity: { headline: string; caveat: string; availablePence: number; ratePct: number }; rate: { why: string }; split: { label: string; pence: number }[]; perTransaction: { note: string } };
 type Flow = { ok: boolean; error?: string; hint?: string; lines?: Line[]; note?: string; economics?: { growthPoolPence: number; protectedMarginPence: number; contributionPence: number; breakEvenRoas: number; minPermittedRoas: number; notes: string[] } };
@@ -59,6 +77,18 @@ export default function Share2Earn() {
   const [returnsPct, setReturnsPct] = useState("");
   const [protect, setProtect] = useState("");
   const [flow, setFlow] = useState<Flow | null>(null);
+  // FILL FROM WHAT IS ALREADY THERE.
+  //
+  // Every one of the seven ProfitGuard boxes is a number the brand has already
+  // typed into its catalogue, and this form made them type it again in PENCE
+  // while the catalogue displays POUNDS. That is how "Price (p)" ends up
+  // holding 0.19 for a £19 product, and why "Publish the mission" kept refusing
+  // with "an offer with at least a price is required". Picking the product
+  // fills all seven from the stored economics; every box stays editable, so a
+  // one-off offer is still a matter of changing the number.
+  const [products, setProducts] = useState<CatalogueProduct[]>([]);
+  const [filledFrom, setFilledFrom] = useState("");
+  const [floatState, setFloatState] = useState<{ heldPence: number; availablePence: number } | null>(null);
   const [generated, setGenerated] = useState("");
   const [committed, setCommitted] = useState("");
   const [cap, setCap] = useState<Capacity | null>(null);
@@ -83,6 +113,50 @@ export default function Share2Earn() {
       .then((d) => setMissions(Array.isArray(d?.missions) ? d.missions : []))
       .catch(() => { /* list is context */ });
   }, [activeBrand?.id]);
+
+  // The catalogue, for the fill. Read-only here — this screen never writes a
+  // product, it only borrows the economics the catalogue screen already stored.
+  useEffect(() => {
+    if (!activeBrand?.id) return;
+    authedFetch("/api/share2earn", { method: "POST", body: JSON.stringify({ action: "catalogue", brandId: activeBrand.id }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const rows = Array.isArray(d?.products) ? d.products : [];
+        setProducts(rows.map((r: { product?: CatalogueProduct }) => r?.product).filter((p: CatalogueProduct | undefined): p is CatalogueProduct => Boolean(p?.id && p?.offer)));
+      })
+      .catch(() => { /* the boxes still take a number typed by hand */ });
+    // The float's RESERVED total is exactly "already committed" — it is what is
+    // promised to creators on missions that are still running. Typing it again
+    // from memory is how a capacity check gets run against the wrong number.
+    authedFetch(`/api/brand-float?brandId=${encodeURIComponent(activeBrand.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        // `heldPence` is the float's own word for it: reserved against live
+        // missions, promised and not yet paid. That IS "already committed".
+        if (typeof d?.heldPence === "number") {
+          setFloatState({ heldPence: d.heldPence, availablePence: Number(d.availablePence) || 0 });
+          setCommitted(String(d.heldPence));
+        }
+      })
+      .catch(() => { /* typed by hand, as before */ });
+  }, [activeBrand?.id]);
+
+  /** Put a product's stored economics into the boxes. Nothing is locked. */
+  function fillFromProduct(id: string) {
+    const p = products.find((x) => x.id === id);
+    if (!p) { setFilledFrom(""); return; }
+    const n = (v: number | undefined) => (typeof v === "number" && v > 0 ? String(Math.round(v)) : "");
+    setPrice(n(p.offer.pricePence));
+    setCogs(n(p.offer.cogsPence));
+    setFulfil(n(p.offer.fulfilmentPence));
+    setPayFee(n(p.offer.paymentFeePence));
+    setTax(n(p.offer.taxPence));
+    setReturnsPct(typeof p.offer.returnsAllowancePct === "number" && p.offer.returnsAllowancePct > 0 ? String(p.offer.returnsAllowancePct) : "");
+    setProtect(n(p.offer.minProtectedMarginPence));
+    setFilledFrom(p.name);
+    setFlow(null); setCap(null);
+    if (!title.trim()) setTitle(`${p.name} — drive a purchase`);
+  }
 
   const offer = () => (Number(price) > 0 ? {
     pricePence: Number(price) || 0, cogsPence: Number(cogs) || 0, fulfilmentPence: Number(fulfil) || 0,
@@ -222,13 +296,13 @@ export default function Share2Earn() {
             <ShieldCheck className="h-3.5 w-3.5" /> ProfitGuard — what this offer can afford
           </p>
           <div className="grid gap-2 sm:grid-cols-4">
-            <label className="text-[11px] text-slate-500">Price (p)<input className="input mt-1" inputMode="numeric" value={price} onChange={(e) => { setPrice(e.target.value); setFlow(null); }} placeholder="10000" /></label>
-            <label className="text-[11px] text-slate-500">Cost of goods<input className="input mt-1" inputMode="numeric" value={cogs} onChange={(e) => { setCogs(e.target.value); setFlow(null); }} /></label>
-            <label className="text-[11px] text-slate-500">Fulfilment<input className="input mt-1" inputMode="numeric" value={fulfil} onChange={(e) => { setFulfil(e.target.value); setFlow(null); }} /></label>
-            <label className="text-[11px] text-slate-500">Payment fee<input className="input mt-1" inputMode="numeric" value={payFee} onChange={(e) => { setPayFee(e.target.value); setFlow(null); }} /></label>
-            <label className="text-[11px] text-slate-500">Tax<input className="input mt-1" inputMode="numeric" value={tax} onChange={(e) => { setTax(e.target.value); setFlow(null); }} /></label>
+            <label className="text-[11px] text-slate-500">Price — pence{money2(price)}<input className="input mt-1" inputMode="numeric" value={price} onChange={(e) => { setPrice(e.target.value); setFlow(null); }} placeholder="1900" /></label>
+            <label className="text-[11px] text-slate-500">Cost of goods — pence{money2(cogs)}<input className="input mt-1" inputMode="numeric" value={cogs} onChange={(e) => { setCogs(e.target.value); setFlow(null); }} /></label>
+            <label className="text-[11px] text-slate-500">Fulfilment — pence{money2(fulfil)}<input className="input mt-1" inputMode="numeric" value={fulfil} onChange={(e) => { setFulfil(e.target.value); setFlow(null); }} /></label>
+            <label className="text-[11px] text-slate-500">Payment fee — pence{money2(payFee)}<input className="input mt-1" inputMode="numeric" value={payFee} onChange={(e) => { setPayFee(e.target.value); setFlow(null); }} /></label>
+            <label className="text-[11px] text-slate-500">Tax — pence{money2(tax)}<input className="input mt-1" inputMode="numeric" value={tax} onChange={(e) => { setTax(e.target.value); setFlow(null); }} /></label>
             <label className="text-[11px] text-slate-500">Returns %<input className="input mt-1" inputMode="numeric" value={returnsPct} onChange={(e) => { setReturnsPct(e.target.value); setFlow(null); }} /></label>
-            <label className="text-[11px] text-slate-500">Protect (p)<input className="input mt-1" inputMode="numeric" value={protect} onChange={(e) => { setProtect(e.target.value); setFlow(null); }} placeholder="2000" /></label>
+            <label className="text-[11px] text-slate-500">Protect — pence{money2(protect)}<input className="input mt-1" inputMode="numeric" value={protect} onChange={(e) => { setProtect(e.target.value); setFlow(null); }} placeholder="2000" /></label>
             <button className="btn-secondary mt-4" onClick={checkMargin} disabled={busy}>Check the margin</button>
           </div>
 
@@ -255,9 +329,21 @@ export default function Share2Earn() {
               away from them. */}
           <div className="mt-3 rounded-lg border border-white/10 bg-ink-900/60 p-3">
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">GrowthGuard — the 5% ceiling</p>
+            {/* "Already committed" is filled from the float's own held total.
+                "Verified contribution generated" is NOT filled, deliberately:
+                it is the contribution this channel has actually produced, and
+                there is nothing on this deployment that has measured it yet. A
+                prefilled guess in a box labelled "verified" is the one thing
+                this module must never do — the whole ceiling is computed from
+                it. */}
+            {floatState && (
+              <p className="mb-2 text-[11px] text-emerald-300/80">
+                Already committed filled from your float: £{(floatState.heldPence / 100).toFixed(2)} is reserved against missions that are still running, and £{(floatState.availablePence / 100).toFixed(2)} is free.
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-3">
-              <label className="text-[11px] text-slate-500">Verified contribution generated (p)<input className="input mt-1" inputMode="numeric" value={generated} onChange={(e) => { setGenerated(e.target.value); setCap(null); }} placeholder="1000000" /></label>
-              <label className="text-[11px] text-slate-500">Already committed (p)<input className="input mt-1" inputMode="numeric" value={committed} onChange={(e) => { setCommitted(e.target.value); setCap(null); }} /></label>
+              <label className="text-[11px] text-slate-500">Verified contribution generated — pence{money2(generated)}<input className="input mt-1" inputMode="numeric" value={generated} onChange={(e) => { setGenerated(e.target.value); setCap(null); }} placeholder="1000000" /></label>
+              <label className="text-[11px] text-slate-500">Already committed — pence{money2(committed)}<input className="input mt-1" inputMode="numeric" value={committed} onChange={(e) => { setCommitted(e.target.value); setCap(null); }} /></label>
               <button className="btn-secondary mt-4" onClick={checkCapacity} disabled={busy}>Reward capacity</button>
             </div>
             {cap && (

@@ -50,6 +50,20 @@ export default function PromotionCatalogue() {
   const [tax, setTax] = useState("");
   const [protectPct, setProtectPct] = useState("20");
 
+  // FILL WHAT THE BRAND HAS ALREADY TOLD US.
+  //
+  // Name and page URL are the two boxes a brand can answer from its own
+  // onboarding, so listing a product becomes a price and a cost rather than six
+  // blanks. The ECONOMICS are never guessed — a cost of goods nobody typed is
+  // the one number that must not be invented, because the commission is checked
+  // against it. Only empty boxes are filled, and only until the form is touched.
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (!activeBrand || touched) return;
+    setName((v) => v || activeBrand.product || "");
+    setUrl((v) => v || activeBrand.website || "");
+  }, [activeBrand, touched]);
+
   const post = useCallback(async (body: Record<string, unknown>) => {
     if (!brandId) return null;
     setBusy(true); setError(null);
@@ -127,9 +141,9 @@ export default function PromotionCatalogue() {
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-300">Product name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="Pro annual plan" /></label>
+            <input value={name} onChange={(e) => { setTouched(true); setName(e.target.value); }} required className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="Pro annual plan" /></label>
           <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-300">Product page URL</span>
-            <input value={url} onChange={(e) => setUrl(e.target.value)} required type="url" className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="https://yourbrand.com/pro" /></label>
+            <input value={url} onChange={(e) => { setTouched(true); setUrl(e.target.value); }} required type="url" className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="https://yourbrand.com/pro" /></label>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           {[
@@ -142,7 +156,7 @@ export default function PromotionCatalogue() {
           ].map((f) => (
             <label key={f.label} className="block">
               <span className="mb-1 block text-xs font-semibold text-slate-300">{f.label}</span>
-              <input value={f.v} onChange={(e) => f.set(e.target.value)} required={f.req} inputMode="decimal" className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="0.00" />
+              <input value={f.v} onChange={(e) => { setTouched(true); f.set(e.target.value); }} required={f.req} inputMode="decimal" className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" placeholder="0.00" />
             </label>
           ))}
         </div>
