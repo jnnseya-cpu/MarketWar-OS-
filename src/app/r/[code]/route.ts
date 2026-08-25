@@ -41,12 +41,18 @@ function withRef(url: string, code: string, base?: string): string {
   }
 }
 
-// `params` is a plain object in Next 14 and a promise in Next 15. Typed as
-// either and awaited, so this one file is correct on both — `await` on a
-// non-promise returns it unchanged. The branches differ on that upgrade and a
-// public redirect is not the place to find out which one is deployed.
-export async function GET(req: NextRequest, ctx: { params: { code: string } | Promise<{ code: string }> }) {
-  const raw = (await ctx.params).code || "";
+// `params` is a plain object in Next 14 and a promise in Next 15, and each
+// version's generated validator REJECTS the other's type — a union satisfies 14
+// and fails 15. So the framework's own argument is left unconstrained and
+// `await` handles both (awaiting a non-promise returns it unchanged). Nothing is
+// asserted about the value: the code is pulled out with a typeof check and then
+// validated by `normaliseCode`, which is the only thing that decides whether it
+// is a code at all. The branches differ on that migration and a public redirect
+// is not the place to discover which version is deployed.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function GET(req: NextRequest, ctx: { params: any }) {
+  const resolved = await ctx.params;
+  const raw = typeof resolved?.code === "string" ? resolved.code : "";
   const code = normaliseCode(raw);
   let dest = "";
   // Only a code somebody actually minted travels any further. A guessed or
