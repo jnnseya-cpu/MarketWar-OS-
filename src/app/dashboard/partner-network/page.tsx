@@ -50,6 +50,21 @@ export default function PartnerNetworkPage() {
   }, [activeBrand]);
   useEffect(() => { loadProgrammes(); }, [loadProgrammes]);
 
+  // FILL THE PROGRAMME FORM FROM THE BRAND.
+  //
+  // Every one of these boxes is something the brand already told us during
+  // onboarding, and asking for it again is asking somebody to retype their own
+  // business. Only EMPTY boxes are filled, and only while nothing has been
+  // typed — a half-written programme is never overwritten by a brand switch.
+  const [touchedProgramme, setTouchedProgramme] = useState(false);
+  useEffect(() => {
+    if (!activeBrand || touchedProgramme) return;
+    setPName((v) => v || (activeBrand.offer ? `${activeBrand.offer}` : `${activeBrand.name} — creator programme`));
+    setPTarget((v) => v || activeBrand.product || "");
+    setPDest((v) => v || activeBrand.website || "");
+    setPDesc((v) => v || [activeBrand.product && `What partners promote: ${activeBrand.product}.`, activeBrand.offer && `The offer: ${activeBrand.offer}.`, activeBrand.audience && `Who it is for: ${activeBrand.audience}.`].filter(Boolean).join(" "));
+  }, [activeBrand, touchedProgramme]);
+
   async function createProgramme() {
     if (!activeBrand || !pName) return;
     setBusy("prog"); setError(null);
@@ -128,16 +143,16 @@ export default function PartnerNetworkPage() {
           <div className="card border-emerald-500/30 p-6">
             <div className="mb-3 flex items-center gap-2"><Plus className="h-5 w-5 text-emerald-400" /><h3 className="font-display font-bold text-white">1 · Create a programme</h3></div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="block"><span className="mb-1 block text-xs text-slate-400">Programme name</span><input className={input} value={pName} onChange={(e) => setPName(e.target.value)} placeholder="e.g. Summer launch" /></label>
+              <label className="block"><span className="mb-1 block text-xs text-slate-400">Programme name</span><input className={input} value={pName} onChange={(e) => { setTouchedProgramme(true); setPName(e.target.value); }} placeholder="e.g. Summer launch" /></label>
               <label className="block"><span className="mb-1 block text-xs text-slate-400">Scope</span>
                 <select className={input} value={pScope} onChange={(e) => setPScope(e.target.value)}>
                   <option value="brand">Whole brand</option><option value="product">A product</option><option value="both">Brand + product</option><option value="custom">Custom</option>
                 </select>
               </label>
-              <label className="block"><span className="mb-1 block text-xs text-slate-400">Target (product / custom)</span><input className={input} value={pTarget} onChange={(e) => setPTarget(e.target.value)} placeholder={pScope === "brand" ? activeBrand.name : "product / target"} /></label>
-              <label className="block"><span className="mb-1 block text-xs text-slate-400">Campaign (optional — run many)</span><input className={input} value={pCampaign} onChange={(e) => setPCampaign(e.target.value)} placeholder="e.g. Q3 push" /></label>
-              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Destination URL — YOUR brand&rsquo;s CTA / landing / bank link (every code sends traffic here, with the ref attached)</span><input className={input} value={pDest} onChange={(e) => setPDest(e.target.value)} placeholder="https://your-brand.com/offer" /></label>
-              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Description</span><input className={input} value={pDesc} onChange={(e) => setPDesc(e.target.value)} placeholder="What partners promote + the offer" /></label>
+              <label className="block"><span className="mb-1 block text-xs text-slate-400">Target (product / custom)</span><input className={input} value={pTarget} onChange={(e) => { setTouchedProgramme(true); setPTarget(e.target.value); }} placeholder={pScope === "brand" ? activeBrand.name : "product / target"} /></label>
+              <label className="block"><span className="mb-1 block text-xs text-slate-400">Campaign (optional — run many)</span><input className={input} value={pCampaign} onChange={(e) => { setTouchedProgramme(true); setPCampaign(e.target.value); }} placeholder="e.g. Q3 push" /></label>
+              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Destination URL — YOUR brand&rsquo;s CTA / landing / bank link (every code sends traffic here, with the ref attached)</span><input className={input} value={pDest} onChange={(e) => { setTouchedProgramme(true); setPDest(e.target.value); }} placeholder="https://your-brand.com/offer" /></label>
+              <label className="sm:col-span-2 lg:col-span-3 block"><span className="mb-1 block text-xs text-slate-400">Description</span><input className={input} value={pDesc} onChange={(e) => { setTouchedProgramme(true); setPDesc(e.target.value); }} placeholder="What partners promote + the offer" /></label>
             </div>
             <button className="btn-primary mt-4" onClick={createProgramme} disabled={busy === "prog" || !pName}>{busy === "prog" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create programme</button>
           </div>
