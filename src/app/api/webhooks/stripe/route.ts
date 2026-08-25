@@ -64,14 +64,26 @@ export async function POST(req: NextRequest) {
   const outcome = handleStripeEvent(event);
   let walletApplied: { applied: boolean; reason: string; creditedAcu?: number; planId?: string } | null = null;
   if (outcome.handled) {
+    // A CREDIT THAT DID NOT PERSIST MUST NOT BE ACKNOWLEDGED.
+    //
+    // This used to swallow everything and always answer 200, on the reasoning
+    // that "Stripe would retry" — but a 200 is precisely the instruction NOT to
+    // retry. So a wallet write that failed was reported to Stripe as delivered,
+    // to the log as `applied: false`, and to the customer as nothing at all.
+    // Where the failure is the store's rather than the event's, the right answer
+    // is 500: Stripe redelivers for three days and the credit lands by itself
+    // once the store is reachable. Idempotency by event id makes that safe.
     try {
       const orgId = orgIdFromEvent(event);
       const res = await applyWebhookOutcome(orgId, outcome);
       walletApplied = { applied: res.applied, reason: res.reason, creditedAcu: res.creditedAcu, planId: res.planId };
+      if (res.retriable) {
+        return NextResponse.json({ received: false, error: res.reason, eventId: event.id, willRetry: true }, { status: 500 });
+      }
     } catch (e) {
-      // Never fail the webhook on a wallet hiccup — Stripe would retry, and the
-      // idempotency key still protects against a double-credit on that retry.
-      walletApplied = { applied: false, reason: e instanceof Error ? e.message : "wallet apply failed" };
+      // An exception here is a storage fault, not a malformed event. Same rule.
+      const reason = e instanceof Error ? e.message : "wallet apply failed";
+      return NextResponse.json({ received: false, error: `Could not persist this payment: ${reason}`, eventId: event.id, willRetry: true }, { status: 500 });
     }
   }
 
