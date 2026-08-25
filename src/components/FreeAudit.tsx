@@ -21,7 +21,7 @@ type Report = {
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
   /** Whether the copy's promise to email the report was actually kept. */
-  emailed?: boolean; emailNote?: string;
+  emailed?: boolean; emailNote?: string; emailFailure?: string;
 };
 
 const sev = (s: string) =>
@@ -138,9 +138,15 @@ export default function FreeAudit() {
               That is the whole audit — every check we could measure on your page. Nothing above is an estimate or an industry average.
               {/* SAY WHICH IT WAS. Telling everybody to check their inbox is how
                   the promise got broken silently in the first place. */}
+              {/* SAY WHICH IT WAS, AND WHY.
+                  The route has always returned the reason and this line always
+                  threw it away, so "never send any emails" could not be told
+                  apart from "no mail server configured", "the server refused the
+                  password" and "that address is suppressed" — three problems
+                  with three different fixes. The reason travels now. */}
               {report.emailed
                 ? " A copy is on its way to your inbox as well, so you do not have to keep this page open."
-                : " It is all on this page — copy it before you close the tab, because we could not email you a copy just now."}
+                : ` It is all on this page — copy it before you close the tab${report.emailNote ? `, because ${report.emailNote}` : ", because we could not email you a copy just now"}.`}
             </p>
           )}
         </div>
