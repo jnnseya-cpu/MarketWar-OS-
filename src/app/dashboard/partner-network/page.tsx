@@ -8,7 +8,7 @@
 // request payout (10K gate, BitriPay honest state). All computed, nothing faked.
 
 import { useEffect, useState, useCallback } from "react";
-import { Loader2, Plus, Users, LinkIcon, Wallet, Radar, ShieldCheck, Copy } from "lucide-react";
+import { Loader2, Plus, Users, LinkIcon, Wallet, Radar, ShieldCheck, Copy, Pause, Play, Trash2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -18,7 +18,7 @@ import BrandFloat from "@/components/BrandFloat";
 import PromotionCatalogue from "@/components/PromotionCatalogue";
 import BrandPayouts from "@/components/BrandPayouts";
 
-type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string };
+type Programme = { id: string; name: string; scope: string; target: string; campaign?: string; product: string; description: string; active?: boolean };
 type Wallet = { payoutEligible: boolean; followers: number; cumulativeNetGbp: number; countedEvents: number; flaggedEvents: number; lifetimeCreatorGbp: number; lifetimePlatformGbp: number; payableGbp: number; pendingGbp: number; gateNote: string; perCustomer: { ref: string; netGbp: number; creatorGbp: number; platformGbp: number; state: string; progressPct: number }[] };
 
 async function api(action: string, body: Record<string, unknown>) {
@@ -42,6 +42,7 @@ export default function PartnerNetworkPage() {
   const [region, setRegion] = useState("other");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadProgrammes = useCallback(async () => {
     if (!activeBrand) return;
@@ -72,6 +73,31 @@ export default function PartnerNetworkPage() {
     catch (e) { setError(e instanceof Error ? e.message : "Could not create programme"); }
     finally { setBusy(""); }
   }
+  async function toggleProgramme(p: Programme) {
+    if (!activeBrand) return;
+    setBusy("act" + p.id); setError(null);
+    try {
+      const d = await api("set_programme_active", { brandId: activeBrand.id, programmeId: p.id, active: p.active === false });
+      setNotice(d.note || null);
+      await loadProgrammes();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not change that programme"); }
+    finally { setBusy(""); }
+  }
+
+  async function removeProgramme(p: Programme) {
+    if (!activeBrand) return;
+    if (!confirm(`Delete the programme "${p.name}"? This cannot be undone. If any creator holds a link to it, or anything has been earned through it, the deletion is refused and you can pause it instead.`)) return;
+    setBusy("del" + p.id); setError(null); setNotice(null);
+    try {
+      await api("delete_programme", { brandId: activeBrand.id, programmeId: p.id });
+      setNotice(`"${p.name}" deleted — nobody had claimed it or earned through it.`);
+      await loadProgrammes();
+    } catch (e) {
+      // The server's refusal already explains itself and names the pause.
+      setError(e instanceof Error ? e.message : "Could not delete that programme");
+    } finally { setBusy(""); }
+  }
+
   async function admitPartner() {
     if (!cName || !cEmail) return;
     setBusy("partner"); setError(null);
@@ -129,6 +155,7 @@ export default function PartnerNetworkPage() {
       {!activeBrand && <div className="card border-emerald-500/20 p-10 text-center"><Users className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" /><h2 className="font-display text-lg font-bold text-white">Add a brand to run a partner programme</h2></div>}
 
       {error && <div className="mb-4 rounded-lg border border-rose-500/30 bg-rose-500/[0.08] p-3 text-sm text-rose-300">{error}</div>}
+      {notice && <div className="mb-4 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-sm text-emerald-200">{notice}</div>}
 
       {activeBrand && (
         <div className="space-y-6">
@@ -164,8 +191,25 @@ export default function PartnerNetworkPage() {
               <div className="space-y-2">
                 {programmes.map((p) => (
                   <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-ink-900/50 p-3">
-                    <div><p className="font-semibold text-white">{p.name} {p.campaign && <span className="text-xs text-slate-500">· {p.campaign}</span>}</p><p className="text-xs text-slate-500">{p.scope} · {p.target}</p></div>
-                    <button className="btn-ghost !py-1.5 !text-xs" onClick={() => subscribe(p.id)} disabled={!creatorId || busy === "sub" + p.id}>{busy === "sub" + p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LinkIcon className="h-3.5 w-3.5" />} Subscribe partner</button>
+                    <div>
+                      <p className="font-semibold text-white">
+                        {p.name} {p.campaign && <span className="text-xs text-slate-500">· {p.campaign}</span>}
+                        {p.active === false && <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">Paused</span>}
+                      </p>
+                      <p className="text-xs text-slate-500">{p.scope} · {p.target}</p>
+                    </div>
+                    {/* PAUSE stops new creators subscribing and takes it out of
+                        discovery. It does NOT break links already published —
+                        a creator cannot edit a post from three weeks ago — and
+                        it does not touch commission already earned. DELETE is
+                        only allowed on a programme nobody holds a link to or has
+                        earned through; the server refuses the rest with 409 and
+                        names the pause. */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button className="btn-ghost !py-1.5 !text-xs" onClick={() => subscribe(p.id)} disabled={!creatorId || busy === "sub" + p.id}>{busy === "sub" + p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LinkIcon className="h-3.5 w-3.5" />} Subscribe partner</button>
+                      <button className="btn-ghost !py-1.5 !text-xs" onClick={() => toggleProgramme(p)} disabled={busy === "act" + p.id}>{busy === "act" + p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : p.active === false ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />} {p.active === false ? "Resume" : "Pause"}</button>
+                      <button className="btn-ghost !py-1.5 !text-xs hover:!text-rose-300" onClick={() => removeProgramme(p)} disabled={busy === "del" + p.id}>{busy === "del" + p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete</button>
+                    </div>
                   </div>
                 ))}
               </div>

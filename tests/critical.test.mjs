@@ -2219,3 +2219,120 @@ test("prefilled forms stop filling the moment somebody types", async () => {
     assert.ok(!cat.includes(guessed), `${guessed} — economics must never be prefilled`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// A brand can pause or delete its own programmes and catalogue products.
+//
+// `Programme.active` had gated `subscribe()` since the engine was written and
+// nothing in the codebase could ever set it to false — a policy with no switch,
+// the third defect class this repository keeps producing. And a product could
+// be listed but never taken down.
+//
+// The rule both of them follow: PAUSE is always available and never breaks a
+// link somebody has already published; DELETE is refused the moment a creator
+// holds a link or has earned through it, because a creator cannot edit a post
+// from three weeks ago.
+// ---------------------------------------------------------------------------
+const promo = await import("../src/backend/promotable.ts");
+
+test("pausing a programme stops new creators, and never touches what exists", async () => {
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const prog = await engine.createProgramme({ brandId: "b_pause", brandName: "Pause Ltd", name: "P", product: "x", description: "d", nowISO });
+  const early = await engine.upsertCreator({ name: "Early", email: "early@example.com", tier: "micro", followers: 0, nowISO });
+  const late = await engine.upsertCreator({ name: "Late", email: "late@example.com", tier: "micro", followers: 0, nowISO });
+
+  const first = await engine.subscribe(early.id, prog.id, nowISO);
+  assert.ok(first.subscription, "a live programme must accept a creator");
+
+  const paused = await engine.setProgrammeActive(prog.id, false, nowISO);
+  assert.equal(paused.active, false);
+
+  const refused = await engine.subscribe(late.id, prog.id, nowISO);
+  assert.equal(refused.subscription, undefined, "a paused programme must not take a new creator");
+  assert.match(refused.error, /inactive/i);
+
+  // The link already issued is untouched — this is the whole point.
+  const stillThere = await engine.subscriptionByCode(first.subscription.code);
+  assert.equal(stillThere?.programmeId, prog.id, "a published link must keep resolving after a pause");
+  // And it still earns.
+  const conv = await engine.recordConversion({ code: first.subscription.code, grossGbp: 100, referredRef: "c1", idempotencyKey: "o1", nowISO });
+  assert.ok(conv.event, `a pause must not stop an existing creator earning: ${conv.error}`);
+
+  const resumed = await engine.setProgrammeActive(prog.id, true, nowISO);
+  assert.equal(resumed.active, true);
+  assert.ok((await engine.subscribe(late.id, prog.id, nowISO)).subscription, "resuming must let a new creator in again");
+});
+
+test("a programme somebody has earned through cannot be deleted", async () => {
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const empty = await engine.createProgramme({ brandId: "b_del", brandName: "Del", name: "Nobody", product: "x", description: "d", nowISO });
+  const used = await engine.createProgramme({ brandId: "b_del", brandName: "Del", name: "Somebody", product: "y", description: "d", nowISO });
+  const cr = await engine.upsertCreator({ name: "C", email: "c@example.com", tier: "micro", followers: 0, nowISO });
+  await engine.subscribe(cr.id, used.id, nowISO);
+
+  // Nobody claimed this one — it goes.
+  const gone = await engine.deleteProgramme(empty.id);
+  assert.equal(gone.ok, true);
+  assert.equal(await engine.getProgramme(empty.id), null);
+
+  // This one has a creator holding a link. Refused, with the pause named.
+  const kept = await engine.deleteProgramme(used.id);
+  assert.equal(kept.ok, false, "deleting under a creator's feet must be refused");
+  assert.equal(kept.subscriptions, 1);
+  assert.match(kept.reason, /Pause it instead/i, "a refusal has to say what to do instead");
+  assert.ok(await engine.getProgramme(used.id), "the refused programme must still exist");
+});
+
+test("pausing a product works in an OPEN catalogue too", async () => {
+  // `promotable: false` used to be read only in curated mode, so a brand on an
+  // open catalogue had no way to take one item off without inventing an
+  // exclusion reason for it. A pause is not an accusation about the product.
+  promo.__resetPromotable();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  await promo.setPolicy({ brandId: "b_open", mode: "open_catalogue", nowISO });
+  const p = await promo.saveProduct({
+    brandId: "b_open", name: "Widget", url: "https://x.test/w",
+    offer: { pricePence: 10_000, cogsPence: 2_000, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 1_000 },
+    nowISO,
+  });
+  const policy = await promo.getPolicy("b_open", nowISO);
+  assert.equal(promo.brandAllows(p, policy).ok, true, "an open catalogue lists it by default");
+
+  const paused = await promo.setProductPaused({ brandId: "b_open", productId: p.id, paused: true, nowISO });
+  assert.equal(paused.paused, true);
+  assert.equal(paused.promotable, true, "pause must not touch the curated switch — they mean different things");
+  const verdict = promo.brandAllows(paused, policy);
+  assert.equal(verdict.ok, false, "a paused product must be closed in an open catalogue as well");
+  assert.match(verdict.reason, /paused/i);
+  assert.doesNotMatch(verdict.reason, /excluded/i, "a pause must not read as an accusation about the product");
+
+  // Another brand cannot pause it.
+  assert.equal(await promo.setProductPaused({ brandId: "someone_else", productId: p.id, paused: true, nowISO }), null);
+});
+
+test("a claimed product cannot be deleted out from under the link", async () => {
+  promo.__resetPromotable();
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  await promo.setPolicy({ brandId: "b_cat", mode: "open_catalogue", nowISO });
+  const offer = { pricePence: 10_000, cogsPence: 2_000, fulfilmentPence: 0, paymentFeePence: 0, taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 1_000 };
+  const free = await promo.saveProduct({ brandId: "b_cat", name: "Untouched", url: "https://x.test/a", offer, nowISO });
+  const taken = await promo.saveProduct({ brandId: "b_cat", name: "Claimed", url: "https://x.test/b", offer, nowISO });
+
+  const cr = await engine.upsertCreator({ name: "K", email: "k@example.com", tier: "micro", followers: 0, nowISO });
+  const pol = await promo.getPolicy("b_cat", nowISO);
+  const claim = await promo.claimProduct({ creatorId: cr.id, product: taken, policy: pol, brandName: "Cat Ltd", nowISO });
+  assert.equal(claim.ok, true, `claim failed: ${claim.ok === false ? claim.reason : ""}`);
+
+  assert.equal((await promo.deleteProduct({ brandId: "b_cat", productId: free.id })).ok, true);
+  const refused = await promo.deleteProduct({ brandId: "b_cat", productId: taken.id });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.claimed, true);
+  assert.match(refused.reason, /Pause it instead/i);
+  assert.ok(await promo.getProduct(taken.id), "the refused product must still exist");
+
+  // And a different brand cannot delete it either.
+  assert.equal((await promo.deleteProduct({ brandId: "not_mine", productId: taken.id })).ok, false);
+});

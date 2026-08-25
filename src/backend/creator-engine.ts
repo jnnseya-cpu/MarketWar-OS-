@@ -101,6 +101,71 @@ export async function getProgramme(id: string): Promise<Programme | null> {
 }
 
 // ---- Creators ----
+/**
+ * PAUSE OR RESUME A PROGRAMME.
+ *
+ * `Programme.active` has gated `subscribe()` since the engine was written, and
+ * nothing in the codebase could ever set it to false — a policy with no switch,
+ * which is the third defect class this repository keeps producing.
+ *
+ * WHAT PAUSING DOES AND DOES NOT DO, because a creator has to be able to plan:
+ *   • No NEW creator can subscribe, and it stops appearing in discovery.
+ *   • Links already posted KEEP WORKING. A creator who put a link in a video
+ *     three weeks ago cannot edit that video, and turning their link into a
+ *     404 is punishing them for the brand's change of mind.
+ *   • Commissions already earned are untouched. Pausing is not a clawback.
+ */
+export async function setProgrammeActive(id: string, active: boolean, nowISO: string): Promise<Programme | null> {
+  const prog = await getProgramme(id);
+  if (!prog) return null;
+  const next: Programme = { ...prog, active: Boolean(active) };
+  if (useDb()) await adminDb!.collection("creator_programmes").doc(prog.id).set(next, { merge: true });
+  else memProg.set(prog.id, next);
+  void nowISO;
+  return next;
+}
+
+export type ProgrammeDeletion =
+  | { ok: true; deleted: string }
+  | { ok: false; reason: string; subscriptions: number; ledgerEvents: number };
+
+/**
+ * DELETE A PROGRAMME — only one nobody has earned on.
+ *
+ * A programme with subscriptions has creator codes pointing at it, and a
+ * programme with ledger events has money attributed through it. Deleting either
+ * would orphan somebody's earnings and break links they have already published,
+ * so it is REFUSED and pausing is offered instead. That refusal is the feature:
+ * a delete that silently destroyed a creator's balance would be the single
+ * fastest way to lose every creator at once.
+ */
+export async function deleteProgramme(id: string): Promise<ProgrammeDeletion> {
+  const prog = await getProgramme(id);
+  if (!prog) return { ok: false, reason: "That programme no longer exists.", subscriptions: 0, ledgerEvents: 0 };
+
+  let subs = 0, events = 0;
+  if (useDb()) {
+    subs = (await adminDb!.collection("creator_subscriptions").where("programmeId", "==", prog.id).limit(1).get()).size;
+    events = (await adminDb!.collection("creator_ledger").where("programmeId", "==", prog.id).limit(1).get()).size;
+  } else {
+    subs = [...memSub.values()].filter((x) => x.programmeId === prog.id).length;
+    events = [...memLedger.values()].filter((e) => e.programmeId === prog.id).length;
+  }
+
+  if (subs > 0 || events > 0) {
+    return {
+      ok: false,
+      subscriptions: subs,
+      ledgerEvents: events,
+      reason: `This programme cannot be deleted: ${subs > 0 ? `${subs} creator${subs === 1 ? " holds a tracked link" : "s hold tracked links"} to it` : ""}${subs > 0 && events > 0 ? " and " : ""}${events > 0 ? `${events} commission event${events === 1 ? " has" : "s have"} been recorded against it` : ""}. Pause it instead — new creators cannot join, links already published keep working, and nobody's earnings disappear.`,
+    };
+  }
+
+  if (useDb()) await adminDb!.collection("creator_programmes").doc(prog.id).delete();
+  else memProg.delete(prog.id);
+  return { ok: true, deleted: prog.id };
+}
+
 export function creatorId(email: string): string { return `cr_${hid(email.toLowerCase().trim())}`; }
 export async function upsertCreator(input: { name: string; email: string; tier: CreatorAccount["tier"]; followers: number; followersVerified?: boolean; adminOverride?: boolean; nowISO: string; scoutScore?: number; scoutFlags?: string[] }): Promise<CreatorAccount> {
   const id = creatorId(input.email);

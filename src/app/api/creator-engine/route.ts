@@ -4,7 +4,7 @@ import { meterAction } from "@/backend/wallet";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { gatewayLangFrom } from "@/backend/gateway";
 import {
-  createProgramme, listProgrammes, getProgramme, upsertCreator, getCreator, getCreatorByToken, listCreators, subscribe, listSubscriptions,
+  createProgramme, listProgrammes, getProgramme, setProgrammeActive, deleteProgramme, upsertCreator, getCreator, getCreatorByToken, listCreators, subscribe, listSubscriptions,
   recordConversion, creatorWallet, requestPayout, setFollowerVerification, creatorId as makeCreatorId,
   type CreatorAccount, type PayoutRegion,
 } from "@/backend/creator-engine";
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   let authed: Awaited<ReturnType<typeof requireAuth>> | null = null;
 
   // ---- Authorisation gate ----
-  if (action === "create_programme" || action === "list_programmes") {
+  if (action === "create_programme" || action === "list_programmes" || action === "set_programme_active" || action === "delete_programme") {
     const access = await resolveBrandAccess(req, s("brandId"));
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   } else if (ADMIN_ACTIONS.has(action)) {
@@ -73,6 +73,36 @@ export async function POST(req: NextRequest) {
     }
     case "list_programmes":
       return NextResponse.json({ programmes: await listProgrammes(s("brandId") || undefined) });
+
+    // PAUSE / RESUME. `Programme.active` has gated subscribe() since the engine
+    // was written and nothing could ever set it — a policy with no switch.
+    case "set_programme_active": {
+      const id = s("programmeId");
+      if (!id) return NextResponse.json({ error: "programmeId is required" }, { status: 400 });
+      const prog = await getProgramme(id);
+      // The gate above proved the CALLER owns the brand they named; this proves
+      // the PROGRAMME belongs to that brand. Without the second check a caller
+      // could pause any programme on the platform by naming their own brand.
+      if (!prog || prog.brandId !== s("brandId")) return NextResponse.json({ error: "That programme is not in this brand." }, { status: 404 });
+      const next = await setProgrammeActive(id, b.active !== false, nowISO);
+      return NextResponse.json({
+        programme: next,
+        note: next?.active
+          ? "Live again — creators can subscribe and it appears in discovery."
+          : "Paused. No new creator can subscribe and it is out of discovery; links already published keep working, and nothing already earned is affected.",
+      });
+    }
+
+    case "delete_programme": {
+      const id = s("programmeId");
+      if (!id) return NextResponse.json({ error: "programmeId is required" }, { status: 400 });
+      const prog = await getProgramme(id);
+      if (!prog || prog.brandId !== s("brandId")) return NextResponse.json({ error: "That programme is not in this brand." }, { status: 404 });
+      const res = await deleteProgramme(id);
+      // 409, not 400: the request was well formed and the state refuses it.
+      if (!res.ok) return NextResponse.json({ ...res, canPauseInstead: true }, { status: 409 });
+      return NextResponse.json(res);
+    }
 
     case "register_creator": {
       if (!s("email") || !s("name")) return NextResponse.json({ error: "name and email are required" }, { status: 400 });

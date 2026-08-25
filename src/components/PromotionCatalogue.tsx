@@ -13,7 +13,7 @@
 // uses. The browser does not decide eligibility; it renders the decision.
 
 import { useCallback, useEffect, useState } from "react";
-import { Ban, Check, Loader2, Package, Plus, ShieldCheck, Store } from "lucide-react";
+import { Ban, Check, Loader2, Package, Plus, ShieldCheck, Store, Trash2 } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { ratePct, SHARE2EARN_RATE } from "@/shared/creator-program";
@@ -26,7 +26,7 @@ type Decision = {
   eligibility: { eligible: boolean; reason: string; fix?: string; commissionPence: number };
   commissionPence: number; eligiblePence: number; reason: string;
 };
-type Product = { id: string; name: string; url: string; promotable: boolean; excludedReason?: string; offer: { pricePence: number } };
+type Product = { id: string; name: string; url: string; promotable: boolean; paused?: boolean; excludedReason?: string; offer: { pricePence: number } };
 type Catalogue = { policy: { mode: Mode }; products: { product: Product; decision: Decision }[]; summary: string; modes: ModeSpec[] };
 
 const money = (p: number) => `£${(p / 100).toFixed(2)}`;
@@ -185,6 +185,34 @@ export default function PromotionCatalogue() {
                 {decision.eligibility.fix && !decision.eligibility.eligible && (
                   <p className="mt-1 text-[11px] leading-relaxed text-amber-300/80">{decision.eligibility.fix}</p>
                 )}
+                {/* PAUSE AND DELETE.
+                    A pause stops NEW claims and leaves every tracked link that
+                    is already published working — a creator cannot edit a post
+                    from three weeks ago, and turning their link into a dead one
+                    punishes them for the brand's change of mind. Delete is only
+                    offered for a product nobody has claimed; the server refuses
+                    the rest with 409 and says to pause instead. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => post({ action: "pause-product", productId: product.id, paused: !product.paused })}
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:border-white/25 hover:text-white disabled:opacity-60"
+                  >
+                    {product.paused ? <><Check className="h-3 w-3" /> Resume</> : <><Ban className="h-3 w-3" /> Pause</>}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirm(`Delete "${product.name}" from the catalogue? This cannot be undone. If a creator has already claimed it, the deletion is refused and you can pause it instead.`)) return;
+                      void post({ action: "delete-product", productId: product.id });
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-400 hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
