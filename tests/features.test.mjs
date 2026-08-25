@@ -21140,3 +21140,57 @@ test("annual instalments are released when due, and catch up if nobody looked", 
   assert.match(codeOf(wallet), /applyDueReleases\(stored, nowIso\(\)\)[\s\S]{0,200}?if \(cur\.balanceAcu < amount\)/,
     "the debit judges the balance before releasing what is due");
 });
+
+test("a withdrawal is judged on evidence we stored, not on numbers the caller sent", () => {
+  const trust = readFileSync(new URL("../src/backend/payout-trust.ts", import.meta.url), "utf8");
+  const exec = codeOf(readFileSync(new URL("../src/backend/payout-execute.ts", import.meta.url), "utf8"));
+
+  // THE HOLE. share2earn.ts scores fraud and can return "blocked". It was
+  // decorative twice over: its inputs are read off the REQUEST BODY —
+  // num("selfPurchases") — so a fraudster fills in zero, and nothing in the
+  // payout path had ever heard of the verdict.
+  const route = codeOf(readFileSync(new URL("../src/app/api/share2earn/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /num\("selfPurchases"\)/,
+    "the self-service calculator changed shape — check this test still describes the thing it guards against");
+
+  // The payout must consult evidence the caller cannot touch.
+  assert.match(trust, /clickStats/, "the trust check does not read the clicks we recorded");
+  assert.match(trust, /balanceFor/, "the trust check does not read the accruals we wrote");
+  assert.doesNotMatch(codeOf(trust), /body\.|req\.|input\.selfPurchases/,
+    "the trust check takes evidence from the caller again");
+
+  // And it must run BEFORE anything is claimed or sent.
+  const trustAt = exec.indexOf("payoutTrust(");
+  const claimAt = exec.indexOf("payoutKey({");
+  assert.ok(trustAt > 0, "the payout never consults the trust verdict");
+  assert.ok(trustAt < claimAt, "the trust check runs after the payout is already claimed");
+
+  // A hold is not a seizure: the money stays the creator's and a person decides.
+  assert.match(exec, /has not been touched/i, "a held payout does not say the balance is untouched");
+  assert.match(exec, /this is a hold, not a decision/i, "a held payout reads as a permanent refusal");
+});
+
+test("the trust check counts real signals and refuses to invent the one it cannot see", async () => {
+  const { payoutTrust } = await import("../src/backend/payout-trust.ts");
+  const src = readFileSync(new URL("../src/backend/payout-trust.ts", import.meta.url), "utf8");
+
+  // SELF-PURCHASE is the commonest way these programmes are drained and we
+  // genuinely cannot see it: the click is on our domain, the purchase is on the
+  // brand's, and the visitor hash rotates per code per day BY DESIGN so no
+  // trail exists. A rule claiming to catch it would be a lie.
+  assert.match(src, /SELF-PURCHASE[\s\S]{0,600}?cannot detect it server-side/i,
+    "the limit on self-purchase detection is no longer stated");
+  assert.doesNotMatch(codeOf(src), /id: "self_purchase"/,
+    "a self-purchase rule was added that the data cannot actually support");
+
+  // Every threshold carries a minimum volume — a ratio from three clicks is
+  // noise, and refusing a first withdrawal on noise is worse than the fraud it
+  // imagines.
+  assert.match(src, /clicks >= 30/, "the duplication rule fires on tiny samples");
+  assert.match(src, /uniqueVisitors >= 20/, "the conversion-rate rule fires on tiny samples");
+
+  // An unreadable store is not evidence of wrongdoing.
+  const verdict = await payoutTrust("nobody-has-this-id", new Date().toISOString());
+  assert.equal(verdict.verdict, "clear", "a creator with no history is treated as a fraudster");
+  assert.ok(verdict.evidence, "the verdict carries no evidence, so it cannot be explained");
+});

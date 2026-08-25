@@ -36,6 +36,7 @@ import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { quoteWithdrawal, rail, type WithdrawalQuote } from "@/backend/payout-fees";
 import { loadIdentity, payoutAllowed } from "@/backend/payout-identity";
+import { payoutTrust } from "@/backend/payout-trust";
 import { record as recordSecurityEvent } from "@/backend/sentinel";
 import { haltFor } from "@/backend/emergency-stop";
 
@@ -112,6 +113,28 @@ export async function executePayout(input: ExecuteInput): Promise<PayoutOutcome>
     // successful defences nobody counted.
     recordSecurityEvent({ at: new Date().toISOString(), kind: "payout_refused", actor: `uid:${creatorId}`, detail: gate.reason });
     return { ok: false, error: gate.reason, hint: gate.fix, gate: gate.reason };
+  }
+
+  // 1b. TRUST — computed from what WE stored, never from what the caller sent.
+  //
+  // share2earn.ts already scored fraud and could return "blocked", and it was
+  // decorative twice over: its inputs were read off the request body, so a
+  // fraudster filled in zero, and nothing between that verdict and the money had
+  // ever heard of it. This recomputes the question from the clicks we recorded
+  // and the accruals we wrote, and it runs before a penny is claimed.
+  //
+  // A verdict HOLDS, it does not seize. The balance stays the creator's and a
+  // human decides — freezing earnings on an automated signal with no appeal is
+  // how a creator programme loses the creators who actually sell things.
+  const trust = await payoutTrust(creatorId, new Date().toISOString());
+  if (trust.verdict === "blocked") {
+    recordSecurityEvent({ at: new Date().toISOString(), kind: "payout_refused", actor: `uid:${creatorId}`, detail: `trust:${trust.verdict} ${trust.why}` });
+    return {
+      ok: false,
+      error: `This withdrawal is on hold while we check it. ${trust.why}`,
+      hint: "Your balance has not been touched and nothing has been taken. Reply to support and a person will look at it — this is a hold, not a decision.",
+      gate: "trust_hold",
+    };
   }
 
   // 2. BALANCE.
