@@ -31,7 +31,7 @@ import {
 } from "@/backend/payout-approvals";
 import {
   PROMOTION_MODES, PROMOTION_DOCTRINE, catalogue, openCatalogue, setPolicy, saveProduct,
-  getProduct, getPolicy, claimProduct, promotionDecision, discoverable,
+  getProduct, getPolicy, claimProduct, promotionDecision, discoverable, setProductPaused, deleteProduct,
 } from "@/backend/promotable";
 import { joinShare2Earn, JOIN_DOCTRINE, bandFor } from "@/backend/share2earn-signup";
 import { getCreator, getCreatorByToken, listSubscriptions } from "@/backend/creator-engine";
@@ -387,6 +387,28 @@ export async function POST(req: NextRequest) {
     });
     void policy;
     return NextResponse.json({ modes: PROMOTION_MODES, doctrine: PROMOTION_DOCTRINE, ...(await catalogue(brandId, nowISO)) });
+  }
+
+  // PAUSE / RESUME one product. Stops new claims; never touches a link already
+  // issued, nor commission already earned.
+  if (action === "pause-product") {
+    const product = await setProductPaused({ brandId, productId: str("productId"), paused: body.paused !== false, nowISO });
+    if (!product) return NextResponse.json({ error: "That product is not in this brand's catalogue." }, { status: 404 });
+    const policy = await getPolicy(brandId, nowISO);
+    return NextResponse.json({
+      product,
+      decision: promotionDecision(product, policy),
+      note: product.paused
+        ? "Paused. Nobody new can claim it; tracked links already out there still work and nothing earned is affected."
+        : "Back in the catalogue — creators can claim it again.",
+    });
+  }
+
+  if (action === "delete-product") {
+    const res = await deleteProduct({ brandId, productId: str("productId") });
+    // 409, not 400: the request is well formed and the state refuses it.
+    if (!res.ok) return NextResponse.json({ ...res, canPauseInstead: true }, { status: res.claimed ? 409 : 404 });
+    return NextResponse.json({ ...res, ...(await catalogue(brandId, nowISO)) });
   }
 
   if (action === "catalogue") {

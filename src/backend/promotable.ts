@@ -39,7 +39,7 @@ import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { economicsFor, capacityFromTransaction, type OfferEconomics, type Economics } from "@/backend/profit-guard-economics";
 import { netEligibleValue, productEligible, type Eligibility } from "@/backend/share2earn";
-import { createProgramme, subscribe, type Subscription } from "@/backend/creator-engine";
+import { createProgramme, subscribe, listProgrammes, type Subscription } from "@/backend/creator-engine";
 import { SHARE2EARN_RATE, ratePct } from "@/shared/creator-program";
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,11 @@ export type PromotableProduct = {
   offer: OfferEconomics;
   /** Curated mode: the brand switched this one on. */
   promotable: boolean;
+  /**
+   * Temporarily off, in ANY mode. Distinct from `promotable` (the curated
+   * switch) and from `excludedReason` (a permanent statement about the product).
+   */
+  paused?: boolean;
   /** Open mode: the brand switched this one OFF, and said why. */
   excludedReason?: string;
   createdAt: string;
@@ -139,6 +144,17 @@ export function brandAllows(p: PromotableProduct, policy: PromotionPolicy): { ok
   }
   if (p.excludedReason) {
     return { ok: false, reason: `The brand excluded this product: ${p.excludedReason}` };
+  }
+  // PAUSED — a separate switch, honoured in EVERY mode.
+  //
+  // The first attempt at this reused `promotable`, and an existing test caught
+  // it: in an open catalogue that flag is deliberately ignored, and "the switch
+  // stops mattering" IS the difference between the two modes. A pause is a
+  // different statement — temporary, and carrying no accusation about the
+  // product — so it gets its own field rather than overloading one whose
+  // meaning is the mode boundary.
+  if (p.paused) {
+    return { ok: false, reason: "The brand has paused this product. Everything else in its catalogue is unaffected." };
   }
   if (policy.mode === "curated" && !p.promotable) {
     return { ok: false, reason: "The brand has not switched this product on for creators. In a curated catalogue only what is switched on can be claimed." };
@@ -414,6 +430,61 @@ export async function discoverable(limit = 60): Promise<{ brandId: string; mode:
     if (products.length) out.push({ brandId: policy.brandId, mode: policy.mode, products });
   }
   return out;
+}
+
+/**
+ * PAUSE OR RESUME ONE PRODUCT.
+ *
+ * A pause stops NEW claims. It does not touch a tracked link a creator has
+ * already been issued and already published — that link goes to the brand's own
+ * page, and breaking it would punish a creator for the brand's change of mind.
+ * It does not touch commission already earned either.
+ */
+export async function setProductPaused(input: { brandId: string; productId: string; paused: boolean; nowISO: string }): Promise<PromotableProduct | null> {
+  const p = await getProduct(input.productId);
+  // The brand id is checked here as well as at the route: a product belongs to
+  // one brand, and a pause is a write.
+  if (!p || p.brandId !== input.brandId) return null;
+  void input.nowISO;
+  const next: PromotableProduct = { ...p, paused: Boolean(input.paused) };
+  if (useDb()) await adminDb!.collection("promotable_products").doc(next.id).set(next, { merge: true });
+  else memProducts.set(next.id, next);
+  return next;
+}
+
+export type ProductDeletion =
+  | { ok: true; deleted: string }
+  | { ok: false; reason: string; claimed: boolean };
+
+/**
+ * DELETE A PRODUCT — only one nobody is promoting.
+ *
+ * Claiming a product mints a programme and a tracked link (see `claimProduct`).
+ * Deleting a product somebody has claimed would leave that link pointing at a
+ * listing that no longer exists, on a post the creator cannot edit. So a claimed
+ * product is REFUSED and a pause is offered instead, which achieves what the
+ * brand actually wants — nobody new can take it — without breaking what is
+ * already out there.
+ */
+export async function deleteProduct(input: { brandId: string; productId: string }): Promise<ProductDeletion> {
+  const p = await getProduct(input.productId);
+  if (!p || p.brandId !== input.brandId) return { ok: false, reason: "That product is not in this brand's catalogue.", claimed: false };
+
+  // `claimProduct` derives the programme id from the brand and the product name,
+  // so an existing programme IS the evidence that somebody claimed it.
+  const programmes = await listProgrammes(input.brandId);
+  const claimed = programmes.some((prog) => prog.target === p.name || prog.product === p.name);
+  if (claimed) {
+    return {
+      ok: false,
+      claimed: true,
+      reason: "A creator has already claimed this product and is holding a tracked link to it. Deleting it now would break a link on a post they cannot edit. Pause it instead — nobody new can take it, and the links already out there keep working.",
+    };
+  }
+
+  if (useDb()) await adminDb!.collection("promotable_products").doc(p.id).delete();
+  else memProducts.delete(p.id);
+  return { ok: true, deleted: p.id };
 }
 
 export function __resetPromotable(): void { memProducts.clear(); memPolicy.clear(); }
