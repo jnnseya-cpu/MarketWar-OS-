@@ -31,6 +31,12 @@ export const HANDLED_EVENTS = [
   "invoice.payment_failed",
   "customer.subscription.updated",
   "customer.subscription.deleted",
+  // MONEY GOING BACK OUT. Without these, ACUs were a one-way door: buy them,
+  // spend them, then refund or dispute the charge and keep the work. Prepaid
+  // credit with no reversal is the oldest fraud in the model.
+  "charge.refunded",
+  "charge.dispute.created",
+  "charge.dispute.funds_withdrawn",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -69,7 +75,7 @@ export type WebhookOutcome = {
   eventId: string;
   eventType: string;
   handled: boolean;
-  action: "allocate_acus" | "grace_period" | "downgrade" | "renew" | "ignored";
+  action: "allocate_acus" | "grace_period" | "downgrade" | "renew" | "reverse_credit" | "ignored";
   planId?: string;
   acusAllocated?: number;
   ledgerEntry?: { type: string; direction: "credit" | "debit"; amountAcu: number; idempotencyKey: string };
@@ -116,11 +122,48 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
   // double-credits). Checked before subscription so a top-up isn't mis-handled.
   const meta = (obj?.metadata as Record<string, unknown> | undefined) ?? {};
   if ((event.type === "checkout.session.completed" || event.type === "payment_intent.succeeded") && String(meta.marketwar_topup) === "true") {
-    const acus = Math.max(0, Math.round(Number(meta.marketwar_acus) || 0));
+    // CREDIT WHAT WAS PAID, NOT WHAT THE METADATA ASKED FOR.
+    //
+    // The ACU count was read straight off metadata. Our own checkout derives it
+    // from the amount and stamps both, so they normally agree — but a Stripe
+    // COUPON or promotion code reduces `amount_total` and leaves the metadata
+    // untouched, so a 90%-off code bought the full ACUs for a tenth of the
+    // money. A partial capture does the same. 1 ACU is 1 penny, so the amount
+    // actually received IS the credit; the metadata is now only a ceiling.
+    const intended = Math.max(0, Math.round(Number(meta.marketwar_acus) || 0));
+    const paidPence = Math.max(0, Math.round(Number(obj?.amount_total ?? obj?.amount_received ?? obj?.amount ?? 0)));
+    const acus = paidPence > 0 ? Math.min(intended, paidPence) : intended;
     return {
       ...base, handled: true, action: "allocate_acus", acusAllocated: acus,
       ledgerEntry: { type: "acu_topup", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
-      note: `Credit ${acus} top-up ACUs to the org wallet — append-only, idempotency key = event id. Top-ups carry no discount (4× recovery protected).`,
+      note: acus < intended
+        ? `Credit ${acus} top-up ACUs — the metadata asked for ${intended} but only ${paidPence}p was actually received (a discount code or a partial capture), and a wallet is credited from money that arrived, never from an intention.`
+        : `Credit ${acus} top-up ACUs to the org wallet — append-only, idempotency key = event id. Top-ups carry no discount (4× recovery protected).`,
+    };
+  }
+
+  // ONE ALLOCATION PER PERIOD, AND THE INVOICE IS THE PERIOD.
+  //
+  // Stripe fires BOTH `checkout.session.completed` and `invoice.paid` when a
+  // subscription starts. Both named the plan, both allocated a full month, and
+  // the idempotency key is the event id — which differs — so every new
+  // subscriber was credited TWICE for their first month. On Growth that is 980
+  // ACUs given away per signup, and it would have scaled linearly with success.
+  //
+  // The invoice is the payment for a period; the session is only the signup. So
+  // a subscription checkout activates the plan and allocates nothing, and every
+  // allocation — first month and every renewal — comes from an invoice.
+  if (event.type === "checkout.session.completed" && String(obj?.mode ?? "") === "subscription") {
+    const planId = planFromEvent(obj);
+    if (!planId) {
+      return {
+        ...base, handled: false, action: "ignored",
+        note: "Subscription checkout completed but it names no plan, so nothing was activated — guessing would hand out an entitlement nobody paid for.",
+      };
+    }
+    return {
+      ...base, handled: true, action: "renew", planId, acusAllocated: 0,
+      note: `Subscription started on ${planId} — plan activated. The ACUs for this period are allocated by the invoice, so that this and invoice.paid cannot both credit the same month.`,
     };
   }
 
@@ -142,6 +185,31 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
       note: `Credit ${acus} ACUs (20% of the ${plan.name} price) to the org wallet — append-only, idempotency key = event id so a redelivered event never double-credits.`,
     };
   }
+  // A REFUND OR A DISPUTE TAKES THE CREDIT BACK.
+  //
+  // Buy ACUs, spend them, then refund the payment or raise a chargeback: the
+  // work was done, the provider was paid, and the money went home. Prepaid
+  // credit with no reversal path is the oldest fraud in this model, and nothing
+  // here handled it.
+  //
+  // The reversal is the amount that actually went back, in pence, because 1 ACU
+  // is 1 penny. It cannot make a balance negative — what cannot be taken is
+  // recorded as owed and netted off the next payment, the same way a creator
+  // clawback on an unrecallable rail is handled.
+  if (event.type === "charge.refunded" || event.type === "charge.dispute.created" || event.type === "charge.dispute.funds_withdrawn") {
+    const back = Math.max(0, Math.round(Number(
+      obj?.amount_refunded ?? (obj as { amount?: unknown } | undefined)?.amount ?? 0,
+    )));
+    if (back <= 0) {
+      return { ...base, handled: false, action: "ignored", note: "Refund or dispute carried no amount, so nothing was reversed rather than guessing one." };
+    }
+    return {
+      ...base, handled: true, action: "reverse_credit", acusAllocated: -back,
+      ledgerEntry: { type: "acu_reversal", direction: "debit", amountAcu: back, idempotencyKey: event.id },
+      note: `${event.type === "charge.refunded" ? "Refunded" : "Disputed"} — reverse ${back} ACUs. A balance is never driven negative; anything already spent is recorded as owed and netted off the next payment.`,
+    };
+  }
+
   if (event.type === "invoice.payment_failed") {
     return { ...base, handled: true, action: "grace_period", note: "Enter grace period; retry payment; restrict service + hard-stop ACUs after grace expires (no new charges)." };
   }

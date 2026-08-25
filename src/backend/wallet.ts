@@ -150,6 +150,16 @@ export type WalletState = {
   /** A failed payment is forgiven until this instant, then treated as lapsed. */
   graceUntil?: string | null;
   /**
+   * ACUs reversed by a refund or a chargeback that the balance could not cover
+   * — because they had already been spent on work we had already paid for.
+   *
+   * A balance is never driven negative (a negative wallet breaks every read and
+   * every sum downstream), so the shortfall is carried here and netted off the
+   * next real payment. Same shape as the creator clawback on a rail that cannot
+   * be recalled: never silently written off, never reported as recovered.
+   */
+  owedAcu?: number;
+  /**
    * Has the one-off free signup allowance been handed over?
    *
    * Optional because wallets created before the human check existed do not
@@ -378,8 +388,10 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   // only asked about credit — so the note describing the downgrade was the only
   // thing that ever happened.
   const changesEntitlement = outcome.action === "downgrade" || outcome.action === "grace_period";
+  // Money going back out. Debits from a webhook are reversals, never charges.
+  const reversal = outcome.ledgerEntry?.direction === "debit" ? Math.max(0, Math.round(outcome.ledgerEntry.amountAcu)) : 0;
   if (!id) return { applied: false, reason: "No org id on the event — cannot credit a wallet (checkout must stamp client_reference_id / metadata.orgId)." };
-  if (credit <= 0 && !activatesPlan && !changesEntitlement) return { applied: false, reason: `Outcome '${outcome.action}' carries no wallet credit.` };
+  if (credit <= 0 && reversal <= 0 && !activatesPlan && !changesEntitlement) return { applied: false, reason: `Outcome '${outcome.action}' carries no wallet credit.` };
 
   if (adminConfigured && adminDb) {
     const walletRef = adminDb.collection(COLLECTION).doc(id);
@@ -390,9 +402,18 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
       const wSnap = await tx.get(walletRef);
       const cur = wSnap.exists ? (wSnap.data() as WalletState) : freshWallet(id);
       const now = nowIso();
+      // A real payment pays down anything a refund or chargeback could not take
+      // back, BEFORE it lands as spendable balance.
+      const owedBefore = Math.max(0, Math.round(cur.owedAcu || 0));
+      const settled = Math.min(owedBefore, credit);
+      const spendable = credit - settled;
+      // A reversal takes what is there and remembers the rest.
+      const taken = Math.min(cur.balanceAcu + spendable, reversal);
+      const unrecovered = reversal - taken;
       const next: WalletState = {
         ...cur,
-        balanceAcu: cur.balanceAcu + credit,
+        balanceAcu: cur.balanceAcu + spendable - taken,
+        owedAcu: owedBefore - settled + unrecovered,
         lifetimeCreditedAcu: cur.lifetimeCreditedAcu + credit,
         planId: outcome.planId ?? cur.planId,
         // A payment clears any lapse: paying again is the whole point.
@@ -402,7 +423,9 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
       };
       tx.set(walletRef, next, { merge: false });
       tx.set(eventRef, { eventId, orgId: id, action: outcome.action, creditedAcu: credit, planId: outcome.planId ?? null, at: nowIso() }, { merge: false });
-      const what = outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
+      const what = outcome.action === "reverse_credit"
+        ? `Reversed ${taken} ACUs${unrecovered > 0 ? `; ${unrecovered} had already been spent and is owed, to be netted off the next payment` : ""}.`
+        : outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
         : outcome.action === "grace_period" ? `Payment failed — service continues until ${next.graceUntil}.`
         : `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`;
       return { applied: true, reason: what, wallet: next, creditedAcu: credit, planId: outcome.planId };
@@ -412,14 +435,22 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   // Mem fallback — idempotent by event id set.
   if (memEvents.has(eventId)) return { applied: false, reason: `Event ${eventId} already processed — idempotent skip.` };
   memEvents.add(eventId);
-  const credited = await creditAcus(id, credit, outcome.planId);
+  const before = await getWallet(id);
+  const owedBefore = Math.max(0, Math.round(before.owedAcu || 0));
+  const settled = Math.min(owedBefore, credit);
+  const credited = await creditAcus(id, credit - settled, outcome.planId);
+  const taken = Math.min(credited.balanceAcu, reversal);
+  const unrecovered = reversal - taken;
   const patch = {
     ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
+    ...(reversal > 0 || settled > 0 ? { balanceAcu: credited.balanceAcu - taken, owedAcu: owedBefore - settled + unrecovered } : {}),
     ...entitlementPatch(outcome.action, nowIso()),
   };
   const wallet: WalletState = Object.keys(patch).length ? { ...credited, ...patch, updatedAt: nowIso() } : credited;
   if (Object.keys(patch).length) mem.set(id, wallet);
-  const what = outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
+  const what = outcome.action === "reverse_credit"
+    ? `Reversed ${taken} ACUs${unrecovered > 0 ? `; ${unrecovered} had already been spent and is owed, to be netted off the next payment` : ""}.`
+    : outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
     : outcome.action === "grace_period" ? `Payment failed — service continues until ${wallet.graceUntil}.`
     : `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`;
   return { applied: true, reason: what, wallet, creditedAcu: credit, planId: outcome.planId };

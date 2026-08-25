@@ -20948,3 +20948,119 @@ test("the billing webhook applies a downgrade instead of only describing one", (
     assert.match(src, /automationsPaused/, `${f} still runs unattended work for a lapsed account`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// THE MONEY AUDIT. Every finding below was a real way to end up financially
+// worse off, and each test drives the real handler.
+// ---------------------------------------------------------------------------
+
+test("a new subscriber is allocated one month, not two", async () => {
+  const { handleStripeEvent } = await import("../src/backend/stripe-billing.ts");
+
+  // Stripe fires BOTH checkout.session.completed and invoice.paid when a
+  // subscription starts. Both named the plan, both allocated a full month, and
+  // the idempotency key is the event id — which differs. Every new subscriber
+  // was credited twice for their first month, and it would have scaled with
+  // success.
+  const session = handleStripeEvent({
+    id: "evt_1", type: "checkout.session.completed",
+    data: { object: { mode: "subscription", metadata: { planId: "growth" } } },
+  });
+  assert.equal(session.acusAllocated, 0, "the subscription checkout still allocates a month of its own");
+  assert.equal(session.action, "renew", "the plan is no longer activated at signup");
+  assert.ok(!session.ledgerEntry, "the checkout still writes a credit to the ledger");
+
+  const invoice = handleStripeEvent({
+    id: "evt_2", type: "invoice.paid",
+    data: { object: { subscription_details: { metadata: { planId: "growth" } } } },
+  });
+  assert.ok(invoice.acusAllocated > 0, "the invoice no longer allocates, so a subscriber gets nothing");
+
+  // A ONE-OFF payment still allocates from the session — there is no invoice.
+  const oneOff = handleStripeEvent({
+    id: "evt_3", type: "checkout.session.completed",
+    data: { object: { mode: "payment", metadata: { planId: "growth" } } },
+  });
+  assert.ok(oneOff.acusAllocated > 0, "a one-off plan purchase now allocates nothing at all");
+});
+
+test("a top-up credits what was paid, not what the metadata asked for", async () => {
+  const { handleStripeEvent } = await import("../src/backend/stripe-billing.ts");
+  const topup = (meta, amount) => handleStripeEvent({
+    id: `evt_${amount}`, type: "checkout.session.completed",
+    data: { object: { metadata: { marketwar_topup: "true", ...meta }, amount_total: amount } },
+  });
+
+  // A Stripe COUPON reduces amount_total and leaves the metadata untouched, so
+  // a 90%-off code bought the full ACUs for a tenth of the money. 1 ACU is 1
+  // penny, so the amount received IS the credit.
+  const discounted = topup({ marketwar_acus: "5000" }, 500);
+  assert.equal(discounted.acusAllocated, 500, "a discount code still buys the undiscounted ACUs");
+  assert.match(discounted.note, /only 500p was actually received/i, "the shortfall is not explained");
+
+  // The metadata stays a CEILING — a larger payment must not over-credit either.
+  assert.equal(topup({ marketwar_acus: "1000" }, 5000).acusAllocated, 1000, "the metadata is no longer a ceiling");
+  assert.equal(topup({ marketwar_acus: "2500" }, 2500).acusAllocated, 2500, "an honest top-up was altered");
+});
+
+test("a refund or a chargeback takes the ACUs back", async () => {
+  const { handleStripeEvent, HANDLED_EVENTS } = await import("../src/backend/stripe-billing.ts");
+
+  // Buy ACUs, spend them, then refund or dispute: the work was done, the
+  // provider was paid, and the money went home. Prepaid credit with no reversal
+  // is the oldest fraud in this model and nothing handled it.
+  for (const type of ["charge.refunded", "charge.dispute.created", "charge.dispute.funds_withdrawn"]) {
+    assert.ok(HANDLED_EVENTS.includes(type), `${type} is not even acted on`);
+    const out = handleStripeEvent({ id: `evt_${type}`, type, data: { object: { amount_refunded: 2500, amount: 2500 } } });
+    assert.equal(out.action, "reverse_credit", `${type} does not reverse the credit`);
+    assert.equal(out.ledgerEntry?.direction, "debit", `${type} writes a credit rather than a debit`);
+    assert.equal(out.ledgerEntry?.amountAcu, 2500);
+  }
+  // An amount we cannot read is not guessed at.
+  assert.equal(handleStripeEvent({ id: "e", type: "charge.refunded", data: { object: {} } }).action, "ignored");
+});
+
+test("a reversal never drives a wallet negative, and what it cannot take is remembered", async () => {
+  const w = await import("../src/backend/wallet.ts");
+  w.__resetWallets?.();
+  const org = `audit_${Date.now().toString(36)}`;
+
+  // Read the opening balance rather than assuming it: a fresh wallet carries the
+  // free signup allowance in demo mode, and an assumed number made this test
+  // fail on arithmetic that had nothing to do with what it was testing.
+  const opening = (await w.getWallet(org)).balanceAcu;
+  await w.creditAcus(org, 1000);
+  await w.debitAcus(org, opening + 900);  // leaves 100, with 900 of the top-up already spent
+
+  const rev = await w.applyWebhookOutcome(org, {
+    eventId: `rev_${org}`, eventType: "charge.refunded", handled: true, action: "reverse_credit",
+    ledgerEntry: { type: "acu_reversal", direction: "debit", amountAcu: 1000, idempotencyKey: `rev_${org}` },
+    note: "",
+  });
+  assert.equal(rev.applied, true, "the reversal was refused for carrying no credit");
+  assert.equal(rev.wallet.balanceAcu, 0, "a wallet was driven negative, which breaks every sum downstream");
+  assert.equal(rev.wallet.owedAcu, 900, "what could not be taken back was silently written off");
+
+  // The next real payment settles the debt BEFORE it becomes spendable.
+  const paid = await w.applyWebhookOutcome(org, {
+    eventId: `pay_${org}`, eventType: "checkout.session.completed", handled: true, action: "allocate_acus",
+    ledgerEntry: { type: "acu_topup", direction: "credit", amountAcu: 1000, idempotencyKey: `pay_${org}` },
+    note: "",
+  });
+  assert.equal(paid.wallet.owedAcu, 0, "the debt survives a payment that should have cleared it");
+  assert.equal(paid.wallet.balanceAcu, 100, "the debt was not netted off before the credit became spendable");
+});
+
+test("the number of ACUs bought is never taken from the request", () => {
+  const route = codeOf(readFileSync(new URL("../src/app/api/billing/topup/route.ts", import.meta.url), "utf8"));
+  const checkout = codeOf(readFileSync(new URL("../src/backend/checkout.ts", import.meta.url), "utf8"));
+
+  // The route read `body.acus` and passed it on. It was saved only by the
+  // checkout ignoring the argument — so the leak was latent, not absent, and
+  // honouring that unused parameter turns "pay £1" into "get a million ACUs".
+  assert.doesNotMatch(route, /body\.acus/, "the client can name how many ACUs it is buying again");
+  assert.doesNotMatch(checkout, /input\.acus/, "the checkout honours a caller-supplied ACU count");
+  // It must be derived at the same place that sets the price Stripe charges.
+  assert.match(checkout, /const acus = Math\.max\(0, Math\.round\(amountGbp \* ACU_PER_GBP\)\)/,
+    "the ACU count is no longer derived from the amount being charged");
+});
