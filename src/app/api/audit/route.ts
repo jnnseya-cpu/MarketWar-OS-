@@ -3,6 +3,7 @@ import { crawlSite } from "@/backend/crawler";
 import { addProspect, recordAttempt, setStage } from "@/backend/acquisition";
 import { rateLimit, clientKey } from "@/backend/guard";
 import { isDisposableEmail } from "@/backend/human-check";
+import { publicSendFailure, sendFailureOf, operatorFix } from "@/shared/send-failure";
 
 // THE FREE AUDIT — the front door for organic acquisition.
 //
@@ -135,6 +136,7 @@ export async function POST(req: NextRequest) {
   // would be the same broken promise with extra steps.
   let emailed = false;
   let emailNote = "";
+  let emailFailure = "";
   try {
     const { sendEmail } = await import("@/backend/email");
     const { auditEmailHtml, auditEmailSubject } = await import("@/shared/audit-email");
@@ -157,9 +159,19 @@ export async function POST(req: NextRequest) {
       transactional: true,
     });
     emailed = sent.ok;
-    if (!sent.ok) emailNote = sent.failure === "not_configured" ? "no sending server is configured on this deployment" : sent.detail;
+    if (!sent.ok) {
+      // The CATEGORY travels, so the page can say which of three different
+      // problems it was instead of "we could not email you a copy just now".
+      // The raw server line stays here and in the log — a member of the public
+      // has no use for an SMTP rejection carrying our host and account name.
+      emailFailure = sendFailureOf(sent.failure);
+      emailNote = publicSendFailure(sent.failure);
+      console.warn(`[audit] send failed (${emailFailure}) for ${finalUrl}: ${sent.detail} — ${operatorFix(sent.failure)}`);
+    }
   } catch (e) {
-    emailNote = e instanceof Error ? e.message : "the send failed";
+    emailFailure = "unknown";
+    emailNote = publicSendFailure("unknown");
+    console.warn(`[audit] send threw for ${report.finalUrl || report.url}: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return NextResponse.json({
@@ -168,6 +180,7 @@ export async function POST(req: NextRequest) {
     // Whether the promise on the form was kept. The page reads this instead of
     // telling everybody to check an inbox nothing was sent to.
     emailed,
+    emailFailure,
     emailNote,
     url: report.finalUrl || report.url,
     score: report.score,

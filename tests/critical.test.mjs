@@ -2562,3 +2562,54 @@ test("a signed-in person is not refused just for using a path a machine also use
   assert.equal(stale.allow, false);
   assert.equal(stale.lane, "human", "the reason given must be the real one");
 });
+
+// ---------------------------------------------------------------------------
+// "never send any emails" — and the screen could not say why.
+//
+// `sendEmail` returns a failure CATEGORY and a detail. The audit route carried
+// both back. The page that rendered it said, for every one of them: "we could
+// not email you a copy just now." So three different problems with three
+// different fixes — nothing configured, the server refusing the credentials, a
+// suppressed address — were indistinguishable to the only person looking.
+// ---------------------------------------------------------------------------
+test("a failed send names which problem it was, without showing a stranger our config", async () => {
+  const sf = await import("../src/shared/send-failure.ts");
+
+  // Every category says something DIFFERENT. That is the whole point: a person
+  // reading these must never have to ask which one it was.
+  const notes = ["not_configured", "provider", "hygiene", "halted", "unknown"].map((c) => sf.publicSendFailure(c));
+  assert.equal(new Set(notes).size, notes.length, "two categories read the same, so the message identifies nothing");
+
+  assert.match(sf.publicSendFailure("not_configured"), /no mail server is set up/i);
+  assert.match(sf.publicSendFailure("provider"), /refused/i);
+  assert.match(sf.publicSendFailure("hygiene"), /bounced or unsubscribed/i);
+
+  // A member of the public typed their website into a free tool. They get a
+  // reason, never our sending host, account name or an SMTP transcript.
+  for (const c of ["not_configured", "provider", "hygiene", "halted", "unknown", "garbage", null, 7]) {
+    assert.doesNotMatch(sf.publicSendFailure(c), /SMTP|password|credential|smtp_|whsec|@/i, `"${c}" leaked configuration to a visitor`);
+  }
+
+  // Anything unrecognised degrades to a sentence rather than throwing or
+  // printing the raw value.
+  assert.equal(sf.sendFailureOf(undefined), "unknown");
+  assert.equal(sf.sendFailureOf("provider"), "provider");
+  assert.equal(sf.sendFailureOf("PROVIDER"), "unknown", "the category is matched exactly, never case-folded into a guess");
+
+  // The operator gets somewhere to go, and it is the endpoint that actually
+  // opens a connection rather than a runbook nobody has open.
+  assert.match(sf.operatorFix("not_configured"), /SMTP_HOST \+ SMTP_USER \+ SMTP_PASS/);
+  assert.match(sf.operatorFix("provider"), /health\/email/);
+  assert.match(sf.operatorFix("hygiene"), /working as intended/i);
+});
+
+test("the audit page renders the reason instead of one sentence for every failure", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8");
+  assert.match(page, /report\.emailNote/, "the page must render the reason the route sent it");
+  assert.match(page, /emailFailure\?: string/, "the category has to survive the type as well as the render");
+  const route = readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8");
+  assert.match(route, /publicSendFailure\(sent\.failure\)/, "the route must map the category rather than pass the raw detail out");
+  assert.match(route, /console\.warn/, "the precise server line has to go somewhere the operator can find it");
+  assert.doesNotMatch(route, /emailNote = sent\.detail/, "the raw SMTP line must not be handed to a visitor");
+});

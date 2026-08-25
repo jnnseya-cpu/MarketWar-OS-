@@ -18730,8 +18730,13 @@ test("audit: the send actually RUNS — proved by the outcome, not by a grep", a
       // outcome is "not sent, and here is why" — and only a send that ran can
       // report it.
       assert.equal(d.emailed, false, "a send was reported as succeeding with no provider configured");
-      assert.match(d.emailNote, /no sending server is configured/i,
+      // The CATEGORY is the stronger proof: only a send that ran can return one,
+      // and it is what lets the page tell "nothing is configured" apart from
+      // "the server refused us" — which the page used to render identically.
+      assert.equal(d.emailFailure, "not_configured",
         "the route never actually called the send — the report the form promised is not being produced");
+      assert.match(d.emailNote, /no mail server is set up/i, "the reason must reach the response in words a visitor can use");
+      assert.doesNotMatch(d.emailNote, /SMTP_|password|credential/i, "a stranger must never be shown our sending configuration");
 
       // AND IT SURVIVES THE EMERGENCY STOP. A stranger asked for one specific
       // document about their own website; leaving them with nothing because
@@ -18748,8 +18753,12 @@ test("audit: the send actually RUNS — proved by the outcome, not by a grep", a
           body: JSON.stringify({ url: base, email: "second@example.com" }),
         }));
         const h = await halted.json();
-        assert.match(h.emailNote, /no sending server is configured/i,
+        // Still "nothing configured" and NOT "sending is paused": the stop is a
+        // marketing control and this is a document the visitor asked for by
+        // name. If the halt reached it, the category would read "halted".
+        assert.equal(h.emailFailure, "not_configured",
           "the visitor's own report was swallowed by the marketing emergency stop");
+        assert.notEqual(h.emailFailure, "halted");
       } finally {
         stopMod.__resetEmergencyStop();
       }
