@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { getPool } from "@/backend/sending-pool";
 import { emailProvider, emailIsConfigured } from "@/backend/email";
 
@@ -38,9 +38,26 @@ function inspect(name: string): VarReport {
   };
 }
 
-// A real SMTP conversation: connect, EHLO, STARTTLS, AUTH. Whatever the server
-// says is what the customer needs to know.
-async function probeSmtp(node: { host: string; port: number; user: string; pass: string; secure: boolean }, timeoutMs = 8000): Promise<{ ok: boolean; stage: string; detail: string }> {
+// A real SMTP conversation: connect, EHLO, STARTTLS, AUTH — AND THEN AN
+// ENVELOPE, which is the part that was missing.
+//
+// The probe used to stop at AUTH and report "SENDING. Connected and
+// authenticated against the mail server just now." The owner read that verdict
+// while no email had ever arrived, and it was not wrong so much as overclaiming:
+// authenticating proves the password is right. It proves nothing about whether
+// the server will ACCEPT a message from this sender to that recipient. A relay
+// that authenticates you and then refuses `RCPT TO` for anything outside its own
+// domain is the single most common way a correctly configured client sends
+// nothing at all, and this probe could not see it.
+//
+// So it now continues: MAIL FROM, RCPT TO, then RSET. RSET abandons the
+// transaction, so the conversation proves the envelope would be accepted without
+// any message being delivered to anybody.
+async function probeSmtp(
+  node: { host: string; port: number; user: string; pass: string; secure: boolean },
+  envelope: { from: string; to: string },
+  timeoutMs = 8000,
+): Promise<{ ok: boolean; stage: string; detail: string; envelopeTested: { from: string; to: string } }> {
   const net = await import("node:net");
   const tls = await import("node:tls");
 
@@ -55,7 +72,7 @@ async function probeSmtp(node: { host: string; port: number; user: string; pass:
       if (done) return;
       done = true;
       try { socket?.destroy(); } catch { /* already gone */ }
-      resolve({ ok, stage, detail });
+      resolve({ ok, stage, detail, envelopeTested: envelope });
     };
 
     const timer = setTimeout(
@@ -96,8 +113,20 @@ async function probeSmtp(node: { host: string; port: number; user: string; pass:
         stage = "auth-pass";
         send(Buffer.from(node.pass).toString("base64"));
       } else if (stage === "auth-pass" && code === 235) {
+        // Authenticated. Now the question that actually matters.
+        stage = "mail-from";
+        send(`MAIL FROM:<${envelope.from}>`);
+      } else if (stage === "mail-from" && code === 250) {
+        stage = "rcpt-to";
+        send(`RCPT TO:<${envelope.to}>`);
+      } else if (stage === "rcpt-to" && (code === 250 || code === 251)) {
+        // Accepted. Abandon it — nothing is delivered to anybody by a probe.
+        stage = "rset";
+        send("RSET");
+      } else if (stage === "rset" && code === 250) {
         clearTimeout(timer);
-        finish(true, "Authenticated. This deployment can send mail.");
+        try { send("QUIT"); } catch { /* closing anyway */ }
+        finish(true, `Authenticated, and the server accepted an envelope from <${envelope.from}> to <${envelope.to}>. The transaction was then abandoned with RSET, so nothing was delivered.`);
       } else if (code >= 400) {
         clearTimeout(timer);
         finish(false, `Server rejected at "${stage}": ${line.trim()}`);
@@ -131,7 +160,7 @@ async function probeSmtp(node: { host: string; port: number; user: string; pass:
   });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const vars = {
     SMTP_HOST: inspect("SMTP_HOST"),
     SMTP_USER: inspect("SMTP_USER"),
@@ -147,11 +176,60 @@ export async function GET() {
   const pool = getPool();
   const node = pool[0];
 
+  // THE ENVELOPE THE PROBE WILL TEST.
+  //
+  // FROM is the address messages are actually sent as — parsed out of
+  // EMAIL_FROM, because a relay that accepts your password can still refuse an
+  // envelope from a domain you have not proved you own.
+  //
+  // TO defaults to the sending account itself: it is our own mailbox, so the
+  // probe never touches a stranger's server, and RSET abandons the transaction
+  // anyway. Pass ?to= to test whether the relay will accept an EXTERNAL
+  // recipient, which is the failure this could not previously see.
+  const fromAddr = (String(process.env.EMAIL_FROM || "").match(/<([^>]+)>/)?.[1] || String(process.env.EMAIL_FROM || "") || node?.user || "").trim();
+  const askedTo = (req.nextUrl.searchParams.get("to") || "").trim();
+  const probeTo = /^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(askedTo) ? askedTo : (node?.user || fromAddr);
+
   // Only probe when there is something to probe. A failed probe with no
   // credentials would just restate what the variables already said.
   const probe = node
-    ? await probeSmtp(node).catch((e) => ({ ok: false, stage: "probe", detail: e instanceof Error ? e.message : "probe failed" }))
+    ? await probeSmtp(node, { from: fromAddr || node.user, to: probeTo })
+        .catch((e) => ({ ok: false, stage: "probe", detail: e instanceof Error ? e.message : "probe failed", envelopeTested: { from: fromAddr, to: probeTo } }))
     : null;
+
+  // WHY AN AUTHENTICATED SERVER STILL DELIVERS NOTHING.
+  //
+  // Almost always: the From domain has no SPF record covering the relay, or no
+  // DMARC policy, so the message is accepted by our own server and then binned
+  // silently by the receiving one. Nothing bounces and nothing arrives, which is
+  // exactly the report. This resolves it from the server rather than asking
+  // somebody to go and check DNS by hand.
+  const fromDomain = fromAddr.split("@")[1] || "";
+  let dnsCheck: Record<string, unknown> = { ran: false, note: "No From domain to check." };
+  if (fromDomain) {
+    try {
+      const dns = await import("node:dns/promises");
+      const txt = await dns.resolveTxt(fromDomain).catch(() => [] as string[][]);
+      const flat = txt.map((r) => r.join(""));
+      const spf = flat.find((r) => r.toLowerCase().startsWith("v=spf1")) || "";
+      const dmarcTxt = await dns.resolveTxt(`_dmarc.${fromDomain}`).catch(() => [] as string[][]);
+      const dmarc = dmarcTxt.map((r) => r.join("")).find((r) => r.toLowerCase().startsWith("v=dmarc1")) || "";
+      dnsCheck = {
+        ran: true,
+        fromDomain,
+        spf: spf || null,
+        dmarc: dmarc || null,
+        verdict: !spf
+          ? `NO SPF RECORD on ${fromDomain}. Mail sent as this address authenticates at our own relay and is then very likely binned by the receiving server without a bounce — which looks exactly like "nothing sends". Publish a TXT record on ${fromDomain} authorising the relay that sends for it.`
+          : !dmarc
+            ? `SPF is published on ${fromDomain} but there is no DMARC policy. Delivery usually works; add a _dmarc TXT record (start at p=none) so you can SEE what receivers do with it.`
+            : `SPF and DMARC are both published on ${fromDomain}. If mail still does not arrive, the cause is downstream of authentication — check the recipient's spam folder and the relay's own outbound log.`,
+        note: "This reads DNS. It cannot confirm the relay's sending IP is inside the SPF record — compare the include/ip4 entries above with the IP your provider sends from.",
+      };
+    } catch (e) {
+      dnsCheck = { ran: false, fromDomain, error: e instanceof Error ? e.message : "DNS lookup failed", note: "DNS could not be resolved from the server; check SPF and DMARC by hand." };
+    }
+  }
 
   const missing = (["SMTP_HOST", "SMTP_USER", "SMTP_PASS"] as const).filter((k) => !vars[k].present);
 
@@ -165,13 +243,20 @@ export async function GET() {
     activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
     vars,
     probe,
+    dnsCheck,
     verdict: !node
       ? missing.length
         ? `NOT SENDING. Missing or empty: ${missing.join(", ")}. All three are required — host, user AND password.`
         : "NOT SENDING. The variables are present but no sending node could be built from them."
       : probe?.ok
-        ? "SENDING. Connected and authenticated against the mail server just now."
-        : `NOT SENDING. Credentials are present but the server refused them — ${probe?.detail ?? "no detail"}`,
+        // "Authenticated" is NOT "sending", and saying so was the overclaim that
+        // let this sit unexplained. The verdict now names what was proved.
+        ? `SENDING. Authenticated AND the server accepted an envelope just now (${probe.envelopeTested?.from} → ${probe.envelopeTested?.to}, then abandoned). If mail still does not arrive, the cause is delivery rather than configuration — see dnsCheck.`
+        : probe?.stage === "rcpt-to"
+          ? `NOT SENDING. The password is accepted but the server REFUSED THE RECIPIENT — ${probe.detail}. A relay that authenticates you and then rejects RCPT TO is usually restricted to its own domain, or the From address is not one it will send as.`
+          : probe?.stage === "mail-from"
+            ? `NOT SENDING. The password is accepted but the server refused the SENDER address — ${probe.detail}. EMAIL_FROM must be an address this relay is allowed to send as.`
+            : `NOT SENDING. Credentials are present but the server refused them — ${probe?.detail ?? "no detail"}`,
     whyThisExists:
       "Setting a variable in a dashboard does not prove the running deployment received it. Vercel applies environment changes only to deployments created AFTER the change, and Preview and Production are separate scopes. If a variable reads 'Not set' here after you have set it, the running build predates the change — redeploy, and check you set it on Production.",
   });

@@ -2613,3 +2613,44 @@ test("the audit page renders the reason instead of one sentence for every failur
   assert.match(route, /console\.warn/, "the precise server line has to go somewhere the operator can find it");
   assert.doesNotMatch(route, /emailNote = sent\.detail/, "the raw SMTP line must not be handed to a visitor");
 });
+
+// ---------------------------------------------------------------------------
+// "Authenticated" is not "sending".
+//
+// The email health probe stopped at AUTH and returned the verdict "SENDING.
+// Connected and authenticated against the mail server just now." The owner read
+// that while no email had ever arrived. It was not false — the password IS
+// accepted — it was overclaiming: authenticating proves nothing about whether
+// the server will accept a message FROM that address TO that recipient. A relay
+// that authenticates you and then refuses RCPT TO for anything outside its own
+// domain is the commonest way a correctly configured client sends nothing, and
+// this probe could not see it.
+// ---------------------------------------------------------------------------
+test("the email probe proves an envelope, not just a password", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+
+  // The conversation continues past AUTH into a real envelope...
+  for (const stage of ["mail-from", "rcpt-to", "rset"]) {
+    assert.ok(src.includes(`stage === "${stage}"`), `the probe never reaches ${stage}, so it cannot know whether a message would be accepted`);
+  }
+  assert.match(src, /send\("RSET"\)/, "the transaction must be abandoned — a health check may never deliver a message");
+  assert.doesNotMatch(src, /send\("DATA"\)/, "a probe that sent a body would be sending mail, not testing it");
+
+  // ...and the verdict no longer claims sending on the strength of a password.
+  assert.doesNotMatch(src, /"SENDING\. Connected and authenticated against the mail server just now\."/,
+    "the overclaiming verdict must not survive the fix");
+  assert.match(src, /accepted an envelope just now/, "the verdict has to name what was actually proved");
+
+  // The two refusals that look identical from outside are told apart, because
+  // they have different fixes: the SENDER address versus the RECIPIENT.
+  assert.match(src, /probe\?\.stage === "rcpt-to"/);
+  assert.match(src, /probe\?\.stage === "mail-from"/);
+
+  // And the reason an authenticated relay still delivers nothing is checked
+  // rather than left for somebody to guess at.
+  assert.match(src, /resolveTxt\(fromDomain\)/, "SPF on the From domain is the usual cause and must be read, not assumed");
+  assert.match(src, /_dmarc\./);
+  assert.match(src, /cannot confirm the relay's sending IP is inside the SPF record/,
+    "the check must say what it does NOT prove — an SPF record that omits the relay looks identical to one that includes it");
+});
