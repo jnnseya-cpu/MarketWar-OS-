@@ -13,6 +13,7 @@ import { BrandLockup } from "@/components/Logo";
 import { firebaseAuth } from "@/frontend/firebase-client";
 import { authedFetch } from "@/frontend/api-client";
 import { runHumanCheck, claimSignupAllowance } from "@/frontend/human-check";
+import { creditableCode } from "@/frontend/referral";
 import { track } from "@/frontend/analytics";
 
 type PublicInvite = { token: string; companyName: string; planId: string; brands: number; status: string };
@@ -147,6 +148,8 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         if (res?.user) {
           setBusy(true);
           await acceptInviteIfAny(res.user.uid);
+          const { getAdditionalUserInfo } = await import("firebase/auth");
+          await attributeReferralIfAny(Boolean(getAdditionalUserInfo(res)?.isNewUser));
           await claimSignupAllowance(authedFetch).catch(() => null);
           const stored = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("mw_auth_dest") : null;
           if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("mw_auth_dest");
@@ -164,6 +167,29 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     try {
       await fetch(`/api/invites/${encodeURIComponent(invite.token)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid }),
+      });
+    } catch { /* non-fatal */ }
+  }
+
+  /**
+   * CREDIT THE CREATOR WHO SENT THIS PERSON — only when the account is NEW.
+   *
+   * Not on every sign-in. A customer of two years who happens to click a
+   * creator's link and then logs in has not been referred by anybody, and
+   * crediting that would pay creators for traffic they did not create while
+   * making the number meaningless for the ones who did.
+   *
+   * Best-effort, like the allowance claim: nobody is kept out of the platform
+   * they just signed up for because an attribution call failed.
+   */
+  async function attributeReferralIfAny(isNewAccount: boolean) {
+    if (!isNewAccount) return;
+    try {
+      const credit = creditableCode();
+      if (!credit) return;
+      await authedFetch("/api/referral/attribute", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: credit.code, via: credit.via }),
       });
     } catch { /* non-fatal */ }
   }
@@ -200,6 +226,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         } catch { /* non-fatal — verification can be re-sent from Settings */ }
       }
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
+      await attributeReferralIfAny(mode === "signup");
       // Spend the token on the free allowance. Best-effort: never block entry to
       // the platform on it — it can be claimed from Billing instead.
       await claimSignupAllowance(authedFetch).catch(() => null);
@@ -243,7 +270,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       // Google's own flow proves a person is at the keyboard, but the check also
       // mints the token the free allowance is claimed with — so run it here too.
       if (!(await passHumanCheck(""))) return;
-      const { GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence } = await import("firebase/auth");
+      const { GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence, getAdditionalUserInfo } = await import("firebase/auth");
       await setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
       const provider = new GoogleAuthProvider();
       // Remember where to land — the redirect flow leaves and re-enters the page.
@@ -257,8 +284,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       }
       // Desktop: try the pop-up; if the browser blocks/closes it, fall back to
       // redirect instead of dead-ending.
+      let popup: Awaited<ReturnType<typeof signInWithPopup>> | null = null;
       try {
-        await signInWithPopup(firebaseAuth, provider);
+        popup = await signInWithPopup(firebaseAuth, provider);
       } catch (e) {
         const code = (e as { code?: string })?.code || "";
         if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/operation-not-supported-in-this-environment"].includes(code)) {
@@ -268,6 +296,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         throw e;
       }
       await acceptInviteIfAny(firebaseAuth.currentUser?.uid);
+      // Google does not care which button was pressed, so "is this a signup?"
+      // has to come from Firebase rather than from `mode`.
+      await attributeReferralIfAny(Boolean(popup && getAdditionalUserInfo(popup)?.isNewUser));
       await claimSignupAllowance(authedFetch).catch(() => null);
       router.push(dest);
     } catch (err) {

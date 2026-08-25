@@ -5,6 +5,7 @@ import "./globals.css";
 import PWARegister from "@/components/PWARegister";
 import SiteJsonLd from "@/components/SiteJsonLd";
 import CookieConsent from "@/components/CookieConsent";
+import ReferralCapture from "@/components/ReferralCapture";
 import AnalyticsRouteTracker from "@/components/AnalyticsRouteTracker";
 import { splashLinks } from "@/shared/pwa-splash";
 
@@ -77,6 +78,13 @@ export default function RootLayout({
             visitor who said no. */}
         <Suspense fallback={null}>
           <AnalyticsRouteTracker />
+        </Suspense>
+        {/* Stores who sent this visitor, but only once they have accepted
+            cookies — affiliate attribution is not a necessary cookie. Without
+            consent it stores nothing and the creator is still credited for the
+            visit, because the code rides in the URL. */}
+        <Suspense fallback={null}>
+          <ReferralCapture />
         </Suspense>
       </body>
     </html>

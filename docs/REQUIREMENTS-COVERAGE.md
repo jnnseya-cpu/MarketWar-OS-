@@ -4865,3 +4865,89 @@ never left looking like it is rendering.
 
 **953 → 955.** Mutation confirmed both directions. Typecheck, layer check and
 build green.
+
+---
+
+## §101 — The eight metres between the click and the account (2026-08-25)
+
+Owner question, and it was the right one: *"when someone use a link from any of
+the growth programme or share2earn, then click signup or login, the link code is
+not longer visible and how the system will keep tracking and aware the person?"*
+
+It did not. `/r/{CODE}` recorded the click and forwarded to the brand's own site
+with `?ref=` attached — and that half worked, because the brand's own cookie is
+the attribution there. Everything aimed at MarketWar itself dropped the code:
+
+- `/signup` and `/login` read no referral parameter; nothing anywhere set a
+  cookie. The only producer of `referredRef` in the whole codebase was a brand
+  posting a sale back by hand, so the sub-10k **ACU referral programme (250 ACUs
+  per referral) could not pay out from a link at all**.
+- A programme with **no `destinationUrl`** redirected to `/` and discarded the
+  code entirely. Real traffic, recorded click, attribution impossible.
+- Unrecoverable after the fact: `recordClick` stores a salted visitor hash that
+  rotates **per code per day**, deliberately, so no trail exists to reconstruct.
+
+### What shipped
+`shared/signup-attribution.ts` (the rule), `backend/signup-attribution.ts` (the
+record), `frontend/referral.ts` + `components/ReferralCapture.tsx` (the browser
+half), `/r/[code]` converted from a page to a **route handler**, `SiteAuthLinks`
+carrying the code onto the signup link, `/api/referral/attribute`, and the
+account taken from the **verified token, never the body**.
+
+**Last touch wins, inside 90 days** — owner's decision, and the one a creator who
+was not paid can have explained in a sentence.
+
+### Consent — two tiers, because one would have been a lie
+The persistent cookie is affiliate attribution. It is not authentication and not
+analytics, and under PECR it is not "strictly necessary for a service the user
+requested"; the ICO says so about affiliate tracking specifically. So:
+
+- **Tier 1 — the visit.** The code rides in the URL through to signup. A query
+  parameter is not storage on a device, so no consent question arises. Covers
+  click → land → sign up, which is most referred signups.
+- **Tier 2 — 90 days.** Only once the visitor has accepted cookies.
+
+Stated to the creator on `/share2earn` and to the visitor in Privacy §10, rather
+than averaged into one number neither could verify.
+
+### §Gaps — two attribution windows, both kept (Additive-Only resolution)
+`shared/referral-attribution.ts` already defined a **30-day last-click** window.
+The new module defines **90 days**. Both stand, because they answer different
+questions and were deliberately kept as separate modules rather than merged:
+
+| Module | Question | Window |
+|---|---|---|
+| `referral-attribution.ts` | May a **sale on a brand's own site** claim a code? A sanity check on a postback we never observed. | 30 days |
+| `signup-attribution.ts` | Did this person reach **our** signup on a link **we** observed? | 90 days |
+
+**Resolution: both govern, in their own domain.** Neither was edited.
+
+### The design that had to be thrown away, and why
+The obvious implementation wrote the referral to the commission ledger as
+`recordConversion(..., grossGbp: 0)`, so `creatorWallet` would count it with no
+new code. A test written before the code was believed caught it: `fraudScore`
+flags zero-revenue events on purpose, and says why — *"otherwise 5 fake £0
+conversions would satisfy the proven-conversion exception and bypass the 10K
+gate."* Five throwaway signups on your own link and the follower gate is gone.
+
+So an attribution is a **link, not money**: it records which creator an account
+belongs to. Payment still happens through the existing ledger, cap cycle and
+payout rails when that account produces real revenue. A test now asserts the
+ledger stays empty, so this cannot be re-opened by a later good idea.
+
+### Still outstanding
+Nothing yet posts a conversion when a **referred MarketWar account pays us**.
+The link exists and the payout machinery exists; the hook between them does not.
+Until it is built, a MarketWar self-referral is recorded and traceable but not
+yet paid. Named here so it stops being rediscovered.
+
+### Tests
+`normaliseCode` rejects paths/scripts/short strings; last-touch beats stored,
+re-click restarts the clock, 89 days survives and 91 does not, a future-dated
+cookie reads as expired; cookie round-trip and corruption; the link is written
+and readable from both ends **with the ledger untouched**; one account is
+attributed once ever and a second creator's code cannot overwrite it;
+self-referral and unknown codes store nothing; a stored record missing fields
+reads as absent rather than as a wrong creator; and the redirect carries the code
+home when no destination is set — while still dropping a code nobody minted,
+which the comment had claimed and the code had not done.
