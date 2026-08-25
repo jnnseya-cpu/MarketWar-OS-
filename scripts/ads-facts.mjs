@@ -74,3 +74,59 @@ for (const [name, route] of Object.entries(ROUTES)) {
     throw new Error(`ads-facts: the adverts link to ${route} but src/app${route}/page.tsx does not exist`);
   }
 }
+
+// ---------------------------------------------------------------- pitch facts
+//
+// Added for the pitch-creatives bundle (scripts/pitch-content.mjs). Same rule as
+// everything above: parsed, never typed. Two numbers I had quoted from memory
+// were wrong before this existed — "19 agents" (it is 39) and "15 seconds for
+// £2.81" (that is the EIGHT-second price; 15 seconds is £5.25). A creative
+// carrying either would have been a claim the product does not honour.
+
+const agentsSrc = read("src", "shared", "agents.ts");
+// Each agent is a keyed entry in the AGENTS record: `  someId: {`.
+// Keys are quoted kebab-case: `  "business-diagnosis": {`. Counting `id:` would
+// be wrong — nested definitions carry one too.
+const agentKeys = agentsSrc.slice(agentsSrc.indexOf("export const AGENTS")).match(/^\s{2}"[a-z0-9-]+":\s*\{/gm) || [];
+if (agentKeys.length < 20) {
+  throw new Error(`ads-facts: parsed only ${agentKeys.length} agents from agents.ts — the shape changed, fix the parser rather than the creative`);
+}
+export const AGENT_COUNT = agentKeys.length;
+
+// Video pricing — IMPORTED, NOT RECOMPUTED.
+//
+// The first version of this parsed the per-second cost and the markup and did
+// the arithmetic here. It produced 192 ACUs for an 8-second render; the real
+// function returns 281, because `videoRenderAcus` also applies a storage floor
+// (`minimumAcusFor`) that the recomputation knew nothing about. A creative
+// quoting £1.92 for something the platform charges £2.81 for is a rejected ad
+// and a refund request — which is the exact failure this whole file exists to
+// prevent, arriving through the door marked "convenience".
+//
+// So the real function is imported. That is why `ads:doc` runs under tsx.
+const { videoRenderAcus, DEFAULT_RENDER_SECONDS } = await import("../src/backend/video-gateway.ts");
+
+export const VIDEO_DEFAULT_SECONDS = DEFAULT_RENDER_SECONDS;
+export const VIDEO_PRICES = [8, 12, VIDEO_DEFAULT_SECONDS].map((s) => {
+  const acus = videoRenderAcus(s);
+  if (!Number.isFinite(acus) || acus <= 0) throw new Error(`ads-facts: videoRenderAcus(${s}) returned ${acus}`);
+  return { seconds: s, acus, gbp: (acus / 100).toFixed(2) };
+});
+export const VIDEO_CHEAPEST = VIDEO_PRICES[0];
+export const VIDEO_DEFAULT_PRICE = VIDEO_PRICES.find((p) => p.seconds === VIDEO_DEFAULT_SECONDS);
+
+// Creator programme — the rate, and the fact there is no follower gate on cash.
+const creatorSrc = read("src", "shared", "creator-program.ts");
+const s2eCap = creatorSrc.match(/SHARE2EARN_RATE_CAP\s*=\s*([0-9.]+)/);
+const minWd = creatorSrc.match(/MIN_WITHDRAWAL_GBP\s*=\s*([0-9]+)/);
+if (!s2eCap || !minWd) {
+  throw new Error("ads-facts: could not read SHARE2EARN_RATE_CAP or MIN_WITHDRAWAL_GBP — a creative states both");
+}
+export const SHARE2EARN_PCT = `${Number(s2eCap[1]) * 100}%`;
+export const MIN_WITHDRAWAL_GBP = Number(minWd[1]);
+
+// The creative says "no follower gate". This is what makes that true, and it
+// fails the build the day somebody puts the gate back.
+if (!/return "main";/.test(creatorSrc.slice(creatorSrc.indexOf("export function programmeFor")))) {
+  throw new Error('ads-facts: programmeFor no longer returns "main" unconditionally — a creative promises cash with no follower gate');
+}
