@@ -2101,3 +2101,58 @@ test("the referral redirect no longer throws the code away", async () => {
   assert.equal(junk.pathname, "/");
   assert.equal(junk.searchParams.get("ref"), null);
 });
+
+// ---------------------------------------------------------------------------
+// SHARE2EARN pays cash from the first sale (owner ruling, 2026-08-25).
+//
+// The partner dashboard showed "Pending (to 10K)" and "you're on the ACU
+// referral programme" directly above "SHARE2EARN — 0.5%. Open to everyone. No
+// follower count, no application, no audience test." Two owner rulings, live
+// together, contradicting each other on one screen — and only the older one was
+// implemented, so a SHARE2EARN creator's cash sat in pending for ever.
+// ---------------------------------------------------------------------------
+const cprog = await import("../src/shared/creator-program.ts");
+
+test("a creator with no followers is paid cash, not parked on ACUs", async () => {
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const prog = await engine.createProgramme({ brandId: "b_cash", brandName: "Cash", name: "P", product: "x", description: "d", nowISO });
+  // Zero followers, unverified — exactly who the old gate parked.
+  const cr = await engine.upsertCreator({ name: "Small", email: "small@example.com", tier: "micro", followers: 0, nowISO });
+  const sub = await engine.subscribe(cr.id, prog.id, nowISO);
+
+  await engine.recordConversion({ code: sub.subscription.code, grossGbp: 4000, referredRef: "cust_1", idempotencyKey: "ord_1", nowISO });
+  const w = await engine.creatorWallet(cr.id);
+
+  assert.equal(w.programme, "main", "nobody is placed on the ACU programme instead of being paid");
+  assert.ok(w.payableGbp > 0, "earnings must be payable with no follower count involved");
+  assert.equal(w.pendingGbp, 0, "nothing waits behind a follower gate any more");
+  assert.equal(w.payoutEligible, true);
+  assert.equal(w.band.id, "share2earn", "the RATE still follows the verified follower count");
+  assert.equal(w.band.creatorRate, cprog.SHARE2EARN_RATE);
+  // ACUs were a substitute for cash; they are now paid as well, so nobody loses.
+  assert.ok(w.acusEarned > 0, "the SHARE2EARN band keeps its ACUs per referred customer");
+  assert.doesNotMatch(w.gateNote, /sub-10K|auto-switch/i, "the note must not still describe the gate");
+});
+
+test("the withdrawal floor delays a payment, and never refuses an earning", async () => {
+  assert.equal(cprog.withdrawable(0).ok, false);
+  assert.equal(cprog.withdrawable(cprog.MIN_WITHDRAWAL_GBP).ok, true);
+  const small = cprog.withdrawable(3.5);
+  assert.equal(small.ok, false);
+  assert.match(small.reason, /is yours and stays yours/, "a floor that reads like a confiscation is the thing we were avoiding");
+  assert.doesNotMatch(small.reason, /follower/i);
+
+  // And the payout path enforces it rather than the follower count.
+  engine.__resetCreatorEngine?.();
+  const nowISO = "2026-08-25T10:00:00.000Z";
+  const prog = await engine.createProgramme({ brandId: "b_floor", brandName: "Floor", name: "P", product: "x", description: "d", nowISO });
+  const cr = await engine.upsertCreator({ name: "Tiny", email: "tiny@example.com", tier: "micro", followers: 0, nowISO });
+  const sub = await engine.subscribe(cr.id, prog.id, nowISO);
+  await engine.recordConversion({ code: sub.subscription.code, grossGbp: 100, referredRef: "c1", idempotencyKey: "o1", nowISO });
+
+  const res = await engine.requestPayout(cr.id, "other", nowISO);
+  assert.equal(res.ok, false, "50p cannot be withdrawn");
+  assert.match(res.reason, /Withdrawals start at £20/);
+  assert.doesNotMatch(res.reason, /10,?000|follower/i, "the refusal must not be about followers");
+});

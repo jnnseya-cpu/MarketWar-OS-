@@ -19,7 +19,9 @@ export function scoutScore(input: ScoutInput): { score: number; flags: string[];
   let score = 50;
   // Combined-follower welcome for micro/local: spread across platforms is good.
   if (input.platforms >= 3) score += 10;
-  if (input.followers >= MIN_PAYOUT_FOLLOWERS) score += 15; else flags.push("below 10K combined — can accrue, not yet payable");
+  // Below 10K is a BAND, not a bar: they are paid cash on verified sales like
+  // everybody else. The flag says what it costs them, which is rate, not access.
+  if (input.followers >= MIN_PAYOUT_FOLLOWERS) score += 15; else flags.push("below 10K combined — paid at the lower band, not barred from payout");
   // Engagement authenticity heuristic — very low engagement at high followers = bought-follower risk.
   const eng = input.engagementPct ?? -1;
   if (eng >= 0) {

@@ -12666,10 +12666,20 @@ test("payouts: both programmes share the mechanism and keep their own rates", as
   assert.equal(cp.share2earnNeverPaysMore(), true);
   assert.notEqual(cp.SHARE2EARN_RATE, cp.INFLUENCER_RATE_10K, "the two programmes must not have collapsed into one rate");
 
-  // And the growth programme keeps its own extra gate — the follower threshold —
-  // on top of the shared identity gate.
-  assert.match(engine, /w\.payoutEligible/);
+  // THE FOLLOWER GATE IS GONE FROM THE PAYOUT PATH, on the owner's ruling of
+  // 2026-08-25 — SHARE2EARN was sold as "no follower count" while this branch
+  // decided otherwise, and the two claims sat on the same dashboard. What guards
+  // a withdrawal now is the AMOUNT, which delays a payment without telling
+  // anybody they are too small to earn.
+  assert.match(engine, /withdrawable\(w\.payableGbp\)/, "the withdrawal floor must be what the payout path checks");
+  assert.doesNotMatch(engine, /if \(!w\.payoutEligible\)/, "the follower gate must not have crept back into the payout path");
+  assert.equal(cp.withdrawable(cp.MIN_WITHDRAWAL_GBP).ok, true);
+  assert.equal(cp.withdrawable(cp.MIN_WITHDRAWAL_GBP - 0.01).ok, false);
+  assert.match(cp.withdrawable(1).reason, /is yours and stays yours/, "a small balance is a delay, not a refusal");
+  // 10,000 still means something — it is the 1% BAND, never a permission.
   assert.equal(cp.MIN_PAYOUT_FOLLOWERS, 10_000);
+  assert.equal(cp.bandForFollowers({ followers: 10_000, verified: true, onCreatorProgramme: true }).creatorRate, cp.INFLUENCER_RATE_10K);
+  assert.equal(cp.programmeFor({ followers: 0, verified: false }), "main", "nobody is placed on the ACU programme instead of being paid");
 });
 
 // ---------------------------------------------------------------------------
@@ -12897,7 +12907,11 @@ test("share2earn signup: the instant door cannot mint an influencer band", async
     const account = await ce.getCreator(res.creatorId);
     assert.equal(account.followers, 0, "a claimed follower count reached the account");
     assert.equal(account.followersVerified, false, "the instant door verified somebody");
-    assert.equal(account.payoutEligible, false, "the instant door granted payout eligibility");
+    // payoutEligible is true for everybody since the follower gate was replaced
+    // by a withdrawal minimum. What the instant door must still never do is mint
+    // a RATE it has not verified — which is what the band assertions above test,
+    // and which is the whole point of this guard.
+    assert.equal(account.payoutEligible, true, "cash is not gated on followers any more");
   }
 });
 

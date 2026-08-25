@@ -8,6 +8,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, Wallet, Users, LinkIcon, Copy, ShieldCheck, TrendingUp, Coins, Store, Plus } from "lucide-react";
+import { MIN_WITHDRAWAL_GBP } from "@/shared/creator-program";
 
 
 type WalletData = {
@@ -180,7 +181,16 @@ function PartnerDashboard() {
         {/* Earnings */}
         <div className="grid gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><Wallet className="h-3.5 w-3.5" /> Payable now</div><p className="mt-1 font-display text-2xl font-bold text-emerald-300">{money(wallet.payableGbp)}</p></div>
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><TrendingUp className="h-3.5 w-3.5" /> Pending (to 10K)</div><p className="mt-1 font-display text-2xl font-bold text-amber-300">{money(wallet.pendingGbp)}</p></div>
+          {/* "Pending (to 10K)" was the follower gate showing through, and it
+              was the panel that contradicted "no follower count" one screen
+              below. Cash is payable from the first verified sale now, so the
+              only thing left to tell somebody is how far off a withdrawal is —
+              which is a distance, not a permission. */}
+          {wallet.payableGbp >= MIN_WITHDRAWAL_GBP ? (
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><TrendingUp className="h-3.5 w-3.5" /> Ready to withdraw</div><p className="mt-1 font-display text-2xl font-bold text-emerald-300">Yes</p></div>
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-ink-900/60 p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><TrendingUp className="h-3.5 w-3.5" /> To reach the £{MIN_WITHDRAWAL_GBP} withdrawal</div><p className="mt-1 font-display text-2xl font-bold text-white">{money(Math.max(0, MIN_WITHDRAWAL_GBP - wallet.payableGbp))}</p></div>
+          )}
           <div className="rounded-xl border border-white/10 bg-ink-900/60 p-4"><div className="text-xs text-slate-400">Lifetime earned</div><p className="mt-1 font-display text-2xl font-bold text-white">{money(wallet.lifetimeCreatorGbp)}</p></div>
           <div className="rounded-xl border border-white/10 bg-ink-900/60 p-4"><div className="flex items-center gap-1.5 text-xs text-slate-400"><Coins className="h-3.5 w-3.5" /> ACUs earned</div><p className="mt-1 font-display text-2xl font-bold text-white">{wallet.acusEarned.toLocaleString()}</p></div>
         </div>
@@ -237,7 +247,7 @@ function PartnerDashboard() {
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-600">This is your private link — keep it safe. Earnings shown are computed on verified revenue; {isMain ? "you're on the cash programme" : "you're on the ACU referral programme and auto-upgrade to cash at 10K verified followers"}.</p>
+        <p className="text-center text-xs text-slate-600">This is your private link — keep it safe. Earnings shown are computed on verified revenue; {isMain ? "you're on the cash programme" : "you're on the cash programme"}.</p>
       </div>
     </div>
   );

@@ -20,7 +20,7 @@ if (typeof window !== "undefined") {
 import { createHash, randomUUID } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { executePayout } from "@/backend/payout-execute";
-import { computeCreatorSplit, programmeFor, bandForFollowers, type CommissionBand, MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
+import { computeCreatorSplit, programmeFor, bandForFollowers, withdrawable, type CommissionBand, MIN_PAYOUT_FOLLOWERS, MIN_WITHDRAWAL_GBP, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM, SUB10K_ACU_PER_REFERRAL, type ProgrammeAssignment } from "@/shared/creator-program";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,7 +105,6 @@ export function creatorId(email: string): string { return `cr_${hid(email.toLowe
 export async function upsertCreator(input: { name: string; email: string; tier: CreatorAccount["tier"]; followers: number; followersVerified?: boolean; adminOverride?: boolean; nowISO: string; scoutScore?: number; scoutFlags?: string[] }): Promise<CreatorAccount> {
   const id = creatorId(input.email);
   const followers = Number.isFinite(input.followers) ? Math.max(0, Math.round(input.followers)) : 0;
-  const gateMet = followers >= MIN_PAYOUT_FOLLOWERS && Boolean(input.followersVerified);
   // Stable per-partner access token (kept across re-applications) — the key to
   // their own self-serve dashboard. Random (not derivable from email).
   const prior = await getCreator(id);
@@ -114,9 +113,12 @@ export async function upsertCreator(input: { name: string; email: string; tier: 
     id, name: input.name, email: input.email, tier: input.tier, accessToken,
     followers,
     followersVerified: Boolean(input.followersVerified),
-    // Admin can admit a partner WITHOUT the 10K gate (spec §9 exception + owner
-    // ruling). Override makes them payable regardless of follower count.
-    payoutEligible: gateMet || Boolean(input.adminOverride),
+    // EVERY partner is payable. The 10K gate that used to sit here is gone —
+    // SHARE2EARN was sold as "no follower count, no application, no audience
+    // test" while this line quietly decided otherwise. The follower count still
+    // sets the band, and `adminOverride` still admits a partner; neither is a
+    // permission to be paid any more.
+    payoutEligible: true,
     createdAt: input.nowISO,
   };
   if (input.adminOverride) c.adminOverride = true;
@@ -265,10 +267,12 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
   const counted = ledger.filter((e) => e.status === "counted");
   // Eligible when: 10K verified gate met, OR an admin admitted them, OR the §9
   // proven-conversion exception (≥5 distinct paid customers referred).
-  const gateMet = creator.followers >= MIN_PAYOUT_FOLLOWERS && creator.followersVerified;
   const distinctCustomers = new Set(counted.map((e) => e.referredRef)).size;
   const provenConversions = distinctCustomers >= 5;
-  const eligible = gateMet || Boolean(creator.adminOverride) || provenConversions;
+  // EVERYBODY is payable. The follower threshold still sets the 1% BAND below,
+  // and it no longer decides whether a creator may be paid at all — what decides
+  // that is the withdrawal minimum, applied to the AMOUNT in requestPayout.
+  const eligible = true;
 
   // Group by referred customer → cumulative net → per-customer 3-state split.
   const byCustomer = new Map<string, number>();
@@ -302,11 +306,11 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
   const lifetimeCreator = r2(perCustomer.reduce((s, c) => s + c.creatorGbp, 0));
   const lifetimePlatform = r2(perCustomer.reduce((s, c) => s + c.platformGbp, 0));
   const paid = await paidToDate(creatorId);
-  // Programme assignment: main (cash) when eligible, else the sub-10K ACU
-  // referral programme (250 ACUs per referral). Auto-switches to main the moment
-  // eligibility flips (e.g. followers verified at 10K) — it's recomputed here.
+  // Everybody is on the cash programme. ACUs are no longer a SUBSTITUTE for it —
+  // the same population that received them before still receives them, on top.
   const programme = programmeFor({ followers: creator.followers, verified: creator.followersVerified, adminOverride: creator.adminOverride, provenConversions });
-  const acusEarned = programme === "acu_referral" ? distinctCustomers * SUB10K_ACU_PER_REFERRAL : 0;
+  const onShare2Earn = band.id === "share2earn";
+  const acusEarned = onShare2Earn ? distinctCustomers * SUB10K_ACU_PER_REFERRAL : 0;
   // Payable = lifetime earned − already paid (never re-releases paid funds).
   const owed = Math.max(0, r2(lifetimeCreator - paid));
   return {
@@ -314,18 +318,19 @@ export async function creatorWallet(creatorId: string): Promise<Wallet | null> {
     cumulativeNetGbp: r2(cumulativeNet), countedEvents: counted.length, flaggedEvents: ledger.length - counted.length,
     band: { id: band.id, label: band.label, creatorRate: band.creatorRate, requires: band.requires },
     lifetimeCreatorGbp: lifetimeCreator, lifetimePlatformGbp: lifetimePlatform, paidGbp: paid,
-    payableGbp: programme === "main" ? owed : 0,
-    pendingGbp: programme === "main" ? 0 : owed,
+    // Earned is payable. Nothing sits in "pending" waiting for a follower count.
+    payableGbp: owed,
+    pendingGbp: 0,
     programme, acusEarned, referralCount: distinctCustomers,
     perCustomer,
     perProgramme: [...byProg.entries()].map(([programmeId, v]) => ({ programmeId, netGbp: r2(v.net), events: v.events })),
-    gateNote: eligible
-      ? (creator.adminOverride ? "Admin-admitted — payable without the 10K gate."
-        : provenConversions ? "Proven-conversion exception (5+ paid customers) — payable without the 10K gate."
-        : "Above the 10K-follower gate and verified — earnings are payable.")
-      : creator.followers >= MIN_PAYOUT_FOLLOWERS && !creator.followersVerified
-        ? "Follower count meets 10K but is not yet verified — connect your platforms (or an admin verifies) to release."
-        : `On the sub-10K ACU referral programme — you earn ${SUB10K_ACU_PER_REFERRAL} ACUs per referral (use them to create a brand + advertise). You auto-switch to the main cash programme the moment you reach ${MIN_PAYOUT_FOLLOWERS.toLocaleString()} verified followers (or an admin admits you / you prove 5+ conversions).`,
+    gateNote: withdrawable(owed).ok
+      ? `Earned and payable at ${band.label} — withdraw whenever you like.`
+      : owed > 0
+        ? withdrawable(owed).reason
+        : creator.followers >= MIN_PAYOUT_FOLLOWERS && !creator.followersVerified
+          ? `You are paid at ${band.label} today. Verify your ${MIN_PAYOUT_FOLLOWERS.toLocaleString()} followers — connect your platforms, or an admin confirms them — and the SAME earnings recompute at the higher band.`
+          : `You earn cash on every verified sale from the first one, at ${band.label}, with no follower count involved${onShare2Earn ? ` — plus ${SUB10K_ACU_PER_REFERRAL} ACUs per referred customer` : ""}. Withdrawals start at £${MIN_WITHDRAWAL_GBP}.`,
   };
 }
 
@@ -366,8 +371,11 @@ export async function requestPayout(
 ): Promise<{ ok: boolean; releasedGbp?: number; reason: string; rail: string; region: PayoutRegion; hint?: string }> {
   const w = await creatorWallet(creatorId);
   if (!w) return { ok: false, reason: "No creator account.", rail: "none", region };
-  if (!w.payoutEligible) return { ok: false, reason: w.gateNote, rail: "held", region };
-  if (w.payableGbp <= 0) return { ok: false, reason: "No payable balance — everything earned so far has already been paid.", rail: "none", region };
+  // The follower gate that used to stand here is gone. What remains is the
+  // withdrawal minimum, which delays a payment rather than refusing an earning —
+  // the balance is the creator's either way, and the message says so.
+  const can = withdrawable(w.payableGbp);
+  if (!can.ok) return { ok: false, reason: can.reason, rail: "none", region };
 
   const iso = nowISO || new Date().toISOString();
   const amount = w.payableGbp;
@@ -400,4 +408,4 @@ export async function requestPayout(
   return { ok: true, releasedGbp: amount, reason: out.note, rail: railId, region };
 }
 
-export const ENGINE_CONSTANTS = { MIN_PAYOUT_FOLLOWERS, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM };
+export const ENGINE_CONSTANTS = { MIN_PAYOUT_FOLLOWERS, MIN_WITHDRAWAL_GBP, MAX_PROGRAMMES, MIN_PROGRAMMES, RATE_CREATOR, RATE_PLATFORM };
