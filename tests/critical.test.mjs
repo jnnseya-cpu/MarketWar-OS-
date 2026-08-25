@@ -1798,3 +1798,130 @@ test("the Email Centre actually applies the defaults, and shows the reason", asy
   assert.match(page, /\{fromNote &&/, "a blank field must say it was left blank on purpose");
   assert.match(page, /fromAddressWarning\(fromEmail, domains\)/);
 });
+
+// ---------------------------------------------------------------------------
+// The human gate: a check the customer could not pass, on a page that moved
+// no money.
+//
+// Three defects, one screen. The owner opened the Share2Earn earnings dashboard
+// on a phone and got a full-screen proof-of-work; filled in a whole mission and
+// pressed Publish and got "your check was 21 minutes ago" with no way to pass
+// one. Every assertion below fails against the code as it was.
+// ---------------------------------------------------------------------------
+process.env.HUMAN_CHECK_SECRET = process.env.HUMAN_CHECK_SECRET || "test-secret-for-the-gate-only";
+
+const pow = await import("../src/shared/proof-of-work.ts");
+const gate = await import("../src/backend/human-gate.ts");
+const retry = await import("../src/shared/human-retry.ts");
+
+test("the fast digest is byte-identical to WebCrypto, so the puzzle cannot drift", async () => {
+  // The server verifies with crypto.subtle. If the browser's solver computed
+  // even one digest differently, every real customer would be rejected while
+  // the difficulty stayed exactly as easy for anyone using the server's rule.
+  // Block boundaries (55/56/63/64/65 bytes) are where a padding bug hides.
+  const shapes = ["", "a", "abc", "mwpow1:deadbeef:0", "£ € 日本語 🙂",
+    "x".repeat(55), "x".repeat(56), "x".repeat(63), "x".repeat(64), "x".repeat(65), "y".repeat(1000)];
+  for (const s of shapes) {
+    assert.equal(pow.sha256HexSync(s), await pow.sha256Hex(s), `digest differs for a ${s.length}-char input`);
+  }
+  for (let i = 0; i < 300; i++) {
+    const s = pow.powInput(`nonce${i}`, i * 7919);
+    assert.equal(pow.sha256HexSync(s), await pow.sha256Hex(s));
+  }
+});
+
+test("a solved challenge still passes the async verifier the server uses", async () => {
+  // 10 bits keeps the test quick; the path exercised is the shipped one.
+  const solved = await pow.solve("a1b2c3d4e5f60718", 10);
+  assert.ok(solved, "the solver returned nothing at trivial difficulty");
+  assert.equal(await pow.meetsDifficulty("a1b2c3d4e5f60718", solved.solution, 10), true);
+});
+
+test("reading a sensitive PAGE needs a session, not a fresh check", async () => {
+  // The whole lockout: /dashboard/earnings demanded a check passed in the last
+  // 15 minutes, so opening it a quarter of an hour later meant redoing a
+  // proof-of-work that measured seven seconds on a server and far worse on a
+  // phone — to LOOK at a page. Money still cannot move without freshness.
+  assert.equal(gate.requiresFreshCheck("/api/share2earn"), true);
+  assert.equal(gate.requiresFreshCheck("/api/creator-engine/payout"), true);
+  assert.equal(gate.requiresFreshCheck("/dashboard/earnings"), false);
+  assert.equal(gate.requiresFreshCheck("/dashboard/settings"), false);
+  // Still marked sensitive — reporting is unchanged, only enforcement moved.
+  assert.equal(gate.isSensitivePath("/dashboard/earnings"), true);
+
+  const binding = await gate.bindingFor({ headers: { get: () => null } });
+  const stale = Date.now() - 21 * 60_000;
+  const session = await gate.issueSession(binding, stale);
+
+  const page = await gate.decide({ path: "/dashboard/earnings", cookie: session.value, binding });
+  assert.equal(page.allow, true, "a 21-minute-old session must still open the earnings page");
+  assert.equal(page.sensitivity, "sensitive", "the page is still reported as sensitive");
+
+  const money = await gate.decide({ path: "/api/share2earn", cookie: session.value, binding });
+  assert.equal(money.allow, false, "the money route must still demand a fresh check");
+  assert.equal(money.action, "reverify");
+});
+
+// A stand-in for fetch that records every attempt.
+const fakeSend = (responses) => {
+  const attempts = [];
+  return {
+    attempts,
+    send: async (attempt) => { attempts.push(attempt); return responses[attempts.length - 1](); },
+  };
+};
+const gateRefusal = () => new Response(
+  JSON.stringify({ error: "This action moves money or credentials, so it needs a check passed in the last 15 minutes. Yours was 21 minutes ago.", humanCheckRequired: true, action: "reverify", where: "/verify-human" }),
+  { status: 403, headers: { "content-type": "application/json" } },
+);
+
+test("the gate's 403 is read, the check is run, and the request is sent again", async () => {
+  const { attempts, send } = fakeSend([gateRefusal, () => new Response(JSON.stringify({ ok: true }), { status: 200 })]);
+  let checks = 0;
+  const res = await retry.fetchWithHumanRetry({ send, check: async () => { checks++; return { ok: true }; } });
+  assert.equal(checks, 1, "the check has to actually run");
+  assert.deepEqual(attempts, [1, 2], "the original request has to be sent again after it passes");
+  assert.equal(res.status, 200);
+});
+
+test("exactly one retry — a refusal that survives a passed check is a real refusal", async () => {
+  const { attempts, send } = fakeSend([gateRefusal, gateRefusal]);
+  const res = await retry.fetchWithHumanRetry({ send, check: async () => ({ ok: true }) });
+  assert.equal(attempts.length, 2, "looping would respin the proof-of-work forever");
+  assert.equal(res.status, 403);
+  const body = await res.json();
+  assert.match(body.error, /the check passed/i, "repeating 'your check was 21 minutes ago' would now be untrue");
+});
+
+test("a failed check leaves the person somewhere to go, not on a dead end", async () => {
+  const { attempts, send } = fakeSend([gateRefusal]);
+  const res = await retry.fetchWithHumanRetry({ send, check: async () => ({ ok: false, error: "WebCrypto unavailable" }) });
+  assert.equal(attempts.length, 1, "nothing is re-sent when the check did not pass");
+  const body = await res.json();
+  assert.match(body.error, /verify-human/, "the message must name the page that can issue a check");
+  assert.match(body.error, /nothing you have typed on this screen is lost/i);
+  assert.match(body.error, /WebCrypto unavailable/, "the reason it failed is worth having");
+});
+
+test("an ordinary 403 never triggers a proof-of-work", async () => {
+  // A brand-ownership refusal is not a gate refusal. Solving a puzzle would
+  // cost the person seconds and change nothing about the answer.
+  const { attempts, send } = fakeSend([() => new Response(JSON.stringify({ error: "That brand is not yours." }), { status: 403 })]);
+  let checks = 0;
+  const res = await retry.fetchWithHumanRetry({ send, check: async () => { checks++; return { ok: true }; } });
+  assert.equal(checks, 0);
+  assert.equal(attempts.length, 1);
+  assert.equal((await res.json()).error, "That brand is not yours.", "the caller still gets the server's own message");
+});
+
+test("a body that cannot be sent twice is never half-sent", async () => {
+  const { attempts, send } = fakeSend([gateRefusal]);
+  let checks = 0;
+  const res = await retry.fetchWithHumanRetry({ send, bodyReplayable: false, check: async () => { checks++; return { ok: true }; } });
+  assert.equal(checks, 0, "no point passing a check for a request that cannot be replayed");
+  assert.equal(attempts.length, 1);
+  assert.equal(res.status, 403);
+  assert.equal(retry.replayable(JSON.stringify({ a: 1 })), true);
+  assert.equal(retry.replayable(undefined), true);
+  assert.equal(retry.replayable(new ReadableStream()), false);
+});

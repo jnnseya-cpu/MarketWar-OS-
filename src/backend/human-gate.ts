@@ -166,6 +166,32 @@ export const isPublicForm = (path: string): boolean =>
 export const isSensitivePath = (path: string): boolean =>
   SENSITIVE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`));
 
+/**
+ * WHICH sensitive paths actually demand a check passed in the last 15 minutes.
+ *
+ * ONLY THE API ONES. Opening a page moves nothing; the money moves when the
+ * screen calls a route, and every one of those routes is in the list above and
+ * still demands freshness. Requiring the check to LOOK at /dashboard/earnings
+ * bought no security that /api/creator-engine was not already buying, and it
+ * cost this:
+ *
+ *   The check is a proof-of-work. Measured on a server-class machine at the
+ *   shipped difficulty it takes about seven seconds, and a fifth of runs take
+ *   more than eleven. A phone is several times slower again. So a customer
+ *   opening their earnings page fifteen minutes after the last one sat on a
+ *   full-screen spinner — and then sat on it again a quarter of an hour later,
+ *   because reading a page refreshes nothing. On mobile the page was, in
+ *   practice, shut.
+ *
+ * Nothing is removed from SENSITIVE_PREFIXES: those pages are still marked
+ * sensitive, the Sentinel still counts them as such, and they still require a
+ * signed human session like every other dashboard route. What changes is that
+ * the session is enough to READ them, and the fresh check is demanded where it
+ * was always the real control — on the request that spends the money.
+ */
+export const requiresFreshCheck = (path: string): boolean =>
+  isSensitivePath(path) && path.startsWith("/api/");
+
 export const isAlwaysOpen = (path: string): boolean =>
   ALWAYS_OPEN_PREFIXES.some((p) => path === p || path.startsWith(p));
 
@@ -211,7 +237,7 @@ export function gateStatus(env: Record<string, string | undefined> = process.env
     reverifyMs: REVERIFY_MS,
     sensitivePaths: SENSITIVE_PREFIXES,
     note: m === "enforced"
-      ? `Enforced over ${GATED_PREFIXES.join(", ")}. Every dashboard page, the partner portal and every API route except the check itself requires a signed human session; ${SENSITIVE_PREFIXES.length} money- and credential-touching prefixes additionally require the check to have been passed in the last ${Math.round(REVERIFY_MS / 60_000)} minutes.`
+      ? `Enforced over ${GATED_PREFIXES.join(", ")}. Every dashboard page, the partner portal and every API route except the check itself requires a signed human session; the ${SENSITIVE_PREFIXES.filter((p) => p.startsWith("/api/")).length} money- and credential-touching API prefixes additionally require the check to have been passed in the last ${Math.round(REVERIFY_MS / 60_000)} minutes. The sensitive DASHBOARD pages are readable on a session alone — the fresh check is demanded of the request that spends the money, not of the page that displays the button.`
       : "Observing only — HUMAN_CHECK_SECRET is not set, so the gate cannot sign a session that survives more than one instance. It evaluates and reports every request but blocks nothing, because enforcing with a per-process key would bounce real customers between the dashboard and the check forever. Set HUMAN_CHECK_SECRET to enforce; until then this is the safe half of the control, not the whole one.",
   };
 }
@@ -404,7 +430,14 @@ export async function decide(input: {
     return { lane: "public_form", allow: true, observed: false, sensitivity, reason: "A public form. Its own proof-of-work, honeypot, timing and rate limits carry the bot cost — a session cookie cannot be required to obtain a session cookie." };
   }
 
-  const verdict = await evaluate({ cookie: input.cookie, binding: input.binding, sensitivity, now: input.now });
+  // Reported sensitivity and ENFORCED freshness are two questions. The page is
+  // sensitive and is counted as such; only the API call has to be fresh.
+  const verdict = await evaluate({
+    cookie: input.cookie,
+    binding: input.binding,
+    sensitivity: requiresFreshCheck(input.path) ? "sensitive" : "normal",
+    now: input.now,
+  });
   if (verdict.ok) {
     return { lane: "human", allow: true, observed: false, sensitivity, reason: `Human session, checked ${Math.round(verdict.freshMs / 60_000)} minute(s) ago.` };
   }
