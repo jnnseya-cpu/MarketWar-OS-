@@ -160,6 +160,19 @@ export type WalletState = {
    */
   owedAcu?: number;
   /**
+   * AN ANNUAL PLAN'S REMAINING ALLOCATION, released a month at a time.
+   *
+   * The published model is "annual ACUs released monthly", and nothing
+   * implemented it: the webhook credited `monthlyAcus` whatever the cycle, and
+   * an annual invoice arrives ONCE A YEAR. So an annual Growth customer paid
+   * £411 and received 980 ACUs for the whole year instead of 8,232 — short by
+   * 88%, on the plan we ask people to commit hardest to.
+   *
+   * Released lazily, inside the debit transaction, so there is no scheduler to
+   * miss a run and the balance is always right at the moment it is spent.
+   */
+  annualRelease?: { perMonth: number; remainingMonths: number; nextAt: string } | null;
+  /**
    * Has the one-off free signup allowance been handed over?
    *
    * Optional because wallets created before the human check existed do not
@@ -321,6 +334,45 @@ export async function creditAcus(orgId: string, amountAcu: number, planId?: stri
 // ---------------------------------------------------------------------------
 export type DebitResult = { ok: boolean; balanceAcu: number; charged: number; shortfall: number };
 
+
+/** Roughly a month, in ms. Calendar months differ; an allocation cadence does not need to. */
+const RELEASE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Hand over any monthly instalments of an annual allocation that have come due.
+ *
+ * Pure, so the schedule can be tested without a clock or a database, and it
+ * catches up: an account nobody touched for five months releases five
+ * instalments the next time it is looked at, rather than losing four.
+ */
+export function applyDueReleases(cur: WalletState, nowISO: string): { wallet: WalletState; released: number } {
+  const sched = cur.annualRelease;
+  if (!sched || sched.remainingMonths <= 0 || !sched.nextAt) return { wallet: cur, released: 0 };
+  const now = Date.parse(nowISO);
+  if (!Number.isFinite(now)) return { wallet: cur, released: 0 };
+
+  let due = 0;
+  let nextAt = Date.parse(sched.nextAt);
+  let remaining = sched.remainingMonths;
+  while (Number.isFinite(nextAt) && nextAt <= now && remaining > 0) {
+    due += sched.perMonth;
+    remaining -= 1;
+    nextAt += RELEASE_INTERVAL_MS;
+  }
+  if (due <= 0) return { wallet: cur, released: 0 };
+
+  return {
+    released: due,
+    wallet: {
+      ...cur,
+      balanceAcu: cur.balanceAcu + due,
+      lifetimeCreditedAcu: cur.lifetimeCreditedAcu + due,
+      annualRelease: remaining > 0 ? { perMonth: sched.perMonth, remainingMonths: remaining, nextAt: new Date(nextAt).toISOString() } : null,
+      updatedAt: nowISO,
+    },
+  };
+}
+
 export async function debitAcus(orgId: string, amountAcu: number): Promise<DebitResult> {
   const id = (orgId || "").trim() || "anon";
   const amount = Math.max(0, Math.round(amountAcu || 0));
@@ -328,7 +380,12 @@ export async function debitAcus(orgId: string, amountAcu: number): Promise<Debit
     const ref = adminDb.collection(COLLECTION).doc(id);
     return await adminDb.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      const cur = snap.exists ? (snap.data() as WalletState) : freshWallet(id);
+      const stored = snap.exists ? (snap.data() as WalletState) : freshWallet(id);
+      // Any annual instalments that have come due are handed over BEFORE the
+      // balance is judged — otherwise a customer is refused for lacking ACUs
+      // they have already paid for.
+      const { wallet: cur, released } = applyDueReleases(stored, nowIso());
+      if (released > 0) tx.set(ref, cur, { merge: false });
       if (cur.balanceAcu < amount) {
         if (!snap.exists) tx.set(ref, cur, { merge: false });
         return { ok: false, balanceAcu: cur.balanceAcu, charged: 0, shortfall: amount - cur.balanceAcu };
@@ -365,7 +422,9 @@ export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 function entitlementPatch(action: string, nowISO: string): Partial<WalletState> {
   if (action === "downgrade") {
     // The plan drops to free and the lapse is dated. The balance is untouched.
-    return { planId: "free", cycle: null, lapsedAt: nowISO, graceUntil: null };
+    // Future instalments stop with the subscription that bought them. What is
+    // already IN the balance stays — that was released and is theirs.
+    return { planId: "free", cycle: null, lapsedAt: nowISO, graceUntil: null, annualRelease: null };
   }
   if (action === "grace_period") {
     // Service continues, unchanged, until the grace ends. Only then does the
@@ -418,6 +477,12 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
         planId: outcome.planId ?? cur.planId,
         // A payment clears any lapse: paying again is the whole point.
         ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
+        // An annual payment schedules its remaining instalments. A RENEWAL
+        // replaces the schedule rather than adding to it, so a second year
+        // cannot stack twenty-two months of releases onto one wallet.
+        ...(outcome.scheduleRelease
+          ? { annualRelease: { perMonth: outcome.scheduleRelease.perMonth, remainingMonths: outcome.scheduleRelease.months, nextAt: new Date(Date.parse(now) + RELEASE_INTERVAL_MS).toISOString() } }
+          : {}),
         ...entitlementPatch(outcome.action, now),
         updatedAt: now,
       };
@@ -444,6 +509,9 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   const patch = {
     ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
     ...(reversal > 0 || settled > 0 ? { balanceAcu: credited.balanceAcu - taken, owedAcu: owedBefore - settled + unrecovered } : {}),
+    ...(outcome.scheduleRelease
+      ? { annualRelease: { perMonth: outcome.scheduleRelease.perMonth, remainingMonths: outcome.scheduleRelease.months, nextAt: new Date(Date.now() + RELEASE_INTERVAL_MS).toISOString() } }
+      : {}),
     ...entitlementPatch(outcome.action, nowIso()),
   };
   const wallet: WalletState = Object.keys(patch).length ? { ...credited, ...patch, updatedAt: nowIso() } : credited;

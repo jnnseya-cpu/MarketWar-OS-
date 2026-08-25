@@ -21064,3 +21064,79 @@ test("the number of ACUs bought is never taken from the request", () => {
   assert.match(checkout, /const acus = Math\.max\(0, Math\.round\(amountGbp \* ACU_PER_GBP\)\)/,
     "the ACU count is no longer derived from the amount being charged");
 });
+
+test("an annual plan buys a year of ACUs, released monthly", async () => {
+  const { handleStripeEvent } = await import("../src/backend/stripe-billing.ts");
+  const { planEconomics, PLANS } = await import("../src/backend/subscription.ts");
+  const growth = PLANS.find((p) => p.id === "growth");
+  const econ = planEconomics(growth);
+
+  // THE DEFECT. The cycle was stamped by the checkout in two places and read by
+  // nobody, so every allocation used the MONTHLY figure — and an annual invoice
+  // arrives once a year. An annual Growth customer paid for a year and received
+  // one month: 980 ACUs instead of 8,232, short by 88%, on the plan we ask
+  // people to commit hardest to.
+  const annual = handleStripeEvent({
+    id: "evt_annual", type: "invoice.paid",
+    data: { object: { subscription_details: { metadata: { planId: "growth", cycle: "annual" } } } },
+  });
+  assert.equal(annual.cycle, "annual", "the cycle is still not read");
+  assert.equal(annual.acusAllocated, econ.annualMonthlyReleaseAcus, "an annual invoice still allocates a single month");
+  assert.equal(annual.scheduleRelease.months, 11, "the other eleven instalments are not scheduled");
+  assert.equal(annual.scheduleRelease.perMonth, econ.annualMonthlyReleaseAcus);
+  // The year must add up to what was actually bought.
+  const total = annual.acusAllocated + annual.scheduleRelease.months * annual.scheduleRelease.perMonth;
+  assert.equal(total, econ.annualAcus, `a year releases ${total} ACUs but the plan sells ${econ.annualAcus}`);
+  // The allocation is a fixed share of REVENUE, so an annual customer — who pays
+  // 30% less — correctly receives proportionally fewer ACUs than twelve monthly
+  // allocations. What matters is that the year adds up to what the annual price
+  // bought, which the assertion above checks. This one pins the proportion, so
+  // a change to the discount cannot quietly decouple the two.
+  const twelveMonthly = econ.monthlyAcus * 12;
+  assert.ok(total < twelveMonthly, "an annual plan now allocates as if it were paid at the monthly rate");
+  assert.ok(Math.abs(total / twelveMonthly - 0.7) < 0.01,
+    `an annual year releases ${total} against ${twelveMonthly} monthly — that is not the 30% discount`);
+
+  // Monthly is unchanged.
+  const monthly = handleStripeEvent({
+    id: "evt_monthly", type: "invoice.paid",
+    data: { object: { subscription_details: { metadata: { planId: "growth" } } } },
+  });
+  assert.equal(monthly.acusAllocated, econ.monthlyAcus, "the monthly allocation changed");
+  assert.ok(!monthly.scheduleRelease, "a monthly plan is given an annual release schedule");
+});
+
+test("annual instalments are released when due, and catch up if nobody looked", async () => {
+  const { applyDueReleases } = await import("../src/backend/wallet.ts");
+  const base = {
+    orgId: "o", balanceAcu: 0, planId: "growth", cycle: "annual",
+    lifetimeCreditedAcu: 0, lifetimeDebitedAcu: 0, updatedAt: "2026-01-01T00:00:00.000Z",
+    annualRelease: { perMonth: 686, remainingMonths: 11, nextAt: "2026-02-01T00:00:00.000Z" },
+  };
+
+  // Nothing due yet.
+  assert.equal(applyDueReleases(base, "2026-01-15T00:00:00.000Z").released, 0, "an instalment was released early");
+
+  // One due.
+  const one = applyDueReleases(base, "2026-02-02T00:00:00.000Z");
+  assert.equal(one.released, 686);
+  assert.equal(one.wallet.balanceAcu, 686);
+  assert.equal(one.wallet.annualRelease.remainingMonths, 10);
+
+  // CATCH-UP. An account nobody touched for five months must release five
+  // instalments, not lose four — the customer paid for all of them.
+  const late = applyDueReleases(base, "2026-06-20T00:00:00.000Z");
+  assert.ok(late.released >= 686 * 4, `only ${late.released} released after five months of silence`);
+  assert.equal(late.wallet.balanceAcu, late.released);
+
+  // The schedule ends, and never over-releases past the year.
+  const nearEnd = applyDueReleases({ ...base, annualRelease: { perMonth: 686, remainingMonths: 1, nextAt: "2026-02-01T00:00:00.000Z" } }, "2030-01-01T00:00:00.000Z");
+  assert.equal(nearEnd.released, 686, "a finished schedule kept paying out");
+  assert.equal(nearEnd.wallet.annualRelease, null, "the exhausted schedule was left in place");
+
+  // And a spend releases what is due FIRST, or a customer is refused for
+  // lacking ACUs they have already paid for.
+  const wallet = readFileSync(new URL("../src/backend/wallet.ts", import.meta.url), "utf8");
+  assert.match(codeOf(wallet), /applyDueReleases\(stored, nowIso\(\)\)[\s\S]{0,200}?if \(cur\.balanceAcu < amount\)/,
+    "the debit judges the balance before releasing what is due");
+});
