@@ -8954,7 +8954,14 @@ test("the weekly trend sweep charges each brand and skips the ones it cannot", (
   assert.ok(!/SPENDS NO AI/.test(route));
   // Charged to the OWNING ACCOUNT's wallet, resolved from the brand — a brand id
   // is not an account id, and debiting one read a wallet nobody had paid into.
-  assert.match(route, /debitAcus\(await walletIdForBrand\(s\.brandId\), ACTION_COST_ACU\.search \* SEARCHES_PER_BRAND\)/);
+  // The wallet id is resolved a line earlier now, because the entitlement check
+  // needs it too — a lapsed account's automations pause before anything is
+  // charged. Both properties still hold: the owning account pays, and it pays
+  // before the crawl.
+  assert.match(route, /const walletId = await walletIdForBrand\(s\.brandId\)/);
+  assert.match(route, /debitAcus\(walletId, ACTION_COST_ACU\.search \* SEARCHES_PER_BRAND\)/);
+  assert.match(route, /if \(ent\.automationsPaused\)/,
+    "the weekly sweep spends money for accounts that cancelled months ago");
   assert.match(route, /skipped\.push\(\{ brandId: s\.brandId, why: `not enough ACUs/);
   // Charged before the crawl and the searches.
   assert.ok(route.indexOf("debitAcus") < route.indexOf("await deepCrawl("));
@@ -20847,4 +20854,97 @@ test("a refused partner dashboard offers the way past the refusal", () => {
   const middleware = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
   assert.match(middleware, /where: "\/verify-human"/,
     "the middleware no longer sends a way forward — the page's link would go nowhere");
+});
+
+// ---------------------------------------------------------------------------
+// CANCEL AND TOP UP — the loophole the owner spotted by thinking aloud.
+// ---------------------------------------------------------------------------
+
+test("cancelling a subscription actually downgrades the account", async () => {
+  const { entitlementOf } = await import("../src/backend/entitlement.ts");
+  const NOW = "2026-06-01T00:00:00.000Z";
+
+  // THE HOLE. `customer.subscription.deleted` was classified as a downgrade and
+  // then discarded — applyWebhookOutcome refused any outcome carrying no credit
+  // — so planId went on saying "growth" for ever. Cancelling cost the customer
+  // £9.80 of monthly allocation on a £49 plan and nothing else, which made
+  // topping up on demand strictly cheaper than subscribing.
+  const lapsed = entitlementOf({ planId: "free", lapsedAt: "2026-05-01T00:00:00.000Z", graceUntil: null }, NOW);
+  assert.equal(lapsed.active, false, "a cancelled subscription still reads as active");
+  assert.equal(lapsed.planId, "free", "a cancelled account keeps its paid plan");
+  assert.equal(lapsed.automationsPaused, true, "unattended work still runs for an account nobody is paying for");
+  assert.match(lapsed.reason, /still here and still exportable/i, "the customer is not told their work is safe");
+
+  // A wallet written before these fields existed must NOT be retro-cancelled.
+  const legacy = entitlementOf({ planId: "growth" }, NOW);
+  assert.equal(legacy.active, true, "adding a field retro-cancelled every existing paying customer");
+  assert.equal(legacy.planId, "growth");
+  assert.equal(legacy.automationsPaused, false);
+});
+
+test("a failed payment is forgiven for a window, then it is not", async () => {
+  const { entitlementOf, GRACE_MS } = await import("../src/backend/entitlement.ts").then(async (m) => ({
+    ...m, GRACE_MS: (await import("../src/backend/wallet.ts")).GRACE_MS,
+  }));
+
+  // invoice.payment_failed was classified as a grace period and also discarded,
+  // so a card that stopped working bought a permanent free account.
+  const inGrace = entitlementOf({ planId: "growth", graceUntil: "2026-06-08T00:00:00.000Z" }, "2026-06-01T00:00:00.000Z");
+  assert.equal(inGrace.active, true, "a failed payment cuts service off immediately, with no chance to fix the card");
+  assert.equal(inGrace.inGrace, true);
+  assert.equal(inGrace.automationsPaused, false, "work stops during the window the customer was promised");
+
+  // And it closes on its own — no second webhook ever arrives to say the window
+  // expired, so the date has to be what decides it.
+  const expired = entitlementOf({ planId: "growth", graceUntil: "2026-06-08T00:00:00.000Z" }, "2026-06-09T00:00:00.000Z");
+  assert.equal(expired.active, false, "the grace window never closes, so a failed payment is permanent free service");
+  assert.equal(expired.planId, "free");
+  assert.equal(expired.automationsPaused, true);
+  assert.ok(GRACE_MS > 0, "there is no grace window at all");
+});
+
+test("the limits are counted, and going over them never deletes anything", async () => {
+  const { entitlementOf, withinLimit, writableIds } = await import("../src/backend/entitlement.ts");
+  const NOW = "2026-06-01T00:00:00.000Z";
+  const paid = entitlementOf({ planId: "growth" }, NOW);
+  const free = entitlementOf({ planId: "free", lapsedAt: "2026-05-01T00:00:00.000Z" }, NOW);
+
+  // Growth includes 3 brands; free includes 1. These were labels on a pricing
+  // page and nothing counted them.
+  assert.equal(withinLimit(paid, "brands", 2).allowed, true);
+  assert.equal(withinLimit(paid, "brands", 3).allowed, false, "the brand limit is still decorative");
+  assert.equal(withinLimit(free, "brands", 1).allowed, false);
+  assert.match(withinLimit(free, "brands", 3).reason, /still exportable/i,
+    "a lapsed customer is told what they cannot do without being told their work is safe");
+
+  // READ-ONLY, NOT DELETED — and the same ones every time. A rule that picked
+  // differently between two page loads could not be explained to anybody.
+  const brands = [
+    { id: "c", createdAt: "2026-03-01" }, { id: "a", createdAt: "2026-01-01" }, { id: "b", createdAt: "2026-02-01" },
+  ];
+  const keep = writableIds(free, brands, "brands");
+  assert.deepEqual([...keep], ["a"], "the oldest brand is not the one that stays writable");
+  assert.deepEqual([...writableIds(free, [...brands].reverse(), "brands")], ["a"],
+    "which brand stays writable depends on the order they arrived in");
+  assert.equal(writableIds(paid, brands, "brands").size, 3, "a paying account loses brands it paid for");
+});
+
+test("the billing webhook applies a downgrade instead of only describing one", () => {
+  const wallet = codeOf(readFileSync(new URL("../src/backend/wallet.ts", import.meta.url), "utf8"));
+
+  // `if (credit <= 0 && !activatesPlan) return { applied: false }` is what threw
+  // the downgrade away — it asked only about money, and a downgrade moves none.
+  assert.match(wallet, /changesEntitlement/, "outcomes that change entitlement are still refused for carrying no credit");
+  assert.match(wallet, /planId: "free", cycle: null, lapsedAt: nowISO/, "a downgrade does not set the plan to free");
+  // Purchased ACUs are never clawed back.
+  const patch = wallet.slice(wallet.indexOf("function entitlementPatch"), wallet.indexOf("function entitlementPatch") + 700);
+  assert.doesNotMatch(patch, /balanceAcu/, "a downgrade now takes back ACUs the customer paid for");
+  // Paying again must clear the lapse, or resubscribing would not restore service.
+  assert.match(wallet, /activatesPlan \? \{ lapsedAt: null, graceUntil: null \}/, "paying again does not clear the lapse");
+
+  // And the automations actually consult it.
+  for (const f of ["../src/app/api/trends/scheduled/route.ts", "../src/backend/seo-autopilot.ts"]) {
+    const src = codeOf(readFileSync(new URL(f, import.meta.url), "utf8"));
+    assert.match(src, /automationsPaused/, `${f} still runs unattended work for a lapsed account`);
+  }
 });

@@ -19,6 +19,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { walletIdForBrand } from "@/backend/brand-access";
+import { entitlementFor } from "@/backend/entitlement";
 import { generateArticle } from "@/backend/blog-generator";
 import { brandLinkMenu } from "@/backend/blog-links";
 import { savePost, getPost, listPostsForBrand } from "@/backend/blog-store";
@@ -130,6 +131,13 @@ export async function runBrandSeoPost(input: {
 
   // CHARGE FIRST. If the wallet can't cover it, generate nothing.
   const spendWalletId = await walletIdForBrand(input.brandId);
+  // Unattended work does not run for a lapsed account. A balance is not a
+  // subscription: the customer may still spend their ACUs themselves, but
+  // nothing spends them on their behalf while nobody is paying.
+  const ent = await entitlementFor(spendWalletId);
+  if (ent.automationsPaused) {
+    return { ok: false, charged: 0, error: `Autopilot is paused — ${ent.reason}` };
+  }
   const debit = await debitAcus(spendWalletId, ACU_PER_POST);
   if (!debit.ok) {
     return {
