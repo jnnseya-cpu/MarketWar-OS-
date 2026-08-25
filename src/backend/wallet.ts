@@ -409,7 +409,19 @@ export async function debitAcus(orgId: string, amountAcu: number): Promise<Debit
 // processed_events record is written in the SAME transaction as the credit, so a
 // redelivered Stripe event never double-credits. Returns what actually happened.
 // ---------------------------------------------------------------------------
-export type ApplyResult = { applied: boolean; reason: string; wallet?: WalletState; creditedAcu?: number; planId?: string };
+export type ApplyResult = {
+  applied: boolean;
+  reason: string;
+  wallet?: WalletState;
+  creditedAcu?: number;
+  planId?: string;
+  /**
+   * True when the failure is the STORE's, not the event's — the payment is
+   * real and the credit must be retried rather than dropped. The webhook route
+   * turns this into a 500 so Stripe redelivers.
+   */
+  retriable?: boolean;
+};
 
 /** How long a failed payment is forgiven before service is restricted. */
 export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -495,6 +507,34 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
         : `Credited ${credit} ACUs${outcome.planId ? ` + activated ${outcome.planId}` : ""}.`;
       return { applied: true, reason: what, wallet: next, creditedAcu: credit, planId: outcome.planId };
     });
+  }
+
+  // ----------------------------------------------------------------------
+  // NO DURABLE STORE. In production this is a REFUSAL, not a fallback.
+  //
+  // THE HOLE THIS CLOSES, and it is the worst one found in this codebase.
+  // Without Firebase Admin the code below credits an in-memory Map that dies
+  // with the serverless invocation, and returns `applied: true` with the words
+  // "Credited N ACUs". So on a production deployment where Admin is not
+  // initialising — which is the state this platform has actually been in —
+  // every real payment produced: Stripe recording a 200 and a green delivery,
+  // the webhook reporting a successful credit, and NOTHING IN THE CUSTOMER'S
+  // ACCOUNT. The customer paid, every system said yes, and the ACUs never
+  // existed. That is the platform's own recurring defect — a success reported
+  // when nothing happened — sitting on the money path.
+  //
+  // Failing here returns a 500, so Stripe RETRIES for up to three days. The
+  // credit then lands by itself the moment the store is reachable, instead of
+  // being lost with an acknowledgement.
+  //
+  // The in-memory path stays exactly as it was for demo and development, where
+  // there is no real money and the zero-config rule applies.
+  if (process.env.NODE_ENV === "production") {
+    return {
+      applied: false,
+      retriable: true,
+      reason: "No durable wallet store — Firebase Admin is not configured on this deployment, so this credit cannot be persisted. Refusing to acknowledge a payment that would leave no ACUs in the account; Stripe will retry.",
+    };
   }
 
   // Mem fallback — idempotent by event id set.

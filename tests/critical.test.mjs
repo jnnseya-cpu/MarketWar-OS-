@@ -2406,3 +2406,62 @@ test("a programme with nowhere to send traffic is never offered", async () => {
   const missionOnly = await promo.setPolicy({ brandId: "b_nodest", mode: "mission_only", nowISO });
   assert.deepEqual(await promo.claimableProgrammes("b_nodest", missionOnly), [], "a mission-only brand offers nothing self-serve");
 });
+
+// ---------------------------------------------------------------------------
+// A payment that persisted nowhere must never be acknowledged.
+//
+// Reported as "stripe webhook is not working", with Stripe showing the endpoint
+// Active and 246 events delivered. Both were true, and that was the problem.
+//
+// Without Firebase Admin, `applyWebhookOutcome` fell through to an in-memory Map
+// that dies with the serverless invocation — and returned `applied: true` with
+// the words "Credited N ACUs". The route then answered 200. So on a deployment
+// where Admin is not initialising, which is the state this platform has actually
+// been in, a real payment produced: a green delivery in Stripe, a log line
+// saying the credit succeeded, and nothing whatsoever in the customer's account.
+//
+// A 200 is the instruction NOT to retry. The credit was not delayed, it was
+// thrown away with a receipt.
+// ---------------------------------------------------------------------------
+test("in production, a credit with no durable store is refused so Stripe retries", async () => {
+  const w = await import("../src/backend/wallet.ts");
+  const outcome = {
+    handled: true, action: "allocate_acus", eventId: "evt_no_store_1", planId: "growth",
+    ledgerEntry: { direction: "credit", amountAcu: 980, reason: "test" },
+  };
+
+  const wasProd = process.env.NODE_ENV;
+  try {
+    // Development / demo: the in-memory path is deliberately unchanged, because
+    // the zero-config rule applies and no real money exists there.
+    process.env.NODE_ENV = "development";
+    const dev = await w.applyWebhookOutcome("org_dev", outcome);
+    assert.equal(dev.applied, true, "demo mode must keep working with no keys");
+    assert.notEqual(dev.retriable, true);
+
+    // Production with no Admin: refuse, and say it is retriable.
+    process.env.NODE_ENV = "production";
+    const prod = await w.applyWebhookOutcome("org_prod", { ...outcome, eventId: "evt_no_store_2" });
+    assert.equal(prod.applied, false, "a credit that persists nowhere must not report success");
+    assert.equal(prod.retriable, true, "the payment is real — it has to be retried, not dropped");
+    assert.match(prod.reason, /Firebase Admin is not configured/i);
+    assert.match(prod.reason, /Stripe will retry/i);
+    assert.doesNotMatch(prod.reason, /Credited/, "the old path said 'Credited' for a credit that never existed");
+  } finally {
+    process.env.NODE_ENV = wasProd;
+  }
+});
+
+test("the webhook route answers 500 on a retriable failure, not 200", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8");
+  // A 200 tells Stripe to stop retrying. The old code returned one no matter
+  // what happened to the wallet, and its own comment said "Stripe would retry"
+  // — which a 200 is the instruction not to do.
+  assert.match(src, /if \(res\.retriable\)/, "the route must act on a retriable failure");
+  assert.match(src, /status: 500/, "a retriable failure has to be a 500 so Stripe redelivers");
+  assert.doesNotMatch(src, /Never fail the webhook on a wallet hiccup/, "the reasoning that produced the bug must not survive the fix");
+  // The catch must not swallow a storage fault into a 200 either.
+  const catchBlock = src.slice(src.indexOf("} catch (e) {"), src.indexOf("// Automatic revenue attribution"));
+  assert.match(catchBlock, /status: 500/, "an exception in the wallet write must not be acknowledged as delivered");
+});
