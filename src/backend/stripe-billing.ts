@@ -76,6 +76,10 @@ export type WebhookOutcome = {
   eventType: string;
   handled: boolean;
   action: "allocate_acus" | "grace_period" | "downgrade" | "renew" | "reverse_credit" | "ignored";
+  /** monthly | annual, when the event names one. */
+  cycle?: "monthly" | "annual";
+  /** The instalments still owed on an annual allocation. */
+  scheduleRelease?: { perMonth: number; months: number };
   planId?: string;
   acusAllocated?: number;
   ledgerEntry?: { type: string; direction: "credit" | "debit"; amountAcu: number; idempotencyKey: string };
@@ -111,6 +115,21 @@ function planFromEvent(obj: Record<string, unknown> | undefined): string | null 
     if (known) return known.id;
   }
   return null;
+}
+
+/**
+ * Monthly or annual — read from the same metadata the checkout stamps in two
+ * places. It was stamped and never read, so every allocation used the MONTHLY
+ * figure and an annual invoice arrives once a year: an annual Growth customer
+ * paid £411 and got 980 ACUs for the year instead of 8,232.
+ */
+function cycleFromEvent(obj: Record<string, unknown> | undefined): "monthly" | "annual" {
+  const meta = (obj?.metadata as Record<string, unknown> | undefined) ?? {};
+  const subMeta = ((obj?.subscription_details as Record<string, unknown> | undefined)?.metadata as Record<string, unknown> | undefined) ?? {};
+  for (const candidate of [meta.cycle, subMeta.cycle]) {
+    if (typeof candidate === "string" && candidate.trim() === "annual") return "annual";
+  }
+  return "monthly";
 }
 
 export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
@@ -176,13 +195,23 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
       };
     }
     const plan = PLANS.find((p) => p.id === planId)!;
-    const acus = planEconomics(plan).monthlyAcus;
+    const econ = planEconomics(plan);
+    const cycle = cycleFromEvent(obj);
+    // An annual payment buys a YEAR of allocation, released a month at a time —
+    // the published model, which nothing implemented. The first instalment is
+    // credited now and the other eleven are scheduled on the wallet.
+    const acus = cycle === "annual" ? econ.annualMonthlyReleaseAcus : econ.monthlyAcus;
     return {
       ...base, handled: true,
       action: event.type === "invoice.paid" ? "renew" : "allocate_acus",
-      planId, acusAllocated: acus,
-      ledgerEntry: { type: event.type === "invoice.paid" ? "subscription_allocation" : "subscription_allocation", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
-      note: `Credit ${acus} ACUs (20% of the ${plan.name} price) to the org wallet — append-only, idempotency key = event id so a redelivered event never double-credits.`,
+      planId, cycle, acusAllocated: acus,
+      ...(cycle === "annual"
+        ? { scheduleRelease: { perMonth: econ.annualMonthlyReleaseAcus, months: 11 } }
+        : {}),
+      ledgerEntry: { type: "subscription_allocation", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
+      note: cycle === "annual"
+        ? `Credit ${acus} ACUs now and schedule 11 more instalments of ${econ.annualMonthlyReleaseAcus} — an annual plan buys ${econ.annualAcus} ACUs for the year, released monthly. Idempotency key = event id.`
+        : `Credit ${acus} ACUs (20% of the ${plan.name} price) to the org wallet — append-only, idempotency key = event id so a redelivered event never double-credits.`,
     };
   }
   // A REFUND OR A DISPUTE TAKES THE CREDIT BACK.
