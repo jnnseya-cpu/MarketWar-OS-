@@ -45,6 +45,10 @@ export type JoinResult =
       dashboardUrl?: string;
       message: string;
       next: string[];
+      /** Whether the dashboard link actually left the machine. Never assumed. */
+      emailed: boolean;
+      /** Why it did not, when it did not — shown rather than swallowed. */
+      emailProblem?: string;
     }
   | { ok: false; error: string; field?: "name" | "email" };
 
@@ -57,6 +61,43 @@ export type JoinResult =
  * check somewhere that could be relaxed, and the way to guarantee it is to
  * never let the number into the function.
  */
+import { sendEmail } from "@/backend/email";
+import { siteOrigin } from "@/shared/site";
+
+// THE EMAIL THIS FORM SAID IT HAD SENT.
+//
+// joinShare2Earn returned "We have sent your dashboard link to <address>" and
+// contained no call to the mailer at all. The same sentence is the ONLY route
+// back for a returning partner, because the form deliberately refuses to print
+// an existing account's token to whoever typed the address — so the security
+// rule and the missing send combined into a locked door. A new joiner got no
+// welcome either, and /partner tells them to "check the email from when you
+// applied".
+//
+// It sends now, and — the part that matters more — the message it returns is
+// derived from what the send ACTUALLY did. `sendEmail` reports honestly when no
+// sending server is configured, and this must not paper over that: claiming a
+// delivery is how the whole platform lost the customer's trust once already.
+async function sendDashboardLink(to: string, name: string, url: string, isNew: boolean) {
+  const link = `${siteOrigin()}${url}`;
+  return sendEmail({
+    to,
+    // Transactional: this is account access. It must survive an emergency stop,
+    // for the same reason a password reset does.
+    transactional: true,
+    subject: isNew ? "Your Share2Earn dashboard" : "Your Share2Earn dashboard link",
+    html: `<p>Hello ${escapeHtml(name) || "there"},</p>`
+      + (isNew
+        ? `<p>You are in the network. This link is your dashboard and your earnings — keep it, it is the way back in.</p>`
+        : `<p>You are already in the network, so nothing new was created. Here is the link to your existing dashboard.</p>`)
+      + `<p><a href="${link}">${link}</a></p>`
+      + `<p>Anyone with this link can see your earnings, so treat it like a password.</p>`,
+  });
+}
+
+const escapeHtml = (v: string) =>
+  v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 export async function joinShare2Earn(input: { name: string; email: string; nowISO: string }): Promise<JoinResult> {
   const name = (input.name || "").trim().slice(0, 120);
   const email = (input.email || "").trim().toLowerCase();
@@ -88,15 +129,35 @@ export async function joinShare2Earn(input: { name: string; email: string; nowIS
   }
 
   const band = bandFor(account);
+
+  // The link that goes in the email. A returning partner's token is not printed
+  // in the response, so for them the inbox is the only route — which is exactly
+  // why the send has to be real, and why a failure has to be said out loud.
+  const linkPath = dashboardUrl
+    || (existing?.accessToken ? `/partner?t=${existing.accessToken}` : undefined);
+  const sent = linkPath ? await sendDashboardLink(email, name, linkPath, !existing) : null;
+  const delivered = Boolean(sent?.ok);
+
+  const joinedLine = `You are in. No application, no follower count, no wait. You earn ${ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces, from your first one.`;
+
   return {
     ok: true,
     creatorId: id,
     band,
     alreadyRegistered: Boolean(existing),
     ...(dashboardUrl ? { dashboardUrl } : {}),
+    emailed: delivered,
+    ...(sent && !sent.ok ? { emailProblem: sent.detail || "The email could not be sent." } : {}),
     message: existing
-      ? `You are already in the network, so nothing was created. We have sent your dashboard link to ${email} — for your security a public form never shows an existing account's link.`
-      : `You are in. No application, no follower count, no wait. You earn ${ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces, from your first one.`,
+      ? (delivered
+        ? `You are already in the network, so nothing was created. We have sent your dashboard link to ${email} — for your security a public form never shows an existing account's link.`
+        // NOT "we have sent". The link is deliberately withheld from a public
+        // form, so with no mail there is no route: say so plainly rather than
+        // leaving somebody waiting for a message that is not coming.
+        : `You are already in the network, so nothing was created. Your dashboard link could NOT be emailed just now, and for your security a public form never shows an existing account's link — so contact support to get back in.`)
+      : (delivered
+        ? `${joinedLine} Your dashboard link is on its way to ${email}.`
+        : `${joinedLine} We could not email your dashboard link, so save the one on this page — it is how you get back in.`),
     next: [
       "Pick something to promote — a brand's mission, or any product in an open catalogue.",
       "Post it your way, with the AI-content disclosure where it applies. We pay on verified sales, not on reach, so nothing depends on your follower count.",

@@ -20806,3 +20806,45 @@ test("the cast checker is wired into verify, and its baseline is honest", async 
   const { execFileSync } = await import("node:child_process");
   execFileSync("node", ["scripts/check-casts.mjs"], { stdio: "pipe" });
 });
+
+test("joining Share2Earn actually sends the link it says it sent", () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/share2earn-signup.ts", import.meta.url), "utf8"));
+
+  // THE DEFECT. joinShare2Earn returned "We have sent your dashboard link to
+  // <address>" and contained no call to the mailer at all. That sentence is the
+  // ONLY route back for a returning partner, because the form deliberately
+  // refuses to print an existing account's token to whoever typed the address —
+  // so the security rule and the missing send combined into a locked door.
+  assert.match(src, /sendEmail\(/, "the join still claims to send a link and never calls the mailer");
+  assert.match(src, /transactional: true/,
+    "account access is not marked transactional, so an emergency stop would swallow the only way back in");
+
+  // And the message must be derived from what the send DID, never asserted.
+  assert.match(src, /const delivered = Boolean\(sent\?\.ok\)/, "the outcome of the send is not read");
+  assert.match(src, /delivered\s*\n?\s*\?/, "the message does not depend on whether anything was sent");
+  assert.match(src, /could NOT be emailed/,
+    "a failed send still tells the customer their link is on its way");
+  // A failure must not fall back to printing an existing account's token: the
+  // public-form leak rule outranks convenience.
+  const failBranch = src.slice(src.indexOf("could NOT be emailed"), src.indexOf("could NOT be emailed") + 400);
+  assert.doesNotMatch(failBranch, /dashboardUrl|accessToken/,
+    "a failed email now leaks an existing partner's dashboard token to whoever typed their address");
+});
+
+test("a refused partner dashboard offers the way past the refusal", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/partner/page.tsx", import.meta.url), "utf8"));
+
+  // The middleware returns { error, action, where: "/verify-human" }. The page
+  // rendered `error` and threw the other two away, so "this needs a check
+  // passed in the last 15 minutes" arrived as a shield, a sentence, and nothing
+  // to press — the boundary defect, in the place it is least forgivable.
+  assert.match(src, /d\.where/, "the page still discards the route past the refusal");
+  assert.match(src, /setGate\(/, "the refusal's action is not kept");
+  assert.match(src, /gate\.where/, "nothing links to the check");
+  assert.match(src, /next=\$\{encodeURIComponent/, "the check would not return the partner to where they were");
+  assert.match(src, /Try again/, "an error that is not a gate refusal is still a dead end");
+
+  const middleware = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+  assert.match(middleware, /where: "\/verify-human"/,
+    "the middleware no longer sends a way forward — the page's link would go nowhere");
+});
