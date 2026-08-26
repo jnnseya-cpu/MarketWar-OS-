@@ -3264,6 +3264,77 @@ test("a length is made of clips that sum exactly to it, at the sum of their pric
 // invented its own palette and put a made-up mark on screen — in frames the
 // customer had paid for.
 // ---------------------------------------------------------------------------
+test("the joined file is measured, and a short one is refunded not handed over", async () => {
+  const { mp4Duration, durationMatches } = await import("../src/shared/mp4-duration.ts");
+  const { readFileSync } = await import("node:fs");
+
+  // Build a minimal MP4 header: ftyp, then moov > mvhd carrying timescale and
+  // duration. This is the only fact that decides whether the customer got what
+  // they paid for, and the join service does not report it.
+  const box = (type, payload) => {
+    const b = Buffer.alloc(8 + payload.length);
+    b.writeUInt32BE(8 + payload.length, 0);
+    b.write(type, 4, "ascii");
+    payload.copy(b, 8);
+    return b;
+  };
+  const mvhdV0 = (timescale, duration) => {
+    const p = Buffer.alloc(100);
+    p[0] = 0;                       // version 0
+    p.writeUInt32BE(timescale, 12);
+    p.writeUInt32BE(duration, 16);
+    return box("mvhd", p);
+  };
+  const file = (timescale, duration) =>
+    Buffer.concat([box("ftyp", Buffer.from("isom")), box("moov", mvhdV0(timescale, duration))]);
+
+  assert.equal(mp4Duration(file(600, 9000)), 15, "15s at a 600 timescale");
+  assert.equal(mp4Duration(file(1000, 12000)), 12);
+  assert.equal(mp4Duration(file(90000, 8 * 90000)), 8);
+
+  // 64-bit (version 1) headers too.
+  const mvhdV1 = (timescale, duration) => {
+    const p = Buffer.alloc(112);
+    p[0] = 1;
+    p.writeUInt32BE(timescale, 20);
+    p.writeUInt32BE(0, 24);
+    p.writeUInt32BE(duration, 28);
+    return box("mvhd", p);
+  };
+  assert.equal(mp4Duration(Buffer.concat([box("ftyp", Buffer.from("isom")), box("moov", mvhdV1(600, 9000))])), 15);
+
+  // JUNK IN, NULL OUT — never a wrong number, and never a read past the end.
+  assert.equal(mp4Duration(Buffer.from("not a video at all")), null);
+  assert.equal(mp4Duration(Buffer.alloc(0)), null);
+  // A box claiming to be bigger than the file must not be followed.
+  const lying = Buffer.alloc(16);
+  lying.writeUInt32BE(0xffffff, 0); lying.write("moov", 4, "ascii");
+  assert.equal(mp4Duration(lying), null);
+
+  // THE DECISION. A 15s order that comes back as 8s is the join having produced
+  // one clip instead of two — a failure, not a delivery.
+  assert.equal(durationMatches(8, 15), false);
+  assert.equal(durationMatches(14.6, 15), true, "a re-encode lands a fraction either side");
+  assert.equal(durationMatches(15.2, 15), true);
+  // An unreadable header is not evidence of a short video, so it must not fail
+  // a render on our own parser's limitations.
+  assert.equal(durationMatches(null, 15), true);
+
+  // And the gateway acts on it: refund, keep the clips, do not hand it over.
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+  assert.match(src, /!durationMatches\(measured, ordered\)/);
+  assert.match(src, /if \(job\.chargedAcu\) await creditAcus\(walletId, job\.chargedAcu\)/,
+    "a video that is not the length ordered must be refunded, not delivered");
+
+  // THE JOIN SERVICE'S URL EXPIRES IN TEN MINUTES. Handing it over would be the
+  // owner's original report — "a firebase link then all GONE" — with a shorter
+  // fuse. It is re-hosted on our own permanent URL first.
+  assert.match(src, /const hosted = await uploadPublicMedia\(bytes/);
+  assert.match(src, /job\.videoUrl = hosted;/);
+  assert.doesNotMatch(src, /job\.videoUrl = dl\.url/,
+    "an expiring signed URL is being handed to the customer as their video");
+});
+
 test("a length that cannot arrive as one file is not sold", async () => {
   const g = await import("../src/backend/video-gateway.ts");
   const { readFileSync } = await import("node:fs");
@@ -3313,8 +3384,9 @@ test("a length that cannot arrive as one file is not sold", async () => {
   assert.match(src, /const state = toQueueStatus\(status\.job\.status\)/);
   assert.match(src, /if \(state === "queued" \|\| state === "running"\) return job/,
     "a job whose join is still running must not be reported ready");
-  // The ready path takes the JOINED file's url, never the first clip.
-  assert.match(src, /job\.videoUrl = dl\.url;\n  job\.status = "ready"/);
+  // The ready path takes the JOINED file — re-hosted on our own permanent URL —
+  // never the first clip and never the join service's expiring link.
+  assert.match(src, /job\.videoUrl = hosted;\n  job\.status = "ready"/);
   assert.doesNotMatch(src, /job\.videoUrl = job\.clips\[0\];\s*\n\s*job\.status = "ready"/,
     "the first clip is being handed over as the finished video again");
 });
