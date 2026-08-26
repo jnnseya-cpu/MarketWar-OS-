@@ -226,6 +226,30 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // VARY ONE THING AT A TIME.
+    //
+    // A message can be queued by the relay and then dropped post-queue when the
+    // FROM HEADER is not an address the authenticated account may send as —
+    // Hostinger does exactly this. The bounce then goes to the Return-Path,
+    // which is usually not a real mailbox either, so the message vanishes in
+    // total silence while every check passes.
+    //
+    // Guessing is not the way to settle that. `&from=` sends the same message
+    // with a different From so the two can be compared: if <appuser@…> arrives
+    // and <info@…> does not, the From header is the answer and no further
+    // theorising is needed. Restricted to the sending account or an address on
+    // its own domain, so this cannot be used to forge a sender.
+    const askedFrom = (req.nextUrl.searchParams.get("from") || "").trim().toLowerCase();
+    const ownDomain = ownMailbox.split("@")[1] || "";
+    const fromAllowed = askedFrom === "account" || askedFrom === ownMailbox || (Boolean(ownDomain) && askedFrom.endsWith(`@${ownDomain}`));
+    const overrideFrom = askedFrom && fromAllowed ? (askedFrom === "account" ? ownMailbox : askedFrom) : "";
+    if (askedFrom && !fromAllowed) {
+      return NextResponse.json({
+        error: `This can only send as the account itself or an address on ${ownDomain || "its own domain"} — not "${askedFrom}".`,
+        try: "?send=self&from=account",
+      }, { status: 403 });
+    }
+
     const recipient = wanted === "self" ? ownMailbox : sendTo;
     if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(recipient)) {
       return NextResponse.json({ error: `"${sendTo}" is not an address this could send to.` }, { status: 400 });
@@ -239,7 +263,8 @@ export async function GET(req: NextRequest) {
     const result = await sendEmail({
       to: recipient,
       subject: `MarketWar OS send test — ${at}`,
-      html: `<p>This is a real message from the live deployment, sent through the same code path a customer's email uses.</p><p>Sent at ${at}.</p>`,
+      html: `<p>This is a real message from the live deployment, sent through the same code path a customer's email uses.</p><p>Sent at ${at}.</p><p>From header: ${overrideFrom || "the configured EMAIL_FROM"}.</p>`,
+      ...(overrideFrom ? { from: `MarketWar OS <${overrideFrom}>` } : {}),
       // A test the operator asked for by name. It must not be silenced by a
       // marketing pause, for the same reason the free audit's report is not.
       transactional: true,
@@ -247,6 +272,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       service: "Email sending — a REAL message through the real code path",
       sentTo: recipient,
+      sentAs: overrideFrom ? `MarketWar OS <${overrideFrom}>` : "the configured EMAIL_FROM",
       at,
       result,
       verdict: result.ok
@@ -389,6 +415,11 @@ export async function GET(req: NextRequest) {
       note: realEnvelopeFrom !== fromAddr
         ? `A real send puts <${realEnvelopeFrom}> in MAIL FROM, not the visible From. That address must be one this relay will send as — it is the step an earlier version of this check skipped.`
         : "The envelope sender and the visible From are the same address.",
+    authenticatedAccount: node?.user || null,
+    fromMatchesAccount: Boolean(node?.user) && fromAddr.toLowerCase() === String(node?.user).toLowerCase(),
+    fromMatchesNote: node?.user && fromAddr.toLowerCase() !== String(node.user).toLowerCase()
+      ? `THE FROM HEADER IS NOT THE AUTHENTICATED ACCOUNT. Messages are sent as <${fromAddr}> while this deployment logs in as <${node.user}>. Many relays — Hostinger among them — ACCEPT such a message, issue a queue id, and then drop it after queueing, because the account is not permitted to send as that address. The bounce goes to the Return-Path <${realEnvelopeFrom}>, which is usually not a real mailbox either, so the message disappears in silence while every check here passes. To settle it, send the same message twice and change only this: ?send=self, then ?send=self&from=account. If the second arrives and the first does not, this is the cause — make <${fromAddr}> an alias of <${node.user}> at the mail provider, or set EMAIL_FROM to the account itself.`
+      : "The From header is the authenticated account, so the relay has no reason to refuse it after queueing.",
       ...(returnPathNote ? { verdict: returnPathNote } : {}),
     },
     dnsCheck,

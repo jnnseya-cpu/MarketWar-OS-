@@ -2827,3 +2827,43 @@ test("the ledger is wired into both send paths, and cannot fail a send", async (
   assert.doesNotMatch(email, /await recordAttempt\(/, "the ledger must never be able to block or fail a send");
   assert.match(email, /void recordAttempt\(/);
 });
+
+// ---------------------------------------------------------------------------
+// Queued by the relay, never delivered — and every check still passed.
+//
+// `?send=self` returned ok:true with a Postfix queue id (B92FD8E3CF), so the
+// relay took the message into its own queue. It never reached the mailbox, on
+// the same server, of the account that sent it. Nothing bounced.
+//
+// The one mismatch every report has shown and none has flagged: the From header
+// is <info@marketwaros.com> while the deployment authenticates as
+// <appuser@marketwaros.com>. Relays commonly ACCEPT such a message, issue a
+// queue id, and drop it AFTER queueing because the account may not send as that
+// address — and the bounce goes to the Return-Path, which is usually not a real
+// mailbox either. Total silence, while every check reports healthy.
+//
+// This is not asserted as the cause. It is made TESTABLE: send twice, change
+// only the From, compare.
+// ---------------------------------------------------------------------------
+test("the From header is compared with the account that authenticates", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+
+  assert.match(src, /fromMatchesAccount/, "the two addresses must be compared, not just both printed");
+  assert.match(src, /THE FROM HEADER IS NOT THE AUTHENTICATED ACCOUNT/,
+    "a mismatch this consequential has to be stated, not left for somebody to notice in two adjacent fields");
+  // The note must name the EXPERIMENT rather than assert a cause, because five
+  // rounds of asserting causes is what made this take five rounds.
+  assert.match(src, /\?send=self&from=account/, "the report has to say how to settle it");
+
+  // And the experiment changes exactly one thing.
+  assert.match(src, /const askedFrom =/);
+  assert.match(src, /\.\.\.\(overrideFrom \? \{ from: `MarketWar OS <\$\{overrideFrom\}>` \} : \{\}\)/,
+    "the override must reach sendEmail, or the second send is the same as the first");
+
+  // It cannot be used to forge a sender: the account itself, or its own domain.
+  assert.match(src, /askedFrom\.endsWith\(`@\$\{ownDomain\}`\)/);
+  assert.match(src, /cannot be used to forge a sender/);
+  const branch = src.slice(src.indexOf("const askedFrom ="), src.indexOf("const { sendEmail }"));
+  assert.ok(branch.includes("status: 403"), "an address outside the domain has to be refused before anything is sent");
+});
