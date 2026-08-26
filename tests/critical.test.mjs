@@ -3097,6 +3097,86 @@ test("a broken page leads with what is broken, never with what passes", async ()
   }
 });
 
+// ---------------------------------------------------------------------------
+// THE AUDIT PAGE HAS TO SELL, AND EVERY CLAIM ON IT HAS TO BE TRUE.
+//
+// The page is the front door for organic acquisition, and it was a form with two
+// paragraphs of explanation after it. What it can say that no competitor can is
+// the CATALOGUE — the named checks, each with the sentence saying what it costs
+// — because printing the list is only possible when the list is real.
+//
+// The moment a marketing page types its own count, it starts drifting from the
+// software: a check gets added and the page still says seventeen, or a check
+// gets removed and the page keeps promising it. So the count and the list both
+// come from the file the report itself reads, and these tests hold that.
+// ---------------------------------------------------------------------------
+test("the page's catalogue is generated from the checks that actually run", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/audit/page.tsx", import.meta.url), "utf8");
+  const copy = await import("../src/shared/audit-copy.ts");
+
+  // Nothing about the catalogue is typed into the page.
+  assert.match(page, /auditCheckCount\(\)/, "the number of checks must be counted, never typed");
+  assert.match(page, /checksByArea\(\)/, "the list must come from the checks that run");
+  // A hard-coded count anywhere in the copy is the drift this prevents.
+  const prose = page.replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  assert.doesNotMatch(prose, /\b(seventeen|twenty-nine|29|30)\s+(checks|things)/i,
+    "a count typed into the copy stops agreeing with the software the day a check is added");
+
+  // Every check the page lists has a cost sentence to open, or the disclosure
+  // is empty and the whole device is decorative.
+  for (const { area, checks } of copy.checksByArea()) {
+    assert.ok(checks.length > 0, `${area} has no checks`);
+    for (const c of checks) {
+      assert.ok(c.costs && c.costs.length > 40, `${c.label} has nothing to say about what it costs`);
+    }
+  }
+});
+
+test("the count on the page is the number of checks EVERY page gets", async () => {
+  const copy = await import("../src/shared/audit-copy.ts");
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // A plain page that triggers no conditional check.
+  const html = `<!doctype html><html lang="en"><head><title>A business</title></head><body><p>Hello.</p></body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(html); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    assert.equal(report.ok, true, `crawl failed: ${report.error}`);
+
+    // THE NUMBER THE PAGE PRINTS IS THE NUMBER THAT RAN. Not the largest number
+    // available: a conditional check must not be counted into a promise made to
+    // every visitor.
+    assert.equal(report.findings.length, copy.auditCheckCount(),
+      `the page promises ${copy.auditCheckCount()} checks and a real crawl produced ${report.findings.length}`);
+
+    // And the AREAS agree, so the page groups them exactly as the report does.
+    for (const f of report.findings) {
+      const c = copy.copyFor(f.label);
+      assert.ok(c, `the crawler emits "${f.label}" and the page has no entry for it`);
+      assert.equal(c.area, f.area,
+        `"${f.label}" is ${f.area} in the crawler and ${c.area} on the page`);
+    }
+  } finally {
+    server.close();
+  }
+});
+
+test("the page's structured data promises only what the page contains", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/audit/page.tsx", import.meta.url), "utf8");
+
+  // The FAQ rendered and the FAQ marked up are the SAME array. Marking up
+  // questions a page does not answer is a manual action waiting to happen, and
+  // we tell other people not to do it on their own sites.
+  assert.match(page, /mainEntity: FAQ\.map/);
+  assert.match(page, /\{FAQ\.map\(\(f\) =>/, "the questions in the markup must also be on the page");
+  assert.match(page, /siteUrl\("\/audit"\)/, "breadcrumb items must be absolute — Google reads them as @id");
+});
+
 test("every finding can say what it costs, and none of it is invented", async () => {
   const { readFileSync } = await import("node:fs");
   const crawler = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
