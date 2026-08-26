@@ -27,6 +27,7 @@ import { minimumAcusFor } from "@/backend/unit-economics";
 import { ffmpegCloudConfigured, createTranscode, getTranscode, getDownloadUrl, toQueueStatus } from "@/backend/ffmpeg-cloud";
 import { saveWork } from "@/backend/work-library";
 import { getBrandById } from "@/backend/brand-store";
+import { mp4Duration, durationMatches } from "@/shared/mp4-duration";
 
 export type VideoRenderStatus = "queued" | "rendering" | "ready" | "failed" | "demo";
 export type VideoProvider = "veo" | "sora" | "demo";
@@ -898,12 +899,46 @@ async function pollSegments(job: VideoJob): Promise<VideoJob> {
 
   const dl = await getDownloadUrl(job.stitchRef);
   if (!dl.ok) return job;                           // joined, link not ready yet
-  job.videoUrl = dl.url;
+
+  // THE JOIN SERVICE'S URL EXPIRES IN TEN MINUTES (SIGNED_URL_TTL_SEC).
+  //
+  // Handing it over as the deliverable would have recreated the exact fault the
+  // owner reported — "the download MP4 give you a firebase link then all GONE"
+  // — with a shorter fuse. The joined file is pulled down and re-hosted on our
+  // own permanent Storage URL, like every single-clip render already is.
+  const got = await fetch(dl.url).catch(() => null);
+  const bytes = got && got.ok ? Buffer.from(await got.arrayBuffer()) : null;
+  if (!bytes || bytes.length < 2048) return job;    // transient — try again next poll
+
+  // AND IT MUST BE THE LENGTH THAT WAS ORDERED.
+  //
+  // The service replies with an id and a status and nothing else — no duration,
+  // no track list. So "the join succeeded" was the only evidence a fifteen-
+  // second file existed, and the customer had already paid for fifteen seconds.
+  // The file itself is the only witness that cannot be wrong, so it is read.
+  // A short result means the join produced one clip rather than all of them:
+  // that is a failure, refunded, with the clips still listed.
+  const ordered = job.requestedSeconds ?? job.seconds ?? 0;
+  const measured = mp4Duration(bytes);
+  if (ordered > 0 && !durationMatches(measured, ordered)) {
+    const walletId = await walletIdForBrand(job.brandId);
+    if (job.chargedAcu) await creditAcus(walletId, job.chargedAcu);
+    job.status = "failed";
+    job.chargedAcu = 0;
+    job.note = `The clips rendered but the joined file is ${measured?.toFixed(1)}s, not the ${ordered}s you ordered — so it has not been handed over and the ACUs are back in your wallet. The individual clips are here: ${(job.clips || []).join(" ")}`;
+    await saveJob(job);
+    return job;
+  }
+
+  const hosted = await uploadPublicMedia(bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}|joined|${job.stitchRef}` });
+  if (!hosted) return job;                          // Storage hiccup — try again next poll
+  job.videoUrl = hosted;
   job.status = "ready";
-  const filed = await fileInLibrary(job, [dl.url]);
+  const filed = await fileInLibrary(job, [hosted]);
+  const length = measured ? `${measured.toFixed(1)}s` : `${ordered}s`;
   job.note = filed
-    ? `Rendered ${job.requestedSeconds}s as one file (joined from ${segs.length} clips), saved to your library.`
-    : `Rendered ${job.requestedSeconds}s as one file (joined from ${segs.length} clips). It could not be filed in your library, so copy this link before you close the tab: ${dl.url}`;
+    ? `Rendered ${length} as one file (joined from ${segs.length} clips), saved to your library.`
+    : `Rendered ${length} as one file (joined from ${segs.length} clips). It could not be filed in your library, so copy this link before you close the tab: ${hosted}`;
   await saveJob(job);
   return job;
 }
