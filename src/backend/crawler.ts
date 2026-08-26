@@ -30,6 +30,18 @@ export type Finding = {
    * the score entirely rather than counted as passes or failures.
    */
   measured?: boolean;
+  /**
+   * False when this check does not apply to THIS KIND of business.
+   *
+   * Distinct from `measured` on purpose: "we could not read it" and "it is not
+   * a question about you" have different explanations and neither may be
+   * reported as the other. Inapplicable checks are excluded from the score
+   * exactly like unmeasured ones — never counted as a pass, which would be a
+   * point awarded for nothing, and never as a failure.
+   */
+  applicable?: boolean;
+  /** Why it does not apply. Present only when `applicable` is false. */
+  notApplicable?: string;
 };
 export type CrawlReport = {
   ok: boolean;
@@ -185,6 +197,48 @@ async function exists(url: string, timeoutMs = 7_000): Promise<boolean> {
  * the same guard as the first: a public audit that follows links is a public
  * audit that can be pointed at somebody's internal network.
  */
+/**
+ * IS THIS A LOCAL BUSINESS, OR SOFTWARE?
+ *
+ * THE FAULT THIS FIXES, reported by the owner about a real audit. An API
+ * company — SMS verification for mobile money — was told:
+ *
+ *   Phone number: "For a local business the phone number is the conversion.
+ *   If it is not a number a phone can dial, somebody standing in the rain has
+ *   to copy it by hand."
+ *
+ *   Local address: "customers need to see it before they trust a trade they
+ *   have never used."
+ *
+ * Nobody stands in the rain to buy an API, and it has no trade to distrust.
+ * The measurements were true — there is no tel: link and no postcode — and the
+ * FINDINGS were nonsense, because an API company deliberately has neither.
+ * Marking that a failure costs the reader nothing except their belief in the
+ * other twenty-six checks, which is the whole asset.
+ *
+ * The test is POSITIVE EVIDENCE OF THE OTHER KIND, never the absence of local
+ * evidence — "no postcode, therefore not local, therefore no postcode needed"
+ * is circular and would silence the check for every plumber who needs it. A
+ * site is treated as software only when it says so: software schema, or the
+ * vocabulary a developer product cannot avoid using about itself.
+ *
+ * Local schema or a postal address always wins. A business that publishes an
+ * address is telling us where it is, and that is not a claim we overrule.
+ */
+const DEV_TERMS = /\b(api|sdk|endpoint|webhook|api key|developer portal|documentation|docs|integration guide|sandbox|rest api|graphql|client librar)/gi;
+const SOFTWARE_SCHEMA = /SoftwareApplication|WebApplication|SoftwareSourceCode|APIReference/i;
+
+export function siteIsSoftware(html: string, sdTypes: string[], hasLocalEvidence: boolean): boolean {
+  // A published address or local markup settles it: this is a place.
+  if (hasLocalEvidence) return false;
+  if (sdTypes.some((t) => SOFTWARE_SCHEMA.test(t))) return true;
+  // Distinct terms, not repetitions — one page saying "API" forty times is one
+  // signal, and a marketing site for a plumber can say "integration" once.
+  const body = stripTags(html.replace(/<head[\s\S]*?<\/head>/i, "")).toLowerCase();
+  const hits = new Set((body.match(DEV_TERMS) || []).map((m) => m.toLowerCase()));
+  return hits.size >= 3;
+}
+
 const CONTACT_HINT = /(contact|get-?in-?touch|enquir|inquir|reach-?us|quote|book|hire|about)/i;
 const EXTRA_PAGES = 2;
 
@@ -361,8 +415,16 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
 
   // ---- score from measured checks ----
   const findings: Finding[] = [];
-  const add = (area: Finding["area"], label: string, ok: boolean, weight: number, passDetail: string, failDetail: string, warn = false) =>
-    findings.push({ area, label, severity: ok ? "pass" : warn ? "warn" : "fail", detail: ok ? passDetail : failDetail, weight });
+  const add = (area: Finding["area"], label: string, ok: boolean, weight: number, passDetail: string, failDetail: string, warn = false, notApplicable = "") =>
+    findings.push({
+      area, label, weight,
+      // A check that does not apply is never dressed as a pass. A point awarded
+      // for a question we did not ask is the same lie as a point deducted for
+      // one they could not answer.
+      severity: ok ? "pass" : warn ? "warn" : "fail",
+      detail: ok ? passDetail : failDetail,
+      ...(notApplicable ? { applicable: false, notApplicable } : {}),
+    });
 
   add("Technical", "HTTPS", https, 10, "Served over HTTPS.", "Not served over HTTPS — a ranking + trust negative.");
   add("Technical", "Reachable (2xx)", status >= 200 && status < 400, 8, `Responded ${status}.`, `Returned HTTP ${status}.`);
@@ -402,19 +464,27 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
       ? ` We tried ${candidates.map(pageName).join(" and ")} and could not read ${candidates.length === 1 ? "it" : "them"}.`
       : "";
 
+  // NOT EVERY BUSINESS IS A SHOP. Decided from positive evidence that this is
+  // software — never from the absence of local evidence, which would silence
+  // the check for exactly the local businesses it exists for.
+  const softwareSite = siteIsSoftware(html, sdTypes, Boolean(whereAddress) || localSchema);
+  const notLocal = softwareSite
+    ? "This reads as a software or API business rather than a local one, so we are not counting a missing shopfront detail against you."
+    : "";
+
   add("Content", "Phone number", Boolean(wherePhoneLink), 9,
     `A tappable phone link is ${at(wherePhoneLink)}.`,
     wherePhoneText
       ? `A phone number appears as text ${at(wherePhoneText)} but is not a tel: link, so it cannot be dialled with a tap.`
       : `No phone number on this page${otherPages.length ? ` or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : ""}.${alsoRead && otherPages.length ? "" : alsoRead}`,
-    Boolean(wherePhoneText));
+    Boolean(wherePhoneText), notLocal);
   add("Content", "Contact route", Boolean(whereContact), 9,
     `There is a way to make contact — a phone link, an email link or a form ${at(whereContact)}.`,
     `No phone link, email link or form on this page${otherPages.length ? `, or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : ""}.${alsoRead && otherPages.length ? "" : alsoRead}`);
   add("SEO", "Local address", Boolean(whereAddress), 6,
     `A postal address is ${at(whereAddress)}.`,
-    `No address or postcode found${otherPages.length ? ` on this page or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : " on this page"} — local search needs to see where you are.`, true);
-  add("Structured data", "Local business schema", localSchema, 6, "Local business markup present.", "No LocalBusiness or Organization markup — search engines have to guess your address, hours and phone.", true);
+    `No address or postcode found${otherPages.length ? ` on this page or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : " on this page"} — local search needs to see where you are.`, true, notLocal);
+  add("Structured data", "Local business schema", localSchema, 6, "Local business markup present.", "No LocalBusiness or Organization markup — search engines have to guess your address, hours and phone.", true, notLocal);
   add("Technical", "Mixed content", mixed === 0, 7, https ? "No insecure assets on a secure page." : "Not applicable — the page is not served over HTTPS.", `${mixed} asset${mixed === 1 ? "" : "s"} loaded over plain http on a secure page — browsers block or downgrade these.`);
   add("Technical", "Page weight", bytes < 500_000, 5, `Page HTML is ${Math.round(bytes / 1024)}KB.`, `Page HTML is ${Math.round(bytes / 1024)}KB — heavy for a phone on mobile data.`, bytes < 1_000_000);
   add("Technical", "Render-blocking scripts", blockingScripts === 0, 5, "No render-blocking scripts in the head.", `${blockingScripts} script${blockingScripts === 1 ? "" : "s"} in the head block the page from drawing.`, blockingScripts <= 2);
@@ -464,7 +534,9 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
     });
   }
 
-  const scored = findings.filter((f) => f.measured !== false);
+  // Excluded from the score for two different reasons, both honest: we could
+  // not read it, or it is not a question about this business.
+  const scored = findings.filter((f) => f.measured !== false && f.applicable !== false);
   const earned = scored.reduce((s, f) => s + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
   const total = scored.reduce((s, f) => s + f.weight, 0);
   const score = total > 0 ? Math.round((earned / total) * 100) : 0;

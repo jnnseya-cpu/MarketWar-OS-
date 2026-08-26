@@ -3317,6 +3317,89 @@ test("a site with a linked contact page is not told it has no way to be contacte
   }
 });
 
+test("an API company is not told it is losing customers like a plumber", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // THE REPORTED CASE. A B2B verification API was told, of a missing tel:
+  // link: "For a local business the phone number is the conversion … somebody
+  // standing in the rain has to copy it by hand." Nobody stands in the rain to
+  // buy an API. The measurement was true and the FINDING was nonsense, and a
+  // reader who catches one of those stops believing the twenty-six beside it.
+  const api = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width">
+    <title>KODA — the SMS is the API</title></head><body>
+    <h1>Verification anywhere the code exists</h1>
+    <p>Call our REST API from any stack. The SDK ships with a sandbox, and every
+       endpoint is covered in the documentation. Point a webhook at your service
+       and you are live.</p></body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(api); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    assert.equal(report.ok, true, `crawl failed: ${report.error}`);
+    const by = (label) => report.findings.find((f) => f.label === label);
+
+    for (const label of ["Phone number", "Local address", "Local business schema"]) {
+      assert.equal(by(label).applicable, false, `"${label}" is still being counted against an API company`);
+      assert.match(by(label).notApplicable, /software or API business/);
+    }
+
+    // NEVER DRESSED AS A PASS. A point awarded for a question we did not ask is
+    // the same lie as a point deducted for one they could not answer.
+    assert.notEqual(by("Phone number").severity, "pass",
+      "an inapplicable check must not be turned into a free point");
+
+    // And it is out of the score entirely, so the grade is of what was asked.
+    assert.ok(report.score > 0 && report.score <= 100);
+  } finally {
+    server.close();
+  }
+});
+
+test("a local business is still asked for its phone number and its address", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // THE OTHER HALF, and the reason the test is POSITIVE evidence of software
+  // rather than the absence of local evidence: "no postcode, therefore not
+  // local, therefore no postcode needed" is circular and would silence this
+  // check for every trade that needs it most.
+  const trade = `<!doctype html><html lang="en"><head><title>Evan Deli — emergency plumbing in Leeds</title></head>
+    <body><h1>Emergency plumbing</h1><p>We cover Leeds and Wakefield, same day.</p></body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(trade); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    const phone = report.findings.find((f) => f.label === "Phone number");
+    const addr = report.findings.find((f) => f.label === "Local address");
+    assert.notEqual(phone.applicable, false, "a plumber with no phone number must still be told");
+    assert.equal(phone.severity, "fail");
+    assert.notEqual(addr.applicable, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("a business that publishes an address is never reclassified as software", async () => {
+  const { siteIsSoftware } = await import("../src/backend/crawler.ts");
+
+  // A published address settles it. Plenty of real local businesses talk about
+  // their booking API or their integration with a supplier, and the one thing
+  // that cannot be argued with is a business telling us where it is.
+  const devHeavy = "<body>Our API, SDK and webhook endpoint are documented in the sandbox.</body>";
+  assert.equal(siteIsSoftware(devHeavy, [], false), true);
+  assert.equal(siteIsSoftware(devHeavy, [], true), false, "a published address must outrank developer vocabulary");
+  assert.equal(siteIsSoftware("<body>We fix boilers in Leeds.</body>", [], false), false);
+  // Schema is enough on its own.
+  assert.equal(siteIsSoftware("<body>Hello</body>", ["SoftwareApplication"], false), true);
+  // One term repeated is one signal, not three.
+  assert.equal(siteIsSoftware("<body>API API API API API</body>", [], false), false,
+    "repetition of a single word must not classify a business");
+});
+
 test("a site with genuinely no contact route is still told so, and told where we looked", async () => {
   const { crawlSite } = await import("../src/backend/crawler.ts");
   const http = await import("node:http");

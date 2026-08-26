@@ -75,7 +75,18 @@ export async function POST(req: NextRequest) {
   // Severity first, then weight. A failure always outranks a pass.
   const rank = (s: string) => (s === "fail" ? 0 : s === "warn" ? 1 : 2);
   const ranked = [...report.findings].sort((a, b) => rank(a.severity) - rank(b.severity) || b.weight - a.weight);
-  const measured = ranked.filter((f) => f.measured !== false);
+  // WHAT COUNTS, and two separate reasons for what does not.
+  //
+  // `measured: false` — we could not read it from the response.
+  // `applicable: false` — it is not a question about this kind of business.
+  //
+  // An API company was told it was losing customers for having no shopfront
+  // phone number, in language about standing in the rain. Both exclusions are
+  // reported, separately, because telling somebody "we could not read this"
+  // when the truth is "this does not apply to you" is the same wrong
+  // explanation in a friendlier voice.
+  const measured = ranked.filter((f) => f.measured !== false && f.applicable !== false);
+  const notApplicable = ranked.filter((f) => f.applicable === false);
 
   // WHAT EACH FINDING COSTS, in the reader's language rather than a linter's.
   // A finding with no copy carries its technical detail alone — silence is
@@ -117,6 +128,7 @@ export async function POST(req: NextRequest) {
       // touch" is only believable beside the list of pages that were looked at.
       pagesRead: report.pagesRead,
       pagesTried: report.pagesTried,
+      notApplicable: notApplicable.map((f) => ({ label: f.label, area: f.area, why: f.notApplicable || "" })),
       heldBack: Math.max(0, measured.length - FREE_FINDINGS),
       unmeasured: ranked.filter((f) => f.measured === false).length,
       note: measured.length > FREE_FINDINGS
@@ -232,6 +244,7 @@ export async function POST(req: NextRequest) {
     sitemapXml: report.sitemapXml,
     structuredDataTypes: report.structuredDataTypes,
     findings: measured.map(dress),
+    notApplicable: notApplicable.map((f) => ({ label: f.label, area: f.area, why: f.notApplicable || "" })),
     pagesRead: report.pagesRead,
     pagesTried: report.pagesTried,
     headline,
