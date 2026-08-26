@@ -2777,3 +2777,53 @@ test("DKIM is checked, because 'delivered to spam' reads exactly like 'never sen
   // is suggestive rather than proof.
   assert.match(src, /this proves nothing/, "a check that cannot be exhaustive must say so");
 });
+
+// ---------------------------------------------------------------------------
+// Nothing recorded that a message had ever been sent.
+//
+// "never send any emails" took five rounds to answer, and the reason it took
+// five is that every check built to answer it measured the CONFIGURATION —
+// credentials, envelope, DNS — while nothing anywhere recorded that a message
+// had existed. The only trace was `recordNodeSend`: an in-memory counter, per
+// serverless instance, per day, that dies with the invocation. The provider's
+// own queue id arrived on the `250 ... queued as ...` line and was discarded.
+//
+// So "did Tuesday's audit email go out?" had no answer in the system, and the
+// honest reply was a request for another screenshot.
+// ---------------------------------------------------------------------------
+test("every send attempt is written down, and a failed write never stops the mail", async () => {
+  const ledger = await import("../src/backend/send-ledger.ts");
+  ledger.__resetSendLedger();
+
+  await ledger.recordAttempt({ to: "a@example.com", subject: "One", providerId: "MSG1", node: "primary", ok: true, failure: "", detail: "", at: "2026-08-25T10:00:00.000Z" });
+  await ledger.recordAttempt({ to: "b@example.com", subject: "Two", providerId: "", node: "primary", ok: false, failure: "provider", detail: "553 refused", at: "2026-08-25T10:01:00.000Z" });
+
+  const rows = await ledger.recentSends(10);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].to, "b@example.com", "newest first — the last thing that happened is the thing being asked about");
+  assert.equal(rows[0].ok, false);
+  assert.equal(rows[0].detail, "553 refused", "the provider's own words, not a paraphrase");
+  assert.equal(rows[1].providerId, "MSG1", "the queue id is the whole point — it is what a support desk can act on");
+
+  // A row written before a field existed must not take down the page somebody is
+  // using to find out why their mail is missing.
+  assert.equal(ledger.attemptFromStored(null), null);
+  assert.equal(ledger.attemptFromStored({ subject: "no recipient" }), null);
+  const partial = ledger.attemptFromStored({ to: "c@example.com", at: "2026-08-25T10:02:00.000Z" });
+  assert.equal(partial.ok, false, "an unreadable outcome must not read as a success");
+  assert.equal(partial.providerId, "");
+});
+
+test("the ledger is wired into both send paths, and cannot fail a send", async () => {
+  const { readFileSync } = await import("node:fs");
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  // Single send: success AND failure both leave a trace. A ledger that only
+  // recorded successes would answer "did it send?" with silence either way.
+  assert.ok((email.match(/recordAttempt\(\{/g) || []).length >= 3, "both paths and both outcomes must be recorded");
+  assert.match(email, /ok: true, failure: "", detail: "", at:/);
+  assert.match(email, /ok: false, failure: "provider", detail: smtpError/);
+  // Never awaited into the send path: a ledger that could stop a message going
+  // out would be worse than no ledger.
+  assert.doesNotMatch(email, /await recordAttempt\(/, "the ledger must never be able to block or fail a send");
+  assert.match(email, /void recordAttempt\(/);
+});

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
 import { publicSendFailure, operatorFix } from "@/shared/send-failure";
+import { recentSends } from "@/backend/send-ledger";
 import { getPool } from "@/backend/sending-pool";
 import { emailProvider, emailIsConfigured } from "@/backend/email";
 
@@ -375,6 +376,11 @@ export async function GET(req: NextRequest) {
     // echoed in any form beyond its length.
     activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
     vars,
+    // WHAT WAS ACTUALLY SENT. The only record of a send used to be an in-memory
+    // per-instance counter, so "did Tuesday's audit email go out?" had no answer
+    // anywhere in the system. These ids are what a provider's support desk can
+    // act on.
+    recentSends: await recentSends(20).catch(() => []),
     probe,
     envelopeSender: {
       visibleFrom: fromAddr,
