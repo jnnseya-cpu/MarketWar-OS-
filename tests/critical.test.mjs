@@ -3181,6 +3181,82 @@ test("the trader's details clear the blocker only when the footer can print them
 // come from the file the report itself reads, and these tests hold that.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// A CAPABILITY WITH NO SURFACE IS NOT A CAPABILITY.
+//
+// /api/admin/grant-acus has worked for months: resolve an email to a uid,
+// credit the wallet, optionally set the plan, platform_admin only. Nothing in
+// the product ever called it. So the only way to comp a design partner or
+// unstick a pilot was a hand-crafted authenticated POST — which is to say it
+// never happened, and the owner's own account sat at 100 ACUs looking at a page
+// selling them eight subscription tiers.
+// ---------------------------------------------------------------------------
+test("the grant-ACUs route has a surface that actually calls it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../src/components/AdminGrantAcus.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/dashboard/admin/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /<AdminGrantAcus \/>/, "the panel has to be mounted, not merely written");
+  assert.match(ui, /authedFetch\("\/api\/admin\/grant-acus"/,
+    "authedFetch, not fetch — a plain fetch omits the token and the route 401s");
+  assert.match(ui, /method: "POST"/);
+  // Both directions: look one up before granting, so the operator sees what
+  // they are changing rather than firing blind.
+  assert.match(ui, /grant-acus\?email=/, "an operator has to be able to read a balance before changing it");
+
+  // THE BALANCE AFTER A GRANT COMES FROM THE SERVER. A component that adds the
+  // amount to what it last saw will disagree with the wallet the moment two
+  // grants race, and this is money.
+  assert.match(ui, /balanceAcu: d\.balanceAcu/, "the new balance must be the server's, never computed here");
+  assert.doesNotMatch(ui, /balanceAcu:.*\+\s*amount/, "never add the grant to a remembered balance");
+
+  // What it costs, beside the button that spends it. ACUs are pennies.
+  assert.match(ui, /given away/, "a grant is real provider money and the page has to say so");
+});
+
+test("the operator is told they are not a customer, and nothing is hidden from them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const billing = readFileSync(new URL("../src/app/dashboard/billing/page.tsx", import.meta.url), "utf8");
+
+  assert.match(billing, /useIsAdmin\(\)/);
+  assert.match(billing, /operator here, not a customer/);
+  assert.match(billing, /\/dashboard\/admin/, "it has to point at the tool they came for");
+
+  // NOT HIDDEN. The plan table is the only place the pricing can be read the way
+  // a customer reads it, and removing it from the owner would take away the one
+  // surface where the margin floor can be checked against what is charged.
+  assert.doesNotMatch(billing, /isAdmin \s*&&\s*\(?\s*null/, "the commercial surface is not removed for admins");
+  const plansIdx = billing.indexOf("ACU top-ups");
+  assert.ok(plansIdx > 0, "the top-up table must still be on the page");
+});
+
+// ---------------------------------------------------------------------------
+// "RED BUT THE KEY IS PRESENT."
+//
+// Reported by the owner about the Serper panel, and both halves were true. Every
+// failed probe that was not a quota error produced ONE sentence — "key present
+// but REJECTED" — printed for a network failure, a timeout, and any HTTP status
+// at all. That is a specific accusation against the key, and it sends the owner
+// hunting for the one thing the same sentence has already ruled out.
+// ---------------------------------------------------------------------------
+test("a probe that could not reach a provider does not blame the key", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/serper/route.ts", import.meta.url), "utf8");
+
+  // Unreachable is its own outcome, and its sentence says the key is untested.
+  assert.match(src, /unreachable: true/);
+  assert.match(src, /present and UNTESTED/, "not reaching a service is not being refused by it");
+  // A refusal is still called a refusal — only when the status actually says so.
+  assert.match(src, /p\.httpStatus === 401 \|\| p\.httpStatus === 403/);
+  assert.match(src, /REFUSED the key/);
+  // And the old catch-all accusation is gone.
+  assert.doesNotMatch(src, /Serper key present but rejected/,
+    "one sentence for four different causes is what made this unactionable");
+  // A timeout is named, because "we waited 12s" and "there is no route" have
+  // different next moves.
+  assert.match(src, /timedOut/);
+});
+
+// ---------------------------------------------------------------------------
 // THE AUDIT ACCUSED A SITE OF A FAULT IT DID NOT HAVE.
 //
 // Reported by the owner from a live run against their own site, kodajnn.com:

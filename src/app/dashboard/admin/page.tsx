@@ -16,6 +16,7 @@ import { AreaChart, BarChart, DonutChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import ProductKpis from "@/components/ProductKpis";
 import AdminInvites from "@/components/AdminInvites";
+import AdminGrantAcus from "@/components/AdminGrantAcus";
 import { authedFetch } from "@/frontend/api-client";
 
 // Mirrors of the backend OwnerDashboard shape (the engine is server-only).
@@ -228,6 +229,12 @@ export default function AdminPage() {
         </>
       )}
 
+      {/* The two operator actions that move a real account forward: let
+          somebody in, and put ACUs in their wallet. The grant route has worked
+          for months with nothing calling it, so the only way to comp a pilot
+          was a hand-crafted authenticated POST — which is to say it never
+          happened. */}
+      <AdminGrantAcus />
       <AdminInvites />
     </div>
   );

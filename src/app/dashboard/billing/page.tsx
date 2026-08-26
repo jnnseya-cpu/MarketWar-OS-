@@ -12,7 +12,9 @@
 import { useEffect, useCallback, useState } from "react";
 import { Check, Loader2, Wallet, Zap, TrendingUp, Star } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
+import Link from "next/link";
 import { authedFetch } from "@/frontend/api-client";
+import { useIsAdmin } from "@/frontend/use-is-admin";
 import { track } from "@/frontend/analytics";
 
 type PlanEconomics = {
@@ -44,6 +46,19 @@ const PLAN_FEATURES: Record<string, string[]> = {
 };
 
 export default function BillingPage() {
+  // THE OPERATOR IS NOT A CUSTOMER.
+  //
+  // The owner opened this page and found their own wallet at 100 ACUs above
+  // eight subscription tiers inviting them to buy the platform from themselves,
+  // with no way to do the one thing an operator actually needs here: put ACUs
+  // in somebody's wallet.
+  //
+  // NOTHING IS HIDDEN. An operator still has a real wallet, still spends real
+  // ACUs, and the plan table is how they see what a customer sees — removing it
+  // would take away the only place the pricing can be checked against the
+  // pricing law. What changes is that the page opens by telling them which side
+  // of the counter they are on, and points at the tool they came for.
+  const { isAdmin } = useIsAdmin();
   const [data, setData] = useState<SubResponse | null>(null);
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
   const [error, setError] = useState(false);
@@ -159,6 +174,25 @@ export default function BillingPage() {
           </div>
         }
       />
+
+      {isAdmin && (
+        <div className="mb-6 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-5">
+          <p className="text-sm font-semibold text-white">You are the operator here, not a customer.</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-emerald-100/90">
+            You do not buy a plan from yourself. Your wallet below is real and your ACUs are spent
+            like anyone else&rsquo;s — that is deliberate, so the platform can be tested the way a
+            customer experiences it. To put ACUs in your own wallet, or a pilot&rsquo;s, use the
+            grant tool. Everything below this line is what a customer sees, which is the only place
+            the pricing can be checked against the margin floor.
+          </p>
+          <Link
+            href="/dashboard/admin"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400"
+          >
+            Grant ACUs
+          </Link>
+        </div>
+      )}
 
       {/* ACU wallet — real allocation; live metering activates with billing */}
       <div className="mb-8 grid gap-4 lg:grid-cols-4">
