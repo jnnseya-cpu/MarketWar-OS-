@@ -3098,6 +3098,76 @@ test("a broken page leads with what is broken, never with what passes", async ()
 });
 
 // ---------------------------------------------------------------------------
+// A GO-LIVE INSTRUCTION THAT SATISFIES NOTHING.
+//
+// The launch check's legal-entity blocker told the owner to set
+// NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS, and read that same name to
+// decide whether the blocker cleared. The component that actually prints the
+// trader's details reads NEXT_PUBLIC_REGISTERED_ADDRESS.
+//
+// So following the instruction exactly turned the blocker green while the
+// footer still said the trader is not named — on the one finding that exists
+// because a UK trader selling to the public is legally required to be
+// identified. Nobody would have noticed until it mattered.
+//
+// The rule: every variable named in a `fix` must be a variable something
+// actually reads.
+// ---------------------------------------------------------------------------
+test("every variable a go-live fix names is one the code actually reads", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { execSync } = await import("node:child_process");
+  const check = readFileSync(new URL("../src/backend/launch-check.ts", import.meta.url), "utf8");
+  void readdirSync;
+
+  // Every NEXT_PUBLIC_* / SECRET / KEY name that appears inside a fix string.
+  const fixes = [...check.matchAll(/fix: "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(fixes.length >= 5, "the launch check should carry several fixes");
+  const named = new Set();
+  for (const fix of fixes) for (const v of fix.match(/\b[A-Z][A-Z0-9_]{6,}\b/g) || []) named.add(v);
+  assert.ok(named.size >= 8, `only ${named.size} variables named across the fixes`);
+
+  // THE CORPUS EXCLUDES THIS FILE. The first version of this test grepped all
+  // of src/ including launch-check.ts itself, so a fix naming a variable that
+  // exists NOWHERE ELSE still matched — inside its own fix string. It passed on
+  // the exact defect it was written for. A check must never be able to satisfy
+  // itself with its own text.
+  const src = execSync("grep -rho --exclude=launch-check.ts '[A-Z][A-Z0-9_]\\{6,\\}' src/ || true", { encoding: "utf8" });
+  const readSomewhere = new Set(src.split("\n"));
+  const orphans = [...named].filter((v) => !readSomewhere.has(v));
+  assert.deepEqual(orphans, [],
+    `the launch check tells the owner to set variables nothing reads: ${orphans.join(", ")}`);
+});
+
+test("the trader's details clear the blocker only when the footer can print them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const lc = await import("../src/backend/launch-check.ts");
+  const component = readFileSync(new URL("../src/components/LegalEntity.tsx", import.meta.url), "utf8");
+
+  // The names the RENDERER reads are the names the check must accept.
+  assert.match(component, /NEXT_PUBLIC_REGISTERED_ADDRESS/);
+  assert.match(component, /NEXT_PUBLIC_LEGAL_ENTITY_NAME/);
+
+  const base = {
+    VERCEL_ENV: "production",
+    STRIPE_SECRET_KEY: "sk_live_x", STRIPE_WEBHOOK_SECRET: "whsec_x",
+    ANTHROPIC_API_KEY: "k", NEXT_PUBLIC_LEGAL_ENTITY_NAME: "JNN Groupe Ltd",
+  };
+  const without = lc.launchReport(lc.readLaunchEnv({ ...base }));
+  assert.ok(without.findings.some((x) => x.id === "no-legal-entity"),
+    "with no address the trader is not named and that is a blocker");
+
+  // The name the page reads clears it...
+  const withRendered = lc.launchReport(lc.readLaunchEnv({ ...base, NEXT_PUBLIC_REGISTERED_ADDRESS: "1 High St, London" }));
+  assert.ok(!withRendered.findings.some((x) => x.id === "no-legal-entity"),
+    "the address the footer prints must be the address that clears the blocker");
+
+  // ...and so does the older spelling, because somebody may have set it on the
+  // strength of the instruction that was wrong.
+  const withLegacy = lc.launchReport(lc.readLaunchEnv({ ...base, NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS: "1 High St, London" }));
+  assert.ok(!withLegacy.findings.some((x) => x.id === "no-legal-entity"));
+});
+
+// ---------------------------------------------------------------------------
 // THE AUDIT PAGE HAS TO SELL, AND EVERY CLAIM ON IT HAS TO BE TRUE.
 //
 // The page is the front door for organic acquisition, and it was a form with two

@@ -449,7 +449,15 @@ export async function GET(req: NextRequest) {
           ? `NOT SENDING. The password is accepted but the server REFUSED THE RECIPIENT — ${probe.detail}. A relay that authenticates you and then rejects RCPT TO is usually restricted to its own domain, or the From address is not one it will send as.`
           : probe?.stage === "mail-from"
             ? `NOT SENDING. The password is accepted but the server refused the SENDER address — ${probe.detail}. EMAIL_FROM must be an address this relay is allowed to send as.`
-            : `NOT SENDING. Credentials are present but the server refused them — ${probe?.detail ?? "no detail"}`,
+            // A REFUSED PASSWORD, WITH THE ONE CAUSE THAT IS ABOUT TO BE
+            // COMMON. Moving SMTP_USER onto the address the business sends as
+            // is the right fix for the three-mailbox problem, and it breaks
+            // sending outright if SMTP_PASS is left on the old account —
+            // mailbox passwords are per mailbox, not per domain. That failure
+            // is WORSE than the one being fixed, because it stops everything
+            // rather than losing it quietly, so it is named here instead of
+            // being left as a bare server refusal.
+            : `NOT SENDING. The server refused the password for <${node.user}> — ${probe?.detail ?? "no detail"}. If SMTP_USER was changed recently, SMTP_PASS has to be THAT mailbox's own password: they are per mailbox, not per domain.`,
     whyThisExists:
       "Setting a variable in a dashboard does not prove the running deployment received it. Vercel applies environment changes only to deployments created AFTER the change, and Preview and Production are separate scopes. If a variable reads 'Not set' here after you have set it, the running build predates the change — redeploy, and check you set it on Production.",
   });

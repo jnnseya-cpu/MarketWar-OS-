@@ -83,7 +83,18 @@ export function readLaunchEnv(env: NodeJS.ProcessEnv = process.env): LaunchEnv {
     humanCheckSecret: s("HUMAN_CHECK_SECRET"),
     aiMonthlyCeilingUsd: s("AI_MONTHLY_CEILING_USD"),
     legalEntityName: s("NEXT_PUBLIC_LEGAL_ENTITY_NAME"),
-    legalEntityAddress: s("NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS"),
+    // READ THE NAME THE PAGE READS.
+    //
+    // This checked NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS and told the
+    // owner to set it, while `components/LegalEntity.tsx` — the thing that
+    // actually prints the trader's details — reads NEXT_PUBLIC_REGISTERED_ADDRESS.
+    // Following the instruction exactly would have turned this blocker green
+    // while the footer still said the trader is not named: a go-live check
+    // passing for a reason unrelated to what it tests, on the one finding whose
+    // whole point is a legal obligation. The rendered name comes first; the
+    // longer spelling is still accepted so anyone who already set it is not
+    // punished for having read the old instruction.
+    legalEntityAddress: s("NEXT_PUBLIC_REGISTERED_ADDRESS") || s("NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS"),
     vercelEnv: s("VERCEL_ENV"),
   };
 }
@@ -199,7 +210,7 @@ export function launchReport(env: LaunchEnv): LaunchReport {
       id: "no-legal-entity", severity: "blocker",
       title: "The trader behind the site is not named",
       consequence: "A UK site selling to the public must identify the trader — legal name, geographic address, company number where one exists — before the customer is bound. The Terms currently say those details are not published here, which is honest but is not compliance, and it is also the first thing a cautious buyer looks for before entering a card.",
-      fix: "Set NEXT_PUBLIC_LEGAL_ENTITY_NAME and NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS (plus NEXT_PUBLIC_LEGAL_ENTITY_COMPANY_NUMBER and NEXT_PUBLIC_LEGAL_ENTITY_VAT_NUMBER if they apply), then redeploy.",
+      fix: "Set NEXT_PUBLIC_LEGAL_ENTITY_NAME and NEXT_PUBLIC_REGISTERED_ADDRESS (plus NEXT_PUBLIC_COMPANY_NUMBER and NEXT_PUBLIC_VAT_NUMBER if they apply), then redeploy. These are the exact names components/LegalEntity.tsx reads — setting any other spelling satisfies nothing.",
     });
   }
 
