@@ -27,6 +27,7 @@ export default function VideoRenderAndPublish() {
   // would be a second source of truth about money, and the two would drift.
   const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; segments: number[]; provider: string; note: string }[]>([]);
   const [maxSingle, setMaxSingle] = useState(0);
+  const [saved, setSaved] = useState<"" | "saving" | "done" | "failed">("");
   /** Lengths this deployment can plan but cannot yet deliver as one file. */
   const [withheld, setWithheld] = useState<{ seconds: number; segments: number[]; why: string }[]>([]);
   const [job, setJob] = useState<VideoJob | null>(null);
@@ -71,6 +72,25 @@ export default function VideoRenderAndPublish() {
       setJob(j);
       if (j.status === "rendering") poll(j.jobId);
     } finally { setBusy(false); }
+  }
+
+  /** File the finished render in the work library by hand. */
+  async function saveToLibrary() {
+    if (!job?.videoUrl || !activeBrand) return;
+    setSaved("saving");
+    try {
+      const r = await authedFetch("/api/work", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save", brandId: activeBrand.id, kind: "video",
+          source: "video-creator", sourceName: "AI Video Creator",
+          title: (prompt.split("\n")[0] || "Video").slice(0, 80),
+          output: job.videoUrl,
+          input: { prompt, seconds: String(job.seconds ?? ""), engine: job.provider ?? "", jobId: job.jobId },
+        }),
+      });
+      setSaved(r.ok ? "done" : "failed");
+    } catch { setSaved("failed"); }
   }
 
   function poll(jobId: string) {
@@ -169,8 +189,26 @@ export default function VideoRenderAndPublish() {
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video src={job.videoUrl} controls playsInline preload="metadata" className="mb-2 w-full max-w-md rounded-lg border border-white/[0.08] bg-black" />
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <a href={job.videoUrl} download className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"><Download className="h-3.5 w-3.5" /> Download MP4</a>
+                {/* THROUGH OUR OWN ORIGIN. `download` on a cross-origin link is
+                    ignored by every browser, so this used to navigate to
+                    storage and PLAY the video — the owner's "no way to
+                    download". Same-origin plus Content-Disposition is what
+                    actually saves a file, and it arrives named after the
+                    prompt instead of e0f55b83.mp4. */}
+                <a href={`/api/video-render/download?jobId=${encodeURIComponent(job.jobId)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"><Download className="h-3.5 w-3.5" /> Download MP4</a>
                 <a href={job.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white">Open in new tab <ExternalLink className="h-3 w-3" /></a>
+                {/* A SECOND WAY INTO THE LIBRARY. The render files itself on
+                    completion, but a filing that fails must not leave a paid
+                    video with nowhere to live — and the owner has already lost
+                    one that way. One click, and it says which it was. */}
+                <button
+                  onClick={() => void saveToLibrary()}
+                  disabled={saved === "saving"}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white disabled:opacity-60"
+                >
+                  {saved === "saving" ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {saved === "done" ? "In your library" : saved === "failed" ? "Save failed — retry" : "Save to library"}
+                </button>
               </div>
               <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
                 {job.note} Clips are up to ~8&thinsp;s (the model&rsquo;s max per render) — stitch a few in the Video Editor for longer.{" "}
