@@ -4,6 +4,7 @@ import { publicSendFailure, operatorFix } from "@/shared/send-failure";
 import { recentSends } from "@/backend/send-ledger";
 import { getPool } from "@/backend/sending-pool";
 import { emailProvider, emailIsConfigured } from "@/backend/email";
+import { resolveSender, alignmentRemedy } from "@/shared/sender-identity";
 
 // Does email actually send? — the definitive answer for THIS deployment.
 //
@@ -317,8 +318,13 @@ export async function GET(req: NextRequest) {
   // failing at a step this check was not performing. A diagnostic that tests a
   // different path from the real one is worse than no diagnostic: it rules out
   // the actual cause.
-  const { BOUNCE_RETURN_PATH } = await import("@/backend/email");
-  const realEnvelopeFrom = (BOUNCE_RETURN_PATH || fromAddr).trim();
+  // Resolved by the SAME function the sender uses, so this cannot drift from it
+  // again. With no MW_BOUNCE_ADDRESS the envelope is now the authenticated
+  // account rather than an invented `bounce@`, which is the fix for the fault
+  // this paragraph describes.
+  const { bounceReturnPath } = await import("@/backend/email");
+  const identity = resolveSender({ from: process.env.EMAIL_FROM || fromAddr, authUser: node?.user || "", bounce: bounceReturnPath() });
+  const realEnvelopeFrom = (identity.envelopeFrom || fromAddr).trim();
   const askedTo = (req.nextUrl.searchParams.get("to") || "").trim();
   const probeTo = /^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(askedTo) ? askedTo : (node?.user || fromAddr);
 
@@ -408,18 +414,26 @@ export async function GET(req: NextRequest) {
     // act on.
     recentSends: await recentSends(20).catch(() => []),
     probe,
+    // ALL THREE ADDRESSES, IN ONE PLACE, resolved by the function the sender
+    // itself uses. They used to be reported separately and computed separately,
+    // which is how a deployment could show green here while every message left
+    // with a login, an envelope and a From that were three different mailboxes.
     envelopeSender: {
       visibleFrom: fromAddr,
       returnPath: realEnvelopeFrom,
+      authenticatedAccount: node?.user || null,
+      senderHeader: identity.senderHeader || null,
+      envelopeChosenBecause: identity.envelopeSource,
+      aligned: identity.aligned,
       differ: realEnvelopeFrom !== fromAddr,
-      note: realEnvelopeFrom !== fromAddr
-        ? `A real send puts <${realEnvelopeFrom}> in MAIL FROM, not the visible From. That address must be one this relay will send as — it is the step an earlier version of this check skipped.`
-        : "The envelope sender and the visible From are the same address.",
-    authenticatedAccount: node?.user || null,
-    fromMatchesAccount: Boolean(node?.user) && fromAddr.toLowerCase() === String(node?.user).toLowerCase(),
-    fromMatchesNote: node?.user && fromAddr.toLowerCase() !== String(node.user).toLowerCase()
-      ? `THE FROM HEADER IS NOT THE AUTHENTICATED ACCOUNT. Messages are sent as <${fromAddr}> while this deployment logs in as <${node.user}>. Many relays — Hostinger among them — ACCEPT such a message, issue a queue id, and then drop it after queueing, because the account is not permitted to send as that address. The bounce goes to the Return-Path <${realEnvelopeFrom}>, which is usually not a real mailbox either, so the message disappears in silence while every check here passes. To settle it, send the same message twice and change only this: ?send=self, then ?send=self&from=account. If the second arrives and the first does not, this is the cause — make <${fromAddr}> an alias of <${node.user}> at the mail provider, or set EMAIL_FROM to the account itself.`
-      : "The From header is the authenticated account, so the relay has no reason to refuse it after queueing.",
+      note: identity.why,
+      // What the OWNER does about it, if anything. Absent when aligned, rather
+      // than a reassuring sentence nobody needs to read.
+      ...(alignmentRemedy(identity) ? { remedy: alignmentRemedy(identity) } : {}),
+      // The invented `bounce@` default is gone: with no MW_BOUNCE_ADDRESS the
+      // envelope is the authenticated account, so a failure notice now returns
+      // to a mailbox that exists instead of vanishing with the evidence.
+      bounceAddressConfigured: Boolean(bounceReturnPath()),
       ...(returnPathNote ? { verdict: returnPathNote } : {}),
     },
     dnsCheck,

@@ -2675,8 +2675,13 @@ test("a relay that refuses the bounce return-path still gets the message", async
   const email = await import("../src/backend/email.ts");
 
   // A relay that behaves like Hostinger: the authenticated mailbox may send,
-  // `bounce@…` may not.
-  const server = fakeSmtp({ rejectSenders: new Set([email.BOUNCE_RETURN_PATH]) });
+  // `bounce@…` may not. The bounce address is STATED here, because the default
+  // is now empty — an envelope sender nobody configured was the fault, not a
+  // feature, and the downgrade path this test guards only exists for an address
+  // somebody chose.
+  const savedBounce = process.env.MW_BOUNCE_ADDRESS;
+  process.env.MW_BOUNCE_ADDRESS = "bounce@marketwaros.com";
+  const server = fakeSmtp({ rejectSenders: new Set(["bounce@marketwaros.com"]) });
   const port = await server.listen();
   const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.EMAIL_FROM, tls: process.env.NODE_TLS_REJECT_UNAUTHORIZED };
   // The fake server's STARTTLS cert is self-signed, as in tests/smtp-batch.
@@ -2708,13 +2713,171 @@ test("a relay that refuses the bounce return-path still gets the message", async
     process.env.SMTP_USER = saved.user; process.env.SMTP_PASS = saved.pass;
     if (saved.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = saved.from;
     if (saved.tls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = saved.tls;
+    if (savedBounce === undefined) delete process.env.MW_BOUNCE_ADDRESS; else process.env.MW_BOUNCE_ADDRESS = savedBounce;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// THREE ADDRESSES, NONE OF THEM THE SAME.
+//
+// The owner's report was "email never been delivered, ever", and every check
+// built to answer it came back healthy. It took the owner explaining their own
+// mail setup to see it: `appuser@` is the account the host creates, `info@` is
+// the address the business puts its name to. So one send carried
+//
+//   AUTH LOGIN   appuser@marketwaros.com   the mailbox that exists
+//   MAIL FROM    bounce@marketwaros.com    a default invented in this codebase
+//   From:        info@marketwaros.com      what the recipient would have seen
+//
+// The relay accepted it and issued a queue id — which is why every diagnostic
+// passed — and nothing arrived. Nothing bounced either, because the Return-Path
+// named a mailbox nobody had ever created: THE DELIVERY FAILURE DESTROYED ITS
+// OWN EVIDENCE, and that is why this survived four rounds of investigation.
+//
+// These tests drive the REAL sender against a real socket and read the bytes on
+// the wire, because the previous three attempts at this each built a better
+// probe and each probe tested a path the sender does not take.
+// ---------------------------------------------------------------------------
+test("the envelope sender is a mailbox that exists, not one invented in code", async () => {
+  const { resolveSender, alignmentRemedy } = await import("../src/shared/sender-identity.ts");
+
+  // Production's exact shape.
+  const live = resolveSender({ from: "MarketWar OS <info@marketwaros.com>", authUser: "appuser@marketwaros.com", bounce: "" });
+  assert.equal(live.envelopeFrom, "appuser@marketwaros.com",
+    "with no configured bounce address the envelope must be the account, which exists by definition");
+  assert.equal(live.envelopeSource, "authenticated-account");
+  assert.equal(live.headerFrom, "MarketWar OS <info@marketwaros.com>",
+    "the visible From is the owner's decision and must never be rewritten");
+  assert.equal(live.senderHeader, "appuser@marketwaros.com",
+    "RFC 5322 §3.6.2: when From is not the submitter, Sender: names the submitter");
+  assert.equal(live.aligned, false);
+  assert.match(alignmentRemedy(live), /SMTP_USER to info@marketwaros\.com/,
+    "the remedy must name the one change that removes the mismatch entirely");
+
+  // A stated bounce address is still honoured — nothing delivered is withdrawn.
+  const withBounce = resolveSender({ from: "info@marketwaros.com", authUser: "appuser@marketwaros.com", bounce: "b.veryx.abc.def@bounces.marketwaros.com" });
+  assert.equal(withBounce.envelopeFrom, "b.veryx.abc.def@bounces.marketwaros.com");
+  assert.equal(withBounce.envelopeSource, "configured-bounce");
+
+  // The state to aim at: one address, three roles, no Sender: header and no
+  // remedy to print.
+  const aligned = resolveSender({ from: "MarketWar OS <info@marketwaros.com>", authUser: "info@marketwaros.com", bounce: "" });
+  assert.equal(aligned.aligned, true);
+  assert.equal(aligned.envelopeFrom, "info@marketwaros.com");
+  assert.equal(aligned.senderHeader, "", "Sender: equal to From is a spam signal, not a nicety");
+  assert.equal(alignmentRemedy(aligned), "");
+
+  // No account at all (an HTTP provider): fall back to the From rather than
+  // inventing anything.
+  const noAccount = resolveSender({ from: "info@marketwaros.com", authUser: "", bounce: "" });
+  assert.equal(noAccount.envelopeFrom, "info@marketwaros.com");
+  assert.equal(noAccount.senderHeader, "");
+});
+
+test("a real send puts the account on the envelope and declares it in Sender:", async () => {
+  const { fakeSmtp } = await import("./helpers/fake-smtp.mjs");
+  const email = await import("../src/backend/email.ts");
+
+  const server = fakeSmtp({});
+  const port = await server.listen();
+  const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.EMAIL_FROM, tls: process.env.NODE_TLS_REJECT_UNAUTHORIZED, bounce: process.env.MW_BOUNCE_ADDRESS };
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  process.env.SMTP_HOST = "127.0.0.1";
+  process.env.SMTP_PORT = String(port);
+  process.env.SMTP_USER = "appuser@marketwaros.com";
+  process.env.SMTP_PASS = "pw";
+  process.env.EMAIL_FROM = "MarketWar OS <info@marketwaros.com>";
+  delete process.env.MW_BOUNCE_ADDRESS;
+
+  try {
+    const sent = await email.sendEmail({ to: "someone@example.com", subject: "Your audit", html: "<p>report</p>", transactional: true });
+    assert.equal(sent.ok, true, `the send failed: ${sent.detail}`);
+    assert.equal(server.received.length, 1, "nothing reached the server");
+
+    const [msg] = server.received;
+    // THE BYTES ON THE WIRE, not a re-derivation of what they ought to be.
+    assert.equal(msg.from, "appuser@marketwaros.com",
+      "MAIL FROM must be the authenticated account — bounce@ was never a real mailbox");
+    assert.match(msg.body, /^From: MarketWar OS <info@marketwaros\.com>$/m,
+      "the business's own address stays on the message");
+    assert.match(msg.body, /^Sender: appuser@marketwaros\.com$/m,
+      "a From that is not the submitter, with no Sender: header, reads as a forgery");
+
+    // And it is written down, so the next 'it never arrived' is answerable
+    // without asking the owner for another screenshot.
+    const ledger = await import("../src/backend/send-ledger.ts");
+    const rows = await ledger.recentSends(5);
+    const row = rows.find((r) => r.to === "someone@example.com");
+    assert.ok(row, "the send left no record");
+    assert.equal(row.envelopeFrom, "appuser@marketwaros.com");
+    assert.equal(row.headerFrom, "MarketWar OS <info@marketwaros.com>");
+  } finally {
+    await server.close();
+    process.env.SMTP_HOST = saved.host; process.env.SMTP_PORT = saved.port;
+    process.env.SMTP_USER = saved.user; process.env.SMTP_PASS = saved.pass;
+    if (saved.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = saved.from;
+    if (saved.tls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = saved.tls;
+    if (saved.bounce === undefined) delete process.env.MW_BOUNCE_ADDRESS; else process.env.MW_BOUNCE_ADDRESS = saved.bounce;
+  }
+});
+
+test("aligning the account with the From removes the Sender header entirely", async () => {
+  const { fakeSmtp } = await import("./helpers/fake-smtp.mjs");
+  const email = await import("../src/backend/email.ts");
+
+  const server = fakeSmtp({});
+  const port = await server.listen();
+  const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.EMAIL_FROM, tls: process.env.NODE_TLS_REJECT_UNAUTHORIZED, bounce: process.env.MW_BOUNCE_ADDRESS };
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  process.env.SMTP_HOST = "127.0.0.1";
+  process.env.SMTP_PORT = String(port);
+  // The owner's fix: log in as the address you send as.
+  process.env.SMTP_USER = "info@marketwaros.com";
+  process.env.SMTP_PASS = "pw";
+  process.env.EMAIL_FROM = "MarketWar OS <info@marketwaros.com>";
+  delete process.env.MW_BOUNCE_ADDRESS;
+
+  try {
+    const sent = await email.sendEmail({ to: "someone@example.com", subject: "Your audit", html: "<p>report</p>", transactional: true });
+    assert.equal(sent.ok, true, `the send failed: ${sent.detail}`);
+    const msg = server.received[server.received.length - 1];
+    assert.equal(msg.from, "info@marketwaros.com", "one address in all three roles");
+    assert.doesNotMatch(msg.body, /^Sender: /m,
+      "with the account and the From the same mailbox there is no second party to declare");
+  } finally {
+    await server.close();
+    process.env.SMTP_HOST = saved.host; process.env.SMTP_PORT = saved.port;
+    process.env.SMTP_USER = saved.user; process.env.SMTP_PASS = saved.pass;
+    if (saved.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = saved.from;
+    if (saved.tls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = saved.tls;
+    if (saved.bounce === undefined) delete process.env.MW_BOUNCE_ADDRESS; else process.env.MW_BOUNCE_ADDRESS = saved.bounce;
+  }
+});
+
+test("a VERP bounce address is only used on a host that can receive one", async () => {
+  const reply = await import("../src/backend/reply-routing.ts");
+  const saved = process.env.MW_BOUNCE_HOST;
+  try {
+    delete process.env.MW_BOUNCE_HOST;
+    assert.equal(reply.bounceHostConfigured(), false,
+      "the default bounce host is a subdomain nobody has created — issuing envelopes on it loses every failure notice");
+    process.env.MW_BOUNCE_HOST = "bounces.marketwaros.com";
+    assert.equal(reply.bounceHostConfigured(), true);
+    // The PARSER keeps its default, because addresses issued before this change
+    // are already in flight and must still be recognised on the way back.
+    assert.ok(reply.parseBounceAddress(reply.bounceAddressFor("veryx", "a@b.com")),
+      "an address this code issues must be one this code can read back");
+  } finally {
+    if (saved === undefined) delete process.env.MW_BOUNCE_HOST; else process.env.MW_BOUNCE_HOST = saved;
   }
 });
 
 test("the health check probes the envelope sender a real send uses", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
-  assert.match(src, /BOUNCE_RETURN_PATH/, "the probe must test the return-path, not just EMAIL_FROM");
+  assert.match(src, /bounceReturnPath\(\)/, "the probe must test the return-path, not just EMAIL_FROM");
+  assert.match(src, /resolveSender\(/,
+    "the probe and the sender must resolve the envelope with the SAME function, or they drift apart again");
   assert.match(src, /realEnvelopeFrom/, "the real envelope sender has to be what the first probe uses");
   // And when the return-path is refused it probes the From as well, because the
   // DIFFERENCE between the two answers is the diagnosis.
@@ -2820,7 +2983,12 @@ test("the ledger is wired into both send paths, and cannot fail a send", async (
   // Single send: success AND failure both leave a trace. A ledger that only
   // recorded successes would answer "did it send?" with silence either way.
   assert.ok((email.match(/recordAttempt\(\{/g) || []).length >= 3, "both paths and both outcomes must be recorded");
-  assert.match(email, /ok: true, failure: "", detail: "", at:/);
+  assert.match(email, /ok: true, failure: "", detail: "", headerFrom:/);
+  // Both sender addresses travel with the queue id, because an id alone cannot
+  // say WHO the relay thought was sending — which is the question that took a
+  // month to answer.
+  assert.ok((email.match(/envelopeFrom: identity\.envelopeFrom/g) || []).length >= 2,
+    "success and failure both have to record the envelope sender");
   assert.match(email, /ok: false, failure: "provider", detail: smtpError/);
   // Never awaited into the send path: a ledger that could stop a message going
   // out would be worse than no ledger.
@@ -2849,9 +3017,13 @@ test("the From header is compared with the account that authenticates", async ()
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
 
-  assert.match(src, /fromMatchesAccount/, "the two addresses must be compared, not just both printed");
-  assert.match(src, /THE FROM HEADER IS NOT THE AUTHENTICATED ACCOUNT/,
-    "a mismatch this consequential has to be stated, not left for somebody to notice in two adjacent fields");
+  // The three addresses are RECONCILED now rather than printed side by side,
+  // and the report carries the owner's remedy instead of an experiment to run.
+  assert.match(src, /aligned: identity\.aligned/, "the addresses must be compared, not just both printed");
+  assert.match(src, /alignmentRemedy\(identity\)/,
+    "a mismatch this consequential has to come with the fix, not be left for somebody to notice in two adjacent fields");
+  assert.match(src, /bounceAddressConfigured/,
+    "whether the return-path was chosen or invented is the difference between a traceable failure and a silent one");
   // The note must name the EXPERIMENT rather than assert a cause, because five
   // rounds of asserting causes is what made this take five rounds.
   assert.match(src, /\?send=self&from=account/, "the report has to say how to settle it");

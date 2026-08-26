@@ -9345,7 +9345,10 @@ test("the campaign send hands the brand to the batch so bounces are attributable
   const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
   assert.match(route, /from: fromHeader, replyTo, dkim, brandId,/);
   const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
-  assert.match(email, /bounceReturnPath: \(common\.brandId && bounceAddressFor\(common\.brandId, v\.verdict\.email\)\) \|\| BOUNCE_RETURN_PATH/);
+  // Gated on MW_BOUNCE_HOST, because a VERP address on a subdomain with no MX
+  // is not bounce attribution — it is an envelope sender the failure notice
+  // cannot reach, which is what made a month of undelivered mail invisible.
+  assert.match(email, /bounceReturnPath: \(bounceHostConfigured\(\) && common\.brandId && bounceAddressFor\(common\.brandId, v\.verdict\.email\)\) \|\| bounceReturnPath\(\)/);
 });
 
 // ---------------------------------------------------------------------------

@@ -54,11 +54,33 @@ export function fromDefault(): string {
 /** Snapshot at import. Prefer `fromDefault()`. */
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
 void FROM_DEFAULT;
-// Return-Path for bounces — an address on OUR sending domain so bounce-backs
-// never reach the customer's inbox. Configure a real mailbox/forward there to
-// auto-process bounces (see docs/EMAIL-GUIDE.md).
-export const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
-import { bounceAddressFor } from "@/backend/reply-routing";
+/**
+ * Return-Path for bounces — CONFIGURED, or empty.
+ *
+ * This defaulted to `bounce@marketwaros.com`, which nobody had ever created. So
+ * every message left with a Return-Path pointing at a mailbox that does not
+ * exist, and when the relay dropped it the bounce had nowhere to go: the
+ * delivery failure destroyed its own evidence, which is why "email never been
+ * delivered, ever" survived a month of green health checks.
+ *
+ * Empty now unless somebody states one. `resolveSender` falls back to the
+ * AUTHENTICATED ACCOUNT, which exists by definition — the relay just accepted
+ * its password. Nothing is lost: set MW_BOUNCE_ADDRESS and the old behaviour
+ * returns, with the difference that the address is then real.
+ *
+ * READ ON DEMAND, like every other decision in this file. The constant below is
+ * frozen at import and kept only because other modules import it; a value that
+ * cannot change after boot turns "I set the variable and nothing changed" into
+ * an unanswerable question, which is the exact fault this file has already been
+ * fixed for twice.
+ */
+export function bounceReturnPath(): string {
+  return (process.env.MW_BOUNCE_ADDRESS || "").trim();
+}
+/** Snapshot at import. Prefer `bounceReturnPath()`. */
+export const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "").trim();
+import { bounceAddressFor, bounceHostConfigured } from "@/backend/reply-routing";
+import { resolveSender } from "@/shared/sender-identity";
 import { haltFor } from "@/backend/emergency-stop";
 import { recordAttempt } from "@/backend/send-ledger";
 
@@ -278,6 +300,8 @@ function buildMimeBody(html: string, attachments: EmailAttachment[]): { body: st
 // ---------------------------------------------------------------------------
 export type SmtpExtra = {
   replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string;
+  /** RFC 5322 Sender: — the account that submitted, when it is not the From. */
+  senderHeader?: string;
   attachments?: EmailAttachment[]; dkim?: { domain: string; selector: string; privateKeyPem: string };
 };
 
@@ -303,6 +327,9 @@ function buildWireMessage(from: string, to: string, subject: string, html: strin
     delete headers["Content-Transfer-Encoding"];
   }
   if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
+  // Declared, not implied — see the single-send path for why a From/account
+  // mismatch with no Sender: header reads as a forgery to the receiving side.
+  if (extra?.senderHeader) headers["Sender"] = extra.senderHeader;
   if (extra?.listUnsubscribe) {
     headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
@@ -393,10 +420,13 @@ export async function smtpSendMany(
         stage = 99; write("QUIT"); return done();
       }
       const item = items[i];
-      message = buildWireMessage(from, item.to, item.subject, item.html, item.extra, SMTP_HOST);
-      const envelopeFrom = item.extra?.bounceReturnPath ? angleAddr(item.extra.bounceReturnPath) : angleAddr(from);
+      // Same rule as the single send, from the same function. Two copies of this
+      // decision is how the envelope a diagnostic tested stopped matching the
+      // envelope a real message used.
+      const identity = resolveSender({ from, authUser: SMTP_USER, bounce: item.extra?.bounceReturnPath });
+      message = buildWireMessage(from, item.to, item.subject, item.html, { ...item.extra, senderHeader: identity.senderHeader }, SMTP_HOST);
       stage = 6;
-      write(`MAIL FROM:<${envelopeFrom}>`);
+      write(`MAIL FROM:<${identity.envelopeFrom}>`);
     };
 
     const failCurrent = (line: string) => {
@@ -516,10 +546,12 @@ async function sendViaSmtp(
     let stage = 0;
     let upgraded = SMTP_SECURE;
     let settled = false;
-    // Return-Path (envelope MAIL FROM) = a bounce address on OUR domain, not the
-    // visible From. Bounce notifications go there (for us to process/suppress),
-    // never into the sender's own inbox. DMARC still passes via DKIM alignment.
-    const envelopeFrom = extra?.bounceReturnPath ? angleAddr(extra.bounceReturnPath) : angleAddr(from);
+    // ONE rule for all three addresses — see shared/sender-identity.ts. With a
+    // configured bounce address the envelope is that; otherwise it is the
+    // AUTHENTICATED ACCOUNT, which exists by definition, instead of an invented
+    // `bounce@` whose undeliverable failures are why nothing could be traced.
+    const identity = resolveSender({ from, authUser: SMTP_USER, bounce: extra?.bounceReturnPath });
+    const envelopeFrom = identity.envelopeFrom;
     const envelopeTo = angleAddr(to);
     /** Set when the relay refused the return-path and the From was used instead. */
     let returnPathDowngraded = "";
@@ -563,6 +595,13 @@ async function sendViaSmtp(
       delete headers["Content-Transfer-Encoding"];
     }
     if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
+    // RFC 5322 §3.6.2: when the mailbox in From is not the party that actually
+    // submitted the message, `Sender:` names the party that did. `info@` is the
+    // address the business puts its name to; `appuser@` is the account that logs
+    // in. Declaring that is what tells a receiving server this is an arrangement
+    // rather than a forgery — a mismatch with no Sender header reads as spoofing
+    // and is exactly the shape of message a relay accepts and then drops.
+    if (identity.senderHeader) headers["Sender"] = identity.senderHeader;
     if (extra?.listUnsubscribe) {
       headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
       headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
@@ -651,13 +690,12 @@ async function sendViaSmtp(
         case 6:
           // A REFUSED RETURN-PATH MUST NOT KILL THE MESSAGE.
           //
-          // The envelope sender is a bounce address on our own domain, so that
-          // bounce notifications come to us instead of into the sender's inbox.
-          // Many relays — Hostinger among them — will only accept a MAIL FROM
-          // that is the authenticated mailbox or a real alias, and
-          // `bounce@…` is usually neither. The result was that every single
-          // send failed here while every diagnostic passed, because the health
-          // check used a different envelope sender from the real path.
+          // The envelope sender is now the authenticated account unless a real
+          // bounce address was configured, so this branch should be unreachable
+          // on a healthy relay — an account cannot refuse to be its own sender.
+          // It stays because a configured MW_BOUNCE_ADDRESS can still be wrong,
+          // and because many relays — Hostinger among them — accept only a MAIL
+          // FROM that is the authenticated mailbox or a real alias.
           //
           // Bounce attribution is worth having. It is not worth more than the
           // message. So a rejected return-path retries ONCE as the visible From
@@ -808,8 +846,12 @@ export async function sendEmailBatch(
         extra: {
           replyTo: common.replyTo, dkim: common.dkim, listUnsubscribe: v.item.listUnsubscribe,
           // Per recipient, so a failure says whose it was and which address died
-          // instead of the intake guessing from the text of the notice.
-          bounceReturnPath: (common.brandId && bounceAddressFor(common.brandId, v.verdict.email)) || BOUNCE_RETURN_PATH,
+          // instead of the intake guessing from the text of the notice — but
+          // ONLY once MW_BOUNCE_HOST names a domain that can actually receive.
+          // A VERP address on a subdomain with no MX is not bounce attribution,
+          // it is an envelope sender the failure notice cannot reach, and that
+          // is precisely what hid a month of undelivered mail.
+          bounceReturnPath: (bounceHostConfigured() && common.brandId && bounceAddressFor(common.brandId, v.verdict.email)) || bounceReturnPath(),
           attachments: common.attachments,
         },
       }));
@@ -967,19 +1009,25 @@ export async function sendEmail(opts: {
     const day = new Date().toISOString().slice(0, 10);
     const node = pickNode(fromDomain, day);
     if (node) {
+      // The same reconciliation the wire uses, so the ledger records the
+      // addresses that were actually on the message rather than a second guess
+      // at them.
+      const identity = resolveSender({ from: opts.from || fromDefault(), authUser: node.user, bounce: bounceReturnPath() });
       try {
-        const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH, attachments: opts.attachments });
+        const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: bounceReturnPath(), attachments: opts.attachments });
         recordNodeSend(node.label, day, 1);
         // WRITE IT DOWN. The provider's queue id is the only thing that turns
         // "nothing sends" into a question their support desk can answer, and it
-        // used to be discarded the moment it arrived.
-        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: id, node: node.label, ok: true, failure: "", detail: "", at: new Date().toISOString() });
+        // used to be discarded the moment it arrived. The two sender addresses
+        // go with it, because a queue id alone cannot say WHO the relay thought
+        // was sending.
+        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: id, node: node.label, ok: true, failure: "", detail: "", headerFrom: identity.headerFrom, envelopeFrom: identity.envelopeFrom, at: new Date().toISOString() });
         return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
       } catch (e) {
         // Capture the reason (safe — SMTP status lines carry no credentials) so a
         // failed send is diagnosable instead of a silent "pool-exhausted".
         smtpError = e instanceof Error ? e.message : String(e);
-        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: "", node: node.label, ok: false, failure: "provider", detail: smtpError, at: new Date().toISOString() });
+        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: "", node: node.label, ok: false, failure: "provider", detail: smtpError, headerFrom: identity.headerFrom, envelopeFrom: identity.envelopeFrom, at: new Date().toISOString() });
         // fall through to the HTTP pool on any SMTP failure
       }
     }
