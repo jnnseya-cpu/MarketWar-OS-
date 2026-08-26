@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAuth, cronAuthorised } from "@/backend/guard";
+import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
 import { publicSendFailure, operatorFix } from "@/shared/send-failure";
 import { getPool } from "@/backend/sending-pool";
 import { emailProvider, emailIsConfigured } from "@/backend/email";
@@ -186,23 +186,57 @@ export async function GET(req: NextRequest) {
   // "send mail to any address" button is an open relay with extra steps.
   const sendTo = (req.nextUrl.searchParams.get("send") || "").trim();
   if (sendTo) {
-    const cron = cronAuthorised(req);
-    if (!cron.ok) {
-      const auth = await requireAuth(req, { scope: "platform_admin" });
-      if (!auth.ok) {
-        return NextResponse.json({
-          error: "Sending a real test message needs an admin session or the scheduler credential.",
-          why: "This endpoint is public so that a deployment can be checked without signing in. A public button that emails any address on request is an open relay, so this one branch is closed.",
-        }, { status: auth.status });
+    // THE RECIPIENT IS WHAT IS CONSTRAINED, NOT THE CALLER.
+    //
+    // The first version of this gate demanded an admin session or the scheduler
+    // bearer. Both are HEADERS, and the only way anybody actually reaches this
+    // endpoint is by typing it into a browser — which cannot send either. So the
+    // check was unsatisfiable by the one person it was meant to admit, and a
+    // secret in the query string is not an option: no secret goes in a URL.
+    //
+    // What makes an open relay dangerous is a caller choosing the recipient. So
+    // the recipient is chosen by SERVER CONFIG instead: the sending account's
+    // own mailbox, or an address the owner listed in PLATFORM_ADMIN_EMAILS.
+    // Nobody can mail a stranger through this, whatever they type, and no
+    // credential is needed to test your own deployment against your own inbox.
+    // An admin session or the scheduler bearer still widens it to any address,
+    // for anyone who does have one.
+    // Read the pool here rather than reusing the one built further down: this
+    // branch returns before that runs.
+    const sendNode = getPool()[0];
+    const ownMailbox = (sendNode?.user || "").trim().toLowerCase();
+    const admins = new Set((process.env.PLATFORM_ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean));
+    const wanted = sendTo.toLowerCase();
+    const allowedWithoutCredential = wanted === "self" || wanted === ownMailbox || admins.has(wanted);
+
+    if (!allowedWithoutCredential) {
+      const cron = cronAuthorised(req);
+      if (!cron.ok) {
+        const auth = await requireAuth(req, { scope: "platform_admin" });
+        if (!auth.ok) {
+          return NextResponse.json({
+            error: `This will send to the sending account itself, or to an address listed in PLATFORM_ADMIN_EMAILS — not to "${sendTo}".`,
+            allowedRightNow: [ownMailbox, ...admins].filter(Boolean),
+            try: ownMailbox ? "?send=self" : undefined,
+            why: "A public endpoint that emails any address on request is an open relay, so the RECIPIENT is fixed by server config rather than by whoever calls it. Nothing here needs a credential to test your own deployment against your own inbox.",
+            toUseAnotherAddress: "Add it to PLATFORM_ADMIN_EMAILS in Vercel and redeploy — or call this with an admin session or the scheduler bearer, neither of which a browser address bar can send.",
+          }, { status: 403 });
+        }
       }
     }
-    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(sendTo)) {
+
+    const recipient = wanted === "self" ? ownMailbox : sendTo;
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(recipient)) {
       return NextResponse.json({ error: `"${sendTo}" is not an address this could send to.` }, { status: 400 });
     }
+    // A few an hour. A real send costs the sending allowance and a reputation.
+    const rl = rateLimit(clientKey(req, "email-send-test"), 6, 60 * 60_000, Date.now());
+    if (!rl.ok) return NextResponse.json({ error: "Too many test sends — wait a little.", retryAfterSec: rl.retryAfterSec }, { status: 429 });
+
     const { sendEmail } = await import("@/backend/email");
     const at = new Date().toISOString();
     const result = await sendEmail({
-      to: sendTo,
+      to: recipient,
       subject: `MarketWar OS send test — ${at}`,
       html: `<p>This is a real message from the live deployment, sent through the same code path a customer's email uses.</p><p>Sent at ${at}.</p>`,
       // A test the operator asked for by name. It must not be silenced by a
@@ -211,7 +245,7 @@ export async function GET(req: NextRequest) {
     }).catch((e) => ({ ok: false, failure: "threw", detail: e instanceof Error ? e.message : String(e), id: null }));
     return NextResponse.json({
       service: "Email sending — a REAL message through the real code path",
-      sentTo: sendTo,
+      sentTo: recipient,
       at,
       result,
       verdict: result.ok
