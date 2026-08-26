@@ -187,15 +187,38 @@ export async function GET(req: NextRequest) {
   // anyway. Pass ?to= to test whether the relay will accept an EXTERNAL
   // recipient, which is the failure this could not previously see.
   const fromAddr = (String(process.env.EMAIL_FROM || "").match(/<([^>]+)>/)?.[1] || String(process.env.EMAIL_FROM || "") || node?.user || "").trim();
+
+  // THE ENVELOPE SENDER A REAL SEND ACTUALLY USES, which is NOT the From.
+  //
+  // This probe tested EMAIL_FROM and passed while no mail had ever arrived,
+  // because `sendViaSmtp` puts the BOUNCE RETURN-PATH in MAIL FROM so that
+  // bounce notifications come to us rather than into the sender's inbox. Many
+  // relays only accept a MAIL FROM that is the authenticated mailbox or a real
+  // alias, and `bounce@…` is usually neither — so every real send could be
+  // failing at a step this check was not performing. A diagnostic that tests a
+  // different path from the real one is worse than no diagnostic: it rules out
+  // the actual cause.
+  const { BOUNCE_RETURN_PATH } = await import("@/backend/email");
+  const realEnvelopeFrom = (BOUNCE_RETURN_PATH || fromAddr).trim();
   const askedTo = (req.nextUrl.searchParams.get("to") || "").trim();
   const probeTo = /^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(askedTo) ? askedTo : (node?.user || fromAddr);
 
   // Only probe when there is something to probe. A failed probe with no
   // credentials would just restate what the variables already said.
-  const probe = node
-    ? await probeSmtp(node, { from: fromAddr || node.user, to: probeTo })
-        .catch((e) => ({ ok: false, stage: "probe", detail: e instanceof Error ? e.message : "probe failed", envelopeTested: { from: fromAddr, to: probeTo } }))
+  // Test the REAL envelope sender first. If the relay refuses it, test the From
+  // as well — the difference between the two answers IS the diagnosis.
+  let probe = node
+    ? await probeSmtp(node, { from: realEnvelopeFrom || node.user, to: probeTo })
+        .catch((e) => ({ ok: false, stage: "probe", detail: e instanceof Error ? e.message : "probe failed", envelopeTested: { from: realEnvelopeFrom, to: probeTo } }))
     : null;
+  let returnPathNote = "";
+  if (node && probe && !probe.ok && probe.stage === "mail-from" && realEnvelopeFrom !== fromAddr && fromAddr) {
+    const asFrom = await probeSmtp(node, { from: fromAddr, to: probeTo }).catch(() => null);
+    returnPathNote = asFrom?.ok
+      ? `THIS IS THE CAUSE. The relay refuses MAIL FROM:<${realEnvelopeFrom}> — the bounce return-path every real send uses — but accepts <${fromAddr}>. Create ${realEnvelopeFrom} as a real mailbox or alias, or set MW_BOUNCE_ADDRESS to an address this relay will send as. Until then every send retries as the From address and loses bounce attribution.`
+      : `The relay refused BOTH the return-path <${realEnvelopeFrom}> and the From <${fromAddr}>, so the problem is the sender addresses themselves rather than the bounce path.`;
+    if (asFrom?.ok) probe = { ...asFrom, stage: "mail-from-fallback", detail: `${probe.detail} — but <${fromAddr}> was accepted.` };
+  }
 
   // WHY AN AUTHENTICATED SERVER STILL DELIVERS NOTHING.
   //
@@ -243,6 +266,15 @@ export async function GET(req: NextRequest) {
     activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
     vars,
     probe,
+    envelopeSender: {
+      visibleFrom: fromAddr,
+      returnPath: realEnvelopeFrom,
+      differ: realEnvelopeFrom !== fromAddr,
+      note: realEnvelopeFrom !== fromAddr
+        ? `A real send puts <${realEnvelopeFrom}> in MAIL FROM, not the visible From. That address must be one this relay will send as — it is the step an earlier version of this check skipped.`
+        : "The envelope sender and the visible From are the same address.",
+      ...(returnPathNote ? { verdict: returnPathNote } : {}),
+    },
     dnsCheck,
     verdict: !node
       ? missing.length

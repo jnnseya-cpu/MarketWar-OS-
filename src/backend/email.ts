@@ -37,11 +37,27 @@ import { getPool, pickNode, poolConfigured, recordNodeSend, type SendingNode } f
 
 const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
+/**
+ * The visible From, READ ON DEMAND.
+ *
+ * `FROM_DEFAULT` was frozen at import like the SMTP constants above it, and the
+ * comment there already explains why that is wrong — it turns "I set the
+ * variable and it still uses the old value" into an unanswerable question. This
+ * one was missed when the others were fixed, and it had a second cost: the email
+ * health check reads `process.env.EMAIL_FROM` live, so the address it probed and
+ * the address the sender actually used could disagree without either being
+ * visibly wrong. The constant is kept because other modules import it.
+ */
+export function fromDefault(): string {
+  return process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
+}
+/** Snapshot at import. Prefer `fromDefault()`. */
 const FROM_DEFAULT = process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>";
+void FROM_DEFAULT;
 // Return-Path for bounces — an address on OUR sending domain so bounce-backs
 // never reach the customer's inbox. Configure a real mailbox/forward there to
 // auto-process bounces (see docs/EMAIL-GUIDE.md).
-const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
+export const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
 import { bounceAddressFor } from "@/backend/reply-routing";
 import { haltFor } from "@/backend/emergency-stop";
 
@@ -504,12 +520,18 @@ async function sendViaSmtp(
     // never into the sender's own inbox. DMARC still passes via DKIM alignment.
     const envelopeFrom = extra?.bounceReturnPath ? angleAddr(extra.bounceReturnPath) : angleAddr(from);
     const envelopeTo = angleAddr(to);
+    /** Set when the relay refused the return-path and the From was used instead. */
+    let returnPathDowngraded = "";
 
     const finish = (err: Error | null, id?: string) => {
       if (settled) return;
       settled = true;
       try { socket.end(); } catch { /* already closed */ }
-      if (err) reject(err); else resolve(id || "accepted");
+      if (err) { reject(err); return; }
+      // The downgrade is logged rather than swallowed: a deployment whose every
+      // message loses bounce attribution should be visible, not silent.
+      if (returnPathDowngraded) console.warn(`[email] ${returnPathDowngraded}`);
+      resolve(id || "accepted");
     };
 
     const write = (line: string) => socket.write(line + "\r\n");
@@ -626,7 +648,28 @@ async function sendViaSmtp(
           write(`MAIL FROM:<${envelopeFrom}>`);
           break;
         case 6:
-          if (!ok) return finish(new Error(`SMTP MAIL FROM: ${line}`));
+          // A REFUSED RETURN-PATH MUST NOT KILL THE MESSAGE.
+          //
+          // The envelope sender is a bounce address on our own domain, so that
+          // bounce notifications come to us instead of into the sender's inbox.
+          // Many relays — Hostinger among them — will only accept a MAIL FROM
+          // that is the authenticated mailbox or a real alias, and
+          // `bounce@…` is usually neither. The result was that every single
+          // send failed here while every diagnostic passed, because the health
+          // check used a different envelope sender from the real path.
+          //
+          // Bounce attribution is worth having. It is not worth more than the
+          // message. So a rejected return-path retries ONCE as the visible From
+          // and reports the downgrade rather than losing the mail.
+          if (!ok) {
+            if (!returnPathDowngraded && envelopeFrom !== angleAddr(from)) {
+              returnPathDowngraded = `the relay refused the return-path <${envelopeFrom}> (${line.trim()}), so this was sent as <${angleAddr(from)}> and its bounces will not be attributable`;
+              stage = 6;
+              write(`MAIL FROM:<${angleAddr(from)}>`);
+              break;
+            }
+            return finish(new Error(`SMTP MAIL FROM: ${line}`));
+          }
           stage = 7;
           write(`RCPT TO:<${envelopeTo}>`);
           break;
@@ -719,7 +762,7 @@ export async function sendEmailBatch(
     brandId?: string;
   } = {},
 ): Promise<SendResult[]> {
-  const from = common.from || FROM_DEFAULT;
+  const from = common.from || fromDefault();
 
   // A batch is marketing by definition, so the halt applies to all of it. The
   // check is here as well as in `sendEmail` because the pooled SMTP path below
@@ -909,12 +952,12 @@ export async function sendEmail(opts: {
   if (poolConfigured()) {
     // Route through the pool: the sending domain gets a stable home node (its IP),
     // spreading domains across the fleet. One node → same as the single-node setup.
-    const fromDomain = angleAddr(opts.from || FROM_DEFAULT).split("@")[1] || "";
+    const fromDomain = angleAddr(opts.from || fromDefault()).split("@")[1] || "";
     const day = new Date().toISOString().slice(0, 10);
     const node = pickNode(fromDomain, day);
     if (node) {
       try {
-        const id = await sendViaSmtp(node, opts.from || FROM_DEFAULT, verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH, attachments: opts.attachments });
+        const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH, attachments: opts.attachments });
         recordNodeSend(node.label, day, 1);
         return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
       } catch (e) {
@@ -929,7 +972,7 @@ export async function sendEmail(opts: {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from || FROM_DEFAULT, to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
+      body: JSON.stringify({ from: opts.from || fromDefault(), to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
     });
     if (res.ok) {
       const body = (await res.json()) as { id?: string };
@@ -944,7 +987,7 @@ export async function sendEmail(opts: {
       headers: { Authorization: `Bearer ${SENDGRID_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         personalizations: [{ to: [{ email: verdict.email }] }],
-        from: { email: (opts.from || FROM_DEFAULT).replace(/.*<(.+)>.*/, "$1") },
+        from: { email: (opts.from || fromDefault()).replace(/.*<(.+)>.*/, "$1") },
         ...(opts.replyTo ? { reply_to: { email: opts.replyTo.replace(/.*<(.+)>.*/, "$1") } } : {}),
         subject: opts.subject,
         content: [{ type: "text/html", value: opts.html }],

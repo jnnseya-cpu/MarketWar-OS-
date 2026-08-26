@@ -2654,3 +2654,70 @@ test("the email probe proves an envelope, not just a password", async () => {
   assert.match(src, /cannot confirm the relay's sending IP is inside the SPF record/,
     "the check must say what it does NOT prove — an SPF record that omits the relay looks identical to one that includes it");
 });
+
+// ---------------------------------------------------------------------------
+// The health check tested a different envelope sender from the real send.
+//
+// The probe reported "SENDING. Authenticated AND the server accepted an
+// envelope just now (info@marketwaros.com → …)" while no mail had ever arrived.
+// Both facts were true, because `sendViaSmtp` does NOT put the visible From in
+// MAIL FROM — it puts the bounce RETURN-PATH there, so that bounce
+// notifications come to us instead of into the sender's inbox. Many relays only
+// accept a MAIL FROM that is the authenticated mailbox or a real alias, and
+// `bounce@…` is usually neither.
+//
+// So every real send could fail at a step the diagnostic never performed. A
+// check that tests a different path from the real one is worse than no check:
+// it rules out the actual cause.
+// ---------------------------------------------------------------------------
+test("a relay that refuses the bounce return-path still gets the message", async () => {
+  const { fakeSmtp } = await import("./helpers/fake-smtp.mjs");
+  const email = await import("../src/backend/email.ts");
+
+  // A relay that behaves like Hostinger: the authenticated mailbox may send,
+  // `bounce@…` may not.
+  const server = fakeSmtp({ rejectSenders: new Set([email.BOUNCE_RETURN_PATH]) });
+  const port = await server.listen();
+  const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.EMAIL_FROM, tls: process.env.NODE_TLS_REJECT_UNAUTHORIZED };
+  // The fake server's STARTTLS cert is self-signed, as in tests/smtp-batch.
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  process.env.SMTP_HOST = "127.0.0.1";
+  process.env.SMTP_PORT = String(port);
+  process.env.SMTP_USER = "appuser@marketwaros.com";
+  process.env.SMTP_PASS = "pw";
+  process.env.EMAIL_FROM = "MarketWar OS <info@marketwaros.com>";
+
+  try {
+    const sent = await email.sendEmail({
+      to: "someone@example.com",
+      subject: "Your audit",
+      html: "<p>report</p>",
+      transactional: true,
+    });
+
+    // THE POINT: bounce attribution is worth having, and it is not worth more
+    // than the message. Before this, the 553 at MAIL FROM ended the send.
+    assert.equal(sent.ok, true, `the message was lost to a refused return-path: ${sent.detail}`);
+    assert.equal(server.received.length, 1, "nothing reached the server");
+    assert.equal(server.received[0].to, "someone@example.com");
+    assert.equal(server.received[0].from, "info@marketwaros.com",
+      "the retry must use the visible From — the address the relay actually accepts");
+  } finally {
+    await server.close();
+    process.env.SMTP_HOST = saved.host; process.env.SMTP_PORT = saved.port;
+    process.env.SMTP_USER = saved.user; process.env.SMTP_PASS = saved.pass;
+    if (saved.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = saved.from;
+    if (saved.tls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = saved.tls;
+  }
+});
+
+test("the health check probes the envelope sender a real send uses", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+  assert.match(src, /BOUNCE_RETURN_PATH/, "the probe must test the return-path, not just EMAIL_FROM");
+  assert.match(src, /realEnvelopeFrom/, "the real envelope sender has to be what the first probe uses");
+  // And when the return-path is refused it probes the From as well, because the
+  // DIFFERENCE between the two answers is the diagnosis.
+  assert.match(src, /probe\.stage === "mail-from" && realEnvelopeFrom !== fromAddr/);
+  assert.match(src, /THIS IS THE CAUSE/, "a check that identifies the cause should say so outright");
+});
