@@ -60,6 +60,7 @@ void FROM_DEFAULT;
 export const BOUNCE_RETURN_PATH = (process.env.MW_BOUNCE_ADDRESS || "bounce@marketwaros.com").trim();
 import { bounceAddressFor } from "@/backend/reply-routing";
 import { haltFor } from "@/backend/emergency-stop";
+import { recordAttempt } from "@/backend/send-ledger";
 
 // SMTP is now served by the sending-node POOL (src/backend/sending-pool.ts). With
 // no pool configured it falls back to the single SMTP_* node — identical to the
@@ -832,6 +833,16 @@ export async function sendEmailBatch(
       const batchResults = laneResults.flat();
       const accepted = batchResults.filter((r) => r.ok).length;
       if (accepted > 0) recordNodeSend(node.label, day, accepted);
+      // One row per recipient, so a campaign that half-delivered is legible
+      // afterwards instead of being a single number nobody can act on.
+      const subjectOf = new Map(prepared.map((p) => [p.to, p.subject]));
+      for (const r of batchResults) {
+        void recordAttempt({
+          to: r.to, subject: subjectOf.get(r.to) || "", providerId: r.ok ? String(r.id ?? "") : "",
+          node: node.label, ok: r.ok, failure: r.ok ? "" : "provider", detail: r.ok ? "" : String(r.error ?? ""),
+          at: new Date().toISOString(),
+        });
+      }
       const provider = getPool().length > 1 ? `smtp:${node.label}` : "smtp";
       lastBatchMode = "session";
       for (const r of batchResults) {
@@ -959,11 +970,16 @@ export async function sendEmail(opts: {
       try {
         const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: BOUNCE_RETURN_PATH, attachments: opts.attachments });
         recordNodeSend(node.label, day, 1);
+        // WRITE IT DOWN. The provider's queue id is the only thing that turns
+        // "nothing sends" into a question their support desk can answer, and it
+        // used to be discarded the moment it arrived.
+        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: id, node: node.label, ok: true, failure: "", detail: "", at: new Date().toISOString() });
         return { ok: true, mode: "live", provider: getPool().length > 1 ? `smtp:${node.label}` : "smtp", id, filteredOut: [], detail: opts.dkim ? "accepted (DKIM-signed)" : "accepted" };
       } catch (e) {
         // Capture the reason (safe — SMTP status lines carry no credentials) so a
         // failed send is diagnosable instead of a silent "pool-exhausted".
         smtpError = e instanceof Error ? e.message : String(e);
+        void recordAttempt({ to: verdict.email, subject: opts.subject, providerId: "", node: node.label, ok: false, failure: "provider", detail: smtpError, at: new Date().toISOString() });
         // fall through to the HTTP pool on any SMTP failure
       }
     }

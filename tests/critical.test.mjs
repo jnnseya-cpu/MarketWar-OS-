@@ -2777,3 +2777,93 @@ test("DKIM is checked, because 'delivered to spam' reads exactly like 'never sen
   // is suggestive rather than proof.
   assert.match(src, /this proves nothing/, "a check that cannot be exhaustive must say so");
 });
+
+// ---------------------------------------------------------------------------
+// Nothing recorded that a message had ever been sent.
+//
+// "never send any emails" took five rounds to answer, and the reason it took
+// five is that every check built to answer it measured the CONFIGURATION —
+// credentials, envelope, DNS — while nothing anywhere recorded that a message
+// had existed. The only trace was `recordNodeSend`: an in-memory counter, per
+// serverless instance, per day, that dies with the invocation. The provider's
+// own queue id arrived on the `250 ... queued as ...` line and was discarded.
+//
+// So "did Tuesday's audit email go out?" had no answer in the system, and the
+// honest reply was a request for another screenshot.
+// ---------------------------------------------------------------------------
+test("every send attempt is written down, and a failed write never stops the mail", async () => {
+  const ledger = await import("../src/backend/send-ledger.ts");
+  ledger.__resetSendLedger();
+
+  await ledger.recordAttempt({ to: "a@example.com", subject: "One", providerId: "MSG1", node: "primary", ok: true, failure: "", detail: "", at: "2026-08-25T10:00:00.000Z" });
+  await ledger.recordAttempt({ to: "b@example.com", subject: "Two", providerId: "", node: "primary", ok: false, failure: "provider", detail: "553 refused", at: "2026-08-25T10:01:00.000Z" });
+
+  const rows = await ledger.recentSends(10);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].to, "b@example.com", "newest first — the last thing that happened is the thing being asked about");
+  assert.equal(rows[0].ok, false);
+  assert.equal(rows[0].detail, "553 refused", "the provider's own words, not a paraphrase");
+  assert.equal(rows[1].providerId, "MSG1", "the queue id is the whole point — it is what a support desk can act on");
+
+  // A row written before a field existed must not take down the page somebody is
+  // using to find out why their mail is missing.
+  assert.equal(ledger.attemptFromStored(null), null);
+  assert.equal(ledger.attemptFromStored({ subject: "no recipient" }), null);
+  const partial = ledger.attemptFromStored({ to: "c@example.com", at: "2026-08-25T10:02:00.000Z" });
+  assert.equal(partial.ok, false, "an unreadable outcome must not read as a success");
+  assert.equal(partial.providerId, "");
+});
+
+test("the ledger is wired into both send paths, and cannot fail a send", async () => {
+  const { readFileSync } = await import("node:fs");
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  // Single send: success AND failure both leave a trace. A ledger that only
+  // recorded successes would answer "did it send?" with silence either way.
+  assert.ok((email.match(/recordAttempt\(\{/g) || []).length >= 3, "both paths and both outcomes must be recorded");
+  assert.match(email, /ok: true, failure: "", detail: "", at:/);
+  assert.match(email, /ok: false, failure: "provider", detail: smtpError/);
+  // Never awaited into the send path: a ledger that could stop a message going
+  // out would be worse than no ledger.
+  assert.doesNotMatch(email, /await recordAttempt\(/, "the ledger must never be able to block or fail a send");
+  assert.match(email, /void recordAttempt\(/);
+});
+
+// ---------------------------------------------------------------------------
+// Queued by the relay, never delivered — and every check still passed.
+//
+// `?send=self` returned ok:true with a Postfix queue id (B92FD8E3CF), so the
+// relay took the message into its own queue. It never reached the mailbox, on
+// the same server, of the account that sent it. Nothing bounced.
+//
+// The one mismatch every report has shown and none has flagged: the From header
+// is <info@marketwaros.com> while the deployment authenticates as
+// <appuser@marketwaros.com>. Relays commonly ACCEPT such a message, issue a
+// queue id, and drop it AFTER queueing because the account may not send as that
+// address — and the bounce goes to the Return-Path, which is usually not a real
+// mailbox either. Total silence, while every check reports healthy.
+//
+// This is not asserted as the cause. It is made TESTABLE: send twice, change
+// only the From, compare.
+// ---------------------------------------------------------------------------
+test("the From header is compared with the account that authenticates", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+
+  assert.match(src, /fromMatchesAccount/, "the two addresses must be compared, not just both printed");
+  assert.match(src, /THE FROM HEADER IS NOT THE AUTHENTICATED ACCOUNT/,
+    "a mismatch this consequential has to be stated, not left for somebody to notice in two adjacent fields");
+  // The note must name the EXPERIMENT rather than assert a cause, because five
+  // rounds of asserting causes is what made this take five rounds.
+  assert.match(src, /\?send=self&from=account/, "the report has to say how to settle it");
+
+  // And the experiment changes exactly one thing.
+  assert.match(src, /const askedFrom =/);
+  assert.match(src, /\.\.\.\(overrideFrom \? \{ from: `MarketWar OS <\$\{overrideFrom\}>` \} : \{\}\)/,
+    "the override must reach sendEmail, or the second send is the same as the first");
+
+  // It cannot be used to forge a sender: the account itself, or its own domain.
+  assert.match(src, /askedFrom\.endsWith\(`@\$\{ownDomain\}`\)/);
+  assert.match(src, /cannot be used to forge a sender/);
+  const branch = src.slice(src.indexOf("const askedFrom ="), src.indexOf("const { sendEmail }"));
+  assert.ok(branch.includes("status: 403"), "an address outside the domain has to be refused before anything is sent");
+});
