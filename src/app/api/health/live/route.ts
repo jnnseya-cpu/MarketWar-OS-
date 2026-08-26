@@ -104,8 +104,21 @@ export async function GET() {
     // Email is the highest-revenue action in the platform and the one most
     // often missed, because nothing else fails without it — it simply does not
     // send. Surfaced here so a go-live check can catch it.
-    "SMTP_HOST", "SMTP_USER", "SMTP_PASS",
+    "SMTP_HOST", "SMTP_USER", "SMTP_PASS", "EMAIL_FROM",
     "ELEVENLABS_API_KEY", "FFMPEG_CLOUD_API_KEY", "VIDEO_WORKER_SECRET",
+    // THE REST OF WHAT A GO-LIVE ACTUALLY NEEDS.
+    //
+    // This list was the answer to "which variables did my deployment really
+    // receive?", and it omitted the secrets, the trader's legal details and the
+    // canonical host — so the owner could set eight things in Vercel and this
+    // endpoint would confirm three of them. A presence report with holes sends
+    // somebody back to the dashboard to guess, which is the position that
+    // produced a month of unexplained mail.
+    "CRON_SECRET", "HUMAN_CHECK_SECRET", "FIELD_ENCRYPTION_MASTER_KEY",
+    "PORTAL_LINK_SECRET", "NEWSLETTER_SECRET", "POSTBACK_ROOT_SECRET",
+    "AI_MONTHLY_CEILING_USD", "MW_SITE_HOST", "MW_BOUNCE_ADDRESS", "MW_BOUNCE_HOST",
+    "NEXT_PUBLIC_LEGAL_ENTITY_NAME", "NEXT_PUBLIC_REGISTERED_ADDRESS",
+    "NEXT_PUBLIC_COMPANY_NUMBER", "NEXT_PUBLIC_VAT_NUMBER",
   ];
   const envPresent: Record<string, boolean> = {};
   for (const k of KEYS) envPresent[k] = env(k);
