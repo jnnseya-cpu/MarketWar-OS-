@@ -28,6 +28,8 @@ type Report = {
   ok: boolean; error?: string; gated?: boolean;
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
+  /** Every page this report is based on. Shown, because a claim about "your website" has to name what was read. */
+  pagesRead?: string[]; pagesTried?: string[];
   headline?: string; nextStep?: string; failures?: number; warnings?: number;
   /** Whether the copy's promise to email the report was actually kept. */
   emailed?: boolean; emailNote?: string; emailFailure?: string;
@@ -44,6 +46,9 @@ const sev = (s: string) =>
   s === "fail" ? "border-rose-500/30 bg-rose-500/[0.06] text-rose-100"
     : s === "warn" ? "border-amber-500/30 bg-amber-500/[0.06] text-amber-100"
       : "border-emerald-500/25 bg-emerald-500/[0.05] text-emerald-100";
+
+/** The path a reader recognises, not the whole absolute URL. */
+const pathOf = (u: string) => { try { return new URL(u).pathname.replace(/\/$/, "") || "/"; } catch { return u; } };
 
 export default function FreeAudit() {
   const [url, setUrl] = useState("");
@@ -116,6 +121,26 @@ export default function FreeAudit() {
               </p>
             </div>
           </div>
+
+          {/* WHAT WAS READ, before anything is claimed about it.
+              A live audit told a business with a working /contact page that
+              there was "no obvious way to get in touch" — true of the homepage,
+              false about them, and the kind of wrong that discredits every
+              correct finding beside it. The audit follows the contact links
+              now, and the report names the pages so nobody has to take its
+              word for what it looked at. */}
+          {report.pagesRead && report.pagesRead.length > 0 && (
+            <p className="rounded-xl border border-white/10 bg-ink-900/50 px-4 py-3 text-xs leading-relaxed text-slate-400">
+              <span className="font-semibold text-slate-300">
+                Read {report.pagesRead.length === 1 ? "1 page" : `${report.pagesRead.length} pages`}:
+              </span>{" "}
+              {report.pagesRead.map((u) => pathOf(u)).join(", ")}
+              {report.pagesTried && report.pagesTried.length > 0 && (
+                <> · could not read {report.pagesTried.map((u) => pathOf(u)).join(", ")}</>
+              )}
+              . Everything below was measured on {report.pagesRead.length === 1 ? "it" : "these"} just now.
+            </p>
+          )}
 
           {/* THE VERDICT, before the list. Somebody who reads one line should
               get the answer to the question the page asked them. */}

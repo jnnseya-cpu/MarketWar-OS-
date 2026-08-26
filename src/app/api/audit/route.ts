@@ -113,6 +113,10 @@ export async function POST(req: NextRequest) {
       failures,
       warnings,
       nextStep: auditNextStep({ failures, warnings, free: true }),
+      // WHAT THIS REPORT IS BASED ON. A finding that says "no way to get in
+      // touch" is only believable beside the list of pages that were looked at.
+      pagesRead: report.pagesRead,
+      pagesTried: report.pagesTried,
       heldBack: Math.max(0, measured.length - FREE_FINDINGS),
       unmeasured: ranked.filter((f) => f.measured === false).length,
       note: measured.length > FREE_FINDINGS
@@ -228,6 +232,8 @@ export async function POST(req: NextRequest) {
     sitemapXml: report.sitemapXml,
     structuredDataTypes: report.structuredDataTypes,
     findings: measured.map(dress),
+    pagesRead: report.pagesRead,
+    pagesTried: report.pagesTried,
     headline,
     failures,
     warnings,
