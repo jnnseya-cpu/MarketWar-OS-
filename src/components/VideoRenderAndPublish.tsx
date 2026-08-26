@@ -25,7 +25,8 @@ export default function VideoRenderAndPublish() {
   const [seconds, setSeconds] = useState(15);
   // The price list, from the server. The browser never computes a price: that
   // would be a second source of truth about money, and the two would drift.
-  const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; note: string }[]>([]);
+  const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; note: string }[]>([]);
+  const [maxSingle, setMaxSingle] = useState(0);
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [videoLive, setVideoLive] = useState<boolean | null>(null);
@@ -51,11 +52,12 @@ export default function VideoRenderAndPublish() {
       if (!on || !Array.isArray(d?.lengths)) return;
       setLengths(d.lengths);
       if (typeof d.defaultSeconds === "number") setSeconds(d.defaultSeconds);
+      if (typeof d.maxSingleRenderSeconds === "number") setMaxSingle(d.maxSingleRenderSeconds);
     }).catch(() => {});
     return () => { on = false; };
   }, []);
 
-  const chosen = lengths.find((l) => l.requested === seconds) || null;
+  const chosen = lengths.find((l) => l.delivered === seconds) || null;
 
   async function start() {
     if (!activeBrand || !prompt.trim()) return;
@@ -102,11 +104,18 @@ export default function VideoRenderAndPublish() {
             view rather than discovered on the bill. Lengths come from the
             server for the provider actually configured here — a hard-coded list
             would go stale the day a model's limits change. */}
-        <select className="input max-w-[260px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
-          {(lengths.length ? lengths : [{ requested: 15, delivered: 15, acus: 0, note: "" }]).map((l) => (
-            <option key={l.requested} value={l.requested}>
-              {l.requested} seconds{l.acus ? ` — ${l.acus} ACUs` : ""}
-              {l.delivered !== l.requested ? ` (returns ${l.delivered}s)` : ""}
+        {/* EVERY ROW IS A DIFFERENT VIDEO NOW. The menu used to list four
+            lengths where the engine makes two, so "12 seconds — 281 ACUs
+            (returns 8s)" and "15 seconds — 281 ACUs (returns 8s)" were the
+            same eight-second clip under two longer names. The price was right
+            for what arrived and the NAME was not, which reads as either free
+            extra video or charging for what we do not deliver. The server
+            de-duplicates by what actually arrives, and the per-second rate is
+            printed so the proportion is checkable on the screen. */}
+        <select className="input max-w-[300px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
+          {(lengths.length ? lengths : [{ requested: 8, delivered: 8, acus: 0, acusPerSecond: 0, note: "" }]).map((l) => (
+            <option key={l.delivered} value={l.delivered}>
+              {l.delivered} seconds{l.acus ? ` — ${l.acus} ACUs (${l.acusPerSecond}/second)` : ""}
             </option>
           ))}
         </select>
@@ -114,9 +123,12 @@ export default function VideoRenderAndPublish() {
       {chosen && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
           {chosen.acus > 0
-            ? `${chosen.acus} ACUs, charged when the render starts and refunded in full if it fails. You are charged for the ${chosen.delivered} seconds actually produced, never for the length requested.`
+            ? `${chosen.acus} ACUs, charged when the render starts and refunded in full if it fails. Every length on this list is one the engine actually produces, priced at ${chosen.acusPerSecond} ACUs a second.`
             : "No render engine is configured on this deployment, so nothing renders and nothing is charged."}
           {chosen.note ? ` ${chosen.note}` : ""}
+          {maxSingle > 0 && (
+            <> {maxSingle} seconds is the longest single clip this engine makes; a longer ad is cut from several renders, each priced at its own length.</>
+          )}
         </p>
       )}
       <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>

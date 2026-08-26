@@ -192,26 +192,68 @@ export function videoRenderAcus(seconds: number): number {
 /**
  * The price list the panel shows, for the provider that will actually serve.
  *
- * The price is for what will be DELIVERED, not what was asked for: a request
- * for 15 seconds comes back as 8 on Veo, and charging for 15 seconds of video
- * nobody received is the kind of thing this platform exists not to do. Where
- * they differ the caller gets both numbers and the reason.
+ * PRICED ON WHAT IS DELIVERED, AND ONLY OFFERING WHAT CAN BE. The price has
+ * always been computed from the delivered length, which was right — but the
+ * MENU still listed every requested length, so on Veo the owner saw:
+ *
+ *     4 seconds  — 141 ACUs
+ *     8 seconds  — 281 ACUs
+ *     12 seconds — 281 ACUs (returns 8s)
+ *     15 seconds — 281 ACUs (returns 8s)
+ *
+ * Three of those four rows are the same eight-second video. Two of them are
+ * named after a length that does not exist, at a price that is correct for a
+ * different product. Every price was defensible and the menu was not: a
+ * customer reading it concludes either that longer video is free, or that we
+ * charge for what we do not deliver, and both conclusions cost more than the
+ * options are worth.
+ *
+ * So the menu is DEDUPLICATED BY WHAT ARRIVES. Each row is a length this
+ * provider genuinely produces in one render, at the price for that length, and
+ * `maxSingleRender` lets the panel explain the cap instead of pretending it is
+ * not there. `acusPerSecond` travels with each row so the proportion is on the
+ * screen and nobody has to take our word for it.
  */
-export function videoLengthOptions(provider?: VideoProvider): {
-  requested: number; delivered: number; acus: number; note: string;
-}[] {
+export type VideoLengthOption = {
+  requested: number; delivered: number; acus: number; acusPerSecond: number; note: string;
+};
+
+export function videoLengthOptions(provider?: VideoProvider): VideoLengthOption[] {
   const p = provider ?? chosenProvider();
-  return OFFERED_SECONDS.map((requested) => {
+  const seen = new Set<number>();
+  const out: VideoLengthOption[] = [];
+  for (const requested of OFFERED_SECONDS) {
     // With no provider configured nothing renders, so nothing is charged and
     // the honest delivered length is the one asked for.
     const delivered = p === "demo" ? requested : supportedSeconds(p, requested);
-    return {
-      requested,
+    if (seen.has(delivered)) continue;   // the same video under a longer name
+    seen.add(delivered);
+    const acus = p === "demo" ? 0 : videoRenderAcus(delivered);
+    out.push({
+      // The row is named after what arrives. `requested` stays for the caller
+      // that still sends a requested length, and is now always equal to it.
+      requested: delivered,
       delivered,
-      acus: p === "demo" ? 0 : videoRenderAcus(delivered),
-      note: p === "demo" ? "" : durationNote(p, requested, delivered),
-    };
-  });
+      acus,
+      acusPerSecond: acus > 0 ? Math.round((acus / delivered) * 10) / 10 : 0,
+      note: p === "demo" ? "" : durationNote(p, delivered, delivered),
+    });
+  }
+  return out.sort((a, b) => a.delivered - b.delivered);
+}
+
+/**
+ * The longest clip this provider makes in ONE render.
+ *
+ * Named so the panel can say "eight seconds is the longest single clip this
+ * engine makes; longer ads are cut from several" — which is a fact a customer
+ * can plan around, rather than a menu row that quietly gives them less.
+ */
+export function maxSingleRender(provider?: VideoProvider): number {
+  const p = provider ?? chosenProvider();
+  if (p === "veo") return VEO_MAX_SECONDS;
+  if (p === "sora") return SORA_STEPS[SORA_STEPS.length - 1];
+  return OFFERED_SECONDS[OFFERED_SECONDS.length - 1];
 }
 
 /** What this provider will actually produce for a requested length. */
@@ -501,7 +543,14 @@ export function videoGatewayStatus() {
     // and never does the arithmetic itself — a price computed in the browser is
     // a second source of truth about money.
     lengths: videoLengthOptions(),
-    defaultSeconds: DEFAULT_RENDER_SECONDS,
+    // THE DEFAULT MUST BE A ROW ON THE MENU. DEFAULT_RENDER_SECONDS is 15 —
+    // the length a social ad is cut to — and the menu now lists only lengths
+    // this engine actually produces, so on Veo there is no 15-second row to
+    // select. An unmatched default leaves the panel with no price beside a
+    // button that spends money. Resolved to what this provider delivers, which
+    // is by construction one of the rows.
+    defaultSeconds: supportedSeconds(chosenProvider(), DEFAULT_RENDER_SECONDS),
+    maxSingleRenderSeconds: maxSingleRender(),
     note: videoGatewayConfigured()
       ? "Live — renders via Veo/Sora, uploads the MP4 to Storage, and returns a hosted URL to attach to posts."
       : "Demo — the render pipeline, async job model and post-attach are wired; the render engine activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key.",
