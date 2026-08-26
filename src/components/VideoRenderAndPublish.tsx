@@ -27,6 +27,8 @@ export default function VideoRenderAndPublish() {
   // would be a second source of truth about money, and the two would drift.
   const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; segments: number[]; provider: string; note: string }[]>([]);
   const [maxSingle, setMaxSingle] = useState(0);
+  /** Lengths this deployment can plan but cannot yet deliver as one file. */
+  const [withheld, setWithheld] = useState<{ seconds: number; segments: number[]; why: string }[]>([]);
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [videoLive, setVideoLive] = useState<boolean | null>(null);
@@ -53,6 +55,7 @@ export default function VideoRenderAndPublish() {
       setLengths(d.lengths);
       if (typeof d.defaultSeconds === "number") setSeconds(d.defaultSeconds);
       if (typeof d.maxSingleRenderSeconds === "number") setMaxSingle(d.maxSingleRenderSeconds);
+      if (Array.isArray(d.withheld)) setWithheld(d.withheld);
     }).catch(() => {});
     return () => { on = false; };
   }, []);
@@ -132,13 +135,25 @@ export default function VideoRenderAndPublish() {
               of clips that sum exactly to it — and the customer is told that
               here rather than discovering it in their library. */}
           {chosen.segments && chosen.segments.length > 1 && (
-            <> Made as {chosen.segments.length} clips ({chosen.segments.map((n) => `${n}s`).join(" + ")}), joined into one file when the render service is connected. Either every clip is produced or the whole render is refunded — you are never handed a short video at the full price.</>
+            <> Rendered as {chosen.segments.length} pieces ({chosen.segments.map((n) => `${n}s`).join(" + ")}) and joined into ONE {chosen.delivered}-second file before it is handed over — no engine makes this length in a single call. Either every piece is produced and joined or the whole render is refunded; you are never handed a short video at the full price.</>
           )}
           {maxSingle > 0 && chosen.segments && chosen.segments.length === 1 && (
             <> {maxSingle} seconds is the longest single clip this engine makes.</>
           )}
         </p>
       )}
+      {/* A LENGTH THAT VANISHED NEEDS A REASON. Silently dropping 15 seconds
+          from the menu reads as a bug; naming the one setting that returns it
+          is the difference between a limitation and a fault. */}
+      {withheld.length > 0 && (
+        <p className="mt-2 rounded-lg border border-white/10 bg-ink-900/50 p-3 text-[11px] leading-relaxed text-slate-400">
+          <span className="font-semibold text-slate-300">
+            {withheld.map((w) => `${w.seconds}s`).join(" and ")} {withheld.length === 1 ? "is" : "are"} not on the list here.
+          </span>{" "}
+          {withheld[0].why}
+        </p>
+      )}
+
       <button className="btn-primary mt-3" onClick={start} disabled={busy || !activeBrand || !prompt.trim()}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />}
         Render video{chosen?.acus ? ` — ${chosen.acus} ACUs` : ""}

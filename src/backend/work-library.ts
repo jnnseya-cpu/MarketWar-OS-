@@ -26,7 +26,7 @@ import { createHash } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { recordVersion, listVersions } from "@/backend/asset-versions";
 
-export type WorkKind = "agent" | "campaign" | "content" | "email" | "page" | "research" | "other";
+export type WorkKind = "agent" | "campaign" | "content" | "email" | "page" | "research" | "video" | "other";
 
 export type WorkItem = {
   id: string;
