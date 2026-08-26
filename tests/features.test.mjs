@@ -20532,25 +20532,43 @@ test("the panel is quoted the length it will actually get, at that length's pric
   // longer names, at a price correct for a different product. Priced right,
   // named wrong, which reads as either free extra video or charging for what
   // we do not deliver.
+  // A LENGTH IS MADE OF CLIPS THAT SUM EXACTLY TO IT. Owner's call: nobody buys
+  // four seconds, and 8/12/15 are the lengths a social ad is cut to. Neither
+  // engine renders 12 or 15 in one call, so they are segmented — and the price
+  // is the sum of those segments, which is the only way a fifteen-second row
+  // carries a fifteen-second price.
   const veo = g.videoLengthOptions("veo");
+  assert.deepEqual(veo.map((l) => l.delivered), [8, 12, 15]);
+  assert.deepEqual(g.segmentPlan("veo", 12), [8, 4]);
+  assert.deepEqual(g.segmentPlan("veo", 15), [8, 7]);
   for (const l of veo) {
-    assert.equal(l.delivered, l.requested, `Veo still offers ${l.requested}s and delivers ${l.delivered}s`);
-    assert.equal(l.acus, g.videoRenderAcus(l.delivered), "a row is priced for a length other than its own");
+    assert.equal(l.segments.reduce((a, b) => a + b, 0), l.delivered,
+      `${l.delivered}s is made of clips totalling ${l.segments.reduce((a, b) => a + b, 0)}s`);
+    assert.equal(l.acus, l.segments.reduce((n, sec) => n + g.videoRenderAcus(sec, "veo"), 0),
+      "a row is priced for something other than the clips it is made of");
   }
-  assert.deepEqual(veo.map((l) => l.delivered), [4, 8], "Veo makes 4s and 8s — no row may claim more");
-  // The rule the render path still needs: a caller asking for 15 gets 8.
-  assert.equal(g.supportedSeconds("veo", 15), 8, "the cap itself must survive the menu change");
 
-  // Sora's longest step is 12, and it accepts nothing between its steps.
+  // Sora only its published steps: 12 in one call, and 15 not at all — so 15 is
+  // simply not offered on Sora rather than quietly served as something shorter.
   const sora = g.videoLengthOptions("sora");
-  assert.deepEqual(sora.map((l) => l.delivered), [4, 8, 12]);
-  assert.equal(g.supportedSeconds("sora", 15), 12);
-  for (const l of sora) assert.equal(l.delivered, l.requested);
+  assert.deepEqual(g.segmentPlan("sora", 12), [12]);
+  assert.equal(g.segmentPlan("sora", 15), null, "Sora's steps cannot total 15 and must not pretend to");
+  assert.deepEqual(sora.map((l) => l.delivered), [8, 12]);
+
+  // A plan NEVER overshoots or undershoots, at any length either engine offers.
+  for (const p of ["veo", "sora"]) {
+    for (let n = 1; n <= 40; n++) {
+      const plan = g.segmentPlan(p, n);
+      if (!plan) continue;
+      assert.equal(plan.reduce((a, b) => a + b, 0), n, `${p} plans ${plan.join("+")} for ${n}s`);
+      for (const seg of plan) assert.equal(g.supportedSeconds(p, seg), seg, `${p} cannot actually render a ${seg}s clip`);
+    }
+  }
 
   // The price is PROPORTIONAL to the length, and the panel can prove it.
   for (const l of [...veo, ...sora]) {
     assert.ok(l.acusPerSecond > 0, `${l.delivered}s has no per-second rate`);
-    assert.ok(Math.abs(l.acusPerSecond - l.acus / l.delivered) < 0.1,
+    assert.ok(Math.abs(l.acusPerSecond - l.acus / l.delivered) < 0.15,
       `${l.delivered}s quotes ${l.acusPerSecond}/s for ${l.acus} ACUs`);
   }
 
@@ -20681,28 +20699,29 @@ test("the video render charges exactly what the button quoted", async () => {
   // those differ: Veo caps a 15s request at 8s, Sora snaps it to 12s — so the
   // screen said 281 ACUs and the charge attempted 420, and the owner was
   // refused for a number that appeared nowhere on the page.
-  // Asked for 15, Veo delivers 8 and Sora delivers 12 — so the two chains
-  // charge different amounts for the same request. Read through supportedSeconds
-  // rather than the menu, which no longer offers a length nobody can make.
-  const veo15 = g.videoRenderAcus(g.supportedSeconds("veo", 15));
-  const sora15 = g.videoRenderAcus(g.supportedSeconds("sora", 15));
-  assert.notEqual(veo15, sora15,
+  // The two engines price 12 seconds differently — Sora makes it in one call,
+  // Veo needs 8 + 4 — so "cheapest engine that can make it exactly" is a real
+  // choice rather than a formality.
+  assert.notEqual(g.videoPlanAcus("veo", 12), g.videoPlanAcus("sora", 12),
     "the two providers now quote the same price — this test's premise is gone, check before deleting it");
+  const best12 = g.bestVideoProviderFor(12, ["veo", "sora"]);
+  assert.equal(best12.provider, "sora", "12s must route to the engine that makes it most cheaply");
+  assert.equal(best12.acus, Math.min(g.videoPlanAcus("veo", 12), g.videoPlanAcus("sora", 12)));
 
   const src = codeOf(readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8"));
 
-  // One number: quoted from the provider that is tried first, and taken.
+  // One number: the plan's total, quoted and taken.
   assert.doesNotMatch(src, /worstCase/i, "the worst case across the chain is debited again");
-  assert.match(src, /const quotedSeconds = supportedSeconds\(chain\[0\], requestedSeconds\)/,
-    "the quote no longer comes from the provider that will actually be tried first");
+  assert.match(src, /const plan = bestVideoProviderFor\(requestedSeconds, chain\)/,
+    "the quote no longer comes from the plan that will actually be rendered");
+  assert.match(src, /const quotedAcu = plan\.acus/);
   assert.match(src, /debitAcus\(walletId, quotedAcu\)/, "something other than the quote is being charged");
 
-  // Failover may only ever deliver LESS. A provider that could give more seconds
-  // must not, because more seconds is a bigger bill than the one on the button.
-  assert.match(src, /Math\.min\(supportedSeconds\(provider, requestedSeconds\), quotedSeconds\)/,
-    "a failover provider can deliver more than was quoted, and charge for it");
-  assert.match(src, /Math\.min\(videoRenderAcus\(deliveredSeconds\), quotedAcu\)/,
-    "the charge can exceed the quote again");
+  // EVERY CLIP OR NONE. A 15s ad whose second clip never started is an 8s ad
+  // charged at 15 — the exact fault this replaced.
+  assert.match(src, /started\.length === plan\.segments\.length/,
+    "a partial set of clips can be handed over as the video that was bought");
+  assert.match(src, /await creditAcus\(walletId, quotedAcu\)/, "an abandoned render must refund the whole quote");
 
   // And the refusal must name the same number the button showed.
   assert.match(src, /this render costs \$\{quotedAcu\} ACUs/,

@@ -25,7 +25,7 @@ export default function VideoRenderAndPublish() {
   const [seconds, setSeconds] = useState(15);
   // The price list, from the server. The browser never computes a price: that
   // would be a second source of truth about money, and the two would drift.
-  const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; note: string }[]>([]);
+  const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; segments: number[]; provider: string; note: string }[]>([]);
   const [maxSingle, setMaxSingle] = useState(0);
   const [job, setJob] = useState<VideoJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,9 +113,10 @@ export default function VideoRenderAndPublish() {
             de-duplicates by what actually arrives, and the per-second rate is
             printed so the proportion is checkable on the screen. */}
         <select className="input max-w-[300px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
-          {(lengths.length ? lengths : [{ requested: 8, delivered: 8, acus: 0, acusPerSecond: 0, note: "" }]).map((l) => (
+          {(lengths.length ? lengths : [{ requested: 8, delivered: 8, acus: 0, acusPerSecond: 0, segments: [8], provider: "demo", note: "" }]).map((l) => (
             <option key={l.delivered} value={l.delivered}>
               {l.delivered} seconds{l.acus ? ` — ${l.acus} ACUs (${l.acusPerSecond}/second)` : ""}
+              {l.segments.length > 1 ? ` · ${l.segments.length} clips` : ""}
             </option>
           ))}
         </select>
@@ -123,11 +124,18 @@ export default function VideoRenderAndPublish() {
       {chosen && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
           {chosen.acus > 0
-            ? `${chosen.acus} ACUs, charged when the render starts and refunded in full if it fails. Every length on this list is one the engine actually produces, priced at ${chosen.acusPerSecond} ACUs a second.`
+            ? `${chosen.acus} ACUs, charged when the render starts and refunded in full if it fails — priced at ${chosen.acusPerSecond} ACUs a second, on ${chosen.provider}, the cheapest engine that makes this length exactly.`
             : "No render engine is configured on this deployment, so nothing renders and nothing is charged."}
           {chosen.note ? ` ${chosen.note}` : ""}
-          {maxSingle > 0 && (
-            <> {maxSingle} seconds is the longest single clip this engine makes; a longer ad is cut from several renders, each priced at its own length.</>
+          {/* WHAT ARRIVES, before the money moves. A twelve- or fifteen-second
+              ad is longer than either engine renders in one call, so it is made
+              of clips that sum exactly to it — and the customer is told that
+              here rather than discovering it in their library. */}
+          {chosen.segments && chosen.segments.length > 1 && (
+            <> Made as {chosen.segments.length} clips ({chosen.segments.map((n) => `${n}s`).join(" + ")}), joined into one file when the render service is connected. Either every clip is produced or the whole render is refunded — you are never handed a short video at the full price.</>
+          )}
+          {maxSingle > 0 && chosen.segments && chosen.segments.length === 1 && (
+            <> {maxSingle} seconds is the longest single clip this engine makes.</>
           )}
         </p>
       )}
