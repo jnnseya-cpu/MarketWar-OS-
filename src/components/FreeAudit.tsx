@@ -15,19 +15,35 @@ import { useState } from "react";
 import { ArrowRight, CheckCircle2, Loader2, Search, TriangleAlert } from "lucide-react";
 import { track } from "@/frontend/analytics";
 
-type Finding = { area: string; label: string; severity: string; detail: string };
+type Finding = {
+  area: string; label: string; severity: string; detail: string;
+  /** What this costs them, in their words. Present on anything not passing. */
+  costs?: string;
+  /** What to change. */
+  fix?: string;
+  /** What MarketWar does about it — the honest bridge to signing up. */
+  ours?: string;
+};
 type Report = {
   ok: boolean; error?: string; gated?: boolean;
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
+  headline?: string; nextStep?: string; failures?: number; warnings?: number;
   /** Whether the copy's promise to email the report was actually kept. */
   emailed?: boolean; emailNote?: string; emailFailure?: string;
 };
 
+// THE SEVERITY COLOURS HAVE NEVER WORKED.
+//
+// This matched "critical", "high" and "medium". The crawler has only ever
+// emitted "pass", "warn" and "fail" — so every finding fell through to the grey
+// default and a broken page looked exactly like a healthy one. The icon had the
+// same fault, testing for "good" against a value that is "pass", which is why a
+// passing HTTPS check was shown under a warning triangle.
 const sev = (s: string) =>
-  s === "critical" || s === "high" ? "border-rose-500/30 bg-rose-500/[0.06] text-rose-200"
-    : s === "medium" ? "border-amber-500/30 bg-amber-500/[0.06] text-amber-100"
-      : "border-white/10 bg-ink-900/50 text-slate-300";
+  s === "fail" ? "border-rose-500/30 bg-rose-500/[0.06] text-rose-100"
+    : s === "warn" ? "border-amber-500/30 bg-amber-500/[0.06] text-amber-100"
+      : "border-emerald-500/25 bg-emerald-500/[0.05] text-emerald-100";
 
 export default function FreeAudit() {
   const [url, setUrl] = useState("");
@@ -101,13 +117,39 @@ export default function FreeAudit() {
             </div>
           </div>
 
+          {/* THE VERDICT, before the list. Somebody who reads one line should
+              get the answer to the question the page asked them. */}
+          {report.headline && (
+            <p className={`rounded-xl border p-4 text-sm font-semibold leading-relaxed ${report.failures ? "border-rose-500/30 bg-rose-500/[0.06] text-rose-100" : report.warnings ? "border-amber-500/30 bg-amber-500/[0.06] text-amber-100" : "border-emerald-500/25 bg-emerald-500/[0.05] text-emerald-100"}`}>
+              {report.headline}
+            </p>
+          )}
+
           {report.findings?.map((f, i) => (
             <div key={i} className={`rounded-xl border p-4 ${sev(f.severity)}`}>
               <p className="flex items-center gap-2 text-sm font-semibold">
-                {f.severity === "good" ? <CheckCircle2 className="h-4 w-4" /> : <TriangleAlert className="h-4 w-4" />} {f.label}
+                {f.severity === "pass" ? <CheckCircle2 className="h-4 w-4" /> : <TriangleAlert className="h-4 w-4" />} {f.label}
                 <span className="ml-auto text-[10px] font-bold uppercase tracking-wide opacity-70">{f.area}</span>
               </p>
               <p className="mt-1.5 text-xs leading-relaxed opacity-90">{f.detail}</p>
+              {/* WHAT IT COSTS, then WHAT TO DO. A linter line tells somebody
+                  nothing they can act on; this is the difference between a
+                  report and a diagnosis. */}
+              {f.costs && (
+                <p className="mt-2.5 border-t border-current/15 pt-2.5 text-xs leading-relaxed opacity-95">
+                  <span className="font-bold">What this costs you. </span>{f.costs}
+                </p>
+              )}
+              {f.fix && (
+                <p className="mt-1.5 text-xs leading-relaxed opacity-80">
+                  <span className="font-bold">The fix. </span>{f.fix}
+                </p>
+              )}
+              {f.ours && f.severity !== "pass" && (
+                <p className="mt-1.5 text-xs leading-relaxed opacity-70">
+                  <span className="font-bold">With MarketWar. </span>{f.ours}
+                </p>
+              )}
             </div>
           ))}
 
@@ -131,6 +173,19 @@ export default function FreeAudit() {
                 One address, used to send you this report and nothing else until you say otherwise. No card, no trial to cancel, and the rest of the findings appear on this page immediately.
               </p>
             </form>
+          )}
+
+          {/* WHAT TO DO NEXT. It names the alternative — take the list to your
+              own developer — because a report that pretends there is no
+              alternative is a report nobody believes. */}
+          {report.nextStep && (
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-5">
+              <p className="text-sm font-semibold text-white">So what do you do about it?</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-emerald-100/90">{report.nextStep}</p>
+              <a href="/signup" onClick={() => track("audit_cta_signup")} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400">
+                <ArrowRight className="h-4 w-4" /> Start free — no card
+              </a>
+            </div>
           )}
 
           {full && (

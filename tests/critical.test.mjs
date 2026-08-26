@@ -2867,3 +2867,116 @@ test("the From header is compared with the account that authenticates", async ()
   const branch = src.slice(src.indexOf("const askedFrom ="), src.indexOf("const { sendEmail }"));
   assert.ok(branch.includes("status: 403"), "an address outside the domain has to be refused before anything is sent");
 });
+
+// ---------------------------------------------------------------------------
+// The free audit was showing the good news.
+//
+// Reported from the live page. A site scoring 89/100 was shown three findings
+// for free: "Served over HTTPS", "Title present (56 chars)", "Mobile viewport
+// set" — three things that are FINE — and then asked for an email address to
+// see the rest. The page's own promise is to tell somebody what is quietly
+// losing them enquiries, and it was answering with a linter's pass list.
+//
+// The ranking sorted on WEIGHT alone, so the heaviest checks led whether or not
+// they had found anything. And two render faults made it worse: the severity
+// colours matched "critical/high/medium" against values that are only ever
+// "pass/warn/fail", so a broken page looked identical to a healthy one, and the
+// icon tested for "good" against "pass", so passes wore a warning triangle.
+// ---------------------------------------------------------------------------
+const auditCopy = await import("../src/shared/audit-copy.ts");
+
+test("a broken page leads with what is broken, never with what passes", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // A page that passes the heavy checks and fails the ones that cost enquiries.
+  const bad = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width">
+    <title>A perfectly reasonable title for a business</title></head>
+    <body><p>Short.</p></body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(bad); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    assert.equal(report.ok, true, `crawl failed: ${report.error}`);
+
+    const rank = (s) => (s === "fail" ? 0 : s === "warn" ? 1 : 2);
+    const ranked = [...report.findings].sort((a, b) => rank(a.severity) - rank(b.severity) || b.weight - a.weight);
+    const firstThree = ranked.slice(0, 3);
+    assert.ok(firstThree.every((f) => f.severity !== "pass"),
+      `the free three still lead with passes: ${firstThree.map((f) => `${f.label}=${f.severity}`).join(", ")}`);
+
+    // And the deeper checks exist, because seventeen was not worth an email.
+    const labels = new Set(report.findings.map((f) => f.label));
+    for (const added of ["Phone number", "Contact route", "Local address", "Local business schema", "Mixed content", "Page weight", "Render-blocking scripts", "Favicon", "Heading structure", "Social profiles", "Copyright year", "www and root both work"]) {
+      assert.ok(labels.has(added), `the deeper audit is missing "${added}"`);
+    }
+    assert.ok(report.findings.length >= 28, `only ${report.findings.length} checks — the page promises a deep read`);
+
+    // This page has no phone, no contact route and almost no text. Each of those
+    // is a real answer to "what is quietly losing you enquiries".
+    const byLabel = Object.fromEntries(report.findings.map((f) => [f.label, f]));
+    assert.equal(byLabel["Contact route"].severity, "fail");
+    assert.equal(byLabel["Phone number"].severity, "fail");
+    assert.notEqual(byLabel["Content depth"].severity, "pass");
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("every finding can say what it costs, and none of it is invented", async () => {
+  const { readFileSync } = await import("node:fs");
+  const crawler = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
+
+  // Copy exists for every check the crawler emits — an unexplained finding is
+  // the linter output this was replacing.
+  const labels = [...crawler.matchAll(/add\("(?:SEO|Technical|Mobile|Social|Content|Structured data)",\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(labels.length >= 28, `only ${labels.length} checks parsed`);
+  const missing = labels.filter((l) => !auditCopy.copyFor(l));
+  assert.deepEqual(missing, [], `these findings have no plain-English cost: ${missing.join(", ")}`);
+
+  // NO INVENTED NUMBERS. Not a percentage, not a pound sign, not "the average
+  // business". Every line is a mechanism the reader can check against their own
+  // experience — which is what makes it persuasive, and what a fabricated
+  // statistic is not.
+  for (const [label, c] of Object.entries(auditCopy.AUDIT_COPY)) {
+    const all = `${c.costs} ${c.fix} ${c.ours}`;
+    assert.doesNotMatch(all, /\d+\s?%/, `"${label}" quotes a percentage nobody measured`);
+    assert.doesNotMatch(all, /[£$€]\s?\d/, `"${label}" quotes a money figure nobody measured`);
+    assert.doesNotMatch(all, /\b(?:average|typical|most businesses lose|studies show)\b/i, `"${label}" leans on an invented statistic`);
+    assert.ok(c.costs.length > 60, `"${label}" does not actually say what it costs`);
+  }
+});
+
+test("the headline and the next step state counts, and name the alternative", () => {
+  const bad = auditCopy.auditHeadline({ failures: 3, warnings: 2, worst: "No phone number", score: 61 });
+  assert.match(bad, /3 things/);
+  assert.match(bad, /costing you enquiries/);
+  assert.match(bad, /no phone number/);
+
+  const clean = auditCopy.auditHeadline({ failures: 0, warnings: 0, score: 100 });
+  assert.match(clean, /Nothing on this page is broken/);
+  assert.doesNotMatch(clean, /costing/, "a clean page must not be told it is losing money");
+
+  // The bridge to signing up has to name the alternative, or nobody believes it.
+  const next = auditCopy.auditNextStep({ failures: 3, warnings: 1, free: true });
+  assert.match(next, /whoever built your site/i, "a report that pretends there is no alternative is a report nobody believes");
+  assert.match(next, /No card/);
+  assert.match(auditCopy.auditNextStep({ failures: 0, warnings: 0, free: true }), /nothing to fix/i);
+});
+
+test("the audit page colours a failure differently from a pass", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8");
+  // The severities the crawler actually emits — the old code matched three
+  // values it has never produced, so everything rendered grey.
+  assert.match(page, /s === "fail" \?/);
+  assert.match(page, /s === "warn" \?/);
+  assert.doesNotMatch(page, /s === "critical" \|\| s === "high"/, "the colours must match the values that exist");
+  assert.match(page, /f\.severity === "pass" \? <CheckCircle2/, "a passing check must not wear a warning triangle");
+  // And the cost, the fix and the bridge all reach the reader.
+  for (const field of ["f.costs", "f.fix", "f.ours", "report.headline", "report.nextStep"]) {
+    assert.ok(page.includes(field), `${field} never reaches the page`);
+  }
+});

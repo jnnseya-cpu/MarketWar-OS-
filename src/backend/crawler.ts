@@ -230,7 +230,50 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   }
   const wordCount = stripTags(html).split(/\s+/).filter(Boolean).length;
 
-  const [robotsTxt, sitemapXml] = await Promise.all([exists(`${origin}/robots.txt`), exists(`${origin}/sitemap.xml`)]);
+  // ---- deeper measures, all from the HTML already fetched ----
+  //
+  // The audit reported seventeen things and three of them were shown for free —
+  // which was not enough to be worth an email address, and none of it spoke to a
+  // local business about enquiries. Everything below is read from the same
+  // document, so the crawl costs exactly what it cost before.
+  const bodyOnly = html.replace(/<head[\s\S]*?<\/head>/i, "");
+  const telLinks = (html.match(/href\s*=\s*["']tel:[^"']+["']/gi) || []).length;
+  const mailtoLinks = (html.match(/href\s*=\s*["']mailto:[^"']+["']/gi) || []).length;
+  const hasForm = /<form\b/i.test(html);
+  // A phone number as plain text, in the shapes a UK business writes one.
+  const phoneText = /(?:\+44\s?|\b0)(?:\d[\s-]?){9,10}\d\b/.test(stripTags(bodyOnly));
+  // A UK postcode is the cheapest reliable evidence of a real address on a page.
+  const postcode = /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(stripTags(bodyOnly));
+  const localSchema = sdTypes.some((t) => /LocalBusiness|Organization|Store|ProfessionalService|HomeAndConstructionBusiness/i.test(t));
+  // Insecure assets on a secure page: blocked or padlock-downgraded by browsers.
+  const mixed = https ? (html.match(/(?:src|href)\s*=\s*["']http:\/\/[^"']+["']/gi) || []).length : 0;
+  const bytes = Buffer.byteLength(html, "utf8");
+  const headHtml = html.match(/<head[\s\S]*?<\/head>/i)?.[0] || "";
+  const blockingScripts = (headHtml.match(/<script\b(?![^>]*\b(?:async|defer|type\s*=\s*["']application\/ld\+json["']))[^>]*\bsrc\s*=/gi) || []).length;
+  const favicon = /<link[^>]+rel\s*=\s*["'][^"']*icon[^"']*["']/i.test(html);
+  const h2s = (html.match(/<h2[\s>]/gi) || []).length;
+  const socialLinks = (html.match(/href\s*=\s*["']https?:\/\/(?:www\.)?(?:facebook|instagram|linkedin|x|twitter|youtube|tiktok)\.com\/[^"']+["']/gi) || []).length;
+  // A stale footer year is what a careful customer reads as "closed down".
+  const thisYear = new Date().getUTCFullYear();
+  const years = (stripTags(bodyOnly).match(/(?:©|&copy;|copyright)\s*(\d{4})/gi) || []).map((m) => Number(m.replace(/\D/g, "")));
+  const staleYear = years.length > 0 && Math.max(...years) < thisYear - 1;
+
+  // Both spellings of the address must answer. This is the fault that also
+  // silently breaks payment webhooks — a provider that does not follow redirects
+  // posts to the half that does not answer and records a failure for ever.
+  const altHost = (() => {
+    try {
+      const u = new URL(origin);
+      u.hostname = u.hostname.startsWith("www.") ? u.hostname.slice(4) : `www.${u.hostname}`;
+      return u.origin;
+    } catch { return ""; }
+  })();
+
+  const [robotsTxt, sitemapXml, altReachable] = await Promise.all([
+    exists(`${origin}/robots.txt`),
+    exists(`${origin}/sitemap.xml`),
+    altHost ? exists(altHost) : Promise.resolve(true),
+  ]);
 
   // ---- score from measured checks ----
   const findings: Finding[] = [];
@@ -254,6 +297,20 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   add("Social", "Open Graph", Boolean(ogTitle && ogImage), 5, "Open Graph tags present (rich social previews).", "Missing Open Graph title/image — links share without a preview.", Boolean(ogTitle || ogImage));
   add("Social", "Twitter card", Boolean(twitterCard), 2, "Twitter card present.", "No Twitter card meta.", true);
   add("Structured data", "Schema.org", sdTypes.length > 0, 6, `Structured data present (${[...new Set(sdTypes)].slice(0, 5).join(", ")}).`, "No schema.org structured data — you miss rich results.", true);
+
+  // ---- the deeper set: what a local business is actually judged on ----
+  add("Content", "Phone number", telLinks > 0, 9, `A tappable phone link is on the page.`, phoneText ? "A phone number appears as text but is not a tel: link, so it cannot be dialled with a tap." : "No phone number found on the page.", phoneText);
+  add("Content", "Contact route", telLinks + mailtoLinks > 0 || hasForm, 9, "There is a way to make contact from this page.", "No phone link, email link or form on this page.");
+  add("SEO", "Local address", postcode, 6, "A postal address is on the page.", "No address or postcode found — local search needs to see where you are.", true);
+  add("Structured data", "Local business schema", localSchema, 6, "Local business markup present.", "No LocalBusiness or Organization markup — search engines have to guess your address, hours and phone.", true);
+  add("Technical", "Mixed content", mixed === 0, 7, https ? "No insecure assets on a secure page." : "Not applicable — the page is not served over HTTPS.", `${mixed} asset${mixed === 1 ? "" : "s"} loaded over plain http on a secure page — browsers block or downgrade these.`);
+  add("Technical", "Page weight", bytes < 500_000, 5, `Page HTML is ${Math.round(bytes / 1024)}KB.`, `Page HTML is ${Math.round(bytes / 1024)}KB — heavy for a phone on mobile data.`, bytes < 1_000_000);
+  add("Technical", "Render-blocking scripts", blockingScripts === 0, 5, "No render-blocking scripts in the head.", `${blockingScripts} script${blockingScripts === 1 ? "" : "s"} in the head block the page from drawing.`, blockingScripts <= 2);
+  add("Technical", "Favicon", favicon, 2, "Favicon set.", "No favicon — the browser tab and bookmarks show a blank icon.", true);
+  add("Content", "Heading structure", h2s > 0, 4, `${h2s} subheading${h2s === 1 ? "" : "s"} break up the page.`, "No H2 subheadings — the page reads as one block and gets scanned past.", true);
+  add("Social", "Social profiles", socialLinks > 0, 3, `${socialLinks} social profile link${socialLinks === 1 ? "" : "s"}.`, "No links to social profiles.", true);
+  add("Content", "Copyright year", !staleYear, 3, "Footer year is current.", `The footer says ${years.length ? Math.max(...years) : "an old year"} — a careful customer reads that as closed down.`, true);
+  add("Technical", "www and root both work", altReachable, 6, "Both the www and root addresses answer.", `${altHost || "The other spelling of your address"} does not answer — anyone who types it that way, or has it printed on a van, gets nothing.`, true);
 
   // ---- what the HTML could not tell us ----
   //

@@ -4,6 +4,7 @@ import { addProspect, recordAttempt, setStage } from "@/backend/acquisition";
 import { rateLimit, clientKey } from "@/backend/guard";
 import { isDisposableEmail } from "@/backend/human-check";
 import { publicSendFailure, sendFailureOf, operatorFix } from "@/shared/send-failure";
+import { copyFor, auditHeadline, auditNextStep } from "@/shared/audit-copy";
 
 // THE FREE AUDIT — the front door for organic acquisition.
 //
@@ -61,10 +62,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: report.error || "That page could not be read.", block: report.block }, { status: 200 });
   }
 
-  // Worst first — the visitor should see the thing that is costing them most,
-  // not the first check that happened to run.
-  const ranked = [...report.findings].sort((a, b) => b.weight - a.weight);
+  // WORST FIRST, AND "WORST" MEANS BROKEN — not heavy.
+  //
+  // This sorted on weight alone, so the three findings shown free were whatever
+  // carried the most points regardless of whether they passed. On a decent site
+  // that meant a visitor was shown "Served over HTTPS", "Title present" and
+  // "Mobile viewport set" — three things that are FINE — and then asked for
+  // their email to see the rest. Nobody trades an address for good news about
+  // their own website, and they should not have to: the whole promise on the
+  // page is that we will tell them what is quietly losing them enquiries.
+  //
+  // Severity first, then weight. A failure always outranks a pass.
+  const rank = (s: string) => (s === "fail" ? 0 : s === "warn" ? 1 : 2);
+  const ranked = [...report.findings].sort((a, b) => rank(a.severity) - rank(b.severity) || b.weight - a.weight);
   const measured = ranked.filter((f) => f.measured !== false);
+
+  // WHAT EACH FINDING COSTS, in the reader's language rather than a linter's.
+  // A finding with no copy carries its technical detail alone — silence is
+  // better than a wrong explanation, and a check added tomorrow still renders.
+  const dress = (f: (typeof measured)[number]) => {
+    const c = copyFor(f.label);
+    return c && f.severity !== "pass"
+      ? { ...f, costs: c.costs, fix: c.fix, ours: c.ours }
+      : c
+        ? { ...f, fix: c.fix, ours: c.ours }
+        : f;
+  };
+
+  const failures = measured.filter((f) => f.severity === "fail").length;
+  const warnings = measured.filter((f) => f.severity === "warn").length;
+  const worst = measured.find((f) => f.severity !== "pass")?.label;
+  const headline = auditHeadline({ failures, warnings, worst, score: report.score });
+
   const email = str("email").toLowerCase();
 
   // No email: give the score and the first three properly, and say exactly how
@@ -79,11 +108,15 @@ export async function POST(req: NextRequest) {
       loadMs: report.loadMs,
       https: report.https,
       title: report.title,
-      findings: measured.slice(0, FREE_FINDINGS),
+      findings: measured.slice(0, FREE_FINDINGS).map(dress),
+      headline,
+      failures,
+      warnings,
+      nextStep: auditNextStep({ failures, warnings, free: true }),
       heldBack: Math.max(0, measured.length - FREE_FINDINGS),
       unmeasured: ranked.filter((f) => f.measured === false).length,
       note: measured.length > FREE_FINDINGS
-        ? `${measured.length} things were measured on this page. Three are above; the other ${measured.length - FREE_FINDINGS} come with the written report.`
+        ? `${measured.length} things were measured on this page. The ${FREE_FINDINGS} that matter most are above; the other ${measured.length - FREE_FINDINGS} come with the written report.`
         : "That is everything measured on this page — there is nothing else being held back.",
       charged: false,
     });
@@ -194,7 +227,11 @@ export async function POST(req: NextRequest) {
     robotsTxt: report.robotsTxt,
     sitemapXml: report.sitemapXml,
     structuredDataTypes: report.structuredDataTypes,
-    findings: measured,
+    findings: measured.map(dress),
+    headline,
+    failures,
+    warnings,
+    nextStep: auditNextStep({ failures, warnings, free: false }),
     unmeasuredFindings: ranked.filter((f) => f.measured === false),
     recorded,
     note: "Everything above was measured on your page just now — nothing is estimated and nothing is an industry average. The checks we could not read from the response are listed separately rather than counted against you.",
