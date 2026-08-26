@@ -32,12 +32,39 @@ export async function GET() {
         // variable instead of topping up, which is the actual fix.
         probe = { ran: true, ok: false, httpStatus: res.status, error: body, quotaExhausted: res.status === 429 || res.status === 402, fix: serperFailureReason(res.status) };
       }
-    } catch (e) { probe = { ran: true, ok: false, error: (e as Error).message, fix: "Server couldn't reach serper.dev — a network/egress issue on the host." }; }
+    } catch (e) {
+      // NOT REACHING A SERVICE IS NOT THE SAME AS BEING REFUSED BY IT.
+      // Marked so the verdict below cannot call this a rejected key.
+      const aborted = (e as Error).name === "AbortError";
+      probe = {
+        ran: true, ok: false, unreachable: true, timedOut: aborted,
+        error: aborted ? "The request to serper.dev timed out after 12s." : (e as Error).message,
+        fix: "This deployment could not reach serper.dev. The key is not implicated — check egress from the host, or try again: a single slow response looks identical to an outage.",
+      };
+    }
   }
-  const verdict = !key ? "AMBER — no Serper key; real prospect data off (sample data only)."
-    : (probe as { ok?: boolean }).ok ? "GREEN — real Google/Places data is live."
-    : (probe as { quotaExhausted?: boolean }).quotaExhausted
-      ? "AMBER — the key is valid and OUT OF CREDIT. Nothing is misconfigured; top up the Serper plan and discovery resumes immediately."
-      : "RED — Serper key present but rejected (see fix).";
+  // THE VERDICT MUST NAME WHAT ACTUALLY HAPPENED.
+  //
+  // Reported by the owner: "Real prospect data (Serper) is red but the key is
+  // present." Both true. Every non-ok probe that was not a quota error fell to
+  // one sentence — "key present but REJECTED" — which is a specific accusation
+  // against the key, and it was printed for a network failure, a timeout, and
+  // any HTTP status at all. An owner reading it goes looking for a bad or
+  // vanished key, which is the one thing that had already been ruled out by the
+  // word "present" in the same sentence.
+  //
+  // Four outcomes, four sentences, each with a different next move.
+  const p = probe as { ok?: boolean; quotaExhausted?: boolean; unreachable?: boolean; timedOut?: boolean; httpStatus?: number };
+  const verdict = !key
+    ? "AMBER — no Serper key; real prospect data off (sample data only)."
+    : p.ok
+      ? "GREEN — real Google/Places data is live."
+      : p.quotaExhausted
+        ? "AMBER — the key is valid and OUT OF CREDIT. Nothing is misconfigured; top up the Serper plan and discovery resumes immediately."
+        : p.unreachable
+          ? `RED — the key is present and UNTESTED: this deployment could not reach serper.dev${p.timedOut ? " (timed out)" : ""}. Nothing points at the key. Retry, and check egress from the host.`
+          : p.httpStatus === 401 || p.httpStatus === 403
+            ? `RED — serper.dev REFUSED the key (HTTP ${p.httpStatus}). This one is the key: regenerate it at serper.dev and set SERPER_API_KEY again.`
+            : `RED — serper.dev answered HTTP ${p.httpStatus ?? "?"} and the search did not run. Read \`probe.error\` below: the key is present, so a status that is not 401 or 403 is usually theirs rather than yours.`;
   return NextResponse.json({ service: "serper", verdict, present, probe });
 }
