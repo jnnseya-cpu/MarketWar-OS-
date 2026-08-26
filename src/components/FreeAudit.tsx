@@ -30,6 +30,8 @@ type Report = {
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
   /** Every page this report is based on. Shown, because a claim about "your website" has to name what was read. */
   pagesRead?: string[]; pagesTried?: string[];
+  /** Checks that are not a question about this kind of business. Never failures. */
+  notApplicable?: { label: string; area: string; why: string }[];
   headline?: string; nextStep?: string; failures?: number; warnings?: number;
   /** Whether the copy's promise to email the report was actually kept. */
   emailed?: boolean; emailNote?: string; emailFailure?: string;
@@ -198,6 +200,24 @@ export default function FreeAudit() {
                 One address, used to send you this report and nothing else until you say otherwise. No card, no trial to cancel, and the rest of the findings appear on this page immediately.
               </p>
             </form>
+          )}
+
+          {/* WHAT WE DID NOT COUNT AGAINST YOU, AND WHY.
+              An API company was told it was losing customers for having no
+              shopfront phone number, in language about standing in the rain.
+              Shown rather than silently dropped: a check that vanishes looks
+              like a check we forgot, and the reason is the part that proves
+              the report understood who it was reading. */}
+          {report.notApplicable && report.notApplicable.length > 0 && (
+            <div className="rounded-xl border border-white/10 bg-ink-900/50 p-4">
+              <p className="text-xs font-semibold text-slate-300">
+                {report.notApplicable.length} {report.notApplicable.length === 1 ? "check does" : "checks do"} not apply to you
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">{report.notApplicable[0].why}</p>
+              <p className="mt-1.5 text-xs text-slate-400">
+                {report.notApplicable.map((f) => f.label).join(", ")} — counted neither for nor against you.
+              </p>
+            </div>
           )}
 
           {/* WHAT TO DO NEXT. It names the alternative — take the list to your

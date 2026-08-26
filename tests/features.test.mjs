@@ -20526,20 +20526,33 @@ test("a generated video is charged for, and never below the margin floor", async
 test("the panel is quoted the length it will actually get, at that length's price", async () => {
   const g = await import("../src/backend/video-gateway.ts");
 
-  // Veo caps at 8s. Asking for 15 returns 8 — so the quote must be for 8, and
-  // must say so. Charging for 15 seconds of video nobody received is exactly
-  // what this platform exists not to do.
+  // THE MENU OFFERS ONLY WHAT ARRIVES. It used to list all four requested
+  // lengths, so Veo showed "12 seconds — 281 ACUs (returns 8s)" and "15
+  // seconds — 281 ACUs (returns 8s)" — the same eight-second clip under two
+  // longer names, at a price correct for a different product. Priced right,
+  // named wrong, which reads as either free extra video or charging for what
+  // we do not deliver.
   const veo = g.videoLengthOptions("veo");
-  const veo15 = veo.find((l) => l.requested === 15);
-  assert.equal(veo15.delivered, 8, "Veo is quoted a length it cannot produce");
-  assert.equal(veo15.acus, g.videoRenderAcus(8), "the customer is quoted for 15s of video Veo will not make");
-  assert.match(veo15.note, /caps at 8 seconds/, "the shortfall is not explained before the click");
+  for (const l of veo) {
+    assert.equal(l.delivered, l.requested, `Veo still offers ${l.requested}s and delivers ${l.delivered}s`);
+    assert.equal(l.acus, g.videoRenderAcus(l.delivered), "a row is priced for a length other than its own");
+  }
+  assert.deepEqual(veo.map((l) => l.delivered), [4, 8], "Veo makes 4s and 8s — no row may claim more");
+  // The rule the render path still needs: a caller asking for 15 gets 8.
+  assert.equal(g.supportedSeconds("veo", 15), 8, "the cap itself must survive the menu change");
 
   // Sora's longest step is 12, and it accepts nothing between its steps.
   const sora = g.videoLengthOptions("sora");
-  assert.equal(sora.find((l) => l.requested === 15).delivered, 12);
-  assert.equal(sora.find((l) => l.requested === 8).delivered, 8);
-  assert.equal(sora.find((l) => l.requested === 8).note, "", "an exact match still claims a shortfall");
+  assert.deepEqual(sora.map((l) => l.delivered), [4, 8, 12]);
+  assert.equal(g.supportedSeconds("sora", 15), 12);
+  for (const l of sora) assert.equal(l.delivered, l.requested);
+
+  // The price is PROPORTIONAL to the length, and the panel can prove it.
+  for (const l of [...veo, ...sora]) {
+    assert.ok(l.acusPerSecond > 0, `${l.delivered}s has no per-second rate`);
+    assert.ok(Math.abs(l.acusPerSecond - l.acus / l.delivered) < 0.1,
+      `${l.delivered}s quotes ${l.acusPerSecond}/s for ${l.acus} ACUs`);
+  }
 
   // With no engine configured nothing renders, so nothing may be quoted.
   for (const l of g.videoLengthOptions("demo")) {
@@ -20668,9 +20681,12 @@ test("the video render charges exactly what the button quoted", async () => {
   // those differ: Veo caps a 15s request at 8s, Sora snaps it to 12s — so the
   // screen said 281 ACUs and the charge attempted 420, and the owner was
   // refused for a number that appeared nowhere on the page.
-  const veo15 = g.videoLengthOptions("veo").find((l) => l.requested === 15);
-  const sora15 = g.videoLengthOptions("sora").find((l) => l.requested === 15);
-  assert.notEqual(veo15.acus, sora15.acus,
+  // Asked for 15, Veo delivers 8 and Sora delivers 12 — so the two chains
+  // charge different amounts for the same request. Read through supportedSeconds
+  // rather than the menu, which no longer offers a length nobody can make.
+  const veo15 = g.videoRenderAcus(g.supportedSeconds("veo", 15));
+  const sora15 = g.videoRenderAcus(g.supportedSeconds("sora", 15));
+  assert.notEqual(veo15, sora15,
     "the two providers now quote the same price — this test's premise is gone, check before deleting it");
 
   const src = codeOf(readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8"));
