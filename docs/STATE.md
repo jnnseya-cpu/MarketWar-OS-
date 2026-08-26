@@ -15,7 +15,7 @@ subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com).
 
 Next.js, TypeScript strict, three layers enforced by `scripts/check-layers.mjs`.
-220 backend modules, 170 API routes, 67 dashboard pages, **1,538 tests**
+220 backend modules, 170 API routes, 67 dashboard pages, **1,547 tests**
 including one end-to-end run of the growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
@@ -83,11 +83,11 @@ table over it.
 
 | Capability | One action |
 |---|---|
-| AI, images, video | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` |
+| AI, images, video | `ANTHROPIC_API_KEY` set 2026-08-26 (owner-reported; confirm on `/api/health/live`). **THE ACU WALLET IS THE GATE, NOT `AI_MONTHLY_CEILING_USD`** — every AI route requires auth AND `meterAction`, a 0-ACU account gets 402 before the gateway is reached, and the only unmetered path (the daily blog cron) needs BOTH `BLOG_DAILY_ENABLED=1` and `CRON_SECRET`, neither set. The dollar ceiling is a second belt over fastened braces. |
 | Scheduled work | `CRON_SECRET` · Newsletter: `NEWSLETTER_SECRET` |
 | **Sending email** | the sending pool with verified DNS, or `RESEND_API_KEY` / `SENDGRID_API_KEY`. **Until one is set every send is REFUSED and reported as not sent** — it used to return success for mail delivered to nobody. |
-| **Client approval links** | **`PORTAL_LINK_SECRET`** (16+ chars). Refuses to ISSUE without it — a link that verifies on one server and fails on every other makes the agency look broken to their own customer. |
-| Stripe, Firebase Admin | Both configured and verified live. |
+| Client approval links | `PORTAL_LINK_SECRET` (16+ chars), falling back to `HUMAN_CHECK_SECRET` — which IS set, so links work today. A dedicated secret is hygiene, not a blocker. With NEITHER, issuing is refused rather than minting a link that verifies on one server and fails on every other. |
+| Stripe, Firebase Admin | Both configured and verified live. `FIELD_ENCRYPTION_MASTER_KEY` set 2026-08-26, which unblocks PII writes that were being refused in silence — nothing predates it, because those writes never landed. |
 
 ---
 
@@ -101,37 +101,41 @@ and never created anywhere), From `info@`. The relay queued it (`B92FD8E3CF`) an
 delivered nothing, and the bounce went to a mailbox that does not exist, so the
 failure destroyed its own evidence. `shared/sender-identity.ts` now holds one
 rule: an envelope sender must be a mailbox that exists — the authenticated
-account unless `MW_BOUNCE_ADDRESS` states otherwise — the From is never
-rewritten, and a From that is not the account is declared with RFC 5322
-`Sender:`. **To close:** redeploy, then `?send=self`. Best permanent fix, one
-setting: `SMTP_USER=info@marketwaros.com` with that mailbox's own password.
+account unless `MW_BOUNCE_ADDRESS` states otherwise — the From is never rewritten,
+and a From that is not the account is declared with RFC 5322 `Sender:`.
+**To close:** set `SMTP_USER=info@marketwaros.com` AND `SMTP_PASS` to that
+mailbox's own password (they are per mailbox), redeploy, then `?send=self`.
 
 **2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to
 14.2.35 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware
 bypass — fixed only in 15.5.x+. Built and green on dev; rolled off 2026-08-21
 during a live `/verify-human` failure as a precaution, NOT because it was proved
 to be the cause. **To close:** deploy dev to a Vercel preview, open
-`/api/auth/human` and `/verify-human`, and if both answer, merge.
+`/api/auth/human` and `/verify-human`; if both answer, merge.
 
 **FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25). Sessions carried
-"Admin is not initialising" for weeks and hung diagnoses off it. Check the
-endpoint; never inherit the belief.
+"Admin is not initialising" for weeks and hung diagnoses off it — check the
+endpoint, never inherit the belief.
 
 **3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid and
 `STRIPE_WEBHOOK_SECRET` set, so the easy causes are out. Left: (a) the wrong
 `whsec_` — that account has SEVEN endpoints, each with its own; (b) the URL —
-`MAIN_DOMAIN` is the APEX while the app serves `www.`, and Stripe does not follow
-redirects. **To close: `/api/health/stripe` → `webhookDiagnostic.endpointUrl`,**
+`MAIN_DOMAIN` is the APEX while the app serves `www.` and Stripe does not follow
+redirects. **To close:** `/api/health/stripe` → `webhookDiagnostic.endpointUrl`,
 then read a failed event's response body in Stripe.
 
 **4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
-creator's click to the account that signs up (last touch, 90 days,
-consent-tiered). Nothing posts a commission when that account PAYS US — and it
-must not be faked with a zero-value ledger event, which bypasses the 10k gate.
+creator's click to the account that signs up (last touch, 90 days). Nothing posts
+a commission when that account PAYS US — and it must not be faked with a
+zero-value ledger event, which bypasses the 10k gate.
 
 **Owner actions (nothing in code can substitute):**
-1. `PORTAL_LINK_SECRET`, `NEWSLETTER_SECRET`. (`HUMAN_CHECK_SECRET` is set.)
-2. Open `/api/capabilities` on the live deployment; submit the sitemap.
+1. **`PLATFORM_ADMIN_EMAILS`** — without it nobody can reach
+   `/api/admin/grant-acus`, so no wallet can be credited by hand and the owner's
+   own balance stays 0. In production a wallet OPENS at 0; the 100-ACU signup
+   allowance is claimed once via `/verify-human` after email verification.
+2. Open `/api/health/live` after every change — `envPresent` is the only thing
+   that proves the running build received it. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per
    brand, with only the blanks a sender knows.
 4. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
@@ -140,19 +144,15 @@ must not be faked with a zero-value ledger event, which bypasses the 10k gate.
    is the five feature creatives with briefs; both verifiers fail on a stale
    price or an invented customer.
 
-**Surfaces: six of seven** — §70, §92, §95, §98, §102, §103.
-
-**Genuinely not built:**
-
-- §97's priority queue, DELIBERATELY: five inputs need a basis nothing produces.
-- §50 paid boost; §77 knowledge graph (facts are key/value); §80 agent message
-  bus (chains are sequential by construction); §14 calendars, §21 carousels,
-  §100 per-agent cost/impact.
+**Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:**
+- §97's priority queue (five inputs need a basis nothing produces); §50 paid
+  boost; §77 knowledge graph (facts are key/value); §80 agent message bus
+  (chains are sequential by construction); §14 calendars, §21 carousels, §100
+  per-agent cost/impact.
 - No bulk catalogue import, and no PUBLIC page listing what brands have opened —
   a promoter must sign up before seeing anything to promote (Task 13).
 
 **Security debt, with the reasoning:**
-
 - 6 moderate npm advisories, one chain (uuid → … → firebase-admin), left
   deliberately: npm's "fix" is a four-major downgrade of firebase-admin, and it
   covers uuid v3/v5/v6 with a buffer neither consumer passes.
