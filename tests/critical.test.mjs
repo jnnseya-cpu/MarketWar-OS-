@@ -2744,14 +2744,24 @@ test("the real-send test uses the real code path, and is not an open relay", asy
     "a test that reimplements sending can differ from sending, which is the whole bug");
   assert.match(src, /transactional: true/, "a test the operator asked for by name must not be silenced by a marketing pause");
 
-  // AND IT IS CLOSED. /api/health is deliberately public, so an unauthenticated
-  // "email any address on request" button would be an open relay with extra
-  // steps. The rest of the endpoint stays open; only this branch is gated.
+  // AND IT CANNOT BE USED TO MAIL A STRANGER. The first version of this gate
+  // demanded an admin session or the scheduler bearer — both HEADERS, which a
+  // browser address bar cannot send, so it was unsatisfiable by the only person
+  // it meant to admit, and a secret in the query string is forbidden outright.
+  // The RECIPIENT is constrained instead: the sending account's own mailbox or
+  // an address the owner listed. Nobody can mail a stranger through it whatever
+  // they type, and testing your own deployment needs no credential.
   const branch = src.slice(src.indexOf("const sendTo ="), src.indexOf("const vars ="));
-  assert.match(branch, /cronAuthorised\(req\)/);
+  assert.match(branch, /PLATFORM_ADMIN_EMAILS/);
+  assert.match(branch, /allowedWithoutCredential/);
+  assert.match(branch, /cronAuthorised\(req\)/, "a credential must still widen it for anyone who has one");
   assert.match(branch, /requireAuth\(req, \{ scope: "platform_admin" \}\)/);
-  assert.ok(branch.indexOf("requireAuth") < branch.indexOf("sendEmail"),
-    "the authorisation has to happen BEFORE anything is sent");
+  assert.ok(branch.indexOf("allowedWithoutCredential") < branch.indexOf("sendEmail"),
+    "the recipient check has to happen BEFORE anything is sent");
+  assert.match(branch, /rateLimit\(clientKey\(req, "email-send-test"\)/, "a real send spends the allowance and the domain's reputation");
+  // The refusal has to say what WOULD work, or it is another dead end.
+  assert.match(branch, /allowedRightNow/);
+  assert.match(branch, /\?send=self/);
 
   // Slow external work needs reserved time, or the diagnostic dies mid-request
   // and reports nothing — which is worse than reporting the wrong thing.
