@@ -3278,6 +3278,53 @@ test("a length is made of clips that sum exactly to it, at the sum of their pric
 // The attribute cannot be made to work across origins. The bytes have to come
 // back through our own origin with Content-Disposition: attachment.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// "I NEED TO DOWNLOAD THIS AS IT IS SAVED NOW."
+//
+// The filing worked — the owner pasted the library entry, title, timestamp and
+// all. What the library then offered was a button that writes `item.output` to
+// a MARKDOWN FILE. For every kind the library had ever held that is right: the
+// output IS the deliverable, a document. A video's output is a URL, so the
+// button handed over one line of text while the video played in a browser tab.
+// ---------------------------------------------------------------------------
+test("a saved video plays and downloads from the library, not as a text file", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/dashboard/library/page.tsx", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/work/download/route.ts", import.meta.url), "utf8");
+
+  // The markdown download SURVIVES — it is correct for every document — and a
+  // file download appears beside it only when there is a file.
+  assert.match(page, /title="Download as Markdown"/, "documents must still download as documents");
+  assert.match(page, /mediaUrlsOf\(item\)\.length > 0 && \(/, "the file button only belongs on items that have one");
+  assert.match(page, /\/api\/work\/download\?brandId=/);
+
+  // And it PLAYS. A saved video rendered as a paragraph of URL is the reason
+  // the owner could not tell whether it had been kept at all.
+  assert.match(page, /<video src=\{u\} controls/);
+  // A multi-clip render is one URL per line, and each gets its own button.
+  assert.match(page, /&n=\$\{i\}/);
+
+  // OUR OWN STORAGE ONLY, on both sides. A saved output can contain any link an
+  // engine wrote into it; rendering an arbitrary one in a <video> tag or
+  // streaming it through the route would fetch somebody else's server on the
+  // customer's behalf.
+  assert.match(page, /const MEDIA_HOSTS = \["firebasestorage\.googleapis\.com", "storage\.googleapis\.com"\]/);
+  assert.match(route, /ALLOWED_HOSTS\.has\(host\)/);
+  assert.match(route, /await resolveBrandAccess\(req, brandId\)/);
+  assert.doesNotMatch(route, /searchParams\.get\("url"\)/,
+    "a caller-supplied URL would turn this into an open proxy");
+
+  // The file arrives as a file, named after the item.
+  assert.match(route, /"Content-Disposition": `attachment; filename=/);
+  assert.match(route, /function fileNameFor/);
+  // The extension comes from the STORED path, never from a caller.
+  assert.match(route, /decodeURIComponent\(url\)\.match/);
+
+  // A document asked for as a file is told what it is, rather than served an
+  // .mp4 full of markdown.
+  assert.match(route, /This item is a document, not a file/);
+});
+
 test("the finished video downloads as a file, through our own origin", async () => {
   const { readFileSync } = await import("node:fs");
   const route = readFileSync(new URL("../src/app/api/video-render/download/route.ts", import.meta.url), "utf8");

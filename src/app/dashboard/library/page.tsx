@@ -9,11 +9,33 @@
 // the fix; the other half is a page you can actually open.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Library, Search, Pin, PinOff, Trash2, Copy, Check, AlertTriangle, FileText } from "lucide-react";
+import { Loader2, Library, Search, Pin, PinOff, Trash2, Copy, Check, AlertTriangle, FileText, Download } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { mdToHtml } from "@/frontend/markdown";
+
+/**
+ * The media files a library item holds, if any.
+ *
+ * A video's `output` is one URL per clip. Everything else the library stores is
+ * a document, and returns nothing here — so the markdown view and the markdown
+ * download stay exactly as they were for every item that is not a file.
+ *
+ * Restricted to OUR OWN storage: a saved output can contain any link an engine
+ * wrote into it, and rendering an arbitrary one in a <video> tag would make
+ * this page fetch somebody else's server on the customer's behalf.
+ */
+const MEDIA_HOSTS = ["firebasestorage.googleapis.com", "storage.googleapis.com"];
+function mediaUrlsOf(item: { output: string }): string[] {
+  return String(item.output || "")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => {
+      if (!/^https:\/\//i.test(t)) return false;
+      try { return MEDIA_HOSTS.includes(new URL(t).hostname); } catch { return false; }
+    });
+}
 
 type WorkItem = {
   id: string; brandId: string; kind: string; source: string; sourceName: string;
@@ -192,6 +214,22 @@ export default function LibraryPage() {
                     <button title="Copy the whole thing" onClick={() => copy(item)} className="rounded p-1.5 text-slate-500 hover:bg-ink-850 hover:text-emerald-300">
                       {copied === item.id ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                     </button>
+                    {/* A SAVED VIDEO IS A FILE, NOT A DOCUMENT.
+                        The Markdown button writes item.output to a .md — right
+                        for everything the library held until now, and useless
+                        for a video, whose output is a URL. It handed the owner
+                        one line of text while the video played in a tab, because
+                        a cross-origin `download` attribute does nothing. This
+                        one streams the bytes through our own origin. */}
+                    {mediaUrlsOf(item).length > 0 && (
+                      <a
+                        title={`Download the ${mediaUrlsOf(item).length > 1 ? "first clip" : "file"}`}
+                        href={`/api/work/download?brandId=${encodeURIComponent(item.brandId)}&id=${encodeURIComponent(item.id)}`}
+                        className="rounded p-1.5 text-slate-500 hover:bg-ink-850 hover:text-emerald-300"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                     <button title="Download as Markdown" onClick={() => download(item)} className="rounded p-1.5 text-slate-500 hover:bg-ink-850 hover:text-sky-300">
                       <FileText className="h-3.5 w-3.5" />
                     </button>
@@ -202,7 +240,23 @@ export default function LibraryPage() {
                 </div>
                 {openId === item.id && (
                   <div className="mt-3 border-t border-ink-700 pt-3">
-                    <div className="prose-mw max-w-none text-sm" dangerouslySetInnerHTML={{ __html: mdToHtml(item.output) }} />
+                    {/* PLAY IT HERE. A saved video rendered as a paragraph of
+                        URL is the reason the owner could not tell whether it
+                        had been kept at all. */}
+                    {mediaUrlsOf(item).map((u, i) => (
+                      <div key={u} className="mb-3">
+                        <video src={u} controls playsInline preload="metadata" className="w-full max-w-md rounded-lg border border-white/[0.08] bg-black" />
+                        <a
+                          href={`/api/work/download?brandId=${encodeURIComponent(item.brandId)}&id=${encodeURIComponent(item.id)}&n=${i}`}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download{mediaUrlsOf(item).length > 1 ? ` clip ${i + 1}` : " MP4"}
+                        </a>
+                      </div>
+                    ))}
+                    {mediaUrlsOf(item).length === 0 && (
+                      <div className="prose-mw max-w-none text-sm" dangerouslySetInnerHTML={{ __html: mdToHtml(item.output) }} />
+                    )}
                   </div>
                 )}
               </div>
