@@ -63,6 +63,17 @@ export type CrawlReport = {
   unreadable?: string[];
   /** Empty when coverage is complete; otherwise says what the score does and does not mean. */
   scoreNote?: string;
+  /**
+   * EVERY PAGE THIS REPORT IS BASED ON.
+   *
+   * A report that says "your website" after reading one page is making a claim
+   * it cannot support, and the first time it is wrong the reader stops
+   * believing the rest. This is what the audit actually read, so anyone can
+   * check it against their own site.
+   */
+  pagesRead?: string[];
+  /** Contact-ish pages that were linked but could not be read. Named, not hidden. */
+  pagesTried?: string[];
   error?: string;
 };
 
@@ -153,6 +164,54 @@ async function exists(url: string, timeoutMs = 7_000): Promise<boolean> {
   } catch { return false; } finally { clearTimeout(t); }
 }
 
+/**
+ * THE PAGES A VISITOR WOULD ACTUALLY TRY, not just the one they landed on.
+ *
+ * THE FAULT THIS FIXES, reported from a live audit of a real site. The report
+ * said "No phone number found on the page" and "There is no obvious way to get
+ * in touch from this page — no phone link, no email, no form. Every visitor who
+ * wanted to hire you had to go looking, and looking is where they stop."
+ *
+ * The site has a /contact page, linked from its own navigation. Both statements
+ * were true OF THE HOMEPAGE and false about the business, and the second one
+ * accused the owner of losing customers over a problem they had already solved.
+ * A report that does that is worse than no report: the owner knows it is wrong,
+ * and every correct finding beside it stops counting too.
+ *
+ * "Can I contact this business" is a question about the SITE. So the crawl
+ * follows the links a person would follow — the ones whose href or link text
+ * says contact, enquiries, quote, book, about — and answers from everything it
+ * read. Capped at two extra pages, same origin only, and each one goes through
+ * the same guard as the first: a public audit that follows links is a public
+ * audit that can be pointed at somebody's internal network.
+ */
+const CONTACT_HINT = /(contact|get-?in-?touch|enquir|inquir|reach-?us|quote|book|hire|about)/i;
+const EXTRA_PAGES = 2;
+
+function contactCandidates(html: string, origin: string, currentUrl: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([currentUrl.replace(/#.*$/, "")]);
+  const anchors = html.match(/<a\b[^>]*href\s*=\s*["'][^"']+["'][^>]*>[\s\S]{0,120}?<\/a>/gi) || [];
+  for (const a of anchors) {
+    const href = attr(a, "href") || "";
+    if (/^(#|mailto:|tel:|javascript:|data:)/i.test(href)) continue;
+    // The LINK TEXT counts as much as the path: plenty of sites route "Contact"
+    // at /pages/17, and a visitor reads the word, not the URL.
+    if (!CONTACT_HINT.test(href) && !CONTACT_HINT.test(stripTags(a))) continue;
+    let abs = "";
+    try { abs = new URL(href, currentUrl).toString().replace(/#.*$/, ""); } catch { continue; }
+    // SAME ORIGIN ONLY. A "Contact" link to a third party is their page, not
+    // this business's, and following it would make this endpoint a fetcher of
+    // arbitrary URLs on somebody else's behalf.
+    if (!abs.startsWith(origin)) continue;
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    out.push(abs);
+    if (out.length >= EXTRA_PAGES) break;
+  }
+  return out;
+}
+
 const attr = (tag: string, name: string): string | undefined => {
   const m = tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i"));
   return m ? m[1] : undefined;
@@ -237,13 +296,21 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   // local business about enquiries. Everything below is read from the same
   // document, so the crawl costs exactly what it cost before.
   const bodyOnly = html.replace(/<head[\s\S]*?<\/head>/i, "");
-  const telLinks = (html.match(/href\s*=\s*["']tel:[^"']+["']/gi) || []).length;
-  const mailtoLinks = (html.match(/href\s*=\s*["']mailto:[^"']+["']/gi) || []).length;
-  const hasForm = /<form\b/i.test(html);
-  // A phone number as plain text, in the shapes a UK business writes one.
-  const phoneText = /(?:\+44\s?|\b0)(?:\d[\s-]?){9,10}\d\b/.test(stripTags(bodyOnly));
-  // A UK postcode is the cheapest reliable evidence of a real address on a page.
-  const postcode = /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(stripTags(bodyOnly));
+
+  // THE CONTACT FAMILY, AS PREDICATES OVER ANY PAGE.
+  //
+  // Written once and applied to every page the crawl reads. They were inline
+  // tests against the landing page's HTML, and answering the same question
+  // about a second page meant writing the same regex again — two copies of
+  // "what counts as a phone number" that could disagree, in the checks whose
+  // wrongness is most expensive.
+  const text = (h: string) => stripTags(h.replace(/<head[\s\S]*?<\/head>/i, ""));
+  const hasPhoneLink = (h: string) => /href\s*=\s*["']tel:[^"']+["']/i.test(h);
+  /** A phone number as plain text, in the shapes a UK business writes one. */
+  const hasPhoneText = (h: string) => /(?:\+44\s?|\b0)(?:\d[\s-]?){9,10}\d\b/.test(text(h));
+  const hasContactRoute = (h: string) => /href\s*=\s*["'](?:tel|mailto):[^"']+["']/i.test(h) || /<form\b/i.test(h);
+  /** A UK postcode is the cheapest reliable evidence of a real address. */
+  const hasAddress = (h: string) => /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text(h));
   const localSchema = sdTypes.some((t) => /LocalBusiness|Organization|Store|ProfessionalService|HomeAndConstructionBusiness/i.test(t));
   // Insecure assets on a secure page: blocked or padlock-downgraded by browsers.
   const mixed = https ? (html.match(/(?:src|href)\s*=\s*["']http:\/\/[^"']+["']/gi) || []).length : 0;
@@ -269,11 +336,28 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
     } catch { return ""; }
   })();
 
-  const [robotsTxt, sitemapXml, altReachable] = await Promise.all([
+  // The contact-ish pages are fetched IN PARALLEL with the two existence
+  // probes, so answering "can a customer reach this business" costs the crawl
+  // no extra wall-clock beyond the slowest single request.
+  const candidates = contactCandidates(html, origin, finalUrl);
+  const [robotsTxt, sitemapXml, altReachable, extraPages] = await Promise.all([
     exists(`${origin}/robots.txt`),
     exists(`${origin}/sitemap.xml`),
     altHost ? exists(altHost) : Promise.resolve(true),
+    Promise.all(candidates.map((u) => fetchPage(u, 8_000).catch(() => null))),
   ]);
+
+  // Every page actually read, the landing page first. The contact family is
+  // answered from ALL of them; everything else stays a statement about the one
+  // page, and says so.
+  const readPages: { url: string; html: string }[] = [
+    { url: finalUrl, html },
+    ...extraPages.filter((p): p is NonNullable<typeof p> => Boolean(p) && p!.status >= 200 && p!.status < 300)
+      .map((p) => ({ url: p.finalUrl, html: p.html })),
+  ];
+  const otherPages = readPages.slice(1);
+  /** A short name for a page, for a sentence a human reads. */
+  const pageName = (u: string) => { try { return new URL(u).pathname.replace(/\/$/, "") || "/"; } catch { return u; } };
 
   // ---- score from measured checks ----
   const findings: Finding[] = [];
@@ -299,9 +383,37 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   add("Structured data", "Schema.org", sdTypes.length > 0, 6, `Structured data present (${[...new Set(sdTypes)].slice(0, 5).join(", ")}).`, "No schema.org structured data — you miss rich results.", true);
 
   // ---- the deeper set: what a local business is actually judged on ----
-  add("Content", "Phone number", telLinks > 0, 9, `A tappable phone link is on the page.`, phoneText ? "A phone number appears as text but is not a tel: link, so it cannot be dialled with a tap." : "No phone number found on the page.", phoneText);
-  add("Content", "Contact route", telLinks + mailtoLinks > 0 || hasForm, 9, "There is a way to make contact from this page.", "No phone link, email link or form on this page.");
-  add("SEO", "Local address", postcode, 6, "A postal address is on the page.", "No address or postcode found — local search needs to see where you are.", true);
+  // ---- the three questions about the BUSINESS, answered from every page read
+  //
+  // These used to be answered from the landing page alone and worded as if they
+  // described the site. On a site whose homepage links to /contact, that
+  // produced "There is no obvious way to get in touch" beside a working contact
+  // page — a false accusation, in the report the whole platform is sold on.
+  const somewhere = (test: (h: string) => boolean) => readPages.find((p) => test(p.html));
+  const wherePhoneLink = somewhere(hasPhoneLink);
+  const wherePhoneText = somewhere(hasPhoneText);
+  const whereContact = somewhere(hasContactRoute);
+  const whereAddress = somewhere(hasAddress);
+  /** "on this page" or "on /contact" — the report must say WHERE it looked. */
+  const at = (p?: { url: string }) => (!p || p.url === finalUrl ? "on this page" : `on ${pageName(p.url)}`);
+  const alsoRead = otherPages.length
+    ? ` We also read ${otherPages.map((p) => pageName(p.url)).join(" and ")}.`
+    : candidates.length
+      ? ` We tried ${candidates.map(pageName).join(" and ")} and could not read ${candidates.length === 1 ? "it" : "them"}.`
+      : "";
+
+  add("Content", "Phone number", Boolean(wherePhoneLink), 9,
+    `A tappable phone link is ${at(wherePhoneLink)}.`,
+    wherePhoneText
+      ? `A phone number appears as text ${at(wherePhoneText)} but is not a tel: link, so it cannot be dialled with a tap.`
+      : `No phone number on this page${otherPages.length ? ` or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : ""}.${alsoRead && otherPages.length ? "" : alsoRead}`,
+    Boolean(wherePhoneText));
+  add("Content", "Contact route", Boolean(whereContact), 9,
+    `There is a way to make contact — a phone link, an email link or a form ${at(whereContact)}.`,
+    `No phone link, email link or form on this page${otherPages.length ? `, or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : ""}.${alsoRead && otherPages.length ? "" : alsoRead}`);
+  add("SEO", "Local address", Boolean(whereAddress), 6,
+    `A postal address is ${at(whereAddress)}.`,
+    `No address or postcode found${otherPages.length ? ` on this page or on ${otherPages.map((p) => pageName(p.url)).join(" or ")}` : " on this page"} — local search needs to see where you are.`, true);
   add("Structured data", "Local business schema", localSchema, 6, "Local business markup present.", "No LocalBusiness or Organization markup — search engines have to guess your address, hours and phone.", true);
   add("Technical", "Mixed content", mixed === 0, 7, https ? "No insecure assets on a secure page." : "Not applicable — the page is not served over HTTPS.", `${mixed} asset${mixed === 1 ? "" : "s"} loaded over plain http on a secure page — browsers block or downgrade these.`);
   add("Technical", "Page weight", bytes < 500_000, 5, `Page HTML is ${Math.round(bytes / 1024)}KB.`, `Page HTML is ${Math.round(bytes / 1024)}KB — heavy for a phone on mobile data.`, bytes < 1_000_000);
@@ -378,6 +490,8 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
     title, metaDescription, h1Count: h1s.length, wordCount,
     imagesTotal: imgs.length, imagesNoAlt: imgsNoAlt, internalLinks: internal, externalLinks: external,
     robotsTxt, sitemapXml, structuredDataTypes: [...new Set(sdTypes)].slice(0, 8),
+    pagesRead: readPages.map((pg) => pg.url),
+    pagesTried: candidates.filter((c) => !readPages.some((pg) => pg.url === c)),
     findings: findings.sort((a, b) => (a.severity === b.severity ? b.weight - a.weight : a.severity === "fail" ? -1 : b.severity === "fail" ? 1 : a.severity === "warn" ? -1 : 1)),
   };
 }

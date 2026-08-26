@@ -175,13 +175,13 @@ export const AUDIT_COPY: Record<string, FindingCopy> = {
 
   "Phone number": {
     area: "Content",
-    costs: "For a local business the phone number is the conversion. If it is not on the page as text a phone can dial, somebody standing in the rain has to copy it by hand — and most will simply ring whoever is easier to ring.",
+    costs: "For a local business the phone number is the conversion. If it is not a number a phone can dial, somebody standing in the rain has to copy it by hand — and most will simply ring whoever is easier to ring.",
     fix: "Put the number in the header as a tel: link so it dials on a tap.",
     ours: "The page builder puts a tappable number in the header of every page, and the call tracking tells you which page produced the call.",
   },
   "Contact route": {
     area: "Content",
-    costs: "There is no obvious way to get in touch from this page — no phone link, no email, no form. Every visitor who wanted to hire you had to go looking, and looking is where they stop.",
+    costs: "No phone link, no email link and no form — on the page they landed on or on the contact pages we followed from it. Every visitor who wanted to hire you had to go looking, and looking is where they stop.",
     fix: "Give one clear way to make contact, visible without scrolling.",
     ours: "Every page we build carries a contact route above the fold, and the enquiries land in one inbox.",
   },
@@ -308,9 +308,9 @@ export function auditHeadline(input: { failures: number; warnings: number; worst
     return `Nothing on this page is broken — it scored ${score} out of 100. That is rarer than it sounds, and it means the next gain is not on this page but in what you publish next.`;
   }
   if (failures === 0) {
-    return `Nothing here is broken, but ${warnings} thing${warnings === 1 ? "" : "s"} ${warnings === 1 ? "is" : "are"} working against you${worst ? `, starting with ${worst.toLowerCase()}` : ""}.`;
+    return `Nothing here is broken, but ${warnings} thing${warnings === 1 ? "" : "s"} ${warnings === 1 ? "is" : "are"} working against you${worst ? `, starting with “${worst}”` : ""}.`;
   }
-  return `${failures} thing${failures === 1 ? "" : "s"} on this page ${failures === 1 ? "is" : "are"} actively costing you enquiries${warnings ? `, and ${warnings} more ${warnings === 1 ? "is" : "are"} working against you` : ""}${worst ? `. The most expensive is ${worst.toLowerCase()}` : ""}.`;
+  return `${failures} thing${failures === 1 ? "" : "s"} on this page ${failures === 1 ? "is" : "are"} actively costing you enquiries${warnings ? `, and ${warnings} more ${warnings === 1 ? "is" : "are"} working against you` : ""}${worst ? `. The most expensive is “${worst}”` : ""}.`;
 }
 
 /**

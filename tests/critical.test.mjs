@@ -3180,6 +3180,118 @@ test("the trader's details clear the blocker only when the footer can print them
 // gets removed and the page keeps promising it. So the count and the list both
 // come from the file the report itself reads, and these tests hold that.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// THE AUDIT ACCUSED A SITE OF A FAULT IT DID NOT HAVE.
+//
+// Reported by the owner from a live run against their own site, kodajnn.com:
+//
+//   Contact route — "No phone link, email link or form on this page."
+//   "There is no obvious way to get in touch from this page … Every visitor
+//    who wanted to hire you had to go looking, and looking is where they stop."
+//
+// The site has a /contact page, linked from its own navigation. Both statements
+// were true OF THE HOMEPAGE and false about the business — and the second one
+// told the owner they were losing customers over a problem they had solved.
+//
+// This is the worst possible failure for this particular page. The audit is the
+// platform's front door, its whole argument is that nothing in it is invented,
+// and a reader who catches one false accusation stops believing the twenty-eight
+// correct findings beside it. "Unquestionable" is the requirement.
+// ---------------------------------------------------------------------------
+test("a site with a linked contact page is not told it has no way to be contacted", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // The shape that produced the false report: a homepage with no tel:, no
+  // mailto: and no form, linking to a contact page that has all three.
+  const home = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width">
+    <title>KODA — the SMS is the API, verification anywhere</title></head>
+    <body><nav><a href="/contact">Contact</a></nav><h1>KODA</h1><p>Mobile money verification.</p></body></html>`;
+  const contact = `<!doctype html><html lang="en"><head><title>Contact KODA</title></head>
+    <body><h1>Contact</h1><p>Call <a href="tel:+442079460000">020 7946 0000</a></p>
+    <p>SW1A 1AA</p><form><input name="email"></form></body></html>`;
+
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(req.url.startsWith("/contact") ? contact : home);
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    assert.equal(report.ok, true, `crawl failed: ${report.error}`);
+    const by = (label) => report.findings.find((f) => f.label === label);
+
+    // THE THREE THAT WERE WRONG.
+    assert.equal(by("Contact route").severity, "pass",
+      `a site with a linked contact page carrying a phone link, an address and a form was told: "${by("Contact route").detail}"`);
+    assert.equal(by("Phone number").severity, "pass",
+      `the phone number is on /contact and the report said: "${by("Phone number").detail}"`);
+    assert.equal(by("Local address").severity, "pass",
+      `the postcode is on /contact and the report said: "${by("Local address").detail}"`);
+
+    // AND IT SAYS WHERE IT LOOKED, so nobody has to take its word for it.
+    assert.ok(report.pagesRead.length >= 2, `only read ${report.pagesRead.length} page(s)`);
+    assert.ok(report.pagesRead.some((u) => u.includes("/contact")), "the contact page must be in the record");
+    assert.match(by("Contact route").detail, /\/contact/,
+      "a finding answered from another page has to name that page");
+  } finally {
+    server.close();
+  }
+});
+
+test("a site with genuinely no contact route is still told so, and told where we looked", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // THE OTHER HALF. Softening the check until nothing ever fails would be the
+  // same disservice in the opposite direction — a report that cannot say no.
+  const bare = `<!doctype html><html lang="en"><head><title>A business with no way to reach it</title></head>
+    <body><h1>Hello</h1><p>We do things.</p></body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(bare); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    const contact = report.findings.find((f) => f.label === "Contact route");
+    assert.equal(contact.severity, "fail", "a page with no phone, no email and no form has no contact route");
+    assert.equal(report.pagesRead.length, 1, "there was nothing to follow");
+    assert.match(contact.detail, /this page/, "with one page read the claim must be about that page");
+  } finally {
+    server.close();
+  }
+});
+
+test("the crawl only ever follows links on the site it was given", async () => {
+  const { crawlSite } = await import("../src/backend/crawler.ts");
+  const http = await import("node:http");
+
+  // A public endpoint that follows links is a public endpoint that can be aimed
+  // at somebody else's network. Same origin only, and the guard runs on every
+  // hop regardless.
+  let elsewhereHit = 0;
+  const elsewhere = http.createServer((_req, res) => { elsewhereHit++; res.writeHead(200, { "content-type": "text/html" }); res.end("<html><body>secret</body></html>"); });
+  await new Promise((r) => elsewhere.listen(0, "127.0.0.1", r));
+  const otherPort = elsewhere.address().port;
+
+  const home = `<!doctype html><html lang="en"><head><title>Links away from here</title></head><body>
+    <a href="http://127.0.0.1:${otherPort}/contact">Contact</a>
+    <a href="https://example.com/contact">Contact us</a>
+    </body></html>`;
+  const server = http.createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end(home); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  try {
+    const report = await crawlSite(`http://127.0.0.1:${port}/`);
+    assert.equal(report.ok, true, `crawl failed: ${report.error}`);
+    assert.equal(elsewhereHit, 0, "a contact link to another origin must never be followed");
+    assert.equal(report.pagesRead.length, 1, `followed something it should not have: ${report.pagesRead.join(", ")}`);
+  } finally {
+    server.close(); elsewhere.close();
+  }
+});
+
 test("the page's catalogue is generated from the checks that actually run", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../src/app/audit/page.tsx", import.meta.url), "utf8");
@@ -3275,7 +3387,10 @@ test("the headline and the next step state counts, and name the alternative", ()
   const bad = auditCopy.auditHeadline({ failures: 3, warnings: 2, worst: "No phone number", score: 61 });
   assert.match(bad, /3 things/);
   assert.match(bad, /costing you enquiries/);
-  assert.match(bad, /no phone number/);
+  // The label VERBATIM. It was lower-cased, which produced "The most expensive
+  // is phone number." — a sentence nobody wrote, in a report whose credibility
+  // is the entire product.
+  assert.match(bad, /“No phone number”/, "the finding's own label, not a mangled version of it");
 
   const clean = auditCopy.auditHeadline({ failures: 0, warnings: 0, score: 100 });
   assert.match(clean, /Nothing on this page is broken/);
