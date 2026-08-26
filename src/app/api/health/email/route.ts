@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { requireAuth, cronAuthorised } from "@/backend/guard";
+import { publicSendFailure, operatorFix } from "@/shared/send-failure";
 import { getPool } from "@/backend/sending-pool";
 import { emailProvider, emailIsConfigured } from "@/backend/email";
 
@@ -15,6 +17,11 @@ import { emailProvider, emailIsConfigured } from "@/backend/email";
 // a value that arrived wrapped in quotes, and a value with stray whitespace.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// This route opens an SMTP conversation, resolves several DNS records and can
+// send a real message. The default budget is not enough for that, and a route
+// that dies mid-request reports nothing at all — which is the opposite of what
+// a diagnostic is for.
+export const maxDuration = 30;
 
 type VarReport = { present: boolean; length: number; quoted: boolean; padded: boolean; note?: string };
 
@@ -161,6 +168,57 @@ async function probeSmtp(
 }
 
 export async function GET(req: NextRequest) {
+  // -------------------------------------------------------------------------
+  // ?send=<address> — THE REAL SEND, not another probe.
+  //
+  // Three rounds of this endpoint reported healthy while no mail arrived, and
+  // each round I built a better PROBE: connect, then authenticate, then an
+  // envelope, then the real envelope sender. Every one of them reimplemented a
+  // piece of SMTP, and every one could therefore differ from the code that
+  // actually sends — which is exactly the fault the last round found.
+  //
+  // The probe was the wrong instrument. This calls `sendEmail` itself, so the
+  // answer covers the whole real path: the sending pool, the hygiene and
+  // suppression checks, the emergency stop, the SMTP client, the return-path
+  // fallback. Whatever it reports is what a customer's message would do.
+  //
+  // AUTHORISED, because /api/health is deliberately open and an unauthenticated
+  // "send mail to any address" button is an open relay with extra steps.
+  const sendTo = (req.nextUrl.searchParams.get("send") || "").trim();
+  if (sendTo) {
+    const cron = cronAuthorised(req);
+    if (!cron.ok) {
+      const auth = await requireAuth(req, { scope: "platform_admin" });
+      if (!auth.ok) {
+        return NextResponse.json({
+          error: "Sending a real test message needs an admin session or the scheduler credential.",
+          why: "This endpoint is public so that a deployment can be checked without signing in. A public button that emails any address on request is an open relay, so this one branch is closed.",
+        }, { status: auth.status });
+      }
+    }
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(sendTo)) {
+      return NextResponse.json({ error: `"${sendTo}" is not an address this could send to.` }, { status: 400 });
+    }
+    const { sendEmail } = await import("@/backend/email");
+    const at = new Date().toISOString();
+    const result = await sendEmail({
+      to: sendTo,
+      subject: `MarketWar OS send test — ${at}`,
+      html: `<p>This is a real message from the live deployment, sent through the same code path a customer's email uses.</p><p>Sent at ${at}.</p>`,
+      // A test the operator asked for by name. It must not be silenced by a
+      // marketing pause, for the same reason the free audit's report is not.
+      transactional: true,
+    }).catch((e) => ({ ok: false, failure: "threw", detail: e instanceof Error ? e.message : String(e), id: null }));
+    return NextResponse.json({
+      service: "Email sending — a REAL message through the real code path",
+      sentTo: sendTo,
+      at,
+      result,
+      verdict: result.ok
+        ? `ACCEPTED by the provider. If it does not appear, the message left this deployment and the cause is delivery: check spam, then the relay's own outbound log for ${at}.`
+        : `NOT SENT — ${publicSendFailure((result as { failure?: unknown }).failure)}. ${operatorFix((result as { failure?: unknown }).failure)} The provider's own words: ${(result as { detail?: string }).detail ?? "none"}.`,
+    });
+  }
   const vars = {
     SMTP_HOST: inspect("SMTP_HOST"),
     SMTP_USER: inspect("SMTP_USER"),
@@ -237,16 +295,34 @@ export async function GET(req: NextRequest) {
       const spf = flat.find((r) => r.toLowerCase().startsWith("v=spf1")) || "";
       const dmarcTxt = await dns.resolveTxt(`_dmarc.${fromDomain}`).catch(() => [] as string[][]);
       const dmarc = dmarcTxt.map((r) => r.join("")).find((r) => r.toLowerCase().startsWith("v=dmarc1")) || "";
+
+      // DKIM. With SPF published and DKIM absent, mail is DELIVERED and then
+      // filed as spam by most large providers — which reads as "never sends" to
+      // everyone except the one person who checks their junk folder. There is no
+      // way to enumerate selectors, so the common ones are asked for by name;
+      // finding none is suggestive, not proof, and the note says so.
+      const selectors = ["hostingermail1", "hostingermail2", "hostingermail3", "default", "mail", "dkim", "s1", "s2", "k1", "selector1", "selector2", "google"];
+      const found: string[] = [];
+      await Promise.all(selectors.map(async (sel) => {
+        const rec = await dns.resolveTxt(`${sel}._domainkey.${fromDomain}`).catch(() => [] as string[][]);
+        if (rec.map((r) => r.join("")).some((r) => r.toLowerCase().includes("v=dkim1") || r.toLowerCase().includes("p="))) found.push(sel);
+      }));
       dnsCheck = {
         ran: true,
         fromDomain,
         spf: spf || null,
         dmarc: dmarc || null,
+        dkimSelectorsFound: found,
+        dkimNote: found.length
+          ? `DKIM found on: ${found.join(", ")}. Signing is published for this domain.`
+          : `No DKIM record on any of the ${selectors.length} selectors checked (${selectors.join(", ")}). If your provider uses a selector not on that list this proves nothing — but if there genuinely is none, mail is DELIVERED and then filed as spam by most large providers, which looks exactly like "never sends" to anyone who does not check their junk folder.`,
         verdict: !spf
           ? `NO SPF RECORD on ${fromDomain}. Mail sent as this address authenticates at our own relay and is then very likely binned by the receiving server without a bounce — which looks exactly like "nothing sends". Publish a TXT record on ${fromDomain} authorising the relay that sends for it.`
           : !dmarc
             ? `SPF is published on ${fromDomain} but there is no DMARC policy. Delivery usually works; add a _dmarc TXT record (start at p=none) so you can SEE what receivers do with it.`
-            : `SPF and DMARC are both published on ${fromDomain}. If mail still does not arrive, the cause is downstream of authentication — check the recipient's spam folder and the relay's own outbound log.`,
+            : found.length
+              ? `SPF, DMARC and DKIM are all published on ${fromDomain}. If mail still does not arrive, the cause is downstream of authentication — check the recipient's spam folder, then the relay's own outbound log. Use ?send= to put a real message through the real code path.`
+              : `SPF and DMARC are published on ${fromDomain} but NO DKIM RECORD was found on the common selectors. That combination usually delivers straight to spam at Gmail and Outlook — the message arrives and nobody sees it. Turn on DKIM signing at the mail provider and publish the record it gives you.`,
         note: "This reads DNS. It cannot confirm the relay's sending IP is inside the SPF record — compare the include/ip4 entries above with the IP your provider sends from.",
       };
     } catch (e) {

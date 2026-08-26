@@ -2721,3 +2721,49 @@ test("the health check probes the envelope sender a real send uses", async () =>
   assert.match(src, /probe\.stage === "mail-from" && realEnvelopeFrom !== fromAddr/);
   assert.match(src, /THIS IS THE CAUSE/, "a check that identifies the cause should say so outright");
 });
+
+// ---------------------------------------------------------------------------
+// The probe was the wrong instrument.
+//
+// Three rounds of this endpoint reported healthy while no mail arrived, and each
+// round I built a better PROBE: connect, then authenticate, then an envelope,
+// then the REAL envelope sender. Every one of them reimplemented a piece of
+// SMTP, so every one could differ from the code that actually sends — which is
+// precisely the fault the third round found in the second.
+//
+// `?send=` calls sendEmail itself, so the answer covers the whole real path:
+// the pool, the hygiene and suppression checks, the emergency stop, the SMTP
+// client, the return-path fallback.
+// ---------------------------------------------------------------------------
+test("the real-send test uses the real code path, and is not an open relay", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+
+  // It calls the shipped sender, not another hand-rolled conversation.
+  assert.match(src, /const \{ sendEmail \} = await import\("@\/backend\/email"\)/,
+    "a test that reimplements sending can differ from sending, which is the whole bug");
+  assert.match(src, /transactional: true/, "a test the operator asked for by name must not be silenced by a marketing pause");
+
+  // AND IT IS CLOSED. /api/health is deliberately public, so an unauthenticated
+  // "email any address on request" button would be an open relay with extra
+  // steps. The rest of the endpoint stays open; only this branch is gated.
+  const branch = src.slice(src.indexOf("const sendTo ="), src.indexOf("const vars ="));
+  assert.match(branch, /cronAuthorised\(req\)/);
+  assert.match(branch, /requireAuth\(req, \{ scope: "platform_admin" \}\)/);
+  assert.ok(branch.indexOf("requireAuth") < branch.indexOf("sendEmail"),
+    "the authorisation has to happen BEFORE anything is sent");
+
+  // Slow external work needs reserved time, or the diagnostic dies mid-request
+  // and reports nothing — which is worse than reporting the wrong thing.
+  assert.match(src, /export const maxDuration = 30;/);
+});
+
+test("DKIM is checked, because 'delivered to spam' reads exactly like 'never sent'", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+  assert.match(src, /_domainkey\.\$\{fromDomain\}/, "SPF and DMARC passing while DKIM is absent is the classic spam-folder combination");
+  assert.match(src, /hostingermail1/, "the provider actually in use has to be among the selectors asked for");
+  // And it must not overclaim: selectors cannot be enumerated, so finding none
+  // is suggestive rather than proof.
+  assert.match(src, /this proves nothing/, "a check that cannot be exhaustive must say so");
+});
