@@ -31,7 +31,7 @@ the package files, `next.config.mjs` and the files that await `params` (§5.2).
 Everything below is subordinate to that. `/dashboard/acquisition` holds the count
 and states the cause from the counts alone; with nothing sent, the diagnosis is
 not the product, the price, the site or the copy, because none has been in front
-of a buyer. **And see §5.1: mail is accepted by the relay and not delivered.**
+of a buyer. **See §5.1: the reason no mail ever arrived is found and fixed.**
 
 `GO-TO-MARKET-MarketWar-OS.docx` is the plan for changing it — locked launch
 city, five segments, the real price table, 30/60/90 with failable exit criteria.
@@ -50,24 +50,26 @@ No provider, no card, no configuration:
   adverts promise that and `npm run ads:verify` fails if it stops being true.
   Every failing finding carries what it costs, the fix, and what MarketWar does
   about it (`shared/audit-copy.ts`); a test walks that copy and fails on a
-  percentage, a currency amount or the word "average", because one unmeasured
-  number would discredit the report. It emails what it asks for an address to
+  percentage, a currency amount or the word "average". **The page now SHOWS the
+  catalogue** — all 29 named, generated from that same file, each opening to what
+  it costs, plus FAQPage markup — because a business with no customers to quote
+  wins on specificity or not at all. It emails what it asks for an address to
   send, and refuses private and link-local destinations on every redirect hop
   (`shared/net-guard.ts`) — it would otherwise have read the cloud metadata
-  service for anyone who asked.
+  service.
 - **The client approval portal** (`/portal/[token]`) — a signed, single-item,
   expiring link an outside client opens with no account.
 - **The screen recorder puts the presenter IN the file** — composited onto a
   canvas that *is* the recording, audio mixed to one track.
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin
   arithmetic**, the **paid-media guardrails**, the **payout engine** (nine rails,
-  quoted before money moves) and the **emergency stop** (five lanes;
-  transactional mail has none) — every refusal computed, never guessed.
+  quoted before money moves) and the **emergency stop** (five lanes; transactional
+  mail has none) — every refusal computed, never guessed.
 - **The publication ledger** — a publish whose response is lost is uncertain, and
   the next attempt asks the channel rather than posting twice.
 - **The eight pre-publish checks**, **channel health**, **versions and restore**,
   **creative fatigue**, **the audit log**, **the generation cache**, **teams**
-  (ten roles), **Sentinel**, **13 blog articles and 14 answer pages**.
+  (ten roles), **Sentinel**, **13 blog articles, 14 answer pages**.
 
 **Built in the 2026-08-21/22 audit** — eleven PRD sections; behaviour in
 `GROWTH-ENGINE-COVERAGE.md`. **Each refuses a number it cannot stand behind.**
@@ -91,25 +93,29 @@ table over it.
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**1. MAIL: QUEUED BY THE RELAY, NEVER DELIVERED.** Every check now passes —
-credentials authenticate, SPF and DMARC are published, and a real message through
-`sendEmail` returned `ok:true` with Postfix queue id `B92FD8E3CF`. The owner
-reports it never arrived. Every send is now written to `email_sends` with the
-provider's own id, which is what a support desk can act on. Remaining hypothesis,
-testable rather than asserted: the visible `From` (`info@`) is not the
-authenticated account (`appuser@`). **To close:** run `/api/health/email?send=self`
-then `?send=self&from=account`, and take `B92FD8E3CF` to Hostinger.
+**1. MAIL: CAUSE FOUND AND FIXED IN CODE; AWAITING A DEPLOY.** The owner named
+their own setup — `appuser@` is the account the host creates, `info@` is the
+address the business uses — and that was the answer. One message carried THREE
+mailboxes: AUTH `appuser@`, MAIL FROM `bounce@` (a default invented in our code
+and never created anywhere), From `info@`. The relay queued it (`B92FD8E3CF`) and
+delivered nothing, and the bounce went to a mailbox that does not exist, so the
+failure destroyed its own evidence. `shared/sender-identity.ts` now holds one
+rule: an envelope sender must be a mailbox that exists — the authenticated
+account unless `MW_BOUNCE_ADDRESS` states otherwise — the From is never
+rewritten, and a From that is not the account is declared with RFC 5322
+`Sender:`. **To close:** redeploy, then `?send=self`. Best permanent fix, one
+setting: `SMTP_USER=info@marketwaros.com` with that mailbox's own password.
 
 **2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to
 14.2.35 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware
-bypass — all fixed only in 15.5.x+. Built and green on the dev branch; rolled off
-2026-08-21 during a live `/verify-human` failure as a precaution, NOT because it
-was proved to be the cause. **To close:** deploy dev to a Vercel preview, open
+bypass — fixed only in 15.5.x+. Built and green on dev; rolled off 2026-08-21
+during a live `/verify-human` failure as a precaution, NOT because it was proved
+to be the cause. **To close:** deploy dev to a Vercel preview, open
 `/api/auth/human` and `/verify-human`, and if both answer, merge.
 
-**FIREBASE ADMIN IS LIVE.** Confirmed 2026-08-25 via `/api/health/auth`. Earlier
-sessions carried "Admin is not initialising" and hung diagnoses off it. It was
-WRONG — check the endpoint, never inherit the belief.
+**FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25). Sessions carried
+"Admin is not initialising" for weeks and hung diagnoses off it. Check the
+endpoint; never inherit the belief.
 
 **3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid and
 `STRIPE_WEBHOOK_SECRET` set, so the easy causes are out. Left: (a) the wrong
@@ -131,25 +137,25 @@ must not be faked with a zero-value ledger event, which bypasses the 10k gate.
 4. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
    (`npm run ads:doc`): Traffic, not Awareness, and §0 argues it. Build the five
    custom audiences FIRST — they cannot be backfilled. `PITCH-CREATIVES.docx`
-   (`npm run pitch:doc`) is the five feature creatives with image briefs; both
-   verifiers fail on a stale price or an invented customer.
+   is the five feature creatives with briefs; both verifiers fail on a stale
+   price or an invented customer.
 
 **Surfaces: six of seven** — §70, §92, §95, §98, §102, §103.
 
 **Genuinely not built:**
 
 - §97's priority queue, DELIBERATELY: five inputs need a basis nothing produces.
-- §50 autonomous paid boost; §77 content knowledge graph (facts are key/value);
-  §80 agent message bus (chains are sequential by construction, deliberately);
-  §14 calendars, §21 carousel controls, §100 per-agent cost/impact.
+- §50 paid boost; §77 knowledge graph (facts are key/value); §80 agent message
+  bus (chains are sequential by construction); §14 calendars, §21 carousels,
+  §100 per-agent cost/impact.
 - No bulk catalogue import, and no PUBLIC page listing what brands have opened —
   a promoter must sign up before seeing anything to promote (Task 13).
 
 **Security debt, with the reasoning:**
 
 - 6 moderate npm advisories, one chain (uuid → … → firebase-admin), left
-  deliberately: npm's "fix" is a four-major downgrade of firebase-admin, and the
-  advisory covers uuid v3/v5/v6 with a buffer neither consumer passes.
+  deliberately: npm's "fix" is a four-major downgrade of firebase-admin, and it
+  covers uuid v3/v5/v6 with a buffer neither consumer passes.
 - The rate limiter is per-instance BY DESIGN and `guard.ts` says why. Money is
   protected by what counts pounds: the ACU wallet and `ai-spend.ts`'s now-SHARED
   monthly ceiling.
@@ -159,20 +165,17 @@ must not be faked with a zero-value ledger event, which bypasses the 10k gate.
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-FIFTEEN instances now. The newest was in plain sight on the acquisition page:
-the crawler has only ever emitted `pass`/`warn`/`fail` and the audit's colour
-function matched `critical`/`high`/`medium`, so every finding fell to the grey
-default and a broken site looked exactly like a healthy one. Before it:
-middleware refused every money route with a machine-readable remedy nothing had
-ever read; and `/r/{CODE}` appended a referral code no surface on our own side
-read, so a referred visitor reached signup with no trace of who sent them.
-The two worst were live and silent: `sendEmail` returned success in demo mode
-for mail delivered to nobody, and the free audit asked for an address "to send
-you this report" and never called the email module. The rest: the docx renderer
-destructuring `text` from a block whose field is `copy`; the portal with no
-route; the recorder that acquired the camera and never put the track in the file;
-a nav only above a breakpoint; a cost-per-customer breach computed and dropped;
-the wallet's commission band; seven surfaces with no way to take work away.
+SIXTEEN instances, and the newest is the worst: a message whose login, envelope
+sender and From header were three different mailboxes — none carried to the
+others, one invented in source and never created anywhere. Before it, on the same
+acquisition page, the crawler emitted `pass`/`warn`/`fail` while the audit's
+colour function matched `critical`/`high`/`medium`, so a broken site looked
+exactly like a healthy one; middleware refused every money route with a
+machine-readable remedy nothing read; `/r/{CODE}` appended a referral code no
+surface of ours read; `sendEmail` returned success in demo mode for mail
+delivered to nobody; and the free audit asked for an address "to send you this
+report" and never called the email module. The rest are in
+`REQUIREMENTS-COVERAGE.md`.
 
 **When something looks broken, check the boundary before the logic — and when a
 success is reported, check that something actually happened.**
@@ -181,22 +184,19 @@ success is reported, check that something actually happened.**
 FAILS — for a reason unrelated to what it tests.** TEN now: greps proved the
 recorder's parts existed, not that they were wired, then the same mistake proved
 the audit "sends" mail; a prefix check cannot catch a mid-word cut, because a
-mid-word cut IS a prefix; a one-item column is sorted by every comparator; a
-fold's reason sat on the oldest entry and folds read the newest; an overlap floor
-was never exercised; a refusal fixture was shorter than the limit it exceeded;
-the ads verifier counted a TYPE as a thirteenth tool. Two were caught by a test
-written before its code was believed: a £0 signup referral would have bypassed
-the 10k payout gate, and a redirect whose comment said it dropped unknown codes
-carried them on.
+mid-word cut IS a prefix; a one-item column is sorted by every comparator; an
+overlap floor was never exercised; a refusal fixture was shorter than the limit
+it exceeded; the ads verifier counted a TYPE as a thirteenth tool. Two were
+caught by a test written before its code was believed: a £0 signup referral
+would have bypassed the 10k payout gate.
 
 **A test that passes is not evidence until something has broken it**; drive the
 real handler and assert on a value only the real path can produce. Its sharpest
 form is a DIAGNOSTIC that exercises a different path from the real one — three
-rounds of better SMTP probes each reimplemented a piece of SMTP, so `?send=` now
-calls `sendEmail` itself. Four tests have also failed on their own comments, and
-one forbade the word `onerror=` when escaped output contains it: strip comments
-before scanning source, forbid the THING not the word, match a declaration not a
-prefix.
+rounds of SMTP probes each reimplemented a piece of SMTP, so `?send=` calls
+`sendEmail` itself and the health check resolves the envelope with the sender's
+own function. Four tests have failed on their own comments: strip comments before
+scanning source, forbid the THING not the word.
 
 ---
 
