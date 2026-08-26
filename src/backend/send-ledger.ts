@@ -50,6 +50,17 @@ export type SendAttempt = {
   failure: string;
   /** The provider's own words, when it refused. Never a paraphrase. */
   detail: string;
+  /**
+   * The three addresses, written down TOGETHER.
+   *
+   * A send used an authenticated account, an envelope sender and a visible From
+   * that were three different mailboxes, and no record anywhere held more than
+   * one of them at a time. So "it says it sent, and nothing arrived" could not
+   * be answered without another screenshot. Optional because rows written
+   * before this existed must still read back.
+   */
+  headerFrom?: string;
+  envelopeFrom?: string;
   at: string;
 };
 
@@ -105,6 +116,8 @@ export function attemptFromStored(raw: unknown): SendAttempt | null {
     to, at,
     subject: str(r.subject),
     providerId: str(r.providerId),
+    ...(str(r.headerFrom) ? { headerFrom: str(r.headerFrom) } : {}),
+    ...(str(r.envelopeFrom) ? { envelopeFrom: str(r.envelopeFrom) } : {}),
     node: str(r.node),
     ok: r.ok === true,
     failure: str(r.failure),

@@ -177,6 +177,21 @@ const tag = (id: string): string =>
 export const bounceHost = (): string =>
   (process.env.MW_BOUNCE_HOST || "bounces.marketwaros.com").trim().toLowerCase();
 
+/**
+ * Whether the bounce host was STATED, rather than defaulted into by this file.
+ *
+ * The default above is a subdomain nobody has created. Reading a bounce sent to
+ * it needs an MX record and something at the other end, so until MW_BOUNCE_HOST
+ * is set, putting a VERP address on the envelope buys nothing and costs the one
+ * thing that matters: an envelope sender the receiving side can deliver a
+ * failure notice to. `bounceHost()` keeps its default because the PARSER must
+ * still recognise addresses issued before this existed — only the ISSUING side
+ * is gated. Set MW_BOUNCE_HOST, point its MX at the intake, and per-recipient
+ * bounce attribution switches on with no code change.
+ */
+export const bounceHostConfigured = (): boolean =>
+  Boolean((process.env.MW_BOUNCE_HOST || "").trim());
+
 export function bounceAddressFor(brandId: string, recipient: string, host = bounceHost()): string {
   const id = slugId(brandId);
   const to = String(recipient ?? "").trim().toLowerCase();
