@@ -33,7 +33,15 @@ export function tlsCreds() {
   return creds;
 }
 
-export function fakeSmtp({ rejectRecipients = new Set(), dropAfter = Infinity } = {}) {
+/**
+ * `rejectSenders` — envelope senders this server refuses at MAIL FROM.
+ *
+ * Added for the return-path bug: a relay that only accepts a MAIL FROM which is
+ * the authenticated mailbox refuses `bounce@…`, and every send failed there
+ * while every health check passed, because the check used a different envelope
+ * sender from the real path.
+ */
+export function fakeSmtp({ rejectRecipients = new Set(), rejectSenders = new Set(), dropAfter = Infinity } = {}) {
   const creds = tlsCreds();
   if (!creds) throw new Error("openssl unavailable");
   const received = [];
@@ -49,7 +57,7 @@ export function fakeSmtp({ rejectRecipients = new Set(), dropAfter = Infinity } 
         if (state.inData) {
           if (line === ".") {
             state.inData = false;
-            received.push({ to: state.currentTo, body: state.body });
+            received.push({ to: state.currentTo, from: state.currentFrom, body: state.body });
             state.body = ""; state.delivered++;
             sock.write(`250 2.0.0 Ok: queued as MSG${state.delivered}\r\n`);
             if (state.delivered >= dropAfter) sock.destroy();
@@ -64,7 +72,7 @@ export function fakeSmtp({ rejectRecipients = new Set(), dropAfter = Infinity } 
           // it as if they were SMTP lines.
           sock.removeAllListeners("data");
           const secure = new tls.TLSSocket(sock, { isServer: true, ...creds });
-          const s2 = { inData: false, body: "", currentTo: null, delivered: state.delivered, auth: "none" };
+          const s2 = { inData: false, body: "", currentTo: null, currentFrom: null, delivered: state.delivered, auth: "none" };
           secure.on("error", () => {});
           wire(secure, s2);
           return;
@@ -72,7 +80,11 @@ export function fakeSmtp({ rejectRecipients = new Set(), dropAfter = Infinity } 
         else if (up.startsWith("AUTH LOGIN")) { state.auth = "user"; sock.write("334 VXNlcm5hbWU6\r\n"); }
         else if (state.auth === "user") { state.auth = "pass"; sock.write("334 UGFzc3dvcmQ6\r\n"); }
         else if (state.auth === "pass") { state.auth = "ok"; sock.write("235 2.7.0 Authenticated\r\n"); }
-        else if (up.startsWith("MAIL FROM")) sock.write("250 2.1.0 Ok\r\n");
+        else if (up.startsWith("MAIL FROM")) {
+          const sender = (line.match(/<([^>]*)>/) || [])[1] || "";
+          state.currentFrom = sender;
+          sock.write(rejectSenders.has(sender) ? "553 5.7.1 Sender address rejected: not owned by user\r\n" : "250 2.1.0 Ok\r\n");
+        }
         else if (up.startsWith("RCPT TO")) {
           state.currentTo = (line.match(/<([^>]+)>/) || [])[1] || "";
           sock.write(rejectRecipients.has(state.currentTo) ? "550 5.1.1 No such user\r\n" : "250 2.1.5 Ok\r\n");
@@ -89,7 +101,7 @@ export function fakeSmtp({ rejectRecipients = new Set(), dropAfter = Infinity } 
   const server = net.createServer((sock) => {
     connections++;
     sock.write("220 fake ESMTP\r\n");
-    wire(sock, { inData: false, body: "", currentTo: null, delivered: 0, auth: "none" });
+    wire(sock, { inData: false, body: "", currentTo: null, currentFrom: null, delivered: 0, auth: "none" });
   });
 
   return {
