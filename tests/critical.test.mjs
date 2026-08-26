@@ -3264,6 +3264,64 @@ test("a length is made of clips that sum exactly to it, at the sum of their pric
 // invented its own palette and put a made-up mark on screen — in frames the
 // customer had paid for.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// "NO WAY TO DOWNLOAD."
+//
+// The owner, with a screenshot: a 12-second video they had paid for, playing
+// in a browser tab at a googleapis URL, with no way to get it onto their
+// machine. The panel's "Download MP4" button was
+// `<a href={videoUrl} download>` pointing at Firebase Storage — and the
+// `download` attribute is IGNORED ON A CROSS-ORIGIN LINK by every browser. So
+// the click navigated to storage, storage said Content-Type: video/mp4, and
+// the browser did the only thing it can: play it.
+//
+// The attribute cannot be made to work across origins. The bytes have to come
+// back through our own origin with Content-Disposition: attachment.
+// ---------------------------------------------------------------------------
+test("the finished video downloads as a file, through our own origin", async () => {
+  const { readFileSync } = await import("node:fs");
+  const route = readFileSync(new URL("../src/app/api/video-render/download/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+
+  // The header that actually saves a file.
+  assert.match(route, /"Content-Disposition": `attachment; filename="\$\{fileNameFor\(job\)\}"`/);
+  assert.match(route, /"Content-Type": "video\/mp4"/);
+
+  // NOT AN OPEN PROXY. It takes a jobId, checks the caller owns that brand, and
+  // fetches only the address the render itself recorded, on our own storage
+  // host. A route that streamed whatever URL it was handed would be an open
+  // proxy wearing an authentication check.
+  assert.match(route, /const jobId = \(req\.nextUrl\.searchParams\.get\("jobId"\)/);
+  assert.match(route, /await resolveBrandAccess\(req, brandId\)/);
+  assert.match(route, /ALLOWED_HOSTS\.has\(host\)/);
+  assert.doesNotMatch(route, /searchParams\.get\("url"\)/,
+    "a caller-supplied URL would make this fetch anybody's server on our behalf");
+
+  // The button points at the route, NOT at storage.
+  assert.match(ui, /href=\{`\/api\/video-render\/download\?jobId=\$\{encodeURIComponent\(job\.jobId\)\}`\}/);
+  assert.doesNotMatch(ui, /<a href=\{job\.videoUrl\} download/,
+    "the cross-origin download attribute is back, and browsers ignore it");
+
+  // And it arrives with a name a person can find again.
+  assert.match(route, /function fileNameFor/);
+  assert.match(route, /marketwar-/);
+});
+
+test("a paid render can always be put in the library by hand", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+
+  // The render files itself on completion. A filing that fails must not leave a
+  // paid video with nowhere to live — the owner has already lost one that way,
+  // so there is a second door and it reports which outcome it got.
+  assert.match(ui, /async function saveToLibrary/);
+  assert.match(ui, /authedFetch\("\/api\/work"/, "a plain fetch omits the token and the route refuses it");
+  assert.match(ui, /kind: "video"/);
+  assert.match(ui, /brandId: activeBrand\.id/, "the brand object is not a brand id");
+  assert.match(ui, /setSaved\(r\.ok \? "done" : "failed"\)/,
+    "a save that failed must not read as a save that worked");
+});
+
 test("the joined file is measured, and a short one is refunded not handed over", async () => {
   const { mp4Duration, durationMatches } = await import("../src/shared/mp4-duration.ts");
   const { readFileSync } = await import("node:fs");
