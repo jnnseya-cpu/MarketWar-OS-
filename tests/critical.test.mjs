@@ -3181,6 +3181,97 @@ test("the trader's details clear the blocker only when the footer can print them
 // come from the file the report itself reads, and these tests hold that.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// NOBODY BUYS A FOUR-SECOND VIDEO.
+//
+// Owner's call: "we need between 8, 12 and 15 second and best price on best
+// model to be competitive." Neither engine renders 12 or 15 seconds in one
+// call — Veo caps at 8, Sora's longest step is 12 — so those lengths are made
+// of clips that sum EXACTLY to what is on the button, priced as the sum, on
+// whichever configured engine makes them most cheaply.
+//
+// The failure this must never allow: a fifteen-second ad whose second clip
+// never started, delivered as eight seconds at the fifteen-second price. That
+// is the fault the whole change exists to remove, so it is guarded here rather
+// than in the source text.
+// ---------------------------------------------------------------------------
+test("a length is made of clips that sum exactly to it, at the sum of their prices", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  assert.deepEqual(g.OFFERED_SECONDS, [8, 12, 15], "four seconds is not a product anybody buys");
+
+  // COVERAGE FIRST, THEN EXACTNESS. The first version of this test skipped
+  // every null plan, so a planner that simply gave up passed it — the greedy
+  // version strands a 1-, 2- or 3-second tail Veo cannot render and returns
+  // null for 9, 10 and 11 seconds, and the test never looked. A check that
+  // only inspects the answers it was given cannot notice a missing one.
+  for (let n = 4; n <= 40; n++) {
+    assert.ok(g.segmentPlan("veo", n), `Veo has no plan for ${n}s — every whole length from 4 up is reachable with 4-8s clips`);
+  }
+  assert.deepEqual(g.segmentPlan("veo", 9), [5, 4], "a greedy 8 strands a 1s tail Veo cannot render");
+  assert.deepEqual(g.segmentPlan("veo", 11), [7, 4]);
+  assert.equal(g.segmentPlan("veo", 3), null, "below the engine's minimum there is no plan to make");
+
+  // Exact, on every length either engine will admit to, at any target.
+  for (const p of ["veo", "sora"]) {
+    for (let n = 1; n <= 60; n++) {
+      const plan = g.segmentPlan(p, n);
+      if (!plan) continue;
+      assert.equal(plan.reduce((a, b) => a + b, 0), n,
+        `${p} plans ${plan.join("+")} for ${n}s — a plan that misses is either an overcharge or a short video`);
+      for (const seg of plan) {
+        assert.equal(g.supportedSeconds(p, seg), seg, `${p} cannot render the ${seg}s clip its own plan asks for`);
+      }
+    }
+  }
+
+  // The price of a length IS the price of its clips. Nothing rounds in our
+  // favour between the two.
+  for (const p of ["veo", "sora"]) {
+    for (const n of g.OFFERED_SECONDS) {
+      const plan = g.segmentPlan(p, n);
+      if (!plan) continue;
+      assert.equal(g.videoPlanAcus(p, n), plan.reduce((acc, sec) => acc + g.videoRenderAcus(sec, p), 0));
+    }
+  }
+
+  // BEST PRICE ON THE BEST MODEL. 12s is one Sora call and two Veo calls, so it
+  // must route to Sora; 15s is unreachable on Sora's steps, so it must route to
+  // Veo rather than being served as something shorter.
+  assert.equal(g.bestVideoProviderFor(12, ["veo", "sora"]).provider, "sora");
+  assert.equal(g.bestVideoProviderFor(15, ["veo", "sora"]).provider, "veo");
+  assert.equal(g.bestVideoProviderFor(15, ["sora"]), null, "Sora must not be offered a length its steps cannot total");
+
+  // A cheaper rate on one engine moves the choice, which is what makes
+  // "competitive" a computation rather than a hope.
+  const saved = process.env.VIDEO_COST_PER_SECOND_GBP_VEO;
+  try {
+    process.env.VIDEO_COST_PER_SECOND_GBP_VEO = "0.01";
+    assert.equal(g.bestVideoProviderFor(12, ["veo", "sora"]).provider, "veo",
+      "a cheaper per-second rate must actually change which engine is picked");
+  } finally {
+    if (saved === undefined) delete process.env.VIDEO_COST_PER_SECOND_GBP_VEO; else process.env.VIDEO_COST_PER_SECOND_GBP_VEO = saved;
+  }
+});
+
+test("the margin floor holds on every length, not just the ones in one call", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  // The owner's law: price is never below twice provider cost. A segmented
+  // length must clear it too — the floor is per render, and a length that is
+  // several renders could otherwise be sold under the sum of its own costs.
+  for (const p of ["veo", "sora"]) {
+    const rate = g.videoCostPerSecondGbp(p);
+    for (const n of g.OFFERED_SECONDS) {
+      const acus = g.videoPlanAcus(p, n);
+      if (acus == null) continue;
+      const costPence = rate * n * 100;
+      assert.ok(acus >= costPence * 2,
+        `${n}s on ${p} sells at ${acus} ACUs against a ${Math.round(costPence)}p cost — under the 2x floor`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
 // A CAPABILITY WITH NO SURFACE IS NOT A CAPABILITY.
 //
 // /api/admin/grant-acus has worked for months: resolve an email to a uid,

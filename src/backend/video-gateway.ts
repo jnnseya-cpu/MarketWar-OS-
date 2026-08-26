@@ -24,6 +24,7 @@ import { debitAcus, creditAcus } from "@/backend/wallet";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
+import { ffmpegCloudConfigured, createTranscode } from "@/backend/ffmpeg-cloud";
 
 export type VideoRenderStatus = "queued" | "rendering" | "ready" | "failed" | "demo";
 export type VideoProvider = "veo" | "sora" | "demo";
@@ -43,6 +44,17 @@ export type VideoJob = {
   seconds?: number;
   /** ACUs actually taken for this render. 0 in demo, and 0 again after a refund. */
   chargedAcu?: number;
+  /**
+   * THE CLIPS THIS LENGTH IS MADE OF.
+   *
+   * Twelve and fifteen seconds are longer than either engine renders in one
+   * call, so they are several clips that sum exactly to the length on the
+   * button. One entry means one render, which is every job written before this
+   * existed — those keep working off `providerRef` alone.
+   */
+  segments?: { seconds: number; ref: string | null; url: string | null }[];
+  /** Every finished clip, in order, once they are all rendered. */
+  clips?: string[];
   note: string;
 };
 
@@ -127,7 +139,14 @@ export const SORA_STEPS = [4, 8, 12];
 export const DEFAULT_SECONDS = 8;
 
 // The lengths offered on screen, in the order they are offered.
-export const OFFERED_SECONDS = [4, 8, 12, 15];
+//
+// OWNER'S CALL: "noone will buy a 4sec video. we need between 8, 12 and 15
+// second." Four seconds is gone. Twelve and fifteen are longer than any single
+// call to either engine produces, so they are rendered as SEGMENTS that sum
+// EXACTLY to the length on the button — see `segmentPlan`. The price is the sum
+// of those segments, which is the only way a fifteen-second row can carry a
+// fifteen-second price without charging for video nobody received.
+export const OFFERED_SECONDS = [8, 12, 15];
 
 // What the panel starts on. Owner's call: 15 seconds, because that is the
 // length a social ad is actually cut to.
@@ -176,17 +195,119 @@ export const DEFAULT_RENDER_SECONDS = 15;
 // Fast's published $0.15/s converted to sterling.
 export const VIDEO_COST_PER_SECOND_GBP = Number(process.env.VIDEO_COST_PER_SECOND_GBP || 0.12);
 
+/**
+ * PER-PROVIDER RATE, so "the best price on the best model" is a computation
+ * rather than a hope.
+ *
+ * One constant priced both engines. If the two ever charge differently — and
+ * they do — that constant is simultaneously overcharging on the cheaper model
+ * and eating margin on the dearer one, and the 2x floor is only enforced
+ * against a number that is right for at most one of them.
+ *
+ * NO INVENTED RATES. Both default to the measured Veo 3 Fast figure until an
+ * invoice says otherwise; set VIDEO_COST_PER_SECOND_GBP_VEO / _SORA from a real
+ * bill and the cheapest capable engine is chosen automatically from that day.
+ */
+export function videoCostPerSecondGbp(provider: VideoProvider): number {
+  const raw = provider === "veo" ? process.env.VIDEO_COST_PER_SECOND_GBP_VEO
+    : provider === "sora" ? process.env.VIDEO_COST_PER_SECOND_GBP_SORA
+      : "";
+  const n = Number((raw || "").trim());
+  return n > 0 ? n : VIDEO_COST_PER_SECOND_GBP;
+}
+
 /** The markup video renders are sold at. The owner's hard floor, never below. */
 const VIDEO_MARKUP = 2;
 
 /** What a render of this many seconds costs the customer, in ACUs (1 ACU = 1p). */
-export function videoRenderAcus(seconds: number): number {
+export function videoRenderAcus(seconds: number, provider?: VideoProvider): number {
   const s = Math.max(1, Math.round(Number(seconds) || DEFAULT_SECONDS));
-  const providerCostGbp = VIDEO_COST_PER_SECOND_GBP * s;
+  const providerCostGbp = videoCostPerSecondGbp(provider ?? "veo") * s;
   return Math.max(
     requiredAcus(providerCostGbp, VIDEO_MARKUP).requiredAcus,
     minimumAcusFor({ providerCostGbp, persistsArtifact: true }).minAcus,
   );
+}
+
+/**
+ * HOW A LENGTH IS ACTUALLY MADE, as clips that sum EXACTLY to it.
+ *
+ * Veo produces any whole number of seconds from 4 to 8; Sora only its published
+ * steps. So a twelve-second ad is 8 + 4 on Veo and one call on Sora, and a
+ * fifteen is 8 + 7 on Veo and not reachable at all on Sora, whose steps cannot
+ * total 15.
+ *
+ * EXACT OR NOTHING. A plan that overshoots bills for video nobody asked for; a
+ * plan that undershoots is the fault just fixed, where "15 seconds" quietly
+ * arrived as 8. Returning null means this engine does not make that length, and
+ * the menu simply does not offer it.
+ */
+export function segmentPlan(provider: VideoProvider, seconds: number): number[] | null {
+  const target = Math.round(Number(seconds) || 0);
+  if (target <= 0) return null;
+  if (provider === "demo") return [target];
+
+  if (provider === "veo") {
+    if (target < VEO_MIN_SECONDS) return null;
+    const segs: number[] = [];
+    let left = target;
+    while (left > VEO_MAX_SECONDS) {
+      // Leave a remainder the engine can actually make. Taking the maximum
+      // every time strands a 1-, 2- or 3-second tail that Veo cannot render,
+      // so the last full segment gives up whatever the tail is short by.
+      const after = left - VEO_MAX_SECONDS;
+      const take = after > 0 && after < VEO_MIN_SECONDS
+        ? VEO_MAX_SECONDS - (VEO_MIN_SECONDS - after)
+        : VEO_MAX_SECONDS;
+      if (take < VEO_MIN_SECONDS) return null;
+      segs.push(take);
+      left -= take;
+    }
+    if (left < VEO_MIN_SECONDS) return null;
+    segs.push(left);
+    return segs;
+  }
+
+  // Sora: only its published steps, largest first, and the total must land
+  // exactly on the target.
+  const steps = [...SORA_STEPS].sort((a, b) => b - a);
+  const segs: number[] = [];
+  let left = target;
+  for (const step of steps) {
+    while (left >= step) { segs.push(step); left -= step; }
+  }
+  return left === 0 && segs.length > 0 ? segs : null;
+}
+
+/** What a whole length costs on one provider: the sum of its segments. */
+export function videoPlanAcus(provider: VideoProvider, seconds: number): number | null {
+  const plan = segmentPlan(provider, seconds);
+  if (!plan) return null;
+  return plan.reduce((n, sec) => n + videoRenderAcus(sec, provider), 0);
+}
+
+/**
+ * The cheapest engine that can make this length EXACTLY, out of the ones this
+ * deployment is configured for. Ties go to the first in the chain.
+ */
+export function bestVideoProviderFor(seconds: number, providers?: VideoProvider[]): { provider: VideoProvider; acus: number; segments: number[] } | null {
+  const chain = providers ?? configuredChain();
+  let best: { provider: VideoProvider; acus: number; segments: number[] } | null = null;
+  for (const p of chain) {
+    const segments = segmentPlan(p, seconds);
+    if (!segments) continue;
+    const acus = videoPlanAcus(p, seconds)!;
+    if (!best || acus < best.acus) best = { provider: p, acus, segments };
+  }
+  return best;
+}
+
+/** The providers this deployment can actually render on, in failover order. */
+export function configuredChain(): VideoProvider[] {
+  const chain: VideoProvider[] = [];
+  if (process.env.GEMINI_API_KEY) chain.push("veo");
+  if (process.env.OPENAI_API_KEY) chain.push("sora");
+  return chain;
 }
 
 /**
@@ -215,28 +336,41 @@ export function videoRenderAcus(seconds: number): number {
  * screen and nobody has to take our word for it.
  */
 export type VideoLengthOption = {
-  requested: number; delivered: number; acus: number; acusPerSecond: number; note: string;
+  requested: number; delivered: number; acus: number; acusPerSecond: number;
+  /** The clips this length is made from. One entry means a single render. */
+  segments: number[];
+  /** Which engine will make it — the cheapest that can make it exactly. */
+  provider: VideoProvider;
+  note: string;
 };
 
 export function videoLengthOptions(provider?: VideoProvider): VideoLengthOption[] {
-  const p = provider ?? chosenProvider();
-  const seen = new Set<number>();
+  // Explicit provider = "price it on this engine". No argument = price it on
+  // whichever configured engine makes each length most cheaply, which is what
+  // "best price on the best model" has to mean if it is to mean anything.
+  const forced = provider ?? (chosenProvider() === "demo" ? "demo" : undefined);
   const out: VideoLengthOption[] = [];
-  for (const requested of OFFERED_SECONDS) {
-    // With no provider configured nothing renders, so nothing is charged and
-    // the honest delivered length is the one asked for.
-    const delivered = p === "demo" ? requested : supportedSeconds(p, requested);
-    if (seen.has(delivered)) continue;   // the same video under a longer name
-    seen.add(delivered);
-    const acus = p === "demo" ? 0 : videoRenderAcus(delivered);
+  for (const seconds of OFFERED_SECONDS) {
+    if (forced === "demo") {
+      // Nothing renders, so nothing may be quoted.
+      out.push({ requested: seconds, delivered: seconds, acus: 0, acusPerSecond: 0, segments: [seconds], provider: "demo", note: "" });
+      continue;
+    }
+    const best = forced
+      ? (() => { const segs = segmentPlan(forced, seconds); return segs ? { provider: forced, segments: segs, acus: videoPlanAcus(forced, seconds)! } : null; })()
+      : bestVideoProviderFor(seconds);
+    // A length no configured engine can make EXACTLY is not offered. Listing it
+    // is how "15 seconds" came to mean eight.
+    if (!best) continue;
     out.push({
-      // The row is named after what arrives. `requested` stays for the caller
-      // that still sends a requested length, and is now always equal to it.
-      requested: delivered,
-      delivered,
-      acus,
-      acusPerSecond: acus > 0 ? Math.round((acus / delivered) * 10) / 10 : 0,
-      note: p === "demo" ? "" : durationNote(p, delivered, delivered),
+      requested: seconds, delivered: seconds,
+      acus: best.acus,
+      acusPerSecond: Math.round((best.acus / seconds) * 10) / 10,
+      segments: best.segments,
+      provider: best.provider,
+      note: best.segments.length > 1
+        ? `Rendered as ${best.segments.length} clips (${best.segments.map((n) => `${n}s`).join(" + ")}) — no engine makes ${seconds} seconds in one call.`
+        : "",
     });
   }
   return out.sort((a, b) => a.delivered - b.delivered);
@@ -461,8 +595,20 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
   // then only ever deliver LESS — every provider is capped to the length that
   // was quoted for — and if it does, the difference is refunded. The customer
   // cannot be surprised upward.
-  const quotedSeconds = supportedSeconds(chain[0], requestedSeconds);
-  const quotedAcu = videoRenderAcus(quotedSeconds);
+  // THE PLAN IS THE PRODUCT. `bestVideoProviderFor` picks the cheapest engine
+  // that makes this length EXACTLY, and returns the clips it will be made from.
+  // With no plan on any configured engine the length is not sold — which cannot
+  // happen from the panel, because the menu is built from the same function.
+  const plan = bestVideoProviderFor(requestedSeconds, chain);
+  if (!plan) {
+    const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
+      requestedSeconds, seconds: 0, chargedAcu: 0,
+      note: `No configured engine makes exactly ${requestedSeconds} seconds. Pick a length from the list — each one there is a length that can actually be produced.` };
+    await saveJob(job);
+    return job;
+  }
+  const quotedSeconds = requestedSeconds;
+  const quotedAcu = plan.acus;
   // The OWNING ACCOUNT's wallet, not the brand id — see walletIdForBrand.
   const walletId = await walletIdForBrand(brandId);
   const debit = await debitAcus(walletId, quotedAcu);
@@ -474,33 +620,43 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
     return job;
   }
 
+  // EVERY CLIP, OR NONE.
+  //
+  // A fifteen-second ad whose second clip never started is an eight-second ad
+  // charged at fifteen, which is the exact fault this whole change exists to
+  // remove. So a segment that will not start abandons the render and refunds
+  // the lot: partial delivery of something sold as one video is not a lesser
+  // success, it is a failure with the customer's money still in our account.
   const errors: string[] = [];
-  for (const provider of chain) {
-    // Capped at the quoted length: a failover provider that could give more must
-    // not, because more seconds is a bigger bill than the one on the button.
-    const deliveredSeconds = Math.min(supportedSeconds(provider, requestedSeconds), quotedSeconds);
-    const started = provider === "veo" ? await veoStart(prompt, deliveredSeconds) : await soraStart(prompt, deliveredSeconds);
-    if ("ref" in started) {
-      const failedOver = errors.length > 0;
-      const shortfall = durationNote(provider, requestedSeconds, deliveredSeconds);
-      // Charge for the clip that is actually being made, never above the quote.
-      const chargedAcu = Math.min(videoRenderAcus(deliveredSeconds), quotedAcu);
-      if (quotedAcu > chargedAcu) await creditAcus(walletId, quotedAcu - chargedAcu);
-      const job: VideoJob = { jobId, brandId, prompt, provider, status: "rendering", mode: "live", videoUrl: null, providerRef: started.ref,
-        requestedSeconds, seconds: deliveredSeconds, chargedAcu,
-        note: `Rendering ${deliveredSeconds}s via ${provider}${failedOver ? " (failed over from the other provider)" : ""} — ${chargedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).${shortfall ? ` ${shortfall}` : ""}` };
-      await saveJob(job);
-      return job;
-    }
-    errors.push(`${provider}: ${started.error}`);
+  const started: { seconds: number; ref: string | null; url: string | null }[] = [];
+  for (const seconds of plan.segments) {
+    const r = plan.provider === "veo" ? await veoStart(prompt, seconds) : await soraStart(prompt, seconds);
+    if ("ref" in r) { started.push({ seconds, ref: r.ref, url: null }); continue; }
+    errors.push(`${plan.provider} ${seconds}s: ${r.error}`);
+    break;
   }
 
-  // Nothing started, so nothing is owed.
+  if (started.length === plan.segments.length) {
+    const multi = plan.segments.length > 1;
+    const job: VideoJob = {
+      jobId, brandId, prompt, provider: plan.provider, status: "rendering", mode: "live", videoUrl: null,
+      // Kept for every reader written before segments existed.
+      providerRef: started[0].ref,
+      segments: started,
+      requestedSeconds, seconds: requestedSeconds, chargedAcu: quotedAcu,
+      note: `Rendering ${requestedSeconds}s via ${plan.provider}${multi ? ` as ${plan.segments.length} clips (${plan.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${quotedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).`,
+    };
+    await saveJob(job);
+    return job;
+  }
+
+  // Nothing usable started, so nothing is owed.
   await creditAcus(walletId, quotedAcu);
 
   // Every configured provider failed — report each reason so it's debuggable.
-  const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
-    note: `Couldn't start a render on any configured provider. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
+  const job: VideoJob = { jobId, brandId, prompt, provider: plan.provider, status: "failed", mode: "live", videoUrl: null, providerRef: null,
+    requestedSeconds, seconds: 0, chargedAcu: 0,
+    note: `Couldn't start every clip of this ${requestedSeconds}s render, so none was kept and the ${quotedAcu} ACUs are back in your wallet. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
   await saveJob(job);
   return job;
 }
