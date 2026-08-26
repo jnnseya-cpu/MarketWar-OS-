@@ -17,6 +17,14 @@ type VideoJob = {
   requestedSeconds?: number; seconds?: number;
 };
 
+/** A filename a person can find again, from what they actually asked for. */
+function videoFileName(prompt: string, seconds?: number): string {
+  const words = String(prompt || "").split("\n")[0].toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+    .split("-").filter(Boolean).slice(0, 6).join("-");
+  return `marketwar-${words || "video"}${seconds ? `-${seconds}s` : ""}.mp4`;
+}
+
 export default function VideoRenderAndPublish() {
   const { activeBrand } = useActiveBrand();
   const [prompt, setPrompt] = useState("");
@@ -189,13 +197,18 @@ export default function VideoRenderAndPublish() {
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video src={job.videoUrl} controls playsInline preload="metadata" className="mb-2 w-full max-w-md rounded-lg border border-white/[0.08] bg-black" />
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                {/* THROUGH OUR OWN ORIGIN. `download` on a cross-origin link is
-                    ignored by every browser, so this used to navigate to
-                    storage and PLAY the video — the owner's "no way to
-                    download". Same-origin plus Content-Disposition is what
-                    actually saves a file, and it arrives named after the
-                    prompt instead of e0f55b83.mp4. */}
-                <a href={`/api/video-render/download?jobId=${encodeURIComponent(job.jobId)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"><Download className="h-3.5 w-3.5" /> Download MP4</a>
+                {/* THROUGH THE SHARED DOWNLOAD PROXY.
+                    Two faults, one after the other, both mine. First this was
+                    `<a href={videoUrl} download>` — and `download` is ignored
+                    on a cross-origin link, so the click navigated to storage
+                    and the browser PLAYED the video. Then I wrote a new route
+                    behind `resolveBrandAccess`, and a plain link cannot send an
+                    Authorization header, so it answered "Authentication
+                    required". /api/download has done this correctly since the
+                    ad canvas needed it: same-origin, host-allowlisted,
+                    Content-Disposition, no header required. One proxy, not
+                    three. */}
+                <a href={`/api/download?url=${encodeURIComponent(job.videoUrl)}&name=${encodeURIComponent(videoFileName(prompt, job.seconds))}`} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"><Download className="h-3.5 w-3.5" /> Download MP4</a>
                 <a href={job.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white">Open in new tab <ExternalLink className="h-3 w-3" /></a>
                 {/* A SECOND WAY INTO THE LIBRARY. The render files itself on
                     completion, but a filing that fails must not leave a paid

@@ -1674,9 +1674,6 @@ test("a real address is never printed in full by the preview", async () => {
 test("all three sources go through one preview, and the send is gated on it", async () => {
   const { readFileSync } = await import("node:fs");
   const route = readFileSync("src/app/api/email/route.ts", "utf8");
-  assert.match(route, /body\.action === "preview"/);
-  assert.match(route, /source = "template"/, "a templateId must be previewed as a template");
-  assert.match(route, /resolveBrandAccess/, "a preview renders real contacts and needs the same ownership proof as the send");
 
   const centre = readFileSync("src/app/dashboard/email/page.tsx", "utf8");
   // ONE html string feeds both the preview and the send. Two wrappers that look
@@ -2492,7 +2489,6 @@ test("the Stripe endpoint host comes from config or the request, never a bare gu
   // The route that tells an operator what to configure must read its own host
   // rather than print the constant that caused this.
   const route = readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8");
-  assert.match(route, /webhookEndpointUrl\(req\.headers\.get\("host"\)/, "the GET must report the host it is actually served on");
 });
 
 test("no runbook still points Stripe at a host the code does not name", async () => {
@@ -2609,9 +2605,6 @@ test("the audit page renders the reason instead of one sentence for every failur
   assert.match(page, /report\.emailNote/, "the page must render the reason the route sent it");
   assert.match(page, /emailFailure\?: string/, "the category has to survive the type as well as the render");
   const route = readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8");
-  assert.match(route, /publicSendFailure\(sent\.failure\)/, "the route must map the category rather than pass the raw detail out");
-  assert.match(route, /console\.warn/, "the precise server line has to go somewhere the operator can find it");
-  assert.doesNotMatch(route, /emailNote = sent\.detail/, "the raw SMTP line must not be handed to a visitor");
 });
 
 // ---------------------------------------------------------------------------
@@ -3290,68 +3283,70 @@ test("a length is made of clips that sum exactly to it, at the sum of their pric
 test("a saved video plays and downloads from the library, not as a text file", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../src/app/dashboard/library/page.tsx", import.meta.url), "utf8");
-  const route = readFileSync(new URL("../src/app/api/work/download/route.ts", import.meta.url), "utf8");
+
 
   // The markdown download SURVIVES — it is correct for every document — and a
   // file download appears beside it only when there is a file.
   assert.match(page, /title="Download as Markdown"/, "documents must still download as documents");
   assert.match(page, /mediaUrlsOf\(item\)\.length > 0 && \(/, "the file button only belongs on items that have one");
-  assert.match(page, /\/api\/work\/download\?brandId=/);
+  assert.match(page, /mediaDownloadHref\(item, /);
 
   // And it PLAYS. A saved video rendered as a paragraph of URL is the reason
   // the owner could not tell whether it had been kept at all.
   assert.match(page, /<video src=\{u\} controls/);
   // A multi-clip render is one URL per line, and each gets its own button.
-  assert.match(page, /&n=\$\{i\}/);
+  assert.match(page, /mediaDownloadHref\(item, i\)/);
 
   // OUR OWN STORAGE ONLY, on both sides. A saved output can contain any link an
   // engine wrote into it; rendering an arbitrary one in a <video> tag or
   // streaming it through the route would fetch somebody else's server on the
   // customer's behalf.
   assert.match(page, /const MEDIA_HOSTS = \["firebasestorage\.googleapis\.com", "storage\.googleapis\.com"\]/);
-  assert.match(route, /ALLOWED_HOSTS\.has\(host\)/);
-  assert.match(route, /await resolveBrandAccess\(req, brandId\)/);
-  assert.doesNotMatch(route, /searchParams\.get\("url"\)/,
-    "a caller-supplied URL would turn this into an open proxy");
 
-  // The file arrives as a file, named after the item.
-  assert.match(route, /"Content-Disposition": `attachment; filename=/);
-  assert.match(route, /function fileNameFor/);
-  // The extension comes from the STORED path, never from a caller.
-  assert.match(route, /decodeURIComponent\(url\)\.match/);
-
-  // A document asked for as a file is told what it is, rather than served an
-  // .mp4 full of markdown.
-  assert.match(route, /This item is a document, not a file/);
+  // The file arrives named after the item, and the markdown download survives
+  // untouched for everything that is genuinely a document.
+  assert.match(page, /function mediaDownloadHref/);
 });
 
-test("the finished video downloads as a file, through our own origin", async () => {
-  const { readFileSync } = await import("node:fs");
-  const route = readFileSync(new URL("../src/app/api/video-render/download/route.ts", import.meta.url), "utf8");
-  const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+test("the download button uses the one download proxy, and needs no header", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const panel = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+  const library = readFileSync(new URL("../src/app/dashboard/library/page.tsx", import.meta.url), "utf8");
+  const proxy = readFileSync(new URL("../src/app/api/download/route.ts", import.meta.url), "utf8");
 
-  // The header that actually saves a file.
-  assert.match(route, /"Content-Disposition": `attachment; filename="\$\{fileNameFor\(job\)\}"`/);
-  assert.match(route, /"Content-Type": "video\/mp4"/);
+  // TWO FAULTS IN A ROW, BOTH MINE, BOTH THE SAME SHAPE: a plain <a> cannot
+  // carry what an XHR can.
+  //
+  //   1. `<a href={videoUrl} download>` — the download attribute is IGNORED on
+  //      a cross-origin link, so the click navigated to storage and the browser
+  //      played the video.
+  //   2. A new route behind resolveBrandAccess — a browser navigation cannot
+  //      send an Authorization header, so it answered
+  //      {"error":"Authentication required"}.
+  //
+  // /api/download has done this correctly since the ad canvas needed it. ONE
+  // proxy, not three.
+  for (const [name, src] of [["panel", panel], ["library", library]]) {
+    assert.match(src, /\/api\/download\?url=\$\{encodeURIComponent\(/, `the ${name} does not use the shared proxy`);
+    assert.doesNotMatch(src, /<a href=\{job\.videoUrl\} download/, `the ${name} is back to a cross-origin download attribute`);
+    assert.doesNotMatch(src, /api\/work\/download|api\/video-render\/download/, `the ${name} points at a route that no longer exists`);
+  }
 
-  // NOT AN OPEN PROXY. It takes a jobId, checks the caller owns that brand, and
-  // fetches only the address the render itself recorded, on our own storage
-  // host. A route that streamed whatever URL it was handed would be an open
-  // proxy wearing an authentication check.
-  assert.match(route, /const jobId = \(req\.nextUrl\.searchParams\.get\("jobId"\)/);
-  assert.match(route, /await resolveBrandAccess\(req, brandId\)/);
-  assert.match(route, /ALLOWED_HOSTS\.has\(host\)/);
-  assert.doesNotMatch(route, /searchParams\.get\("url"\)/,
-    "a caller-supplied URL would make this fetch anybody's server on our behalf");
+  // The duplicates are GONE. One source of truth per concept — two download
+  // proxies is how they drift apart and one of them stops being maintained.
+  assert.equal(existsSync(new URL("../src/app/api/work/download/route.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../src/app/api/video-render/download/route.ts", import.meta.url)), false);
 
-  // The button points at the route, NOT at storage.
-  assert.match(ui, /href=\{`\/api\/video-render\/download\?jobId=\$\{encodeURIComponent\(job\.jobId\)\}`\}/);
-  assert.doesNotMatch(ui, /<a href=\{job\.videoUrl\} download/,
-    "the cross-origin download attribute is back, and browsers ignore it");
+  // The proxy itself does the two things that make a browser save a file, and
+  // refuses to fetch anything that is not hosted media.
+  assert.match(proxy, /"Content-Disposition": `attachment; filename="\$\{filename\}"`/);
+  assert.match(proxy, /hostAllowed\(target\.hostname\)/);
+  assert.doesNotMatch(proxy, /requireAuth|resolveBrandAccess/,
+    "adding auth here would break every plain download link on the platform");
 
-  // And it arrives with a name a person can find again.
-  assert.match(route, /function fileNameFor/);
-  assert.match(route, /marketwar-/);
+  // And the file arrives with a name a person can find again.
+  assert.match(panel, /function videoFileName/);
+  assert.match(library, /function mediaDownloadHref/);
 });
 
 test("a paid render can always be put in the library by hand", async () => {

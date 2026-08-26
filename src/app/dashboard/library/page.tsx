@@ -27,6 +27,26 @@ import { mdToHtml } from "@/frontend/markdown";
  * this page fetch somebody else's server on the customer's behalf.
  */
 const MEDIA_HOSTS = ["firebasestorage.googleapis.com", "storage.googleapis.com"];
+
+/**
+ * A save-the-file link for one of an item's media URLs.
+ *
+ * THROUGH /api/download, the proxy the ad canvas has used for months:
+ * same-origin, host-allowlisted, Content-Disposition, and — the part that
+ * matters here — NO Authorization header required. A route behind
+ * `resolveBrandAccess` answers "Authentication required" to a plain link,
+ * because a browser navigation cannot carry a bearer token. That is what the
+ * first version of this button did.
+ */
+function mediaDownloadHref(item: { title: string; output: string }, n: number): string {
+  const url = mediaUrlsOf(item)[n] || "";
+  const words = String(item.title || "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+    .split("-").filter(Boolean).slice(0, 8).join("-");
+  const many = mediaUrlsOf(item).length > 1;
+  const name = `${words || "marketwar-asset"}${many ? `-clip-${n + 1}` : ""}.mp4`;
+  return `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
+}
 function mediaUrlsOf(item: { output: string }): string[] {
   return String(item.output || "")
     .split(/\s+/)
@@ -224,7 +244,7 @@ export default function LibraryPage() {
                     {mediaUrlsOf(item).length > 0 && (
                       <a
                         title={`Download the ${mediaUrlsOf(item).length > 1 ? "first clip" : "file"}`}
-                        href={`/api/work/download?brandId=${encodeURIComponent(item.brandId)}&id=${encodeURIComponent(item.id)}`}
+                        href={mediaDownloadHref(item, 0)}
                         className="rounded p-1.5 text-slate-500 hover:bg-ink-850 hover:text-emerald-300"
                       >
                         <Download className="h-3.5 w-3.5" />
@@ -247,7 +267,7 @@ export default function LibraryPage() {
                       <div key={u} className="mb-3">
                         <video src={u} controls playsInline preload="metadata" className="w-full max-w-md rounded-lg border border-white/[0.08] bg-black" />
                         <a
-                          href={`/api/work/download?brandId=${encodeURIComponent(item.brandId)}&id=${encodeURIComponent(item.id)}&n=${i}`}
+                          href={mediaDownloadHref(item, i)}
                           className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"
                         >
                           <Download className="h-3.5 w-3.5" /> Download{mediaUrlsOf(item).length > 1 ? ` clip ${i + 1}` : " MP4"}
