@@ -3253,6 +3253,153 @@ test("a length is made of clips that sum exactly to it, at the sum of their pric
   }
 });
 
+// ---------------------------------------------------------------------------
+// A BRAND KIT HALF THE PLATFORM HONOURS IS NOT A BRAND KIT.
+//
+// Owner: "VIDEO CREATION AND EVERYTHING ELSE MUST BE BRANDED PER THE CUSTOMER
+// BRAND ON LOGO AND COLOURS, NOT A VERY RANDOM COLOUR AND LOGO."
+//
+// The ad canvas and ad styles have read logoUrl and brandColours for months.
+// The video gateway forwarded the raw prompt and nothing else, so every render
+// invented its own palette and put a made-up mark on screen — in frames the
+// customer had paid for.
+// ---------------------------------------------------------------------------
+test("a length that cannot arrive as one file is not sold", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+
+  // OWNER'S DIRECTIVE: "I want both 12 and 15 second video to be in 1 clips."
+  // 12 is one Sora call. 15 is not one call on anything, so it is 8 + 7 joined
+  // — and joining needs the render service. Without it the row is withheld
+  // rather than sold and part-delivered.
+  const saved = { g: process.env.GEMINI_API_KEY, o: process.env.OPENAI_API_KEY, f: process.env.FFMPEG_CLOUD_API_KEY };
+  try {
+    process.env.GEMINI_API_KEY = "k"; process.env.OPENAI_API_KEY = "k";
+    delete process.env.FFMPEG_CLOUD_API_KEY;
+
+    const menu = g.videoLengthOptions();
+    for (const l of menu) {
+      assert.equal(l.segments.length, 1,
+        `${l.delivered}s is offered as ${l.segments.length} clips with no way to join them`);
+    }
+    assert.ok(menu.some((l) => l.delivered === 12), "12s is one Sora call and must still be on the menu");
+    assert.ok(!menu.some((l) => l.delivered === 15), "15s cannot be one file here and must not be sold");
+
+    // Withheld, NAMED. A menu that quietly loses a length reads as a bug.
+    const withheld = g.withheldLengths();
+    assert.deepEqual(withheld.map((w) => w.seconds), [15]);
+    assert.match(withheld[0].why, /FFMPEG_CLOUD_API_KEY/, "the owner is owed the setting that brings it back");
+    assert.deepEqual(withheld[0].segments, [8, 7]);
+
+    // With a joiner, everything is back — as one file.
+    process.env.FFMPEG_CLOUD_API_KEY = "k";
+    const full = g.videoLengthOptions();
+    assert.deepEqual(full.map((l) => l.delivered), [8, 12, 15]);
+    assert.deepEqual(g.withheldLengths(), []);
+  } finally {
+    for (const [k, v] of [["GEMINI_API_KEY", saved.g], ["OPENAI_API_KEY", saved.o], ["FFMPEG_CLOUD_API_KEY", saved.f]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+
+  // THE JOIN IS A STAGE WITH AN END, and the job is not ready before it.
+  //
+  // My own first version fired the join and immediately set status "ready" with
+  // videoUrl = clips[0] — an 8-second clip presented as the 15 seconds that had
+  // been paid for. The same defect as every other one on this page, committed
+  // while fixing it.
+  assert.match(src, /if \(!job\.stitchRef\)/, "the join must be submitted once and then polled");
+  assert.match(src, /const state = toQueueStatus\(status\.job\.status\)/);
+  assert.match(src, /if \(state === "queued" \|\| state === "running"\) return job/,
+    "a job whose join is still running must not be reported ready");
+  // The ready path takes the JOINED file's url, never the first clip.
+  assert.match(src, /job\.videoUrl = dl\.url;\n  job\.status = "ready"/);
+  assert.doesNotMatch(src, /job\.videoUrl = job\.clips\[0\];\s*\n\s*job\.status = "ready"/,
+    "the first clip is being handed over as the finished video again");
+});
+
+test("a video render carries the customer's colours, and never invents their logo", async () => {
+  const g = await import("../src/backend/video-gateway.ts");
+
+  const branded = g.brandedVideoPrompt("8-second vertical clip of the flame-grilled platter", {
+    name: "Evan Deli", product: "flame-grilled platters",
+    brandColours: ["#0B7D5A", "#F4C542"], logoUrl: "https://example.com/logo.png",
+  });
+
+  // The exact hexes, not a description of them.
+  assert.match(branded, /#0B7D5A/);
+  assert.match(branded, /#F4C542/);
+  assert.match(branded, /no competing accent/i, "naming colours without excluding others just adds a fourth colour");
+  assert.match(branded, /Evan Deli/);
+  // The customer's own words survive intact at the top.
+  assert.match(branded, /^8-second vertical clip of the flame-grilled platter/);
+
+  // NEVER ASK A MODEL TO DRAW SOMEBODY'S LOGO. It approximates it, and an
+  // approximated logo is a legal and brand problem wearing the customer's name
+  // — and it has to be edited out of frames they have already paid for.
+  assert.match(branded, /Do NOT draw, letter or invent any logo/);
+  assert.match(branded, /Leave a clean, uncluttered area/,
+    "space for the real logo has to be asked for, or there is nowhere to put it");
+
+  // With no logo on file the instruction is still to invent nothing.
+  const noLogo = g.brandedVideoPrompt("A clip", { name: "X", brandColours: [] });
+  assert.match(noLogo, /Do NOT invent a logo/);
+  assert.doesNotMatch(noLogo, /BRAND COLOURS/,
+    "a colour instruction naming no colour is noise the model fills in itself");
+
+  // No brand on file changes nothing at all — never half-brand a render.
+  assert.equal(g.brandedVideoPrompt("A clip", null), "A clip");
+
+  // Junk in the colour list is dropped rather than passed to the model.
+  const dirty = g.brandedVideoPrompt("A clip", { name: "X", brandColours: ["not-a-colour", "#123456"] });
+  assert.doesNotMatch(dirty, /not-a-colour/);
+  assert.match(dirty, /#123456/);
+});
+
+test("a paid render is filed in the library, and a multi-clip job needs every clip", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+
+  // THE OWNER'S REPORT: "big money spent generated a 12 second video which is
+  // not autosave to the work library and not possible to download as the
+  // download MP4 give you a firebase link then all GONE."
+  //
+  // All true. Nothing anywhere called saveWork for a video, so the only record
+  // of a paid render was React state in the panel — one refresh and a video the
+  // customer had paid for was gone from every surface they could reach, while
+  // the MP4 itself sat in Storage on a permanent URL nobody could find again.
+  assert.match(src, /import \{ saveWork \} from "@\/backend\/work-library"/);
+  assert.match(src, /async function fileInLibrary/);
+  // Both terminal paths file it — the single clip and the segmented one.
+  assert.ok((src.match(/fileInLibrary\(/g) || []).length >= 3,
+    "a finished render must be filed on every path that can finish");
+  assert.match(src, /kind: "video"/);
+  // And a failed filing tells the customer where their file is rather than
+  // swallowing it: the money is already spent either way.
+  assert.match(src, /copy this link before you close the tab/);
+
+  // MY OWN ERROR, GUARDED. The multi-clip poll path was written and never
+  // saved to disk — a scripted edit failed its last assertion and wrote
+  // nothing — so a 12-second render charged for two clips, polled only the
+  // first, and would have gone READY as an eight-second video. Typecheck and
+  // 1558 tests all passed, because nothing asserted the path existed.
+  assert.match(src, /if \(job\.segments && job\.segments\.length > 1\) return await pollSegments\(job\)/,
+    "a segmented job must be polled as a segmented job");
+  assert.match(src, /async function pollSegments/);
+  // Ready ONLY when every clip has a hosted URL.
+  assert.match(src, /const done = segs\.every\(\(x\) => Boolean\(x\.url\)\)/);
+  assert.match(src, /if \(!done\)/, "a partial set of clips must stay 'rendering'");
+});
+
+test("the video panel points at where the file was kept", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+  // The note from the server carries "saved to your library"; the panel must
+  // actually show that note rather than replacing it with its own wording.
+  assert.match(ui, /job\.note/, "the panel must show the server's own account of what happened");
+});
+
 test("the margin floor holds on every length, not just the ones in one call", async () => {
   const g = await import("../src/backend/video-gateway.ts");
 

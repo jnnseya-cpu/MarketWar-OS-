@@ -24,7 +24,9 @@ import { debitAcus, creditAcus } from "@/backend/wallet";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
-import { ffmpegCloudConfigured, createTranscode } from "@/backend/ffmpeg-cloud";
+import { ffmpegCloudConfigured, createTranscode, getTranscode, getDownloadUrl, toQueueStatus } from "@/backend/ffmpeg-cloud";
+import { saveWork } from "@/backend/work-library";
+import { getBrandById } from "@/backend/brand-store";
 
 export type VideoRenderStatus = "queued" | "rendering" | "ready" | "failed" | "demo";
 export type VideoProvider = "veo" | "sora" | "demo";
@@ -55,6 +57,8 @@ export type VideoJob = {
   segments?: { seconds: number; ref: string | null; url: string | null }[];
   /** Every finished clip, in order, once they are all rendered. */
   clips?: string[];
+  /** The join job, while several clips are being made into the one file. */
+  stitchRef?: string | null;
   note: string;
 };
 
@@ -362,6 +366,14 @@ export function videoLengthOptions(provider?: VideoProvider): VideoLengthOption[
     // A length no configured engine can make EXACTLY is not offered. Listing it
     // is how "15 seconds" came to mean eight.
     if (!best) continue;
+    // ONE FILE OR IT IS NOT FOR SALE.
+    //
+    // Owner's directive: "I want both 12 and 15 second video to be in 1 clips."
+    // Twelve is one Sora call. Fifteen is not one call on anything, so it is
+    // 8 + 7 joined — and joining needs the render service. Without it we cannot
+    // deliver what the row promises, so the row is withheld rather than sold
+    // and part-delivered. `withheldLengths()` says which and why.
+    if (best.segments.length > 1 && !ffmpegCloudConfigured()) continue;
     out.push({
       requested: seconds, delivered: seconds,
       acus: best.acus,
@@ -559,9 +571,53 @@ async function soraPoll(id: string): Promise<{ done: boolean; bytes?: Buffer }> 
 // ---------------------------------------------------------------------------
 // Public API — start + poll.
 // ---------------------------------------------------------------------------
+/**
+ * THE CUSTOMER'S BRAND, IN THE PROMPT.
+ *
+ * OWNER'S DIRECTIVE: "VIDEO CREATION AND EVERYTHING ELSE MUST BE BRANDED PER
+ * THE CUSTOMER BRAND ON LOGO AND COLOURS, NOT A VERY RANDOM COLOUR AND LOGO."
+ *
+ * The ad canvas and the ad styles have read `logoUrl` and `brandColours` for
+ * months. The video gateway never did: it forwarded the raw prompt and nothing
+ * else, so every render invented its own palette and put a made-up mark on the
+ * screen. A brand kit that half the platform honours is not a brand kit.
+ *
+ * A generative video model takes no image input here, so the brand travels as
+ * DIRECTION rather than as an asset: the exact hexes, the business, and an
+ * explicit instruction to leave space for the real logo instead of inventing
+ * one — a fabricated mark is worse than none, because it has to be removed
+ * before the clip can be used and the customer paid for the frames it sits in.
+ *
+ * Everything is conditional. A brand with no colours set adds no colour line,
+ * because an instruction naming no colour is noise the model will fill in.
+ */
+export function brandedVideoPrompt(prompt: string, brand: { name?: string; product?: string; brandColours?: string[]; logoUrl?: string } | null): string {
+  if (!brand) return prompt;
+  const lines: string[] = [prompt];
+  const colours = (brand.brandColours || []).filter((c) => /^#?[0-9a-f]{3,8}$/i.test(String(c).trim())).slice(0, 4);
+  if (colours.length) {
+    lines.push(`BRAND COLOURS — grade and art-direct to these exact colours, and use no competing accent: ${colours.join(", ")}.`);
+  }
+  if (brand.name) {
+    lines.push(`This is for ${brand.name}${brand.product ? `, whose product is ${brand.product}` : ""}. Keep the look consistent with that business throughout.`);
+  }
+  if (brand.logoUrl) {
+    // NEVER ask a model to draw somebody's logo. It will approximate it, and an
+    // approximated logo is a legal and brand problem wearing the customer's name.
+    lines.push("Do NOT draw, letter or invent any logo, wordmark or brand name in the frame. Leave a clean, uncluttered area in a lower corner where the real logo is placed afterwards.");
+  } else {
+    lines.push("Do NOT invent a logo, wordmark or company name in the frame.");
+  }
+  return lines.join("\n\n");
+}
+
 export async function startVideoRender(input: { brandId: string; prompt: string; seconds?: number }): Promise<VideoJob> {
   const brandId = input.brandId?.trim() || "brand";
-  const prompt = input.prompt?.trim() || "Product highlight video";
+  const askedPrompt = input.prompt?.trim() || "Product highlight video";
+  // The brand is loaded, never assumed. A lookup that fails leaves the prompt
+  // exactly as the customer typed it rather than half-branding the render.
+  const brand = await getBrandById(brandId).catch(() => null);
+  const prompt = brandedVideoPrompt(askedPrompt, brand);
   const requestedSeconds = Math.max(1, Math.round(Number(input.seconds) || DEFAULT_SECONDS));
   const jobId = jobIdFor(brandId, prompt);
 
@@ -666,6 +722,12 @@ export async function getVideoRender(jobId: string): Promise<VideoJob | { error:
   if (!job) return { error: "Unknown render job" };
   if (job.status !== "rendering" || !job.providerRef) return job; // demo/ready/failed are terminal here
 
+  // A MULTI-CLIP RENDER FINISHES WHEN EVERY CLIP DOES.
+  //
+  // Jobs written before segments existed have no `segments` array and fall
+  // straight through to the single-clip path below, unchanged.
+  if (job.segments && job.segments.length > 1) return await pollSegments(job);
+
   const poll = job.provider === "veo" ? await veoPoll(job.providerRef) : await soraPoll(job.providerRef);
   if (!poll.done) return job; // still rendering
 
@@ -676,7 +738,16 @@ export async function getVideoRender(jobId: string): Promise<VideoJob | { error:
   // Completed — upload the MP4 to Storage so it has a hosted, attachable URL.
   if (realVideo && storageConfigured()) {
     const url = await uploadPublicMedia(poll.bytes!, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}` });
-    if (url) { job.status = "ready"; job.videoUrl = url; job.note = `Rendered — hosted MP4 (${Math.round(poll.bytes!.length / 1024)} KB) ready to attach.`; await saveJob(job); return job; }
+    if (url) {
+      job.status = "ready"; job.videoUrl = url; job.clips = [url];
+      // FILED BEFORE IT IS CALLED READY. The panel's React state used to be the
+      // only place a paid render existed; one refresh and it was gone.
+      const filed = await fileInLibrary(job, [url]);
+      job.note = filed
+        ? `Rendered — hosted MP4 (${Math.round(poll.bytes!.length / 1024)} KB), saved to your library.`
+        : `Rendered — hosted MP4 (${Math.round(poll.bytes!.length / 1024)} KB). It could not be filed in your library, so copy this link before you close the tab: ${url}`;
+      await saveJob(job); return job;
+    }
   }
   // Rendered but no Storage to host it (or no usable bytes) — honest terminal
   // state, now with the real diagnostic instead of a vague message.
@@ -688,6 +759,173 @@ export async function getVideoRender(jobId: string): Promise<VideoJob | { error:
   }
   await saveJob(job);
   return job;
+}
+
+/**
+ * PUT THE FINISHED VIDEO IN THE CUSTOMER'S LIBRARY.
+ *
+ * THE FAULT THIS FIXES, reported by the owner: "big money spent generated a 12
+ * second video which is not autosave to the work library and not possible to
+ * download as the download MP4 give you a firebase link then all GONE."
+ *
+ * All of it true. Nothing anywhere called `saveWork` for a video — only the
+ * agent and content routes ever did — so the ONLY record of a paid render was
+ * the render job, and the only thing displaying it was React state in the
+ * panel. Refresh the tab and a render the customer had paid for was gone from
+ * every surface they could reach. The MP4 itself was still sitting in Storage
+ * on a permanent URL, which somehow makes it worse: the asset existed and the
+ * platform had thrown away the only pointer to it.
+ *
+ * This is the one action in the platform where a lost artifact is money
+ * already taken. It is saved BEFORE the job is reported ready, and a failed
+ * save downgrades the note rather than the video: the customer is told where
+ * their file is either way.
+ */
+async function fileInLibrary(job: VideoJob, urls: string[]): Promise<boolean> {
+  try {
+    const r = await saveWork({
+      brandId: job.brandId,
+      ownerId: null,
+      kind: "video",
+      source: "video-creator",
+      sourceName: "AI Video Creator",
+      // The title is what the customer typed, not the brand-expanded prompt —
+      // a library full of colour hexes is a library nobody can scan.
+      title: (job.prompt.split("\n")[0] || "").slice(0, 80) || `${job.requestedSeconds || job.seconds || 0}s video`,
+      // The deliverable is the URL(s). One per line, in order, so a multi-clip
+      // render reads as what it is and every clip is reachable.
+      output: urls.join("\n"),
+      input: {
+        prompt: job.prompt,
+        seconds: String(job.requestedSeconds ?? job.seconds ?? ""),
+        engine: job.provider,
+        acus: String(job.chargedAcu ?? 0),
+        clips: String(urls.length),
+        jobId: job.jobId,
+      },
+    }, new Date().toISOString());
+    return r.ok && r.persisted;
+  } catch {
+    return false;   // never lose the video over a failed filing
+  }
+}
+
+/**
+ * Poll a render made of several clips.
+ *
+ * Each clip is polled once per call and uploaded the moment it lands, so a slow
+ * clip never makes us re-download a fast one. The job only becomes ready when
+ * EVERY clip has a hosted URL — a partial set is still "rendering", never a
+ * short video presented as the one that was bought.
+ */
+async function pollSegments(job: VideoJob): Promise<VideoJob> {
+  const segs = job.segments!;
+  let changed = false;
+
+  for (const seg of segs) {
+    if (seg.url || !seg.ref) continue;
+    const poll = job.provider === "veo" ? await veoPoll(seg.ref) : await soraPoll(seg.ref);
+    if (!poll.done) continue;
+    // A real MP4 is never a few bytes — the same guard the single-clip path
+    // uses against an empty blob being hosted as a video.
+    if (!(poll.bytes && poll.bytes.length >= 2048)) {
+      job.status = "failed";
+      job.note = `One clip of this ${job.requestedSeconds}s render finished with no usable video, so the finished video would be short — it is reported as failed rather than handed over incomplete. ${(poll as { diag?: string }).diag || ""}`.trim();
+      await saveJob(job);
+      return job;
+    }
+    if (!storageConfigured()) continue;   // nothing to host it with yet
+    const url = await uploadPublicMedia(poll.bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}|${seg.seconds}|${seg.ref}` });
+    if (url) { seg.url = url; changed = true; }
+  }
+
+  const done = segs.every((x) => Boolean(x.url));
+  if (!done) {
+    if (changed) {
+      job.note = `Rendering ${job.requestedSeconds}s — ${segs.filter((x) => x.url).length} of ${segs.length} clips done.`;
+      await saveJob(job);
+    }
+    return job;
+  }
+
+  job.clips = segs.map((x) => x.url!);
+
+  // ONE FILE. NOT "READY" UNTIL IT EXISTS.
+  //
+  // Owner's directive: 12 and 15 seconds arrive as one clip. The first version
+  // of this fired the join and immediately called the job ready with
+  // `videoUrl = clips[0]` — an eight-second clip presented as the fifteen
+  // seconds that was paid for. That is the same defect as every other one on
+  // this page, committed while fixing it.
+  //
+  // So the join is a stage with a beginning and an end: submitted here, polled
+  // on the next call, and only when the joined MP4 is hosted does the job
+  // become ready. Until then it is still rendering, which is the truth.
+  if (!ffmpegCloudConfigured()) {
+    // Unreachable from the panel — the menu withholds any length that needs a
+    // join it cannot do. Kept because an API caller can still ask directly, and
+    // a half-delivered fifteen seconds must never be the answer.
+    job.status = "failed";
+    job.note = `This ${job.requestedSeconds}s video is ${segs.length} clips that have to be joined into one file, and no join service is configured (FFMPEG_CLOUD_API_KEY). The clips rendered: ${job.clips.join(" ")}`;
+    await saveJob(job);
+    return job;
+  }
+
+  if (!job.stitchRef) {
+    const stitched = await createTranscode({ inputUrls: job.clips, outputFormat: "mp4" });
+    if (!stitched.ok) {
+      job.status = "failed";
+      job.note = `Rendered ${job.requestedSeconds}s as ${segs.length} clips but joining them failed — ${stitched.error}. The clips are here: ${job.clips.join(" ")}`;
+      await saveJob(job);
+      return job;
+    }
+    job.stitchRef = stitched.job.id;
+    job.note = `All ${segs.length} clips rendered — joining them into one ${job.requestedSeconds}s file.`;
+    await saveJob(job);
+    return job;
+  }
+
+  const status = await getTranscode(job.stitchRef);
+  if (!status.ok) return job;                       // transient — try again next poll
+  const state = toQueueStatus(status.job.status);
+  if (state === "queued" || state === "running") return job;
+  if (state === "failed") {
+    job.status = "failed";
+    job.note = `The ${job.requestedSeconds}s clips rendered but the join failed. The clips are here: ${job.clips.join(" ")}`;
+    await saveJob(job);
+    return job;
+  }
+
+  const dl = await getDownloadUrl(job.stitchRef);
+  if (!dl.ok) return job;                           // joined, link not ready yet
+  job.videoUrl = dl.url;
+  job.status = "ready";
+  const filed = await fileInLibrary(job, [dl.url]);
+  job.note = filed
+    ? `Rendered ${job.requestedSeconds}s as one file (joined from ${segs.length} clips), saved to your library.`
+    : `Rendered ${job.requestedSeconds}s as one file (joined from ${segs.length} clips). It could not be filed in your library, so copy this link before you close the tab: ${dl.url}`;
+  await saveJob(job);
+  return job;
+}
+
+/**
+ * Lengths this deployment could plan but cannot hand over as ONE file.
+ *
+ * Named rather than silently dropped: a menu that quietly loses fifteen seconds
+ * reads as a bug, and the owner is owed the one setting that brings it back.
+ */
+export function withheldLengths(): { seconds: number; segments: number[]; why: string }[] {
+  if (ffmpegCloudConfigured()) return [];
+  const out: { seconds: number; segments: number[]; why: string }[] = [];
+  for (const seconds of OFFERED_SECONDS) {
+    const best = bestVideoProviderFor(seconds);
+    if (!best || best.segments.length === 1) continue;
+    out.push({
+      seconds, segments: best.segments,
+      why: `No engine renders ${seconds} seconds in one call, so it is ${best.segments.map((n) => `${n}s`).join(" + ")} joined into one file. Set FFMPEG_CLOUD_API_KEY and this length is available.`,
+    });
+  }
+  return out;
 }
 
 export function videoGatewayStatus() {
@@ -707,6 +945,7 @@ export function videoGatewayStatus() {
     // is by construction one of the rows.
     defaultSeconds: supportedSeconds(chosenProvider(), DEFAULT_RENDER_SECONDS),
     maxSingleRenderSeconds: maxSingleRender(),
+    withheld: withheldLengths(),
     note: videoGatewayConfigured()
       ? "Live — renders via Veo/Sora, uploads the MP4 to Storage, and returns a hosted URL to attach to posts."
       : "Demo — the render pipeline, async job model and post-attach are wired; the render engine activates with a Veo (GEMINI_API_KEY) or Sora (OPENAI_API_KEY) key.",
