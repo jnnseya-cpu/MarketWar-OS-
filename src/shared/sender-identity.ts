@@ -107,10 +107,30 @@ export function resolveSender(input: { from: string; authUser?: string; bounce?:
     : envelopeSource === "configured-bounce"
       ? `From <${fromBox}>, sent by <${account || "no account"}>, bounces to the configured <${bounce}>.`
       : envelopeSource === "authenticated-account"
-        ? `From <${fromBox}> is not the account that logs in (<${account}>), so the envelope and Sender: are the account — bounces reach a mailbox that exists. Authenticate as <${fromBox}> to remove the mismatch.`
+        ? `From <${fromBox}> is not the account that logs in (<${account}>), so the envelope and Sender: are the account — bounces reach a mailbox that exists.${sameOrganisation(account, fromBox) ? " Both are on one domain, so SPF and DMARC align and there is nothing to change." : ` They are on different domains, so DMARC will not align — see the remedy.`}`
         : `From <${fromBox}>, with no authenticated account to fall back on.`;
 
   return { headerFrom, envelopeFrom, senderHeader, aligned, envelopeSource, why };
+}
+
+/**
+ * Are these two mailboxes on the same organisational domain?
+ *
+ * WHY IT DECIDES ANYTHING. DMARC does not compare mailboxes, it compares
+ * DOMAINS, and its relaxed policy — the default — passes when the envelope
+ * domain and the From domain share an organisational domain. So
+ * `appuser@marketwaros.com` sending as `info@marketwaros.com` is ALIGNED to
+ * every receiver on earth, and `os@notifications.marketwaros.com` is too.
+ *
+ * Deliberately conservative: equal, or one a subdomain of the other. It never
+ * tries to work out a registrable domain, because `co.uk` makes that a public
+ * suffix list rather than a string operation, and a wrong "same organisation"
+ * would tell somebody their mail is fine when it is being rejected.
+ */
+export function sameOrganisation(a: string, b: string): boolean {
+  const x = domainOf(a), y = domainOf(b);
+  if (!x || !y) return false;
+  return x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`);
 }
 
 /**
@@ -118,6 +138,15 @@ export function resolveSender(input: { from: string; authUser?: string; bounce?:
  *
  * Named here rather than in a runbook because a policy written in a note is a
  * policy nothing executes — this string is what the health check prints.
+ *
+ * IT MUST NOT NAG. This string was demanding `SMTP_USER` be changed to the From
+ * address on every health check, for a deployment where the two mailboxes sit on
+ * one domain and nothing was wrong — so the owner was asked, session after
+ * session, to make a change that would have altered nothing. A remedy printed
+ * for a condition that is not a fault trains people to ignore remedies, and then
+ * the one that matters goes unread too. `aligned` stays false because the three
+ * addresses genuinely are not one mailbox and the ledger should record that;
+ * whether it is a FAULT is a different question, and this is where it is asked.
  */
 export function alignmentRemedy(id: SenderIdentity): string {
   if (id.aligned) return "";
@@ -126,7 +155,10 @@ export function alignmentRemedy(id: SenderIdentity): string {
     return `Confirm <${id.envelopeFrom}> is a real mailbox or forward on a domain with SPF, otherwise every bounce is silently discarded and a delivery failure leaves no trace.`;
   }
   if (id.envelopeSource === "authenticated-account") {
-    return `Mail is sent as <${id.envelopeFrom}> but signed From <${from}>. Best fix: set SMTP_USER to ${from} and use that mailbox's own password, so the address you send as is the address you log in as. Otherwise add ${from} as a permitted alias of ${id.envelopeFrom} at the mail host.`;
+    // Same domain: DMARC-aligned, bounces land in a real mailbox, `Sender:`
+    // declares the arrangement. Nothing to do — and saying so is the point.
+    if (sameOrganisation(id.envelopeFrom, from)) return "";
+    return `Mail is sent as <${id.envelopeFrom}> but signed From <${from}>, and they are on DIFFERENT domains, so SPF authenticates one domain while the recipient reads another — DMARC fails. Either set EMAIL_FROM to an address on ${domainOf(id.envelopeFrom)}, or set SMTP_USER to ${from} with that mailbox's own password.`;
   }
   return `There is no authenticated account, so nothing proves this deployment may send as <${from}>.`;
 }
