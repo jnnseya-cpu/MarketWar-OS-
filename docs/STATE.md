@@ -107,8 +107,10 @@ code, never created), From `info@`. The relay queued it (`B92FD8E3CF`) and
 delivered nothing; the bounce went nowhere, so the failure destroyed its own
 evidence. `shared/sender-identity.ts` holds one rule: an envelope sender must be
 a mailbox that exists. The From is never rewritten, and a From that is not the
-account is declared with RFC 5322 `Sender:`. **To close:** set
-`SMTP_USER=info@marketwaros.com` AND its own `SMTP_PASS`, redeploy, `?send=self`.
+account is declared with RFC 5322 `Sender:`. **To close:** set `EMAIL_FROM` to
+`MarketWar OS <info@marketwaros.com>`, redeploy, `?send=self`. **Do NOT ask for
+`SMTP_USER` to change** — verified 2026-08-27: `appuser@` logs in, `info@` is the
+visible From, envelope + `Sender:` are `appuser@`, same domain so SPF/DMARC align.
 
 **2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to
 14.2.35 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware
@@ -118,15 +120,13 @@ to be the cause. **To close:** deploy dev to a preview, open `/api/auth/human`
 and `/verify-human`; if both answer, merge.
 
 **FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25). Sessions carried
-"Admin is not initialising" for weeks and hung diagnoses off it — check the
-endpoint, never inherit the belief.
+"Admin is not initialising" for weeks — check the endpoint, never inherit it.
 
-**3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid and
-`STRIPE_WEBHOOK_SECRET` set, so the easy causes are out. Left: (a) the wrong
-`whsec_` — that account has SEVEN endpoints; (b) the URL, since `MAIN_DOMAIN` is
-the APEX while the app serves `www.` and Stripe does not follow redirects.
-**To close:** `/api/health/stripe` → `webhookDiagnostic.endpointUrl`, then read a
-failed event's response body in Stripe.
+**3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set,
+so the easy causes are out. Left: (a) the wrong `whsec_` of that account's SEVEN
+endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`, and
+Stripe does not follow redirects. **To close:** `/api/health/stripe` →
+`webhookDiagnostic.endpointUrl`, then the failed event's response body in Stripe.
 
 **4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
 creator's click to the account that signs up (last touch, 90 days). Nothing posts
@@ -134,10 +134,11 @@ a commission when that account PAYS US — and it must not be faked with a
 zero-value ledger event, which bypasses the 10k gate.
 
 **Owner actions (nothing in code can substitute):**
-1. **`PLATFORM_ADMIN_EMAILS`** — without it nobody can reach
-   `/api/admin/grant-acus`, so no wallet can be credited by hand and the owner's
-   own balance stays 0. In production a wallet OPENS at 0; the 100-ACU signup
-   allowance is claimed once via `/verify-human` after email verification.
+1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE, then never again; check it at
+   `/api/health/live` → `envPresent` before asking. Without it nobody reaches
+   `/api/admin/grant-acus` and the owner's balance stays 0 (a wallet OPENS at 0;
+   the 100 ACUs are claimed via `/verify-human`). Alternative, no redeploy:
+   `node scripts/grant-admin.mjs you@… executive` sets the same claim.
 2. Open `/api/health/live` after every change — `envPresent` is the only thing
    that proves the running build received it. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per

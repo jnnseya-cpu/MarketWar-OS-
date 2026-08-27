@@ -2744,8 +2744,31 @@ test("the envelope sender is a mailbox that exists, not one invented in code", a
   assert.equal(live.senderHeader, "appuser@marketwaros.com",
     "RFC 5322 §3.6.2: when From is not the submitter, Sender: names the submitter");
   assert.equal(live.aligned, false);
-  assert.match(alignmentRemedy(live), /SMTP_USER to info@marketwaros\.com/,
-    "the remedy must name the one change that removes the mismatch entirely");
+  // AND YET THERE IS NOTHING TO FIX. `appuser@` and `info@` are one domain, so
+  // SPF authenticates the domain the recipient reads and DMARC's relaxed policy
+  // — the default — passes. This assertion replaces one that demanded the
+  // remedy name `SMTP_USER to info@…`: that string was printed on every health
+  // check of a correctly configured deployment, and the owner was asked to make
+  // that change repeatedly over six weeks for no effect. A remedy that fires
+  // when nothing is wrong is how the remedy that matters gets ignored.
+  assert.equal(alignmentRemedy(live), "",
+    "same-domain account and From is DMARC-aligned — printing a remedy here is a false alarm");
+  assert.match(live.why, /nothing to change/,
+    "the ledger line must say the arrangement is fine, not imply a mismatch to chase");
+
+  // A DIFFERENT domain is the real fault, and it must still be named. Without
+  // this, the change above would have silenced every alignment warning.
+  const crossDomain = resolveSender({ from: "MarketWar OS <info@marketwaros.com>", authUser: "appuser@somehost.net", bounce: "" });
+  assert.equal(crossDomain.aligned, false);
+  assert.match(alignmentRemedy(crossDomain), /DMARC fails/,
+    "envelope and From on different domains is a genuine delivery fault and must be reported");
+  assert.match(alignmentRemedy(crossDomain), /SMTP_USER to info@marketwaros\.com/,
+    "and the remedy must still name the change that fixes it");
+
+  // A subdomain is the same organisation — notifications.marketwaros.com is not
+  // a third party, and treating it as one would flag the shipped EMAIL_FROM.
+  const subdomain = resolveSender({ from: "MarketWar OS <os@notifications.marketwaros.com>", authUser: "appuser@marketwaros.com", bounce: "" });
+  assert.equal(alignmentRemedy(subdomain), "");
 
   // A stated bounce address is still honoured — nothing delivered is withdrawn.
   const withBounce = resolveSender({ from: "info@marketwaros.com", authUser: "appuser@marketwaros.com", bounce: "b.veryx.abc.def@bounces.marketwaros.com" });
