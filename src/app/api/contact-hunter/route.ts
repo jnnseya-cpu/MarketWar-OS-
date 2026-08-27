@@ -8,6 +8,9 @@ import {
   recordOutcome, sourceVerdicts, defaultPolicy, type SourcePolicy,
 } from "@/backend/contact-hunter-store";
 import { classifyEmail, verifyEmail, assessCompliance, buildContactRecord } from "@/backend/lead-harvest";
+import { findPerson, providerHealth } from "@/backend/enrichment-provider";
+import { registerBuiltInProviders, NOT_IMPLEMENTED } from "@/backend/enrichment-adapters";
+import { readTitle, claimsOperationalRole, STOP_AT } from "@/shared/contact-confidence";
 import { isPersonalProvider } from "@/backend/enrich";
 import {
   learnPattern, candidateFromPattern, assessEmployment, normalisePhone,
@@ -32,6 +35,10 @@ import {
 // POST { action: "policy" | "set-policy", domain }             → source governance
 // POST { action: "outcome",  sourceDomain, bounces… }          → feeds the auto-disable arithmetic
 // POST { action: "sources" }                                   → every source and its verdict
+// POST { action: "lookup",  fullName, company, website, … }     → ONE person through the provider
+//                                                                 waterfall: free sources first,
+//                                                                 three confidences, a deadline
+//                                                                 and a spending limit
 // GET  → doctrine, prohibitions, weights, thresholds, demo
 //
 // WHAT THIS ROUTE DELIBERATELY DOES NOT DO: verify an email or decide a lawful
@@ -254,11 +261,100 @@ export async function POST(req: NextRequest) {
   // allowed when accounts are not enforced), so the tool keeps working with no
   // keys — it simply reports that live search is unavailable rather than
   // inventing a company.
-  if (action === "hunt" || action === "hunt-company" || action === "learn-pattern") {
+  if (action === "hunt" || action === "hunt-company" || action === "learn-pattern" || action === "lookup") {
     const auth = await requireAuth(req);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
     const suppressions = await listSuppressions();
+
+    // ── ONE PERSON, SEVERAL SUPPLIERS, A DEADLINE. ──────────────────────────
+    //
+    // The waterfall, reachable. `hunt` sweeps a trade across towns; this
+    // answers the other question the owner actually asks — "here is a name and
+    // a company, get me the route to them" — and it is the action the provider
+    // stack exists for. Free sources first (our own crawl, then the register),
+    // stop as soon as the three confidences clear their thresholds, and never
+    // call a paid provider whose price would take the lookup past its budget.
+    if (action === "lookup") {
+      const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+      const company = typeof body.company === "string" ? body.company.trim() : "";
+      const website = typeof body.website === "string" ? body.website.trim() : "";
+      const wantedTitle = typeof body.title === "string" ? body.title.trim() : "";
+      if (!fullName && !company) {
+        return NextResponse.json({ error: "lookup needs at least a person's name or a company" }, { status: 400 });
+      }
+
+      // The base charge covers our own crawl — bandwidth and their server's
+      // time, both real and neither billed by anybody else.
+      const meter = await meterAction(auth, "enrich", 1);
+      if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+
+      registerBuiltInProviders();
+      const result = await findPerson({
+        person: {
+          fullName: fullName || undefined,
+          company: company || undefined,
+          domain: website ? website.replace(/^https?:\/\//i, "").replace(/\/.*$/, "") : undefined,
+          title: wantedTitle || undefined,
+          country: typeof body.country === "string" ? body.country : "GB",
+        },
+        deadlineMs: typeof body.deadlineMs === "number" ? body.deadlineMs : 14_000,
+        // A paid provider is only ever reached when the caller allowed one. The
+        // default is zero, so the free path is the default path.
+        maxCostAcu: typeof body.maxCostAcu === "number" ? Math.max(0, Math.min(200, body.maxCostAcu)) : 0,
+      });
+
+      // WHAT THE SUPPLIERS ACTUALLY COST, CHARGED AFTER THE FACT — because the
+      // waterfall stops early and billing the whole stack for a lookup that
+      // used one provider is the dishonest half of this business model.
+      //
+      // One `enrich` unit is 2 ACUs and one provider ACU is 1, so charging
+      // `result.costAcu` units prices supplier spend at exactly 2x: the owner's
+      // 100% floor, met by arithmetic rather than by a note.
+      let metered = meter.metered;
+      let balanceAcu = meter.balanceAcu;
+      if (result.costAcu > 0) {
+        const paid = await meterAction(auth, "enrich", result.costAcu);
+        metered = metered || paid.metered;
+        balanceAcu = paid.balanceAcu;
+      }
+
+      // Every person carries the refusal, and every address is checked against
+      // the suppression list BEFORE it is rendered — a lookup that returns a
+      // suppressed address has already leaked it to the screen.
+      const people = result.people.map((p) => {
+        const reading = readTitle(p.jobTitle ?? "", { fromRegistryOnly: p.fromRegistryOnly });
+        const claim = claimsOperationalRole(reading, !p.fromRegistryOnly);
+        return {
+          ...p,
+          reading,
+          operationalRole: claim,
+          // The register's word is shown as the register's word, never as a job.
+          displayTitle: claim.ok ? p.jobTitle ?? null : null,
+        };
+      });
+      const emails = result.emails.map((e) => {
+        const block = suppressedBy(e.value, suppressions, { tenantId: brandId, channel: "EMAIL" });
+        return { ...e, suppressed: Boolean(block), suppressionReason: block?.reason ?? null };
+      });
+      const blocked = emails.filter((e) => e.suppressed).length;
+
+      return NextResponse.json({
+        result: {
+          ...result,
+          people,
+          emails,
+          suppressedCount: blocked,
+        },
+        providers: providerHealth(),
+        notConfigured: NOT_IMPLEMENTED,
+        stopThresholds: STOP_AT,
+        metered, balanceAcu,
+        note: blocked > 0
+          ? `${result.note} ${blocked} address${blocked === 1 ? " is" : "es are"} on a suppression list and cannot be used — that block is stronger than any score above it.`
+          : result.note,
+      });
+    }
 
     if (action === "learn-pattern") {
       const website = typeof body.website === "string" ? body.website.trim() : "";
@@ -340,10 +436,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ stats, sources: await sourceVerdicts() });
   }
 
-  return NextResponse.json({ error: "Unknown action — use hunt, hunt-company, learn-pattern, pattern, candidate, employment, phone, verify-email, compliance, score, gate, evidence-check, objection, suppressed, policy, set-policy, outcome or sources" }, { status: 400 });
+  return NextResponse.json({ error: "Unknown action — use hunt, hunt-company, lookup, learn-pattern, pattern, candidate, employment, phone, verify-email, compliance, score, gate, evidence-check, objection, suppressed, policy, set-policy, outcome or sources" }, { status: 400 });
 }
 
 export async function GET() {
+  // REGISTERED BEFORE THE HEALTH IS READ. Without this the doctrine reported an
+  // empty provider list — "no suppliers configured" on a platform with two —
+  // because registration only happened inside the POST that used them. A status
+  // block that is only correct after you have already run the thing it describes
+  // is worse than no status block.
+  registerBuiltInProviders();
   return NextResponse.json({
     engine: "MarketWar Contact Hunter — public B2B discovery, verification and compliant activation",
     doctrine:
@@ -358,6 +460,17 @@ export async function GET() {
       confirmed: "A human published this value somewhere we read. There is a URL.",
       inferred: "Generated from the firm's pattern. Published nowhere. Never contactable until verified.",
       provider: "A licensed supplier asserted it. Their evidence, not ours.",
+    },
+    // The single-person waterfall, and what it will and will not do.
+    waterfall: {
+      what: "One name plus one company, through every configured supplier in cost order, inside a deadline. Free sources first — our own crawl of the company's own pages, then the UK register — because they cost nothing AND are the primary source a paid provider is selling a copy of.",
+      stopsWhen: STOP_AT,
+      budget: "A paid provider is called only when its price fits the ACU limit the caller set. The default limit is zero, so the free path is the default path, and a provider that was skipped for cost is named in the result rather than silently omitted.",
+      chargedFor: "Only the calls that actually ran and actually returned something. A provider that timed out or found nothing is not charged for.",
+      directorsAreNotBuyers:
+        "A person found ONLY in the company register is returned as an officer with no department and no operational title. A registered director is a legal role about filings and liability; the person who buys things is usually not on that list. The engine will not present one as a Procurement, Commercial or Project Director until a source other than the register says so.",
+      providers: providerHealth(),
+      notConfigured: NOT_IMPLEMENTED,
     },
     readinessWeights: READINESS_WEIGHTS,
     readinessFormula: READINESS_WEIGHTS.map((w) => `${w.weight}% ${w.label}`).join(" + "),
