@@ -22361,3 +22361,110 @@ test("the runner assembles the engines that already exist rather than growing it
   assert.doesNotMatch(code, /function\s+\w*(verifyEmail|assessCompliance)\s*\(/,
     "the runner reimplemented an engine it already imports");
 });
+
+// ---------------------------------------------------------------------------
+// A KEY THAT ARRIVED WRONG IS NOT A KEY THAT IS WRONG
+// ---------------------------------------------------------------------------
+
+test("a key pasted with quotes or a newline is cleaned before it is sent, and the paste is named before the key is blamed", async () => {
+  const { cleanKey, keyFromEnv, shapeHint } = await import("../src/shared/api-key-hygiene.ts");
+
+  // THE MISDIAGNOSIS THIS EXISTS TO STOP. All three of these produce a 401 from
+  // a credential that was correct, and all three look identical in a dashboard
+  // that renders the value as dots — so the owner regenerates a good key and
+  // gets 401 again.
+  for (const [raw, why] of [
+    ['"abc123"', "surrounding-quotes"],
+    ["'abc123'", "surrounding-quotes"],
+    ["  abc123\n", "leading-or-trailing-whitespace"],
+    ["SERPER_API_KEY=abc123", "looks-like-assignment"],
+  ]) {
+    const c = cleanKey(raw);
+    assert.equal(c.key, "abc123", `${JSON.stringify(raw)} was not cleaned to the key`);
+    assert.ok(c.issues.includes(why), `${JSON.stringify(raw)} did not report "${why}"`);
+    assert.equal(c.changed, true);
+    assert.ok(c.notes.length > 0, "a problem was found and not explained");
+  }
+
+  // A CLEAN KEY IS LEFT ALONE.
+  const clean = cleanKey("5f2a9c7e1b3d4a6f8e0c2b4d6a8f0e2c4b6d8a0f");
+  assert.equal(clean.changed, false);
+  assert.deepEqual(clean.issues, []);
+
+  // WHAT IT MUST NOT "FIX". Deleting a character from a credential turns a
+  // working key into an unexplainable one, so these are reported and kept.
+  const inner = cleanKey("abc 123");
+  assert.equal(inner.key, "abc 123", "a character was silently removed from the middle of a credential");
+  assert.ok(inner.issues.includes("internal-whitespace"));
+  const dash = cleanKey("sk–ant–abc");
+  assert.equal(dash.key, "sk–ant–abc", "an en-dash was silently rewritten inside a credential");
+  assert.ok(dash.issues.includes("non-ascii"));
+
+  // One quote on one end is not a wrapper — it might be the key.
+  assert.equal(cleanKey('"abc').key, '"abc', "an unmatched quote was stripped as though it were a wrapper");
+
+  // A placeholder behaves as NOT SET, so it cannot produce a confident 401.
+  assert.equal(keyFromEnv("changeme"), "");
+  assert.equal(keyFromEnv("your-api-key"), "");
+  assert.equal(keyFromEnv(undefined), "");
+  assert.equal(keyFromEnv(" abc123 "), "abc123");
+
+  // A SHAPE MISMATCH IS A HINT, NOT A REFUSAL. A platform that refuses to send
+  // a key because it fails a pattern hard-coded months ago breaks itself on
+  // somebody else's release schedule.
+  assert.ok(shapeHint("serper", "abc123"), "a wrong-shaped key produced no hint at all");
+  assert.equal(shapeHint("serper", "5f2a9c7e1b3d4a6f8e0c2b4d6a8f0e2c4b6d8a0f"), null,
+    "a correctly-shaped key was flagged");
+  assert.equal(shapeHint("unknown-provider", "anything"), null, "a provider with no known shape was judged anyway");
+  assert.equal(shapeHint("serper", ""), null);
+});
+
+test("the search gateway sends the cleaned key, and the diagnostic never returns it", async () => {
+  const search = readFileSync(new URL("../src/backend/search.ts", import.meta.url), "utf8");
+  const health = readFileSync(new URL("../src/app/api/health/serper/route.ts", import.meta.url), "utf8");
+
+  // The gateway must not read the raw variable straight into the header.
+  assert.doesNotMatch(codeOf(search), /"X-API-KEY":\s*process\.env/,
+    "the raw environment value is sent as the key, so a stray newline becomes a 401 nobody can explain");
+  assert.match(search, /keyFromEnv/, "the search gateway does not clean the key");
+
+  // The diagnostic must name a bad paste BEFORE it accuses the key.
+  assert.match(health, /cleanKey/, "the diagnostic does not check the value's shape");
+  assert.match(health, /pasteFirst/, "the diagnostic has no path that names the paste before the key");
+
+  // AND IT MUST NEVER RETURN THE KEY. A health endpoint that echoes a
+  // credential is a credential in a browser history, a log and a screenshot.
+  assert.doesNotMatch(codeOf(health), /key\s*,?\s*\}\s*\)|JSON\.stringify\(\{[^}]*\bkey\b/,
+    "the diagnostic may be returning the key itself");
+  assert.match(health, /looksLike/, "the diagnostic gives no way to recognise which key is set");
+  assert.match(health, /slice\(0, 2\)/, "the key fingerprint is not truncated");
+});
+
+test("a list of places typed into one box becomes one search per place", async () => {
+  const { splitPlaces } = await import("../src/backend/contact-hunt-run.ts");
+
+  // People type a list into a single box because a single box invites one.
+  // "Builders Birmingham, London and Manchester" as ONE query returns the pages
+  // that mention all three — which are directories, not builders.
+  assert.deepEqual(splitPlaces("Birmingham, London and Manchester"), ["Birmingham", "London", "Manchester"]);
+  assert.deepEqual(splitPlaces("London & Manchester"), ["London", "Manchester"]);
+  assert.deepEqual(splitPlaces("Leeds/Bradford"), ["Leeds", "Bradford"]);
+  assert.deepEqual(splitPlaces("Leeds; York"), ["Leeds", "York"]);
+  assert.deepEqual(splitPlaces("Leeds"), ["Leeds"]);
+  assert.deepEqual(splitPlaces(""), []);
+  assert.deepEqual(splitPlaces(undefined), []);
+
+  // AND WHAT MUST NOT BE SPLIT. A place name containing a word the splitter
+  // looks for is still one place, and cutting it produces two searches for
+  // towns that do not exist.
+  assert.deepEqual(splitPlaces("Newcastle upon Tyne"), ["Newcastle upon Tyne"],
+    "a multi-word place name was cut into pieces");
+  assert.deepEqual(splitPlaces("Stoke-on-Trent and Derby"), ["Stoke-on-Trent", "Derby"],
+    "a hyphenated place name was split on its own hyphens");
+
+  // The runner must actually loop over them rather than joining them back up.
+  const src = readFileSync(new URL("../src/backend/contact-hunt-run.ts", import.meta.url), "utf8");
+  assert.match(codeOf(src), /for \(const place of places/, "the places are split and then not searched separately");
+  assert.match(src, /round-robin|interleave|spread across the places/i,
+    "the results are not spread across the places, so one city takes every slot");
+});
