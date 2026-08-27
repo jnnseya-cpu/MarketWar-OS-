@@ -30,7 +30,8 @@ import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
 // The operating targets are READ FROM THE RULES, never typed beside them.
 import { DEFAULT_GUARDRAILS, MIN_SPEND_TO_JUDGE_GBP, MIN_CONVERSIONS_TO_JUDGE_CPA } from "@/backend/paid-guardrails";
-import { MARKUP_FLOOR } from "@/backend/subscription";
+import { MARKUP_FLOOR, PLANS as PLAN_ENGINE, planEconomics } from "@/backend/subscription";
+import { FREE_SIGNUP_ACUS } from "@/backend/wallet";
 import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
 import { INCLUDED_TOOLS, includedSummary } from "@/shared/included-tools";
 import { BrandLockup } from "@/components/Logo";
@@ -125,15 +126,38 @@ const SCENARIOS = [
 // The real 8-tier model (src/backend/subscription.ts). Platform access is the
 // subscription; AI actions draw from a monthly ACU allowance (top up anytime) —
 // the two are separate so you only pay for what you use.
+// EVERY NUMBER ON THE PRICING CARDS IS READ FROM THE BILLING ENGINE.
+//
+// All eight cards were hard-coded, and — checked one by one — all eight were
+// numerically right: £19/£49/£149/£399/£999/£2,499/£7,499, the brand, user and
+// social limits, and every ACU allowance down to Global's 149,980. Correct, and
+// completely unbound: change a price in subscription.ts and this page keeps
+// quoting the old one, on the surface where being wrong takes somebody's money
+// under a false description. /choose-plan already derives its figures from the
+// same engine, so the two could silently disagree about what a customer owes.
+//
+// The prose stays written by hand — a feature bullet is a promise, not a field.
+// The MONEY and the LIMITS come from the engine.
+const money = (n: number) => `£${n.toLocaleString("en-GB")}`;
+const limitsOf = (id: string) => {
+  const p = PLAN_ENGINE.find((x) => x.id === id)!;
+  const socials = typeof p.socialAccounts === "number"
+    ? ` · ${p.socialAccounts} social${p.socialAccounts === 1 ? "" : "s"}`
+    : "";
+  return `${p.brands} brand${p.brands === 1 ? "" : "s"} · ${p.users} user${p.users === 1 ? "" : "s"}${socials}`;
+};
+const priceOf = (id: string) => money(PLAN_ENGINE.find((x) => x.id === id)!.monthlyGbp);
+const acusOf = (id: string) => `${planEconomics(PLAN_ENGINE.find((x) => x.id === id)!).monthlyAcus.toLocaleString("en-GB")} AI credits/mo`;
+
 const PLANS = [
-  { name: "Free", price: "£0", period: "", desc: "Diagnose + try the whole OS.", features: ["1 brand · 1 user", "100 AI credits to start", "Every module + AI agent to explore", "Business DNA + Marketing Audit", "1 campaign + 1 landing page"], cta: "Start free", href: "/signup", featured: false },
-  { name: "Starter", price: "£19", period: "/mo", desc: "Your first real campaigns.", features: ["1 brand · 2 users · 3 socials", "380 AI credits/mo", "First-Customer sprint to real sales", "Email from your own domain", "WhatsApp funnel + on-brand content"], cta: "Start", href: "/signup", featured: false },
-  { name: "Growth", price: "£49", period: "/mo", desc: "The full acquisition machine.", features: ["3 brands · 5 users · 10 socials", "980 AI credits/mo", `Full ${AGENT_LIST.length}-agent AI workforce`, "Search Dominance + SEO workbench", "Competitor intel + lead recovery", "Revenue Autopilot + own email sending"], cta: "Start 14-day trial", href: "/signup", featured: true },
-  { name: "Scale", price: "£149", period: "/mo", desc: "Multi-brand operators.", features: ["10 brands · 15 users · 30 socials", "2,980 AI credits/mo", "Approvals + collaboration workflow", "Per-brand wallets + white-label", "OMNIRANK + dedicated sending domains"], cta: "Choose Scale", href: "/signup", featured: false },
-  { name: "Business", price: "£399", period: "/mo", desc: "Agencies + franchises.", features: ["30 brands · 40 users · 100 socials", "7,980 AI credits/mo", "White-label included", "ROI + revenue-attribution ledger", "Priority support"], cta: "Choose Business", href: "/signup", featured: false },
-  { name: "Enterprise", price: "£999", period: "/mo", desc: "Large multi-location.", features: ["100 brands · 100 users", "19,980 AI credits/mo", "Unlimited campaigns", "Controlled wallets + org hierarchy", "API access + SSO", "Onboarding + training"], cta: "Talk to us", href: "/contact", featured: false },
-  { name: "Corporate", price: "£2,499", period: "/mo", desc: "Networks + resellers.", features: ["300 brands · 300 users", "49,980 AI credits/mo", "Unlimited campaigns", "Full controlled-wallet governance", "Dedicated onboarding + throughput"], cta: "Talk to us", href: "/contact", featured: false },
-  { name: "Global", price: "£7,499", period: "/mo", desc: "Custom at any scale.", features: ["Custom brands + users", "~149,980 AI credits/mo", "Unlimited campaigns", "Dedicated infrastructure", "White-glove implementation + SLAs"], cta: "Talk to us", href: "/contact", featured: false },
+  { name: "Free", price: priceOf("free"), period: "", desc: "Diagnose + try the whole OS.", features: [limitsOf("free"), `${FREE_SIGNUP_ACUS} AI credits to start`, "Every module + AI agent to explore", "Business DNA + Marketing Audit", "1 campaign + 1 landing page"], cta: "Start free", href: "/signup", featured: false },
+  { name: "Starter", price: priceOf("starter"), period: "/mo", desc: "Your first real campaigns.", features: [limitsOf("starter"), acusOf("starter"), "First-Customer sprint to real sales", "Email from your own domain", "WhatsApp funnel + on-brand content"], cta: "Start", href: "/signup", featured: false },
+  { name: "Growth", price: priceOf("growth"), period: "/mo", desc: "The full acquisition machine.", features: [limitsOf("growth"), acusOf("growth"), `Full ${AGENT_LIST.length}-agent AI workforce`, "Search Dominance + SEO workbench", "Competitor intel + lead recovery", "Revenue Autopilot + own email sending"], cta: "Start 14-day trial", href: "/signup", featured: true },
+  { name: "Scale", price: priceOf("scale"), period: "/mo", desc: "Multi-brand operators.", features: [limitsOf("scale"), acusOf("scale"), "Approvals + collaboration workflow", "Per-brand wallets + white-label", "OMNIRANK + dedicated sending domains"], cta: "Choose Scale", href: "/signup", featured: false },
+  { name: "Business", price: priceOf("business"), period: "/mo", desc: "Agencies + franchises.", features: [limitsOf("business"), acusOf("business"), "White-label included", "ROI + revenue-attribution ledger", "Priority support"], cta: "Choose Business", href: "/signup", featured: false },
+  { name: "Enterprise", price: priceOf("enterprise"), period: "/mo", desc: "Large multi-location.", features: [limitsOf("enterprise"), acusOf("enterprise"), "Unlimited campaigns", "Controlled wallets + org hierarchy", "API access + SSO", "Onboarding + training"], cta: "Talk to us", href: "/contact", featured: false },
+  { name: "Corporate", price: priceOf("corporate"), period: "/mo", desc: "Networks + resellers.", features: [limitsOf("corporate"), acusOf("corporate"), "Unlimited campaigns", "Full controlled-wallet governance", "Dedicated onboarding + throughput"], cta: "Talk to us", href: "/contact", featured: false },
+  { name: "Global", price: priceOf("global"), period: "/mo", desc: "Custom at any scale.", features: [limitsOf("global"), acusOf("global"), "Unlimited campaigns", "Dedicated infrastructure", "White-glove implementation + SLAs"], cta: "Talk to us", href: "/contact", featured: false },
 ];
 
 const FAQS = [

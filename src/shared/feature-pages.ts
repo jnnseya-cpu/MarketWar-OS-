@@ -80,7 +80,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
       "It cannot tell you whether the affiliate will actually sell anything. It tells you what you can pay if they do, which is the half most programmes get wrong in the expensive direction.",
     related: ["what-commission-do-creators-earn", "why-a-product-cannot-carry-a-commission", "stop-a-campaign-losing-money"],
     faq: [
-      { q: "What is a normal affiliate commission rate?", a: "Rates in the 5–30% range are common, and the number is meaningless without the margin behind it. 10% on a product with 12% contribution loses money on every sale; 30% on software with 90% contribution is comfortable. The rate follows the arithmetic, never the industry." },
+      { q: "What is a normal affiliate commission rate?", a: "You will see 5–30% quoted all over the internet; nobody here has measured that and it is not the point. The number is meaningless without the margin behind it. 10% on a product with 12% contribution loses money on every sale; 30% on software with 90% contribution is comfortable. The rate follows the arithmetic, never the industry." },
       { q: "How do I work out my contribution?", a: "Price minus every cost that varies with the sale: cost of goods, fulfilment, payment fees, the tax you collect and pass on, and a realistic returns allowance. What is left is the only money that can fund acquisition." },
       { q: "What is a protected margin?", a: "The share of contribution you refuse to spend, whatever the campaign promises. Naming it before a campaign starts is what stops a good month of revenue arriving with no profit inside it." },
     ],
