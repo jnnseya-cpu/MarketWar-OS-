@@ -15,7 +15,7 @@ subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com).
 
 Next.js, TypeScript strict, three layers enforced by `scripts/check-layers.mjs`.
-233 backend modules, 176 API routes, 67 dashboard pages, **1,588 tests**
+235 backend modules, 178 API routes, 68 dashboard pages, **1,603 tests**
 including one end-to-end run of the growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
@@ -47,13 +47,12 @@ a stale number.
   WORST free, the lead recorded as an inbound prospect. No account, no card; six
   adverts promise that and `npm run ads:verify` fails if it stops being true.
   Every failing finding carries what it costs, the fix, and what MarketWar does
-  about it (`shared/audit-copy.ts`); a test walks that copy and fails on a
-  percentage, a currency amount or the word "average". **The page now SHOWS the
-  catalogue** — all 29 named, generated from that same file, each opening to what
-  it costs, plus FAQPage markup — because a business with no customers to quote
-  wins on specificity or not at all. It emails what it asks for an address to
-  send, and refuses private and link-local destinations on every redirect hop
-  (`shared/net-guard.ts`) — it would otherwise have read the cloud metadata service.
+  about it (`shared/audit-copy.ts`); a test fails that copy on a percentage, a
+  currency amount or "average". **The page SHOWS the catalogue** — all 29 named
+  from that file, each opening to what it costs, plus FAQPage markup. It emails
+  what it asked for an address to send, and refuses private and link-local
+  destinations on every hop (`shared/net-guard.ts`) — it would otherwise have
+  read the cloud metadata service.
 - **The client approval portal** (`/portal/[token]`) — a signed, expiring link an
   outside client opens with no account.
 - **The screen recorder puts the presenter IN the file** — composited onto a
@@ -67,6 +66,16 @@ a stale number.
 - **Eight pre-publish checks**, **channel health**, **versions and restore**,
   **creative fatigue**, **the audit log**, **the generation cache**, **teams**
   (ten roles), **Sentinel**, **13 articles, 14 answer pages**.
+- **Contact Hunter + Contact Finder** (`/dashboard/contact-hunter`, 2026-08-27) —
+  find a business contact, or upload a list and have it filled in. Built on
+  `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied — a test
+  fails if either grows its own. New is the honesty: **confirmed / inferred /
+  provider never convert**, and an inferred address cannot be activated however
+  well it scores; a pattern needs three known addresses; conflicting job titles
+  block rather than average; a well-formed phone is never "verified"; objections
+  are hashed, platform-wide, permanent; **it refuses to choose between two people
+  with the same name**; the user's columns come back untouched; a resumed job
+  never charges twice. Thirteen mutations caught.
 - **Market Exit Capture** (`/dashboard/market-exit`, 2026-08-27) — a closed firm's
   demand sent to one that trades. The only engine wrong at a NAMED third party's
   expense, so it is built from refusals: publishing needs an official register
@@ -78,13 +87,11 @@ a stale number.
   those guards were each caught by a test.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26).
-Landing stats, plan prices/limits/ACUs, 39 agent cards, the feature sections, 14
-answer pages and 13 articles, claim by claim, held by twelve tests. **What broke
-was always what somebody TYPED; everything derived was already right.** Worst
-three: a 4.0x ROAS rule where the guardrail says 3, a 48h kill-window existing
-nowhere, WhatsApp automation with no send path while that route's own comment said
-so. The 2026-08-21/22 audit built eleven PRD sections
-(`GROWTH-ENGINE-COVERAGE.md`); each refuses a number it cannot stand behind.
+Landing stats, plan prices/limits/ACUs, 39 agent cards, feature sections, 14
+answer pages, 13 articles — claim by claim, held by twelve tests. **What broke was
+always what somebody TYPED; everything derived was already right.** Worst three: a
+4.0x ROAS rule where the guardrail says 3, a 48h kill-window existing nowhere, and
+WhatsApp automation with no send path while that route's own comment said so.
 
 ---
 
@@ -122,14 +129,12 @@ only in 15.5.x+. Green on dev; rolled off 2026-08-21 during a live `/verify-huma
 failure as a precaution, NOT because it was proved to be the cause. **To close:**
 preview dev, open `/api/auth/human` and `/verify-human`; if both answer, merge.
 
-**FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25) — check the endpoint,
-never inherit the belief that it is not.
+**FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25) — check the endpoint.
 
 **3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set.
 Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL —
 `MAIN_DOMAIN` is the APEX, the app serves `www.`, Stripe does not follow
-redirects. **To close:** `/api/health/stripe` → `webhookDiagnostic.endpointUrl`,
-then the failed event's body.
+redirects. **To close:** `/api/health/stripe` → `webhookDiagnostic.endpointUrl`.
 
 **4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
 creator's click to the account that signs up (last touch, 90 days). Nothing posts
@@ -146,16 +151,14 @@ zero-value ledger event, which bypasses the 10k gate.
    running build received it. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand.
 4. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
-   (`npm run ads:doc`): Traffic, not Awareness, and §0 argues it. Build the five
-   custom audiences FIRST — they cannot be backfilled. `PITCH-CREATIVES.docx` is
-   five feature creatives; both verifiers fail on a stale price or invented customer.
+   (`npm run ads:doc`): Traffic, not Awareness. Build the five custom audiences
+   FIRST — they cannot be backfilled. Both verifiers fail on a stale price.
 
 **Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:** §97's
 priority queue (five inputs need a basis nothing produces); §50 paid boost; §77
 knowledge graph (facts are key/value); §80 agent message bus (chains are
-sequential by construction); §14 calendars, §21 carousels, §100 per-agent
-cost/impact; no bulk catalogue import, and no PUBLIC page listing what brands
-have opened — a promoter signs up before seeing anything to promote (Task 13).
+sequential); §14 calendars, §21 carousels, §100 per-agent cost/impact; no bulk
+catalogue import, no PUBLIC page listing what brands have opened (Task 13).
 
 **Security debt, with the reasoning.** 6 moderate npm advisories, one chain
 (uuid → … → firebase-admin), left deliberately: npm's "fix" is a four-major
@@ -175,43 +178,39 @@ Memory and Growth Hubs from the command index — shipped engines nothing listed
 Worst: a message whose login, envelope sender and From were three mailboxes, one
 invented in source and never created. Before those — the crawler emitted
 `pass`/`warn`/`fail` while the audit matched `critical`/`high`/`medium`, so a
-broken site looked healthy; middleware refused money routes with a remedy nothing
-read; `/r/{CODE}` appended a referral code no surface read; `sendEmail` returned
-success in demo for mail delivered to nobody; the free audit asked for an address
-to send a report and never called the email module. The rest are in
-`REQUIREMENTS-COVERAGE.md`.
+broken site looked healthy; `/r/{CODE}` appended a referral code no surface read;
+`sendEmail` returned success in demo for mail delivered to nobody. The other
+twelve are in `REQUIREMENTS-COVERAGE.md`.
 
-**Check the boundary before the logic; when a success is reported, check that
-something happened.**
+**Check the boundary before the logic; a reported success is not a happening.**
 
 **And a second class, about tests rather than code: a check that passes — or
 FAILS — for a reason unrelated to what it tests.** TWELVE. Newest: the market-exit
 affiliation scanner refused every correctly labelled page, because the disclosure
 it MANDATES contains "endorsed by" and "successor to" — a control failing on text
 it required itself. Before it: greps proved the recorder's parts existed, not that
-they were wired, then the same proved the audit "sends" mail; a one-item column is
-sorted by every comparator; the ads verifier counted a TYPE as a tool; a guard
-against orphan variables matched them inside its own fix strings.
+they were wired; a one-item column is sorted by every comparator; the ads verifier
+counted a TYPE as a tool; a guard against orphan variables matched them inside its
+own fix strings.
 
 **A test that passes is not evidence until something has broken it**; drive the
 real handler and assert on a value only the real path can produce. Its sharpest
 form is a DIAGNOSTIC exercising a different path from the real one — three rounds
 of SMTP probes each reimplemented SMTP. FIVE tests have failed on their own
-comments: strip comments before scanning source.
+comments: strip comments before scanning source. And an assertion can be too
+NARROW — one looked for `<script>` and survived a mutation that stopped escaping
+`<`, because `>` was still escaped so the exact string never appeared.
 
 ---
 
 ## 7. Rules that outrank preference
 
-Full standard: `docs/ENGINEERING-DIRECTIVE.md`; `CLAUDE.md` carries the compressed
-version that loads every session. Beyond it:
+Full standard: `docs/ENGINEERING-DIRECTIVE.md`. `CLAUDE.md` loads every session
+and carries the additive-only law, the margin floor and the no-fabrication rule,
+so they are not repeated here. What only lives here:
 
-- **Additive only** — nothing delivered is deleted or downgraded. **Never present
-  a number as a measurement unless something counted it**, nor report an action as
-  done unless something did it, nor take somebody's effort for an outcome you
-  cannot deliver. **Margin on AI actions never below 100%** (price ≥ 2× cost).
-- **Verify before shipping:** typecheck, build, layer check, tests — then mutate
-  the new tests to prove they are not decorative.
+- **Verify before shipping:** typecheck, build, layer check, tests — then MUTATE
+  the new tests. A test that has never failed is not evidence.
 - Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` — except
   while §5.2 is open, where the branches deliberately differ on the Next version
   and its async-`params` migration. Mirror file-by-file, never by merge, and

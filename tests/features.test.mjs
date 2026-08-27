@@ -21916,3 +21916,316 @@ test("the contact engine reuses the verification and compliance engines rather t
     assert.ok(r.blockers.length > 0, `${term} blocked without saying why`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// CONTACT FINDER — upload a list, get it filled in
+//
+// The two defects worth the whole test file: silently choosing between two
+// people with the same name, and charging a customer twice when a job resumes.
+// The first sends a stranger somebody else's email; the second ends the account.
+// ---------------------------------------------------------------------------
+
+test("it refuses to choose between two people with the same name", async () => {
+  const { resolveIdentity, CANDIDATE_SEPARATION } = await import("../src/shared/contact-finder.ts");
+  const c = (company, score) => ({ fullName: "James Wilson", company, score, evidence: [] });
+
+  // The case the specification names, and the one every tool in this category
+  // gets wrong: two candidates too close to separate.
+  const ambiguous = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.72), c("JW Groundworks", 0.68)] });
+  assert.equal(ambiguous.status, "MULTIPLE_CANDIDATES");
+  assert.equal(ambiguous.chosen, null, "the engine picked one of two indistinguishable people");
+  assert.equal(ambiguous.candidates.length, 2, "the alternatives were not returned for a person to choose from");
+
+  // AND THERE IS NO CONFIDENCE AT WHICH IT DECIDES ANYWAY. Two candidates both
+  // scoring near-certainty are still two candidates.
+  const bothHigh = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.99), c("JW Groundworks", 0.98)] });
+  assert.equal(bothHigh.chosen, null, "two near-certain candidates were resolved by picking the higher one");
+  assert.equal(bothHigh.status, "MULTIPLE_CANDIDATES");
+
+  // Clear separation does resolve.
+  const clear = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.94), c("JW Groundworks", 0.41)] });
+  assert.equal(clear.status, "HIGH_CONFIDENCE_MATCH");
+  assert.equal(clear.chosen.company, "Wilson Build Ltd");
+  assert.ok(CANDIDATE_SEPARATION >= 0.1, "the separation required to pick a person was lowered to near-nothing");
+
+  // Below the job's own confidence bar, nothing is chosen either.
+  const weak = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.55)], minimumConfidence: 0.8 });
+  assert.equal(weak.status, "INSUFFICIENT_INFORMATION");
+  assert.equal(weak.chosen, null);
+
+  // Sources disagreeing about the current employer is not a scoring problem.
+  const conflict = resolveIdentity({ candidates: [c("A Ltd", 0.9)], conflicting: true });
+  assert.equal(conflict.status, "CONFLICTING_INFORMATION");
+  assert.equal(conflict.chosen, null);
+
+  // No candidates is NO_MATCH, not a guess.
+  assert.equal(resolveIdentity({ candidates: [] }).status, "NO_MATCH");
+});
+
+test("a resumed job never charges twice, and never charges for what did not complete", async () => {
+  const { chargeFor, BILLABLE_OPERATIONS, isFinished } = await import("../src/shared/contact-finder.ts");
+  const { createJob, chargeRow, setRowState, getJob, unfinishedRows, __resetFinderJobs } =
+    await import("../src/backend/contact-finder-store.ts");
+  __resetFinderJobs();
+  const at = "2026-08-27T00:00:00.000Z";
+
+  // The five outcomes that must cost nothing, decided in ONE place.
+  for (const outcome of ["duplicate_removed", "cached", "provider_timeout", "platform_failure", "technical_failure"]) {
+    const c = chargeFor({ operation: "email_verification", outcome });
+    assert.equal(c.acus, 0, `"${outcome}" was charged for`);
+    assert.ok(c.why, `"${outcome}" was refused a charge without saying why`);
+  }
+  assert.equal(chargeFor({ operation: "email_verification", outcome: "completed" }).acus, BILLABLE_OPERATIONS.email_verification);
+  assert.equal(chargeFor({ operation: "email_verification", outcome: "completed", isReverification: true }).acus,
+    BILLABLE_OPERATIONS.email_verification * 0.25, "reverification was charged at full price");
+  assert.equal(chargeFor({ operation: "person_resolution", outcome: "completed", alreadyCharged: true }).acus, 0,
+    "an operation already paid for in this job was charged again");
+
+  // THE WHOLE POINT, end to end. Charge a row, crash, resume, charge again.
+  await createJob({ brandId: "b1", id: "job1", originalColumns: ["Name"], rows: [1, 2, 3], duplicatesRemoved: 2, at });
+  const first = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  assert.equal(first.ok && first.acus, 4);
+  const again = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  assert.equal(again.ok && again.acus, 0, "resuming the job charged the same row for the same operation twice");
+  assert.equal((await getJob("b1", "job1")).acusConsumed, 4, "the job total counted the repeat");
+
+  // A different operation on the same row is a different charge.
+  const other = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "phone_discovery", outcome: "completed" });
+  assert.equal(other.ok && other.acus, BILLABLE_OPERATIONS.phone_discovery);
+
+  // Creating the same job id twice RESUMES rather than starting a second bill.
+  const resumed = await createJob({ brandId: "b1", id: "job1", originalColumns: ["Name"], rows: [1, 2, 3], duplicatesRemoved: 2, at: "2026-08-28T00:00:00.000Z" });
+  assert.equal(resumed.acusConsumed, 9, "a retried upload started a second job beside the first");
+  assert.equal(resumed.createdAt, at);
+
+  // A finished row does not run again.
+  await setRowState({ brandId: "b1", jobId: "job1", originalRow: 2, state: "COMPLETED" });
+  const rerun = await setRowState({ brandId: "b1", jobId: "job1", originalRow: 2, state: "IDENTITY_SEARCHING" });
+  assert.equal(rerun.ok, false, "a completed row was put back into processing");
+  assert.ok(isFinished("COMPLETED") && isFinished("NOT_FOUND") && isFinished("BLOCKED"));
+  assert.equal(unfinishedRows(await getJob("b1", "job1")).length, 2, "a finished row is still queued for work");
+
+  // THE BUDGET IS A CEILING. A job stops rather than crossing it.
+  await createJob({ brandId: "b1", id: "job2", originalColumns: [], rows: [1, 2], duplicatesRemoved: 0, maxAcus: 5, at });
+  await chargeRow({ brandId: "b1", jobId: "job2", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  const over = await chargeRow({ brandId: "b1", jobId: "job2", originalRow: 2, operation: "email_verification", outcome: "completed" });
+  assert.equal(over.ok && over.acus, 0, "the job spent past the ceiling the customer set");
+  assert.equal(over.ok && over.budgetStopped, true);
+  assert.equal((await getJob("b1", "job2")).stoppedOnBudget, true);
+  __resetFinderJobs();
+});
+
+test("the user's own spreadsheet comes back untouched, and their headings are understood", async () => {
+  const { mapColumns, detectHeaderRow, isSkippableRow, buildWorkbook, MW_COLUMNS } =
+    await import("../src/shared/contact-finder.ts");
+
+  // Somebody else's headings, including two languages and a column that is
+  // theirs alone.
+  const m = mapColumns(["Contact Name", "Raison sociale", "Web Address", "Téléphone", "Internal Notes"]);
+  assert.equal(m.mapped["Contact Name"], "full_name");
+  assert.equal(m.mapped["Raison sociale"], "company_name", "a French heading was not recognised");
+  assert.equal(m.mapped["Téléphone"], "phone", "an accented heading was not recognised");
+  assert.deepEqual(m.unmapped, ["Internal Notes"], "a column belonging to the user was mapped or dropped");
+  assert.ok(m.warnings.some((w) => /kept exactly as they are/i.test(w)), "the user is not told their own column survives");
+
+  // TWO COLUMNS CLAIMING THE SAME FIELD IS NOT RESOLVED BY PICKING ONE.
+  const collide = mapColumns(["Email", "E-mail address"]);
+  assert.equal(collide.collisions.length, 1, "two columns both looking like the email were silently resolved");
+  assert.ok(collide.warnings.some((w) => /picking for you/i.test(w)));
+
+  // The header row is found under a title and a blank line.
+  const rows = [["Prospect list — Q3", "", ""], ["", "", ""], ["Contact Name", "Business", "Telephone"], ["A B", "C Ltd", "0113"]];
+  const h = detectHeaderRow(rows);
+  assert.equal(h.headerRow, 2, "the header row under a title and a blank line was not found");
+  assert.equal(detectHeaderRow([["a"], ["b"]]).headerRow, -1, "a file with no header was given one anyway");
+
+  assert.equal(isSkippableRow(["", "", ""]).skip, true);
+  assert.equal(isSkippableRow(["Total", "3", ""]).skip, true);
+  assert.equal(isSkippableRow(["Amanda Brown", "ABC", ""]).skip, false, "a real record was skipped as a totals line");
+
+  // EVERY ORIGINAL COLUMN COMES BACK, and everything added is prefixed.
+  const wb = buildWorkbook({
+    rows: [{ originalRow: 4, state: "COMPLETED", original: { "Internal Notes": "call back", "Contact Name": "Amanda Brown" }, mw: { MW_Record_ID: "r1", MW_Outreach_Eligibility: "ELIGIBLE" } }],
+    originalColumns: ["Contact Name", "Internal Notes"],
+    duplicatesRemoved: 0, acusConsumed: 9, processingMs: 1000,
+  });
+  const sheet = wb.sheets[0];
+  assert.ok(sheet.columns.includes("Internal Notes"), "the user's own column was dropped from the output");
+  assert.equal(sheet.rows[0]["Internal Notes"], "call back", "the user's own value was altered");
+  for (const c of MW_COLUMNS) assert.ok(c.startsWith("MW_"), `${c} is not prefixed and could collide with a user column`);
+
+  // Six sheets, and "Ready" is narrower than "Completed".
+  assert.deepEqual(wb.sheets.map((s) => s.name),
+    ["Completed Results", "Ready for Outreach", "Manual Review", "Not Found", "Job Summary", "Source Audit"]);
+  const notEligible = buildWorkbook({
+    rows: [{ originalRow: 4, state: "COMPLETED", original: {}, mw: { MW_Outreach_Eligibility: "REVIEW" } }],
+    originalColumns: [], duplicatesRemoved: 0, acusConsumed: 0, processingMs: 0,
+  });
+  assert.equal(notEligible.sheets[0].rows.length, 1, "a completed row is missing from Completed Results");
+  assert.equal(notEligible.sheets[1].rows.length, 0,
+    "a completed-but-not-eligible row reached the sheet somebody pastes into a sending tool");
+
+  // A denominator of zero is a dash, not Infinity and not a fabricated number.
+  const none = buildWorkbook({ rows: [], originalColumns: [], duplicatesRemoved: 0, acusConsumed: 12, processingMs: 0 });
+  const perRecord = none.sheets[4].rows.find((r) => /Cost per completed/.test(r.Metric));
+  assert.equal(perRecord.Value, "—", "dividing by zero completed records produced a number");
+});
+
+test("deduplication never merges two people because their names match", async () => {
+  const { dedupe, dedupeKeys, mergeValue } = await import("../src/shared/contact-finder.ts");
+
+  // THE ABSENT KEY IS THE FEATURE. There is no key on a name alone.
+  const keys = dedupeKeys({ originalRow: 1, full_name: "James Wilson" });
+  assert.deepEqual(keys, [], "a name by itself was made a deduplication key");
+
+  const two = dedupe([
+    { originalRow: 1, full_name: "James Wilson", company_name: "Wilson Build", country: "GB" },
+    { originalRow: 2, full_name: "James Wilson", company_name: "JW Groundworks", country: "GB" },
+  ]);
+  assert.equal(two.unique.length, 2, "two different James Wilsons were merged into one record");
+
+  // What SHOULD merge: the same address, the same domain, the same person at the
+  // same company in the same country.
+  const same = dedupe([
+    { originalRow: 1, email: "a@b.com" },
+    { originalRow: 2, email: "A@B.com" },
+    { originalRow: 3, full_name: "Amanda Brown", company_name: "ABC", country: "GB" },
+    { originalRow: 4, full_name: "amanda  brown", company_name: "ABC", country: "gb" },
+    { originalRow: 5, website: "https://www.delta.example/about" },
+    { originalRow: 6, website: "delta.example" },
+  ]);
+  assert.equal(same.unique.length, 3, `case and formatting defeated deduplication: ${JSON.stringify(same.unique)}`);
+  assert.equal(same.duplicates.length, 3);
+  for (const d of same.duplicates) assert.ok(d.key, "a row was merged without recording which key merged it");
+
+  // A VERIFIED VALUE IS NEVER REPLACED BY AN INFERRED ONE, however recent.
+  const m = mergeValue(
+    { value: "real@x.com", provenance: "confirmed", verifiedAt: "2026-01-01T00:00:00.000Z" },
+    { value: "guess@x.com", provenance: "inferred", verifiedAt: "2026-08-26T00:00:00.000Z" },
+  );
+  assert.equal(m.winner.value, "real@x.com", "a fresh guess replaced an older confirmed address");
+  assert.match(m.why, /never replaced/i);
+
+  // Same provenance, recency decides.
+  const r = mergeValue(
+    { value: "old@x.com", provenance: "confirmed", verifiedAt: "2026-01-01T00:00:00.000Z" },
+    { value: "new@x.com", provenance: "confirmed", verifiedAt: "2026-08-01T00:00:00.000Z" },
+  );
+  assert.equal(r.winner.value, "new@x.com");
+});
+
+test("what a value is gets decided honestly, including the case that cannot be decided", async () => {
+  const { detectInputType } = await import("../src/shared/contact-finder.ts");
+  const t = (v) => detectInputType(v);
+
+  assert.equal(t("a@b.co.uk").type, "EMAIL");
+  assert.equal(t("examplecompany.com").type, "DOMAIN");
+  assert.equal(t("https://linkedin.com/in/someone").type, "PROFESSIONAL_PROFILE");
+  assert.equal(t("0113 496 0000").type, "PHONE");
+  assert.equal(t("Unit 4, Elm Industrial Estate, LS6 2AB").type, "ADDRESS");
+  assert.equal(t("ABC Construction Ltd").type, "COMPANY");
+
+  // THE OWNER'S OWN EXAMPLE. "Justin Nseya" and "Groupe Nseya" are two
+  // capitalised words each and identical to any shape test — they are separated
+  // only by knowing that "Groupe" names an organisation.
+  assert.equal(t("Justin Nseya").type, "PERSON");
+  assert.equal(t("Groupe Nseya").type, "COMPANY", "a French company word was read as a surname");
+  for (const c of ["Grupo Fenix", "Cabinet Dubois", "Studio Nord", "Agence Verte"]) {
+    assert.equal(t(c).type, "COMPANY", `"${c}" was read as a person`);
+  }
+
+  // And where it genuinely cannot tell, it says so rather than guessing.
+  assert.equal(t("Wilson").type, "UNKNOWN", "one ambiguous word was classified anyway");
+  assert.equal(t("").type, "UNKNOWN");
+  // A person is classified with LOW confidence, and the reason says why.
+  const person = t("Amanda Brown");
+  assert.ok(person.confidence <= 0.6, "a two-word name was classified as a person with high confidence");
+  assert.match(person.why, /company name reads the same/i);
+});
+
+test("the workbook is a real multi-sheet file and cannot be broken by a hostile cell", async () => {
+  const { buildWorkbook, workbookToSpreadsheetML } = await import("../src/shared/contact-finder.ts");
+
+  const wb = buildWorkbook({
+    rows: [{
+      originalRow: 1, state: "COMPLETED",
+      // Everything that breaks a naive XML writer, in one cell each.
+      original: { Name: 'A & B <script>alert("x")</script>', Note: "bell\u0007 and null\u0000 and vertical tab\u000B" },
+      mw: { MW_Record_ID: "r1" },
+    }],
+    originalColumns: ["Name", "Note"], duplicatesRemoved: 0, acusConsumed: 1, processingMs: 1,
+  });
+  const xml = workbookToSpreadsheetML(wb);
+
+  assert.match(xml, /<\?mso-application progid="Excel\.Sheet"\?>/, "the file will not open as a spreadsheet");
+  assert.equal((xml.match(/<Worksheet /g) || []).length, 6, "the workbook is not six separate sheets");
+  // WRITTEN TO CATCH A BARE ANGLE BRACKET, NOT A COMPLETE TAG. The first version
+  // of this assertion looked for the literal "<script>" and survived a mutation
+  // that stopped escaping "<" — because ">" was still escaped, so the cell read
+  // "<script&gt;" and the exact string never appeared. What actually breaks the
+  // file is one unescaped "<", so that is what is checked.
+  assert.ok(!xml.includes("<script"), "a cell's opening angle bracket reached the file unescaped");
+  assert.match(xml, /&lt;script/, "the markup in a cell was not escaped into the file at all");
+  assert.match(xml, /&amp;/, "an ampersand was not escaped");
+  // Every "<" in the file must open one of the tags this writer emits. Anything
+  // else came out of a cell.
+  const tags = [...xml.matchAll(/<([^\s>/?]+)/g)].map((m) => m[1].replace(/^\//, ""));
+  const allowed = new Set(["?xml", "?mso-application", "Workbook", "Worksheet", "Table", "Row", "Cell", "Data"]);
+  const stray = [...new Set(tags.filter((t) => !allowed.has(t.replace(/^\?/, "?"))))];
+  assert.deepEqual(stray, [], `markup from a cell reached the file as real tags: ${stray.join(", ")}`);
+  assert.ok(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(xml),
+    "a control character reached the file, which makes it unopenable");
+
+  // Sheet names are legal: no forbidden characters, never over 31 chars.
+  for (const m of xml.matchAll(/ss:Name="([^"]*)"/g)) {
+    assert.ok(m[1].length <= 31, `sheet name "${m[1]}" is too long for a spreadsheet`);
+    assert.ok(!/[:\\/?*[\]]/.test(m[1]), `sheet name "${m[1]}" contains a character spreadsheets forbid`);
+  }
+});
+
+test("the CSV export cannot be turned into a formula, and quotes what it must", async () => {
+  const { buildWorkbook, workbookToCsv } = await import("../src/shared/contact-finder.ts");
+
+  const wb = buildWorkbook({
+    rows: [{
+      originalRow: 1, state: "COMPLETED",
+      original: {
+        Name: 'A, B "quoted"',
+        // CSV FORMULA INJECTION. A cell beginning = + - or @ is executed by
+        // Excel and Sheets on open. Every value in this engine came off somebody
+        // else's website, so this is not a theoretical risk here — it is the
+        // most likely thing a hostile page would try.
+        Attack: '=cmd|\'/c calc\'!A1',
+        Plus: "+1+1",
+        At: "@SUM(1)",
+        Minus: "-2+3",
+        Multi: "line one\nline two",
+      },
+      mw: { MW_Record_ID: "r1" },
+    }],
+    originalColumns: ["Name", "Attack", "Plus", "At", "Minus", "Multi"],
+    duplicatesRemoved: 0, acusConsumed: 1, processingMs: 1,
+  });
+
+  const sheets = workbookToCsv(wb);
+  assert.equal(sheets.length, 6, "the CSV export lost a sheet");
+  const first = sheets[0].csv.split("\r\n");
+  assert.equal(first.length, 2, "the CSV is not one header row and one record");
+
+  const cells = first[1];
+  for (const dangerous of ["=cmd", "+1+1", "@SUM", "-2+3"]) {
+    assert.ok(!cells.includes(`,${dangerous}`) && !cells.startsWith(dangerous),
+      `a cell beginning "${dangerous[0]}" was written unescaped and a spreadsheet would execute it`);
+  }
+  assert.ok(cells.includes("'=cmd"), "the formula guard did not neutralise the attack cell");
+
+  // RFC 4180: a quote is doubled, and anything with a comma, quote or newline is
+  // wrapped — otherwise the row silently becomes two rows or two columns.
+  assert.ok(cells.includes('"A, B ""quoted"""'), `a comma and quotes were not escaped: ${cells}`);
+  assert.ok(/"line one\nline two"/.test(cells), "a newline inside a cell was not wrapped, so the row splits in two");
+
+  // Every sheet is a real, separately-named CSV.
+  assert.deepEqual(sheets.map((s) => s.name),
+    ["Completed Results", "Ready for Outreach", "Manual Review", "Not Found", "Job Summary", "Source Audit"]);
+  for (const s of sheets) assert.ok(s.csv.length > 0, `${s.name} came back empty, without even a header row`);
+});

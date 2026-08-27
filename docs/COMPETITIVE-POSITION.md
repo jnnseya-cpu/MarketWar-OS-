@@ -31,14 +31,14 @@ against a two-figure pound subscription does not turn on the spot rate.
 |---|---|---|
 | Dashboard surfaces | **59** | directories under `src/app/dashboard` |
 | API routes | **147** | `route.ts` files under `src/app/api` |
-| Documented engines (each with its own API + zero-config demo) | **57** | `ENGINE_REGISTRY` |
+| Documented engines (each with its own API + zero-config demo) | **58** | `ENGINE_REGISTRY` |
 | Runnable AI agents | **39** | `AGENT_LIST` |
 | Command-Centre front-line units | **26** in 6 divisions under one commander | `ARMY` / `DIVISIONS` |
 | Of those 26, live with no external key | **23** | `armyStats()` |
 | Needing a connector before they act | **3** — paid-ads auto-launch, multi-channel social publishing, live WhatsApp send | each names its own unlock |
 
 The engines by category: Economics & Governance (16), Market Intelligence (10),
-Acquisition & Campaigns (8), Engagement & Retention (6), Content & Reporting (6),
+Acquisition & Campaigns (9), Engagement & Retention (6), Content & Reporting (6),
 Local & Marketplace (5), Video Intelligence (3), Autonomy & Orchestration (3).
 
 ### Our price list — counted
