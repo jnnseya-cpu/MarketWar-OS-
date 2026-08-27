@@ -3591,6 +3591,96 @@ test("the margin floor holds on every length, not just the ones in one call", as
 });
 
 // ---------------------------------------------------------------------------
+// THE FEATURE SECTIONS, READ AGAINST THE ENGINES THEY DESCRIBE.
+//
+// War Room, Clip Lab and the Recovery engine were substantially true — the
+// Financial Shield really is budget.ts, the seven clip signals really are
+// counted, the vault really scores imported contacts and shows zero when there
+// are none. The WhatsApp section was not.
+// ---------------------------------------------------------------------------
+test("the page does not claim WhatsApp automation that does not exist", async () => {
+  const { readFileSync } = await import("node:fs");
+  // STRIP THE COMMENTS FIRST. The comment explaining why a claim was removed
+  // necessarily QUOTES that claim, so a whole-file scan finds the sentence it
+  // is checking for the absence of and fails on its own explanation. Four
+  // tests in this repository have died that way; this is the fifth and last.
+  const copyOf = (t) => t.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");
+  const page = copyOf(readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8"));
+  const route = readFileSync(new URL("../src/app/api/whatsapp/route.ts", import.meta.url), "utf8");
+
+  // NOTHING SENDS A WHATSAPP MESSAGE. No Graph API call, no scheduler, no
+  // thread store — and the route serving that panel says so in its own comment
+  // while returning a ZEROED funnel rather than inventing one. The page was
+  // claiming the opposite four screens above it.
+  assert.match(route, /No live WhatsApp traffic source is wired yet/);
+  assert.doesNotMatch(page, /fires follow-ups at 1h, 24h and 48h/);
+  assert.doesNotMatch(page, /qualifies the lead with AI, sends the offer, books the order/);
+  assert.doesNotMatch(page, /AI qualification with intent scoring on every thread/);
+  assert.match(page, /nothing here messages your customers on its own/);
+
+  // The honest empty state must stay honest.
+  const wa = await import("../src/backend/whatsapp.ts");
+  const empty = wa.emptyWhatsappOverview("Test Co");
+  assert.match(empty.note, /nothing is fabricated/);
+  for (const stage of empty.funnel) assert.equal(stage.value, 0, "the empty funnel must be zero, not a sample");
+  // And the deterministic demo figures are only ever served on an explicit
+  // demo flag with no live token — never by default.
+  assert.match(route, /body\.demo === true && !process\.env\.WHATSAPP_TOKEN/);
+});
+
+test("the Clip Lab's seven signals are seven signals that are actually counted", async () => {
+  const cf = await import("../src/backend/clip-finder.ts");
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/clip-finder.ts", import.meta.url), "utf8");
+
+  // The page names seven: hook, stands alone, payoff, pace, length, buying
+  // signal, ask. Each must exist, and each must carry the evidence it was
+  // scored on — "so you can disagree with it" is the whole claim.
+  const names = [...new Set((src.match(/name: "([^"]+)"/g) || []).map((m) => m.slice(7, -1)))];
+  for (const want of ["Hook", "Stands alone", "Payoff", "Pace", "Length", "Buying signal", "Ask"]) {
+    assert.ok(names.includes(want), `the page names the "${want}" signal and the finder has no such signal`);
+  }
+  // Captions rebased to zero, as claimed.
+  assert.equal(typeof cf.srtForClip, "function");
+  assert.match(src, /timings starting at zero/);
+});
+
+test("the Recovery engine claims only the imports and figures it has", async () => {
+  const { readFileSync } = await import("node:fs");
+  // Comments stripped, for the reason given in the WhatsApp test above.
+  const copyOf = (t) => t.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");
+  const page = copyOf(readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8"));
+  const rec = await import("../src/backend/recovery.ts");
+
+  // "Import CSV, CRM, Shopify, Stripe or WhatsApp exports" read as five
+  // connectors. The vault takes a CSV — which is what all of those give you on
+  // export, so the capability was real and the wording was not.
+  assert.doesNotMatch(page, /Import CSV, CRM, Shopify, Stripe or WhatsApp exports/);
+  assert.match(page, /including the exports Shopify, Stripe, your CRM or WhatsApp hand you/);
+
+  // There is no scoring system called an "AI Revenue Recovery Score". The
+  // engine computes totalRecoverableGbp; a trademark on a name that appears
+  // nowhere in the code is a claim about a product that does not exist.
+  assert.doesNotMatch(page, /Revenue Recovery Score/);
+
+  // The honest empty report stays honest.
+  const empty = rec.emptyRecovery("Test Co");
+  assert.equal(empty.live, false);
+  assert.equal(empty.totalRecoverableGbp, 0, "no contacts must mean no recoverable pounds, not a sample");
+});
+
+test("the Financial Shield named on the page is a real engine", async () => {
+  const { readFileSync } = await import("node:fs");
+  const budget = readFileSync(new URL("../src/backend/budget.ts", import.meta.url), "utf8");
+  // Named on the page; this is the module. protectedGbp is the money stopped
+  // and rerouted, rerouteReturnGbp is explicitly a PROJECTION and its field
+  // name says so.
+  assert.match(budget, /Budget Protection Engine \(The Financial Shield\)/);
+  assert.match(budget, /protectedGbp: number/);
+  assert.match(budget, /rerouteReturnGbp: number; \/\/ projected/);
+});
+
+// ---------------------------------------------------------------------------
 // THIRTY-NINE AGENT CARDS, READ AGAINST THE PROMPTS THAT SERVE THEM.
 //
 // A card is a promise the customer buys on. Most held — several exactly, and
