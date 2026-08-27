@@ -57,6 +57,109 @@ type HuntReport = {
   balanceAcu?: number;
 };
 
+// ── The single-person lookup, which is a different question. ────────────────
+//
+// `hunt` sweeps a trade across towns. This answers "here is a name and a
+// company — get me the route to that person", which is the question an owner
+// with a target account actually asks, and it is the one the provider waterfall
+// was built for. It shares this page rather than getting its own, because a
+// second Contact page would be a second place to look for the same thing.
+
+type Confidence = {
+  kind: string; score: number; classification: string;
+  applied: { key: string; points: number; label: string }[];
+  unknown: string[]; why: string;
+};
+
+type LookupPerson = {
+  fullName: string; jobTitle?: string; company?: string; sourceUrl?: string;
+  fromRegistryOnly?: boolean; agreedBy?: string[]; roleNote?: string;
+  displayTitle: string | null;
+  operationalRole: { ok: boolean; why: string };
+  reading: { department: string | null; seniority: string; registryOnly: boolean; why: string };
+};
+
+type LookupEmail = {
+  value: string; provenance: string; sourceUrl?: string; pattern?: string;
+  suppressed: boolean; suppressionReason: string | null;
+};
+
+type LookupStep = {
+  provider: string; capability: string; ran: boolean;
+  ms: number; found: number; costAcu: number; outcome: string;
+};
+
+type Lookup = {
+  result: {
+    company: { legalName: string; domain?: string; status?: string; sourceUrl?: string } | null;
+    people: LookupPerson[];
+    emails: LookupEmail[];
+    verification: { deliverable: boolean | null; catchAll: boolean; invalid: boolean; why: string } | null;
+    confidence: { identity?: Confidence; employment?: Confidence; email?: Confidence };
+    steps: LookupStep[];
+    costAcu: number;
+    deadlineHit: boolean;
+    progress: string[];
+    suppressedCount: number;
+    note: string;
+  };
+  providers: { id: string; configured: boolean; note: string }[];
+  notConfigured: { id: string; needs: string; wouldProvide: string }[];
+  stopThresholds: { identity: number; employment: number; email: number };
+  balanceAcu?: number;
+  note: string;
+};
+
+const CONFIDENCE_TONE: Record<string, string> = {
+  verified: "text-emerald-300",
+  high_confidence: "text-sky-300",
+  review: "text-amber-300",
+  do_not_export: "text-rose-300",
+  blocked: "text-rose-300",
+};
+
+/**
+ * One of the three scores, with what it is short of and why.
+ *
+ * A single number is the average of an answer. Identity, employment and the
+ * address fail for completely different reasons and are fixed by completely
+ * different actions, so they are never added together — and each one shows what
+ * it could not check separately from what it checked and did not find.
+ */
+function ConfidenceBar({ label, c, target }: { label: string; c?: Confidence; target: number }) {
+  if (!c) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">Not scored — nothing was found to score it on.</p>
+      </div>
+    );
+  }
+  const clear = c.score >= target;
+  return (
+    <div className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+        <p className={`font-display text-lg font-bold ${CONFIDENCE_TONE[c.classification] ?? "text-slate-300"}`}>
+          {c.score}<span className="text-xs font-normal text-slate-500">/{target}</span>
+        </p>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5">
+        <div
+          className={`h-full rounded-full ${clear ? "bg-emerald-500" : c.score > 0 ? "bg-amber-500" : "bg-white/10"}`}
+          style={{ width: `${Math.max(2, Math.min(100, c.score))}%` }}
+        />
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{c.why}</p>
+      {c.unknown.length > 0 && (
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          Could not be checked: {c.unknown.join(", ")}. Not scored as failures.
+        </p>
+      )}
+    </div>
+  );
+}
+
 const STAGE_LABEL: Record<string, string> = {
   found: "Contact found",
   search_unavailable: "Search unavailable",
@@ -195,6 +298,16 @@ export default function ContactHunterPage() {
   const [diag, setDiag] = useState<{ verdict: string; keyShape?: { length: number; looksLike: string; hadIssues: string[]; notes: string[]; shapeHint: string | null } } | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
 
+  // The single-person lookup.
+  const [lkName, setLkName] = useState("");
+  const [lkCompany, setLkCompany] = useState("");
+  const [lkWebsite, setLkWebsite] = useState("");
+  const [lkTitle, setLkTitle] = useState("");
+  const [lkBudget, setLkBudget] = useState(0);
+  const [lkBusy, setLkBusy] = useState(false);
+  const [lookup, setLookup] = useState<Lookup | null>(null);
+  const [lkError, setLkError] = useState<string | null>(null);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -226,6 +339,31 @@ export default function ContactHunterPage() {
       setReport(d as HuntReport);
     } catch { setError("Network error — nothing was charged."); } finally { setBusy(false); }
   }, [what, where, titles, count, activeBrand?.id]);
+
+  const runLookup = useCallback(async () => {
+    if (!lkName.trim() && !lkCompany.trim()) {
+      setLkError("Give at least a person's name or a company."); return;
+    }
+    setLkBusy(true); setLkError(null); setLookup(null);
+    try {
+      const res = await authedFetch("/api/contact-hunter", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "lookup",
+          brandId: activeBrand?.id || "demo",
+          fullName: lkName.trim() || undefined,
+          company: lkCompany.trim() || undefined,
+          website: lkWebsite.trim() || undefined,
+          title: lkTitle.trim() || undefined,
+          maxCostAcu: lkBudget,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 402) { setLkError(`${d.error} Balance: ${d.balanceAcu ?? 0} ACUs.`); return; }
+      if (!res.ok) { setLkError(d.error || "The lookup could not run."); return; }
+      setLookup(d as Lookup);
+    } catch { setLkError("Network error — nothing was charged."); } finally { setLkBusy(false); }
+  }, [lkName, lkCompany, lkWebsite, lkTitle, lkBudget, activeBrand?.id]);
 
   const checkKey = useCallback(async () => {
     setDiagBusy(true); setDiag(null);
@@ -330,6 +468,252 @@ export default function ContactHunterPage() {
           <p className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3 text-xs leading-relaxed text-rose-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
           </p>
+        )}
+      </section>
+
+      {/* ONE PERSON, THROUGH THE PROVIDER WATERFALL. */}
+      <section className="card p-5">
+        <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
+          <User className="h-4 w-4 text-emerald-400" /> Find one person
+        </h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          A name and a company, through every configured supplier in cost order, inside a deadline. Free
+          sources run first — their own pages, then the company register — because they cost nothing and
+          are the primary source a paid provider sells a copy of. It stops the moment it knows enough.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">Person</span>
+            <input
+              value={lkName} onChange={(e) => setLkName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void runLookup(); }}
+              placeholder="Amanda Brown"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">Company</span>
+            <input
+              value={lkCompany} onChange={(e) => setLkCompany(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void runLookup(); }}
+              placeholder="the registered or trading name"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Website <span className="font-normal normal-case tracking-normal text-slate-500">— optional</span>
+            </span>
+            <input
+              value={lkWebsite} onChange={(e) => setLkWebsite(e.target.value)}
+              placeholder="example.co.uk"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Role wanted <span className="font-normal normal-case tracking-normal text-slate-500">— optional</span>
+            </span>
+            <input
+              value={lkTitle} onChange={(e) => setLkTitle(e.target.value)}
+              placeholder="Procurement Director"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Paid providers <span className="font-normal normal-case tracking-normal text-slate-500">— ACU limit</span>
+            </span>
+            <input
+              type="number" min={0} max={200} value={lkBudget}
+              onChange={(e) => setLkBudget(Math.min(200, Math.max(0, Number(e.target.value) || 0)))}
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => void runLookup()} disabled={lkBusy}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60"
+          >
+            {lkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <User className="h-4 w-4" />}
+            {lkBusy ? "Working through the suppliers…" : "Look this person up"}
+          </button>
+          <span className="text-[11px] text-slate-500">
+            Zero means free sources only — and that is the default. A paid provider is never called unless
+            its price fits the limit you set here, and one that was skipped for cost is named in the result.
+          </span>
+        </div>
+
+        {lkError && (
+          <p className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3 text-xs leading-relaxed text-rose-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {lkError}
+          </p>
+        )}
+
+        {lookup && (
+          <div className="mt-5 space-y-4 border-t border-white/10 pt-5">
+            {/* What happened, in the order it happened. */}
+            {lookup.result.progress.length > 0 && (
+              <ul className="space-y-1">
+                {lookup.result.progress.map((p, i) => (
+                  <li key={`${p}-${i}`} className="text-xs leading-relaxed text-slate-300">{p}</li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill>{lookup.result.costAcu} ACUs of supplier spend</Pill>
+              {lookup.result.deadlineHit && <Pill>Deadline reached</Pill>}
+              {lookup.result.suppressedCount > 0 && <Pill>{lookup.result.suppressedCount} suppressed</Pill>}
+              {typeof lookup.balanceAcu === "number" && <Pill>{lookup.balanceAcu.toLocaleString("en-GB")} ACUs left</Pill>}
+            </div>
+
+            {lookup.result.company && (
+              <div className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Building2 className="h-3.5 w-3.5 text-slate-400" /> {lookup.result.company.legalName}
+                  {lookup.result.company.status && <span className="text-[11px] font-normal text-slate-400">({lookup.result.company.status})</span>}
+                </p>
+                {lookup.result.company.sourceUrl && (
+                  <a href={lookup.result.company.sourceUrl} target="_blank" rel="noopener noreferrer"
+                     className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-300 hover:underline">
+                    <Globe className="h-3 w-3" /> {lookup.result.company.sourceUrl}
+                  </a>
+                )}
+              </div>
+            )}
+
+            {/* THE PEOPLE, AND THE REFUSAL WHERE THERE IS ONE. A person found
+                only in the register is shown as an officer with no job title —
+                the register records who is legally responsible for filings, not
+                who buys anything. */}
+            {lookup.result.people.length === 0 ? (
+              <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-100">
+                No person was found, and none was invented. {lookup.result.note}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {lookup.result.people.map((p, i) => (
+                  <div key={`${p.fullName}-${i}`} className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <p className="text-sm font-semibold text-white">{p.fullName}</p>
+                      {p.displayTitle
+                        ? <span className="text-xs text-slate-300">{p.displayTitle}</span>
+                        : <span className="text-xs text-amber-300">Company officer — operational role not established</span>}
+                      {(p.agreedBy?.length ?? 0) > 1 && <Pill>{p.agreedBy?.length ?? 0} sources agree</Pill>}
+                      {p.reading.department && <Pill>{p.reading.department}</Pill>}
+                    </div>
+                    {!p.operationalRole.ok && (
+                      <p className="mt-2 flex items-start gap-2 text-[11px] leading-relaxed text-amber-200/90">
+                        <Ban className="mt-0.5 h-3 w-3 shrink-0" /> {p.operationalRole.why}
+                      </p>
+                    )}
+                    {p.sourceUrl && (
+                      <a href={p.sourceUrl} target="_blank" rel="noopener noreferrer"
+                         className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-300 hover:underline">
+                        <Globe className="h-3 w-3" /> read from {p.sourceUrl}
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Addresses, with the provenance in the same place every time. */}
+            {lookup.result.emails.length > 0 && (
+              <div className="space-y-2">
+                {lookup.result.emails.map((e) => (
+                  <div key={e.value} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                    <Mail className="h-3.5 w-3.5 text-slate-400" />
+                    <span className={`font-mono text-xs ${e.suppressed ? "text-rose-300 line-through" : "text-white"}`}>{e.value}</span>
+                    {/* Narrowed rather than cast: this value crossed a network
+                        boundary, and asserting its shape is how a value that is
+                        not one of these three renders as if it were. */}
+                    {(e.provenance === "confirmed" || e.provenance === "inferred" || e.provenance === "provider")
+                      ? <Provenance p={e.provenance} />
+                      : <span className="text-[11px] text-slate-500">provenance not stated</span>}
+                    {e.pattern && <span className="text-[11px] text-slate-500">from the pattern {e.pattern}</span>}
+                    {e.suppressed && (
+                      <span className="text-[11px] text-rose-300">
+                        Suppressed — {e.suppressionReason || "on a suppression list"}. Cannot be used at any score.
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {lookup.result.verification && (
+              <p className="text-[11px] leading-relaxed text-slate-400">{lookup.result.verification.why}</p>
+            )}
+
+            {/* THREE SCORES, NEVER ONE. */}
+            <div className="grid gap-2 sm:grid-cols-3">
+              <ConfidenceBar label="Identity" c={lookup.result.confidence.identity} target={lookup.stopThresholds.identity} />
+              <ConfidenceBar label="Employment" c={lookup.result.confidence.employment} target={lookup.stopThresholds.employment} />
+              <ConfidenceBar label="Email" c={lookup.result.confidence.email} target={lookup.stopThresholds.email} />
+            </div>
+
+            <p className="text-xs leading-relaxed text-slate-400">{lookup.note}</p>
+
+            {/* EVERY STEP, INCLUDING THE ONES THAT DID NOT RUN. "We did not call
+                the provider that would have found this" is the thing the reader
+                most needs to know, and it is the thing these stacks hide. */}
+            <div className="overflow-x-auto rounded-lg border border-white/10">
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-white/[0.03] text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Supplier</th>
+                    <th className="px-3 py-2 font-semibold">Looking for</th>
+                    <th className="px-3 py-2 font-semibold">Time</th>
+                    <th className="px-3 py-2 font-semibold">Cost</th>
+                    <th className="px-3 py-2 font-semibold">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lookup.result.steps.map((s, i) => (
+                    <tr key={`${s.provider}-${s.capability}-${i}`} className="border-t border-white/5">
+                      <td className="px-3 py-2 font-mono text-slate-300">{s.provider}</td>
+                      <td className="px-3 py-2 text-slate-400">{s.capability}</td>
+                      <td className="px-3 py-2 text-slate-500">{s.ran ? `${s.ms} ms` : "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{s.costAcu > 0 ? `${s.costAcu} ACU` : "free"}</td>
+                      <td className={`px-3 py-2 leading-relaxed ${s.ran ? "text-slate-300" : "text-amber-200/90"}`}>{s.outcome}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* The suppliers that exist, and the ones that do not — stated, so
+                nobody has to guess why a lookup came back short. */}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Configured</p>
+                <ul className="mt-2 space-y-1.5">
+                  {lookup.providers.map((p) => (
+                    <li key={p.id} className="text-[11px] leading-relaxed text-slate-400">
+                      <span className={p.configured ? "text-emerald-300" : "text-amber-300"}>{p.id}</span> — {p.note}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Not connected</p>
+                <ul className="mt-2 space-y-1.5">
+                  {lookup.notConfigured.map((p) => (
+                    <li key={p.id} className="text-[11px] leading-relaxed text-slate-500">
+                      <span className="font-mono text-slate-400">{p.id}</span> needs{" "}
+                      <span className="font-mono text-slate-400">{p.needs}</span> — {p.wouldProvide}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
         )}
       </section>
 

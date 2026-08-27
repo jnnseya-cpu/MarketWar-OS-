@@ -22743,3 +22743,291 @@ test("the market-exit surface is a tool rather than a demo of itself", () => {
     "the page does not say that nothing is built on an unproved closure");
   assert.match(page, /could not run/, "sources that failed are not distinguished from sources that found nothing");
 });
+
+// ---------------------------------------------------------------------------
+// THE PROVIDER WATERFALL — three scores, a deadline, and a budget
+// ---------------------------------------------------------------------------
+
+test("three separate confidences, because one number is the average of an answer", async () => {
+  const { score, classify, capForCatchAll, IDENTITY_FACTORS, EMPLOYMENT_FACTORS, EMAIL_FACTORS } =
+    await import("../src/shared/contact-confidence.ts");
+
+  // The specification's point values, unchanged. Data rather than arithmetic
+  // buried in an expression, so they can be argued with.
+  assert.equal(IDENTITY_FACTORS.reduce((s, f) => s + f.points, 0), 100, "the identity factors no longer total 100");
+  assert.equal(EMPLOYMENT_FACTORS.filter((f) => f.points > 0).reduce((s, f) => s + f.points, 0), 95);
+  assert.equal(EMAIL_FACTORS.filter((f) => f.points > 0).reduce((s, f) => s + f.points, 0), 100);
+
+  // THE NEGATIVES ARE THE IMPORTANT HALF. Every scoring system in this industry
+  // only ever goes up.
+  assert.ok(EMPLOYMENT_FACTORS.some((f) => f.key === "conflictingEmployer" && f.points === -30));
+  assert.ok(EMAIL_FACTORS.some((f) => f.key === "catchAllDomain" && f.points === -25));
+  assert.ok(EMAIL_FACTORS.some((f) => f.key === "invalidSmtp" && f.points === -40));
+  assert.ok(EMAIL_FACTORS.some((f) => f.key === "suppressed" && f.points === -100));
+
+  // A FACTOR NOT SUPPLIED IS NOT A FACTOR SCORED ZERO. "We could not check
+  // this" must never read as "we checked and it failed".
+  const partial = score("identity", { exactNameMatch: true, companyMatches: true });
+  assert.equal(partial.score, 55);
+  assert.ok(partial.unknown.length > 0, "unchecked factors are not reported");
+  assert.match(partial.why, /unchecked/);
+
+  const nothing = score("identity", {});
+  assert.equal(nothing.score, 0);
+  assert.match(nothing.why, /rather than assumed/, "an unscored dimension does not say it was unscored");
+
+  // BLOCKED IS NOT THE BOTTOM OF A SCALE. A suppression is a separate state and
+  // no amount of scoring elsewhere reaches past it.
+  const suppressed = score("email", { mailboxDeliverable: true, publishedByCompany: true, knownPattern: true, suppressed: true });
+  assert.equal(suppressed.classification, "blocked", "a suppressed contact was classified by its score");
+  assert.match(suppressed.why, /No score clears that/);
+  assert.equal(score("email", { mailboxDeliverable: true, invalidSmtp: true }).classification, "blocked");
+
+  // A CATCH-ALL IS NEVER "VERIFIED". The server accepts everything, so its
+  // acceptance proves nothing — and -25 alone is not enough to stop a
+  // well-evidenced address reaching 90, which is why this is a cap not a weight.
+  const perfect = score("email", { mailboxDeliverable: true, publishedByCompany: true, knownPattern: true, twoProvidersAgree: true, recentSuccessfulDelivery: true });
+  assert.equal(perfect.classification, "verified");
+  assert.equal(capForCatchAll(perfect, true).classification, "high_confidence",
+    "a catch-all domain was reported as verified");
+  assert.match(capForCatchAll(perfect, true).why, /accepts every address/);
+
+  assert.equal(classify(95), "verified");
+  assert.equal(classify(80), "high_confidence");
+  assert.equal(classify(60), "review");
+  assert.equal(classify(20), "do_not_export");
+  assert.equal(classify(99, { suppressed: true }), "blocked");
+});
+
+test("a registered director is not a procurement director", async () => {
+  const { readTitle, claimsOperationalRole } = await import("../src/shared/contact-confidence.ts");
+
+  // THE REFUSAL THE SPECIFICATION CALLS OUT BY NAME. A Companies House officer
+  // is a legal role about filings and liability. In a firm of any size the
+  // person who buys things is not on that list, and addressing somebody by a
+  // job they do not hold is how outreach reads as spam to the one person who
+  // knows for certain.
+  const officer = readTitle("Director", { fromRegistryOnly: true });
+  assert.equal(officer.department, null, "a register officer was given an operational department");
+  assert.equal(officer.seniority, "officer", "a register 'Director' was read as an operational director");
+  assert.equal(officer.registryOnly, true);
+  assert.match(officer.why, /legal officers rather than operational roles/);
+
+  const refused = claimsOperationalRole(officer, false);
+  assert.equal(refused.ok, false, "a register-only officer could be presented as a buyer");
+  assert.match(refused.why, /not necessarily a buyer/);
+
+  // With evidence from somewhere OTHER than the register, the claim is allowed.
+  assert.equal(claimsOperationalRole(officer, true).ok, true);
+
+  // A title read from a company's own team page IS operational.
+  const real = readTitle("Procurement Director");
+  assert.equal(real.department, "procurement");
+  assert.equal(real.seniority, "director");
+  assert.equal(claimsOperationalRole(real, false).ok, true);
+
+  // THE TABLE'S OWN FAILURE MODE. Its first version wrote stems inside
+  // \b(...)\b — `financ`, `technolog`, `recruit` — and an anchored stem matches
+  // only the word nobody writes, so a Chief Financial Officer came back with no
+  // department. Every inflection below is one this table once could not match.
+  for (const [title, dept] of [
+    ["Head of Purchasing", "procurement"],
+    ["Commercial Manager", "commercial"],
+    ["Site Manager", "projects"],
+    ["Projects Director", "projects"],
+    ["Chief Financial Officer", "finance"],
+    ["Finance Manager", "finance"],
+    ["Head of Technology", "technology"],
+    ["Recruitment Manager", "hr"],
+    ["Chief Operating Officer", "operations"],
+    ["Managing Director", "executive"],
+    // A sales title that merely contains an accountancy-adjacent word stays sales.
+    ["Account Manager", "sales"],
+  ]) {
+    assert.equal(readTitle(title).department, dept, `"${title}" read as the wrong department`);
+  }
+  // An unrecognised title leaves the department NULL rather than guessing.
+  assert.equal(readTitle("Chief Vibes Wrangler").department, null);
+});
+
+test("the waterfall stops when it knows enough, and never spends past its budget", async () => {
+  const { registerProvider, findPerson, __clearProviders } = await import("../src/backend/enrichment-provider.ts");
+
+  const mk = (id, order, cost, impl) => ({ id, order, costAcu: cost, health: () => ({ id, configured: true, note: "" }), ...impl });
+  const person = { fullName: "Amanda Brown", company: "Example Construction Ltd", domain: "example.co.uk", title: "Procurement Director" };
+  const freeFound = {
+    findCompany: async () => [{ legalName: "Example Construction Ltd", domain: "example.co.uk" }],
+    findPeople: async () => [{ fullName: "Amanda Brown", jobTitle: "Procurement Director", company: "Example Construction Ltd", domain: "example.co.uk", sourceUrl: "https://example.co.uk/team", fromRegistryOnly: false }],
+    findEmails: async () => [{ value: "amanda.brown@example.co.uk", provenance: "confirmed", sourceUrl: "https://example.co.uk/contact", pattern: "{first}.{last}" }],
+    verifyEmail: async () => ({ email: "x", deliverable: true, catchAll: false, invalid: false, why: "deliverable" }),
+  };
+
+  // A BUDGET OF ZERO MEANS FREE SOURCES ONLY, and the paid provider that was
+  // not called is RECORDED — "we did not call the thing that would have found
+  // this" is something the reader needs to know.
+  __clearProviders();
+  const paidCalls = [];
+  registerProvider(mk("free-crawl", 0, 0, freeFound));
+  registerProvider(mk("paid", 9, 40, { findPeople: async () => { paidCalls.push("people"); return [{ fullName: "Amanda Brown" }]; } }));
+  const noBudget = await findPerson({ person, deadlineMs: 10_000, maxCostAcu: 0 });
+  assert.equal(paidCalls.length, 0, "a paid provider was called on a lookup allowed no budget");
+  assert.equal(noBudget.costAcu, 0);
+  const skipped = noBudget.steps.filter((s) => !s.ran);
+  assert.ok(skipped.length > 0, "the provider that was skipped is not recorded");
+  assert.match(skipped[0].outcome, /Not called/);
+  assert.match(noBudget.note, /Raise the limit/, "the result does not say the budget is what stopped it");
+
+  // WITH A BUDGET, THE PAID CALL RUNS AND MUST BUY SOMETHING. Two providers
+  // naming the same person is corroboration worth 10 points — and deduplicating
+  // by name and dropping the second copy throws exactly that away, so the money
+  // buys nothing. Identity must move from 80 to 90.
+  __clearProviders();
+  registerProvider(mk("free-crawl", 0, 0, freeFound));
+  registerProvider(mk("paid", 9, 40, {
+    findPeople: async () => [{ fullName: "Amanda Brown", jobTitle: "Procurement Director", company: "Example Construction Ltd", sourceUrl: "https://provider/x" }],
+  }));
+  const withBudget = await findPerson({ person, deadlineMs: 10_000, maxCostAcu: 100 });
+  assert.equal(withBudget.costAcu, 40, "the paid provider was not charged for a call that answered");
+  assert.equal(withBudget.people.length, 1, "the same person came back as two people");
+  assert.deepEqual(withBudget.people[0].agreedBy, ["free-crawl", "paid"],
+    "provider agreement was not recorded, so a paid call bought nothing");
+  assert.equal(withBudget.confidence.identity.score, 90,
+    "two providers agreeing did not raise identity confidence");
+
+  // A PROVIDER THAT FOUND NOTHING IS NOT CHARGED, whatever its price list says.
+  __clearProviders();
+  registerProvider(mk("free-crawl", 0, 0, { findCompany: freeFound.findCompany, findPeople: async () => [], findEmails: async () => [] }));
+  registerProvider(mk("paid", 9, 40, { findPeople: async () => [] }));
+  const empty = await findPerson({ person, deadlineMs: 10_000, maxCostAcu: 100 });
+  assert.equal(empty.costAcu, 0, "a provider that returned nothing was charged for");
+  assert.ok(empty.steps.some((s) => s.ran && s.costAcu === 0 && /Not charged/.test(s.outcome)));
+
+  // THE FREE SOURCE RUNS FIRST. Not only cheaper — a company's own page is the
+  // primary source a data broker is selling a copy of.
+  __clearProviders();
+  const order = [];
+  registerProvider(mk("paid", 9, 40, { findPeople: async () => { order.push("paid"); return []; } }));
+  registerProvider(mk("free-crawl", 0, 0, { findPeople: async () => { order.push("free"); return []; } }));
+  await findPerson({ person, deadlineMs: 10_000, maxCostAcu: 100 });
+  assert.deepEqual(order, ["free", "paid"], "a paid provider was tried before a free one");
+});
+
+test("a deadline is a promise, and a partial answer is an answer", async () => {
+  const { registerProvider, findPerson, __clearProviders } = await import("../src/backend/enrichment-provider.ts");
+  const mk = (id, order, cost, impl) => ({ id, order, costAcu: cost, health: () => ({ id, configured: true, note: "" }), ...impl });
+
+  __clearProviders();
+  registerProvider(mk("slow", 0, 0, {
+    findCompany: async () => [{ legalName: "Example Ltd", domain: "example.co.uk" }],
+    // Never resolves on its own — only the deadline ends it.
+    findPeople: (_i, signal) => new Promise((_res, rej) => {
+      signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  }));
+
+  const t0 = Date.now();
+  const r = await findPerson({ person: { fullName: "A B", company: "Example Ltd", domain: "example.co.uk" }, deadlineMs: 1_200 });
+  const elapsed = Date.now() - t0;
+
+  // IT RETURNS, and roughly on time. A lookup somebody is watching cannot hang.
+  assert.ok(elapsed < 6_000, `the deadline did not end the run (${elapsed}ms)`);
+  assert.ok(r.company, "what WAS found before the deadline was thrown away");
+  assert.equal(r.people.length, 0);
+
+  // AND IT SAYS SO. Never a fabricated completion.
+  const timedOut = r.steps.find((s) => /Ran out of time/.test(s.outcome));
+  assert.ok(timedOut, "the step that ran out of time is not reported");
+  assert.equal(timedOut.costAcu, 0, "a provider that timed out was charged for");
+  assert.ok(r.progress.some((p) => /Company identified/.test(p)), "partial progress was not kept");
+});
+
+test("the adapters that exist are real, and the ones that do not are stated rather than stubbed", async () => {
+  const { officersFrom, tidyOfficerName, NOT_IMPLEMENTED, marketwarWeb, companiesHouse } =
+    await import("../src/backend/enrichment-adapters.ts");
+
+  // A RESIGNED OFFICER IS NOT AN OFFICER. The register keeps them forever, and
+  // a list that includes them is a list of people who used to be there.
+  const officers = officersFrom({ items: [
+    { name: "SMITH, John", officer_role: "director" },
+    { name: "JONES, Sarah", officer_role: "director", resigned_on: "2023-04-01" },
+    { name: "NO ROLE", officer_role: "" },
+  ] });
+  assert.equal(officers.length, 1, "a resigned or role-less officer was kept");
+  assert.equal(officers[0].name, "SMITH, John");
+  assert.deepEqual(officersFrom(null), []);
+  assert.deepEqual(officersFrom({ items: "not an array" }), []);
+
+  // A NAME RENDERED WRONG IS THE FIRST THING ITS OWNER SEES.
+  assert.equal(tidyOfficerName("SMITH, John Andrew"), "John Andrew Smith");
+  assert.equal(tidyOfficerName("O'BRIEN, Mary"), "Mary O'Brien", "an apostrophe broke the capitalisation");
+  assert.equal(tidyOfficerName("SMITH-JONES, Ann"), "Ann Smith-Jones", "a hyphen broke the capitalisation");
+  assert.equal(tidyOfficerName("Plain Name"), "Plain Name");
+
+  // Our own crawl is always available and always free.
+  const web = marketwarWeb.health();
+  assert.equal(web.configured, true);
+  assert.equal(marketwarWeb.costAcu, 0);
+  assert.equal(marketwarWeb.order, 0, "the free source is not first in the waterfall");
+
+  // The register reports honestly when it has no key.
+  const ch = companiesHouse.health();
+  assert.equal(typeof ch.configured, "boolean");
+  if (!ch.configured) assert.match(ch.note, /COMPANIES_HOUSE_API_KEY/);
+
+  // A STUB THAT HAS NEVER RUN IS WORSE THAN AN ABSENCE — it looks like coverage
+  // in a review, passes a type check, and fails the first time somebody pays.
+  assert.ok(NOT_IMPLEMENTED.length >= 3, "the suppliers we do NOT have are not stated");
+  for (const p of NOT_IMPLEMENTED) {
+    assert.ok(p.needs && p.wouldProvide, `${p.id} is listed without saying what it needs or would add`);
+  }
+  const src = readFileSync(new URL("../src/backend/enrichment-adapters.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(codeOf(src), /api\.hunter\.io|api\.peopledatalabs\.com/,
+    "an adapter was written against an API that has never been called from here");
+});
+
+test("the waterfall is reachable, metered and suppression-checked — not a module nobody can call", () => {
+  // THE DEFECT THIS PINS, and it is this repository's most expensive one. Three
+  // engine files typechecked, passed their tests and were wired to nothing:
+  // `registerBuiltInProviders()` was never called from product code, there was
+  // no route, and there was no box to type a name into. A provider stack the
+  // owner cannot run is the same thing as no provider stack, and it is exactly
+  // the "useless library placeholder" complaint that produced this work.
+  const route = codeOf(readFileSync(new URL("../src/app/api/contact-hunter/route.ts", import.meta.url), "utf8"));
+
+  assert.match(route, /action === "lookup"/, "the waterfall has no action on any route");
+  assert.match(route, /registerBuiltInProviders\(\)/, "the adapters are never registered, so the waterfall runs with no providers");
+  assert.match(route, /findPerson\(/, "the route does not call the waterfall");
+
+  // The doctrine block must report provider health AFTER registration, or it
+  // reports an empty supplier list on a platform that has two.
+  const get = route.slice(route.indexOf("export async function GET"));
+  assert.match(get, /registerBuiltInProviders\(\)/, "GET reports provider health before the providers are registered");
+
+  // METERED BEFORE IT RUNS, and the supplier spend charged after — because the
+  // waterfall stops early and billing the whole stack is the dishonest half.
+  assert.match(route, /meterAction\(auth, "enrich", 1\)/, "the lookup is not metered before it runs");
+  assert.match(route, /meterAction\(auth, "enrich", result\.costAcu\)/,
+    "supplier spend is not charged, or is not charged at the 2x floor one enrich unit represents");
+
+  // A suppressed address must be flagged BEFORE it is rendered — a lookup that
+  // returns one has already put it on somebody's screen.
+  assert.match(route, /suppressedBy\(e\.value, suppressions/, "returned addresses are not checked against the suppression list");
+
+  // And the register's word is never rendered as a job.
+  assert.match(route, /claimsOperationalRole\(reading/, "a register officer can be returned with an operational title");
+  assert.match(route, /displayTitle: claim\.ok \? p\.jobTitle \?\? null : null/,
+    "the title is passed through regardless of whether the operational role was established");
+
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/contact-hunter/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /setLkName/, "there is no box to type a person's name into");
+  assert.match(page, /action: "lookup"/, "the page never calls the lookup");
+  // THREE SCORES ON THE SCREEN, NOT ONE. A single averaged number is the thing
+  // the specification exists to refuse.
+  assert.match(page, /ConfidenceBar label="Identity"/);
+  assert.match(page, /ConfidenceBar label="Employment"/);
+  assert.match(page, /ConfidenceBar label="Email"/);
+  // Every step renders, including the ones that did not run.
+  assert.match(page, /lookup\.result\.steps\.map/, "the steps the waterfall took are not shown");
+  assert.match(page, /notConfigured\.map/, "the suppliers we do not have are not shown, so a short result looks like a bug");
+  assert.match(page, /operationalRole\.ok/, "the page renders a register title without the refusal beside it");
+});
