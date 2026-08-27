@@ -22585,3 +22585,161 @@ test("the site-audit and email agents are handed their own page's findings too",
   assert.doesNotMatch(emailCode, /1,240 contacts/, "the sample list from another business is back in the form");
   assert.doesNotMatch(emailCode, /Friday platter campaign/, "a different business's campaign is pre-filled as this one's goal");
 });
+
+// ---------------------------------------------------------------------------
+// MARKET EXIT — the detector that gives the rules something to refuse
+//
+// The dashboard rendered the whole evidence doctrine against a hardcoded
+// Kingsway Plumbing. A rulebook with nothing to judge is a library list. These
+// tests cover the part that produces REAL signals — and, far more importantly,
+// the sentences it must refuse to read as a closure, because a false positive
+// here is a trading business told the world it had failed.
+// ---------------------------------------------------------------------------
+
+test("a closure announcement is distinguished from every sentence that merely resembles one", async () => {
+  const { findClosureStatement } = await import("../src/backend/market-exit-detect.ts");
+
+  // WHAT IT MUST FIND. Each of these is a business announcing its own end.
+  for (const text of [
+    "We have ceased trading after 40 years.",
+    "Kingsway Plumbing is now permanently closed.",
+    "We are no longer trading in the Leeds area.",
+    "After 22 years we have closed our doors.",
+    "Our final day of trading will be 30 September.",
+    "We have moved to 14 High Street.",
+  ]) {
+    assert.ok(findClosureStatement(text), `missed a real closure: ${text}`);
+  }
+
+  // WHAT IT MUST REFUSE, and why each one matters.
+  //
+  // A SHOP WITH A HOLIDAY is not a closed business, and a naive search for
+  // "closed" finds every one of these.
+  for (const text of [
+    "We are closed on Sundays.",
+    "Closed over Christmas — back on the 2nd.",
+    "The showroom is temporarily closed for refurbishment.",
+    "We are open six days a week and never closed for lunch.",
+    // THE VETO HAS TO DO WORK. In each of these a closure phrase genuinely
+    // fires — "now closed", "no longer trading" — and only the exclusion stops
+    // it. Without them the earlier cases pass by luck, because no closure
+    // pattern matched them in the first place.
+    "We are now closed for refurbishment and reopen in March.",
+    "The kitchen is now closed for lunch between 3 and 5.",
+    "Our Leeds branch is temporarily closed for maintenance.",
+  ]) {
+    assert.equal(findClosureStatement(text), null, `a trading business was read as closed: ${text}`);
+  }
+
+  // SOMEBODY ELSE'S CLOSURE, ON THIS COMPANY'S PAGE. An insolvency
+  // practitioner's site is full of these sentences because that is their line
+  // of work — and marking the liquidator as closed would then aim an
+  // advertising campaign at their customers.
+  for (const text of [
+    "Our client has ceased trading and we recovered 80p in the pound.",
+    "Case studies: a company in administration.",
+    "If your business has ceased trading, we can help.",
+    "We advise firms that have gone into liquidation.",
+    "We specialise in helping companies that have ceased trading.",
+    "We act for directors of businesses in administration.",
+    "The company has gone into liquidation.",
+  ]) {
+    assert.equal(findClosureStatement(text), null, `somebody else's closure was attributed to this business: ${text}`);
+  }
+
+  // SENTENCE-SCOPED. "We have ceased trading. Our showroom was closed for
+  // refurbishment last year." is a closure with an irrelevant second sentence —
+  // scanning the page as one block throws the first away on the second.
+  assert.ok(findClosureStatement("We have ceased trading. Our showroom was closed for refurbishment last year."),
+    "a real closure was discarded because a LATER sentence mentioned a refurbishment");
+
+  assert.equal(findClosureStatement(""), null);
+});
+
+test("the register's reply is read rather than asserted, and an active company is kept as counter-evidence", async () => {
+  const { firstRegisterHit, companiesHouseKey } = await import("../src/backend/market-exit-detect.ts");
+
+  // `await res.json()` is `any`. This response decides whether a NAMED company
+  // is published as closed, so "we do not know" must not arrive downstream
+  // wearing the shape of an answer.
+  assert.equal(firstRegisterHit(null), null);
+  assert.equal(firstRegisterHit({}), null);
+  assert.equal(firstRegisterHit({ items: [] }), null);
+  assert.equal(firstRegisterHit({ items: [{ title: "X" }] }), null, "a record with no status was accepted");
+  assert.equal(firstRegisterHit({ items: [{ company_status: "dissolved" }] }), null, "a record with no company number was accepted");
+  const ok = firstRegisterHit({ items: [{ company_number: "01234567", title: "Kingsway Plumbing Ltd", company_status: "dissolved" }] });
+  assert.deepEqual(ok, { companyNumber: "01234567", title: "Kingsway Plumbing Ltd", status: "dissolved" });
+
+  // A key that is absent is absent — and that is reported as a missing OFFICIAL
+  // source rather than as a fact about the company.
+  const src = readFileSync(new URL("../src/backend/market-exit-detect.ts", import.meta.url), "utf8");
+  assert.match(src, /No COMPANIES_HOUSE_API_KEY/, "a missing register key is not reported as such");
+  assert.match(src, /keyFromEnv/, "the register key is read raw, so a stray newline becomes a 401");
+  assert.equal(typeof companiesHouseKey(), "string");
+
+  // AN ACTIVE COMPANY IS RECORDED, not discarded. A detector that only keeps
+  // what it is hunting finds a closure everywhere; `assessClosure` reads
+  // contradictions and stops, and it can only do that if they reach it.
+  const { registerStatusSignal } = await import("../src/backend/market-exit-detect.ts");
+  const active = registerStatusSignal("active");
+  assert.ok(active, "a register saying the company is ACTIVE is thrown away");
+  assert.equal(active.type, "trading_normally",
+    "an ACTIVE register entry is not recorded as evidence the company is trading");
+  assert.equal(registerStatusSignal("dissolved").type, "dissolution");
+  assert.equal(registerStatusSignal("liquidation").source, "insolvency_register");
+  assert.equal(registerStatusSignal("something-new"), null, "an unmapped status was interpreted anyway");
+  assert.match(src, /evidence AGAINST a closure/i, "an active status is not explained as counter-evidence");
+});
+
+test("a page that could not be read is never evidence that a business closed", async () => {
+  const src = readFileSync(new URL("../src/backend/market-exit-detect.ts", import.meta.url), "utf8");
+
+  // The lesson the contact hunter learned the hard way, applied here BEFORE it
+  // can do damage — because here the wrong answer is published about a named
+  // company rather than shown to its own owner.
+  assert.match(src, /is NOT a domain-inactive signal/,
+    "an unreachable site can still become a closure signal");
+  assert.match(src, /OUR side of the connection failing/,
+    "a failed fetch is not distinguished from a fact about the company");
+
+  // A news story must NAME the company. A search for closures returns closure
+  // stories; without this, any closure anywhere becomes this company's.
+  //
+  // SCANNED WITH COMMENTS STRIPPED — seventh time in this repository. The first
+  // version of this matched the comment above the check and survived a mutation
+  // that deleted the check itself.
+  const code = codeOf(src);
+  assert.match(code, /if \(!text\.toLowerCase\(\)\.includes\(company\.toLowerCase\(\)/,
+    "a news result is accepted without checking it names the company");
+
+  // Every source reports whether it RAN, so "0 signals" is actionable.
+  assert.match(code, /checked: false/, "a source that could not run is indistinguishable from one that found nothing");
+
+  // And the detector must not decide. That is assessClosure's job.
+  assert.match(src, /Whether that is enough to publish is not this step's decision/,
+    "the detector reports a verdict of its own");
+});
+
+test("the market-exit surface is a tool rather than a demo of itself", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/market-exit/page.tsx", import.meta.url), "utf8");
+  const code = codeOf(page);
+
+  // THE DEFECT THIS PINS. The page rendered the entire doctrine against a
+  // hardcoded Kingsway Plumbing and Northgate Heating, with no way to check a
+  // real company. Every rule was real and every value was fake.
+  assert.doesNotMatch(code, /demoMarketExit/, "the page still renders the built-in demo instead of a real check");
+  assert.doesNotMatch(code, /exampleconstruction|Northgate Heating|Aire Valley|Dormant Drains/,
+    "hardcoded sample businesses are back on the page");
+
+  // There must be an input, and it must call the detector.
+  assert.match(code, /setCompany/, "there is no box to type a company into");
+  assert.match(code, /action: "detect"/, "the page does not run a real detection");
+
+  // A REFUSAL MUST RENDER AS FULLY AS A FINDING. Most of the time the honest
+  // answer is "no evidence of closure", and a screen that only lights up for a
+  // hit teaches its user that the tool is broken when it is working.
+  assert.match(code, /Nothing may be built on this/, "an unpublishable result is not shown as a result");
+  assert.match(page, /the absence is the gate, not a warning/i,
+    "the page does not say that nothing is built on an unproved closure");
+  assert.match(page, /could not run/, "sources that failed are not distinguished from sources that found nothing");
+});

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { buildCampaign } from "@/backend/market-exit-campaign";
+import { detectClosure } from "@/backend/market-exit-detect";
+import { requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import {
   observe, assess, moveState, listRecords, getRecord, raiseDispute, resolveDispute, isDisputeOpen,
 } from "@/backend/market-exit-store";
@@ -39,6 +42,10 @@ import {
 // routed around by adding a new action later.
 
 export const runtime = "nodejs";
+// A detection reads a register, several of a company's own pages and a news
+// search. Without a declared duration the platform kills the function mid-run
+// AFTER the wallet has been debited.
+export const maxDuration = 120;
 
 function prohibitedFields(body: Record<string, unknown>): string[] {
   return PROHIBITED_INPUT_FIELDS.filter((f) => Object.prototype.hasOwnProperty.call(body, f));
@@ -114,6 +121,48 @@ export async function POST(req: NextRequest) {
     const records = await listRecords(brandId);
     return NextResponse.json({ records, count: records.length });
   }
+
+  // ── THE PART THAT ACTUALLY GOES AND LOOKS. ───────────────────────────────
+  //
+  // Produces real signals about a real company from the register, the company's
+  // own site and the press, records them, and returns what the rules make of
+  // them. It does NOT decide — `assessClosure` does, and it is entitled to
+  // refuse everything found here. That refusal is the product.
+  if (action === "detect") {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const company = typeof body.company === "string" ? body.company.trim() : "";
+    if (!company) return NextResponse.json({ error: "detect needs a company name" }, { status: 400 });
+    const meter = await meterAction(auth, "enrich", 1);
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+
+    const detection = await detectClosure({
+      company,
+      website: typeof body.website === "string" ? body.website.trim() || undefined : undefined,
+      where: typeof body.where === "string" ? body.where.trim() || undefined : undefined,
+      at,
+    });
+
+    // Recorded under the brand so the evidence accumulates across days — a
+    // closure case is built from sources that appear at different times, and a
+    // detector that forgets last week's registry filing can never satisfy the
+    // two-source rule.
+    const businessIdFor = company.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+    let assessment;
+    if (detection.signals.length > 0) {
+      const r = await observe({ brandId, businessId: businessIdFor, businessName: company, signals: detection.signals, at, by });
+      assessment = r.assessment;
+    } else {
+      assessment = assessClosure({ businessId: businessIdFor, signals: [], assessedAt: at });
+    }
+
+    return NextResponse.json({
+      detection, assessment, businessId: businessIdFor,
+      metered: meter.metered, balanceAcu: meter.balanceAcu,
+      requiredDisclosure: REQUIRED_DISCLOSURE,
+    });
+  }
+
 
   if (!businessId) return NextResponse.json({ error: "businessId is required" }, { status: 400 });
 
@@ -198,7 +247,7 @@ export async function POST(req: NextRequest) {
     return r.ok ? NextResponse.json({ record: r.record }) : NextResponse.json({ error: r.error }, { status: 400 });
   }
 
-  return NextResponse.json({ error: "Unknown action — use observe, assess, opportunity, match, campaign, allocate, screen, advance, dispute, resolve or records" }, { status: 400 });
+  return NextResponse.json({ error: "Unknown action — use detect, observe, assess, opportunity, match, campaign, allocate, screen, advance, dispute, resolve or records" }, { status: 400 });
 }
 
 export async function GET() {
@@ -225,7 +274,7 @@ export async function GET() {
     mandatoryControls: MANDATORY_CONTROLS,
     requiredDisclosure: REQUIRED_DISCLOSURE,
     prohibitedInputFields: PROHIBITED_INPUT_FIELDS,
-    actions: ["observe", "assess", "opportunity", "match", "campaign", "allocate", "screen", "advance", "dispute", "resolve", "records"],
+    actions: ["detect", "observe", "assess", "opportunity", "match", "campaign", "allocate", "screen", "advance", "dispute", "resolve", "records"],
     demo: demoMarketExit(),
   });
 }
