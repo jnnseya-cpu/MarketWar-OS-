@@ -125,11 +125,21 @@ export type RecoveryReport = {
 export function emptyRecovery(business: string): RecoveryReport {
   return {
     business,
-    live: true,
+    // ONE MEANING FOR `live`, WHICH IS "there is real data behind this".
+    //
+    // `recoverRevenue` sets it from `customers.length > 0`; this function set it
+    // to TRUE on a vault with nothing in it, meaning "not a demo". Two meanings
+    // for one boolean, and the first consumer to read it as "do I have data?"
+    // would have shown an empty report as a populated one. Nothing reads it
+    // today, which is the only reason this was not already a bug.
+    live: false,
     totalRecoverableGbp: 0,
     totalRecoverableContacts: 0,
     cohorts: [],
-    note: "No contacts in this brand's Customer Vault yet. Import CSV / CRM / Stripe / WhatsApp and the engine sorts them into win-back cohorts and computes recoverable revenue instantly — from your real database, never a sample.",
+    // The vault takes a CSV — which is what a CRM, Stripe or a WhatsApp export
+    // gives you. Listing them as separate importers promised four connectors
+    // that do not exist.
+    note: "No contacts in this brand's Customer Vault yet. Import a CSV — including the export your CRM, Stripe or WhatsApp hands you — and the engine sorts them into win-back cohorts and computes recoverable revenue instantly, from your real database and never a sample.",
   };
 }
 

@@ -404,12 +404,21 @@ export default function LandingPage() {
                 Clicks become <span className="text-gradient">conversations that close.</span>
               </h3>
               <p className="mt-4 text-lg text-slate-400">
-                For real businesses, WhatsApp outsells websites. The OS routes every ad into a
-                one-tap thread, qualifies the lead with AI, sends the offer, books the order and
-                fires follow-ups at 1h, 24h and 48h — automatically.
+                For real businesses, WhatsApp outsells websites. The OS points every ad at a
+                one-tap thread with the message already written, and hands you the four that
+                close it — first reply, stalled thread, order confirmation, review request.
+                You send them; nothing here messages your customers on its own.
               </p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
-                {["AI qualification with intent scoring on every thread", "Ghosted leads recovered with deadline offers", "Every conversation attributed to its campaign"].map((f) => (
+                {/* It said "AI qualification with intent scoring on every thread",
+                    "Ghosted leads recovered" and "Every conversation attributed
+                    to its campaign". Nothing sends a WhatsApp message: no Graph
+                    API call, no scheduler, no thread store. The route serving
+                    this panel says so itself — "No live WhatsApp traffic source
+                    is wired yet" — and returns a ZEROED funnel with the note
+                    "nothing is fabricated" rather than inventing one, which is
+                    the right behaviour and deserved a page that matched it. */}
+                {["Pre-filled wa.me links your ads and pages route into", "The four messages that matter, written for your business", "The funnel fills from real conversations once WhatsApp is connected — until then it shows zero, not a guess"].map((f) => (
                   <li key={f} className="flex items-center gap-2.5">
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
                   </li>
@@ -428,12 +437,18 @@ export default function LandingPage() {
                 Mine the revenue <span className="text-gradient">you already own.</span>
               </h3>
               <p className="mt-4 text-lg text-slate-400">
-                Before you buy a single cold click, the Customer Vault scores every contact for
-                recovery probability and the AI Revenue Recovery Score™ puts a number on the money
-                sleeping in your database. Then reactivation waves go get it — at zero ad cost.
+                Before you buy a single cold click, the Customer Vault scores every contact you
+                import for engagement, intent, churn risk and lifetime value, and totals the
+                revenue those contacts could still be worth. Then it drafts the reactivation
+                waves that go and get it — at zero ad cost. With nothing imported it shows zero
+                and says so, rather than a sample base.
               </p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
-                {["Import CSV, CRM, Shopify, Stripe or WhatsApp exports", "Churn-risk and intent scoring on every contact", "Comeback, VIP and referral campaigns pre-built"].map((f) => (
+                {/* It listed "CRM, Shopify, Stripe or WhatsApp" as if each were a
+                    connector. The vault takes a CSV — which is what all four of
+                    those give you when you export, so the capability is real and
+                    the wording was not. */}
+                {["Import a CSV — including the exports Shopify, Stripe, your CRM or WhatsApp hand you", "Engagement, intent, churn-risk and lifetime-value scoring on every contact", "Comeback, VIP and referral waves drafted for you"].map((f) => (
                   <li key={f} className="flex items-center gap-2.5">
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
                   </li>
@@ -442,7 +457,12 @@ export default function LandingPage() {
             </div>
             <div className="glass rounded-2xl p-5 shadow-2xl shadow-black/40">
               <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">AI Revenue Recovery Score™</p>
+                {/* The engine computes `totalRecoverableGbp` from imported
+                    contacts. There is no separate scoring system called an "AI
+                    Revenue Recovery Score", and a ™ on a name that appears
+                    nowhere in the code is a claim about a product that does not
+                    exist. The figure is real; the branding around it was not. */}
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">Recoverable revenue · illustrative</p>
                 <p className="mt-1 font-display text-3xl font-bold text-white">£1,240 <span className="text-sm font-semibold text-slate-400">recoverable</span></p>
               </div>
               <p className="mb-3 text-sm font-bold text-white">Recoverable revenue by segment</p>
