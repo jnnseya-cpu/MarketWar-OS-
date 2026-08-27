@@ -21269,3 +21269,358 @@ test("the trust check counts real signals and refuses to invent the one it canno
   assert.equal(verdict.verdict, "clear", "a creator with no history is treated as a fraudster");
   assert.ok(verdict.evidence, "the verdict carries no evidence, so it cannot be explained");
 });
+
+// ---------------------------------------------------------------------------
+// MARKET EXIT CAPTURE
+//
+// Every test here is a refusal. This is the only engine in the platform that is
+// wrong at a NAMED THIRD PARTY's expense — publishing "permanently closed"
+// about a business that is trading is a defamation with an advertising budget
+// behind it — so what is worth guarding is not that it finds closures, but that
+// it declines to.
+// ---------------------------------------------------------------------------
+
+test("a closure is never published on one weak signal, and a member of the public is never half the case", async () => {
+  const {
+    assessClosure, QUALIFYING_TIERS, PUBLISH_CONFIDENCE_FLOOR, MAX_CONFIDENCE,
+  } = await import("../src/shared/market-exit.ts");
+  const at = "2026-08-27T00:00:00.000Z";
+  const sig = (source, signalType, confidence) => ({
+    businessId: "b1", source, signalType, observedAt: "2026-08-20T00:00:00.000Z", confidence,
+  });
+
+  // One source, however confident the caller says it is.
+  const one = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("business_website", "closure_announcement", 1)] });
+  assert.equal(one.publishable, false, "a single non-official source published a closure");
+  assert.equal(one.status, "UNVERIFIED", "an unpublishable assessment kept the damaging status");
+
+  // TWO GOOGLE SIGNALS ARE ONE SIGNAL. The Maps listing reads from the Business
+  // Profile, so the second corroborates nothing the first did not already say.
+  const google = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("google_business_profile", "status_permanently_closed", 0.9),
+    sig("google_maps_status", "status_permanently_closed", 0.9),
+  ] });
+  assert.equal(google.publishable, false, "two readings of the same Google record counted as two independent sources");
+  assert.equal(google.independentGroups.length, 1, "the independence grouping is not collapsing same-origin signals");
+
+  // THE ONE THIS ENGINE WAS BUILT WRONG FIRST TIME. Google plus a stranger's web
+  // form published PERMANENTLY_CLOSED about a named dental practice at 0.9,
+  // because the crowd counted as the second independent source. A report from a
+  // member of the public is the easiest signal in the system to aim at a
+  // competitor and can never be half of a case.
+  const withCrowd = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("google_business_profile", "status_permanently_closed", 0.9),
+    sig("user_report", "closure_announcement", 1),
+  ] });
+  assert.equal(withCrowd.publishable, false, "a public web-form report became the second independent source");
+  assert.match(withCrowd.why, /member of the public/i, "the refusal does not say why the report did not count");
+  assert.ok(!QUALIFYING_TIERS.includes("reported"), "the reported tier was allowed back into the two-source rule");
+
+  // What DOES publish: an official record, or two genuinely independent sources.
+  const official = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("company_register", "dissolution", 0.95)] });
+  assert.equal(official.publishable, true, "an official register entry did not publish");
+  assert.equal(official.status, "PERMANENTLY_CLOSED");
+
+  const twoReal = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("business_website", "closure_announcement", 0.9),
+    sig("news_report", "closure_announcement", 0.75),
+  ] });
+  assert.equal(twoReal.publishable, true, "two genuinely independent sources did not publish");
+
+  // Confidence is never asserted into existence, and never reaches certainty.
+  const overclaim = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("user_report", "closure_announcement", 1)] });
+  assert.ok(overclaim.evidence[0].clamped, "a caller's confidence of 1 on a web-form report was taken at face value");
+  assert.ok(overclaim.evidence[0].weight <= 0.3, "the source ceiling did not apply");
+
+  const certain = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("company_register", "dissolution", 0.97),
+    sig("official_gazette", "dissolution", 0.97),
+    sig("business_website", "closure_announcement", 0.92),
+  ] });
+  assert.ok(certain.confidenceScore <= MAX_CONFIDENCE, "the engine reported certainty about a thing it inferred");
+  assert.ok(MAX_CONFIDENCE < 1, "the confidence ceiling was raised to 1");
+  assert.ok(PUBLISH_CONFIDENCE_FLOOR >= 0.8, "the publish floor was lowered");
+
+  // A SOURCE NOBODY REVIEWED IS WORTH NOTHING — not "a little".
+  const invented = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("my_scraper", "dissolution", 1)] });
+  assert.equal(invented.evidence[0].weight, 0, "an unrecognised source carried weight");
+  assert.equal(invented.publishable, false);
+});
+
+test("a signal that says the business is still trading stops everything", async () => {
+  const { assessClosure, createOpportunity } = await import("../src/shared/market-exit.ts");
+  const at = "2026-08-27T00:00:00.000Z";
+
+  const contradicted = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    { businessId: "b1", source: "company_register", signalType: "dissolution", observedAt: "2026-08-01T00:00:00.000Z", confidence: 0.95 },
+    { businessId: "b1", source: "business_social", signalType: "recent_activity", observedAt: "2026-08-26T00:00:00.000Z", confidence: 0.8 },
+  ] });
+  assert.equal(contradicted.publishable, false, "a strike-off beside evidence of trading still published");
+  assert.equal(contradicted.humanReviewRequired, true, "a contradiction did not reach a person");
+  assert.equal(contradicted.contradictions.length, 1);
+
+  // And nothing may be BUILT on an unpublished assessment — the gate is the
+  // absence of an opportunity, not a warning banner on one.
+  const built = createOpportunity({
+    assessment: contradicted,
+    closedBusiness: { id: "b1", name: "X", category: "Plumber", city: "Leeds", postcodePrefix: "LS6" },
+    eligibleReplacements: 3, createdAt: at,
+  });
+  assert.equal(built.ok, false, "an opportunity was created from an unpublished closure");
+
+  // A struggling business is not an opportunity either.
+  const atRisk = assessClosure({ businessId: "b2", assessedAt: at, signals: [
+    { businessId: "b2", source: "company_register", signalType: "strike_off_notice", observedAt: "2026-08-01T00:00:00.000Z", confidence: 0.95 },
+  ] });
+  const early = createOpportunity({
+    assessment: atRisk,
+    closedBusiness: { id: "b2", name: "Y", category: "Plumber", city: "Leeds", postcodePrefix: "LS6" },
+    eligibleReplacements: 3, createdAt: at,
+  });
+  assert.equal(early.ok, false, "a business that is closing soon but still trading became a campaign target");
+  assert.match(early.error, /still serving/i, "the refusal does not say why a struggling business is off limits");
+});
+
+test("displaced demand is counted or it is null — there is no fallback estimate", async () => {
+  const { estimateDisplacedDemand } = await import("../src/shared/market-exit.ts");
+  const src = readFileSync(new URL("../src/shared/market-exit.ts", import.meta.url), "utf8");
+
+  const nothing = estimateDisplacedDemand({});
+  assert.equal(nothing.customersPerMonth, null, "a demand figure appeared with nothing counted behind it");
+  assert.equal(nothing.monthlyValueGbp, null, "a money figure appeared with nothing counted behind it");
+  assert.ok(nothing.missing.length > 0, "the null does not say what to supply");
+
+  const counted = estimateDisplacedDemand({ monthlyBrandedSearches: 140 });
+  assert.equal(counted.customersPerMonth, 140, "a counted search volume did not produce a demand figure");
+  assert.equal(counted.monthlyValueGbp, null, "a money figure was produced without a counted order value");
+  assert.ok(counted.basis.some((b) => /searches a month/i.test(b)), "the basis does not name where the number came from");
+
+  const valued = estimateDisplacedDemand({ monthlyBrandedSearches: 140, averageOrderValueGbp: 90 });
+  assert.equal(valued.monthlyValueGbp, 140 * 90, "the value is not the counted inputs multiplied");
+
+  // No industry averages, no assumed conversion rates, no "typical" anything —
+  // the sentence that sells this engine is the one most likely to be invented.
+  assert.doesNotMatch(codeOf(src).replace(/estimateDisplacedDemand/g, ""),
+    /industryAverage|typicalConversion|assumedRate|DEFAULT_AOV|averageSpend\s*=/,
+    "a fallback assumption was added to the demand estimate");
+});
+
+test("the match formula is the specification's, and eligibility is a gate rather than a penalty", async () => {
+  const { MATCH_WEIGHTS, matchReplacements, demoMarketExit } = await import("../src/shared/market-exit.ts");
+
+  assert.equal(MATCH_WEIGHTS.reduce((s, w) => s + w.weight, 0), 100, "the match weights no longer sum to 100");
+  const byKey = Object.fromEntries(MATCH_WEIGHTS.map((w) => [w.key, w.weight]));
+  assert.deepEqual(byKey, {
+    serviceSimilarity: 30, geographicCoverage: 20, availability: 15,
+    reputation: 15, priceCompatibility: 10, responseConversion: 10,
+  }, "the weights drifted from the specification");
+
+  const d = demoMarketExit();
+  const opportunity = d.opportunity;
+  assert.ok(opportunity, "the demo produced no opportunity to match against");
+
+  // An ineligible business is EXCLUDED, not ranked low. A dormant, unverified
+  // business scoring 71 still appears in a list somebody sends a customer to.
+  const dormant = d.matched.ineligible.find((i) => i.name === "Dormant Drains Ltd");
+  assert.ok(dormant, "a dormant, unverified business was scored instead of excluded");
+  assert.ok(dormant.reasons.length >= 2, "the exclusion does not say why, so the business cannot be told");
+  assert.ok(!d.matched.matches.some((m) => m.name === "Dormant Drains Ltd"),
+    "an ineligible business appeared in the ranked matches");
+
+  // Nothing that could not be measured is quietly assumed away.
+  const partial = d.matched.matches.find((m) => m.unmeasured.length > 0);
+  assert.ok(partial, "no match reports what it could not measure");
+
+  // No eligible business is a coverage gap, not an empty list.
+  const empty = matchReplacements(opportunity, []);
+  assert.equal(empty.matches.length, 0);
+  assert.match(empty.note, /coverage gap/i, "an empty result does not read as a recruitment signal");
+});
+
+test("leads go to the best fit, and a subscription plan can never buy its way past that", async () => {
+  const { allocateLeads, TIER_MAX_INFLUENCE } = await import("../src/shared/market-exit.ts");
+  const m = (id, name, matchScore) => ({ candidateId: id, name, matchScore, factors: {}, reasons: [], unmeasured: [] });
+
+  // The poor fit is on the TOP plan and still loses, decisively.
+  const paid = allocateLeads({
+    leads: 20,
+    matches: [m("a", "Great fit", 95), m("b", "Poor fit", 30)],
+    candidates: [{ id: "a", planId: "starter" }, { id: "b", planId: "global" }],
+  });
+  const great = paid.allocations.find((x) => x.name === "Great fit");
+  const poor = paid.allocations.find((x) => x.name === "Poor fit");
+  assert.ok(great.leads > poor.leads * 2, `the top plan bought its way past a far better match (${great.leads} v ${poor.leads})`);
+  assert.ok(TIER_MAX_INFLUENCE <= 0.2, "the tier influence cap was raised past the point where payment decides");
+
+  // MAGNITUDE, NOT JUST ORDER. The first version handed out one lead at a time
+  // in weight order, which split 15 leads 8/7 between a 95 and a 30 — a
+  // round-robin wearing a ranking.
+  assert.ok(great.leads >= 13, `a 95 against a 30 should not be close (${great.leads}/${great.leads + poor.leads})`);
+
+  // Capacity is a ceiling, not another weight, and the overflow is reported.
+  const capped = allocateLeads({
+    leads: 20,
+    matches: [m("a", "Small but perfect", 99)],
+    candidates: [{ id: "a", planId: "growth", capacityPerMonth: 5 }],
+  });
+  assert.equal(capped.allocations[0].leads, 5, "a business was sent more work than it said it could take");
+  assert.equal(capped.unallocated, 15, "leads nobody could serve were silently dropped");
+  assert.match(capped.note, /recruitment signal/i, "unserved demand does not read as a recruitment signal");
+});
+
+test("nothing implies affiliation, and the mandatory disclosure is not a violation of itself", async () => {
+  const { screenPublication, REQUIRED_DISCLOSURE, PROHIBITED_INPUT_FIELDS } = await import("../src/shared/market-exit.ts");
+
+  // THE DEFECT THIS PINS. The disclosure line contains "endorsed by" and
+  // "successor to", so the first version of the scanner refused every correctly
+  // labelled page — the mandatory text made the control fail. Same class as a
+  // test that fails on its own comment.
+  const clean = screenPublication({
+    copy: `Looking for an alternative to Kingsway Plumbing? Northgate Heating covers the same area. ${REQUIRED_DISCLOSURE}`,
+    closedBusinessName: "Kingsway Plumbing",
+  });
+  assert.equal(clean.ok, true, `correctly labelled copy was refused: ${JSON.stringify(clean.refusals)}`);
+
+  // A business denying a relationship is not claiming one.
+  const denial = screenPublication({ copy: `We are not a successor to Kingsway Plumbing. ${REQUIRED_DISCLOSURE}` });
+  assert.equal(denial.ok, true, "a denial of affiliation was read as a claim of affiliation");
+
+  // The claims that must never ship.
+  for (const bad of [
+    "We have taken over their bookings.",
+    "Now trading as Northgate Heating.",
+    "The official successor to Kingsway Plumbing.",
+    "In partnership with Kingsway Plumbing.",
+  ]) {
+    const r = screenPublication({ copy: `${bad} ${REQUIRED_DISCLOSURE}` });
+    assert.equal(r.ok, false, `"${bad}" was allowed to publish`);
+  }
+
+  // Missing disclosure is a refusal, not a warning.
+  const undisclosed = screenPublication({ copy: "Looking for an alternative to Kingsway Plumbing?" });
+  assert.equal(undisclosed.ok, false, "copy naming a closed business published without the disclosure");
+
+  // Outreach without a recorded consent produces nothing.
+  const noConsent = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, isOutreach: true });
+  assert.equal(noConsent.ok, false, "outreach went out with no recorded consent");
+  const withConsent = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, isOutreach: true, consentRecorded: true });
+  assert.equal(withConsent.ok, true);
+
+  // The closed company's customer list is refused BY FIELD NAME, at the door.
+  for (const field of PROHIBITED_INPUT_FIELDS) {
+    const r = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, payload: { [field]: ["a@b.com"] } });
+    assert.equal(r.ok, false, `"${field}" was accepted`);
+  }
+});
+
+test("a captured lead cannot reach a business without a recorded consent, and a dispute stops everything", async () => {
+  const { advance } = await import("../src/shared/market-exit.ts");
+  const { observe, moveState, raiseDispute, resolveDispute, __resetMarketExit } =
+    await import("../src/backend/market-exit-store.ts");
+  __resetMarketExit();
+
+  // THE ONE TRANSITION THE WHOLE STATE MACHINE EXISTS FOR.
+  const skip = advance("lead_captured", "lead_distributed");
+  assert.equal(skip.ok, false, "a captured lead could be distributed without a consent step");
+  assert.match(skip.error, /no path around this one/i, "the refusal does not say the route is closed");
+  assert.equal(advance("lead_captured", "consent_recorded").ok, true);
+  assert.equal(advance("consent_recorded", "lead_distributed").ok, true);
+
+  const at = "2026-08-27T00:00:00.000Z";
+  const sig = (source, signalType, confidence) => ({
+    businessId: "biz", source, signalType, observedAt: "2026-08-20T00:00:00.000Z", confidence,
+  });
+
+  await observe({ brandId: "brand1", businessId: "biz", businessName: "Kingsway Plumbing", at,
+    signals: [sig("company_register", "dissolution", 0.95)] });
+  assert.equal((await moveState({ brandId: "brand1", businessId: "biz", to: "verified", by: "t", at })).ok, true);
+
+  // Signals accumulate; a re-crawl cannot inflate a case by repeating itself.
+  const again = await observe({ brandId: "brand1", businessId: "biz", businessName: "Kingsway Plumbing", at,
+    signals: [sig("company_register", "dissolution", 0.95), sig("business_website", "closure_announcement", 0.9)] });
+  assert.equal(again.record.signals.length, 2, "a repeated signal was stored twice and counted twice");
+
+  // §8 — the business says it is still trading. No proof required to PAUSE us:
+  // we published something about them, so their objection is enough to stop.
+  const disputed = await raiseDispute({ brandId: "brand1", businessId: "biz", raisedBy: "owner@kingsway", reason: "We are trading.", at });
+  assert.equal(disputed.ok, true);
+  assert.equal(disputed.record.state, "disputed");
+
+  const blocked = await moveState({ brandId: "brand1", businessId: "biz", to: "opportunity_created", by: "t", at });
+  assert.equal(blocked.ok, false, "a record kept moving while a dispute stood against it");
+
+  const assessed = await (await import("../src/backend/market-exit-store.ts")).assess("brand1", "biz", at);
+  assert.equal(assessed.publishable, false, "an official record still published while disputed");
+
+  // Upheld means withdrawn, not corrected-and-carry-on.
+  const upheld = await resolveDispute({ brandId: "brand1", businessId: "biz", resolution: "upheld", note: "They are trading.", by: "t", at });
+  assert.equal(upheld.ok, true);
+  assert.equal(upheld.record.state, "withdrawn", "a classification that was wrong resumed from where it left off");
+
+  // A resolution needs a reason, or the same dispute comes back.
+  __resetMarketExit();
+  await observe({ brandId: "b2", businessId: "z", businessName: "Z", at, signals: [sig("company_register", "dissolution", 0.95)] });
+  await raiseDispute({ brandId: "b2", businessId: "z", raisedBy: "o", reason: "Wrong.", at });
+  const noNote = await resolveDispute({ brandId: "b2", businessId: "z", resolution: "rejected", note: "  ", by: "t", at });
+  assert.equal(noNote.ok, false, "a dispute was closed with no explanation");
+});
+
+test("the capture campaign refuses its own copy rather than shipping it with a warning", async () => {
+  const { buildCampaign } = await import("../src/backend/market-exit-campaign.ts");
+  const { demoMarketExit, REQUIRED_DISCLOSURE } = await import("../src/shared/market-exit.ts");
+  const d = demoMarketExit();
+
+  const plan = buildCampaign({
+    opportunity: d.opportunity,
+    match: d.matched.matches[0],
+    destinationUrl: "https://example.com/quote",
+  });
+
+  assert.ok(plan.assets.length >= 5, "the campaign produced almost nothing");
+  for (const a of plan.assets) {
+    assert.equal(a.disclosure, REQUIRED_DISCLOSURE, `${a.kind} does not carry the disclosure`);
+  }
+
+  // No outreach without consent, and it is ABSENT rather than present-and-blocked:
+  // an unsent message sitting in a plan is a message somebody sends.
+  assert.ok(!plan.assets.some((a) => a.kind === "outreach_message"),
+    "an outreach message was produced with no recorded consent");
+  assert.ok(plan.blockers.some((b) => /consent/i.test(b)), "the plan does not say why there is no outreach");
+
+  const consented = buildCampaign({
+    opportunity: d.opportunity, match: d.matched.matches[0],
+    destinationUrl: "https://example.com/quote", consentRecorded: true,
+  });
+  assert.ok(consented.assets.some((a) => a.kind === "outreach_message"), "a recorded consent still produced no outreach");
+
+  // It reuses the SEO engine rather than growing a second page builder.
+  const src = readFileSync(new URL("../src/backend/market-exit-campaign.ts", import.meta.url), "utf8");
+  assert.match(src, /from "@\/backend\/programmatic-seo"/, "the campaign grew its own page builder");
+  assert.ok(plan.assets.filter((a) => a.page).length >= 3, "no page specs came back from the SEO engine");
+
+  // A campaign with nowhere to send a lead says so.
+  const noDestination = buildCampaign({ opportunity: d.opportunity, match: d.matched.matches[0] });
+  assert.ok(noDestination.blockers.some((b) => /destination/i.test(b)),
+    "a campaign that captures nothing did not say so");
+});
+
+test("every engine in the registry is reachable from the command index", async () => {
+  const { ENGINE_REGISTRY, ENGINE_CATEGORIES, enginesByCategory } =
+    await import("../src/shared/engine-registry.ts");
+
+  // THE DEFECT THIS PINS. "Autonomy & Orchestration" was declared as a category
+  // and three engines were filed under it, but it was missing from
+  // ENGINE_CATEGORIES — so enginesByCategory() silently dropped Agent Chains,
+  // Brand Memory and Growth Hubs. Shipped engines with no way to find them, and
+  // the same defect as every other one here: a value defined on one side of a
+  // boundary and never carried across.
+  const grouped = enginesByCategory();
+  const reachable = new Set(Object.values(grouped).flat().map((e) => e.id));
+  const missing = ENGINE_REGISTRY.filter((e) => !reachable.has(e.id)).map((e) => `${e.id} (${e.category})`);
+  assert.deepEqual(missing, [], `engines in the registry that no category lists: ${missing.join(", ")}`);
+
+  const declared = new Set(ENGINE_REGISTRY.map((e) => e.category));
+  for (const c of declared) {
+    assert.ok(ENGINE_CATEGORIES.includes(c), `"${c}" has engines filed under it but is not in ENGINE_CATEGORIES`);
+  }
+});

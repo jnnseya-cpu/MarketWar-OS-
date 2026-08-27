@@ -104,6 +104,7 @@ export const ENGINE_REGISTRY: EngineEntry[] = [
   { id: "local-outreach", name: "Flyers & Local Groups", category: "Local & Marketplace", blurb: "Print-ready flyers specified in millimetres with bleed and a scannable QR, plus community-group posts with each group's real rules beside them.", actions: ["flyer", "group-post", "followers"], dashboard: "/dashboard/local" },
   { id: "acquisition", name: "Acquisition Run", category: "Acquisition & Campaigns", blurb: "How many people were actually asked: named prospects, the message each was sent, what came back, and one counted sentence saying where the process is stuck.", actions: ["prospect", "attempt", "stage"], dashboard: "/dashboard/acquisition" },
   { id: "sentinel", name: "Sentinel Anti-Intrusion", category: "Economics & Governance", blurb: "The human gate over every route, the instruction firewall that keeps third-party text from becoming an instruction, and counted detections with the evidence attached — no threat score.", actions: ["scan", "report", "brief"], dashboard: "/dashboard/sentinel" },
+  { id: "market-exit", name: "Market Exit Capture", category: "Market Intelligence", blurb: "When a business closes, the demand it served does not. Verified exits become expiring opportunities for active businesses — but only on an official record or two genuinely independent sources, never a member of the public, and displaced demand is counted or it is null.", actions: ["observe", "assess", "opportunity", "match", "campaign", "allocate", "screen", "advance", "dispute", "resolve", "records"], dashboard: "/dashboard/market-exit" },
 ];
 
 export const ENGINE_CATEGORIES: EngineCategory[] = [
@@ -114,7 +115,13 @@ export const ENGINE_CATEGORIES: EngineCategory[] = [
   "Engagement & Retention",
   "Content & Reporting",
   "Video Intelligence",
-
+  // "Autonomy & Orchestration" was declared as a category, three engines were
+  // filed under it, and it was missing from this list — so `enginesByCategory`
+  // silently dropped Agent Chains, Brand Memory and Growth Hubs from the command
+  // index. Shipped engines with no way to find them. Same defect as every other
+  // one in this repository: a value defined on one side of a boundary and never
+  // carried across.
+  "Autonomy & Orchestration",
 ];
 
 export function enginesByCategory(): Record<EngineCategory, EngineEntry[]> {

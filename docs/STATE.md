@@ -4,7 +4,7 @@
 appended to.** If you read one document about this platform, read this one.
 
 Companions: `GROWTH-ENGINE-COVERAGE.md` answers "has the 113-section PRD been
-built?"; `REQUIREMENTS-COVERAGE.md` is the history. Updated: 2026-08-26.
+built?"; `REQUIREMENTS-COVERAGE.md` is the history. Updated: 2026-08-27.
 
 ---
 
@@ -15,7 +15,7 @@ subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com).
 
 Next.js, TypeScript strict, three layers enforced by `scripts/check-layers.mjs`.
-220 backend modules, 170 API routes, 67 dashboard pages, **1,579 tests**
+233 backend modules, 176 API routes, 67 dashboard pages, **1,588 tests**
 including one end-to-end run of the growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**;
@@ -33,17 +33,15 @@ and states the cause from the counts alone; with nothing sent, the diagnosis is
 not the product, the price, the site or the copy, because none has been in front
 of a buyer. **See §5.1: the reason no mail ever arrived is found and fixed.**
 
-`GO-TO-MARKET-MarketWar-OS.docx` is the plan for changing it — locked launch city,
-five segments, the real price table, 30/60/90 with failable exit criteria.
-`FACEBOOK-LAUNCH-CAMPAIGN.docx` is the paste-ready first campaign (§5.4). Every doc
-build parses its prices and the **12 tools a buyer otherwise pays for separately**
-out of `src/`, so none can print a stale number.
+`GO-TO-MARKET-MarketWar-OS.docx` is the plan — locked launch city, five segments,
+the price table, 30/60/90 with failable exit criteria. `FACEBOOK-LAUNCH-CAMPAIGN.docx`
+is the paste-ready first campaign (§5.4). Every doc build parses its prices and the
+**12 tools a buyer otherwise pays for separately** out of `src/`, so none can print
+a stale number.
 
 ---
 
-## 3. What works with NO keys at all
-
-No provider, no card, no configuration:
+## 3. What works with NO keys at all — no provider, no card, no configuration
 
 - **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three
   WORST free, the lead recorded as an inbound prospect. No account, no card; six
@@ -55,8 +53,7 @@ No provider, no card, no configuration:
   it costs, plus FAQPage markup — because a business with no customers to quote
   wins on specificity or not at all. It emails what it asks for an address to
   send, and refuses private and link-local destinations on every redirect hop
-  (`shared/net-guard.ts`) — it would otherwise have read the cloud metadata
-  service.
+  (`shared/net-guard.ts`) — it would otherwise have read the cloud metadata service.
 - **The client approval portal** (`/portal/[token]`) — a signed, expiring link an
   outside client opens with no account.
 - **The screen recorder puts the presenter IN the file** — composited onto a
@@ -65,22 +62,29 @@ No provider, no card, no configuration:
   arithmetic**, the **paid-media guardrails**, the **payout engine** (nine rails,
   quoted before money moves) and the **emergency stop** (five lanes; transactional
   mail has none) — every refusal computed, never guessed.
-- **The publication ledger** — a publish whose response is lost is uncertain, so
-  the next attempt asks the channel rather than posting twice.
+- **The publication ledger** — a publish whose response is lost is uncertain, so the
+  next attempt asks the channel rather than posting twice.
 - **Eight pre-publish checks**, **channel health**, **versions and restore**,
   **creative fatigue**, **the audit log**, **the generation cache**, **teams**
   (ten roles), **Sentinel**, **13 articles, 14 answer pages**.
+- **Market Exit Capture** (`/dashboard/market-exit`, 2026-08-27) — a closed firm's
+  demand sent to one that trades. The only engine wrong at a NAMED third party's
+  expense, so it is built from refusals: publishing needs an official register
+  entry or two independently-failing sources and **the public is never one of the
+  two**; ten readings of one Google record count once; a contradiction or open
+  dispute stops everything; demand is counted or **null saying what to supply**;
+  `lead_captured → lead_distributed` is illegal so consent cannot be skipped;
+  their customer list is refused **by field name at the door**. Eight mutations of
+  those guards were each caught by a test.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26).
-Landing stats, plan prices/limits/ACUs, 39 agent cards, the feature sections,
-14 answer pages and 13 articles, audited claim by claim. **What broke was always
-what somebody TYPED; everything derived was already right.** Worst three: a 4.0x
-ROAS rule where the guardrail says 3, a 48h kill-window existing nowhere, and
-WhatsApp automation with no send path — while that route's own comment said so.
-Twelve tests hold it.
-
-**Built in the 2026-08-21/22 audit** — eleven PRD sections, behaviour in
-`GROWTH-ENGINE-COVERAGE.md`. Each refuses a number it cannot stand behind.
+Landing stats, plan prices/limits/ACUs, 39 agent cards, the feature sections, 14
+answer pages and 13 articles, claim by claim, held by twelve tests. **What broke
+was always what somebody TYPED; everything derived was already right.** Worst
+three: a 4.0x ROAS rule where the guardrail says 3, a 48h kill-window existing
+nowhere, WhatsApp automation with no send path while that route's own comment said
+so. The 2026-08-21/22 audit built eleven PRD sections
+(`GROWTH-ENGINE-COVERAGE.md`); each refuses a number it cannot stand behind.
 
 ---
 
@@ -112,21 +116,20 @@ account is declared with RFC 5322 `Sender:`. **To close:** set `EMAIL_FROM` to
 `SMTP_USER` to change** — verified 2026-08-27: `appuser@` logs in, `info@` is the
 visible From, envelope + `Sender:` are `appuser@`, same domain so SPF/DMARC align.
 
-**2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to
-14.2.35 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware
-bypass — fixed only in 15.5.x+. Built and green on dev; rolled off 2026-08-21
-during a live `/verify-human` failure as a precaution, NOT because it was proved
-to be the cause. **To close:** deploy dev to a preview, open `/api/auth/human`
-and `/verify-human`; if both answer, merge.
+**2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to 14.2.35
+— App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware bypass — fixed
+only in 15.5.x+. Green on dev; rolled off 2026-08-21 during a live `/verify-human`
+failure as a precaution, NOT because it was proved to be the cause. **To close:**
+preview dev, open `/api/auth/human` and `/verify-human`; if both answer, merge.
 
-**FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25). Sessions carried
-"Admin is not initialising" for weeks — check the endpoint, never inherit it.
+**FIREBASE ADMIN IS LIVE** (`/api/health/auth`, 2026-08-25) — check the endpoint,
+never inherit the belief that it is not.
 
-**3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set,
-so the easy causes are out. Left: (a) the wrong `whsec_` of that account's SEVEN
-endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`, and
-Stripe does not follow redirects. **To close:** `/api/health/stripe` →
-`webhookDiagnostic.endpointUrl`, then the failed event's response body in Stripe.
+**3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set.
+Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL —
+`MAIN_DOMAIN` is the APEX, the app serves `www.`, Stripe does not follow
+redirects. **To close:** `/api/health/stripe` → `webhookDiagnostic.endpointUrl`,
+then the failed event's body.
 
 **4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
 creator's click to the account that signs up (last touch, 90 days). Nothing posts
@@ -139,79 +142,76 @@ zero-value ledger event, which bypasses the 10k gate.
    `/api/admin/grant-acus` and the owner's balance stays 0 (a wallet OPENS at 0;
    the 100 ACUs are claimed via `/verify-human`). Alternative, no redeploy:
    `node scripts/grant-admin.mjs you@… executive` sets the same claim.
-2. Open `/api/health/live` after every change — `envPresent` is the only thing
-   that proves the running build received it. Submit the sitemap.
-3. **Send the first ten messages.** `/dashboard/acquisition` has the text per
-   brand, with only the blanks a sender knows.
+2. Open `/api/health/live` after every change — `envPresent` is the only proof the
+   running build received it. Submit the sitemap.
+3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand.
 4. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
    (`npm run ads:doc`): Traffic, not Awareness, and §0 argues it. Build the five
-   custom audiences FIRST — they cannot be backfilled. `PITCH-CREATIVES.docx`
-   is the five feature creatives with briefs; both verifiers fail on a stale
-   price or an invented customer.
+   custom audiences FIRST — they cannot be backfilled. `PITCH-CREATIVES.docx` is
+   five feature creatives; both verifiers fail on a stale price or invented customer.
 
-**Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:**
-- §97's priority queue (five inputs need a basis nothing produces); §50 paid
-  boost; §77 knowledge graph (facts are key/value); §80 agent message bus
-  (chains are sequential by construction); §14 calendars, §21 carousels, §100
-  per-agent cost/impact.
-- No bulk catalogue import, and no PUBLIC page listing what brands have opened —
-  a promoter must sign up before seeing anything to promote (Task 13).
+**Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:** §97's
+priority queue (five inputs need a basis nothing produces); §50 paid boost; §77
+knowledge graph (facts are key/value); §80 agent message bus (chains are
+sequential by construction); §14 calendars, §21 carousels, §100 per-agent
+cost/impact; no bulk catalogue import, and no PUBLIC page listing what brands
+have opened — a promoter signs up before seeing anything to promote (Task 13).
 
-**Security debt, with the reasoning:**
-- 6 moderate npm advisories, one chain (uuid → … → firebase-admin), left
-  deliberately: npm's "fix" is a four-major downgrade of firebase-admin, and it
-  covers uuid v3/v5/v6 with a buffer neither consumer passes.
-- The rate limiter is per-instance BY DESIGN and `guard.ts` says why. Money is
-  protected by what counts pounds: the ACU wallet and `ai-spend.ts`'s now-SHARED
-  monthly ceiling.
+**Security debt, with the reasoning.** 6 moderate npm advisories, one chain
+(uuid → … → firebase-admin), left deliberately: npm's "fix" is a four-major
+downgrade of firebase-admin, covering uuid v3/v5/v6 with a buffer neither consumer
+passes. The rate limiter is per-instance BY DESIGN and `guard.ts` says why; money
+is protected by what counts pounds — the ACU wallet and `ai-spend.ts`'s SHARED
+monthly ceiling.
 
 ---
 
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-SIXTEEN instances, and the newest is the worst: a message whose login, envelope
-sender and From header were three different mailboxes — none carried to the
-others, one invented in source and never created anywhere. Before it, on the same
-acquisition page, the crawler emitted `pass`/`warn`/`fail` while the audit's
-colour function matched `critical`/`high`/`medium`, so a broken site looked
-exactly like a healthy one; middleware refused every money route with a
-machine-readable remedy nothing read; `/r/{CODE}` appended a referral code no
-surface of ours read; `sendEmail` returned success in demo mode for mail
-delivered to nobody; and the free audit asked for an address "to send you this
-report" and never called the email module. The rest are in
+SEVENTEEN. Newest (2026-08-27): `ENGINE_CATEGORIES` omitted "Autonomy &
+Orchestration", so `enginesByCategory()` silently dropped Agent Chains, Brand
+Memory and Growth Hubs from the command index — shipped engines nothing listed.
+Worst: a message whose login, envelope sender and From were three mailboxes, one
+invented in source and never created. Before those — the crawler emitted
+`pass`/`warn`/`fail` while the audit matched `critical`/`high`/`medium`, so a
+broken site looked healthy; middleware refused money routes with a remedy nothing
+read; `/r/{CODE}` appended a referral code no surface read; `sendEmail` returned
+success in demo for mail delivered to nobody; the free audit asked for an address
+to send a report and never called the email module. The rest are in
 `REQUIREMENTS-COVERAGE.md`.
 
-**When something looks broken, check the boundary before the logic — and when a
-success is reported, check that something actually happened.**
+**Check the boundary before the logic; when a success is reported, check that
+something happened.**
 
 **And a second class, about tests rather than code: a check that passes — or
-FAILS — for a reason unrelated to what it tests.** ELEVEN now: greps proved the
-recorder's parts existed, not that they were wired, then the same proved the
-audit "sends" mail; a prefix check cannot catch a mid-word cut; a one-item column
-is sorted by every comparator; the ads verifier counted a TYPE as a tool; and a
-guard against orphan variables matched them inside its own fix strings.
+FAILS — for a reason unrelated to what it tests.** TWELVE. Newest: the market-exit
+affiliation scanner refused every correctly labelled page, because the disclosure
+it MANDATES contains "endorsed by" and "successor to" — a control failing on text
+it required itself. Before it: greps proved the recorder's parts existed, not that
+they were wired, then the same proved the audit "sends" mail; a one-item column is
+sorted by every comparator; the ads verifier counted a TYPE as a tool; a guard
+against orphan variables matched them inside its own fix strings.
 
 **A test that passes is not evidence until something has broken it**; drive the
 real handler and assert on a value only the real path can produce. Its sharpest
-form is a DIAGNOSTIC that exercises a different path from the real one — three
-rounds of SMTP probes each reimplemented SMTP. FIVE tests have now failed on
-their own comments: strip comments before scanning source.
+form is a DIAGNOSTIC exercising a different path from the real one — three rounds
+of SMTP probes each reimplemented SMTP. FIVE tests have failed on their own
+comments: strip comments before scanning source.
 
 ---
 
 ## 7. Rules that outrank preference
 
-Full standard: `docs/ENGINEERING-DIRECTIVE.md`; `CLAUDE.md` carries the
-compressed version that loads every session. Beyond it:
+Full standard: `docs/ENGINEERING-DIRECTIVE.md`; `CLAUDE.md` carries the compressed
+version that loads every session. Beyond it:
 
-- **Additive only.** Nothing delivered is deleted or downgraded.
-- **Never present a number as a measurement unless something counted it**, nor
-  report an action as done unless something did it.
-- **Never take somebody's effort for an outcome you cannot deliver.**
-- **Profit margin on AI actions is never below 100%** (price ≥ 2× provider cost).
-- **Verify before shipping:** typecheck, build, layer check, tests. Mutate the
-  new tests to prove they are not decorative.
+- **Additive only** — nothing delivered is deleted or downgraded. **Never present
+  a number as a measurement unless something counted it**, nor report an action as
+  done unless something did it, nor take somebody's effort for an outcome you
+  cannot deliver. **Margin on AI actions never below 100%** (price ≥ 2× cost).
+- **Verify before shipping:** typecheck, build, layer check, tests — then mutate
+  the new tests to prove they are not decorative.
 - Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` — except
   while §5.2 is open, where the branches deliberately differ on the Next version
   and its async-`params` migration. Mirror file-by-file, never by merge, and
