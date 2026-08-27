@@ -3591,6 +3591,91 @@ test("the margin floor holds on every length, not just the ones in one call", as
 });
 
 // ---------------------------------------------------------------------------
+// THE FRONT PAGE PRINTED THREE NUMBERS NOTHING ENFORCED.
+//
+// Under a heading that read "Operating targets built into the automation rules
+// — not averaged customer results", four stats. Three were false:
+//
+//   "4.0x+ blended ROAS before scaling"  — the guardrail scales at THREE times
+//     return, and this same page said "only above 3× return" a few sections
+//     lower. The headline contradicted the body; the code agreed with the body.
+//   "48h kill-window"                    — no forty-eight-hour rule exists in
+//     paid-guardrails, budget or the war room. The real stop is evidence, not a
+//     clock.
+//   "10 min reply SLA"                   — the inbox SLA defaults to SIXTY
+//     minutes. Ten came from a line of advice copy, which is not a rule.
+//
+// A number nobody computes is exactly what the audit page refuses to print
+// about a stranger's website, and it was sitting on our own front page.
+// ---------------------------------------------------------------------------
+test("every operating target on the front page is read from the rule that enforces it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const guards = await import("../src/backend/paid-guardrails.ts");
+  const sub = await import("../src/backend/subscription.ts");
+
+  // Imported, not typed.
+  assert.match(page, /import \{ DEFAULT_GUARDRAILS, MIN_SPEND_TO_JUDGE_GBP, MIN_CONVERSIONS_TO_JUDGE_CPA \} from "@\/backend\/paid-guardrails"/);
+  assert.match(page, /import \{ MARKUP_FLOOR \} from "@\/backend\/subscription"/);
+  assert.match(page, /\$\{DEFAULT_GUARDRAILS\.scaleRoas\}×/);
+  assert.match(page, /\+\$\{DEFAULT_GUARDRAILS\.maximumScalePct\}%/);
+  assert.match(page, /\$\{MARKUP_FLOOR\}×/);
+
+  // The three fictions must not come back.
+  assert.doesNotMatch(page, /"4\.0x\+"/, "a ROAS target nothing enforces");
+  assert.doesNotMatch(page, /"48h"/, "a kill-window no rule implements");
+  assert.doesNotMatch(page, /"10 min", label: "reply SLA/, "an SLA the inbox does not use");
+
+  // And the rules themselves are what the page now claims.
+  assert.equal(guards.DEFAULT_GUARDRAILS.scaleRoas, 3);
+  assert.equal(guards.DEFAULT_GUARDRAILS.maximumScalePct, 20);
+  assert.equal(guards.MIN_SPEND_TO_JUDGE_GBP, 25);
+  assert.equal(guards.MIN_CONVERSIONS_TO_JUDGE_CPA, 5);
+  assert.equal(sub.MARKUP_FLOOR, 2, "the owner's pricing floor is the one number that may never move quietly");
+
+  // THE OTHER PLACE THE SAME RULE IS STATED. `included-tools.ts` describes the
+  // ad-spend monitor in prose, and it is `shared/`, so it cannot import a
+  // backend constant — the layer rule forbids it. A test is the only thing that
+  // can hold the two together, and a page contradicting itself is exactly how
+  // the 4.0x got through: one section said four, another said three.
+  const tools = readFileSync(new URL("../src/shared/included-tools.ts", import.meta.url), "utf8");
+  assert.match(tools, new RegExp(`\\+${guards.DEFAULT_GUARDRAILS.maximumScalePct}% steps`),
+    "the prose scaling step no longer matches DEFAULT_GUARDRAILS.maximumScalePct");
+  assert.match(tools, new RegExp(`above ${guards.DEFAULT_GUARDRAILS.scaleRoas}× return`),
+    "the prose scaling threshold no longer matches DEFAULT_GUARDRAILS.scaleRoas");
+});
+
+test("the front page's counts are counted, never typed", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const ag = await import("../src/shared/agents.ts");
+  const wl = await import("../src/shared/warlord-roster.ts");
+  const tools = await import("../src/shared/included-tools.ts");
+  const cp = await import("../src/shared/creator-program.ts");
+
+  // 39 agents, 26 front-line units, 6 divisions under one commander — all
+  // derived, which is why they survived a change that broke the stats above.
+  assert.equal(ag.AGENT_LIST.length, 39);
+  assert.equal(wl.ARMY.length, 26);
+  assert.equal(wl.DIVISIONS.length - 1, 6, "the page says DIVISIONS.length - 1 divisions under WARLORD");
+  assert.match(page, /\{DIVISIONS\.length - 1\} divisions/);
+  assert.match(page, /AGENT_LIST/);
+  assert.match(page, /ARMY/);
+
+  // "12 things … 9 of them work with no keys" is generated from the list.
+  const sum = tools.includedSummary();
+  assert.equal(sum.total, tools.INCLUDED_TOOLS.length);
+  assert.equal(sum.total, 12);
+  assert.equal(sum.keyless, 9);
+  assert.match(page, /includedSummary/);
+
+  // The commission rates the page quotes are the rates the engine pays.
+  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.005, "SHARE2EARN is quoted as 0.5%");
+  assert.equal(cp.INFLUENCER_RATE_5K, 0.0075, "the creator programme is quoted as 0.75%");
+  assert.equal(cp.INFLUENCER_RATE_10K, 0.01, "and 1% on verified counts");
+});
+
+// ---------------------------------------------------------------------------
 // A CAPABILITY WITH NO SURFACE IS NOT A CAPABILITY.
 //
 // /api/admin/grant-acus has worked for months: resolve an email to a uid,
