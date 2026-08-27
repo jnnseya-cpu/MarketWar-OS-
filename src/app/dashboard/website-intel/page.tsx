@@ -34,6 +34,7 @@ import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui"
 import { useActiveBrand } from "@/frontend/brand-context";
 import { industryPlaceholders } from "@/shared/industry";
 import { authedFetch } from "@/frontend/api-client";
+import { auditContext } from "@/shared/agent-context";
 
 type Status = "live" | "p1";
 
@@ -108,6 +109,7 @@ const CLASS_TONE: Record<string, "good" | "warn" | "bad" | "info"> = {
   verified_website: "good", verified_business_data: "good", user_confirmed: "info", inferred_pending: "warn", prohibited: "bad",
 };
 const pretty = (s: string) => s.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
 const AUTHS: { value: string; label: string }[] = [
   { value: "own", label: "I own this site" },
   { value: "manage", label: "I manage it for the owner" },
@@ -682,6 +684,10 @@ export default function WebsiteIntelPage() {
             textarea: true,
           },
         ]}
+        // THE CRAWL THIS PAGE ALREADY RAN. Without it the agent is asked to
+        // build a website strategy for a site it has never seen, while the
+        // audit of that exact site sits above it on the same screen.
+        context={() => auditContext(report)}
       />
     </div>
   );

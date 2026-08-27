@@ -22468,3 +22468,120 @@ test("a list of places typed into one box becomes one search per place", async (
   assert.match(src, /round-robin|interleave|spread across the places/i,
     "the results are not spread across the places, so one city takes every slot");
 });
+
+// ---------------------------------------------------------------------------
+// AN AGENT MUST NOT ASK FOR WHAT THE PAGE ABOVE IT IS ALREADY SHOWING
+//
+// Reported by the owner: the segmentation page rendered "88 customers, 100%
+// consented, 1 segment" from the live Customer Vault, and directly beneath it
+// the agent answered "Cannot generate specific segments without customer data.
+// Integrate your customer database." Both on one screen. The agent was not
+// wrong — it had been handed a business name and an industry and nothing else.
+//
+// The eighteenth instance of this repository's oldest defect: a value that
+// exists on one side of a boundary and is never carried across.
+// ---------------------------------------------------------------------------
+
+test("the agent harness forwards what the page already computed", () => {
+  const src = readFileSync(new URL("../src/components/AgentRunner.tsx", import.meta.url), "utf8");
+  const code = codeOf(src);
+
+  // The channel must exist, and must actually reach the request body.
+  assert.match(code, /context\?:/, "AgentRunner has no way for a page to pass what it knows");
+  assert.match(code, /pageContext/, "the context is accepted and then not used");
+  assert.match(code, /\.\.\.values,\s*\.\.\.assetContext,\s*\.\.\.pageContext/,
+    "the page's context is not merged into the request body");
+
+  // READ AT RUN TIME. A page whose data arrives after mount would otherwise
+  // send the empty version it held when the button first rendered — which is
+  // the same bug again, one layer down.
+  assert.match(code, /typeof context === "function" \? context\(\)/,
+    "the context is captured at render rather than read when the button is pressed");
+});
+
+test("the segmentation agent is handed the vault the page is already displaying", async () => {
+  const src = readFileSync(new URL("../src/app/dashboard/segments/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(src), /context=\{\(\) => segmentContext\(report\)\}/,
+    "the segmentation agent still runs without the vault the page just read");
+
+  // DRIVEN, NOT GREPPED. The builders live in shared/agent-context.ts precisely
+  // so a test can call them: a page in this framework may export nothing but
+  // the page, so the first version of these assertions had to scan source — and
+  // a scan passes when the branch producing the string is disabled.
+  const { segmentContext } = await import("../src/shared/agent-context.ts");
+  assert.match(segmentContext(null).customerVault, /NOT READ YET/,
+    "a vault that has not returned is indistinguishable from an empty one");
+  const empty = segmentContext({ business: "X", totalCustomers: 0, consentedShare: 0, segments: [], note: "" });
+  assert.match(empty.customerVault, /GENUINELY EMPTY/,
+    "an empty vault does not say so, so the agent asks for an integration that exists");
+  assert.match(empty.customerVault, /Do not ask for a database integration/i);
+  const full = segmentContext({
+    business: "MarketWar", totalCustomers: 88, consentedShare: 1, note: "n",
+    segments: [{ key: "hot", label: "Hot leads (never bought)", size: 88, consentedSize: 88, revenuePotentialGbp: 0, recommendedOffer: "First-order incentive", recommendedChannel: "WhatsApp + email", recommendedFollowUp: "48h sequence", campaignPriority: 87 }],
+  });
+  assert.match(full.customerVault, /88 contacts/, "the real customer count is not passed");
+  assert.match(full.customerVault, /100% marketing-consented/, "the consented share is not passed");
+  assert.match(full.customerVault, /do NOT ask for a customer database/i,
+    "a populated vault does not tell the agent to stop asking for one");
+  assert.match(full.existingSegments, /Hot leads \(never bought\): 88 contacts \(88 consented\)/,
+    "the segments the page already computed are not passed");
+  assert.match(full.existingSegments, /NOT to re-derive them/i,
+    "the agent is not told to improve on the segments rather than redo them");
+
+  // The three states must be distinguishable. An agent told nothing, an agent
+  // told the vault is empty, and an agent told there are 88 contacts should do
+  // three different things — and only the first should ask for a database.
+
+  // And it must carry the real numbers, not a summary the page invented.
+});
+
+test("the site-audit and email agents are handed their own page's findings too", async () => {
+  const site = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(site), /context=\{\(\) => auditContext\(report\)\}/,
+    "the website agent still runs without the crawl the page just performed");
+  const { auditContext } = await import("../src/shared/agent-context.ts");
+  const audited = auditContext({
+    audit: { sections: [{ area: "Trust", overall: 61, verdict: "improve", measured: 4 }, { area: "Speed", overall: null, verdict: "not measured", measured: 0 }] },
+    dna: { marketCategory: "Trades", businessModel: "B2C", revenueModel: "jobs", valueProposition: "v", mainConversionAction: "call", competitiveAdvantages: [], trustGaps: ["no reviews shown"], contentGaps: [], conversionGaps: [], seoGaps: [], geoGaps: [], socialGaps: [] },
+    attack: { moves: [{ gap: "No local landing pages", opportunity: 70, priority: "high" }] },
+  });
+  assert.match(audited.siteAudit, /A REAL CRAWL OF THIS SITE HAS ALREADY RUN/,
+    "the agent is not told the crawl already happened, so it asks for access to a site it has been given");
+  // "not measured" must survive into the context. It is the one verdict an
+  // agent must never read as "fine".
+  assert.match(audited.siteAudit, /nothing measurable on this page/,
+    "an unmeasured section is passed as though it had been scored");
+  assert.match(audited.businessDna, /trust gaps already found: no reviews shown/,
+    "the gaps the crawl found are not passed, so the agent re-derives them and finds fewer");
+  assert.match(auditContext(null).siteAudit, /NOT RUN/, "no crawl looks the same as a crawl that found nothing");
+
+  const email = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(email), /context=\{\(\) => emailContext\(stats\)\}/,
+    "the email agent still runs without the sending record shown above it");
+
+  // ZERO SENDS IS NOT A BAD OPEN RATE. An agent handed "0%" writes a
+  // deliverability rescue plan for a domain that has never sent anything.
+  //
+  // DRIVEN, NOT GREPPED. The first version of this matched the sentence in the
+  // source and survived a mutation that disabled the branch producing it — the
+  // string was still there, just unreachable.
+  const { emailContext } = await import("../src/shared/agent-context.ts");
+  const nothingSent = emailContext({ sent: 0, open: 0, click: 0, bounce: 0, complaint: 0, unsubscribe: 0, openRate: 0, clickRate: 0, suppressed: 0 });
+  assert.match(nothingSent.sendingRecord, /NO rates/,
+    "an account with no sends is described with rates, which reads as catastrophic deliverability");
+  assert.doesNotMatch(nothingSent.sendingRecord, /0%/, "a 0% rate was reported for an account that has never sent");
+  const sent = emailContext({ sent: 500, open: 120, click: 30, bounce: 5, complaint: 0, unsubscribe: 2, openRate: 0.24, clickRate: 0.06, suppressed: 7 });
+  assert.match(sent.sendingRecord, /24%/, "a real open rate was not passed to the agent");
+  assert.match(sent.sendingRecord, /do not ask for them/i, "the agent is not told these numbers are already counted");
+  assert.match(emailContext(null).sendingRecord, /NOT LOADED/, "stats that never arrived look identical to zero sends");
+
+  // THE PRE-FILLED FICTION IS GONE. This field arrived containing another
+  // business's list — "~1,240 contacts … Friday platter campaign weekly" — and
+  // was sent to the agent as this account's fact unless the user cleared it.
+  // SCANNED WITH COMMENTS STRIPPED. The comment explaining a removed string
+  // necessarily quotes it, so scanning raw source fails on the explanation of
+  // the fix. Sixth time in this repository; the habit is `codeOf`, always.
+  const emailCode = codeOf(email);
+  assert.doesNotMatch(emailCode, /1,240 contacts/, "the sample list from another business is back in the form");
+  assert.doesNotMatch(emailCode, /Friday platter campaign/, "a different business's campaign is pre-filled as this one's goal");
+});
