@@ -3591,6 +3591,79 @@ test("the margin floor holds on every length, not just the ones in one call", as
 });
 
 // ---------------------------------------------------------------------------
+// THE PRICING PAGE, THE 14 ANSWER PAGES AND THE 13 ARTICLES.
+//
+// The last unaudited surface, and the one that came back best. Every figure
+// chased resolved to either a worked example with its arithmetic on the page,
+// or a real constant in the engine. What it did NOT have was any binding: the
+// eight pricing cards were hard-coded and all eight happened to be right.
+// ---------------------------------------------------------------------------
+test("every price, limit and credit allowance is read from the billing engine", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const sub = await import("../src/backend/subscription.ts");
+
+  // Derived, not typed. A price change in subscription.ts must move this page,
+  // because being wrong here takes somebody's money under a false description —
+  // and /choose-plan already derives from the same engine, so the two surfaces
+  // could have disagreed about what a customer owes.
+  assert.match(page, /const priceOf = \(id: string\)/);
+  assert.match(page, /const acusOf = \(id: string\)/);
+  assert.match(page, /const limitsOf = \(id: string\)/);
+  assert.match(page, /planEconomics/);
+  assert.match(page, /FREE_SIGNUP_ACUS/);
+  for (const lit of ['"£19"', '"£49"', '"£149"', '"£399"', '"£999"', '"£2,499"', '"£7,499"']) {
+    assert.ok(!page.includes(lit), `${lit} is typed into the pricing cards again`);
+  }
+
+  // And the engine still says what the page was checked against.
+  const byId = Object.fromEntries(sub.PLANS.map((p) => [p.id, p]));
+  assert.equal(byId.growth.monthlyGbp, 49);
+  assert.equal(sub.planEconomics(byId.growth).monthlyAcus, 980);
+  assert.equal(sub.planEconomics(byId.business).monthlyAcus, 7980);
+});
+
+test("the commission rates and guardrail thresholds in the copy are the engine's", async () => {
+  const cp = await import("../src/shared/creator-program.ts");
+  const pg = await import("../src/backend/profit-guard-economics.ts");
+  const fees = await import("../src/backend/payout-fees.ts");
+  const arts = await import("../src/shared/seo-articles.ts");
+  const pages = await import("../src/shared/feature-pages.ts");
+
+  // Quoted across the answer pages and the articles, and every one is real.
+  assert.equal(cp.SHARE2EARN_RATE_CAP, 0.005);
+  assert.equal(cp.INFLUENCER_RATE_5K, 0.0075);
+  assert.equal(cp.INFLUENCER_RATE_10K, 0.01);
+  assert.equal(cp.RATE_PLATFORM, 0.0025);
+  // "a refund rate over 12% or fraud over 3% pause it outright"
+  assert.equal(pg.MAX_REFUND_RATE_PCT, 12);
+  assert.equal(pg.MAX_FRAUD_RATE_PCT, 3);
+  // "the administration fee is 3% of that fee rather than of the amount"
+  assert.equal(fees.ADMIN_FEE_RATE, 0.03);
+  assert.equal(fees.ADMIN_FEE_BASIS, "processing_fee");
+
+  // The counts the platform advertises for these two libraries.
+  assert.equal(pages.FEATURE_PAGES.length, 14, "the site says 14 answer pages");
+  assert.equal(arts.SEO_ARTICLES.length, 13, "the site says 13 blog articles");
+});
+
+test("no customer-facing copy asserts a market statistic as measured", async () => {
+  const pages = await import("../src/shared/feature-pages.ts");
+
+  // The one soft claim in fourteen pages: "Rates in the 5–30% range are
+  // common". Nobody here counted that. It is now attributed to what the
+  // internet says rather than stated as fact — and the page's own argument is
+  // that the range is meaningless without the margin, so nothing is lost.
+  const blob = JSON.stringify(pages.FEATURE_PAGES);
+  assert.doesNotMatch(blob, /Rates in the 5–30% range are common/);
+  assert.match(blob, /nobody here has measured that/);
+  // The phrases that assert a measurement nobody took.
+  for (const phrase of ["studies show", "research shows", "industry average"]) {
+    assert.ok(!blob.toLowerCase().includes(phrase), `answer-page copy asserts "${phrase}"`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // THE FEATURE SECTIONS, READ AGAINST THE ENGINES THEY DESCRIBE.
 //
 // War Room, Clip Lab and the Recovery engine were substantially true — the
@@ -3788,7 +3861,10 @@ test("every operating target on the front page is read from the rule that enforc
 
   // Imported, not typed.
   assert.match(page, /import \{ DEFAULT_GUARDRAILS, MIN_SPEND_TO_JUDGE_GBP, MIN_CONVERSIONS_TO_JUDGE_CPA \} from "@\/backend\/paid-guardrails"/);
-  assert.match(page, /import \{ MARKUP_FLOOR \} from "@\/backend\/subscription"/);
+  // Matched on the SYMBOL, not the whole import line: binding the pricing cards
+  // later added PLANS and planEconomics to this same import, and a test pinned
+  // to the exact line fails on a change that made the page more correct.
+  assert.match(page, /import \{[^}]*\bMARKUP_FLOOR\b[^}]*\} from "@\/backend\/subscription"/);
   assert.match(page, /\$\{DEFAULT_GUARDRAILS\.scaleRoas\}×/);
   assert.match(page, /\+\$\{DEFAULT_GUARDRAILS\.maximumScalePct\}%/);
   assert.match(page, /\$\{MARKUP_FLOOR\}×/);
