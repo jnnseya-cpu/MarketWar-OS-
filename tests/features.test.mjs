@@ -22229,3 +22229,135 @@ test("the CSV export cannot be turned into a formula, and quotes what it must", 
     ["Completed Results", "Ready for Outreach", "Manual Review", "Not Found", "Job Summary", "Source Audit"]);
   for (const s of sheets) assert.ok(s.csv.length > 0, `${s.name} came back empty, without even a header row`);
 });
+
+// ---------------------------------------------------------------------------
+// THE RUNNER — the part that actually goes and looks
+//
+// The engine had a rulebook and no way to run it: the page showed a hardcoded
+// Amanda Brown and there was no box to type a company into. These tests cover
+// the two things that decide whether the runner is worth having — pulling a
+// real name and title off a real page, and being HONEST when it could not read
+// the page at all.
+// ---------------------------------------------------------------------------
+
+test("a decision-maker is only taken when the name and the title sit together", async () => {
+  const { extractDecisionMaker } = await import("../src/backend/contact-hunt-run.ts");
+
+  // The shapes a real team page actually uses.
+  for (const [text, name, title] of [
+    ["Our team. Amanda Brown, Procurement Director. She joined in 2019.", "Amanda Brown", "Procurement Director"],
+    ["Meet the team Managing Director: John Smith and the rest of us", "John Smith", "Managing Director"],
+    ["Contact us. Sarah Jones — Commercial Director", "Sarah Jones", "Commercial Director"],
+    ["Our people: Priya Raman, Group Finance Director", "Priya Raman", "Group Finance Director"],
+    ["Head of Procurement — Marie N'Diaye", "Marie N'Diaye", "Head of Procurement"],
+    ["Speak to our new Commercial Director, Tom Blake", "Tom Blake", "Commercial Director"],
+  ]) {
+    const r = extractDecisionMaker(text);
+    assert.ok(r, `nothing found in: ${text}`);
+    assert.equal(r.name, name, `wrong name from: ${text}`);
+    assert.equal(r.title, title, `wrong title from: ${text}`);
+  }
+
+  // A CAPITALISED SECTION HEADING SITS FLUSH AGAINST A NAME and is capitalised
+  // exactly like one. Taking it makes the name wrong, which is worse than none.
+  assert.equal(extractDecisionMaker("Leadership Jean-Pierre Dubois, Managing Director").name, "Jean-Pierre Dubois");
+  assert.equal(extractDecisionMaker("Management Mary Jane Watson, Commercial Director").name, "Mary Jane Watson",
+    "a three-part name lost its first part to a narrow match");
+
+  // AN ABBREVIATION MUST NOT MATCH INSIDE A WORD. "cto" is a listed role and
+  // sits inside "Dire-cto-r", which produced a job title of "ctor".
+  const cto = extractDecisionMaker("Our CTO, Ravi Shah, joined last year");
+  assert.equal(cto.name, "Ravi Shah");
+  assert.equal(cto.title, "CTO");
+  assert.notEqual(extractDecisionMaker("Speak to our new Commercial Director, Tom Blake").title, "ctor");
+
+  // WHAT IT MUST REFUSE. A name here and a title over there is how somebody
+  // becomes a director of a company they left in 2019.
+  assert.equal(extractDecisionMaker("Amanda Brown is a person. Elsewhere on this page: Procurement Director."), null,
+    "a name and a title from opposite ends of a page were paired");
+  assert.equal(extractDecisionMaker("Nseya Group Ltd, Director of everything"), null, "a company was returned as a person");
+  assert.equal(extractDecisionMaker("We are a leading construction firm with directors and staff"), null);
+  assert.equal(extractDecisionMaker("Our Team page. Read more about our directors."), null);
+  assert.equal(extractDecisionMaker(""), null);
+
+  // CAPITALISATION IS WHAT SEPARATES A NAME FROM TWO ORDINARY WORDS. Pinned
+  // here because the pattern's `u`-without-`i` is only half the defence: the
+  // other half is looksLikeName, and a mutation restoring the `i` flag survived
+  // until this case existed.
+  assert.equal(extractDecisionMaker("we spoke to sarah jones, procurement director"), null,
+    "two lower-case words were accepted as somebody's name");
+  assert.equal(extractDecisionMaker("please contact the procurement director, our office"), null,
+    "page furniture was accepted as a name");
+
+  // The second, independent defence, pinned on its own. It is redundant with
+  // the pattern by design — and redundancy means a mutation of either one alone
+  // survives a suite that only exercises the other, so both get a test.
+  const { looksLikeName } = await import("../src/backend/contact-hunt-run.ts");
+  assert.equal(looksLikeName("Amanda Brown"), true);
+  assert.equal(looksLikeName("Jean-Pierre Dubois"), true);
+  assert.equal(looksLikeName("Mary Jane Watson"), true);
+  assert.equal(looksLikeName("amanda brown"), false, "a lower-case pair passed the name check");
+  assert.equal(looksLikeName("Amanda brown"), false, "a half-capitalised pair passed the name check");
+  assert.equal(looksLikeName("Amanda"), false, "one word passed as a full name");
+  assert.equal(looksLikeName("Our Leadership Team Page"), false, "four words passed as a name");
+  assert.equal(looksLikeName("Our Team"), false, "page furniture passed the name check");
+});
+
+test("a page that could not be read is never reported as a company with no address", async () => {
+  const src = readFileSync(new URL("../src/backend/contact-hunt-run.ts", import.meta.url), "utf8");
+  const { huntCompany } = await import("../src/backend/contact-hunt-run.ts");
+
+  // THE DEFECT THIS PINS, found by running the thing rather than reading it.
+  // Every outbound host returned 403 in the build environment, and the runner
+  // answered "Found the site but publishes no address — use the contact form."
+  // That sentence was about a page nobody had loaded. A site that is down, or
+  // blocking us, or outside the network, is OUR failure and must not be
+  // reported as a business with no contact details.
+  assert.match(src, /unreachable/, "the unreachable stage is gone");
+  assert.match(src, /reachable\s*\(/, "the reachability check is gone");
+
+  const r = await huntCompany({
+    // RFC 2606 reserves .invalid so this can never resolve, on any network.
+    company: "Nothing Here", website: "https://this-host-does-not-exist.invalid", country: "GB",
+  });
+  assert.equal(r.stage, "unreachable", `an unreachable host reported "${r.stage}"`);
+  assert.doesNotMatch(r.note, /publishes no address|no public email/i,
+    "an unreadable page was reported as a company that publishes nothing");
+  assert.match(r.note, /could not be read|not be reached|did not answer/i,
+    "the note does not say the connection failed");
+  assert.equal(r.email, null);
+  assert.equal(r.readiness, null, "a record with no readable source was still scored");
+});
+
+test("the runner assembles the engines that already exist rather than growing its own", async () => {
+  const src = readFileSync(new URL("../src/backend/contact-hunt-run.ts", import.meta.url), "utf8");
+
+  // Every one of these has done its job for months. A second copy of any of
+  // them would drift from the original, and the original is the one the rest of
+  // the platform consults.
+  for (const [mod, why] of [
+    ["@/backend/search", "live search"],
+    ["@/backend/enrich", "site discovery and email extraction"],
+    ["@/backend/lead-harvest", "email verification and lawful basis"],
+    ["@/backend/robots", "crawl permission"],
+    ["@/shared/contact-hunter", "provenance, employment and readiness"],
+  ]) {
+    assert.ok(src.includes(`from "${mod}"`), `the runner does not use the existing ${why}`);
+  }
+
+  // ROBOTS BEFORE THE FETCH, AND THE ANSWER HONOURED. Ordering alone is not
+  // enough — a first version of this assertion compared two string indexes and
+  // survived a mutation that consulted robots.txt and then ignored it. What
+  // matters is that a disallowed path RETURNS, before the request goes out.
+  const code = codeOf(src);
+  const robotsAt = code.indexOf("robotsAllows(");
+  const fetchAt = code.indexOf("const res = await fetch(url");
+  assert.ok(robotsAt > 0 && robotsAt < fetchAt, "the page is fetched before robots.txt is consulted");
+  const between = code.slice(robotsAt, fetchAt);
+  assert.match(between, /if\s*\(\s*!\s*decision\.allowed\s*\)\s*return/,
+    "robots.txt is consulted and its answer is not acted on before the fetch");
+
+  // It must not have grown its own verifier or its own lawful-basis decision.
+  assert.doesNotMatch(code, /function\s+\w*(verifyEmail|assessCompliance)\s*\(/,
+    "the runner reimplemented an engine it already imports");
+});
