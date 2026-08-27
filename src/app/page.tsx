@@ -28,6 +28,9 @@ import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
 import { SERIES } from "@/shared/palette";
 import { AGENT_LIST } from "@/shared/agents";
+// The operating targets are READ FROM THE RULES, never typed beside them.
+import { DEFAULT_GUARDRAILS, MIN_SPEND_TO_JUDGE_GBP, MIN_CONVERSIONS_TO_JUDGE_CPA } from "@/backend/paid-guardrails";
+import { MARKUP_FLOOR } from "@/backend/subscription";
 import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
 import { INCLUDED_TOOLS, includedSummary } from "@/shared/included-tools";
 import { BrandLockup } from "@/components/Logo";
@@ -552,12 +555,32 @@ export default function LandingPage() {
         <p className="mx-auto max-w-2xl px-5 pt-2 text-center text-sm text-slate-500">
           Operating targets built into the automation rules — not averaged customer results. We&rsquo;re new; we don&rsquo;t publish numbers we haven&rsquo;t earned.
         </p>
+        {/* EVERY NUMBER HERE IS READ OUT OF THE RULE THAT ENFORCES IT.
+            This block used to be four typed literals under a heading promising
+            they were "built into the automation rules", and three of the four
+            were not:
+              • "4.0x+ blended ROAS before scaling" — the guardrail scales at
+                THREE times return (DEFAULT_GUARDRAILS.scaleRoas), and this same
+                page said "only above 3× return" four sections further down. The
+                headline contradicted the body and the code agreed with the body.
+              • "48h kill-window" — no forty-eight-hour rule exists anywhere in
+                paid-guardrails, budget or the war room. The real stop is
+                EVIDENCE, not a clock: nothing is judged below £25 of spend or
+                five conversions, and a campaign that spends without producing is
+                stopped whenever that threshold is crossed.
+              • "10 min reply SLA" — the inbox SLA defaults to SIXTY minutes.
+                The ten-minute figure came from a line of advice copy, which is
+                not a rule the software runs.
+            A number nobody computes is the exact thing the audit page refuses to
+            print about a stranger's website, and it had been sitting on our own
+            front page. These are imported now, so the claim moves when the rule
+            moves and cannot drift back. */}
         <div className="mx-auto grid max-w-6xl gap-8 px-5 pb-16 pt-8 text-center sm:grid-cols-4">
           {[
-            { value: "4.0x+", label: "blended ROAS the budget agent targets before scaling", color: SERIES[1] },
-            { value: "48h", label: "kill-window the ad rules give a losing creative", color: SERIES[5] },
-            { value: "10 min", label: "reply SLA the sales agents are tuned to", color: SERIES[2] },
-            { value: "100%", label: "of AI actions priced at ≥2× provider cost", color: SERIES[4] },
+            { value: `${DEFAULT_GUARDRAILS.scaleRoas}×`, label: "return a campaign must clear before the budget agent will scale it at all", color: SERIES[1] },
+            { value: `+${DEFAULT_GUARDRAILS.maximumScalePct}%`, label: "the largest step it will take when it does — never a doubling on a good week", color: SERIES[5] },
+            { value: `£${MIN_SPEND_TO_JUDGE_GBP}`, label: `spend and ${MIN_CONVERSIONS_TO_JUDGE_CPA} conversions before it will judge anything — under that it refuses to have an opinion`, color: SERIES[2] },
+            { value: `${MARKUP_FLOOR}×`, label: "provider cost is the floor under every AI action's price, enforced in code", color: SERIES[4] },
           ].map((m) => (
             <div key={m.label}>
               <p className="font-display text-4xl font-bold sm:text-5xl" style={{ color: m.color }}>{m.value}</p>
