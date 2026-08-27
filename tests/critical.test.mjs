@@ -3591,6 +3591,88 @@ test("the margin floor holds on every length, not just the ones in one call", as
 });
 
 // ---------------------------------------------------------------------------
+// THIRTY-NINE AGENT CARDS, READ AGAINST THE PROMPTS THAT SERVE THEM.
+//
+// A card is a promise the customer buys on. Most held — several exactly, and
+// two (Lead Hunter, Campaign Warfare) were already policing themselves better
+// than this test could. These are the ones that did not, kept as assertions so
+// a description cannot quietly outrun its prompt again.
+// ---------------------------------------------------------------------------
+test("no agent card promises a channel or an engine its prompt never asks for", async () => {
+  const { AGENTS } = await import("../src/shared/agents.ts");
+
+  // AD CREATIVE promised LinkedIn copy and video prompts; the prompt asked for
+  // Meta, TikTok, Google and one image prompt. The prompt now asks for both.
+  const ad = AGENTS["ad-creative"];
+  for (const want of ["LinkedIn", "Video Prompt", "Image Prompt", "TikTok", "Google"]) {
+    assert.ok(ad.systemPrompt.includes(want), `ad-creative promises ${want} and never asks for it`);
+  }
+
+  // CITATION RADAR said it fires prompts at "ChatGPT, Claude, Gemini and
+  // Perplexity". The gateway has three adapters — anthropic, openai, gemini.
+  // There is no Perplexity adapter, so a Perplexity row would be a measurement
+  // of something never asked.
+  const radar = AGENTS["citation-radar"];
+  assert.doesNotMatch(radar.description, /Perplexity/,
+    "the card claims an engine this platform cannot query");
+  assert.match(radar.systemPrompt, /no Perplexity adapter/,
+    "the prompt must forbid reporting an engine that was not queried");
+
+  // CONTENT FACTORY promised a 30-day calendar; the prompt asked for 7 days.
+  assert.match(AGENTS["content-factory"].systemPrompt, /30-DAY content calendar/);
+
+  // VIRAL HOOK promised "dozens"; it returns twenty.
+  assert.doesNotMatch(AGENTS["viral-hook"].description, /dozens/);
+
+  // SITERAID called its ten-part health score a "six-part marketing audit".
+  assert.doesNotMatch(AGENTS["website-intelligence"].description, /six-part/);
+});
+
+test("no agent is told to invent a number the customer will spend against", async () => {
+  const { AGENTS } = await import("../src/shared/agents.ts");
+
+  // Three prompts ASKED for figures nobody could have: £ estimates on revenue
+  // leaks, an expected £ impact per daily order, and a predicted ROAS before a
+  // pound is spent. Each is now constrained to arithmetic the business supplied.
+  assert.match(AGENTS["revenue-intelligence"].systemPrompt, /an invented pound in a revenue report/);
+  assert.match(AGENTS["growth-strategist"].systemPrompt, /ONLY when the business gave you the numbers/);
+  assert.match(AGENTS["viral-product-engine"].systemPrompt, /Do NOT print a predicted ROAS/);
+  assert.doesNotMatch(AGENTS["viral-product-engine"].systemPrompt, /predicted ROAS, purchase-intent/);
+});
+
+test("an agent with no live source says so instead of inventing one", async () => {
+  const { AGENTS } = await import("../src/shared/agents.ts");
+
+  // THE PATTERN THE LEAD HUNTER ALREADY GOT RIGHT: the agents route injects a
+  // site crawl and nothing else — no search results, no prospect data. Two
+  // agents were written as though a live layer fed them, and would have
+  // produced invented search signals and invented company names with a Deal
+  // Probability beside each one.
+  assert.match(AGENTS["lead-hunter"].systemPrompt, /only if a live source is connected/i,
+    "the reference implementation of this rule must not be weakened");
+  assert.match(AGENTS["opportunity-scout"].systemPrompt, /you have no search data and must say so/);
+  assert.match(AGENTS["icp-architect"].systemPrompt, /ONLY from a connected source/);
+  assert.match(AGENTS["icp-architect"].systemPrompt, /FORMAT EXAMPLE/);
+});
+
+test("the budget agent recommends; it does not spend or stop money by itself", async () => {
+  const { AGENTS } = await import("../src/shared/agents.ts");
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+
+  // "Stops waste automatically" / "Pauses campaigns" / "Automatic pause when
+  // spend produces no leads" — nothing in this codebase pauses a campaign.
+  // There is no pauseCampaign, no status write, no channel call that stops
+  // spend, and the platform's own rule four sections down the same page says
+  // "They draft; anything that would spend, send or publish waits for you."
+  const bp = AGENTS["budget-protection"];
+  assert.doesNotMatch(bp.role, /automatically/i);
+  assert.doesNotMatch(bp.description, /\bPauses campaigns\b/);
+  assert.match(bp.description, /one click to apply/);
+  assert.doesNotMatch(page, /Automatic pause when spend produces no leads/);
+});
+
+// ---------------------------------------------------------------------------
 // THE FRONT PAGE PRINTED THREE NUMBERS NOTHING ENFORCED.
 //
 // Under a heading that read "Operating targets built into the automation rules

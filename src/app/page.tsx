@@ -342,7 +342,15 @@ export default function LandingPage() {
                 reroutes every recovered pound to a proven winner.
               </p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
-                {["Cost-per-order tracked against your real margins", "Automatic pause when spend produces no leads", "Weekly 'money saved' receipt"].map((f) => (
+                {/* "Automatic pause" was not true and could not be: NOTHING in this
+                    codebase pauses a campaign — there is no pauseCampaign, no
+                    status write, no channel call that stops spend. It also
+                    contradicted the platform's own rule, stated four sections
+                    below on this same page: "They draft; anything that would
+                    spend, send or publish waits for you." The verdict and the
+                    exact budget change are real and computed; applying them is
+                    one click, by a person. */}
+                {["Cost-per-order tracked against your real margins", "A STOP verdict the moment spend produces no leads — one click to apply", "Weekly 'money saved' receipt"].map((f) => (
                   <li key={f} className="flex items-center gap-2.5">
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> {f}
                   </li>
