@@ -1,46 +1,46 @@
 "use client";
 
-// MARKET EXIT CAPTURE — the screen.
+// MARKET EXIT CAPTURE — the tool.
 //
-// WHAT IT PUTS IN FRONT OF SOMEBODY, AND WHY IN THIS ORDER. Every other engine's
-// dashboard leads with the opportunity. This one leads with the EVIDENCE,
-// because the person using it is about to build a campaign around the claim that
-// a named business has shut, and the only question that matters first is how we
-// know.
+// WHAT THIS PAGE USED TO BE. The engine's doctrine rendered against a hardcoded
+// Kingsway Plumbing, a hardcoded Northgate Heating and hardcoded source rows.
+// Every rule on it was real and every value was fake, and there was no box to
+// type a company into.
 //
-// So the evidence panel is not a detail view behind a chevron — it is the thing
-// the page is about. Each signal shows its source, what that source is worth,
-// and whether the number the caller supplied was capped on the way in. An
-// assessment that cannot be published says so at the top in the same size type
-// as one that can, and there is no way to proceed from it.
+// WHAT IT IS NOW. Type a company name. It reads the company register, that
+// company's own pages and the press, and shows every source — including the
+// ones that found nothing and the ones that could not run — and then what the
+// evidence rule made of it.
 //
-// THERE IS NO "ESTIMATED DISPLACED CUSTOMERS" BADGE. When the demand was
-// counted, the count is shown with what it was counted from. When it was not,
-// the panel says what to supply. A dash that explains itself beats a plausible
-// number nobody can defend, and this is the one screen where a made-up figure
-// would go straight into an advertising budget.
+// THE REFUSAL IS THE PRODUCT, AND IT IS RENDERED AS PROMINENTLY AS A FINDING.
+// Most of the time the honest answer about a business is "no evidence it has
+// closed", and a screen that only lights up for a hit teaches its user that the
+// tool is broken when it is working. So an UNVERIFIED result gets the same
+// space, the same evidence panel and the same explanation as a published one —
+// the difference is the verdict, not the amount of detail.
 
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader, Pill } from "@/components/ui";
-import { AlertTriangle, CheckCircle2, FileSearch, Gavel, Loader2, ScanSearch, ShieldAlert, Users } from "lucide-react";
-import { authedFetch } from "@/frontend/api-client";
 import {
-  CLOSURE_SOURCES, MATCH_WEIGHTS, MANDATORY_CONTROLS, REQUIRED_DISCLOSURE,
-  PUBLISH_CONFIDENCE_FLOOR, TIER_MAX_INFLUENCE,
-  type ClosureAssessment, type WeighedSignal, type DemandOpportunity,
-  type ReplacementMatch, type IneligibleCandidate, type CoverageGap, type AllocationResult,
+  AlertTriangle, Ban, Building2, CheckCircle2, FileSearch, Gavel, Loader2,
+  Search, ShieldAlert, ShieldCheck,
+} from "lucide-react";
+import { authedFetch } from "@/frontend/api-client";
+import { useActiveBrand } from "@/frontend/brand-context";
+import {
+  MATCH_WEIGHTS, MANDATORY_CONTROLS, REQUIRED_DISCLOSURE,
+  PUBLISH_CONFIDENCE_FLOOR, CLOSURE_SOURCES,
+  type ClosureAssessment, type WeighedSignal,
 } from "@/shared/market-exit";
 
-type Demo = {
-  publishable: ClosureAssessment;
-  refused: ClosureAssessment;
-  opportunity: DemandOpportunity | null;
-  matched: { matches: ReplacementMatch[]; ineligible: IneligibleCandidate[]; note: string };
-  coverage: CoverageGap | null;
-  allocation: AllocationResult;
+type DetectionSource = { id: string; checked: boolean; outcome: string; evidenceUrl?: string };
+type Detection = { company: string; website?: string; signals: unknown[]; sources: DetectionSource[]; note: string };
+type DetectResponse = {
+  detection: Detection;
+  assessment: ClosureAssessment;
+  businessId: string;
+  balanceAcu?: number;
 };
-
-type Doctrine = { doctrine: string; demo: Demo };
 
 const tierTone = (t: string) =>
   t === "official" ? "border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300"
@@ -51,9 +51,9 @@ const tierTone = (t: string) =>
 function Verdict({ a }: { a: ClosureAssessment }) {
   const good = a.publishable;
   return (
-    <div className={`rounded-xl border p-4 ${good ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-rose-500/25 bg-rose-500/[0.05]"}`}>
+    <div className={`rounded-xl border p-4 ${good ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-white/10 bg-ink-900/50"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        {good ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <ShieldAlert className="h-4 w-4 text-rose-400" />}
+        {good ? <ShieldAlert className="h-4 w-4 text-emerald-400" /> : <ShieldCheck className="h-4 w-4 text-slate-400" />}
         <span className="font-display text-sm font-bold text-white">{a.status.replace(/_/g, " ")}</span>
         <Pill>{a.confidenceScore} confidence</Pill>
         {a.humanReviewRequired && <Pill>Needs a person</Pill>}
@@ -63,7 +63,7 @@ function Verdict({ a }: { a: ClosureAssessment }) {
       {a.contradictions.length > 0 && (
         <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {a.contradictions.length} {a.contradictions.length === 1 ? "signal says" : "signals say"} this business is still trading.
+          {a.contradictions.length} {a.contradictions.length === 1 ? "signal says" : "signals say"} this business is still trading, so nothing publishes.
         </p>
       )}
     </div>
@@ -71,7 +71,7 @@ function Verdict({ a }: { a: ClosureAssessment }) {
 }
 
 function Evidence({ signals }: { signals: WeighedSignal[] }) {
-  if (signals.length === 0) return <p className="text-xs text-slate-500">No signals.</p>;
+  if (signals.length === 0) return <p className="text-xs text-slate-500">No usable signal was produced.</p>;
   return (
     <ul className="space-y-1.5">
       {signals.map((s, i) => (
@@ -85,6 +85,10 @@ function Evidence({ signals }: { signals: WeighedSignal[] }) {
             {s.counter && <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-300">still trading</span>}
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{s.note}</p>
+          {s.evidenceUrl && (
+            <a href={s.evidenceUrl} target="_blank" rel="noreferrer noopener"
+               className="mt-1 block truncate text-[11px] text-sky-300 hover:underline">{s.evidenceUrl}</a>
+          )}
         </li>
       ))}
     </ul>
@@ -92,170 +96,179 @@ function Evidence({ signals }: { signals: WeighedSignal[] }) {
 }
 
 export default function MarketExitPage() {
-  const [data, setData] = useState<Doctrine | null>(null);
+  const { activeBrand } = useActiveBrand();
+  const [company, setCompany] = useState("");
+  const [website, setWebsite] = useState("");
+  const [where, setWhere] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<DetectResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showRefused, setShowRefused] = useState(false);
+  const [doctrine, setDoctrine] = useState<string>("");
 
-  const load = useCallback(async () => {
-    try {
-      const res = await authedFetch("/api/market-exit");
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setError(d.error || "Could not read the engine."); return; }
-      setData(d as Doctrine);
-    } catch { setError("Network error."); }
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await authedFetch("/api/market-exit");
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) setDoctrine(String(d.doctrine || ""));
+      } catch { /* the tool works without the doctrine block */ }
+    })();
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
-  if (error) return <div className="p-6"><p className="rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-4 text-sm text-rose-200">{error}</p></div>;
-  if (!data) return <div className="flex items-center gap-2 p-6 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>;
-
-  const d = data.demo;
-  const shown = showRefused ? d.refused : d.publishable;
-  const demand = d.opportunity?.displacedDemand;
+  const run = useCallback(async () => {
+    if (!company.trim()) { setError("Which business? A name is the minimum."); return; }
+    setBusy(true); setError(null); setRes(null);
+    try {
+      const r = await authedFetch("/api/market-exit", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "detect",
+          brandId: activeBrand?.id || "demo",
+          company: company.trim(),
+          website: website.trim() || undefined,
+          where: where.trim() || undefined,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 402) { setError(`${d.error} Balance: ${d.balanceAcu ?? 0} ACUs.`); return; }
+      if (!r.ok) { setError(d.error || "The check could not run."); return; }
+      setRes(d as DetectResponse);
+    } catch { setError("Network error — nothing was charged."); } finally { setBusy(false); }
+  }, [company, website, where, activeBrand?.id]);
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Market Exit Capture"
-        subtitle="A business closes; the demand it served does not. This finds verified exits and turns each into an expiring opportunity for a business that is actually trading — and refuses to do any of it on thin evidence."
+        subtitle="Name a business. This reads the company register, their own pages and the press, and tells you what the evidence is actually worth — refusing to publish a closure on anything thin."
       />
 
-      <p className="rounded-xl border border-white/10 bg-ink-900/50 p-4 text-sm leading-relaxed text-slate-300">
-        {data.doctrine}
-      </p>
-
-      {/* THE EVIDENCE FIRST. Both cases are on the page, and the toggle is not a
-          gimmick — the refused one is what this engine does most of the time,
-          and a screen that only ever shows the success is a screen that teaches
-          somebody to expect one. */}
+      {/* THE INPUT. */}
       <section className="card p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
-            <FileSearch className="h-4 w-4 text-emerald-400" /> The evidence, and what it was allowed to prove
-          </h2>
-          <div className="flex gap-1.5">
-            <button onClick={() => setShowRefused(false)} className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${!showRefused ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/10 text-slate-400 hover:bg-white/5"}`}>Published</button>
-            <button onClick={() => setShowRefused(true)} className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${showRefused ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : "border-white/10 text-slate-400 hover:bg-white/5"}`}>Refused</button>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="block sm:col-span-1">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">Business name</span>
+            <input
+              value={company} onChange={(e) => setCompany(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
+              placeholder="Kingsway Plumbing Ltd"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Their website <span className="font-normal normal-case tracking-normal text-slate-500">— optional</span>
+            </span>
+            <input
+              value={website} onChange={(e) => setWebsite(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
+              placeholder="kingswayplumbing.co.uk"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Where <span className="font-normal normal-case tracking-normal text-slate-500">— optional</span>
+            </span>
+            <input
+              value={where} onChange={(e) => setWhere(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
+              placeholder="Leeds"
+              className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            />
+          </label>
         </div>
-        <div className="mt-3 grid gap-4 lg:grid-cols-2">
-          <Verdict a={shown} />
-          <div>
-            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">Every signal, and what it was worth</p>
-            <Evidence signals={shown.evidence} />
-          </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => void run()} disabled={busy}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            {busy ? "Reading the register and their pages…" : "Check for a closure"}
+          </button>
+          <span className="text-[11px] leading-relaxed text-slate-500">
+            Most of the time the answer is &ldquo;no evidence of closure&rdquo;, and that is the tool working.
+            Nothing publishes below {PUBLISH_CONFIDENCE_FLOOR} confidence, and never on one source.
+          </span>
         </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-          Publishing needs an official register entry, or two sources that could have failed independently —
-          and a report from a member of the public is never one of the two. Confidence combines the strongest
-          signal per independent source, so ten observations of the same fact count once. Nothing publishes
-          below {PUBLISH_CONFIDENCE_FLOOR}.
-        </p>
-      </section>
-
-      {/* Displaced demand — counted, or a dash that explains itself. */}
-      {d.opportunity && demand && (
-        <section className="card p-5">
-          <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
-            <Users className="h-4 w-4 text-emerald-400" /> Displaced demand
-          </h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-ink-950/40 p-3">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Customers a month</p>
-              <p className="text-lg font-bold text-white">{demand.customersPerMonth ?? "—"}</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-ink-950/40 p-3">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Monthly value</p>
-              <p className="text-lg font-bold text-white">{demand.monthlyValueGbp !== null ? `£${demand.monthlyValueGbp.toLocaleString("en-GB")}` : "—"}</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-ink-950/40 p-3">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Window</p>
-              <p className="text-lg font-bold text-white">{d.opportunity.competitionLevel}</p>
-              <p className="text-[10px] text-slate-500">expires {new Date(d.opportunity.expiresAt).toLocaleDateString("en-GB")}</p>
-            </div>
-          </div>
-          {demand.basis.length > 0 && (
-            <ul className="mt-3 space-y-1">
-              {demand.basis.map((b) => <li key={b} className="text-xs leading-relaxed text-slate-400">✓ {b}</li>)}
-            </ul>
-          )}
-          {demand.missing.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {demand.missing.map((m) => <li key={m} className="text-xs leading-relaxed text-amber-200/90">— {m}</li>)}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {/* Matching, with the formula printed beside the scores. */}
-      <section className="card p-5">
-        <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
-          <ScanSearch className="h-4 w-4 text-emerald-400" /> Replacement businesses
-        </h2>
-        <p className="mt-1 text-xs text-slate-400">{MATCH_WEIGHTS.map((w) => `${w.weight}% ${w.label}`).join(" + ")}</p>
-        <div className="mt-3 space-y-2">
-          {d.matched.matches.map((m) => (
-            <div key={m.candidateId} className="rounded-lg border border-white/10 bg-ink-950/40 p-3">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-sm font-bold text-white">{m.name}</span>
-                <span className="ml-auto text-sm font-bold text-emerald-300">{m.matchScore}/100</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {MATCH_WEIGHTS.map((w) => (
-                  <span key={w.key} className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">
-                    {w.label} {m.factors[w.key]}
-                  </span>
-                ))}
-              </div>
-              {m.reasons.length > 0 && <p className="mt-2 text-xs leading-relaxed text-slate-400">{m.reasons.join(" ")}</p>}
-              {m.unmeasured.length > 0 && (
-                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">Not measured: {m.unmeasured.join(" ")}</p>
-              )}
-            </div>
-          ))}
-          {d.matched.ineligible.map((i) => (
-            <div key={i.id} className="rounded-lg border border-white/[0.06] bg-ink-950/30 p-3 opacity-80">
-              <p className="text-sm font-semibold text-slate-400">{i.name} — not offered</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{i.reasons.join(" ")}</p>
-            </div>
-          ))}
-        </div>
-        <p className="mt-2 text-[11px] text-slate-500">{d.matched.note}</p>
-        {d.coverage && d.coverage.severity !== "covered" && (
-          <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-100">
-            Coverage {d.coverage.severity} for {d.coverage.category} in {d.coverage.city} {d.coverage.postcodePrefix}:{" "}
-            {d.coverage.eligibleCount} eligible, {d.coverage.ineligibleCount} excluded.
-            {d.coverage.commonestBlocker ? ` Commonest reason: ${d.coverage.commonestBlocker}` : ""}
+        {error && (
+          <p className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3 text-xs leading-relaxed text-rose-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
           </p>
         )}
       </section>
 
-      {/* Allocation. The tier cap is stated on the screen, because "how are leads
-          shared out" is the question a paying supplier asks first. */}
-      <section className="card p-5">
-        <h2 className="font-display text-base font-bold text-white">Where the leads went</h2>
-        <div className="mt-3 space-y-1.5">
-          {d.allocation.allocations.map((a) => (
-            <div key={a.candidateId} className="flex flex-wrap items-baseline gap-2 rounded-lg border border-white/10 bg-ink-950/40 p-2.5">
-              <span className="text-sm font-semibold text-white">{a.name}</span>
-              <span className="text-sm font-bold text-emerald-300">{a.leads}</span>
-              <span className="w-full text-[11px] leading-relaxed text-slate-500">{a.why}</span>
+      {res && (
+        <>
+          <section className="card p-5">
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
+              <Building2 className="h-4 w-4 text-emerald-400" /> {res.detection.company}
+            </h2>
+            <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <Verdict a={res.assessment} />
+              <div>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">Every signal, and what it was worth</p>
+                <Evidence signals={res.assessment.evidence} />
+              </div>
             </div>
-          ))}
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-          {d.allocation.note} Match quality decides the order and the share; a subscription plan moves it by
-          at most {Math.round(TIER_MAX_INFLUENCE * 100)}%, and a business&rsquo;s stated capacity is a ceiling
-          rather than another weight.
-        </p>
-      </section>
+          </section>
 
-      {/* The controls, in full. They are the product here. */}
+          {/* EVERY SOURCE, INCLUDING THE ONES THAT FOUND NOTHING. A source that
+              could not run and a source that ran and found nothing are
+              different facts, and collapsing them is how "0 signals" becomes
+              unactionable. */}
+          <section className="card p-5">
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
+              <FileSearch className="h-4 w-4 text-emerald-400" /> Where we looked
+            </h2>
+            <div className="mt-3 space-y-2">
+              {res.detection.sources.map((s, i) => (
+                <div key={`${s.id}-${i}`} className={`rounded-lg border p-3 ${s.checked ? "border-white/10 bg-ink-950/40" : "border-amber-500/20 bg-amber-500/[0.04]"}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-white">
+                      {CLOSURE_SOURCES.find((c) => c.id === s.id)?.label ?? (s.id === "none" ? "Their own site" : s.id)}
+                    </span>
+                    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${s.checked ? "border-emerald-500/30 text-emerald-300" : "border-amber-500/30 text-amber-300"}`}>
+                      {s.checked ? "checked" : "could not run"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">{s.outcome}</p>
+                  {s.evidenceUrl && (
+                    <a href={s.evidenceUrl} target="_blank" rel="noreferrer noopener"
+                       className="mt-1 block truncate text-[11px] text-sky-300 hover:underline">{s.evidenceUrl}</a>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{res.detection.note}</p>
+          </section>
+
+          {/* What happens next, and what does not. */}
+          <section className={`card p-5 ${res.assessment.publishable ? "" : "opacity-90"}`}>
+            <h2 className="font-display text-base font-bold text-white">What can be built on this</h2>
+            {res.assessment.publishable ? (
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                The evidence rule is satisfied, so an opportunity can be created for this exit —
+                replacement businesses ranked on {MATCH_WEIGHTS.map((w) => `${w.weight}% ${w.label.toLowerCase()}`).join(" + ")},
+                with displaced demand counted or left null. Every asset produced carries the disclosure below.
+              </p>
+            ) : (
+              <p className="mt-2 flex items-start gap-2 text-xs leading-relaxed text-amber-100">
+                <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Nothing. No opportunity, no page, no campaign — the absence is the gate, not a warning
+                on something that was built anyway. {res.assessment.why}
+              </p>
+            )}
+          </section>
+        </>
+      )}
+
+      {/* The controls, always. */}
       <section className="card p-5">
         <h2 className="flex items-center gap-2 font-display text-base font-bold text-white">
           <Gavel className="h-4 w-4 text-emerald-400" /> What this engine refuses to do
         </h2>
+        {doctrine && <p className="mt-2 text-xs leading-relaxed text-slate-400">{doctrine}</p>}
         <ul className="mt-3 space-y-2">
           {MANDATORY_CONTROLS.map((c) => (
             <li key={c} className="flex items-start gap-2 text-xs leading-relaxed text-slate-300">
@@ -264,8 +277,7 @@ export default function MarketExitPage() {
           ))}
         </ul>
         <p className="mt-3 rounded-lg border border-white/10 bg-ink-950/40 p-3 text-xs italic leading-relaxed text-slate-400">
-          &ldquo;{REQUIRED_DISCLOSURE}&rdquo; — carried on every page, ad and message this engine produces. Copy
-          without it is not published with a warning; it is not published.
+          &ldquo;{REQUIRED_DISCLOSURE}&rdquo; — carried on every page, ad and message this engine produces.
         </p>
       </section>
     </div>

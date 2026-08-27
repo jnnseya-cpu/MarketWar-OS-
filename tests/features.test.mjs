@@ -22361,3 +22361,385 @@ test("the runner assembles the engines that already exist rather than growing it
   assert.doesNotMatch(code, /function\s+\w*(verifyEmail|assessCompliance)\s*\(/,
     "the runner reimplemented an engine it already imports");
 });
+
+// ---------------------------------------------------------------------------
+// A KEY THAT ARRIVED WRONG IS NOT A KEY THAT IS WRONG
+// ---------------------------------------------------------------------------
+
+test("a key pasted with quotes or a newline is cleaned before it is sent, and the paste is named before the key is blamed", async () => {
+  const { cleanKey, keyFromEnv, shapeHint } = await import("../src/shared/api-key-hygiene.ts");
+
+  // THE MISDIAGNOSIS THIS EXISTS TO STOP. All three of these produce a 401 from
+  // a credential that was correct, and all three look identical in a dashboard
+  // that renders the value as dots — so the owner regenerates a good key and
+  // gets 401 again.
+  for (const [raw, why] of [
+    ['"abc123"', "surrounding-quotes"],
+    ["'abc123'", "surrounding-quotes"],
+    ["  abc123\n", "leading-or-trailing-whitespace"],
+    ["SERPER_API_KEY=abc123", "looks-like-assignment"],
+  ]) {
+    const c = cleanKey(raw);
+    assert.equal(c.key, "abc123", `${JSON.stringify(raw)} was not cleaned to the key`);
+    assert.ok(c.issues.includes(why), `${JSON.stringify(raw)} did not report "${why}"`);
+    assert.equal(c.changed, true);
+    assert.ok(c.notes.length > 0, "a problem was found and not explained");
+  }
+
+  // A CLEAN KEY IS LEFT ALONE.
+  const clean = cleanKey("5f2a9c7e1b3d4a6f8e0c2b4d6a8f0e2c4b6d8a0f");
+  assert.equal(clean.changed, false);
+  assert.deepEqual(clean.issues, []);
+
+  // WHAT IT MUST NOT "FIX". Deleting a character from a credential turns a
+  // working key into an unexplainable one, so these are reported and kept.
+  const inner = cleanKey("abc 123");
+  assert.equal(inner.key, "abc 123", "a character was silently removed from the middle of a credential");
+  assert.ok(inner.issues.includes("internal-whitespace"));
+  const dash = cleanKey("sk–ant–abc");
+  assert.equal(dash.key, "sk–ant–abc", "an en-dash was silently rewritten inside a credential");
+  assert.ok(dash.issues.includes("non-ascii"));
+
+  // One quote on one end is not a wrapper — it might be the key.
+  assert.equal(cleanKey('"abc').key, '"abc', "an unmatched quote was stripped as though it were a wrapper");
+
+  // A placeholder behaves as NOT SET, so it cannot produce a confident 401.
+  assert.equal(keyFromEnv("changeme"), "");
+  assert.equal(keyFromEnv("your-api-key"), "");
+  assert.equal(keyFromEnv(undefined), "");
+  assert.equal(keyFromEnv(" abc123 "), "abc123");
+
+  // A SHAPE MISMATCH IS A HINT, NOT A REFUSAL. A platform that refuses to send
+  // a key because it fails a pattern hard-coded months ago breaks itself on
+  // somebody else's release schedule.
+  assert.ok(shapeHint("serper", "abc123"), "a wrong-shaped key produced no hint at all");
+  assert.equal(shapeHint("serper", "5f2a9c7e1b3d4a6f8e0c2b4d6a8f0e2c4b6d8a0f"), null,
+    "a correctly-shaped key was flagged");
+  assert.equal(shapeHint("unknown-provider", "anything"), null, "a provider with no known shape was judged anyway");
+  assert.equal(shapeHint("serper", ""), null);
+});
+
+test("the search gateway sends the cleaned key, and the diagnostic never returns it", async () => {
+  const search = readFileSync(new URL("../src/backend/search.ts", import.meta.url), "utf8");
+  const health = readFileSync(new URL("../src/app/api/health/serper/route.ts", import.meta.url), "utf8");
+
+  // The gateway must not read the raw variable straight into the header.
+  assert.doesNotMatch(codeOf(search), /"X-API-KEY":\s*process\.env/,
+    "the raw environment value is sent as the key, so a stray newline becomes a 401 nobody can explain");
+  assert.match(search, /keyFromEnv/, "the search gateway does not clean the key");
+
+  // The diagnostic must name a bad paste BEFORE it accuses the key.
+  assert.match(health, /cleanKey/, "the diagnostic does not check the value's shape");
+  assert.match(health, /pasteFirst/, "the diagnostic has no path that names the paste before the key");
+
+  // AND IT MUST NEVER RETURN THE KEY. A health endpoint that echoes a
+  // credential is a credential in a browser history, a log and a screenshot.
+  assert.doesNotMatch(codeOf(health), /key\s*,?\s*\}\s*\)|JSON\.stringify\(\{[^}]*\bkey\b/,
+    "the diagnostic may be returning the key itself");
+  assert.match(health, /looksLike/, "the diagnostic gives no way to recognise which key is set");
+  assert.match(health, /slice\(0, 2\)/, "the key fingerprint is not truncated");
+});
+
+test("a list of places typed into one box becomes one search per place", async () => {
+  const { splitPlaces } = await import("../src/backend/contact-hunt-run.ts");
+
+  // People type a list into a single box because a single box invites one.
+  // "Builders Birmingham, London and Manchester" as ONE query returns the pages
+  // that mention all three — which are directories, not builders.
+  assert.deepEqual(splitPlaces("Birmingham, London and Manchester"), ["Birmingham", "London", "Manchester"]);
+  assert.deepEqual(splitPlaces("London & Manchester"), ["London", "Manchester"]);
+  assert.deepEqual(splitPlaces("Leeds/Bradford"), ["Leeds", "Bradford"]);
+  assert.deepEqual(splitPlaces("Leeds; York"), ["Leeds", "York"]);
+  assert.deepEqual(splitPlaces("Leeds"), ["Leeds"]);
+  assert.deepEqual(splitPlaces(""), []);
+  assert.deepEqual(splitPlaces(undefined), []);
+
+  // AND WHAT MUST NOT BE SPLIT. A place name containing a word the splitter
+  // looks for is still one place, and cutting it produces two searches for
+  // towns that do not exist.
+  assert.deepEqual(splitPlaces("Newcastle upon Tyne"), ["Newcastle upon Tyne"],
+    "a multi-word place name was cut into pieces");
+  assert.deepEqual(splitPlaces("Stoke-on-Trent and Derby"), ["Stoke-on-Trent", "Derby"],
+    "a hyphenated place name was split on its own hyphens");
+
+  // The runner must actually loop over them rather than joining them back up.
+  const src = readFileSync(new URL("../src/backend/contact-hunt-run.ts", import.meta.url), "utf8");
+  assert.match(codeOf(src), /for \(const place of places/, "the places are split and then not searched separately");
+  assert.match(src, /round-robin|interleave|spread across the places/i,
+    "the results are not spread across the places, so one city takes every slot");
+});
+
+// ---------------------------------------------------------------------------
+// AN AGENT MUST NOT ASK FOR WHAT THE PAGE ABOVE IT IS ALREADY SHOWING
+//
+// Reported by the owner: the segmentation page rendered "88 customers, 100%
+// consented, 1 segment" from the live Customer Vault, and directly beneath it
+// the agent answered "Cannot generate specific segments without customer data.
+// Integrate your customer database." Both on one screen. The agent was not
+// wrong — it had been handed a business name and an industry and nothing else.
+//
+// The eighteenth instance of this repository's oldest defect: a value that
+// exists on one side of a boundary and is never carried across.
+// ---------------------------------------------------------------------------
+
+test("the agent harness forwards what the page already computed", () => {
+  const src = readFileSync(new URL("../src/components/AgentRunner.tsx", import.meta.url), "utf8");
+  const code = codeOf(src);
+
+  // The channel must exist, and must actually reach the request body.
+  assert.match(code, /context\?:/, "AgentRunner has no way for a page to pass what it knows");
+  assert.match(code, /pageContext/, "the context is accepted and then not used");
+  assert.match(code, /\.\.\.values,\s*\.\.\.assetContext,\s*\.\.\.pageContext/,
+    "the page's context is not merged into the request body");
+
+  // READ AT RUN TIME. A page whose data arrives after mount would otherwise
+  // send the empty version it held when the button first rendered — which is
+  // the same bug again, one layer down.
+  assert.match(code, /typeof context === "function" \? context\(\)/,
+    "the context is captured at render rather than read when the button is pressed");
+});
+
+test("the segmentation agent is handed the vault the page is already displaying", async () => {
+  const src = readFileSync(new URL("../src/app/dashboard/segments/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(src), /context=\{\(\) => segmentContext\(report\)\}/,
+    "the segmentation agent still runs without the vault the page just read");
+
+  // DRIVEN, NOT GREPPED. The builders live in shared/agent-context.ts precisely
+  // so a test can call them: a page in this framework may export nothing but
+  // the page, so the first version of these assertions had to scan source — and
+  // a scan passes when the branch producing the string is disabled.
+  const { segmentContext } = await import("../src/shared/agent-context.ts");
+  assert.match(segmentContext(null).customerVault, /NOT READ YET/,
+    "a vault that has not returned is indistinguishable from an empty one");
+  const empty = segmentContext({ business: "X", totalCustomers: 0, consentedShare: 0, segments: [], note: "" });
+  assert.match(empty.customerVault, /GENUINELY EMPTY/,
+    "an empty vault does not say so, so the agent asks for an integration that exists");
+  assert.match(empty.customerVault, /Do not ask for a database integration/i);
+  const full = segmentContext({
+    business: "MarketWar", totalCustomers: 88, consentedShare: 1, note: "n",
+    segments: [{ key: "hot", label: "Hot leads (never bought)", size: 88, consentedSize: 88, revenuePotentialGbp: 0, recommendedOffer: "First-order incentive", recommendedChannel: "WhatsApp + email", recommendedFollowUp: "48h sequence", campaignPriority: 87 }],
+  });
+  assert.match(full.customerVault, /88 contacts/, "the real customer count is not passed");
+  assert.match(full.customerVault, /100% marketing-consented/, "the consented share is not passed");
+  assert.match(full.customerVault, /do NOT ask for a customer database/i,
+    "a populated vault does not tell the agent to stop asking for one");
+  assert.match(full.existingSegments, /Hot leads \(never bought\): 88 contacts \(88 consented\)/,
+    "the segments the page already computed are not passed");
+  assert.match(full.existingSegments, /NOT to re-derive them/i,
+    "the agent is not told to improve on the segments rather than redo them");
+
+  // The three states must be distinguishable. An agent told nothing, an agent
+  // told the vault is empty, and an agent told there are 88 contacts should do
+  // three different things — and only the first should ask for a database.
+
+  // And it must carry the real numbers, not a summary the page invented.
+});
+
+test("the site-audit and email agents are handed their own page's findings too", async () => {
+  const site = readFileSync(new URL("../src/app/dashboard/website-intel/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(site), /context=\{\(\) => auditContext\(report\)\}/,
+    "the website agent still runs without the crawl the page just performed");
+  const { auditContext } = await import("../src/shared/agent-context.ts");
+  const audited = auditContext({
+    audit: { sections: [{ area: "Trust", overall: 61, verdict: "improve", measured: 4 }, { area: "Speed", overall: null, verdict: "not measured", measured: 0 }] },
+    dna: { marketCategory: "Trades", businessModel: "B2C", revenueModel: "jobs", valueProposition: "v", mainConversionAction: "call", competitiveAdvantages: [], trustGaps: ["no reviews shown"], contentGaps: [], conversionGaps: [], seoGaps: [], geoGaps: [], socialGaps: [] },
+    attack: { moves: [{ gap: "No local landing pages", opportunity: 70, priority: "high" }] },
+  });
+  assert.match(audited.siteAudit, /A REAL CRAWL OF THIS SITE HAS ALREADY RUN/,
+    "the agent is not told the crawl already happened, so it asks for access to a site it has been given");
+  // "not measured" must survive into the context. It is the one verdict an
+  // agent must never read as "fine".
+  assert.match(audited.siteAudit, /nothing measurable on this page/,
+    "an unmeasured section is passed as though it had been scored");
+  assert.match(audited.businessDna, /trust gaps already found: no reviews shown/,
+    "the gaps the crawl found are not passed, so the agent re-derives them and finds fewer");
+  assert.match(auditContext(null).siteAudit, /NOT RUN/, "no crawl looks the same as a crawl that found nothing");
+
+  const email = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
+  assert.match(codeOf(email), /context=\{\(\) => emailContext\(stats\)\}/,
+    "the email agent still runs without the sending record shown above it");
+
+  // ZERO SENDS IS NOT A BAD OPEN RATE. An agent handed "0%" writes a
+  // deliverability rescue plan for a domain that has never sent anything.
+  //
+  // DRIVEN, NOT GREPPED. The first version of this matched the sentence in the
+  // source and survived a mutation that disabled the branch producing it — the
+  // string was still there, just unreachable.
+  const { emailContext } = await import("../src/shared/agent-context.ts");
+  const nothingSent = emailContext({ sent: 0, open: 0, click: 0, bounce: 0, complaint: 0, unsubscribe: 0, openRate: 0, clickRate: 0, suppressed: 0 });
+  assert.match(nothingSent.sendingRecord, /NO rates/,
+    "an account with no sends is described with rates, which reads as catastrophic deliverability");
+  assert.doesNotMatch(nothingSent.sendingRecord, /0%/, "a 0% rate was reported for an account that has never sent");
+  const sent = emailContext({ sent: 500, open: 120, click: 30, bounce: 5, complaint: 0, unsubscribe: 2, openRate: 0.24, clickRate: 0.06, suppressed: 7 });
+  assert.match(sent.sendingRecord, /24%/, "a real open rate was not passed to the agent");
+  assert.match(sent.sendingRecord, /do not ask for them/i, "the agent is not told these numbers are already counted");
+  assert.match(emailContext(null).sendingRecord, /NOT LOADED/, "stats that never arrived look identical to zero sends");
+
+  // THE PRE-FILLED FICTION IS GONE. This field arrived containing another
+  // business's list — "~1,240 contacts … Friday platter campaign weekly" — and
+  // was sent to the agent as this account's fact unless the user cleared it.
+  // SCANNED WITH COMMENTS STRIPPED. The comment explaining a removed string
+  // necessarily quotes it, so scanning raw source fails on the explanation of
+  // the fix. Sixth time in this repository; the habit is `codeOf`, always.
+  const emailCode = codeOf(email);
+  assert.doesNotMatch(emailCode, /1,240 contacts/, "the sample list from another business is back in the form");
+  assert.doesNotMatch(emailCode, /Friday platter campaign/, "a different business's campaign is pre-filled as this one's goal");
+});
+
+// ---------------------------------------------------------------------------
+// MARKET EXIT — the detector that gives the rules something to refuse
+//
+// The dashboard rendered the whole evidence doctrine against a hardcoded
+// Kingsway Plumbing. A rulebook with nothing to judge is a library list. These
+// tests cover the part that produces REAL signals — and, far more importantly,
+// the sentences it must refuse to read as a closure, because a false positive
+// here is a trading business told the world it had failed.
+// ---------------------------------------------------------------------------
+
+test("a closure announcement is distinguished from every sentence that merely resembles one", async () => {
+  const { findClosureStatement } = await import("../src/backend/market-exit-detect.ts");
+
+  // WHAT IT MUST FIND. Each of these is a business announcing its own end.
+  for (const text of [
+    "We have ceased trading after 40 years.",
+    "Kingsway Plumbing is now permanently closed.",
+    "We are no longer trading in the Leeds area.",
+    "After 22 years we have closed our doors.",
+    "Our final day of trading will be 30 September.",
+    "We have moved to 14 High Street.",
+  ]) {
+    assert.ok(findClosureStatement(text), `missed a real closure: ${text}`);
+  }
+
+  // WHAT IT MUST REFUSE, and why each one matters.
+  //
+  // A SHOP WITH A HOLIDAY is not a closed business, and a naive search for
+  // "closed" finds every one of these.
+  for (const text of [
+    "We are closed on Sundays.",
+    "Closed over Christmas — back on the 2nd.",
+    "The showroom is temporarily closed for refurbishment.",
+    "We are open six days a week and never closed for lunch.",
+    // THE VETO HAS TO DO WORK. In each of these a closure phrase genuinely
+    // fires — "now closed", "no longer trading" — and only the exclusion stops
+    // it. Without them the earlier cases pass by luck, because no closure
+    // pattern matched them in the first place.
+    "We are now closed for refurbishment and reopen in March.",
+    "The kitchen is now closed for lunch between 3 and 5.",
+    "Our Leeds branch is temporarily closed for maintenance.",
+  ]) {
+    assert.equal(findClosureStatement(text), null, `a trading business was read as closed: ${text}`);
+  }
+
+  // SOMEBODY ELSE'S CLOSURE, ON THIS COMPANY'S PAGE. An insolvency
+  // practitioner's site is full of these sentences because that is their line
+  // of work — and marking the liquidator as closed would then aim an
+  // advertising campaign at their customers.
+  for (const text of [
+    "Our client has ceased trading and we recovered 80p in the pound.",
+    "Case studies: a company in administration.",
+    "If your business has ceased trading, we can help.",
+    "We advise firms that have gone into liquidation.",
+    "We specialise in helping companies that have ceased trading.",
+    "We act for directors of businesses in administration.",
+    "The company has gone into liquidation.",
+  ]) {
+    assert.equal(findClosureStatement(text), null, `somebody else's closure was attributed to this business: ${text}`);
+  }
+
+  // SENTENCE-SCOPED. "We have ceased trading. Our showroom was closed for
+  // refurbishment last year." is a closure with an irrelevant second sentence —
+  // scanning the page as one block throws the first away on the second.
+  assert.ok(findClosureStatement("We have ceased trading. Our showroom was closed for refurbishment last year."),
+    "a real closure was discarded because a LATER sentence mentioned a refurbishment");
+
+  assert.equal(findClosureStatement(""), null);
+});
+
+test("the register's reply is read rather than asserted, and an active company is kept as counter-evidence", async () => {
+  const { firstRegisterHit, companiesHouseKey } = await import("../src/backend/market-exit-detect.ts");
+
+  // `await res.json()` is `any`. This response decides whether a NAMED company
+  // is published as closed, so "we do not know" must not arrive downstream
+  // wearing the shape of an answer.
+  assert.equal(firstRegisterHit(null), null);
+  assert.equal(firstRegisterHit({}), null);
+  assert.equal(firstRegisterHit({ items: [] }), null);
+  assert.equal(firstRegisterHit({ items: [{ title: "X" }] }), null, "a record with no status was accepted");
+  assert.equal(firstRegisterHit({ items: [{ company_status: "dissolved" }] }), null, "a record with no company number was accepted");
+  const ok = firstRegisterHit({ items: [{ company_number: "01234567", title: "Kingsway Plumbing Ltd", company_status: "dissolved" }] });
+  assert.deepEqual(ok, { companyNumber: "01234567", title: "Kingsway Plumbing Ltd", status: "dissolved" });
+
+  // A key that is absent is absent — and that is reported as a missing OFFICIAL
+  // source rather than as a fact about the company.
+  const src = readFileSync(new URL("../src/backend/market-exit-detect.ts", import.meta.url), "utf8");
+  assert.match(src, /No COMPANIES_HOUSE_API_KEY/, "a missing register key is not reported as such");
+  assert.match(src, /keyFromEnv/, "the register key is read raw, so a stray newline becomes a 401");
+  assert.equal(typeof companiesHouseKey(), "string");
+
+  // AN ACTIVE COMPANY IS RECORDED, not discarded. A detector that only keeps
+  // what it is hunting finds a closure everywhere; `assessClosure` reads
+  // contradictions and stops, and it can only do that if they reach it.
+  const { registerStatusSignal } = await import("../src/backend/market-exit-detect.ts");
+  const active = registerStatusSignal("active");
+  assert.ok(active, "a register saying the company is ACTIVE is thrown away");
+  assert.equal(active.type, "trading_normally",
+    "an ACTIVE register entry is not recorded as evidence the company is trading");
+  assert.equal(registerStatusSignal("dissolved").type, "dissolution");
+  assert.equal(registerStatusSignal("liquidation").source, "insolvency_register");
+  assert.equal(registerStatusSignal("something-new"), null, "an unmapped status was interpreted anyway");
+  assert.match(src, /evidence AGAINST a closure/i, "an active status is not explained as counter-evidence");
+});
+
+test("a page that could not be read is never evidence that a business closed", async () => {
+  const src = readFileSync(new URL("../src/backend/market-exit-detect.ts", import.meta.url), "utf8");
+
+  // The lesson the contact hunter learned the hard way, applied here BEFORE it
+  // can do damage — because here the wrong answer is published about a named
+  // company rather than shown to its own owner.
+  assert.match(src, /is NOT a domain-inactive signal/,
+    "an unreachable site can still become a closure signal");
+  assert.match(src, /OUR side of the connection failing/,
+    "a failed fetch is not distinguished from a fact about the company");
+
+  // A news story must NAME the company. A search for closures returns closure
+  // stories; without this, any closure anywhere becomes this company's.
+  //
+  // SCANNED WITH COMMENTS STRIPPED — seventh time in this repository. The first
+  // version of this matched the comment above the check and survived a mutation
+  // that deleted the check itself.
+  const code = codeOf(src);
+  assert.match(code, /if \(!text\.toLowerCase\(\)\.includes\(company\.toLowerCase\(\)/,
+    "a news result is accepted without checking it names the company");
+
+  // Every source reports whether it RAN, so "0 signals" is actionable.
+  assert.match(code, /checked: false/, "a source that could not run is indistinguishable from one that found nothing");
+
+  // And the detector must not decide. That is assessClosure's job.
+  assert.match(src, /Whether that is enough to publish is not this step's decision/,
+    "the detector reports a verdict of its own");
+});
+
+test("the market-exit surface is a tool rather than a demo of itself", () => {
+  const page = readFileSync(new URL("../src/app/dashboard/market-exit/page.tsx", import.meta.url), "utf8");
+  const code = codeOf(page);
+
+  // THE DEFECT THIS PINS. The page rendered the entire doctrine against a
+  // hardcoded Kingsway Plumbing and Northgate Heating, with no way to check a
+  // real company. Every rule was real and every value was fake.
+  assert.doesNotMatch(code, /demoMarketExit/, "the page still renders the built-in demo instead of a real check");
+  assert.doesNotMatch(code, /exampleconstruction|Northgate Heating|Aire Valley|Dormant Drains/,
+    "hardcoded sample businesses are back on the page");
+
+  // There must be an input, and it must call the detector.
+  assert.match(code, /setCompany/, "there is no box to type a company into");
+  assert.match(code, /action: "detect"/, "the page does not run a real detection");
+
+  // A REFUSAL MUST RENDER AS FULLY AS A FINDING. Most of the time the honest
+  // answer is "no evidence of closure", and a screen that only lights up for a
+  // hit teaches its user that the tool is broken when it is working.
+  assert.match(code, /Nothing may be built on this/, "an unpublishable result is not shown as a result");
+  assert.match(page, /the absence is the gate, not a warning/i,
+    "the page does not say that nothing is built on an unproved closure");
+  assert.match(page, /could not run/, "sources that failed are not distinguished from sources that found nothing");
+});

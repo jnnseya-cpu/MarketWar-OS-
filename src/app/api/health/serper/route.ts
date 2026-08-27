@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { serperFailureReason } from "@/backend/search";
+import { cleanKey, shapeHint } from "@/shared/api-key-hygiene";
 
 // Serper self-diagnostic — is real Google data (leads, prospects, market intel)
 // live? Reports whether SERPER_API_KEY is present and validates it with one tiny
@@ -9,8 +10,29 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const key = process.env.SERPER_API_KEY || "";
+  // WHAT THE VARIABLE CONTAINS, BEFORE ASKING WHETHER THE KEY IS VALID.
+  //
+  // This check told an owner "serper.dev REFUSED the key — regenerate it" for a
+  // 401. That is right for a revoked key and wrong for a correct key that
+  // arrived wrapped in quotes, or with the newline a terminal appended, or
+  // pasted as the whole `NAME=value` line. All three produce a 401 from a
+  // credential that is not the credential, and all three look identical in a
+  // dashboard that renders the value as dots. So the SHAPE is reported first,
+  // and the probe now sends the cleaned value.
+  const check = cleanKey(process.env.SERPER_API_KEY);
+  const key = check.key;
+  const hint = shapeHint("serper", key);
   const present = { SERPER_API_KEY: Boolean(key) };
+  const keyShape = {
+    length: check.length,
+    // Never the key. The first and last two characters are enough for an owner
+    // to recognise which key they pasted without the value leaving the server.
+    looksLike: key ? `${key.slice(0, 2)}…${key.slice(-2)}` : "",
+    hadIssues: check.issues,
+    cleaned: check.changed,
+    notes: check.notes,
+    shapeHint: hint,
+  };
   let probe: Record<string, unknown> = { ran: false, note: "No SERPER_API_KEY — lead/prospect engines return clearly-labelled sample data until it's set." };
   if (key) {
     try {
@@ -55,7 +77,18 @@ export async function GET() {
   //
   // Four outcomes, four sentences, each with a different next move.
   const p = probe as { ok?: boolean; quotaExhausted?: boolean; unreachable?: boolean; timedOut?: boolean; httpStatus?: number };
-  const verdict = !key
+
+  // A 401 ON A VALUE THAT WAS THE WRONG SHAPE IS NOT A VERDICT ON THE KEY.
+  // Naming the paste first is the difference between one fix and an afternoon
+  // of regenerating credentials that were never the problem.
+  const rejected = p.httpStatus === 401 || p.httpStatus === 403;
+  const pasteFirst = rejected && (check.issues.length > 0 || hint)
+    ? `RED — serper.dev refused this value (HTTP ${p.httpStatus}), and the value has a problem BEFORE its validity is in question: ${
+        check.issues.length ? check.notes[0] : hint
+      } Fix the variable and retry before regenerating anything — a correct key pasted wrongly fails exactly like a revoked one.`
+    : null;
+
+  const verdict = pasteFirst ?? (!key
     ? "AMBER — no Serper key; real prospect data off (sample data only)."
     : p.ok
       ? "GREEN — real Google/Places data is live."
@@ -65,6 +98,6 @@ export async function GET() {
           ? `RED — the key is present and UNTESTED: this deployment could not reach serper.dev${p.timedOut ? " (timed out)" : ""}. Nothing points at the key. Retry, and check egress from the host.`
           : p.httpStatus === 401 || p.httpStatus === 403
             ? `RED — serper.dev REFUSED the key (HTTP ${p.httpStatus}). This one is the key: regenerate it at serper.dev and set SERPER_API_KEY again.`
-            : `RED — serper.dev answered HTTP ${p.httpStatus ?? "?"} and the search did not run. Read \`probe.error\` below: the key is present, so a status that is not 401 or 403 is usually theirs rather than yours.`;
-  return NextResponse.json({ service: "serper", verdict, present, probe });
+            : `RED — serper.dev answered HTTP ${p.httpStatus ?? "?"} and the search did not run. Read \`probe.error\` below: the key is present, so a status that is not 401 or 403 is usually theirs rather than yours.`);
+  return NextResponse.json({ service: "serper", verdict, present, keyShape, probe });
 }

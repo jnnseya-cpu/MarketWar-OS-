@@ -36,7 +36,7 @@ if (typeof window !== "undefined") {
 // as somebody else's are four different problems with four different fixes, and
 // they look identical in a bare count. Every result carries its stage.
 
-import { webSearch } from "@/backend/search";
+import { webSearch, type SearchResult } from "@/backend/search";
 import { scrapeEnrich, dropSharedEmails, isPersonalProvider, type EnrichResult } from "@/backend/enrich";
 import { classifyEmail, verifyEmail, assessCompliance, buildContactRecord } from "@/backend/lead-harvest";
 import { parseRobots, robotsAllows, OUR_AGENT } from "@/backend/robots";
@@ -76,6 +76,20 @@ export type HuntReport = {
 };
 
 const HOST = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+
+/**
+ * "Birmingham, London and Manchester" -> three places.
+ *
+ * People type a list into a single box because a single box invites one, and
+ * the alternative — searching for the literal string — returns the pages that
+ * mention all three, which are directories rather than builders.
+ */
+export function splitPlaces(where: string | undefined): string[] {
+  return String(where ?? "")
+    .split(/\s*(?:,|;|\/|\||\band\b|&|\+)\s*/i)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 1);
+}
 
 /**
  * Why a page produced nothing. The distinction that matters most.
@@ -467,31 +481,54 @@ export async function huntByCriteria(input: {
   tenantId?: string;
 }): Promise<HuntReport> {
   const count = Math.max(1, Math.min(input.count ?? 5, 15));
-  const query = [input.what, input.where].filter(Boolean).join(" ");
-  const search = await webSearch({ query, type: "search", gl: (input.country || "GB").toLowerCase() });
 
-  if (search.mode !== "live") {
+  // ONE SEARCH PER PLACE. Somebody typing "Birmingham, London and Manchester"
+  // into a box labelled "Where" means three cities, and joining them into
+  // "Builders Birmingham, London and Manchester" asks Google a question nobody
+  // would ask — the results are whatever page happens to mention all three,
+  // which is usually a directory. Split, search each, and interleave, so the
+  // requested number is spread across the places rather than all taken from
+  // whichever one sorted first.
+  const places = splitPlaces(input.where);
+  const query = [input.what, places.join(" / ")].filter(Boolean).join(" ");
+  const perPlace: SearchResult[][] = [];
+  let liveAny = false;
+  let firstError: string | undefined;
+
+  for (const place of places.length ? places : [""]) {
+    const q = [input.what, place].filter(Boolean).join(" ");
+    const res = await webSearch({ query: q, type: "search", gl: (input.country || "GB").toLowerCase() });
+    if (res.mode === "live") { liveAny = true; perPlace.push(res.results); }
+    else if (!firstError) firstError = res.providerError?.reason;
+  }
+
+  if (!liveAny) {
     return {
       mode: "demo", query, results: [], stages: { search_unavailable: 1 }, sharedEmailsDropped: 0,
-      note: search.providerError?.reason
+      note: firstError
         || "Live search is not configured, so there is nothing real to return. Set SERPER_API_KEY. No company, address or number is invented here — an empty result is the honest one.",
     };
   }
 
   // Company names from the result titles, deduplicated by host so five pages of
-  // one company's site are one company.
+  // one company's site are one company. Round-robin across the places.
   const seenHosts = new Set<string>();
   const targets: { company: string; website?: string }[] = [];
-  for (const r of search.results) {
-    if (!r.title || !r.link) continue;
-    const host = HOST(String(r.link));
-    if (!host || seenHosts.has(host)) continue;
-    seenHosts.add(host);
-    targets.push({
-      company: String(r.title).replace(/\s*[|\-–—:].*$/, "").trim().slice(0, 80) || String(r.title),
-      website: String(r.link),
-    });
-    if (targets.length >= count) break;
+  const depth = Math.max(...perPlace.map((r) => r.length), 0);
+  outer:
+  for (let i = 0; i < depth; i++) {
+    for (const list of perPlace) {
+      const r = list[i];
+      if (!r?.title || !r.link) continue;
+      const host = HOST(String(r.link));
+      if (!host || seenHosts.has(host)) continue;
+      seenHosts.add(host);
+      targets.push({
+        company: String(r.title).replace(/\s*[|\-–—:].*$/, "").trim().slice(0, 80) || String(r.title),
+        website: String(r.link),
+      });
+      if (targets.length >= count) break outer;
+    }
   }
 
   const results: HuntResult[] = [];

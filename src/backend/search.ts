@@ -25,10 +25,22 @@ export type SearchResponse = {
   providerError?: { status: number; reason: string };
 };
 
+import { keyFromEnv } from "@/shared/api-key-hygiene";
+
 const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
 const pick = <T,>(arr: T[], n: number): T => arr[n % arr.length];
 
-function serperConfigured(): boolean { return Boolean(process.env.SERPER_API_KEY); }
+/**
+ * The key, cleaned.
+ *
+ * Read through `keyFromEnv` because a value pasted with its quotes, or with the
+ * newline a terminal appended, is not the key — and sending it produces a 401
+ * that the platform then blames on the key's validity, sending the owner off to
+ * regenerate a credential that was correct all along.
+ */
+export function serperKey(): string { return keyFromEnv(process.env.SERPER_API_KEY); }
+
+function serperConfigured(): boolean { return Boolean(serperKey()); }
 
 // ---------------------------------------------------------------------------
 // Structured search — live Serper.dev when keyed, deterministic demo otherwise
@@ -41,7 +53,7 @@ export async function webSearch(input: { query: string; type?: SearchType; gl?: 
     try {
       const res = await fetch(`https://google.serper.dev/${type}`, {
         method: "POST",
-        headers: { "X-API-KEY": process.env.SERPER_API_KEY as string, "Content-Type": "application/json" },
+        headers: { "X-API-KEY": serperKey(), "Content-Type": "application/json" },
         body: JSON.stringify({ q: query, gl: input.gl, hl: input.hl }),
       });
       if (res.ok) {

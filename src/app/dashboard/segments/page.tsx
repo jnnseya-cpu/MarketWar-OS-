@@ -14,6 +14,7 @@ import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import ExportButton from "@/components/ExportButton";
 import { authedFetch } from "@/frontend/api-client";
+import { segmentContext } from "@/shared/agent-context";
 import { brandDefaults, type Brand } from "@/shared/brand";
 
 type Segment = { key: string; label: string; size: number; consentedSize: number; revenuePotentialGbp: number; recommendedOffer: string; recommendedChannel: string; recommendedFollowUp: string; campaignPriority: number };
@@ -124,10 +125,23 @@ export default function SegmentsPage() {
         </div>
       )}
 
-      <AgentRunner agentId="audience-segmentation" buttonLabel="Segment & plan activation" fields={[
-        { key: "business", label: "Business", defaultValue: brandDefaults(activeBrand).business ?? "" },
-        { key: "industry", label: "Industry", defaultValue: brandDefaults(activeBrand).industry ?? "" },
-      ]} />
+      {/* THE AGENT GETS WHAT THIS PAGE ALREADY COMPUTED.
+          Without it, the panel above said "88 customers, 100% consented, 1
+          segment" and the agent directly beneath it said "Cannot generate
+          specific segments without customer data. Integrate your customer
+          database." Both on one screen. The agent was not wrong — it had been
+          handed a business name and an industry — and the platform looked like
+          it could not see its own vault. Read as a function so the value is the
+          one held when the button is pressed, not when it was rendered. */}
+      <AgentRunner
+        agentId="audience-segmentation"
+        buttonLabel="Segment & plan activation"
+        fields={[
+          { key: "business", label: "Business", defaultValue: brandDefaults(activeBrand).business ?? "" },
+          { key: "industry", label: "Industry", defaultValue: brandDefaults(activeBrand).industry ?? "" },
+        ]}
+        context={() => segmentContext(report)}
+      />
     </div>
   );
 }

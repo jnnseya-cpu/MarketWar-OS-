@@ -60,6 +60,7 @@ export default function AgentRunner({
   fields,
   autoRunLabel,
   onResult,
+  context,
 }: {
   agentId: string;
   buttonLabel: string;
@@ -68,6 +69,24 @@ export default function AgentRunner({
   // Optional: surfaces the agent's result to a parent (e.g. to seed a Publish
   // action with the freshly generated copy). Non-breaking — most callers omit it.
   onResult?: (result: AgentResult) => void;
+  /**
+   * WHAT THE PAGE ALREADY KNOWS.
+   *
+   * THE DEFECT THIS CLOSES. The segmentation page rendered "88 customers, 100%
+   * consented, 1 segment" from the real Customer Vault, and directly beneath it
+   * the agent answered: "Cannot generate specific segments without customer
+   * data. Integrate your customer database." Both were on one screen. The agent
+   * was right — it had been handed a business name and an industry and nothing
+   * else — and the platform looked like it could not see its own data.
+   *
+   * A form field is what the USER types. This is what the PAGE has already
+   * computed, and until now there was no way to send it, so every module page
+   * that does real work above an agent was asking that agent to reason without
+   * it. A function is accepted as well as an object so the value is read at the
+   * moment of the run rather than at render, and a page whose data arrives after
+   * mount still sends it.
+   */
+  context?: Record<string, string> | (() => Record<string, string>);
 }) {
   const { activeBrand } = useActiveBrand();
   // A field is filled from the ACTIVE brand when its key is a known brand field
@@ -202,10 +221,14 @@ export default function AgentRunner({
       if (activeBrand?.brandColours?.length) assetContext.brandColours = `USE THESE EXACT brand colours: ${activeBrand.brandColours.join(", ")}`;
       if (activeBrand?.website) assetContext.brandWebsite = activeBrand.website;
 
+      // READ AT RUN TIME, not at render. A page that loads its data after mount
+      // would otherwise send the empty version it had when the button appeared.
+      const pageContext = typeof context === "function" ? context() : (context ?? {});
+
       const res = await authedFetch(`/api/agents/${agentId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...values, ...assetContext }),
+        body: JSON.stringify({ ...values, ...assetContext, ...pageContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);

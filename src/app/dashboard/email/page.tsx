@@ -26,6 +26,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import EmailPreview from "@/components/EmailPreview";
 import EmailImprove, { type ImproveReportView } from "@/components/EmailImprove";
 import { authedFetch } from "@/frontend/api-client";
+import { emailContext } from "@/shared/agent-context";
 import { useAuthUser } from "@/frontend/use-auth-user";
 import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike } from "@/shared/email-identity";
 
@@ -706,11 +707,19 @@ export default function EmailPage() {
           {
             key: "list",
             label: "Describe your list & goal",
-            defaultValue:
-              "~1,240 contacts imported from the customer vault, mix of past orderers and leads; goal: Friday platter campaign weekly + order confirmations, growing to daily sends",
+            // THIS FIELD USED TO ARRIVE PRE-FILLED WITH SOMEBODY ELSE'S
+            // BUSINESS: "~1,240 contacts … Friday platter campaign weekly".
+            // A sample from a deli, presented as this account's list, and sent
+            // to the agent as fact unless the user happened to clear it. An
+            // empty box asks a question; a pre-filled one tells a lie.
+            placeholder: "What is on your list, and what are you trying to send? The real numbers are already passed to the agent — this is for the goal.",
+            defaultValue: "",
             textarea: true,
           },
         ]}
+        // THE SENDING NUMBERS THIS PAGE ALREADY HAS. Without them the agent
+        // asks for open and bounce rates that are rendered directly above it.
+        context={() => emailContext(stats)}
       />
     </div>
   );

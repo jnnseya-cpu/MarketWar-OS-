@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader, Pill } from "@/components/ui";
 import {
-  AlertTriangle, Ban, Building2, CheckCircle2, Copy, Download, Globe, Loader2,
+  AlertTriangle, Ban, Building2, CheckCircle2, Copy, Download, Globe, KeyRound, Loader2,
   Mail, Phone, Search, ShieldCheck, User,
 } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
@@ -189,6 +189,11 @@ export default function ContactHunterPage() {
   const [report, setReport] = useState<HuntReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [doctrine, setDoctrine] = useState<{ doctrine: string; reuses: Record<string, string> } | null>(null);
+  // The search-key diagnostic, run from here rather than from a URL the owner
+  // has to know exists. A tool that fails and then asks you to go and find out
+  // why somewhere else has not finished failing.
+  const [diag, setDiag] = useState<{ verdict: string; keyShape?: { length: number; looksLike: string; hadIssues: string[]; notes: string[]; shapeHint: string | null } } | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -221,6 +226,16 @@ export default function ContactHunterPage() {
       setReport(d as HuntReport);
     } catch { setError("Network error — nothing was charged."); } finally { setBusy(false); }
   }, [what, where, titles, count, activeBrand?.id]);
+
+  const checkKey = useCallback(async () => {
+    setDiagBusy(true); setDiag(null);
+    try {
+      const res = await authedFetch("/api/health/serper");
+      const d = await res.json().catch(() => ({}));
+      setDiag(d as typeof diag);
+    } catch { setDiag({ verdict: "Could not reach the diagnostic from this browser." }); }
+    finally { setDiagBusy(false); }
+  }, []);
 
   const download = useCallback(() => {
     if (!report) return;
@@ -332,9 +347,43 @@ export default function ContactHunterPage() {
           <p className="text-xs leading-relaxed text-slate-400">{report.note}</p>
 
           {report.results.length === 0 && (
-            <p className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4 text-sm leading-relaxed text-amber-100">
-              Nothing came back, and nothing was invented to fill the gap. {report.note}
-            </p>
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
+              <p className="text-sm leading-relaxed text-amber-100">
+                Nothing came back, and nothing was invented to fill the gap. {report.note}
+              </p>
+              {report.mode === "demo" && (
+                <>
+                  <button
+                    onClick={() => void checkKey()} disabled={diagBusy}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/40 px-4 py-2 text-xs font-bold text-amber-100 hover:bg-amber-500/10 disabled:opacity-60"
+                  >
+                    {diagBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                    Check the search key
+                  </button>
+                  {diag && (
+                    <div className="mt-3 space-y-2 rounded-lg border border-white/10 bg-ink-950/60 p-3">
+                      <p className="text-xs font-semibold leading-relaxed text-white">{diag.verdict}</p>
+                      {diag.keyShape && diag.keyShape.length > 0 && (
+                        <p className="text-[11px] leading-relaxed text-slate-400">
+                          The value is {diag.keyShape.length} characters, {diag.keyShape.looksLike}.{" "}
+                          {diag.keyShape.hadIssues.length === 0 ? "Its shape is fine." : `Problems with the value itself: ${diag.keyShape.hadIssues.join(", ")}.`}
+                        </p>
+                      )}
+                      {diag.keyShape?.notes.map((n) => (
+                        <p key={n} className="text-[11px] leading-relaxed text-amber-200/90">{n}</p>
+                      ))}
+                      {diag.keyShape?.shapeHint && (
+                        <p className="text-[11px] leading-relaxed text-amber-200/90">{diag.keyShape.shapeHint}</p>
+                      )}
+                      <p className="text-[11px] leading-relaxed text-slate-500">
+                        This never returns the key itself — only its length and first and last two characters, which is
+                        enough to recognise which one you pasted.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
           {report.results.map((r, i) => <Row key={`${r.company}-${i}`} r={r} />)}
         </section>
