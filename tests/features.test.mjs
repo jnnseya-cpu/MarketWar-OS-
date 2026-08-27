@@ -21624,3 +21624,295 @@ test("every engine in the registry is reachable from the command index", async (
     assert.ok(ENGINE_CATEGORIES.includes(c), `"${c}" has engines filed under it but is not in ENGINE_CATEGORIES`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// CONTACT HUNTER
+//
+// The specification's own acceptance criteria, as tests. Every one is a
+// refusal, because the failure mode of a contact database is not that it finds
+// too little — it is that it presents a guess as a fact, and somebody sends
+// ten thousand messages on the strength of it.
+// ---------------------------------------------------------------------------
+
+test("an inferred address is never presented or activated as a confirmed one", async () => {
+  const { learnPattern, candidateFromPattern, readiness, MIN_PATTERN_SAMPLE, assessEmployment } =
+    await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T12:00:00.000Z";
+
+  // A convention needs a real sample. Two addresses is a coincidence, and a
+  // coincidence here becomes a hundred generated addresses in strangers' inboxes.
+  const thin = learnPattern([
+    { email: "a.b@x.co.uk", first: "A", last: "B" },
+    { email: "c.d@x.co.uk", first: "C", last: "D" },
+  ]);
+  assert.equal(thin.pattern, null, `a pattern was offered on ${thin.sampleSize} addresses`);
+  assert.ok(MIN_PATTERN_SAMPLE >= 3, "the minimum pattern sample was lowered below the point where it means anything");
+
+  const known = [
+    { email: "john.smith@ex.co.uk", first: "John", last: "Smith" },
+    { email: "sarah.jones@ex.co.uk", first: "Sarah", last: "Jones" },
+    { email: "david.okafor@ex.co.uk", first: "David", last: "Okafor" },
+  ];
+  const finding = learnPattern(known);
+  assert.equal(finding.pattern, "{first}.{last}");
+  assert.equal(finding.confidence, 1, "the confidence is not the counted share of addresses that fit");
+
+  const made = candidateFromPattern({ finding, first: "Amanda", last: "Brown", domain: "ex.co.uk" });
+  assert.equal(made.ok, true);
+  assert.equal(made.candidate.value, "amanda.brown@ex.co.uk");
+  assert.equal(made.candidate.provenance, "inferred", "a generated address was not marked as inferred");
+  assert.equal(made.candidate.emailStatus, "UNVERIFIED", "a generated address arrived pre-verified");
+  assert.match(made.why, /NOT published/i, "the explanation does not say the address was published nowhere");
+
+  // AND IT CANNOT BE ACTIVATED, however well everything else scores. This is the
+  // specification's sharpest line as a branch rather than a warning label.
+  const employment = assessEmployment([
+    { sourceUrl: "https://ex.co.uk/team", sourceType: "company_website", jobTitle: "Procurement Director", publishedAt: "2026-08-20T00:00:00.000Z", statesCurrent: true },
+    { sourceUrl: "https://ex.co.uk/news", sourceType: "company_website", jobTitle: "Procurement Director", publishedAt: "2026-08-21T00:00:00.000Z", statesCurrent: true },
+  ], asOf);
+  const scored = readiness({
+    icpFit: 100, employment, email: made.candidate,
+    evidence: [{ sourceUrl: "https://ex.co.uk/team", sourceDomain: "ex.co.uk", sourceType: "company_website", capturedAt: asOf, publishedBusinessContext: true }],
+    intentSignals: [{ signal: "Funding round", observedAt: "2026-08-25T00:00:00.000Z" }, { signal: "Recruiting", observedAt: "2026-08-24T00:00:00.000Z" }, { signal: "Contract award", observedAt: "2026-08-20T00:00:00.000Z" }],
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    refreshedAt: asOf, asOf,
+  });
+  assert.notEqual(scored.activation, "READY", `an inferred address reached READY at score ${scored.score}`);
+  assert.equal(scored.activation, "ENRICH");
+  assert.ok(scored.restrictions.some((r) => /published nowhere/i.test(r)),
+    "the restriction does not say the address was never published");
+});
+
+test("a contact point with no evidence is not a contact point, and a valid phone format is not a verification", async () => {
+  const { evidenceComplete, normalisePhone } = await import("../src/shared/contact-hunter.ts");
+
+  const noSource = evidenceComplete({
+    type: "EMAIL", value: "a@b.com", provenance: "confirmed", evidence: [], businessContextConfirmed: true,
+  });
+  assert.equal(noSource.ok, false, "an address claiming to be confirmed passed with no source URL");
+
+  const fakeProvider = evidenceComplete({
+    type: "EMAIL", value: "a@b.com", provenance: "provider",
+    evidence: [{ sourceUrl: "https://x", sourceDomain: "x", sourceType: "company_website", capturedAt: "", publishedBusinessContext: true }],
+    businessContextConfirmed: true,
+  });
+  assert.equal(fakeProvider.ok, false, "a provider-sourced value passed with no provider evidence record");
+
+  // A NUMBER IS NOT VERIFIED BY BEING WELL FORMED.
+  const formatted = normalisePhone("0113 496 0000", "GB", { businessContextConfirmed: true });
+  assert.equal(formatted.e164, "+441134960000", "the number was not normalised to E.164");
+  assert.equal(formatted.status, "PUBLISHED_UNVERIFIED",
+    "a correctly formatted number was reported as verified without a carrier lookup");
+  assert.match(formatted.why, /valid format is not a working line/i);
+
+  const carrier = normalisePhone("0113 496 0000", "GB", { businessContextConfirmed: true, carrierChecked: true, carrierKind: "landline" });
+  assert.equal(carrier.status, "VERIFIED_BUSINESS");
+
+  // No business context is not a business number, however well formed.
+  assert.equal(normalisePhone("0113 496 0000", "GB", {}).status, "UNVERIFIED");
+  // An unknown country is refused rather than guessed.
+  const unknown = normalisePhone("0113 496 0000", "ZZ", { businessContextConfirmed: true });
+  assert.equal(unknown.status, "INVALID");
+  assert.match(unknown.why, /rather than guessing/i);
+  // A suppressed or wrong number never comes back at all.
+  assert.equal(normalisePhone("0113 496 0000", "GB", { suppressed: true }).e164, null);
+  assert.equal(normalisePhone("0113 496 0000", "GB", { knownWrongNumber: true }).status, "WRONG_NUMBER");
+});
+
+test("conflicting employment evidence goes to a person rather than being averaged", async () => {
+  const { assessEmployment, readiness, EMPLOYMENT_STALE_DAYS } = await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T00:00:00.000Z";
+
+  const conflict = assessEmployment([
+    { sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "Procurement Director", statesCurrent: true },
+    { sourceUrl: "https://b/2", sourceType: "press_release", jobTitle: "Head of Estates", statesCurrent: true },
+  ], asOf);
+  assert.equal(conflict.status, "conflicting");
+  assert.equal(conflict.jobTitle, null, "a title was produced from sources that disagree");
+  assert.equal(conflict.confidence, 0);
+
+  // And the conflict BLOCKS — a wrong title in an opening line is the fastest
+  // route to a complaint, so it is not merely a deduction.
+  const blocked = readiness({
+    icpFit: 100, employment: conflict, evidence: [],
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    refreshedAt: asOf, asOf,
+  });
+  assert.equal(blocked.activation, "BLOCKED", "a record with contradicting job titles was activatable");
+
+  // A mention is not employment.
+  const mention = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "search_index", jobTitle: "Director", statesCurrent: false }], asOf);
+  assert.equal(mention.jobTitle, null, "a passing mention was treated as evidence of a current role");
+
+  // Age decays confidence rather than being ignored.
+  const old = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2023-01-01T00:00:00.000Z", statesCurrent: true }], asOf);
+  const fresh = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2026-08-20T00:00:00.000Z", statesCurrent: true }], asOf);
+  assert.ok(old.confidence < fresh.confidence, "a staff page from three years ago is as trusted as one from last week");
+  assert.equal(old.status, "stale");
+  assert.ok(EMPLOYMENT_STALE_DAYS <= 365, "the staleness window was widened past a year");
+});
+
+test("no score clears a legal block, and the readiness weights are the specification's", async () => {
+  const { readiness, READINESS_WEIGHTS, assessEmployment } = await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T00:00:00.000Z";
+
+  assert.equal(READINESS_WEIGHTS.reduce((s, w) => s + w.weight, 0), 100, "the readiness weights no longer sum to 100");
+  assert.deepEqual(Object.fromEntries(READINESS_WEIGHTS.map((w) => [w.key, w.weight])), {
+    icpFit: 25, roleConfidence: 15, emailVerification: 15, phoneVerification: 10,
+    sourceQuality: 10, freshness: 10, intent: 10, complianceEligibility: 5,
+  }, "the weights drifted from the specification");
+
+  const employment = assessEmployment([
+    { sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2026-08-25T00:00:00.000Z", statesCurrent: true },
+  ], asOf);
+  const evidence = [{ sourceUrl: "https://a/1", sourceDomain: "a", sourceType: "company_website", capturedAt: asOf, publishedBusinessContext: true }];
+  const email = { type: "EMAIL", value: "cfo@a.co.uk", provenance: "confirmed", evidence, emailStatus: "VERIFIED", businessContextConfirmed: true };
+  const base = { icpFit: 100, employment, email, evidence, refreshedAt: asOf, asOf };
+
+  const clean = readiness({ ...base, compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] } });
+  assert.notEqual(clean.activation, "BLOCKED", "a clean record was blocked");
+
+  // Each of these is absolute. There is no argument to readiness() that clears one.
+  const noBasis = readiness({ ...base, compliance: { canContact: false, lawfulBasis: "none", reasons: ["no lawful basis"] } });
+  assert.equal(noBasis.activation, "BLOCKED", "a record with no lawful basis was activatable");
+
+  const suppressed = readiness({
+    ...base, compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    suppression: { valueHash: "x", scope: "PLATFORM", channel: "ALL", reason: "asked to stop", requestedAt: asOf, permanent: true },
+  });
+  assert.equal(suppressed.activation, "BLOCKED", "a suppressed contact was activatable");
+  assert.ok(suppressed.blocks.some((b) => /asked to stop/.test(b)), "the block does not carry the objector's reason");
+
+  const doNotContact = readiness({
+    ...base, email: { ...email, emailStatus: "DO_NOT_CONTACT" },
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+  });
+  assert.equal(doNotContact.activation, "BLOCKED");
+});
+
+test("an objection is hashed, platform-wide and cannot be outrun by another tenant", async () => {
+  const { valueHash, suppressedBy } = await import("../src/shared/contact-hunter.ts");
+  const { recordObjection, listSuppressions, __resetContactHunter } =
+    await import("../src/backend/contact-hunter-store.ts");
+  __resetContactHunter();
+  const at = "2026-08-27T00:00:00.000Z";
+
+  // The list holds hashes. A do-not-contact list of plaintext addresses is the
+  // most valuable marketing list in the building.
+  const r = await recordObjection({ value: "Someone@Example.COM", reason: "Asked to stop", requestedAt: at });
+  assert.equal(r.ok, true);
+  assert.equal(r.suppression.scope, "PLATFORM", "an objection defaulted to one tenant only");
+  assert.equal(r.suppression.permanent, true);
+  const list = await listSuppressions();
+  assert.ok(!JSON.stringify(list).toLowerCase().includes("someone@example.com"),
+    "the suppression list stored the address in plain text");
+
+  // Case and whitespace do not get past it.
+  assert.equal(valueHash("  SOMEONE@example.com "), valueHash("someone@example.com"));
+  for (const tenant of ["brandA", "brandB", "brandC"]) {
+    const hit = suppressedBy("someone@example.com", list, { tenantId: tenant, channel: "EMAIL" });
+    assert.ok(hit, `tenant ${tenant} could still contact somebody who objected to another tenant`);
+    assert.equal(hit.scope, "PLATFORM");
+  }
+
+  // A tenant-scoped objection stays with that tenant.
+  await recordObjection({ value: "narrow@example.com", reason: "Only this brand", requestedAt: at, scope: "TENANT", tenantId: "brandA" });
+  const list2 = await listSuppressions();
+  assert.ok(suppressedBy("narrow@example.com", list2, { tenantId: "brandA", channel: "EMAIL" }), "a tenant-scoped objection did not apply to its own tenant");
+  assert.equal(suppressedBy("narrow@example.com", list2, { tenantId: "brandB", channel: "EMAIL" }), null);
+
+  // And it needs a reason, and a value.
+  assert.equal((await recordObjection({ value: "", reason: "x", requestedAt: at })).ok, false);
+  assert.equal((await recordObjection({ value: "a@b.com", reason: "   ", requestedAt: at })).ok, false);
+  __resetContactHunter();
+});
+
+test("prohibited categories are refused by field name at any depth, and an unreviewed source permits nothing", async () => {
+  const { screenIntake, PROHIBITED_CATEGORIES } = await import("../src/shared/contact-hunter.ts");
+  const { defaultPolicy } = await import("../src/backend/contact-hunter-store.ts");
+
+  assert.equal(screenIntake({ person: { fullName: "A", jobTitle: "B" } }).ok, true, "an ordinary payload was refused");
+
+  // Nested, because that is how one actually arrives.
+  const nested = screenIntake({ records: { batch: [{ person: { homeAddress: "12 Elm Row" } }] } });
+  assert.equal(nested.ok, false, "a home address nested three levels deep was accepted");
+
+  for (const field of ["password", "health", "ethnicity", "childData", "breachedData", "biometric", "criminalRecord"]) {
+    assert.equal(screenIntake({ [field]: "x" }).ok, false, `"${field}" was accepted`);
+  }
+  assert.ok(PROHIBITED_CATEGORIES.includes("homeAddress"));
+  assert.ok(PROHIBITED_CATEGORIES.includes("childData"));
+
+  // UNREVIEWED IS NOT PERMISSION — the opposite of the usual arrangement, where
+  // an unknown source is fair game because nothing said otherwise.
+  const p = defaultPolicy("nobody-has-looked-at-this.example");
+  assert.equal(p.crawlPermission, "none", "a domain nobody has reviewed could be crawled");
+  assert.equal(p.termsReviewStatus, "unreviewed");
+  assert.equal(p.requestsPerMinute, 0);
+  assert.deepEqual(p.permittedFields, [], "an unreviewed domain permitted fields by default");
+});
+
+test("a source that produces bad data turns itself off, but not on a handful of results", async () => {
+  const { judgeSource, MIN_QUALITY_SAMPLE, MAX_BOUNCE_RATE, MAX_COMPLAINT_RATE } =
+    await import("../src/shared/contact-hunter.ts");
+
+  // The same lesson as the payout trust check: every threshold carries a minimum
+  // volume, or a good source is switched off in its first week.
+  const tiny = judgeSource({ sourceDomain: "new.example", contactsProduced: 3, bounces: 3, wrongNumbers: 0, complaints: 1 });
+  assert.equal(tiny.enabled, true, "a source was disabled on three results");
+  assert.equal(tiny.bounceRate, null, "a rate was reported from a sample too small to support one");
+  assert.ok(MIN_QUALITY_SAMPLE >= 25, "the minimum sample was lowered below the point where a rate means anything");
+
+  const bad = judgeSource({ sourceDomain: "bad.example", contactsProduced: 300, bounces: 45, wrongNumbers: 5, complaints: 2 });
+  assert.equal(bad.enabled, false, "a source bouncing 15% of its contacts stayed enabled");
+  assert.match(bad.why, /bounce rate/i);
+
+  const complainy = judgeSource({ sourceDomain: "spam.example", contactsProduced: 5000, bounces: 10, wrongNumbers: 0, complaints: 30 });
+  assert.equal(complainy.enabled, false, "a source generating complaints stayed enabled on a low bounce rate");
+
+  const good = judgeSource({ sourceDomain: "good.example", contactsProduced: 400, bounces: 8, wrongNumbers: 20, complaints: 0 });
+  assert.equal(good.enabled, true, `a clean source was disabled: ${good.why}`);
+  assert.ok(MAX_BOUNCE_RATE <= 0.05 && MAX_COMPLAINT_RATE <= 0.001, "the tolerances were widened past what a sending reputation survives");
+});
+
+test("the contact engine reuses the verification and compliance engines rather than growing its own", async () => {
+  const route = readFileSync(new URL("../src/app/api/contact-hunter/route.ts", import.meta.url), "utf8");
+  const rules = readFileSync(new URL("../src/shared/contact-hunter.ts", import.meta.url), "utf8");
+
+  // ONE SOURCE OF TRUTH PER CONCEPT. A second email verifier would drift from
+  // the first, and the first is the one the email sender already consults.
+  assert.match(route, /from "@\/backend\/lead-harvest"/, "the route grew its own email verification");
+  assert.match(route, /verifyEmail\(/, "the twelve-check verifier is not being called");
+  assert.match(route, /assessCompliance\(/, "the UK\/EU\/US lawful-basis engine is not being called");
+  assert.match(route, /isPersonalProvider\(/, "personal-provider detection was reimplemented");
+
+  // And the rules file must not have quietly grown a copy of either.
+  //
+  // Written to catch a DECISION, not a value. The first version of this
+  // assertion matched `lawfulBasis: "legitimate_interest"` anywhere, which the
+  // demo contains because it PASSES a verdict in — so the test failed on the
+  // rules module correctly consuming lead-harvest's answer. What a duplicate
+  // would actually look like is the machinery: a country table, a CAN-SPAM
+  // list, a disposable-domain list, or a function that returns a basis.
+  const rulesCode = codeOf(rules);
+  assert.doesNotMatch(rulesCode, /CAN_?SPAM|PECR_|UK_EU\s*=|new Set\(\["GB"/,
+    "the rules module grew its own jurisdiction table beside lead-harvest's");
+  assert.doesNotMatch(rulesCode, /function\s+\w*(assessCompliance|lawfulBasisFor|decideBasis)/,
+    "the rules module grew its own lawful-basis decision beside lead-harvest's");
+  assert.doesNotMatch(rulesCode, /DISPOSABLE|disposableDomains|mxByDomain|bounceProbability\s*=/,
+    "the rules module grew its own email verification beside lead-harvest's");
+
+  // The activation gate is the specification's boolean with every term visible.
+  const { activationGate } = await import("../src/shared/contact-hunter.ts");
+  const allTrue = {
+    sourcePermitted: true, collectionLawful: true, purposeCompatible: true,
+    destinationRulePassed: true, suppression: null, channelAllowed: true, tenantIdentityComplete: true,
+  };
+  assert.equal(activationGate(allTrue).allowed, true);
+  assert.equal(activationGate(allTrue).checks.length, 7, "a term of CONTACT_ALLOWED went missing");
+  for (const term of Object.keys(allTrue).filter((k) => k !== "suppression")) {
+    const r = activationGate({ ...allTrue, [term]: false });
+    assert.equal(r.allowed, false, `CONTACT_ALLOWED passed with ${term} false`);
+    assert.ok(r.blockers.length > 0, `${term} blocked without saying why`);
+  }
+});

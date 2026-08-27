@@ -101,6 +101,7 @@ export const NAV = [
       // Market intelligence.
       { href: "/dashboard/discover", label: "Market Intel", icon: Search },
       { href: "/dashboard/prospecting", label: "LeadWar Room", icon: Crosshair },
+      { href: "/dashboard/contact-hunter", label: "Contact Hunter", icon: Search },
       // Campaigns.
       { href: "/dashboard/warfare", label: "Campaign Warfare (Autopilot)", icon: Swords },
       { href: "/dashboard/war-room", label: "Live Campaign Board", icon: Crosshair },
