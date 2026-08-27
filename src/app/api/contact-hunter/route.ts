@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveBrandAccess } from "@/backend/brand-access";
+import { huntByCriteria, huntCompany, learnSitePattern } from "@/backend/contact-hunt-run";
+import { requireAuth } from "@/backend/guard";
+import { meterAction } from "@/backend/wallet";
 import {
   listSuppressions, recordObjection, getSourcePolicy, setSourcePolicy,
   recordOutcome, sourceVerdicts, defaultPolicy, type SourcePolicy,
@@ -39,6 +42,12 @@ import {
 // sender already consults.
 
 export const runtime = "nodejs";
+// A hunt reads up to fifteen companies' own sites, one at a time — sequential on
+// purpose, because a burst of parallel requests to a small firm's server is the
+// behaviour that gets a crawler blocked for everybody. Six pages each at a nine-
+// second ceiling needs room, and without a declared duration the platform kills
+// the function mid-run AFTER the wallet has been debited.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
@@ -238,6 +247,68 @@ export async function POST(req: NextRequest) {
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const by = typeof body.by === "string" && body.by.trim() ? body.by.trim() : "you";
 
+  // ── THE PART THAT ACTUALLY GOES AND LOOKS. ───────────────────────────────
+  //
+  // Metered before it runs, because it spends a search credit and other
+  // people's bandwidth. Demo deployments are not metered (meterAction returns
+  // allowed when accounts are not enforced), so the tool keeps working with no
+  // keys — it simply reports that live search is unavailable rather than
+  // inventing a company.
+  if (action === "hunt" || action === "hunt-company" || action === "learn-pattern") {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+    const suppressions = await listSuppressions();
+
+    if (action === "learn-pattern") {
+      const website = typeof body.website === "string" ? body.website.trim() : "";
+      if (!/^https?:\/\//i.test(website)) return NextResponse.json({ error: "learn-pattern needs the company's website URL" }, { status: 400 });
+      const meter = await meterAction(auth, "search", 1);
+      if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+      const r = await learnSitePattern(website);
+      return NextResponse.json({
+        ...r,
+        note: r.finding.pattern
+          ? `${r.finding.why} Learned from ${r.readFrom.length} of their own pages. This is a convention, NOT permission to write to everybody in the building — generating an address is a separate, deliberate step and what it produces is marked inferred.`
+          : r.finding.why,
+      });
+    }
+
+    if (action === "hunt-company") {
+      const company = typeof body.company === "string" ? body.company.trim() : "";
+      if (!company) return NextResponse.json({ error: "hunt-company needs a company name" }, { status: 400 });
+      const meter = await meterAction(auth, "enrich", 1);
+      if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+      const result = await huntCompany({
+        company,
+        town: typeof body.where === "string" ? body.where : undefined,
+        trade: typeof body.what === "string" ? body.what : undefined,
+        website: typeof body.website === "string" ? body.website : undefined,
+        country: typeof body.country === "string" ? body.country : "GB",
+        wantedTitles: Array.isArray(body.titles) ? body.titles.map((t) => String(t)) : [],
+        suppressions, tenantId: brandId,
+      });
+      return NextResponse.json({ result, metered: meter.metered, balanceAcu: meter.balanceAcu });
+    }
+
+    const what = typeof body.what === "string" ? body.what.trim() : "";
+    if (!what) return NextResponse.json({ error: "hunt needs something to look for — a trade, an industry or a company name" }, { status: 400 });
+    const count = typeof body.count === "number" ? Math.min(Math.max(1, body.count), 15) : 5;
+    // Charged per company READ, quoted before the run by the surface.
+    const meter = await meterAction(auth, "enrich", count);
+    if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+
+    const report = await huntByCriteria({
+      what,
+      where: typeof body.where === "string" ? body.where : undefined,
+      count,
+      wantedTitles: Array.isArray(body.titles) ? body.titles.map((t) => String(t)) : [],
+      country: typeof body.country === "string" ? body.country : "GB",
+      suppressions, tenantId: brandId,
+    });
+    return NextResponse.json({ ...report, metered: meter.metered, balanceAcu: meter.balanceAcu });
+  }
+
   if (action === "suppressed") {
     const value = typeof body.value === "string" ? body.value : "";
     const channel = body.channel === "PHONE" ? "PHONE" : "EMAIL";
@@ -269,7 +340,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ stats, sources: await sourceVerdicts() });
   }
 
-  return NextResponse.json({ error: "Unknown action — use pattern, candidate, employment, phone, verify-email, compliance, score, gate, evidence-check, objection, suppressed, policy, set-policy, outcome or sources" }, { status: 400 });
+  return NextResponse.json({ error: "Unknown action — use hunt, hunt-company, learn-pattern, pattern, candidate, employment, phone, verify-email, compliance, score, gate, evidence-check, objection, suppressed, policy, set-policy, outcome or sources" }, { status: 400 });
 }
 
 export async function GET() {
@@ -309,7 +380,7 @@ export async function GET() {
       maxWrongNumberRate: MAX_WRONG_NUMBER_RATE,
     },
     unreviewedSourcePolicy: "A domain nobody has reviewed permits nothing. Unreviewed is not permission.",
-    actions: ["pattern", "candidate", "employment", "phone", "verify-email", "compliance", "score", "gate", "evidence-check", "objection", "suppressed", "policy", "set-policy", "outcome", "sources"],
+    actions: ["hunt", "hunt-company", "learn-pattern", "pattern", "candidate", "employment", "phone", "verify-email", "compliance", "score", "gate", "evidence-check", "objection", "suppressed", "policy", "set-policy", "outcome", "sources"],
     demo: demoContactHunter(),
   });
 }
