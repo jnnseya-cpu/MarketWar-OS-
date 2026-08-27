@@ -21269,3 +21269,963 @@ test("the trust check counts real signals and refuses to invent the one it canno
   assert.equal(verdict.verdict, "clear", "a creator with no history is treated as a fraudster");
   assert.ok(verdict.evidence, "the verdict carries no evidence, so it cannot be explained");
 });
+
+// ---------------------------------------------------------------------------
+// MARKET EXIT CAPTURE
+//
+// Every test here is a refusal. This is the only engine in the platform that is
+// wrong at a NAMED THIRD PARTY's expense — publishing "permanently closed"
+// about a business that is trading is a defamation with an advertising budget
+// behind it — so what is worth guarding is not that it finds closures, but that
+// it declines to.
+// ---------------------------------------------------------------------------
+
+test("a closure is never published on one weak signal, and a member of the public is never half the case", async () => {
+  const {
+    assessClosure, QUALIFYING_TIERS, PUBLISH_CONFIDENCE_FLOOR, MAX_CONFIDENCE,
+  } = await import("../src/shared/market-exit.ts");
+  const at = "2026-08-27T00:00:00.000Z";
+  const sig = (source, signalType, confidence) => ({
+    businessId: "b1", source, signalType, observedAt: "2026-08-20T00:00:00.000Z", confidence,
+  });
+
+  // One source, however confident the caller says it is.
+  const one = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("business_website", "closure_announcement", 1)] });
+  assert.equal(one.publishable, false, "a single non-official source published a closure");
+  assert.equal(one.status, "UNVERIFIED", "an unpublishable assessment kept the damaging status");
+
+  // TWO GOOGLE SIGNALS ARE ONE SIGNAL. The Maps listing reads from the Business
+  // Profile, so the second corroborates nothing the first did not already say.
+  const google = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("google_business_profile", "status_permanently_closed", 0.9),
+    sig("google_maps_status", "status_permanently_closed", 0.9),
+  ] });
+  assert.equal(google.publishable, false, "two readings of the same Google record counted as two independent sources");
+  assert.equal(google.independentGroups.length, 1, "the independence grouping is not collapsing same-origin signals");
+
+  // THE ONE THIS ENGINE WAS BUILT WRONG FIRST TIME. Google plus a stranger's web
+  // form published PERMANENTLY_CLOSED about a named dental practice at 0.9,
+  // because the crowd counted as the second independent source. A report from a
+  // member of the public is the easiest signal in the system to aim at a
+  // competitor and can never be half of a case.
+  const withCrowd = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("google_business_profile", "status_permanently_closed", 0.9),
+    sig("user_report", "closure_announcement", 1),
+  ] });
+  assert.equal(withCrowd.publishable, false, "a public web-form report became the second independent source");
+  assert.match(withCrowd.why, /member of the public/i, "the refusal does not say why the report did not count");
+  assert.ok(!QUALIFYING_TIERS.includes("reported"), "the reported tier was allowed back into the two-source rule");
+
+  // What DOES publish: an official record, or two genuinely independent sources.
+  const official = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("company_register", "dissolution", 0.95)] });
+  assert.equal(official.publishable, true, "an official register entry did not publish");
+  assert.equal(official.status, "PERMANENTLY_CLOSED");
+
+  const twoReal = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("business_website", "closure_announcement", 0.9),
+    sig("news_report", "closure_announcement", 0.75),
+  ] });
+  assert.equal(twoReal.publishable, true, "two genuinely independent sources did not publish");
+
+  // Confidence is never asserted into existence, and never reaches certainty.
+  const overclaim = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("user_report", "closure_announcement", 1)] });
+  assert.ok(overclaim.evidence[0].clamped, "a caller's confidence of 1 on a web-form report was taken at face value");
+  assert.ok(overclaim.evidence[0].weight <= 0.3, "the source ceiling did not apply");
+
+  const certain = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    sig("company_register", "dissolution", 0.97),
+    sig("official_gazette", "dissolution", 0.97),
+    sig("business_website", "closure_announcement", 0.92),
+  ] });
+  assert.ok(certain.confidenceScore <= MAX_CONFIDENCE, "the engine reported certainty about a thing it inferred");
+  assert.ok(MAX_CONFIDENCE < 1, "the confidence ceiling was raised to 1");
+  assert.ok(PUBLISH_CONFIDENCE_FLOOR >= 0.8, "the publish floor was lowered");
+
+  // A SOURCE NOBODY REVIEWED IS WORTH NOTHING — not "a little".
+  const invented = assessClosure({ businessId: "b1", assessedAt: at, signals: [sig("my_scraper", "dissolution", 1)] });
+  assert.equal(invented.evidence[0].weight, 0, "an unrecognised source carried weight");
+  assert.equal(invented.publishable, false);
+});
+
+test("a signal that says the business is still trading stops everything", async () => {
+  const { assessClosure, createOpportunity } = await import("../src/shared/market-exit.ts");
+  const at = "2026-08-27T00:00:00.000Z";
+
+  const contradicted = assessClosure({ businessId: "b1", assessedAt: at, signals: [
+    { businessId: "b1", source: "company_register", signalType: "dissolution", observedAt: "2026-08-01T00:00:00.000Z", confidence: 0.95 },
+    { businessId: "b1", source: "business_social", signalType: "recent_activity", observedAt: "2026-08-26T00:00:00.000Z", confidence: 0.8 },
+  ] });
+  assert.equal(contradicted.publishable, false, "a strike-off beside evidence of trading still published");
+  assert.equal(contradicted.humanReviewRequired, true, "a contradiction did not reach a person");
+  assert.equal(contradicted.contradictions.length, 1);
+
+  // And nothing may be BUILT on an unpublished assessment — the gate is the
+  // absence of an opportunity, not a warning banner on one.
+  const built = createOpportunity({
+    assessment: contradicted,
+    closedBusiness: { id: "b1", name: "X", category: "Plumber", city: "Leeds", postcodePrefix: "LS6" },
+    eligibleReplacements: 3, createdAt: at,
+  });
+  assert.equal(built.ok, false, "an opportunity was created from an unpublished closure");
+
+  // A struggling business is not an opportunity either.
+  const atRisk = assessClosure({ businessId: "b2", assessedAt: at, signals: [
+    { businessId: "b2", source: "company_register", signalType: "strike_off_notice", observedAt: "2026-08-01T00:00:00.000Z", confidence: 0.95 },
+  ] });
+  const early = createOpportunity({
+    assessment: atRisk,
+    closedBusiness: { id: "b2", name: "Y", category: "Plumber", city: "Leeds", postcodePrefix: "LS6" },
+    eligibleReplacements: 3, createdAt: at,
+  });
+  assert.equal(early.ok, false, "a business that is closing soon but still trading became a campaign target");
+  assert.match(early.error, /still serving/i, "the refusal does not say why a struggling business is off limits");
+});
+
+test("displaced demand is counted or it is null — there is no fallback estimate", async () => {
+  const { estimateDisplacedDemand } = await import("../src/shared/market-exit.ts");
+  const src = readFileSync(new URL("../src/shared/market-exit.ts", import.meta.url), "utf8");
+
+  const nothing = estimateDisplacedDemand({});
+  assert.equal(nothing.customersPerMonth, null, "a demand figure appeared with nothing counted behind it");
+  assert.equal(nothing.monthlyValueGbp, null, "a money figure appeared with nothing counted behind it");
+  assert.ok(nothing.missing.length > 0, "the null does not say what to supply");
+
+  const counted = estimateDisplacedDemand({ monthlyBrandedSearches: 140 });
+  assert.equal(counted.customersPerMonth, 140, "a counted search volume did not produce a demand figure");
+  assert.equal(counted.monthlyValueGbp, null, "a money figure was produced without a counted order value");
+  assert.ok(counted.basis.some((b) => /searches a month/i.test(b)), "the basis does not name where the number came from");
+
+  const valued = estimateDisplacedDemand({ monthlyBrandedSearches: 140, averageOrderValueGbp: 90 });
+  assert.equal(valued.monthlyValueGbp, 140 * 90, "the value is not the counted inputs multiplied");
+
+  // No industry averages, no assumed conversion rates, no "typical" anything —
+  // the sentence that sells this engine is the one most likely to be invented.
+  assert.doesNotMatch(codeOf(src).replace(/estimateDisplacedDemand/g, ""),
+    /industryAverage|typicalConversion|assumedRate|DEFAULT_AOV|averageSpend\s*=/,
+    "a fallback assumption was added to the demand estimate");
+});
+
+test("the match formula is the specification's, and eligibility is a gate rather than a penalty", async () => {
+  const { MATCH_WEIGHTS, matchReplacements, demoMarketExit } = await import("../src/shared/market-exit.ts");
+
+  assert.equal(MATCH_WEIGHTS.reduce((s, w) => s + w.weight, 0), 100, "the match weights no longer sum to 100");
+  const byKey = Object.fromEntries(MATCH_WEIGHTS.map((w) => [w.key, w.weight]));
+  assert.deepEqual(byKey, {
+    serviceSimilarity: 30, geographicCoverage: 20, availability: 15,
+    reputation: 15, priceCompatibility: 10, responseConversion: 10,
+  }, "the weights drifted from the specification");
+
+  const d = demoMarketExit();
+  const opportunity = d.opportunity;
+  assert.ok(opportunity, "the demo produced no opportunity to match against");
+
+  // An ineligible business is EXCLUDED, not ranked low. A dormant, unverified
+  // business scoring 71 still appears in a list somebody sends a customer to.
+  const dormant = d.matched.ineligible.find((i) => i.name === "Dormant Drains Ltd");
+  assert.ok(dormant, "a dormant, unverified business was scored instead of excluded");
+  assert.ok(dormant.reasons.length >= 2, "the exclusion does not say why, so the business cannot be told");
+  assert.ok(!d.matched.matches.some((m) => m.name === "Dormant Drains Ltd"),
+    "an ineligible business appeared in the ranked matches");
+
+  // Nothing that could not be measured is quietly assumed away.
+  const partial = d.matched.matches.find((m) => m.unmeasured.length > 0);
+  assert.ok(partial, "no match reports what it could not measure");
+
+  // No eligible business is a coverage gap, not an empty list.
+  const empty = matchReplacements(opportunity, []);
+  assert.equal(empty.matches.length, 0);
+  assert.match(empty.note, /coverage gap/i, "an empty result does not read as a recruitment signal");
+});
+
+test("leads go to the best fit, and a subscription plan can never buy its way past that", async () => {
+  const { allocateLeads, TIER_MAX_INFLUENCE } = await import("../src/shared/market-exit.ts");
+  const m = (id, name, matchScore) => ({ candidateId: id, name, matchScore, factors: {}, reasons: [], unmeasured: [] });
+
+  // The poor fit is on the TOP plan and still loses, decisively.
+  const paid = allocateLeads({
+    leads: 20,
+    matches: [m("a", "Great fit", 95), m("b", "Poor fit", 30)],
+    candidates: [{ id: "a", planId: "starter" }, { id: "b", planId: "global" }],
+  });
+  const great = paid.allocations.find((x) => x.name === "Great fit");
+  const poor = paid.allocations.find((x) => x.name === "Poor fit");
+  assert.ok(great.leads > poor.leads * 2, `the top plan bought its way past a far better match (${great.leads} v ${poor.leads})`);
+  assert.ok(TIER_MAX_INFLUENCE <= 0.2, "the tier influence cap was raised past the point where payment decides");
+
+  // MAGNITUDE, NOT JUST ORDER. The first version handed out one lead at a time
+  // in weight order, which split 15 leads 8/7 between a 95 and a 30 — a
+  // round-robin wearing a ranking.
+  assert.ok(great.leads >= 13, `a 95 against a 30 should not be close (${great.leads}/${great.leads + poor.leads})`);
+
+  // Capacity is a ceiling, not another weight, and the overflow is reported.
+  const capped = allocateLeads({
+    leads: 20,
+    matches: [m("a", "Small but perfect", 99)],
+    candidates: [{ id: "a", planId: "growth", capacityPerMonth: 5 }],
+  });
+  assert.equal(capped.allocations[0].leads, 5, "a business was sent more work than it said it could take");
+  assert.equal(capped.unallocated, 15, "leads nobody could serve were silently dropped");
+  assert.match(capped.note, /recruitment signal/i, "unserved demand does not read as a recruitment signal");
+});
+
+test("nothing implies affiliation, and the mandatory disclosure is not a violation of itself", async () => {
+  const { screenPublication, REQUIRED_DISCLOSURE, PROHIBITED_INPUT_FIELDS } = await import("../src/shared/market-exit.ts");
+
+  // THE DEFECT THIS PINS. The disclosure line contains "endorsed by" and
+  // "successor to", so the first version of the scanner refused every correctly
+  // labelled page — the mandatory text made the control fail. Same class as a
+  // test that fails on its own comment.
+  const clean = screenPublication({
+    copy: `Looking for an alternative to Kingsway Plumbing? Northgate Heating covers the same area. ${REQUIRED_DISCLOSURE}`,
+    closedBusinessName: "Kingsway Plumbing",
+  });
+  assert.equal(clean.ok, true, `correctly labelled copy was refused: ${JSON.stringify(clean.refusals)}`);
+
+  // A business denying a relationship is not claiming one.
+  const denial = screenPublication({ copy: `We are not a successor to Kingsway Plumbing. ${REQUIRED_DISCLOSURE}` });
+  assert.equal(denial.ok, true, "a denial of affiliation was read as a claim of affiliation");
+
+  // The claims that must never ship.
+  for (const bad of [
+    "We have taken over their bookings.",
+    "Now trading as Northgate Heating.",
+    "The official successor to Kingsway Plumbing.",
+    "In partnership with Kingsway Plumbing.",
+  ]) {
+    const r = screenPublication({ copy: `${bad} ${REQUIRED_DISCLOSURE}` });
+    assert.equal(r.ok, false, `"${bad}" was allowed to publish`);
+  }
+
+  // Missing disclosure is a refusal, not a warning.
+  const undisclosed = screenPublication({ copy: "Looking for an alternative to Kingsway Plumbing?" });
+  assert.equal(undisclosed.ok, false, "copy naming a closed business published without the disclosure");
+
+  // Outreach without a recorded consent produces nothing.
+  const noConsent = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, isOutreach: true });
+  assert.equal(noConsent.ok, false, "outreach went out with no recorded consent");
+  const withConsent = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, isOutreach: true, consentRecorded: true });
+  assert.equal(withConsent.ok, true);
+
+  // The closed company's customer list is refused BY FIELD NAME, at the door.
+  for (const field of PROHIBITED_INPUT_FIELDS) {
+    const r = screenPublication({ copy: `Hello. ${REQUIRED_DISCLOSURE}`, payload: { [field]: ["a@b.com"] } });
+    assert.equal(r.ok, false, `"${field}" was accepted`);
+  }
+});
+
+test("a captured lead cannot reach a business without a recorded consent, and a dispute stops everything", async () => {
+  const { advance } = await import("../src/shared/market-exit.ts");
+  const { observe, moveState, raiseDispute, resolveDispute, __resetMarketExit } =
+    await import("../src/backend/market-exit-store.ts");
+  __resetMarketExit();
+
+  // THE ONE TRANSITION THE WHOLE STATE MACHINE EXISTS FOR.
+  const skip = advance("lead_captured", "lead_distributed");
+  assert.equal(skip.ok, false, "a captured lead could be distributed without a consent step");
+  assert.match(skip.error, /no path around this one/i, "the refusal does not say the route is closed");
+  assert.equal(advance("lead_captured", "consent_recorded").ok, true);
+  assert.equal(advance("consent_recorded", "lead_distributed").ok, true);
+
+  const at = "2026-08-27T00:00:00.000Z";
+  const sig = (source, signalType, confidence) => ({
+    businessId: "biz", source, signalType, observedAt: "2026-08-20T00:00:00.000Z", confidence,
+  });
+
+  await observe({ brandId: "brand1", businessId: "biz", businessName: "Kingsway Plumbing", at,
+    signals: [sig("company_register", "dissolution", 0.95)] });
+  assert.equal((await moveState({ brandId: "brand1", businessId: "biz", to: "verified", by: "t", at })).ok, true);
+
+  // Signals accumulate; a re-crawl cannot inflate a case by repeating itself.
+  const again = await observe({ brandId: "brand1", businessId: "biz", businessName: "Kingsway Plumbing", at,
+    signals: [sig("company_register", "dissolution", 0.95), sig("business_website", "closure_announcement", 0.9)] });
+  assert.equal(again.record.signals.length, 2, "a repeated signal was stored twice and counted twice");
+
+  // §8 — the business says it is still trading. No proof required to PAUSE us:
+  // we published something about them, so their objection is enough to stop.
+  const disputed = await raiseDispute({ brandId: "brand1", businessId: "biz", raisedBy: "owner@kingsway", reason: "We are trading.", at });
+  assert.equal(disputed.ok, true);
+  assert.equal(disputed.record.state, "disputed");
+
+  const blocked = await moveState({ brandId: "brand1", businessId: "biz", to: "opportunity_created", by: "t", at });
+  assert.equal(blocked.ok, false, "a record kept moving while a dispute stood against it");
+
+  const assessed = await (await import("../src/backend/market-exit-store.ts")).assess("brand1", "biz", at);
+  assert.equal(assessed.publishable, false, "an official record still published while disputed");
+
+  // Upheld means withdrawn, not corrected-and-carry-on.
+  const upheld = await resolveDispute({ brandId: "brand1", businessId: "biz", resolution: "upheld", note: "They are trading.", by: "t", at });
+  assert.equal(upheld.ok, true);
+  assert.equal(upheld.record.state, "withdrawn", "a classification that was wrong resumed from where it left off");
+
+  // A resolution needs a reason, or the same dispute comes back.
+  __resetMarketExit();
+  await observe({ brandId: "b2", businessId: "z", businessName: "Z", at, signals: [sig("company_register", "dissolution", 0.95)] });
+  await raiseDispute({ brandId: "b2", businessId: "z", raisedBy: "o", reason: "Wrong.", at });
+  const noNote = await resolveDispute({ brandId: "b2", businessId: "z", resolution: "rejected", note: "  ", by: "t", at });
+  assert.equal(noNote.ok, false, "a dispute was closed with no explanation");
+});
+
+test("the capture campaign refuses its own copy rather than shipping it with a warning", async () => {
+  const { buildCampaign } = await import("../src/backend/market-exit-campaign.ts");
+  const { demoMarketExit, REQUIRED_DISCLOSURE } = await import("../src/shared/market-exit.ts");
+  const d = demoMarketExit();
+
+  const plan = buildCampaign({
+    opportunity: d.opportunity,
+    match: d.matched.matches[0],
+    destinationUrl: "https://example.com/quote",
+  });
+
+  assert.ok(plan.assets.length >= 5, "the campaign produced almost nothing");
+  for (const a of plan.assets) {
+    assert.equal(a.disclosure, REQUIRED_DISCLOSURE, `${a.kind} does not carry the disclosure`);
+  }
+
+  // No outreach without consent, and it is ABSENT rather than present-and-blocked:
+  // an unsent message sitting in a plan is a message somebody sends.
+  assert.ok(!plan.assets.some((a) => a.kind === "outreach_message"),
+    "an outreach message was produced with no recorded consent");
+  assert.ok(plan.blockers.some((b) => /consent/i.test(b)), "the plan does not say why there is no outreach");
+
+  const consented = buildCampaign({
+    opportunity: d.opportunity, match: d.matched.matches[0],
+    destinationUrl: "https://example.com/quote", consentRecorded: true,
+  });
+  assert.ok(consented.assets.some((a) => a.kind === "outreach_message"), "a recorded consent still produced no outreach");
+
+  // It reuses the SEO engine rather than growing a second page builder.
+  const src = readFileSync(new URL("../src/backend/market-exit-campaign.ts", import.meta.url), "utf8");
+  assert.match(src, /from "@\/backend\/programmatic-seo"/, "the campaign grew its own page builder");
+  assert.ok(plan.assets.filter((a) => a.page).length >= 3, "no page specs came back from the SEO engine");
+
+  // A campaign with nowhere to send a lead says so.
+  const noDestination = buildCampaign({ opportunity: d.opportunity, match: d.matched.matches[0] });
+  assert.ok(noDestination.blockers.some((b) => /destination/i.test(b)),
+    "a campaign that captures nothing did not say so");
+});
+
+test("every engine in the registry is reachable from the command index", async () => {
+  const { ENGINE_REGISTRY, ENGINE_CATEGORIES, enginesByCategory } =
+    await import("../src/shared/engine-registry.ts");
+
+  // THE DEFECT THIS PINS. "Autonomy & Orchestration" was declared as a category
+  // and three engines were filed under it, but it was missing from
+  // ENGINE_CATEGORIES — so enginesByCategory() silently dropped Agent Chains,
+  // Brand Memory and Growth Hubs. Shipped engines with no way to find them, and
+  // the same defect as every other one here: a value defined on one side of a
+  // boundary and never carried across.
+  const grouped = enginesByCategory();
+  const reachable = new Set(Object.values(grouped).flat().map((e) => e.id));
+  const missing = ENGINE_REGISTRY.filter((e) => !reachable.has(e.id)).map((e) => `${e.id} (${e.category})`);
+  assert.deepEqual(missing, [], `engines in the registry that no category lists: ${missing.join(", ")}`);
+
+  const declared = new Set(ENGINE_REGISTRY.map((e) => e.category));
+  for (const c of declared) {
+    assert.ok(ENGINE_CATEGORIES.includes(c), `"${c}" has engines filed under it but is not in ENGINE_CATEGORIES`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CONTACT HUNTER
+//
+// The specification's own acceptance criteria, as tests. Every one is a
+// refusal, because the failure mode of a contact database is not that it finds
+// too little — it is that it presents a guess as a fact, and somebody sends
+// ten thousand messages on the strength of it.
+// ---------------------------------------------------------------------------
+
+test("an inferred address is never presented or activated as a confirmed one", async () => {
+  const { learnPattern, candidateFromPattern, readiness, MIN_PATTERN_SAMPLE, assessEmployment } =
+    await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T12:00:00.000Z";
+
+  // A convention needs a real sample. Two addresses is a coincidence, and a
+  // coincidence here becomes a hundred generated addresses in strangers' inboxes.
+  const thin = learnPattern([
+    { email: "a.b@x.co.uk", first: "A", last: "B" },
+    { email: "c.d@x.co.uk", first: "C", last: "D" },
+  ]);
+  assert.equal(thin.pattern, null, `a pattern was offered on ${thin.sampleSize} addresses`);
+  assert.ok(MIN_PATTERN_SAMPLE >= 3, "the minimum pattern sample was lowered below the point where it means anything");
+
+  const known = [
+    { email: "john.smith@ex.co.uk", first: "John", last: "Smith" },
+    { email: "sarah.jones@ex.co.uk", first: "Sarah", last: "Jones" },
+    { email: "david.okafor@ex.co.uk", first: "David", last: "Okafor" },
+  ];
+  const finding = learnPattern(known);
+  assert.equal(finding.pattern, "{first}.{last}");
+  assert.equal(finding.confidence, 1, "the confidence is not the counted share of addresses that fit");
+
+  const made = candidateFromPattern({ finding, first: "Amanda", last: "Brown", domain: "ex.co.uk" });
+  assert.equal(made.ok, true);
+  assert.equal(made.candidate.value, "amanda.brown@ex.co.uk");
+  assert.equal(made.candidate.provenance, "inferred", "a generated address was not marked as inferred");
+  assert.equal(made.candidate.emailStatus, "UNVERIFIED", "a generated address arrived pre-verified");
+  assert.match(made.why, /NOT published/i, "the explanation does not say the address was published nowhere");
+
+  // AND IT CANNOT BE ACTIVATED, however well everything else scores. This is the
+  // specification's sharpest line as a branch rather than a warning label.
+  const employment = assessEmployment([
+    { sourceUrl: "https://ex.co.uk/team", sourceType: "company_website", jobTitle: "Procurement Director", publishedAt: "2026-08-20T00:00:00.000Z", statesCurrent: true },
+    { sourceUrl: "https://ex.co.uk/news", sourceType: "company_website", jobTitle: "Procurement Director", publishedAt: "2026-08-21T00:00:00.000Z", statesCurrent: true },
+  ], asOf);
+  const scored = readiness({
+    icpFit: 100, employment, email: made.candidate,
+    evidence: [{ sourceUrl: "https://ex.co.uk/team", sourceDomain: "ex.co.uk", sourceType: "company_website", capturedAt: asOf, publishedBusinessContext: true }],
+    intentSignals: [{ signal: "Funding round", observedAt: "2026-08-25T00:00:00.000Z" }, { signal: "Recruiting", observedAt: "2026-08-24T00:00:00.000Z" }, { signal: "Contract award", observedAt: "2026-08-20T00:00:00.000Z" }],
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    refreshedAt: asOf, asOf,
+  });
+  assert.notEqual(scored.activation, "READY", `an inferred address reached READY at score ${scored.score}`);
+  assert.equal(scored.activation, "ENRICH");
+  assert.ok(scored.restrictions.some((r) => /published nowhere/i.test(r)),
+    "the restriction does not say the address was never published");
+});
+
+test("a contact point with no evidence is not a contact point, and a valid phone format is not a verification", async () => {
+  const { evidenceComplete, normalisePhone } = await import("../src/shared/contact-hunter.ts");
+
+  const noSource = evidenceComplete({
+    type: "EMAIL", value: "a@b.com", provenance: "confirmed", evidence: [], businessContextConfirmed: true,
+  });
+  assert.equal(noSource.ok, false, "an address claiming to be confirmed passed with no source URL");
+
+  const fakeProvider = evidenceComplete({
+    type: "EMAIL", value: "a@b.com", provenance: "provider",
+    evidence: [{ sourceUrl: "https://x", sourceDomain: "x", sourceType: "company_website", capturedAt: "", publishedBusinessContext: true }],
+    businessContextConfirmed: true,
+  });
+  assert.equal(fakeProvider.ok, false, "a provider-sourced value passed with no provider evidence record");
+
+  // A NUMBER IS NOT VERIFIED BY BEING WELL FORMED.
+  const formatted = normalisePhone("0113 496 0000", "GB", { businessContextConfirmed: true });
+  assert.equal(formatted.e164, "+441134960000", "the number was not normalised to E.164");
+  assert.equal(formatted.status, "PUBLISHED_UNVERIFIED",
+    "a correctly formatted number was reported as verified without a carrier lookup");
+  assert.match(formatted.why, /valid format is not a working line/i);
+
+  const carrier = normalisePhone("0113 496 0000", "GB", { businessContextConfirmed: true, carrierChecked: true, carrierKind: "landline" });
+  assert.equal(carrier.status, "VERIFIED_BUSINESS");
+
+  // No business context is not a business number, however well formed.
+  assert.equal(normalisePhone("0113 496 0000", "GB", {}).status, "UNVERIFIED");
+  // An unknown country is refused rather than guessed.
+  const unknown = normalisePhone("0113 496 0000", "ZZ", { businessContextConfirmed: true });
+  assert.equal(unknown.status, "INVALID");
+  assert.match(unknown.why, /rather than guessing/i);
+  // A suppressed or wrong number never comes back at all.
+  assert.equal(normalisePhone("0113 496 0000", "GB", { suppressed: true }).e164, null);
+  assert.equal(normalisePhone("0113 496 0000", "GB", { knownWrongNumber: true }).status, "WRONG_NUMBER");
+});
+
+test("conflicting employment evidence goes to a person rather than being averaged", async () => {
+  const { assessEmployment, readiness, EMPLOYMENT_STALE_DAYS } = await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T00:00:00.000Z";
+
+  const conflict = assessEmployment([
+    { sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "Procurement Director", statesCurrent: true },
+    { sourceUrl: "https://b/2", sourceType: "press_release", jobTitle: "Head of Estates", statesCurrent: true },
+  ], asOf);
+  assert.equal(conflict.status, "conflicting");
+  assert.equal(conflict.jobTitle, null, "a title was produced from sources that disagree");
+  assert.equal(conflict.confidence, 0);
+
+  // And the conflict BLOCKS — a wrong title in an opening line is the fastest
+  // route to a complaint, so it is not merely a deduction.
+  const blocked = readiness({
+    icpFit: 100, employment: conflict, evidence: [],
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    refreshedAt: asOf, asOf,
+  });
+  assert.equal(blocked.activation, "BLOCKED", "a record with contradicting job titles was activatable");
+
+  // A mention is not employment.
+  const mention = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "search_index", jobTitle: "Director", statesCurrent: false }], asOf);
+  assert.equal(mention.jobTitle, null, "a passing mention was treated as evidence of a current role");
+
+  // Age decays confidence rather than being ignored.
+  const old = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2023-01-01T00:00:00.000Z", statesCurrent: true }], asOf);
+  const fresh = assessEmployment([{ sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2026-08-20T00:00:00.000Z", statesCurrent: true }], asOf);
+  assert.ok(old.confidence < fresh.confidence, "a staff page from three years ago is as trusted as one from last week");
+  assert.equal(old.status, "stale");
+  assert.ok(EMPLOYMENT_STALE_DAYS <= 365, "the staleness window was widened past a year");
+});
+
+test("no score clears a legal block, and the readiness weights are the specification's", async () => {
+  const { readiness, READINESS_WEIGHTS, assessEmployment } = await import("../src/shared/contact-hunter.ts");
+  const asOf = "2026-08-27T00:00:00.000Z";
+
+  assert.equal(READINESS_WEIGHTS.reduce((s, w) => s + w.weight, 0), 100, "the readiness weights no longer sum to 100");
+  assert.deepEqual(Object.fromEntries(READINESS_WEIGHTS.map((w) => [w.key, w.weight])), {
+    icpFit: 25, roleConfidence: 15, emailVerification: 15, phoneVerification: 10,
+    sourceQuality: 10, freshness: 10, intent: 10, complianceEligibility: 5,
+  }, "the weights drifted from the specification");
+
+  const employment = assessEmployment([
+    { sourceUrl: "https://a/1", sourceType: "company_website", jobTitle: "CFO", publishedAt: "2026-08-25T00:00:00.000Z", statesCurrent: true },
+  ], asOf);
+  const evidence = [{ sourceUrl: "https://a/1", sourceDomain: "a", sourceType: "company_website", capturedAt: asOf, publishedBusinessContext: true }];
+  const email = { type: "EMAIL", value: "cfo@a.co.uk", provenance: "confirmed", evidence, emailStatus: "VERIFIED", businessContextConfirmed: true };
+  const base = { icpFit: 100, employment, email, evidence, refreshedAt: asOf, asOf };
+
+  const clean = readiness({ ...base, compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] } });
+  assert.notEqual(clean.activation, "BLOCKED", "a clean record was blocked");
+
+  // Each of these is absolute. There is no argument to readiness() that clears one.
+  const noBasis = readiness({ ...base, compliance: { canContact: false, lawfulBasis: "none", reasons: ["no lawful basis"] } });
+  assert.equal(noBasis.activation, "BLOCKED", "a record with no lawful basis was activatable");
+
+  const suppressed = readiness({
+    ...base, compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+    suppression: { valueHash: "x", scope: "PLATFORM", channel: "ALL", reason: "asked to stop", requestedAt: asOf, permanent: true },
+  });
+  assert.equal(suppressed.activation, "BLOCKED", "a suppressed contact was activatable");
+  assert.ok(suppressed.blocks.some((b) => /asked to stop/.test(b)), "the block does not carry the objector's reason");
+
+  const doNotContact = readiness({
+    ...base, email: { ...email, emailStatus: "DO_NOT_CONTACT" },
+    compliance: { canContact: true, lawfulBasis: "legitimate_interest", reasons: [] },
+  });
+  assert.equal(doNotContact.activation, "BLOCKED");
+});
+
+test("an objection is hashed, platform-wide and cannot be outrun by another tenant", async () => {
+  const { valueHash, suppressedBy } = await import("../src/shared/contact-hunter.ts");
+  const { recordObjection, listSuppressions, __resetContactHunter } =
+    await import("../src/backend/contact-hunter-store.ts");
+  __resetContactHunter();
+  const at = "2026-08-27T00:00:00.000Z";
+
+  // The list holds hashes. A do-not-contact list of plaintext addresses is the
+  // most valuable marketing list in the building.
+  const r = await recordObjection({ value: "Someone@Example.COM", reason: "Asked to stop", requestedAt: at });
+  assert.equal(r.ok, true);
+  assert.equal(r.suppression.scope, "PLATFORM", "an objection defaulted to one tenant only");
+  assert.equal(r.suppression.permanent, true);
+  const list = await listSuppressions();
+  assert.ok(!JSON.stringify(list).toLowerCase().includes("someone@example.com"),
+    "the suppression list stored the address in plain text");
+
+  // Case and whitespace do not get past it.
+  assert.equal(valueHash("  SOMEONE@example.com "), valueHash("someone@example.com"));
+  for (const tenant of ["brandA", "brandB", "brandC"]) {
+    const hit = suppressedBy("someone@example.com", list, { tenantId: tenant, channel: "EMAIL" });
+    assert.ok(hit, `tenant ${tenant} could still contact somebody who objected to another tenant`);
+    assert.equal(hit.scope, "PLATFORM");
+  }
+
+  // A tenant-scoped objection stays with that tenant.
+  await recordObjection({ value: "narrow@example.com", reason: "Only this brand", requestedAt: at, scope: "TENANT", tenantId: "brandA" });
+  const list2 = await listSuppressions();
+  assert.ok(suppressedBy("narrow@example.com", list2, { tenantId: "brandA", channel: "EMAIL" }), "a tenant-scoped objection did not apply to its own tenant");
+  assert.equal(suppressedBy("narrow@example.com", list2, { tenantId: "brandB", channel: "EMAIL" }), null);
+
+  // And it needs a reason, and a value.
+  assert.equal((await recordObjection({ value: "", reason: "x", requestedAt: at })).ok, false);
+  assert.equal((await recordObjection({ value: "a@b.com", reason: "   ", requestedAt: at })).ok, false);
+  __resetContactHunter();
+});
+
+test("prohibited categories are refused by field name at any depth, and an unreviewed source permits nothing", async () => {
+  const { screenIntake, PROHIBITED_CATEGORIES } = await import("../src/shared/contact-hunter.ts");
+  const { defaultPolicy } = await import("../src/backend/contact-hunter-store.ts");
+
+  assert.equal(screenIntake({ person: { fullName: "A", jobTitle: "B" } }).ok, true, "an ordinary payload was refused");
+
+  // Nested, because that is how one actually arrives.
+  const nested = screenIntake({ records: { batch: [{ person: { homeAddress: "12 Elm Row" } }] } });
+  assert.equal(nested.ok, false, "a home address nested three levels deep was accepted");
+
+  for (const field of ["password", "health", "ethnicity", "childData", "breachedData", "biometric", "criminalRecord"]) {
+    assert.equal(screenIntake({ [field]: "x" }).ok, false, `"${field}" was accepted`);
+  }
+  assert.ok(PROHIBITED_CATEGORIES.includes("homeAddress"));
+  assert.ok(PROHIBITED_CATEGORIES.includes("childData"));
+
+  // UNREVIEWED IS NOT PERMISSION — the opposite of the usual arrangement, where
+  // an unknown source is fair game because nothing said otherwise.
+  const p = defaultPolicy("nobody-has-looked-at-this.example");
+  assert.equal(p.crawlPermission, "none", "a domain nobody has reviewed could be crawled");
+  assert.equal(p.termsReviewStatus, "unreviewed");
+  assert.equal(p.requestsPerMinute, 0);
+  assert.deepEqual(p.permittedFields, [], "an unreviewed domain permitted fields by default");
+});
+
+test("a source that produces bad data turns itself off, but not on a handful of results", async () => {
+  const { judgeSource, MIN_QUALITY_SAMPLE, MAX_BOUNCE_RATE, MAX_COMPLAINT_RATE } =
+    await import("../src/shared/contact-hunter.ts");
+
+  // The same lesson as the payout trust check: every threshold carries a minimum
+  // volume, or a good source is switched off in its first week.
+  const tiny = judgeSource({ sourceDomain: "new.example", contactsProduced: 3, bounces: 3, wrongNumbers: 0, complaints: 1 });
+  assert.equal(tiny.enabled, true, "a source was disabled on three results");
+  assert.equal(tiny.bounceRate, null, "a rate was reported from a sample too small to support one");
+  assert.ok(MIN_QUALITY_SAMPLE >= 25, "the minimum sample was lowered below the point where a rate means anything");
+
+  const bad = judgeSource({ sourceDomain: "bad.example", contactsProduced: 300, bounces: 45, wrongNumbers: 5, complaints: 2 });
+  assert.equal(bad.enabled, false, "a source bouncing 15% of its contacts stayed enabled");
+  assert.match(bad.why, /bounce rate/i);
+
+  const complainy = judgeSource({ sourceDomain: "spam.example", contactsProduced: 5000, bounces: 10, wrongNumbers: 0, complaints: 30 });
+  assert.equal(complainy.enabled, false, "a source generating complaints stayed enabled on a low bounce rate");
+
+  const good = judgeSource({ sourceDomain: "good.example", contactsProduced: 400, bounces: 8, wrongNumbers: 20, complaints: 0 });
+  assert.equal(good.enabled, true, `a clean source was disabled: ${good.why}`);
+  assert.ok(MAX_BOUNCE_RATE <= 0.05 && MAX_COMPLAINT_RATE <= 0.001, "the tolerances were widened past what a sending reputation survives");
+});
+
+test("the contact engine reuses the verification and compliance engines rather than growing its own", async () => {
+  const route = readFileSync(new URL("../src/app/api/contact-hunter/route.ts", import.meta.url), "utf8");
+  const rules = readFileSync(new URL("../src/shared/contact-hunter.ts", import.meta.url), "utf8");
+
+  // ONE SOURCE OF TRUTH PER CONCEPT. A second email verifier would drift from
+  // the first, and the first is the one the email sender already consults.
+  assert.match(route, /from "@\/backend\/lead-harvest"/, "the route grew its own email verification");
+  assert.match(route, /verifyEmail\(/, "the twelve-check verifier is not being called");
+  assert.match(route, /assessCompliance\(/, "the UK\/EU\/US lawful-basis engine is not being called");
+  assert.match(route, /isPersonalProvider\(/, "personal-provider detection was reimplemented");
+
+  // And the rules file must not have quietly grown a copy of either.
+  //
+  // Written to catch a DECISION, not a value. The first version of this
+  // assertion matched `lawfulBasis: "legitimate_interest"` anywhere, which the
+  // demo contains because it PASSES a verdict in — so the test failed on the
+  // rules module correctly consuming lead-harvest's answer. What a duplicate
+  // would actually look like is the machinery: a country table, a CAN-SPAM
+  // list, a disposable-domain list, or a function that returns a basis.
+  const rulesCode = codeOf(rules);
+  assert.doesNotMatch(rulesCode, /CAN_?SPAM|PECR_|UK_EU\s*=|new Set\(\["GB"/,
+    "the rules module grew its own jurisdiction table beside lead-harvest's");
+  assert.doesNotMatch(rulesCode, /function\s+\w*(assessCompliance|lawfulBasisFor|decideBasis)/,
+    "the rules module grew its own lawful-basis decision beside lead-harvest's");
+  assert.doesNotMatch(rulesCode, /DISPOSABLE|disposableDomains|mxByDomain|bounceProbability\s*=/,
+    "the rules module grew its own email verification beside lead-harvest's");
+
+  // The activation gate is the specification's boolean with every term visible.
+  const { activationGate } = await import("../src/shared/contact-hunter.ts");
+  const allTrue = {
+    sourcePermitted: true, collectionLawful: true, purposeCompatible: true,
+    destinationRulePassed: true, suppression: null, channelAllowed: true, tenantIdentityComplete: true,
+  };
+  assert.equal(activationGate(allTrue).allowed, true);
+  assert.equal(activationGate(allTrue).checks.length, 7, "a term of CONTACT_ALLOWED went missing");
+  for (const term of Object.keys(allTrue).filter((k) => k !== "suppression")) {
+    const r = activationGate({ ...allTrue, [term]: false });
+    assert.equal(r.allowed, false, `CONTACT_ALLOWED passed with ${term} false`);
+    assert.ok(r.blockers.length > 0, `${term} blocked without saying why`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CONTACT FINDER — upload a list, get it filled in
+//
+// The two defects worth the whole test file: silently choosing between two
+// people with the same name, and charging a customer twice when a job resumes.
+// The first sends a stranger somebody else's email; the second ends the account.
+// ---------------------------------------------------------------------------
+
+test("it refuses to choose between two people with the same name", async () => {
+  const { resolveIdentity, CANDIDATE_SEPARATION } = await import("../src/shared/contact-finder.ts");
+  const c = (company, score) => ({ fullName: "James Wilson", company, score, evidence: [] });
+
+  // The case the specification names, and the one every tool in this category
+  // gets wrong: two candidates too close to separate.
+  const ambiguous = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.72), c("JW Groundworks", 0.68)] });
+  assert.equal(ambiguous.status, "MULTIPLE_CANDIDATES");
+  assert.equal(ambiguous.chosen, null, "the engine picked one of two indistinguishable people");
+  assert.equal(ambiguous.candidates.length, 2, "the alternatives were not returned for a person to choose from");
+
+  // AND THERE IS NO CONFIDENCE AT WHICH IT DECIDES ANYWAY. Two candidates both
+  // scoring near-certainty are still two candidates.
+  const bothHigh = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.99), c("JW Groundworks", 0.98)] });
+  assert.equal(bothHigh.chosen, null, "two near-certain candidates were resolved by picking the higher one");
+  assert.equal(bothHigh.status, "MULTIPLE_CANDIDATES");
+
+  // Clear separation does resolve.
+  const clear = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.94), c("JW Groundworks", 0.41)] });
+  assert.equal(clear.status, "HIGH_CONFIDENCE_MATCH");
+  assert.equal(clear.chosen.company, "Wilson Build Ltd");
+  assert.ok(CANDIDATE_SEPARATION >= 0.1, "the separation required to pick a person was lowered to near-nothing");
+
+  // Below the job's own confidence bar, nothing is chosen either.
+  const weak = resolveIdentity({ candidates: [c("Wilson Build Ltd", 0.55)], minimumConfidence: 0.8 });
+  assert.equal(weak.status, "INSUFFICIENT_INFORMATION");
+  assert.equal(weak.chosen, null);
+
+  // Sources disagreeing about the current employer is not a scoring problem.
+  const conflict = resolveIdentity({ candidates: [c("A Ltd", 0.9)], conflicting: true });
+  assert.equal(conflict.status, "CONFLICTING_INFORMATION");
+  assert.equal(conflict.chosen, null);
+
+  // No candidates is NO_MATCH, not a guess.
+  assert.equal(resolveIdentity({ candidates: [] }).status, "NO_MATCH");
+});
+
+test("a resumed job never charges twice, and never charges for what did not complete", async () => {
+  const { chargeFor, BILLABLE_OPERATIONS, isFinished } = await import("../src/shared/contact-finder.ts");
+  const { createJob, chargeRow, setRowState, getJob, unfinishedRows, __resetFinderJobs } =
+    await import("../src/backend/contact-finder-store.ts");
+  __resetFinderJobs();
+  const at = "2026-08-27T00:00:00.000Z";
+
+  // The five outcomes that must cost nothing, decided in ONE place.
+  for (const outcome of ["duplicate_removed", "cached", "provider_timeout", "platform_failure", "technical_failure"]) {
+    const c = chargeFor({ operation: "email_verification", outcome });
+    assert.equal(c.acus, 0, `"${outcome}" was charged for`);
+    assert.ok(c.why, `"${outcome}" was refused a charge without saying why`);
+  }
+  assert.equal(chargeFor({ operation: "email_verification", outcome: "completed" }).acus, BILLABLE_OPERATIONS.email_verification);
+  assert.equal(chargeFor({ operation: "email_verification", outcome: "completed", isReverification: true }).acus,
+    BILLABLE_OPERATIONS.email_verification * 0.25, "reverification was charged at full price");
+  assert.equal(chargeFor({ operation: "person_resolution", outcome: "completed", alreadyCharged: true }).acus, 0,
+    "an operation already paid for in this job was charged again");
+
+  // THE WHOLE POINT, end to end. Charge a row, crash, resume, charge again.
+  await createJob({ brandId: "b1", id: "job1", originalColumns: ["Name"], rows: [1, 2, 3], duplicatesRemoved: 2, at });
+  const first = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  assert.equal(first.ok && first.acus, 4);
+  const again = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  assert.equal(again.ok && again.acus, 0, "resuming the job charged the same row for the same operation twice");
+  assert.equal((await getJob("b1", "job1")).acusConsumed, 4, "the job total counted the repeat");
+
+  // A different operation on the same row is a different charge.
+  const other = await chargeRow({ brandId: "b1", jobId: "job1", originalRow: 1, operation: "phone_discovery", outcome: "completed" });
+  assert.equal(other.ok && other.acus, BILLABLE_OPERATIONS.phone_discovery);
+
+  // Creating the same job id twice RESUMES rather than starting a second bill.
+  const resumed = await createJob({ brandId: "b1", id: "job1", originalColumns: ["Name"], rows: [1, 2, 3], duplicatesRemoved: 2, at: "2026-08-28T00:00:00.000Z" });
+  assert.equal(resumed.acusConsumed, 9, "a retried upload started a second job beside the first");
+  assert.equal(resumed.createdAt, at);
+
+  // A finished row does not run again.
+  await setRowState({ brandId: "b1", jobId: "job1", originalRow: 2, state: "COMPLETED" });
+  const rerun = await setRowState({ brandId: "b1", jobId: "job1", originalRow: 2, state: "IDENTITY_SEARCHING" });
+  assert.equal(rerun.ok, false, "a completed row was put back into processing");
+  assert.ok(isFinished("COMPLETED") && isFinished("NOT_FOUND") && isFinished("BLOCKED"));
+  assert.equal(unfinishedRows(await getJob("b1", "job1")).length, 2, "a finished row is still queued for work");
+
+  // THE BUDGET IS A CEILING. A job stops rather than crossing it.
+  await createJob({ brandId: "b1", id: "job2", originalColumns: [], rows: [1, 2], duplicatesRemoved: 0, maxAcus: 5, at });
+  await chargeRow({ brandId: "b1", jobId: "job2", originalRow: 1, operation: "email_verification", outcome: "completed" });
+  const over = await chargeRow({ brandId: "b1", jobId: "job2", originalRow: 2, operation: "email_verification", outcome: "completed" });
+  assert.equal(over.ok && over.acus, 0, "the job spent past the ceiling the customer set");
+  assert.equal(over.ok && over.budgetStopped, true);
+  assert.equal((await getJob("b1", "job2")).stoppedOnBudget, true);
+  __resetFinderJobs();
+});
+
+test("the user's own spreadsheet comes back untouched, and their headings are understood", async () => {
+  const { mapColumns, detectHeaderRow, isSkippableRow, buildWorkbook, MW_COLUMNS } =
+    await import("../src/shared/contact-finder.ts");
+
+  // Somebody else's headings, including two languages and a column that is
+  // theirs alone.
+  const m = mapColumns(["Contact Name", "Raison sociale", "Web Address", "Téléphone", "Internal Notes"]);
+  assert.equal(m.mapped["Contact Name"], "full_name");
+  assert.equal(m.mapped["Raison sociale"], "company_name", "a French heading was not recognised");
+  assert.equal(m.mapped["Téléphone"], "phone", "an accented heading was not recognised");
+  assert.deepEqual(m.unmapped, ["Internal Notes"], "a column belonging to the user was mapped or dropped");
+  assert.ok(m.warnings.some((w) => /kept exactly as they are/i.test(w)), "the user is not told their own column survives");
+
+  // TWO COLUMNS CLAIMING THE SAME FIELD IS NOT RESOLVED BY PICKING ONE.
+  const collide = mapColumns(["Email", "E-mail address"]);
+  assert.equal(collide.collisions.length, 1, "two columns both looking like the email were silently resolved");
+  assert.ok(collide.warnings.some((w) => /picking for you/i.test(w)));
+
+  // The header row is found under a title and a blank line.
+  const rows = [["Prospect list — Q3", "", ""], ["", "", ""], ["Contact Name", "Business", "Telephone"], ["A B", "C Ltd", "0113"]];
+  const h = detectHeaderRow(rows);
+  assert.equal(h.headerRow, 2, "the header row under a title and a blank line was not found");
+  assert.equal(detectHeaderRow([["a"], ["b"]]).headerRow, -1, "a file with no header was given one anyway");
+
+  assert.equal(isSkippableRow(["", "", ""]).skip, true);
+  assert.equal(isSkippableRow(["Total", "3", ""]).skip, true);
+  assert.equal(isSkippableRow(["Amanda Brown", "ABC", ""]).skip, false, "a real record was skipped as a totals line");
+
+  // EVERY ORIGINAL COLUMN COMES BACK, and everything added is prefixed.
+  const wb = buildWorkbook({
+    rows: [{ originalRow: 4, state: "COMPLETED", original: { "Internal Notes": "call back", "Contact Name": "Amanda Brown" }, mw: { MW_Record_ID: "r1", MW_Outreach_Eligibility: "ELIGIBLE" } }],
+    originalColumns: ["Contact Name", "Internal Notes"],
+    duplicatesRemoved: 0, acusConsumed: 9, processingMs: 1000,
+  });
+  const sheet = wb.sheets[0];
+  assert.ok(sheet.columns.includes("Internal Notes"), "the user's own column was dropped from the output");
+  assert.equal(sheet.rows[0]["Internal Notes"], "call back", "the user's own value was altered");
+  for (const c of MW_COLUMNS) assert.ok(c.startsWith("MW_"), `${c} is not prefixed and could collide with a user column`);
+
+  // Six sheets, and "Ready" is narrower than "Completed".
+  assert.deepEqual(wb.sheets.map((s) => s.name),
+    ["Completed Results", "Ready for Outreach", "Manual Review", "Not Found", "Job Summary", "Source Audit"]);
+  const notEligible = buildWorkbook({
+    rows: [{ originalRow: 4, state: "COMPLETED", original: {}, mw: { MW_Outreach_Eligibility: "REVIEW" } }],
+    originalColumns: [], duplicatesRemoved: 0, acusConsumed: 0, processingMs: 0,
+  });
+  assert.equal(notEligible.sheets[0].rows.length, 1, "a completed row is missing from Completed Results");
+  assert.equal(notEligible.sheets[1].rows.length, 0,
+    "a completed-but-not-eligible row reached the sheet somebody pastes into a sending tool");
+
+  // A denominator of zero is a dash, not Infinity and not a fabricated number.
+  const none = buildWorkbook({ rows: [], originalColumns: [], duplicatesRemoved: 0, acusConsumed: 12, processingMs: 0 });
+  const perRecord = none.sheets[4].rows.find((r) => /Cost per completed/.test(r.Metric));
+  assert.equal(perRecord.Value, "—", "dividing by zero completed records produced a number");
+});
+
+test("deduplication never merges two people because their names match", async () => {
+  const { dedupe, dedupeKeys, mergeValue } = await import("../src/shared/contact-finder.ts");
+
+  // THE ABSENT KEY IS THE FEATURE. There is no key on a name alone.
+  const keys = dedupeKeys({ originalRow: 1, full_name: "James Wilson" });
+  assert.deepEqual(keys, [], "a name by itself was made a deduplication key");
+
+  const two = dedupe([
+    { originalRow: 1, full_name: "James Wilson", company_name: "Wilson Build", country: "GB" },
+    { originalRow: 2, full_name: "James Wilson", company_name: "JW Groundworks", country: "GB" },
+  ]);
+  assert.equal(two.unique.length, 2, "two different James Wilsons were merged into one record");
+
+  // What SHOULD merge: the same address, the same domain, the same person at the
+  // same company in the same country.
+  const same = dedupe([
+    { originalRow: 1, email: "a@b.com" },
+    { originalRow: 2, email: "A@B.com" },
+    { originalRow: 3, full_name: "Amanda Brown", company_name: "ABC", country: "GB" },
+    { originalRow: 4, full_name: "amanda  brown", company_name: "ABC", country: "gb" },
+    { originalRow: 5, website: "https://www.delta.example/about" },
+    { originalRow: 6, website: "delta.example" },
+  ]);
+  assert.equal(same.unique.length, 3, `case and formatting defeated deduplication: ${JSON.stringify(same.unique)}`);
+  assert.equal(same.duplicates.length, 3);
+  for (const d of same.duplicates) assert.ok(d.key, "a row was merged without recording which key merged it");
+
+  // A VERIFIED VALUE IS NEVER REPLACED BY AN INFERRED ONE, however recent.
+  const m = mergeValue(
+    { value: "real@x.com", provenance: "confirmed", verifiedAt: "2026-01-01T00:00:00.000Z" },
+    { value: "guess@x.com", provenance: "inferred", verifiedAt: "2026-08-26T00:00:00.000Z" },
+  );
+  assert.equal(m.winner.value, "real@x.com", "a fresh guess replaced an older confirmed address");
+  assert.match(m.why, /never replaced/i);
+
+  // Same provenance, recency decides.
+  const r = mergeValue(
+    { value: "old@x.com", provenance: "confirmed", verifiedAt: "2026-01-01T00:00:00.000Z" },
+    { value: "new@x.com", provenance: "confirmed", verifiedAt: "2026-08-01T00:00:00.000Z" },
+  );
+  assert.equal(r.winner.value, "new@x.com");
+});
+
+test("what a value is gets decided honestly, including the case that cannot be decided", async () => {
+  const { detectInputType } = await import("../src/shared/contact-finder.ts");
+  const t = (v) => detectInputType(v);
+
+  assert.equal(t("a@b.co.uk").type, "EMAIL");
+  assert.equal(t("examplecompany.com").type, "DOMAIN");
+  assert.equal(t("https://linkedin.com/in/someone").type, "PROFESSIONAL_PROFILE");
+  assert.equal(t("0113 496 0000").type, "PHONE");
+  assert.equal(t("Unit 4, Elm Industrial Estate, LS6 2AB").type, "ADDRESS");
+  assert.equal(t("ABC Construction Ltd").type, "COMPANY");
+
+  // THE OWNER'S OWN EXAMPLE. "Justin Nseya" and "Groupe Nseya" are two
+  // capitalised words each and identical to any shape test — they are separated
+  // only by knowing that "Groupe" names an organisation.
+  assert.equal(t("Justin Nseya").type, "PERSON");
+  assert.equal(t("Groupe Nseya").type, "COMPANY", "a French company word was read as a surname");
+  for (const c of ["Grupo Fenix", "Cabinet Dubois", "Studio Nord", "Agence Verte"]) {
+    assert.equal(t(c).type, "COMPANY", `"${c}" was read as a person`);
+  }
+
+  // And where it genuinely cannot tell, it says so rather than guessing.
+  assert.equal(t("Wilson").type, "UNKNOWN", "one ambiguous word was classified anyway");
+  assert.equal(t("").type, "UNKNOWN");
+  // A person is classified with LOW confidence, and the reason says why.
+  const person = t("Amanda Brown");
+  assert.ok(person.confidence <= 0.6, "a two-word name was classified as a person with high confidence");
+  assert.match(person.why, /company name reads the same/i);
+});
+
+test("the workbook is a real multi-sheet file and cannot be broken by a hostile cell", async () => {
+  const { buildWorkbook, workbookToSpreadsheetML } = await import("../src/shared/contact-finder.ts");
+
+  const wb = buildWorkbook({
+    rows: [{
+      originalRow: 1, state: "COMPLETED",
+      // Everything that breaks a naive XML writer, in one cell each.
+      original: { Name: 'A & B <script>alert("x")</script>', Note: "bell\u0007 and null\u0000 and vertical tab\u000B" },
+      mw: { MW_Record_ID: "r1" },
+    }],
+    originalColumns: ["Name", "Note"], duplicatesRemoved: 0, acusConsumed: 1, processingMs: 1,
+  });
+  const xml = workbookToSpreadsheetML(wb);
+
+  assert.match(xml, /<\?mso-application progid="Excel\.Sheet"\?>/, "the file will not open as a spreadsheet");
+  assert.equal((xml.match(/<Worksheet /g) || []).length, 6, "the workbook is not six separate sheets");
+  // WRITTEN TO CATCH A BARE ANGLE BRACKET, NOT A COMPLETE TAG. The first version
+  // of this assertion looked for the literal "<script>" and survived a mutation
+  // that stopped escaping "<" — because ">" was still escaped, so the cell read
+  // "<script&gt;" and the exact string never appeared. What actually breaks the
+  // file is one unescaped "<", so that is what is checked.
+  assert.ok(!xml.includes("<script"), "a cell's opening angle bracket reached the file unescaped");
+  assert.match(xml, /&lt;script/, "the markup in a cell was not escaped into the file at all");
+  assert.match(xml, /&amp;/, "an ampersand was not escaped");
+  // Every "<" in the file must open one of the tags this writer emits. Anything
+  // else came out of a cell.
+  const tags = [...xml.matchAll(/<([^\s>/?]+)/g)].map((m) => m[1].replace(/^\//, ""));
+  const allowed = new Set(["?xml", "?mso-application", "Workbook", "Worksheet", "Table", "Row", "Cell", "Data"]);
+  const stray = [...new Set(tags.filter((t) => !allowed.has(t.replace(/^\?/, "?"))))];
+  assert.deepEqual(stray, [], `markup from a cell reached the file as real tags: ${stray.join(", ")}`);
+  assert.ok(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(xml),
+    "a control character reached the file, which makes it unopenable");
+
+  // Sheet names are legal: no forbidden characters, never over 31 chars.
+  for (const m of xml.matchAll(/ss:Name="([^"]*)"/g)) {
+    assert.ok(m[1].length <= 31, `sheet name "${m[1]}" is too long for a spreadsheet`);
+    assert.ok(!/[:\\/?*[\]]/.test(m[1]), `sheet name "${m[1]}" contains a character spreadsheets forbid`);
+  }
+});
+
+test("the CSV export cannot be turned into a formula, and quotes what it must", async () => {
+  const { buildWorkbook, workbookToCsv } = await import("../src/shared/contact-finder.ts");
+
+  const wb = buildWorkbook({
+    rows: [{
+      originalRow: 1, state: "COMPLETED",
+      original: {
+        Name: 'A, B "quoted"',
+        // CSV FORMULA INJECTION. A cell beginning = + - or @ is executed by
+        // Excel and Sheets on open. Every value in this engine came off somebody
+        // else's website, so this is not a theoretical risk here — it is the
+        // most likely thing a hostile page would try.
+        Attack: '=cmd|\'/c calc\'!A1',
+        Plus: "+1+1",
+        At: "@SUM(1)",
+        Minus: "-2+3",
+        Multi: "line one\nline two",
+      },
+      mw: { MW_Record_ID: "r1" },
+    }],
+    originalColumns: ["Name", "Attack", "Plus", "At", "Minus", "Multi"],
+    duplicatesRemoved: 0, acusConsumed: 1, processingMs: 1,
+  });
+
+  const sheets = workbookToCsv(wb);
+  assert.equal(sheets.length, 6, "the CSV export lost a sheet");
+  const first = sheets[0].csv.split("\r\n");
+  assert.equal(first.length, 2, "the CSV is not one header row and one record");
+
+  const cells = first[1];
+  for (const dangerous of ["=cmd", "+1+1", "@SUM", "-2+3"]) {
+    assert.ok(!cells.includes(`,${dangerous}`) && !cells.startsWith(dangerous),
+      `a cell beginning "${dangerous[0]}" was written unescaped and a spreadsheet would execute it`);
+  }
+  assert.ok(cells.includes("'=cmd"), "the formula guard did not neutralise the attack cell");
+
+  // RFC 4180: a quote is doubled, and anything with a comma, quote or newline is
+  // wrapped — otherwise the row silently becomes two rows or two columns.
+  assert.ok(cells.includes('"A, B ""quoted"""'), `a comma and quotes were not escaped: ${cells}`);
+  assert.ok(/"line one\nline two"/.test(cells), "a newline inside a cell was not wrapped, so the row splits in two");
+
+  // Every sheet is a real, separately-named CSV.
+  assert.deepEqual(sheets.map((s) => s.name),
+    ["Completed Results", "Ready for Outreach", "Manual Review", "Not Found", "Job Summary", "Source Audit"]);
+  for (const s of sheets) assert.ok(s.csv.length > 0, `${s.name} came back empty, without even a header row`);
+});
