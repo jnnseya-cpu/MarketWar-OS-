@@ -13,7 +13,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,624 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,629 tests** including one
 end-to-end run of the growth loop.
 
 **Two branches, differing by ONE thing.** `main` is production on **Next 14**; dev
@@ -40,57 +40,61 @@ is the paste-ready first campaign (§5.4). Both parse their prices out of `src/`
 
 - **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three
   WORST free, the lead recorded as an inbound prospect. No account, no card; six
-  adverts promise that and `npm run ads:verify` fails if it stops being true.
-  Every failing finding carries what it costs and the fix (`shared/audit-copy.ts`);
-  a test fails that copy on a percentage or a currency amount. **The page SHOWS
-  the catalogue** — all 29 named, plus FAQPage markup. It refuses private and
-  link-local destinations on every hop (`shared/net-guard.ts`) — it would
-  otherwise have read the cloud metadata service.
-- **The client approval portal** (`/portal/[token]`) — a signed, expiring link an
-  outside client opens with no account. **The screen recorder puts the presenter
-  IN the file**, composited onto a canvas that *is* the recording.
+  adverts promise that and `npm run ads:verify` fails if it stops being true. Every
+  failing finding carries what it costs and the fix (`shared/audit-copy.ts`); a test
+  fails that copy on a percentage or a currency amount. **The page SHOWS the
+  catalogue** — all 29 named. It refuses private and link-local destinations on
+  every hop (`shared/net-guard.ts`) — it would otherwise have read the cloud
+  metadata service.
+- **The client approval portal** — a signed, expiring link an outside client opens
+  with no account. **The screen recorder puts the presenter IN the file.**
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin
-  arithmetic**, the **paid-media guardrails**, the **payout engine** (nine rails)
-  and the **emergency stop** — every refusal computed, never guessed.
+  arithmetic**, the **paid-media guardrails**, the **payout engine** and the
+  **emergency stop** — every refusal computed, never guessed.
 - **The publication ledger** — a lost publish response is uncertain, so the next
   attempt asks the channel rather than posting twice.
 - **Eight pre-publish checks**, **channel health**, **versions and restore**,
-  **creative fatigue**, **the audit log**, **the generation cache**, **teams** (ten
-  roles), **Sentinel**, **13 articles, 14 answer pages**.
+  **creative fatigue**, **the audit log**, **the generation cache**, **teams**,
+  **Sentinel**, **13 articles, 14 answer pages**.
 - **Contact Hunter + Contact Finder** (`/dashboard/contact-hunter`, 2026-08-27) —
   find a business contact, or upload a list and have it filled in. Built on
-  `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied — a test
-  fails if either grows its own. New is the honesty: **confirmed / inferred /
-  provider never convert**, and an inferred address cannot be activated however
-  well it scores; a pattern needs three known addresses; conflicting job titles
-  block rather than average; objections are hashed, permanent, platform-wide.
+  `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. New is
+  the honesty: **confirmed / inferred / provider never convert**, an inferred
+  address cannot be activated however well it scores, conflicting job titles block
+  rather than average, and objections are hashed, permanent, platform-wide.
+- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`,
+  2026-08-28) — a render died on OpenAI's `429 insufficient_quota` ("no credits
+  remaining") and the platform answered "confirm your model access". The model was
+  fine; the account was empty. One reader classifies every refusal and gives the ONE
+  action that fixes it; an unrecognised one keeps the provider's own words and
+  offers NO remedy, because inventing one IS the defect. Credit is read before rate
+  limit (both 429, opposite remedies), on video AND ElevenLabs. The chain fails over
+  now: a provider-level refusal moves to the next engine that fits the quote, a
+  REFUSED PROMPT stops it, and a dearer engine is NAMED with its price rather than
+  run — video sells at the 2x floor, so there is nothing to absorb with.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** (2026-08-28) — one rule,
   `wallet.meteringExempt`, asked by `meterAction` AND by the new `spendAcus` the
-  video queue, video gateway and SEO autopilot now use. An executive with a zero
-  balance runs every AI surface; a refund returns what was TAKEN, so an exempt
-  render cannot mint ACUs; the SEO page stops greying out its own button. No
-  caller (cron) is not an exemption — it charges, and says why.
+  video queue, gateway and SEO autopilot use. An executive with a zero balance runs
+  every AI surface; a refund returns what was TAKEN, so an exempt render cannot
+  mint ACUs. No caller (cron) is not an exemption — it charges.
 - **The provider waterfall** (same page, "Find one person", 2026-08-27) — one
   name and one company through every supplier in COST order, inside a 14-second
-  deadline. Free sources first because they are also the better evidence; it
-  stops the moment identity 90 / employment 85 / email 85 are all clear; **only
-  calls that ran AND returned are charged**, and a paid provider skipped for cost
-  is NAMED rather than omitted. Three scores, never one — a factor not supplied
-  is "unchecked", not a zero. **A Companies House officer is not a buyer**:
-  registry-only people get no department and no title until a non-register source
-  says otherwise. Hunter/PDL/Abstract are declared absent, not stubbed.
+  deadline. Free sources first because they are also the better evidence; it stops
+  the moment identity 90 / employment 85 / email 85 are all clear; **only calls
+  that ran AND returned are charged**, and one skipped for cost is NAMED. Three
+  scores, never one — a factor not supplied is "unchecked", not a zero. **A
+  Companies House officer is not a buyer**: registry-only people get no department
+  and no title until a non-register source says otherwise.
 - **Market Exit Capture** (`/dashboard/market-exit`, 2026-08-27) — a closed firm's
   demand sent to one that trades. The only engine wrong at a NAMED third party's
-  expense, so it is built from refusals: publishing needs an official register
-  entry or two independently-failing sources and **the public is never one of the
-  two**; ten readings of one Google record count once; demand is counted or **null
-  saying what to supply**. Eight mutations each caught.
+  expense, so it is built from refusals: publishing needs an official register entry
+  or two independently-failing sources, and **the public is never one of the two**.
+  Eight mutations caught.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26).
-Landing stats, plan prices/ACUs, 39 agent cards, answer pages, articles — claim by
-claim, held by twelve tests. **What broke was always what somebody TYPED.** Worst:
-a 4.0x ROAS rule where the guardrail says 3, and WhatsApp automation with no send
-path.
+Landing stats, plan prices/ACUs, 39 agent cards, answer pages, articles — held by
+twelve tests. **What broke was always what somebody TYPED.** Worst: a 4.0x ROAS
+rule where the guardrail says 3, and WhatsApp automation with no send path.
 
 ---
 
@@ -112,12 +116,11 @@ path.
 
 **1. MAIL: CAUSE FOUND AND FIXED IN CODE; AWAITING A DEPLOY.** `appuser@` is the
 account the host creates, `info@` the address the business uses — so one message
-carried THREE mailboxes: AUTH `appuser@`, MAIL FROM `bounce@` (invented in our
-code, never created), From `info@`. The relay queued it (`B92FD8E3CF`) and
-delivered nothing; the bounce went nowhere, so the failure destroyed its own
-evidence. `shared/sender-identity.ts` holds one rule: an envelope sender must be
-a mailbox that exists; a From that is not the account gets RFC 5322 `Sender:`.
-**To close:** set `EMAIL_FROM` to
+carried THREE mailboxes: AUTH `appuser@`, MAIL FROM `bounce@` (invented in our code,
+never created), From `info@`. The relay queued it (`B92FD8E3CF`) and delivered
+nothing; the bounce went nowhere, so the failure destroyed its own evidence.
+`shared/sender-identity.ts` holds one rule: an envelope sender must be a mailbox
+that exists. **To close:** set `EMAIL_FROM` to
 `MarketWar OS <info@marketwaros.com>`, redeploy, `?send=self`. **Do NOT ask for
 `SMTP_USER` to change** — verified 2026-08-27: `appuser@` logs in, `info@` is the
 visible From, envelope + `Sender:` are `appuser@`, same domain so SPF/DMARC align.
@@ -125,36 +128,34 @@ visible From, envelope + `Sender:` are `appuser@`, same domain so SPF/DMARC alig
 **2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to 14.2.35
 — App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware bypass — fixed
 only in 15.5.x+. Green on dev; rolled off 2026-08-21 during a live `/verify-human`
-failure as a precaution, NOT proved to be the cause. **To close:** preview dev,
-open `/api/auth/human`; if it answers, merge.
+failure, NOT proved to be the cause. **To close:** preview dev, open
+`/api/auth/human`; if it answers, merge.
 
 **3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set.
 Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL —
-`MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`
-→ `webhookDiagnostic.endpointUrl`.
+`MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:**
+`/api/health/stripe`.
 
 **4. A REFERRED MARKETWAR ACCOUNT IS TRACKED BUT NOT PAID FOR.** §101 links a
-creator's click to the account that signs up (last touch, 90 days). Nothing posts
-a commission when that account PAYS US — and it must not be faked with a
-zero-value ledger event, which bypasses the 10k gate. Firebase Admin is live
-(`/api/health/auth`).
+creator's click to the account that signs up (last touch, 90 days). Nothing posts a
+commission when that account PAYS US — and it must not be faked with a zero-value
+ledger event, which bypasses the 10k gate. Firebase Admin is live.
 
 **Owner actions (nothing in code can substitute):**
-1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE, then never again; check it at
-   `/api/health/live` → `envPresent` before asking. It is what makes the owner
-   `executive`, and an executive is never metered — the balance is irrelevant.
-   No-redeploy alternative: `node scripts/grant-admin.mjs you@… executive`.
-2. Open `/api/health/live` after every change — `envPresent` is the only proof
-   the running build received it. Submit the sitemap.
+1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE, then never again; check `/api/health/live`
+   → `envPresent` before asking. It makes the owner `executive`, and an executive is
+   never metered. No-redeploy alternative: `node scripts/grant-admin.mjs you@… executive`.
+2. Open `/api/health/live` after every change — `envPresent` is the only proof the
+   running build received it. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand.
-4. **Run the first Facebook campaign.** `FACEBOOK-LAUNCH-CAMPAIGN.docx`
-   (`npm run ads:doc`): Traffic, not Awareness. Build the five custom audiences
-   FIRST — they cannot be backfilled.
-5. **`COMPANIES_HOUSE_API_KEY`** — free, two minutes, and the second free source
-   in the contact waterfall: official identity and current officers. Without it a
-   lookup runs on our crawl alone. `SERPER_API_KEY` gates live company discovery;
-   the current value is rejected 401/403 and `/api/health/serper` reports its
-   shape without printing it.
+4. **Run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness.
+   Build the five custom audiences FIRST — they cannot be backfilled.
+5. **`COMPANIES_HOUSE_API_KEY`** — free, and the second free source in the contact
+   waterfall: official identity and current officers. `SERPER_API_KEY` gates live
+   company discovery; the current value is rejected 401/403 and
+   `/api/health/serper` reports its shape without printing it.
+6. **Video needs credit at a provider**, not a model change — OpenAI's account is
+   empty (`insufficient_quota`). Add credit, or render on Veo.
 
 **Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:** §97's
 priority queue; §50 paid boost; §77 knowledge graph; §80 agent message bus; §14
@@ -164,43 +165,42 @@ PUBLIC page listing what brands have opened (Task 13).
 **Security debt, with the reasoning.** 6 moderate npm advisories (uuid → … →
 firebase-admin), left deliberately: npm's "fix" is a four-major downgrade of
 firebase-admin, covering uuid v3/v5/v6 with a buffer neither consumer passes. The
-rate limiter is per-instance BY DESIGN and `guard.ts` says why.
+rate limiter is per-instance BY DESIGN; `guard.ts` says why.
 
 ---
 
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWENTY. Newest (2026-08-28): `meterAction` exempted staff, but the video queue,
-the video gateway and the SEO autopilot take a WALLET ID rather than a caller —
-so an executive was waved through every AI route and refused by video with a 402.
-One rule now (`meteringExempt`), asked by all of them. Before it, three finished
-engine files were wired to nothing — no route called `findPerson`, and there was
-no box to type a name into.
+TWENTY-ONE. Newest (2026-08-28): a provider's start failure was formatted into a
+sentence and its STATUS AND BODY thrown away, so the render could not tell an
+empty account from a wrong model. Before it: `meterAction` exempted staff but the
+video queue, gateway and SEO autopilot took a WALLET ID rather than a caller, so
+an executive was refused by video; and three finished engine files were wired to
+nothing.
 Worst: a message whose login, envelope sender and From were three mailboxes, one
-invented in source and never created. Then: the crawler emitted `pass`/`warn`/
-`fail` while the audit matched `critical`/`high`/`medium`; `sendEmail` returned
-success in demo for mail delivered to nobody. The rest are in
-`REQUIREMENTS-COVERAGE.md`.
+invented in source and never created. Then: the crawler emitted `pass`/`warn`/`fail`
+while the audit matched `critical`/`high`/`medium`; `sendEmail` returned success in
+demo for mail delivered to nobody. The rest: `REQUIREMENTS-COVERAGE.md`.
 
 **Check the boundary before the logic; a reported success is not a happening.**
-
 **And a second class, about tests rather than code: a check that passes — or
-FAILS — for a reason unrelated to what it tests.** FOURTEEN. Newest: an assertion
-that an exempt spend left the ledger alone read `lifetimeDebitedAcu === 0` —
-adding zero leaves it at zero, so it could not tell. Before it, a department table
+FAILS — for a reason unrelated to what it tests.** FIFTEEN. Newest: a test that a
+policy-refused prompt is not retried elsewhere used a length where the second
+engine was over the quote and skipped on price anyway — it would have passed with
+the rule deleted. Before it, an assertion that an exempt spend left the ledger
+alone read `lifetimeDebitedAcu === 0`: adding zero leaves it at zero. Before it, a department table
 wrote STEMS inside `\b(...)\b`, so a Chief Financial Officer matched nothing; the
 market-exit affiliation scanner refused every correctly labelled page, because the
 disclosure it MANDATES contains "endorsed by"; and greps proved the recorder's
 parts existed, not that they were wired.
 
-**A test that passes is not evidence until something has broken it**; drive the
-real handler and assert on a value only the real path can produce. Its sharpest
-form is a DIAGNOSTIC exercising a different path from the real one — three rounds
-of SMTP probes each reimplemented SMTP. SEVEN have failed on their own comments:
-strip comments before scanning source. Compare before and after; a counter a
-no-op leaves unchanged proves nothing, and `<script>` survived a mutation that
-stopped escaping `<` because `>` was still escaped.
+**A test that passes is not evidence until something has broken it**; drive the real
+handler and assert on a value only the real path can produce. Its sharpest form is a
+DIAGNOSTIC exercising a different path from the real one — three rounds of SMTP
+probes each reimplemented SMTP. SEVEN have failed on their own comments: strip
+comments before scanning. Compare before and after; a counter a no-op leaves
+unchanged proves nothing.
 
 ---
 
