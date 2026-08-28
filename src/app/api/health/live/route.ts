@@ -142,7 +142,35 @@ export async function GET() {
   return NextResponse.json({
     launch,
     service: "MarketWar OS",
-    deploymentTimeUTC: process.env.VERCEL_DEPLOYMENT_ID ? undefined : undefined, // (informational placeholder)
+    // WHICH CODE IS ACTUALLY RUNNING — the question that blocked a whole day.
+    //
+    // A fix was pushed, CI was green, and there was no way to tell from the
+    // outside whether the deployment serving the domain had picked it up. The
+    // only build stamp in the codebase lived in `/api/health/ai` and read
+    // `VERCEL_GIT_COMMIT_SHA` alone, so on Firebase App Hosting — the other host
+    // this repo supports — it said "unknown".
+    //
+    // Every host stamps the commit under a different name, so all of them are
+    // read and the one that answered is named. `host: "unknown"` with no commit
+    // means this deployment cannot tell you what it is running, which is itself
+    // the finding: compare `commit` against the SHA you pushed before spending
+    // another hour on a bug that may already be fixed.
+    build: (() => {
+      const sources: [string, string | undefined][] = [
+        ["vercel", process.env.VERCEL_GIT_COMMIT_SHA],
+        ["firebase-app-hosting", process.env.CLOUD_RUN_REVISION || process.env.K_REVISION],
+        ["github-actions", process.env.GITHUB_SHA],
+        ["generic", process.env.COMMIT_SHA || process.env.SOURCE_COMMIT || process.env.GIT_COMMIT],
+      ];
+      const found = sources.find(([, v]) => Boolean(v && v.trim()));
+      return {
+        commit: found ? String(found[1]).slice(0, 12) : "unknown",
+        host: found ? found[0] : "unknown",
+        note: found
+          ? "Compare this with the commit you pushed. If they differ, the deployment has not picked up your change yet and nothing in the code will explain what you are seeing."
+          : "This deployment exposes no commit stamp, so it cannot say which build it is running. Set COMMIT_SHA in the host's environment to make that answerable.",
+      };
+    })(),
     vercelEnv: process.env.VERCEL_ENV || "unknown", // "production" | "preview" | "development"
     liveReady: readyCount,
     total: caps.length,
