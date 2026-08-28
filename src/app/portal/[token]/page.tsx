@@ -19,7 +19,8 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function PortalPage({ params }: { params: { token: string } }) {
+export default async function PortalPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
       <div className="mx-auto w-full max-w-2xl">
@@ -31,7 +32,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           </p>
         </header>
 
-        <ClientPortalView token={params.token} />
+        <ClientPortalView token={token} />
 
         <footer className="mt-10 border-t border-white/10 pt-5 text-xs text-slate-500">
           Sent using MarketWar OS. Your decision is recorded against this item with the time and, if you gave one, your name.

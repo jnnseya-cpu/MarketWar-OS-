@@ -42,10 +42,10 @@ const AGENT_PER_CALL_MS = 45_000;
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { agentId: string } }
+  { params }: { params: Promise<{ agentId: string }> }
 ) {
   const startedAt = Date.now();
-  const { agentId } = params;
+  const { agentId } = await params;
   if (!AGENTS[agentId]) {
     return NextResponse.json({ error: `Unknown agent: ${agentId}` }, { status: 404 });
   }
