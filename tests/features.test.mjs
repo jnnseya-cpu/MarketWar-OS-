@@ -24371,3 +24371,78 @@ test("the CI secret scan catches real credentials and not English words", () => 
     assert.ok(!re.test(innocent), `the secret scan falsely flags: ${innocent.slice(0, 48)}…`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// /api/health/email IS PUBLIC — `/api/health` is in the gate's always_open lane
+// by design. The `?send=` action was carefully authorised ("an unauthenticated
+// send-to-any-address button is an open relay with extra steps") and the REPORT
+// was not authorised at all, so anybody on the internet could read
+// `recentSends` — the last twenty RECIPIENT ADDRESSES the platform emailed —
+// plus the SMTP host and the account username.
+//
+// Found while writing the instructions for reading this endpoint.
+// ---------------------------------------------------------------------------
+test("the email health report withholds recipients and the mail host from strangers", async () => {
+  const src = codeOf(readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8"));
+
+  // WHY THIS IS STRUCTURAL AND NOT A REQUEST. `requireAuth` returns
+  // `{ ok: true, enforced: false }` when Firebase Admin is unconfigured, which
+  // keeps the zero-config demo working and is the state every test runs in — so
+  // a request made from here is authorised and CANNOT reach the branch this
+  // guards. Asserting on a response would therefore prove the opposite of what
+  // it appeared to. That is this repository's second recurring defect, and the
+  // honest answer is to say what is being checked: that each field carrying a
+  // person, a mailbox or a server sits behind the flag.
+  const gate = /const privileged = cronAuthorised\(req\)\.ok \|\| \(await requireAuth\(req, \{ scope: "platform_admin" \}\)\)\.ok;/;
+  assert.match(src, gate, "the report no longer establishes who is asking");
+
+  // Every one of these was readable by anybody on the internet: `/api/health` is
+  // in the gate's always_open lane, and only `?send=` was ever authorised.
+  // `recentSends` is the last twenty RECIPIENT ADDRESSES the platform emailed.
+  // Scoped to the RESPONSE OBJECT. `dnsCheck` and `probe` are also local
+  // variables declared earlier in the handler, and matching those instead of the
+  // response field is how this check would pass while the field stayed public.
+  // lastIndexOf, not indexOf: that same `service:` line also heads the
+  // load-failure return further up, and slicing from the FIRST one pulls in the
+  // whole handler — including the `let dnsCheck` declaration, which is what this
+  // check then matched instead of the response field. It reported a pass on the
+  // wrong occurrence until the indices were printed.
+  const report = src.slice(src.lastIndexOf('service: "Email sending — does it actually work?"'));
+  assert.ok(report.length > 0, "the report response has been restructured — re-check the gating by hand");
+
+  // CONTAINMENT, BY BRACE MATCHING — not "a `privileged ?` appears somewhere
+  // above". The first version of this check was the weaker one, and ungating
+  // `dnsCheck` sailed straight through it: there were earlier privileged spreads
+  // in the object, so "something guarded came before" was true of an unguarded
+  // field. Mutation testing caught it. Each spread's real extent is computed and
+  // the field must fall inside one.
+  const spreads = [];
+  for (let i = report.indexOf("...(privileged ? {"); i !== -1; i = report.indexOf("...(privileged ? {", i + 1)) {
+    let depth = 0, j = report.indexOf("{", i);
+    for (; j < report.length; j++) {
+      if (report[j] === "{") depth += 1;
+      else if (report[j] === "}") { depth -= 1; if (depth === 0) break; }
+    }
+    // The `: {}` branch is the empty one — only the truthy object is a hiding place.
+    if (!report.slice(i, j).includes("privileged ? {}")) spreads.push([i, j]);
+  }
+  assert.ok(spreads.length >= 3, `expected several privileged-only groups, found ${spreads.length}`);
+
+  for (const field of ["recentSends", "activeNode", "vars", "envelopeSender", "dnsCheck", "probe"]) {
+    const at = new RegExp(`\\b${field}\\b`).exec(report)?.index ?? -1;
+    assert.notEqual(at, -1, `${field} has been renamed — re-check that it is still gated`);
+    assert.ok(spreads.some(([from, to]) => at > from && at < to),
+      `${field} is outside every privileged-only group — it is exposed to an unauthenticated caller`);
+  }
+
+  // THE DIAGNOSTIC HALF MUST SURVIVE, or closing the leak has broken the reason
+  // the endpoint exists: a deployment that cannot load its own mail code should
+  // say so to whoever looks, and none of that identifies anybody.
+  assert.match(src, /loaded: true/, "the signed-out caller can no longer tell whether the mail code loaded");
+  assert.match(src, /restricted:/, "nothing tells a signed-out caller why the report is short");
+  assert.match(src, /verdict: !privileged/, "the verdict is no longer coarsened for a signed-out caller");
+
+  // And the load-failure answer stays readable without a credential — it is the
+  // one this was changed to surface, and it names no address.
+  assert.match(src, /verdict: "BROKEN BEFORE CONFIGURATION"/);
+});
