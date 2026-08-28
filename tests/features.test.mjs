@@ -25136,3 +25136,57 @@ test("the lane audit: every route, both directions", async () => {
   assert.deepEqual(added, [], `newly open to anonymous callers — justify each, then add it to EXPECTED_ANON: ${added.join(", ")}`);
   assert.deepEqual(removed, [], `no longer open to anonymous callers — a public surface has been closed: ${removed.join(", ")}`);
 });
+
+// ---------------------------------------------------------------------------
+// THE RUNTIME MUST BE PINNED, OR PRODUCTION RUNS DIFFERENT CODE FROM CI.
+//
+// Production reported four backend modules failing to LOAD:
+//
+//   firebase-admin / storage / video-gateway / zernio
+//   → require() of ES Module .../jose/dist/webapi/index.js
+//     from .../jwks-rsa/src/utils.js is not supported
+//
+// `jwks-rsa@4.1.0` declares `jose: ^6.1.3` and then does `const jose =
+// require('jose')`, while jose@6 is `"type": "module"` — pure ESM. Node only
+// learned to `require()` an ES module in 22.12. So the package works on Node 22
+// and throws on Node 20.
+//
+// `engines` was not declared, so the host picked its own default. Local and CI
+// ran Node 22 and everything passed; production ran an older Node and four
+// modules died on import. That is why it could never be reproduced here, and it
+// is why the platform reported keys as missing when `envPresent` proved they
+// were present: `videoGatewayConfigured()` never got the chance to read them —
+// the module it lives in failed to load, and the health probe caught the throw
+// and reported `ready: false`.
+//
+// A module-load failure is the defect class this codebase has been bitten by all
+// day: it happens before any handler code runs, so no try/catch inside a route
+// can see it.
+// ---------------------------------------------------------------------------
+test("the Node runtime is pinned to a version that can require() an ES module", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+  const declared = pkg.engines?.node;
+  assert.ok(declared, "package.json declares no engines.node — the host will pick its own Node and may pick one where require(esm) throws");
+  const major = Number(String(declared).match(/(\d+)/)?.[1]);
+  assert.ok(major >= 22, `engines.node is "${declared}" — require(esm) landed in Node 22.12, and jwks-rsa require()s the ESM-only jose`);
+
+  // The CI workflow must run the SAME major, or green here proves nothing about
+  // the runtime that actually serves customers — which is exactly what happened.
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  for (const m of ci.matchAll(/node-version:\s*"?(\d+)/g)) {
+    assert.equal(Number(m[1]), major, `CI runs Node ${m[1]} but the deployment is pinned to ${declared} — a green run would not exercise the deployed runtime`);
+  }
+});
+
+// The dependency that forced the pin. If this stops being true — jwks-rsa moves
+// to `import`, or firebase-admin drops it — the pin can be revisited, and this
+// test is where somebody will find out.
+test("jwks-rsa still require()s the ESM-only jose, which is what the Node pin is for", () => {
+  const utils = new URL("../node_modules/jwks-rsa/src/utils.js", import.meta.url).pathname;
+  if (!existsSync(utils)) return; // not installed in this tree — nothing to assert
+  assert.match(readFileSync(utils, "utf8"), /require\(['"]jose['"]\)/,
+    "jwks-rsa no longer require()s jose — re-check whether engines.node still needs to be 22.x");
+  const jose = JSON.parse(readFileSync(new URL("../node_modules/jose/package.json", import.meta.url), "utf8"));
+  assert.equal(jose.type, "module", `jose is no longer ESM-only (type: ${jose.type}) — the Node pin may no longer be required`);
+});
