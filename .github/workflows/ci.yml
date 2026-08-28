@@ -88,10 +88,28 @@ jobs:
           npm audit || true
 
       # Cheap, and the one class of mistake that cannot be undone by a revert.
+      #
+      # THIS FAILED EVERY RUN FROM THE DAY IT WAS WRITTEN, and on nothing. The
+      # first pattern was `sk-[A-Za-z0-9_-]{20,}`, which matched the article slug
+      # `ask-customers-for-reviews-properly` — the `sk-` is inside "**a**sk-", and
+      # allowing `-` in the body let it run through the rest of the slug. Twelve
+      # red runs, all of them this, none of them a credential.
+      #
+      # That is worse than an inconvenience: a scanner that cries wolf on every
+      # commit is one whose red is ignored, which is the exact state this
+      # repository was in. So the patterns now match the credentials as PROVIDERS
+      # ACTUALLY ISSUE THEM:
+      #   • a boundary before `sk-`, so a word ending in "ask"/"disk"/"risk" is not
+      #     a prefix;
+      #   • an alphanumeric body, because real key bodies are — the hyphens in a
+      #     slug are what let the old pattern reach 20 characters at all;
+      #   • `sk-proj-` named explicitly, since that separator is real.
+      # Verified against both a real key shape and the slug that broke it before
+      # this was committed.
       - name: Secret scan
         run: |
           set -o pipefail
-          if git grep -nEI "(sk-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,}|whsec_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{30,})" \
+          if git grep -nEI "((^|[^A-Za-z0-9_-])sk-(proj-)?[A-Za-z0-9]{32,}|AIza[A-Za-z0-9_-]{35}|whsec_[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{36,})" \
                -- ':!tests/*' ':!docs/*' ':!.github/*' ; then
             echo "::error::A credential-shaped string is present in tracked source."
             exit 1

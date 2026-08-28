@@ -24320,3 +24320,54 @@ test("the audit check catalogue looks like it opens", () => {
   // them" beside nothing that looked openable.
   assert.match(page, /Tap any check below to open/, "the instruction no longer names the control it refers to");
 });
+
+// ---------------------------------------------------------------------------
+// THE SECRET SCAN HAS TO CATCH KEYS AND ONLY KEYS.
+//
+// It failed EVERY CI run from the day it was written, twelve of them, and never
+// once on a credential: `sk-[A-Za-z0-9_-]{20,}` matched the article slug
+// `ask-customers-for-reviews-properly` — the `sk-` is inside "**a**sk-", and
+// allowing `-` in the body carried the match through the rest of the slug.
+//
+// A scanner that is red on every commit is a scanner nobody reads, which is
+// strictly worse than not having one: the twelve red runs were treated as noise
+// and a real finding would have been too. So the patterns are asserted in BOTH
+// directions — a pattern that catches nothing passes a "no false positives"
+// test perfectly.
+// ---------------------------------------------------------------------------
+test("the CI secret scan catches real credentials and not English words", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+
+  // Taken from the workflow itself rather than restated here. A copy in the test
+  // would let the two drift, and the one in CI is the one that runs.
+  const line = ci.split("\n").find((l) => l.includes("git grep -nEI"));
+  assert.ok(line, "the secret scan step is gone from CI");
+  const pattern = line.match(/git grep -nEI "(.+)" \\?$/)?.[1];
+  assert.ok(pattern, `could not read the scan pattern out of CI: ${line}`);
+  const re = new RegExp(pattern);
+
+  // MUST CATCH — the shapes providers actually issue.
+  for (const key of [
+    "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH",
+    'key = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD"',
+    "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r",
+    "whsec_abcdefghijklmnopqrstuvwx",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB",
+    "gho_abcdefghijklmnopqrstuvwxyz0123456789AB",
+  ]) {
+    assert.ok(re.test(key), `the secret scan would not catch ${key.slice(0, 24)}…`);
+  }
+
+  // MUST NOT CATCH. The first entry is the exact line that turned CI red twelve
+  // times; the rest are the other English words that end in the same three
+  // letters, which the old pattern would have hit the moment one was written.
+  for (const innocent of [
+    '    related: ["ask-customers-for-reviews-properly"],',
+    "risk-assessment-for-small-businesses-in-the-united-kingdom",
+    "disk-usage-monitoring-and-alerting-configuration-guide",
+    "task-scheduler-configuration-for-nightly-autopilot-runs",
+  ]) {
+    assert.ok(!re.test(innocent), `the secret scan falsely flags: ${innocent.slice(0, 48)}…`);
+  }
+});
