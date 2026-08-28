@@ -24,12 +24,24 @@
 // the precise detail stays in the API response and the server log, where the
 // person who can act on it will look.
 
-export type SendFailure = "halted" | "hygiene" | "not_configured" | "provider" | "unknown";
+// `crashed` is not one of `sendEmail`'s return values, and that is the point.
+// Every `ok: false` path inside `sendEmail` carries one of the four categories
+// below — so a caller reporting "unknown" has not received a classified failure
+// at all: the sending path THREW, before or during the attempt, and the caller's
+// try/catch is all that stands between that and a 500.
+//
+// It was reported as "the send did not complete" — the `unknown` default, the
+// one sentence in this file that names no problem and suggests no fix — while
+// the owner had every setting in place and no email had ever arrived. The
+// distinction matters because the two have opposite diagnoses: a classified
+// failure means the sending path ran and something refused, while a crash means
+// it never ran, and no amount of checking SMTP credentials will explain it.
+export type SendFailure = "halted" | "hygiene" | "not_configured" | "provider" | "crashed" | "unknown";
 
 /** The category, from whatever the send actually returned. */
 export function sendFailureOf(raw: unknown): SendFailure {
   const v = typeof raw === "string" ? raw.trim() : "";
-  return v === "halted" || v === "hygiene" || v === "not_configured" || v === "provider" ? v : "unknown";
+  return v === "halted" || v === "hygiene" || v === "not_configured" || v === "provider" || v === "crashed" ? v : "unknown";
 }
 
 /**
@@ -48,6 +60,8 @@ export function publicSendFailure(raw: unknown): string {
       return "that address has bounced or unsubscribed before, so we do not send to it";
     case "halted":
       return "sending is paused on this account";
+    case "crashed":
+      return "the mail service on this deployment failed to start, so nothing was sent — this is our fault, not your address";
     default:
       return "the send did not complete";
   }
@@ -69,6 +83,8 @@ export function operatorFix(raw: unknown): string {
       return "The address is on the suppression ledger from an earlier bounce, complaint or unsubscribe. That is working as intended; nothing to fix.";
     case "halted":
       return "The emergency stop is engaged for this lane. Clear it before sending resumes.";
+    case "crashed":
+      return "The sending path THREW rather than returning a failure, so no provider was ever contacted and the mail settings are not the thing to check first. This is a module that failed to load or initialise — most often Firebase Admin credentials that are absent or malformed on this deployment, since the send path reads the suppression ledger before it sends. The thrown message is in the server log on the line above this one. Open /api/health/email, which reports a load failure rather than dying with it.";
     default:
       return "Open /api/health/email for a live check of the sending path.";
   }

@@ -1,9 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
 import { publicSendFailure, operatorFix } from "@/shared/send-failure";
-import { recentSends } from "@/backend/send-ledger";
-import { getPool } from "@/backend/sending-pool";
-import { emailProvider, emailIsConfigured } from "@/backend/email";
+// THE DIAGNOSTIC MUST OUTLIVE THE THING IT DIAGNOSES.
+//
+// These three were static imports, and that made this endpoint useless in the
+// one case it exists for. If `@/backend/email` throws while LOADING, a static
+// import here means the failure happens before any handler code runs — so the
+// route that answers "why is no email sending?" dies of the same cause, with
+// Next's 500 page and not one word about it. The owner is then holding two
+// broken things instead of one working explanation.
+//
+// Loaded on use and guarded, so a load failure becomes the FINDING rather than
+// the end of the request. `@/backend/guard` above stays static on purpose: if
+// that cannot load nobody can sign in at all, which is a different and much
+// louder failure than this one.
+type EmailModule = typeof import("@/backend/email");
+type LedgerModule = typeof import("@/backend/send-ledger");
+type PoolModule = typeof import("@/backend/sending-pool");
 import { resolveSender, alignmentRemedy } from "@/shared/sender-identity";
 
 // Does email actually send? — the definitive answer for THIS deployment.
@@ -170,6 +183,37 @@ async function probeSmtp(
 }
 
 export async function GET(req: NextRequest) {
+  // THE LOAD IS ITSELF A CHECK. If the sending modules cannot even be brought
+  // into memory then no configuration question below is worth asking, and the
+  // thrown message is the entire answer — so it is reported as the verdict
+  // rather than allowed to become a 500 page.
+  let email: EmailModule;
+  let ledger: LedgerModule;
+  let poolModule: PoolModule;
+  try {
+    [email, ledger, poolModule] = await Promise.all([
+      import("@/backend/email"),
+      import("@/backend/send-ledger"),
+      import("@/backend/sending-pool"),
+    ]);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    console.error(`[health/email] the sending modules failed to load: ${why}`);
+    return NextResponse.json({
+      service: "Email sending — does it actually work?",
+      verdict: "BROKEN BEFORE CONFIGURATION",
+      loaded: false,
+      why,
+      note:
+        "The email code could not be loaded on this deployment, so nothing was sent and no mail setting is the cause. " +
+        "Checking SMTP_HOST, RESEND_API_KEY or the sending pool will not change this — the failure is above all of them. " +
+        "The message in `why` is the whole diagnosis.",
+    }, { status: 200 });
+  }
+  const { emailProvider, emailIsConfigured } = email;
+  const { recentSends } = ledger;
+  const { getPool } = poolModule;
+
   // -------------------------------------------------------------------------
   // ?send=<address> — THE REAL SEND, not another probe.
   //

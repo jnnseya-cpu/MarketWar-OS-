@@ -119,9 +119,9 @@ export default function AuditPage() {
         <p>
           Not &ldquo;we check your SEO&rdquo;. This is the list, generated from the same file the
           report itself reads, so it cannot drift from what actually runs. Every one is measured on
-          your own page rather than looked up in a database of averages. Open any of them to see why
-          it costs you money; where one fails, the report also gives you the fix and what MarketWar
-          does about it.
+          your own page rather than looked up in a database of averages. Tap any check below to open
+          it and read what it costs you; in your own report, every check that fails also carries the
+          fix and what MarketWar does about it.
         </p>
         <div className="not-prose my-6 grid gap-4 sm:grid-cols-2">
           {groups.map((g) => (
@@ -138,9 +138,25 @@ export default function AuditPage() {
                 {g.checks.map((c) => (
                   <li key={c.label}>
                     <details className="group">
-                      <summary className="cursor-pointer list-none text-[13px] leading-relaxed text-slate-300 marker:content-none hover:text-white">
-                        <span className="mr-1.5 text-slate-600 group-open:text-emerald-400">›</span>
-                        {c.label}
+                      {/* THE AFFORDANCE HAS TO BE VISIBLE, or the sentence above
+                          this grid is a lie. It read "Open any of them to see
+                          why it costs you money" while the only clickable
+                          indication was a `›` in slate-600 on a near-black
+                          panel, which did not move when the item opened. The
+                          owner's report was one word: "where????????".
+                          Native marker off, our own chevron on: readable at
+                          rest, emerald and rotated when open, so the row states
+                          both that it opens and whether it is open. */}
+                      <summary className="flex cursor-pointer list-none items-baseline gap-1.5 rounded text-[13px] leading-relaxed text-slate-300 marker:content-none hover:text-white">
+                        <span
+                          aria-hidden="true"
+                          className="inline-block shrink-0 text-slate-400 transition-transform duration-150 group-open:rotate-90 group-open:text-emerald-400"
+                        >
+                          ›
+                        </span>
+                        <span className="underline decoration-slate-700 decoration-dotted underline-offset-4 group-hover:decoration-slate-400 group-open:decoration-emerald-500/50">
+                          {c.label}
+                        </span>
                         {conditional.includes(c.label) && <span className="ml-1 text-[10px] uppercase tracking-wide text-slate-500">when it applies</span>}
                       </summary>
                       <p className="mb-2 ml-4 mt-1 text-xs leading-relaxed text-slate-400">{c.costs}</p>

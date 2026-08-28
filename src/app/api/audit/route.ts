@@ -105,6 +105,16 @@ async function handleAudit(req: NextRequest) {
 
   const url = str("url");
   if (!url) return NextResponse.json({ error: "Put your website address in and we will read the actual page." }, { status: 400 });
+  // A BOUND ON THE INPUT, because this is a public endpoint that makes an
+  // outbound request out of whatever it is given. Found by fuzzing this route: a
+  // ten-million-character `url` passed every check above and was carried all the
+  // way into a real fetch attempt, on an unauthenticated path, for the cost of
+  // one request. The longest URL any browser will follow is well under 2,048
+  // characters, so nothing legitimate is refused here.
+  const MAX_URL_CHARS = 2_048;
+  if (url.length > MAX_URL_CHARS) {
+    return NextResponse.json({ error: "That address is far longer than any real web address — check it and try again." }, { status: 400 });
+  }
 
   // THE CRAWL IS WRAPPED. It reads an arbitrary third-party site, which is the
   // most hostile input this platform accepts, and it was the ONE await in this
@@ -298,9 +308,19 @@ async function handleAudit(req: NextRequest) {
       console.warn(`[audit] send failed (${emailFailure}) for ${finalUrl}: ${sent.detail} — ${operatorFix(sent.failure)}`);
     }
   } catch (e) {
-    emailFailure = "unknown";
-    emailNote = publicSendFailure("unknown");
-    console.warn(`[audit] send threw for ${report.finalUrl || report.url}: ${e instanceof Error ? e.message : String(e)}`);
+    // A THROW IS NOT AN UNKNOWN FAILURE — it is a known one, and this branch
+    // used to discard the only evidence of it.
+    //
+    // `sendEmail` returns a classified `failure` on every one of its `ok: false`
+    // paths, so reaching here means the sending path never got far enough to
+    // classify anything: the dynamic import failed, or something threw inside
+    // it. Reporting that as `unknown` produced "the send did not complete" —
+    // true, useless, and indistinguishable from a mail server timing out. The
+    // owner read that sentence with every setting correctly in place and had no
+    // way to learn that the mail settings were not the problem.
+    emailFailure = "crashed";
+    emailNote = publicSendFailure("crashed");
+    console.error(`[audit] send threw for ${report.finalUrl || report.url}: ${e instanceof Error ? e.message : String(e)} — ${operatorFix("crashed")}`);
   }
 
   return NextResponse.json({

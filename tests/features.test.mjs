@@ -24142,3 +24142,181 @@ test("audit D-17: the free audit cannot answer 500, and does not load the Admin 
   assert.match(src, /console\.error\(`\[audit\] handler threw for \$\{where\}/,
     "a handler failure does not record which address caused it");
 });
+
+// ---------------------------------------------------------------------------
+// THE PRODUCTION 500, ROOT CAUSE — the middleware, not the route.
+//
+// The free audit was reported answering `500: Internal Server Error` with Next's
+// error-page stylesheet, four times. Three rounds of hardening went into
+// `/api/audit` and none of them could have helped: no handler in this codebase
+// answers HTML, so that body was never produced by one.
+//
+// Confirmed by experiment before any of this was written — a bare `throw` at the
+// top of `middleware()`, built and served, returns exactly that body on
+// `/api/audit` and on `/` alike. The middleware runs before every route on a
+// matcher covering nearly the whole site, and it had no error handling at all.
+// ---------------------------------------------------------------------------
+test("the human gate cannot take the whole site down when it throws", () => {
+  const src = codeOf(readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8"));
+
+  // The gate call is inside a try. Asserted on CODE, not on the prose that
+  // explains it — seven tests in this repository have passed on their own
+  // comments, and this one is guarding the highest-blast-radius file there is.
+  const body = src.slice(src.indexOf("export async function middleware"));
+  assert.ok(body.length > 0, "the middleware entry point has been renamed");
+  const tryAt = body.indexOf("try {");
+  const decideAt = body.indexOf("decide({");
+  assert.ok(tryAt !== -1, "the middleware has no try/catch — any throw in it is a 500 on every route");
+  assert.ok(tryAt < decideAt, "the gate decision is made outside the try, so a throw in it is uncatchable");
+
+  // And it fails OPEN with the failure named, rather than closed. A gate that
+  // cannot run must not become an outage: this is the documented trade, and the
+  // lane says `unavailable` so nothing downstream mistakes it for a pass.
+  assert.match(body, /catch[\s\S]{0,600}?x-mw-gate-lane", "unavailable"/,
+    "a gate failure no longer marks the request as unjudged");
+  assert.match(body, /catch[\s\S]{0,600}?NextResponse\.next/,
+    "a gate failure no longer passes the request through — it now blocks the site instead");
+  assert.match(body, /console\.error\(`\[gate\] the human gate threw on \$\{path\}/,
+    "a gate failure is silent, so nobody would learn the control had turned itself off");
+});
+
+// A rejected key promise must not be cached. `hmacKey` memoises on the secret,
+// so a rejection stored there is permanent for the life of the instance — and
+// because that key signs the binding the middleware computes for EVERY request,
+// one transient crypto failure meant a 500 on every route until the instance
+// was recycled.
+test("one failed key import does not poison the gate for the life of the process", async () => {
+  const gate = await import("../src/backend/human-gate.ts");
+  const subtle = globalThis.crypto.subtle;
+  const real = subtle.importKey.bind(subtle);
+  const priorSecret = process.env.HUMAN_CHECK_SECRET;
+
+  // FORCE A REAL CACHE MISS. `hmacKey` memoises on the secret, and by the time
+  // this test runs the gate has already signed something for another test — so
+  // the patched `importKey` below was simply never called, and the first version
+  // of this test passed its own patch by. That is this repository's second
+  // recurring defect exactly: a check that passes for a reason unrelated to what
+  // it tests. A secret this process has not seen guarantees the import runs.
+  process.env.HUMAN_CHECK_SECRET = "poison-cache-probe-secret";
+
+  let calls = 0;
+  subtle.importKey = async (...args) => {
+    calls += 1;
+    if (calls === 1) throw new Error("simulated one-off Web Crypto failure");
+    return real(...args);
+  };
+
+  try {
+    await assert.rejects(
+      () => gate.bindingFor({ headers: { get: () => null } }),
+      /simulated one-off Web Crypto failure/,
+      "the first call should surface the crypto failure rather than swallow it",
+    );
+
+    // THE POINT OF THE TEST. Before the fix this second call awaited the same
+    // rejected promise and threw the identical error forever.
+    const binding = await gate.bindingFor({ headers: { get: () => null } });
+    assert.equal(typeof binding, "string");
+    assert.equal(binding.length, 32, "the binding is still a 32-char signature after recovery");
+    assert.ok(calls >= 2, "the key import was never retried — the rejection is still cached");
+  } finally {
+    subtle.importKey = real;
+    if (priorSecret === undefined) delete process.env.HUMAN_CHECK_SECRET;
+    else process.env.HUMAN_CHECK_SECRET = priorSecret;
+    // Leave the module's cached key matching the restored secret, so the next
+    // test in this process is not signing with the probe's key.
+    await gate.bindingFor({ headers: { get: () => null } });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A THROWN SEND IS NOT AN UNKNOWN ONE.
+//
+// Reported by the owner with every mail setting in place: "the send did not
+// complete", which is `unknown` — the one sentence in send-failure.ts that names
+// no problem and suggests no fix. Every `ok: false` path inside `sendEmail`
+// carries a classified category, so reaching the caller's catch means the
+// sending path THREW and never classified anything. The two have opposite
+// diagnoses and had the same words.
+// ---------------------------------------------------------------------------
+test("a sending path that crashes is reported as a crash, not as an unknown failure", async () => {
+  const { sendFailureOf, publicSendFailure, operatorFix } = await import("../src/shared/send-failure.ts");
+
+  assert.equal(sendFailureOf("crashed"), "crashed");
+  assert.equal(sendFailureOf("something else entirely"), "unknown", "unrecognised values still fall back");
+
+  // The whole value of the category is that it reads differently. If these two
+  // ever converge the distinction has been lost again.
+  assert.notEqual(publicSendFailure("crashed"), publicSendFailure("unknown"),
+    "a crash and an unknown failure tell the visitor the same thing again");
+  assert.notEqual(operatorFix("crashed"), operatorFix("unknown"),
+    "a crash and an unknown failure send the operator to the same place again");
+
+  // And it must say the thing that saves the owner the wasted hours: the mail
+  // settings are not the cause.
+  assert.match(publicSendFailure("crashed"), /failed to start/);
+  assert.match(operatorFix("crashed"), /not the thing to check first/);
+
+  const route = codeOf(readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /emailFailure = "crashed"/, "the audit route still reports a thrown send as unknown");
+  assert.doesNotMatch(route, /emailFailure = "unknown"/, "the audit route still has a path that discards the reason");
+});
+
+// The diagnostic has to survive the thing it diagnoses. A static import of
+// `@/backend/email` meant that if that module threw at load, the endpoint whose
+// only job is to answer "why is no email sending?" died of the same cause —
+// with Next's 500 page and not one word about it.
+test("the email health check reports a load failure instead of dying of it", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8"));
+
+  for (const m of ["@/backend/email", "@/backend/send-ledger", "@/backend/sending-pool"]) {
+    assert.doesNotMatch(src, new RegExp(`^import [^;]*from "${m.replace("/", "\\/")}"`, "m"),
+      `${m} is statically imported again — a load failure there kills the diagnostic`);
+  }
+  assert.match(src, /import\("@\/backend\/email"\)/, "the email module is no longer loaded at all");
+  assert.match(src, /verdict: "BROKEN BEFORE CONFIGURATION"/,
+    "a load failure no longer produces a verdict naming itself");
+  assert.match(src, /loaded: false/, "the response no longer says whether the modules loaded");
+});
+
+// ---------------------------------------------------------------------------
+// The free audit is public and turns its input into an outbound request. Found
+// by fuzzing the running server: a ten-million-character `url` passed every
+// check and was carried all the way into a real fetch attempt.
+// ---------------------------------------------------------------------------
+test("the free audit refuses an absurdly long address before fetching it", async () => {
+  const { POST } = await import("../src/app/api/audit/route.ts");
+
+  const res = await POST(new Request("http://localhost/api/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url: `https://example.com/${"a".repeat(10_000)}` }),
+  }));
+  assert.equal(res.status, 400, "an oversized address is still accepted and fetched");
+  assert.match((await res.json()).error, /longer than any real web address/);
+
+  // And a normal address is not caught by the bound — a limit that refuses real
+  // input is worse than no limit.
+  const ok = await POST(new Request("http://localhost/api/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url: `https://example.com/${"a".repeat(200)}` }),
+  }));
+  assert.notEqual(ok.status, 400, "an ordinary long-ish address is being refused by the length bound");
+});
+
+// The catalogue at the bottom of /audit promises "tap any check below to open
+// it". The only affordance was a `›` in slate-600 on a near-black panel that did
+// not move when opened, and the owner's report was one word: "where????????".
+test("the audit check catalogue looks like it opens", () => {
+  const page = codeOf(readFileSync(new URL("../src/app/audit/page.tsx", import.meta.url), "utf8"));
+
+  assert.match(page, /group-open:rotate-90/, "the chevron does not move when a check is opened");
+  assert.doesNotMatch(page, /text-slate-600 group-open:text-emerald-400/,
+    "the chevron is back to the near-invisible slate-600 it was reported for");
+  assert.match(page, /decoration-dotted/, "the check label carries no affordance that it can be opened");
+
+  // The prose and the control have to agree. It previously said "Open any of
+  // them" beside nothing that looked openable.
+  assert.match(page, /Tap any check below to open/, "the instruction no longer names the control it refers to");
+});
