@@ -24003,3 +24003,63 @@ test("audit D-15: the free audit shows WHY it failed, not just that it did", () 
   assert.match(src, /Could not reach the audit service/,
     "a network failure and a server refusal still read identically");
 });
+
+test("audit D-16: the crawler stops reading at the cap, and an unexpected throw is not a 500", async () => {
+  const crawler = await import("../src/backend/crawler.ts");
+
+  // THE DEFECT. `(await res.arrayBuffer()).slice(0, 1_500_000)` reads the WHOLE
+  // body into memory and only then discards the excess — the cap was a
+  // formatting step, not a limit. On a public endpoint that fetches a URL of
+  // the caller's choosing, a huge page or an endless stream exhausts the
+  // function before the slice is reached: a crash anybody can aim at us.
+  //
+  // Driven against `readCapped` directly. An earlier version of this test went
+  // through `crawlSite` and passed while reading ZERO bytes — the net guard
+  // refuses a hostname that does not resolve, so the reader was never entered
+  // and the assertion succeeded for a reason unrelated to what it tested.
+  let served = 0;
+  let cancelled = false;
+  const endless = new ReadableStream({
+    pull(c) {
+      served += 64 * 1024;
+      if (served > 40_000_000) { c.close(); return; }   // a safety net, not the limit under test
+      c.enqueue(new Uint8Array(64 * 1024).fill(65));
+    },
+    cancel() { cancelled = true; },
+  });
+
+  const html = await crawler.readCapped(new Response(endless), 1_500_000);
+
+  assert.equal(html.length, 1_500_000, "the reader did not stop at the cap");
+  assert.ok(served <= 1_500_000 + 64 * 1024,
+    `read ${served} bytes for a 1,500,000-byte cap — the body is still consumed whole`);
+  assert.equal(cancelled, true,
+    "the transfer was left running after the cap was reached, so the bytes keep arriving anyway");
+
+  // A body SHORTER than the cap comes back whole and unpadded.
+  const short = await crawler.readCapped(new Response("<html>hello</html>"), 1_500_000);
+  assert.equal(short, "<html>hello</html>");
+
+  // A body that cannot be streamed still gets capped, just after the fact —
+  // the best available for a response with no reader.
+  const noStream = { body: null, arrayBuffer: async () => new TextEncoder().encode("x".repeat(50)).buffer };
+  assert.equal((await crawler.readCapped(noStream, 10)).length, 10,
+    "a non-streaming body is not capped at all");
+
+  // AND AN UNANTICIPATED THROW IS NOT A 500. Structural, and said so: the crawl
+  // cannot be forced to throw from here because every fetch failure is handled
+  // inside `crawlSite` and the net guard stops anything that would reach the
+  // unhandled paths. What is asserted is that the route WRAPS the call and
+  // records the address — the two things missing when production answered with
+  // Next's own 500 page on the main lead-capture surface.
+  const src = codeOf(readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /try \{\s*report = await crawlSite\(url\);\s*\} catch \(e\) \{/,
+    "the crawl call is unwrapped again — an unanticipated throw becomes a 500");
+  assert.match(src, /console\.error\(`\[audit\] crawl threw for \$\{url\}/,
+    "a crawl that threw does not record which address caused it");
+  assert.match(src, /\{ status: 200 \}/, "a failed audit answers with an error status rather than a readable result");
+
+  const csrc = codeOf(readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8"));
+  assert.match(csrc, /readCapped\(res, MAX_HTML_BYTES\)/, "the crawler no longer caps as it reads");
+  assert.doesNotMatch(csrc, /await res\.arrayBuffer\(\)\)\.slice/, "the unbounded read is back");
+});

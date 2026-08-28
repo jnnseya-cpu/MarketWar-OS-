@@ -57,7 +57,37 @@ export async function POST(req: NextRequest) {
   const url = str("url");
   if (!url) return NextResponse.json({ error: "Put your website address in and we will read the actual page." }, { status: 400 });
 
-  const report = await crawlSite(url);
+  // THE CRAWL IS WRAPPED. It reads an arbitrary third-party site, which is the
+  // most hostile input this platform accepts, and it was the ONE await in this
+  // handler with nothing around it — the prospect record and the email below
+  // were both already guarded.
+  //
+  // REPORTED FROM PRODUCTION: `/api/audit` answered HTTP 500 with Next's own
+  // error page. `crawlSite` returns a failure REPORT for the cases it
+  // anticipates — a 403, a DNS failure, a private address — and those were
+  // handled. Anything it did not anticipate threw instead, escaped the handler,
+  // and became a 500 on the platform's main lead-capture surface. A visitor saw
+  // a generic failure, no lead was recorded, and nothing on our side said which
+  // address caused it.
+  //
+  // A crawler cannot enumerate what the web will do to it. So the unanticipated
+  // case is caught, reported to the visitor in the same shape as every
+  // anticipated one, and LOGGED WITH THE URL — that is the single fact needed to
+  // reproduce it, and without it a report like the one that found this is
+  // unactionable.
+  let report;
+  try {
+    report = await crawlSite(url);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : "unknown error";
+    console.error(`[audit] crawl threw for ${url}: ${why}`);
+    return NextResponse.json({
+      ok: false,
+      error: "We could not read that page — something about it broke our reader rather than simply refusing us. That is our bug, not your site's. It has been logged and we will fix it.",
+      block: null,
+    }, { status: 200 });
+  }
+
   if (!report.ok) {
     return NextResponse.json({ ok: false, error: report.error || "That page could not be read.", block: report.block }, { status: 200 });
   }

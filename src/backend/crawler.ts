@@ -157,14 +157,80 @@ async function fetchPage(url: string, timeoutMs = 12_000): Promise<{ status: num
         continue;
       }
 
-      const buf = await res.arrayBuffer();
-      const html = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 1_500_000));
+      // READ UP TO THE CAP, NOT THE WHOLE BODY AND THEN THE CAP.
+      //
+      // This was `(await res.arrayBuffer()).slice(0, 1_500_000)`, which reads
+      // the ENTIRE response into memory and only then throws away the excess.
+      // The cap looked like a limit and was a formatting step. A site serving a
+      // 500MB page, a stream that never ends, or a decompression bomb exhausts
+      // the function's memory before the slice is reached — and this is a
+      // PUBLIC endpoint that fetches a URL of the caller's choosing, so it is
+      // both a crash and something anybody can point at us on purpose.
+      //
+      // Now the body is consumed in chunks and abandoned at the limit. What
+      // gets audited is unchanged (the first 1.5MB of HTML is far more than any
+      // real page's head and body need), and the failure mode is a truncated
+      // read rather than a dead process.
+      const html = await readCapped(res, MAX_HTML_BYTES);
       // Headers come back too: a 403 from Cloudflare and a 403 from an origin are
       // different problems with different fixes, and only the headers say which.
       return { status: res.status, finalUrl: current, html, ms: Date.now() - start, headers: res.headers };
     }
     return null; // too many hops
   } catch { return null; } finally { clearTimeout(t); }
+}
+
+/** The most HTML we will hold for one page. Far beyond any real page's needs. */
+const MAX_HTML_BYTES = 1_500_000;
+
+/**
+ * Consume a response body up to `limit` bytes and stop.
+ *
+ * Exported so this can be tested directly. It cannot be reached through
+ * `crawlSite` from a test environment: the net guard refuses a hostname that
+ * does not resolve publicly, which is correct and which means the reader is
+ * never entered. A first version of this test asserted on bytes served through
+ * `crawlSite` and passed while reading ZERO — a check that succeeded for a
+ * reason unrelated to what it tested.
+ *
+ * Falls back to `arrayBuffer()` only when the body is not a readable stream —
+ * some runtimes and some mocked responses are not — and in that case the same
+ * cap is applied after the fact, which is the old behaviour and the best
+ * available for a body that cannot be streamed.
+ */
+export async function readCapped(res: Response, limit: number): Promise<string> {
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  const body = res.body;
+  if (!body || typeof body.getReader !== "function") {
+    const buf = await res.arrayBuffer();
+    return decoder.decode(buf.slice(0, limit));
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const room = limit - total;
+      if (value.byteLength >= room) {
+        chunks.push(value.subarray(0, room));
+        total = limit;
+        break;
+      }
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    // Stop the transfer rather than letting it run on in the background after
+    // we already have everything we are going to use.
+    try { await reader.cancel(); } catch { /* the stream was already finished */ }
+  }
+  const joined = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
+  return decoder.decode(joined);
 }
 
 async function exists(url: string, timeoutMs = 7_000): Promise<boolean> {
