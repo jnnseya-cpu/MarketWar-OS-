@@ -24906,3 +24906,55 @@ test("a capability panel that could not reach its check says so, rather than bla
     assert.match(src, /not a statement that/i, `${file} does not tell the reader this is not a key problem`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// THE MOMENT `HUMAN_CHECK_SECRET` WAS SET, THE PLATFORM REPORTED ITSELF DEAD.
+//
+// Setting the secret flips the gate from `observe` (evaluates, blocks nothing)
+// to `enforced`. Every capability probe the dashboard fires — /api/voice,
+// /api/video/jobs, /api/video-render — sits in the `human` lane, so all three
+// went from answering to 403 "No human session on this request."
+//
+// The Video War Room therefore reported Audio Studio, Translation & Dubbing,
+// Repurposing, Brand Kit and B-Roll as unavailable and collapsed the render
+// length list, on a deployment where every key was set and working.
+// `/api/health/live` is in ALWAYS_OPEN and kept answering, which is exactly why
+// SOME cards stayed correct while the rest went dark: same page, same keys,
+// different lane. That asymmetry is what identified the cause.
+//
+// Reproduced before the fix and re-run after it, against a real production
+// build with the secret set: all five reads answered 200, and every POST on the
+// same paths still refused with 403.
+// ---------------------------------------------------------------------------
+test("a capability READ is answered without a human session; the spend on the same path is not", async () => {
+  const { decide, CAPABILITY_READ_PATHS, isCapabilityRead } = await import("../src/backend/human-gate.ts");
+
+  // Enforced mode is the state that broke: the secret is set, so the gate
+  // BLOCKS rather than observing.
+  const env = { HUMAN_CHECK_SECRET: "x".repeat(32) };
+  const ask = (path, method) => decide({ path, method, cookie: null, binding: "b", env });
+
+  for (const path of CAPABILITY_READ_PATHS) {
+    const read = await ask(path, "GET");
+    assert.equal(read.allow, true, `${path} GET is refused without a human session — this is what darkened the War Room`);
+    assert.equal(read.observed, false, "the read is allowed outright, not merely observed");
+
+    // THE OTHER HALF, AND THE REASON THIS IS SAFE. POST to these same URLs
+    // renders video, synthesises speech and queues machine time.
+    const spend = await ask(path, "POST");
+    assert.equal(spend.allow, false, `${path} POST is now open — the spend must stay gated`);
+  }
+
+  // The opening is exact: a path not on the list is untouched, and a method
+  // that is not safe is untouched.
+  assert.equal(isCapabilityRead("/api/voice", "GET"), true);
+  assert.equal(isCapabilityRead("/api/voice", "POST"), false);
+  assert.equal(isCapabilityRead("/api/voice/clone", "GET"), false, "the match is exact, not a prefix — /api/voice/* must not be opened");
+  assert.equal(isCapabilityRead("/api/share2earn", "GET"), false, "an unrelated route was opened");
+  assert.equal((await ask("/api/share2earn", "GET")).allow, false, "a normal human-lane GET is no longer gated");
+
+  // And enforcement is genuinely on in this fixture — otherwise every assertion
+  // above would pass for the wrong reason.
+  assert.equal((await ask("/api/dashboard-thing", "GET")).observed, false,
+    "the gate is in observe mode in this test, so it proves nothing about enforcement");
+});
