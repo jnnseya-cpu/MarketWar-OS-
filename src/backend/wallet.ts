@@ -25,7 +25,7 @@ if (typeof window !== "undefined") {
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { WebhookOutcome } from "@/backend/stripe-billing";
 import type { AuthResult } from "@/backend/guard";
-import { isStaff } from "@/shared/roles";
+import { isStaff, type Role } from "@/shared/roles";
 
 // New wallets start with a small free allowance so a brand-new public user can
 // actually try the AI surfaces before paying (the Free plan's 100 ACUs).
@@ -574,13 +574,55 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
 // ---------------------------------------------------------------------------
 export type MeterResult = { allowed: boolean; status: number; error?: string; balanceAcu?: number; charged?: number; metered: boolean };
 
-export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1): Promise<MeterResult> {
-  if (!auth.ok) return { allowed: false, status: auth.status, error: auth.error, metered: false };
+/**
+ * The caller, reduced to the three things that decide whether they pay.
+ *
+ * `AuthResult` and `BrandAccess` both satisfy this shape, which is the point:
+ * the rule below is asked the same question by a route holding either, and by
+ * the engines those routes call.
+ */
+export type Spender = { enforced?: boolean; uid?: string | null; role?: Role | null };
+
+/**
+ * WHO NEVER PAYS — and this is the ONLY place that decides it.
+ *
+ * There used to be two answers to this question. `meterAction` knew that staff
+ * are not metered; the four paths that call `debitAcus` directly — the video
+ * render queue, the video gateway, the SEO autopilot and the scheduled trends
+ * sweep — did not, because they receive a wallet id rather than a caller. So an
+ * executive with a zero balance was waved through every AI route on the platform
+ * and refused by video and by the blog autopilot: the same account, the same
+ * session, two different rules, and a 402 the owner could not top up their way
+ * out of without granting themselves credits they are not supposed to need.
+ *
+ * That is this codebase's oldest defect wearing its twentieth hat — a value
+ * (the caller's role) that exists on one side of a boundary and is never carried
+ * across. The fix is not to copy the staff check into four more files. It is to
+ * put the rule in one function, have `meterAction` ask it, and give the direct
+ * spenders a way to ask it too.
+ */
+export function meteringExempt(who: Spender | null | undefined): { exempt: boolean; why: string } {
+  // No caller at all — a cron, a queue worker, a webhook. There is nobody whose
+  // role could exempt this, so it is charged. Stated rather than assumed: work
+  // SCHEDULED by staff still spends the brand's ACUs, because by the time it
+  // runs the token that proved who asked for it is long gone.
+  if (!who) return { exempt: false, why: "No signed-in caller — background work is charged to the brand's wallet." };
   // Demo / no accounts — nothing to bill, keep zero-config working.
-  if (!auth.enforced || !auth.uid) return { allowed: true, status: 200, metered: false };
+  if (!who.enforced || !who.uid) return { exempt: true, why: "No accounts are enforced on this deployment, so there is no wallet to bill." };
   // Staff (owner/admin/sales/support) usage is not metered — MarketWar's own team
   // and the owner's live testing + operations must never be blocked by a wallet.
-  if (auth.role && isStaff(auth.role)) return { allowed: true, status: 200, metered: false };
+  if (who.role && isStaff(who.role)) return { exempt: true, why: `${who.role} is MarketWar staff — platform AI is not metered for the team that runs it.` };
+  return { exempt: false, why: "A customer account pays for what it uses." };
+}
+
+export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1): Promise<MeterResult> {
+  if (!auth.ok) return { allowed: false, status: auth.status, error: auth.error, metered: false };
+  if (meteringExempt(auth).exempt) return { allowed: true, status: 200, metered: false };
+  // Belt and braces, and it is also what narrows `uid` for the debit below:
+  // `meteringExempt` already returns exempt for a missing uid, so reaching here
+  // without one would mean the two disagreed — which is exactly the split this
+  // function was collapsed into one rule to prevent.
+  if (!auth.uid) return { allowed: true, status: 200, metered: false };
 
   const cost = Math.max(0, Math.round(ACTION_COST_ACU[kind] * Math.max(1, units)));
   const res = await debitAcus(auth.uid, cost);
@@ -591,4 +633,36 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1)
     };
   }
   return { allowed: true, status: 200, metered: true, balanceAcu: res.balanceAcu, charged: res.charged };
+}
+
+export type SpendResult =
+  | { ok: true; charged: number; exempt: boolean; why: string; balanceAcu?: number }
+  | { ok: false; charged: 0; exempt: false; why: string; balanceAcu: number; error: string };
+
+/**
+ * Take ACUs from a named wallet, unless the CALLER is exempt.
+ *
+ * `debitAcus` is the arithmetic and knows only a wallet id. This is the same
+ * debit with the caller attached, and it is what an engine should use when it
+ * spends on somebody's behalf: pass the `BrandAccess` (or `AuthResult`) the
+ * route already resolved, and staff stop being billed for their own platform.
+ *
+ * Pass `null` deliberately for scheduled or queued work — it charges, and the
+ * `why` says why it charged, so a reader never has to guess whether an exemption
+ * was considered and rejected or simply never asked about.
+ */
+export async function spendAcus(who: Spender | null, walletId: string, cost: number): Promise<SpendResult> {
+  const verdict = meteringExempt(who);
+  // NOT A ZERO-COST DEBIT. A debit of zero writes a ledger entry saying this
+  // account paid nothing, which is a different claim from "this account was
+  // never billed" — and the ledger is what the owner's economics are read from.
+  if (verdict.exempt) return { ok: true, charged: 0, exempt: true, why: verdict.why };
+  const res = await debitAcus(walletId, Math.max(0, Math.round(cost)));
+  if (!res.ok) {
+    return {
+      ok: false, charged: 0, exempt: false, why: verdict.why, balanceAcu: res.balanceAcu,
+      error: `Not enough ACUs — this costs ${cost} ACUs and the balance is ${res.balanceAcu}. Top up on Billing.`,
+    };
+  }
+  return { ok: true, charged: res.charged, exempt: false, why: verdict.why, balanceAcu: res.balanceAcu };
 }

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
       if (!prompt.trim()) return NextResponse.json({ error: "prompt is required" }, { status: 400 });
       const seconds = typeof body.seconds === "number" ? body.seconds : Number(body.seconds) || undefined;
-      return NextResponse.json(await startVideoRender({ brandId, prompt, seconds }));
+      return NextResponse.json(await startVideoRender({ brandId, prompt, seconds, spender: access }));
     }
     if (action === "status") {
       const jobId = typeof body.jobId === "string" ? body.jobId : "";

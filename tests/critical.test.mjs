@@ -1226,7 +1226,9 @@ test("the render guard runs before the debit, not after", async () => {
   // The brand id no longer names the wallet — spending resolves the OWNING
   // ACCOUNT first (walletIdForBrand). The property under test is unchanged: the
   // guard must still come before the money moves.
-  const debit = src.indexOf("await debitAcus(walletId, cost)");
+  // `spendAcus` is `debitAcus` with the caller attached, so staff are not billed
+  // for their own platform. The property under test is untouched by that.
+  const debit = src.indexOf("await spendAcus(input.spender ?? null, walletId, cost)");
   assert.ok(guard > 0 && debit > 0, "both must exist");
   assert.ok(guard < debit, "the guard must come first");
 });

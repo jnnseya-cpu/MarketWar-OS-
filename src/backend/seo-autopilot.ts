@@ -23,7 +23,7 @@ import { entitlementFor } from "@/backend/entitlement";
 import { generateArticle } from "@/backend/blog-generator";
 import { brandLinkMenu } from "@/backend/blog-links";
 import { savePost, getPost, listPostsForBrand } from "@/backend/blog-store";
-import { debitAcus, getWallet } from "@/backend/wallet";
+import { spendAcus, getWallet, type Spender } from "@/backend/wallet";
 import type { BlogPost } from "@/shared/blog";
 
 // What one automated post costs the customer. A post is a long generation plus
@@ -117,6 +117,15 @@ export async function runBrandSeoPost(input: {
   category?: string;
   trigger: "manual" | "auto";
   siteBase: string;
+  /**
+   * WHO ASKED FOR IT, so staff are not billed for their own platform.
+   *
+   * Pass the `BrandAccess` the route resolved. Omit it — or pass null — for the
+   * scheduler, which has no caller: unattended work is charged, and `spendAcus`
+   * says so rather than leaving a reader to guess whether an exemption was
+   * considered.
+   */
+  spender?: Spender | null;
 }): Promise<BrandPostResult> {
   const settings = await getSeoSettings(input.brandId);
 
@@ -138,7 +147,7 @@ export async function runBrandSeoPost(input: {
   if (ent.automationsPaused) {
     return { ok: false, charged: 0, error: `Autopilot is paused — ${ent.reason}` };
   }
-  const debit = await debitAcus(spendWalletId, ACU_PER_POST);
+  const debit = await spendAcus(input.spender ?? null, spendWalletId, ACU_PER_POST);
   if (!debit.ok) {
     return {
       ok: false, charged: 0, balanceAcu: debit.balanceAcu,
@@ -170,15 +179,25 @@ export async function runBrandSeoPost(input: {
     await setSeoSettings(input.brandId, { lastRunAt: now });
     const wallet = await getWallet(input.brandId);
     return {
-      ok: true, charged: ACU_PER_POST, balanceAcu: wallet.balanceAcu,
+      // WHAT WAS ACTUALLY TAKEN, not the price list. A staff run charges nothing
+      // and must not report a charge, or the owner's economics count revenue
+      // from wallets that were never debited.
+      ok: true, charged: debit.charged, balanceAcu: wallet.balanceAcu,
       post: { slug, title: post.title, status, url: `${input.siteBase}/blog/${slug}` },
       links: gen.links,
     };
   } catch (e) {
     // Generation failed after the debit — refund, so a customer is never charged
     // for a post that does not exist.
-    const { creditAcus } = await import("@/backend/wallet");
-    await creditAcus(spendWalletId, ACU_PER_POST);
-    return { ok: false, charged: 0, error: `Generation failed — your ${ACU_PER_POST} ACUs were refunded. ${e instanceof Error ? e.message : ""}`.trim() };
+    // Refund only what was taken. Crediting the price list back to an exempt
+    // caller's wallet would MINT ACUs out of a failed generation.
+    if (debit.charged > 0) {
+      const { creditAcus } = await import("@/backend/wallet");
+      await creditAcus(spendWalletId, debit.charged);
+    }
+    return {
+      ok: false, charged: 0,
+      error: `Generation failed — ${debit.charged > 0 ? `your ${debit.charged} ACUs were refunded` : "nothing was charged"}. ${e instanceof Error ? e.message : ""}`.trim(),
+    };
   }
 }

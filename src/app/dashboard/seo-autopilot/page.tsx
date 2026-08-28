@@ -17,7 +17,11 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
 type Settings = { enabled: boolean; cadence: "daily" | "weekly"; topics: string[]; keywords: string; autoPublish: boolean; lastRunAt?: string | null };
-type PlanInfo = { name: string; monthlyAcus: number; includedPostsPerMonth: number; balanceAcu: number; postsAffordableNow: number };
+// `postsAffordableNow` is NULL, not zero, when the caller is not metered.
+// Those are different facts and the button below depends on the difference:
+// `null ?? 0` reads as "out of credits" and disables the one control the page
+// exists for, which is how a server-side exemption dies at the browser.
+type PlanInfo = { name: string; monthlyAcus: number; includedPostsPerMonth: number; balanceAcu: number; postsAffordableNow: number | null; unmetered?: boolean };
 type Post = { slug: string; title: string; status: string; createdAt: string; url: string };
 type Opportunity = { kind: string; title: string; url: string; domain: string; evidence: string; why: string; difficulty: string; priority: number; pitchAngle: string };
 type OppReport = { mode: "live" | "demo"; opportunities: Opportunity[]; compliance: string; note: string };
@@ -163,10 +167,12 @@ export default function SeoAutopilotPage() {
             <div className="text-right">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Balance now</p>
               <p className="mt-1 font-display text-2xl font-bold text-emerald-400">{plan.balanceAcu.toLocaleString("en-GB")} <span className="text-sm font-normal text-slate-400">ACUs</span></p>
-              <p className="text-xs text-slate-400">covers {plan.postsAffordableNow} more post{plan.postsAffordableNow === 1 ? "" : "s"}</p>
+              <p className="text-xs text-slate-400">
+                {plan.unmetered ? "not charged for your account" : `covers ${plan.postsAffordableNow} more post${plan.postsAffordableNow === 1 ? "" : "s"}`}
+              </p>
             </div>
           </div>
-          {plan.postsAffordableNow === 0 && (
+          {!plan.unmetered && plan.postsAffordableNow === 0 && (
             <p className="mt-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               Out of ACUs — <Link href="/dashboard/billing" className="font-semibold underline">top up or upgrade</Link> to keep publishing.
             </p>
@@ -218,7 +224,7 @@ export default function SeoAutopilotPage() {
           </button>
 
           <div className="mt-4 border-t border-white/10 pt-4">
-            <button className="btn-primary w-full" onClick={writeNow} disabled={writing || topicCount === 0 || (plan?.postsAffordableNow ?? 0) === 0}>
+            <button className="btn-primary w-full" onClick={writeNow} disabled={writing || topicCount === 0 || (!plan?.unmetered && (plan?.postsAffordableNow ?? 0) === 0)}>
               {writing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenLine className="h-4 w-4" />}
               {writing ? "Writing…" : `Write a post now — ${acuPerPost} ACUs`}
             </button>
