@@ -17,6 +17,8 @@ type Lang = { code: string; name: string };
 
 export default function AudioStudio() {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  /** We asked and could not find out — distinct from "the key is not set". */
+  const [unreachable, setUnreachable] = useState(false);
   const [languages, setLanguages] = useState<Lang[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
 
@@ -38,11 +40,24 @@ export default function AudioStudio() {
   const [dubBusy, setDubBusy] = useState(false);
   const [dubError, setDubError] = useState<string | null>(null);
 
+  // A FAILED PROBE MUST NOT ASSERT THAT THE KEY IS MISSING.
+  //
+  // This used to end `.catch(() => setConfigured(false))`, which turns any
+  // network failure — including a 429 from the platform's own rate limit — into
+  // a positive claim on screen: "No voice engine is connected. Set
+  // ELEVENLABS_API_KEY." The owner read that with the key set and working, and
+  // went looking at ElevenLabs for a fault that was never there.
+  //
+  // `configured` is already three-valued (null while checking). A refusal is a
+  // FOURTH thing: we asked and could not find out. Saying so costs one sentence
+  // and saves an afternoon of checking a key that is fine.
   useEffect(() => {
     fetch("/api/voice").then((r) => r.json()).then((d) => {
-      setConfigured(Boolean(d?.configured));
+      // A response that does not carry the flag is a failed probe, not a "no".
+      if (typeof d?.configured !== "boolean") { setUnreachable(true); return; }
+      setConfigured(d.configured);
       setLanguages(Array.isArray(d?.languages) ? d.languages : []);
-    }).catch(() => setConfigured(false));
+    }).catch(() => setUnreachable(true));
   }, []);
 
   useEffect(() => {
@@ -130,14 +145,23 @@ export default function AudioStudio() {
         <Mic className="h-5 w-5 text-emerald-400" />
         <h2 className="font-display text-lg font-bold text-white">Audio Studio &amp; Dubbing</h2>
         {configured === true && <Pill tone="good">voice engine connected</Pill>}
-        {configured === false && <Pill tone="warn">needs a voice key</Pill>}
+        {configured === false && !unreachable && <Pill tone="warn">needs a voice key</Pill>}
+        {unreachable && <Pill tone="warn">could not check</Pill>}
       </div>
       <p className="mb-4 text-xs leading-relaxed text-slate-500">
         Narrate an ad, a demo or a course module in a real voice, and take one finished video into another language without
         re-shooting it. Speech is billed per 1,000 characters and dubbing per minute — the same units the provider bills us on.
       </p>
 
-      {configured === false && (
+      {unreachable && (
+        <p className="mb-4 rounded-lg border border-slate-500/30 bg-slate-500/[0.06] p-3 text-xs leading-relaxed text-slate-300">
+          We could not reach the voice check just now, so this panel cannot say whether your engine is
+          connected. <strong className="text-slate-200">This is not a statement that your key is missing.</strong> Reload;
+          if it persists, <code className="text-slate-200">/api/voice</code> is the thing to look at.
+        </p>
+      )}
+
+      {configured === false && !unreachable && (
         <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-200">
           No voice engine is connected. Set <code className="text-amber-100">ELEVENLABS_API_KEY</code> and this panel produces
           real audio — until then it stays off rather than inventing a voiceover.

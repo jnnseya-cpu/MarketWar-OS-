@@ -60,6 +60,8 @@ export default function RenderFarm({
 
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [workerUp, setWorkerUp] = useState<boolean | null>(null);
+  /** We asked and could not find out — NOT the same as "no worker is connected". */
+  const [unreachable, setUnreachable] = useState(false);
   const [renderVia, setRenderVia] = useState<string[]>([]);
   // Kinds that composite a second source need the self-hosted worker; the
   // hosted API cannot do them. Read from the server, never assumed.
@@ -83,12 +85,18 @@ export default function RenderFarm({
     fetch("/api/video/jobs")
       .then((r) => r.json())
       .then((d) => {
+        // A response with no flag is a failed probe, not a missing worker. The
+        // old `.catch(() => setWorkerUp(false))` turned any network failure —
+        // a 429 from our own rate limit included — into the positive claim "no
+        // renderer connected", which is a statement about the owner's setup
+        // that we had not actually established.
+        if (typeof d?.workerConfigured !== "boolean") { setUnreachable(true); return; }
         setCosts(d?.costs || {});
-        setWorkerUp(Boolean(d?.workerConfigured));
+        setWorkerUp(d.workerConfigured);
         setRenderVia(Array.isArray(d?.renderVia) ? d.renderVia : []);
         setHostedUnsupported(Array.isArray(d?.hostedUnsupported) ? d.hostedUnsupported : []);
       })
-      .catch(() => setWorkerUp(false));
+      .catch(() => setUnreachable(true));
   }, []);
 
   const refresh = useCallback(async () => {
@@ -215,7 +223,8 @@ export default function RenderFarm({
               : renderVia.includes("cloud") ? "hosted rendering live" : "render worker connected"}
           </Pill>
         )}
-        {workerUp === false && <Pill tone="warn">no renderer connected</Pill>}
+        {workerUp === false && !unreachable && <Pill tone="warn">no renderer connected</Pill>}
+        {unreachable && <Pill tone="warn">could not check</Pill>}
       </div>
       <p className="mb-4 text-xs leading-relaxed text-slate-500">
         This is the panel that produces actual video files. Upload a video (or paste a direct link), choose what to do, and
@@ -223,7 +232,15 @@ export default function RenderFarm({
         refunds you in full, automatically.
       </p>
 
-      {workerUp === false && (
+      {unreachable && (
+        <p className="mb-4 rounded-lg border border-slate-500/30 bg-slate-500/[0.06] p-3 text-xs leading-relaxed text-slate-300">
+          We could not reach the render-queue check just now, so this panel cannot say whether a worker is
+          connected. <strong className="text-slate-200">This is not a statement that yours is missing.</strong> Reload;
+          if it persists, <code className="text-slate-200">/api/video/jobs</code> is the thing to look at.
+        </p>
+      )}
+
+      {workerUp === false && !unreachable && (
         <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs leading-relaxed text-amber-200">
           No render worker is connected to this deployment, so these jobs cannot run and the panel will not charge you for
           them. <strong className="text-amber-100">You probably do not need one.</strong> Cutting clips to 9:16 with the
