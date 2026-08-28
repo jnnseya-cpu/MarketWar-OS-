@@ -214,6 +214,23 @@ export async function GET(req: NextRequest) {
   const { recentSends } = ledger;
   const { getPool } = poolModule;
 
+  // WHO IS ASKING — because half of this report is not public.
+  //
+  // Found while writing the instructions for reading it: `?send=` was carefully
+  // authorised ("an unauthenticated send-to-any-address button is an open relay
+  // with extra steps") and the REPORT was not authorised at all. `/api/health` is
+  // in the gate's always_open lane by design, so anybody on the internet could
+  // GET this and read `recentSends` — the last twenty RECIPIENT ADDRESSES the
+  // platform emailed — along with the SMTP host and the account username.
+  // Recipients are customer data; a mail server's host and login are the two
+  // facts a credential-stuffing attempt starts from.
+  //
+  // The diagnostic value is kept for everyone, because a deployment that cannot
+  // load its own mail code should say so to whoever looks: the VERDICT and the
+  // reason are not secrets. Everything that identifies a person, a mailbox or a
+  // server needs the same credential `?send=` already needed.
+  const privileged = cronAuthorised(req).ok || (await requireAuth(req, { scope: "platform_admin" })).ok;
+
   // -------------------------------------------------------------------------
   // ?send=<address> — THE REAL SEND, not another probe.
   //
@@ -445,24 +462,39 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     service: "Email sending — does it actually work?",
+    // NOT SECRET, AND THE HALF THAT ANSWERS "is it broken?" — whether the code
+    // loaded, whether a provider is configured, how many nodes are in the pool.
+    // None of it identifies a person, a mailbox or a server.
+    loaded: true,
     provider: emailProvider,
     configured: emailIsConfigured(),
     poolNodes: pool.length,
-    // Host and user are operational config, not secrets. The password is never
-    // echoed in any form beyond its length.
-    activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
-    vars,
-    // WHAT WAS ACTUALLY SENT. The only record of a send used to be an in-memory
-    // per-instance counter, so "did Tuesday's audit email go out?" had no answer
-    // anywhere in the system. These ids are what a provider's support desk can
-    // act on.
-    recentSends: await recentSends(20).catch(() => []),
-    probe,
+    ...(privileged ? {} : {
+      restricted: "Signed out, so the recipients, the mail host, the account username, the environment-variable shapes and the DNS answers are withheld. Sign in as a platform admin, or call this with the scheduler bearer, for the full report.",
+    }),
+    // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
+    // and the login; `recentSends` carries other people's email addresses; the
+    // `vars` shapes describe the credentials themselves. On an always_open path
+    // that was public, which is a customer-data exposure and a head start on
+    // credential stuffing.
+    ...(privileged ? {
+      // Host and user are operational config, not secrets. The password is never
+      // echoed in any form beyond its length.
+      activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
+      vars,
+      // WHAT WAS ACTUALLY SENT. The only record of a send used to be an in-memory
+      // per-instance counter, so "did Tuesday's audit email go out?" had no answer
+      // anywhere in the system. These ids are what a provider's support desk can
+      // act on.
+      recentSends: await recentSends(20).catch(() => []),
+      probe,
+    } : {}),
     // ALL THREE ADDRESSES, IN ONE PLACE, resolved by the function the sender
     // itself uses. They used to be reported separately and computed separately,
     // which is how a deployment could show green here while every message left
     // with a login, an envelope and a From that were three different mailboxes.
-    envelopeSender: {
+    // Three real mailbox addresses. Withheld for the same reason as the rest.
+    ...(privileged ? { envelopeSender: {
       visibleFrom: fromAddr,
       returnPath: realEnvelopeFrom,
       authenticatedAccount: node?.user || null,
@@ -479,9 +511,13 @@ export async function GET(req: NextRequest) {
       // to a mailbox that exists instead of vanishing with the evidence.
       bounceAddressConfigured: Boolean(bounceReturnPath()),
       ...(returnPathNote ? { verdict: returnPathNote } : {}),
-    },
-    dnsCheck,
-    verdict: !node
+    } } : {}),
+    ...(privileged ? { dnsCheck } : {}),
+    // The verdict NAMES ADDRESSES — the envelope pair it tested, the relay's own
+    // words. Signed out, the answer is the yes/no without the specifics.
+    verdict: !privileged
+      ? (emailIsConfigured() ? "A sending provider is configured. Sign in as a platform admin for the live probe and the reason." : "NOT SENDING — no sending provider is configured on this deployment.")
+      : !node
       ? missing.length
         ? `NOT SENDING. Missing or empty: ${missing.join(", ")}. All three are required — host, user AND password.`
         : "NOT SENDING. The variables are present but no sending node could be built from them."
