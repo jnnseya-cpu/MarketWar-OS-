@@ -31,7 +31,13 @@ export async function POST(req: NextRequest) {
       if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
       if (!prompt.trim()) return NextResponse.json({ error: "prompt is required" }, { status: 400 });
       const seconds = typeof body.seconds === "number" ? body.seconds : Number(body.seconds) || undefined;
-      return NextResponse.json(await startVideoRender({ brandId, prompt, seconds, spender: access }));
+      // The SHAPE travels with the request. Without it every render is 16:9,
+      // and a portrait placement is wrong on the first render every time.
+      return NextResponse.json(await startVideoRender({
+        brandId, prompt, seconds, spender: access,
+        aspect: typeof body.aspect === "string" ? body.aspect : undefined,
+        resolution: typeof body.resolution === "string" ? body.resolution : undefined,
+      }));
     }
     if (action === "status") {
       const jobId = typeof body.jobId === "string" ? body.jobId : "";
