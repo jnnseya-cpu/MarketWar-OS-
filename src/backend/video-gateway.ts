@@ -20,7 +20,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb } from "@/backend/firebase-admin";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
-import { debitAcus, creditAcus } from "@/backend/wallet";
+import { spendAcus, creditAcus, type Spender } from "@/backend/wallet";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
@@ -612,7 +612,11 @@ export function brandedVideoPrompt(prompt: string, brand: { name?: string; produ
   return lines.join("\n\n");
 }
 
-export async function startVideoRender(input: { brandId: string; prompt: string; seconds?: number }): Promise<VideoJob> {
+export async function startVideoRender(input: {
+  brandId: string; prompt: string; seconds?: number;
+  /** Who asked. Staff are not billed for their own platform; see spendAcus. */
+  spender?: Spender | null;
+}): Promise<VideoJob> {
   const brandId = input.brandId?.trim() || "brand";
   const askedPrompt = input.prompt?.trim() || "Product highlight video";
   // The brand is loaded, never assumed. A lookup that fails leaves the prompt
@@ -668,7 +672,7 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
   const quotedAcu = plan.acus;
   // The OWNING ACCOUNT's wallet, not the brand id — see walletIdForBrand.
   const walletId = await walletIdForBrand(brandId);
-  const debit = await debitAcus(walletId, quotedAcu);
+  const debit = await spendAcus(input.spender ?? null, walletId, quotedAcu);
   if (!debit.ok) {
     const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
       requestedSeconds, seconds: 0, chargedAcu: 0,
@@ -676,6 +680,11 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
     await saveJob(job);
     return job;
   }
+  // WHAT WAS TAKEN, not what was quoted. Every refund path below reads
+  // `chargedAcu`, and refunding a quote to a wallet that was never debited
+  // would mint ACUs — the same defect as charging for a call that never ran,
+  // pointed the other way.
+  const takenAcu = debit.charged;
 
   // EVERY CLIP, OR NONE.
   //
@@ -700,20 +709,21 @@ export async function startVideoRender(input: { brandId: string; prompt: string;
       // Kept for every reader written before segments existed.
       providerRef: started[0].ref,
       segments: started,
-      requestedSeconds, seconds: requestedSeconds, chargedAcu: quotedAcu,
-      note: `Rendering ${requestedSeconds}s via ${plan.provider}${multi ? ` as ${plan.segments.length} clips (${plan.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${quotedAcu} ACUs. Poll for the hosted MP4 (renders take up to a few minutes).`,
+      requestedSeconds, seconds: requestedSeconds, chargedAcu: takenAcu,
+      note: `Rendering ${requestedSeconds}s via ${plan.provider}${multi ? ` as ${plan.segments.length} clips (${plan.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${takenAcu > 0 ? `${takenAcu} ACUs` : "not charged (staff)"}. Poll for the hosted MP4 (renders take up to a few minutes).`,
     };
     await saveJob(job);
     return job;
   }
 
-  // Nothing usable started, so nothing is owed.
-  await creditAcus(walletId, quotedAcu);
+  // Nothing usable started, so nothing is owed — but only what was actually
+  // taken comes back.
+  if (takenAcu > 0) await creditAcus(walletId, takenAcu);
 
   // Every configured provider failed — report each reason so it's debuggable.
   const job: VideoJob = { jobId, brandId, prompt, provider: plan.provider, status: "failed", mode: "live", videoUrl: null, providerRef: null,
     requestedSeconds, seconds: 0, chargedAcu: 0,
-    note: `Couldn't start every clip of this ${requestedSeconds}s render, so none was kept and the ${quotedAcu} ACUs are back in your wallet. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
+    note: `Couldn't start every clip of this ${requestedSeconds}s render, so none was kept${takenAcu > 0 ? ` and the ${takenAcu} ACUs are back in your wallet` : " (nothing was charged)"}. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
   await saveJob(job);
   return job;
 }

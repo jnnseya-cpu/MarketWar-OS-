@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSeoSettings, setSeoSettings, runBrandSeoPost, listEnabledBrands, isDue, ACU_PER_POST } from "@/backend/seo-autopilot";
 import { listPostsForBrand } from "@/backend/blog-store";
-import { getWallet } from "@/backend/wallet";
+import { getWallet, meteringExempt } from "@/backend/wallet";
 import { PLANS, planEconomics } from "@/backend/subscription";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, cronAuthorised } from "@/backend/guard";
@@ -48,6 +48,23 @@ export async function POST(req: NextRequest) {
     const plan = PLANS.find((pl) => pl.id === wallet.planId) ?? PLANS[0];
     const eco = planEconomics(plan);
     const includedPerMonth = Math.floor((eco.monthlyAcus || eco.annualAcus || 0) / ACU_PER_POST);
+    // A STAFF CALLER IS NOT SHORT OF CREDITS, so do not tell them they are. The
+    // wallet arithmetic below is true of the wallet and false of the person
+    // reading it: staff runs are not billed, so "you can afford 0 more right
+    // now" would be a refusal the platform is not going to make.
+    const staff = meteringExempt(access);
+    if (staff.exempt) {
+      return NextResponse.json({
+        settings, acuPerPost: ACU_PER_POST,
+        plan: {
+          id: plan.id, name: plan.name, monthlyAcus: eco.monthlyAcus,
+          includedPostsPerMonth: includedPerMonth,
+          balanceAcu: wallet.balanceAcu, postsAffordableNow: null, unmetered: true,
+        },
+        posts: posts.map((p) => ({ slug: p.slug, title: p.title, status: p.status, createdAt: p.createdAt, url: `${SITE}/blog/${p.slug}` })),
+        note: `${staff.why} Posts run from here are not charged, so there is no balance to run out of.`,
+      });
+    }
     const affordableNow = Math.floor(wallet.balanceAcu / ACU_PER_POST);
     return NextResponse.json({
       settings, acuPerPost: ACU_PER_POST,
@@ -79,6 +96,10 @@ export async function POST(req: NextRequest) {
       brandId, brandName: s("brandName") || brandId, website: s("website"),
       topic: s("topic") || undefined, category: s("category") || undefined,
       trigger: "manual", siteBase: SITE,
+      // The caller, carried across. Staff pressing this button are not billed
+      // for their own platform — the same rule every metered route already
+      // applies, which this path used to be the exception to.
+      spender: access,
     });
     return NextResponse.json(result, { status: result.ok ? 200 : 402 });
   }
@@ -97,7 +118,10 @@ export async function GET(req: NextRequest) {
   const due = brands.filter((b) => isDue(b));
   const results: { brandId: string; ok: boolean; charged: number; error?: string; slug?: string }[] = [];
   for (const b of due.slice(0, 50)) {
-    const r = await runBrandSeoPost({ brandId: b.brandId, brandName: b.brandId, trigger: "auto", siteBase: SITE });
+    // NO CALLER — the scheduler is not a person, so there is no role that could
+    // exempt this and the brand's wallet pays. Passed explicitly so a reader can
+    // see the exemption was considered rather than forgotten.
+    const r = await runBrandSeoPost({ brandId: b.brandId, brandName: b.brandId, trigger: "auto", siteBase: SITE, spender: null });
     results.push({ brandId: b.brandId, ok: r.ok, charged: r.charged, error: r.error, slug: r.post?.slug });
   }
   return NextResponse.json({

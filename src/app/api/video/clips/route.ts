@@ -174,9 +174,12 @@ export async function POST(req: NextRequest) {
   }
   // Rendering attributes work and spends a brand's ACUs, so ownership is
   // established before anything is charged — not after the clips exist.
+  // Held rather than discarded: the enqueue below needs to know WHO asked, or
+  // staff get billed for their own platform.
+  let renderAccess: Awaited<ReturnType<typeof resolveBrandAccess>> | null = null;
   if (wantRender && brandId) {
-    const access = await resolveBrandAccess(req, brandId);
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    renderAccess = await resolveBrandAccess(req, brandId);
+    if (!renderAccess.ok) return NextResponse.json({ error: renderAccess.error }, { status: renderAccess.status });
   }
 
   // ---- transcript: either supplied, or bought -------------------------------
@@ -248,6 +251,7 @@ export async function POST(req: NextRequest) {
       const job = await enqueueVideoJob({
         brandId, kind: "clips", sourceUrl,
         params: { aspect: "9:16", moments: clips.map((c) => ({ startSec: c.startSec, endSec: c.endSec })) },
+        spender: renderAccess && renderAccess.ok ? renderAccess : null,
       });
       renderJob = job.ok ? { queued: true, jobId: job.job?.id } : { queued: false, error: job.error };
     }

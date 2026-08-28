@@ -22,7 +22,7 @@ if (typeof window !== "undefined") {
 // how the SEO post engine handles money.
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
-import { debitAcus, creditAcus } from "@/backend/wallet";
+import { spendAcus, creditAcus, type Spender } from "@/backend/wallet";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { buildRecipe, RecipeError, hostedApiUnsupportedReason } from "@/backend/ffmpeg-recipes";
 import { ffmpegCloudConfigured, submitPass, getTranscode, getDownloadUrl, outputStillFetchable } from "@/backend/ffmpeg-cloud";
@@ -143,6 +143,8 @@ export async function enqueueVideoJob(input: {
   kind: VideoJobKind;
   sourceUrl: string;
   params?: Record<string, unknown>;
+  /** Who asked. Staff are not billed for their own platform; see spendAcus. */
+  spender?: Spender | null;
 }): Promise<{ ok: boolean; job?: VideoJob; error?: string; balanceAcu?: number }> {
   const cost = JOB_COST_ACU[input.kind];
   if (!input.sourceUrl) return { ok: false, error: "A source video is required." };
@@ -176,7 +178,7 @@ export async function enqueueVideoJob(input: {
 
   // The owning ACCOUNT pays, not a purse named after the brand.
   const walletId = await walletIdForBrand(input.brandId);
-  const debit = await debitAcus(walletId, cost);
+  const debit = await spendAcus(input.spender ?? null, walletId, cost);
   if (!debit.ok) {
     return { ok: false, balanceAcu: debit.balanceAcu, error: `Not enough ACUs — this render costs ${cost} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing.` };
   }
@@ -184,7 +186,9 @@ export async function enqueueVideoJob(input: {
   const job: VideoJob = {
     id: newId(), brandId: input.brandId, kind: input.kind, status: "queued",
     sourceUrl: input.sourceUrl, params: input.params || {}, outputUrls: [],
-    chargedAcu: cost, attempts: 0, createdAt: nowIso(), claimedAt: null, finishedAt: null, progress: 0,
+    // WHAT WAS TAKEN, not the price list — a refund on failure reads this field,
+    // and refunding a staff job's list price would mint ACUs.
+    chargedAcu: debit.charged, attempts: 0, createdAt: nowIso(), claimedAt: null, finishedAt: null, progress: 0,
     provider: "worker",
   };
 
@@ -201,9 +205,11 @@ export async function enqueueVideoJob(input: {
       job.attempts = 1;
     } else if (!workerConfigured()) {
       // Nothing else can run it — refund immediately rather than parking a paid
-      // job in a queue no worker will ever read.
-      await creditAcus(walletId, cost);
-      return { ok: false, error: submitted.error, balanceAcu: debit.balanceAcu + cost };
+      // job in a queue no worker will ever read. Refund WHAT WAS TAKEN: an
+      // exempt caller was charged nothing, and crediting the list price back
+      // would hand them ACUs they never spent.
+      if (debit.charged > 0) await creditAcus(walletId, debit.charged);
+      return { ok: false, error: submitted.error, balanceAcu: (debit.balanceAcu ?? 0) + debit.charged };
     }
     // Otherwise fall through: the self-hosted worker will pick it up.
   }

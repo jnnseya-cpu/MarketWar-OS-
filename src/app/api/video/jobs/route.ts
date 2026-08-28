@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
     const result = await enqueueVideoJob({
       brandId, kind, sourceUrl,
       params: (body.params && typeof body.params === "object" ? body.params : {}) as Record<string, unknown>,
+      spender: access,
     });
     if (!result.ok) return NextResponse.json({ error: result.error, balanceAcu: result.balanceAcu }, { status: 402 });
     return NextResponse.json({

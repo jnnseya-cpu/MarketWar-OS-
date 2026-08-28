@@ -10652,7 +10652,7 @@ test("video: a requested length reaches the provider", () => {
   assert.match(src, /parameters: \{ durationSeconds: seconds \}/, "Veo is never told how long");
   assert.match(src, /seconds: String\(seconds\)/, "Sora is never told how long");
   const route = readFileSync(new URL("../src/app/api/video-render/route.ts", import.meta.url), "utf8");
-  assert.match(route, /startVideoRender\(\{ brandId, prompt, seconds \}\)/);
+  assert.match(route, /startVideoRender\(\{ brandId, prompt, seconds, spender: access \}\)/);
   const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
   assert.match(ui, /prompt, seconds \}\)/, "the screen must send the length the user picked");
 });
@@ -20715,13 +20715,21 @@ test("the video render charges exactly what the button quoted", async () => {
   assert.match(src, /const plan = bestVideoProviderFor\(requestedSeconds, chain\)/,
     "the quote no longer comes from the plan that will actually be rendered");
   assert.match(src, /const quotedAcu = plan\.acus/);
-  assert.match(src, /debitAcus\(walletId, quotedAcu\)/, "something other than the quote is being charged");
+  assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu\)/,
+    "something other than the quote is being charged");
 
   // EVERY CLIP OR NONE. A 15s ad whose second clip never started is an 8s ad
   // charged at 15 — the exact fault this replaced.
   assert.match(src, /started\.length === plan\.segments\.length/,
     "a partial set of clips can be handed over as the video that was bought");
-  assert.match(src, /await creditAcus\(walletId, quotedAcu\)/, "an abandoned render must refund the whole quote");
+  // WHAT WAS TAKEN, WHICH FOR A PAYING CUSTOMER IS THE QUOTE. `takenAcu` is
+  // `debit.charged`, and the line above has just proved the debit is for
+  // `quotedAcu` — so a customer still gets the whole quote back. A staff render
+  // was charged nothing and must be credited nothing, or a failed render mints
+  // ACUs out of an exemption.
+  assert.match(src, /const takenAcu = debit\.charged/);
+  assert.match(src, /if \(takenAcu > 0\) await creditAcus\(walletId, takenAcu\)/,
+    "an abandoned render must refund exactly what it took");
 
   // And the refusal must name the same number the button showed.
   assert.match(src, /this render costs \$\{quotedAcu\} ACUs/,
@@ -23030,4 +23038,127 @@ test("the waterfall is reachable, metered and suppression-checked — not a modu
   assert.match(page, /lookup\.result\.steps\.map/, "the steps the waterfall took are not shown");
   assert.match(page, /notConfigured\.map/, "the suppliers we do not have are not shown, so a short result looks like a bug");
   assert.match(page, /operationalRole\.ok/, "the page renders a register title without the refusal beside it");
+});
+
+// ---------------------------------------------------------------------------
+// ONE RULE ABOUT WHO PAYS — and every spender asks it
+// ---------------------------------------------------------------------------
+
+test("staff are not billed for their own platform, on every path that spends", async () => {
+  const { meteringExempt, spendAcus, meterAction, creditAcus, getWallet } = await import("../src/backend/wallet.ts");
+
+  // THE OWNER, WITH AN EMPTY WALLET, IS NOT REFUSED. This is the whole point:
+  // an executive's balance is irrelevant, because MarketWar does not sell AI to
+  // the team that runs MarketWar.
+  const owner = { ok: true, enforced: true, uid: "u-owner", role: "executive" };
+  const customer = { ok: true, enforced: true, uid: "u-customer", role: "business_owner" };
+
+  assert.equal(meteringExempt(owner).exempt, true, "an executive was billed");
+  assert.match(meteringExempt(owner).why, /staff/i);
+  assert.equal(meteringExempt(customer).exempt, false, "a customer was let through free");
+  assert.equal(meteringExempt({ ok: true, enforced: false, uid: null, role: null }).exempt, true, "demo mode was billed");
+
+  // NO CALLER IS NOT AN EXEMPTION. A cron has no role, so it cannot inherit one
+  // — unattended work spends the brand's ACUs, and the reason is stated rather
+  // than left for a reader to infer from silence.
+  const cron = meteringExempt(null);
+  assert.equal(cron.exempt, false, "background work was exempted by having nobody to charge");
+  assert.match(cron.why, /background|No signed-in caller/i);
+
+  // `meterAction` MUST ASK THE SAME FUNCTION. Two copies of this rule is what
+  // produced the defect: the AI routes knew staff were exempt and the video
+  // queue did not, so one account got two answers in one session.
+  const src = readFileSync(new URL("../src/backend/wallet.ts", import.meta.url), "utf8");
+  const code = codeOf(src);
+  assert.match(code, /meteringExempt\(auth\)\.exempt/, "meterAction keeps its own copy of the staff rule");
+  assert.equal((code.match(/isStaff\(/g) || []).length, 1,
+    "the staff check appears more than once, so the two can drift");
+
+  // AND SPENDING A NAMED WALLET ASKS IT TOO. 500 ACUs against a wallet that has
+  // never been topped up — a customer would be refused this outright.
+  const before = await getWallet("wallet-staff-1");
+  const free = await spendAcus(owner, "wallet-staff-1", 500);
+  assert.equal(free.ok, true, "an executive was refused a spend");
+  assert.equal(free.charged, 0, "an executive was charged");
+  assert.equal(free.exempt, true);
+
+  // AN EXEMPT SPEND NEVER TOUCHES THE WALLET AT ALL. "Paid nothing" and "was
+  // never billed" are different claims: a zero debit still writes a ledger
+  // entry and a new `updatedAt`, which is the owner's economics recording a
+  // transaction that did not happen.
+  //
+  // `lifetimeDebitedAcu` CANNOT PROVE THIS — adding zero to it leaves it at
+  // zero, so it reads identically either way. What can prove it is that an
+  // exempt result reports NO BALANCE: it has none to report, because it never
+  // opened the wallet.
+  assert.equal("balanceAcu" in free, false,
+    "an exempt spend reported a balance, so it read (and probably wrote) the wallet");
+  const after = await getWallet("wallet-staff-1");
+  assert.equal(after.lifetimeDebitedAcu, before.lifetimeDebitedAcu);
+  assert.equal(after.balanceAcu, before.balanceAcu, "an exempt spend moved the balance");
+  assert.equal(after.updatedAt, before.updatedAt, "an exempt spend rewrote the wallet record");
+
+  // A customer with money is charged; the same customer without is refused.
+  await creditAcus("wallet-cust-1", 100);
+  const paid = await spendAcus(customer, "wallet-cust-1", 40);
+  assert.equal(paid.ok, true);
+  assert.equal(paid.charged, 40, "a customer was not charged what the action costs");
+  const broke = await spendAcus(customer, "wallet-cust-1", 5_000);
+  assert.equal(broke.ok, false, "a customer spent past their balance");
+  assert.match(broke.error, /Not enough ACUs/);
+
+  // And meterAction agrees with all of it.
+  const m = await meterAction(owner, "llm", 1);
+  assert.equal(m.allowed, true);
+  assert.equal(m.metered, false, "an executive's AI call was metered");
+});
+
+test("the four engines that debit a wallet directly carry the caller across", () => {
+  // THE DEFECT THIS PINS, and it is the twentieth of its kind. `meterAction`
+  // exempted staff; the video queue, the video gateway and the SEO autopilot
+  // received a WALLET ID rather than a caller, so they could not. One account,
+  // one session, two answers — waved through every AI route and refused by
+  // video with a 402 the owner could not top up their way out of.
+  const files = {
+    "video-jobs": "../src/backend/video-jobs.ts",
+    "video-gateway": "../src/backend/video-gateway.ts",
+    "seo-autopilot": "../src/backend/seo-autopilot.ts",
+  };
+  for (const [name, rel] of Object.entries(files)) {
+    const code = codeOf(readFileSync(new URL(rel, import.meta.url), "utf8"));
+    assert.match(code, /spendAcus\(/, `${name} still debits without knowing who asked`);
+    assert.doesNotMatch(code, /\bdebitAcus\(/, `${name} bypasses the exemption with a raw debit`);
+    assert.match(code, /spender\?: Spender \| null/, `${name} has no way for a route to say who asked`);
+  }
+
+  // A REFUND MUST RETURN WHAT WAS TAKEN, NOT THE PRICE LIST. Crediting a quote
+  // back to a wallet that was never debited MINTS ACUs — the mirror image of
+  // charging for a call that never ran.
+  const jobs = codeOf(readFileSync(new URL("../src/backend/video-jobs.ts", import.meta.url), "utf8"));
+  assert.match(jobs, /chargedAcu: debit\.charged/, "a job records the price list rather than what was taken");
+  const gw = codeOf(readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8"));
+  assert.match(gw, /const takenAcu = debit\.charged/, "the gateway refunds its quote rather than its charge");
+  assert.doesNotMatch(gw, /creditAcus\(walletId, quotedAcu\)/, "the gateway credits back a quote it may never have taken");
+  const seo = codeOf(readFileSync(new URL("../src/backend/seo-autopilot.ts", import.meta.url), "utf8"));
+  assert.match(seo, /if \(debit\.charged > 0\)/, "a failed staff post refunds ACUs that were never spent");
+
+  // THE ROUTES MUST ACTUALLY PASS IT. A parameter nobody fills is the same
+  // defect with a type annotation on it.
+  for (const rel of ["../src/app/api/video/jobs/route.ts", "../src/app/api/video/clips/route.ts", "../src/app/api/video-render/route.ts"]) {
+    const r = codeOf(readFileSync(new URL(rel, import.meta.url), "utf8"));
+    assert.match(r, /spender:/, `${rel} resolves the caller and then throws it away`);
+  }
+  const seoRoute = codeOf(readFileSync(new URL("../src/app/api/seo-autopilot/route.ts", import.meta.url), "utf8"));
+  assert.match(seoRoute, /spender: access/, "the manual run does not say who pressed the button");
+  assert.match(seoRoute, /spender: null/, "the scheduler does not state that it has no caller to exempt");
+
+  // AND THE SCREEN MUST HONOUR IT. The server exempting staff is worthless if
+  // the button is disabled in the browser first: `null ?? 0` reads as "out of
+  // credits" and greys out the only control the page exists for.
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/seo-autopilot/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /postsAffordableNow: number \| null/, "the page cannot tell 'not metered' from 'nothing left'");
+  assert.match(page, /!plan\?\.unmetered && \(plan\?\.postsAffordableNow \?\? 0\) === 0/,
+    "the write button is still disabled for an account that is never charged");
+  assert.match(page, /!plan\.unmetered && plan\.postsAffordableNow === 0/,
+    "an unmetered account is told it is out of ACUs");
 });
