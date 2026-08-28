@@ -79,18 +79,6 @@ const API_WINDOW_MS = 60_000;
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
-  if (path.startsWith("/api/")) {
-    // Keyed on the client, not the route, so spraying 46 different endpoints
-    // costs an attacker exactly what hammering one does.
-    const rl = rateLimitCore(clientKey(req, "api"), API_LIMIT, API_WINDOW_MS, Date.now());
-    if (!rl.ok) {
-      return NextResponse.json(
-        { error: "Too many requests. Slow down and try again shortly.", retryAfterSec: rl.retryAfterSec },
-        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
-      );
-    }
-  }
-
   const decision = await decide({
     path,
     cookie: req.cookies.get(HUMAN_COOKIE)?.value,
@@ -101,6 +89,36 @@ export async function middleware(req: NextRequest) {
     // verification handshake arrives as a GET with no signature.
     method: req.method,
   });
+
+  // THE LIMIT RUNS AFTER THE LANE IS KNOWN, AND SKIPS TWO OF THEM.
+  //
+  // The first version of this limited every /api path before the gate had
+  // classified it, and the load check caught it within a minute: 100% of
+  // requests to `/api/health/live` and `/api/auth/human` came back 429. Both
+  // are in the gate's `always_open` lane, and that lane exists for exactly one
+  // reason, written at the top of this file — closing the human check or the
+  // health endpoint closes the only door anyone can prove themselves through.
+  // An uptime monitor would have been throttled, and a busy office on one
+  // outbound address could have been locked out of signing up.
+  //
+  // The `machine` lane is skipped too: Stripe redelivers in bursts and each of
+  // those events is already signature-verified, so throttling them buys nothing
+  // and drops money on the floor.
+  //
+  // So the limit applies to the lanes where abuse is actually possible, and it
+  // reuses the gate's own classification rather than growing a second list of
+  // exempt paths that would drift from the first.
+  if (path.startsWith("/api/") && decision.lane !== "always_open" && decision.lane !== "machine") {
+    // Keyed on the client, not the route, so spraying 46 different endpoints
+    // costs an attacker exactly what hammering one does.
+    const rl = rateLimitCore(clientKey(req, "api"), API_LIMIT, API_WINDOW_MS, Date.now());
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Slow down and try again shortly.", retryAfterSec: rl.retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+      );
+    }
+  }
 
   // The decision travels with the request whether or not it blocked, so the
   // Sentinel counts what was refused AND what was allowed in observe mode.
