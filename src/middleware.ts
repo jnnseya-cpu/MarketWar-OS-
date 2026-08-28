@@ -73,7 +73,31 @@ const SIGNATURE_HEADERS = [
 // than a defence against a distributed one — which is the honest description,
 // and still strictly better than the nothing it replaces. A global limiter
 // needs shared state this deployment does not have.
-const API_LIMIT = 120;
+// IT THROTTLED THE OWNER'S OWN DASHBOARD, AND THE SCREENS LIED ABOUT WHY.
+//
+// The first version applied this to EVERY /api request, keyed on the caller's
+// address alone, at 120 a minute. The AI Video War Room fires four probes on
+// load — health/live, video/jobs, voice, video-render — and every other
+// dashboard page adds several more, so a person actually using the platform
+// burns through 120 in a couple of minutes of clicking. When it tripped, each
+// probe got a 429, and each one silently fell back to its default: every
+// key-gated studio read "Activate with a key" and the render length list
+// collapsed to a single 8 seconds. A fully configured deployment looked
+// completely dark, intermittently, with nothing on screen naming a rate limit.
+//
+// The finding this exists for (D-13) was DENIAL OF WALLET BY ANONYMOUS
+// CALLERS: 46 mutating routes that were unauthenticated AND unthrottled, where
+// each request is a billed serverless invocation. A request carrying a session
+// cookie or a bearer token is not that. It is attributable, it belongs to
+// somebody who can be rate-limited, suspended or billed by name, and the
+// route behind it does its own `requireAuth`.
+//
+// So the floor applies to requests that carry NO attribution at all, which is
+// exactly the traffic it was built to stop, and the ceiling is raised because a
+// limit a real session trips is a limit that gets removed. Signed-in use is
+// governed by per-route limits and the ACU wallet, both of which are stricter
+// about the things that actually cost money.
+const API_LIMIT = 600;
 const API_WINDOW_MS = 60_000;
 
 // THE MIDDLEWARE MAY NOT TAKE THE SITE DOWN — the root cause of the production
@@ -157,7 +181,15 @@ export async function middleware(req: NextRequest) {
   // So the limit applies to the lanes where abuse is actually possible, and it
   // reuses the gate's own classification rather than growing a second list of
   // exempt paths that would drift from the first.
-  if (path.startsWith("/api/") && decision.lane !== "always_open" && decision.lane !== "machine") {
+  //
+  // AND IT SKIPS ANYTHING ATTRIBUTABLE. A request carrying a human session
+  // cookie or a bearer token is not the anonymous denial-of-wallet traffic this
+  // floor was built for — it belongs to an account that the route's own
+  // `requireAuth`, its per-route limit and the ACU wallet all govern more
+  // tightly than a blanket count of requests per address ever could. Counting
+  // signed-in dashboard use here is what darkened the War Room.
+  const attributable = Boolean(req.cookies.get(HUMAN_COOKIE)?.value) || (req.headers.get("authorization") || "").startsWith("Bearer ");
+  if (path.startsWith("/api/") && !attributable && decision.lane !== "always_open" && decision.lane !== "machine") {
     // Keyed on the client, not the route, so spraying 46 different endpoints
     // costs an attacker exactly what hammering one does.
     const rl = rateLimitCore(clientKey(req, "api"), API_LIMIT, API_WINDOW_MS, Date.now());

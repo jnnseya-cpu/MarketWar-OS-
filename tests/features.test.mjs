@@ -24446,3 +24446,415 @@ test("the email health report withholds recipients and the mail host from strang
   // one this was changed to surface, and it names no address.
   assert.match(src, /verdict: "BROKEN BEFORE CONFIGURATION"/);
 });
+
+// ---------------------------------------------------------------------------
+// BULK CATALOGUE IMPORT (Task 13) — the door onto a catalogue that already
+// existed. `backend/promotable.ts` has held products, the three permission
+// modes and both gates since §101; what was missing was any way to get two
+// hundred products in, which made `open_catalogue` unreachable for a real shop.
+//
+// Almost every assertion here is about MONEY, because every number in a product
+// row decides what a creator earns and whether the item is claimable at all —
+// and a price read wrongly does not raise an error, it produces a plausible
+// product with a wrong commission.
+// ---------------------------------------------------------------------------
+test("the catalogue importer refuses an amount it cannot read rather than guessing", async () => {
+  const { readAmount } = await import("../src/shared/catalogue-import.ts");
+
+  // UNAMBIGUOUS, and they must all import — a refusal that catches real data is
+  // as bad as a guess that corrupts it.
+  assert.equal(readAmount("12.99").ok && readAmount("12.99").pence, 1299);
+  assert.equal(readAmount("£12.99").ok && readAmount("£12.99").pence, 1299);
+  assert.equal(readAmount("1299").ok && readAmount("1299").pence, 129900, "a bare integer is pounds");
+  assert.equal(readAmount("8").ok && readAmount("8").pence, 800);
+  assert.equal(readAmount("12,5").ok && readAmount("12,5").pence, 1250, "a comma with two digits is a decimal in any convention");
+  assert.equal(readAmount("1,299.00").ok && readAmount("1,299.00").pence, 129900, "both separators present is fully determined");
+  assert.equal(readAmount("1.299,00").ok && readAmount("1.299,00").pence, 129900, "…including the European way round");
+  assert.equal(readAmount("99.99 GBP").ok && readAmount("99.99 GBP").pence, 9999);
+
+  // REPEATED SEPARATORS can only be thousands grouping — "1.234.567" is not a
+  // decimal in any convention — but any such number is a million or more by
+  // construction, so the £1,000,000 sanity cap then refuses it. Both rules are
+  // right and they compose: at that size a separator mistake is far likelier
+  // than a real price, and the refusal says exactly that.
+  const huge = readAmount("1.234.567");
+  assert.equal(huge.ok, false);
+  assert.match(huge.reason, /over £1,000,000 — check the separators/);
+
+  // THE HEADLINE PROPERTY. "1,299" is 1299 as a thousands group and 1.299 as a
+  // decimal — the same characters, one hundred times apart, undecidable from the
+  // string. Guessing is silently wrong on half the world's exports.
+  const ambiguous = readAmount("1,299");
+  assert.equal(ambiguous.ok, false, "an amount 100x ambiguous was guessed at instead of refused");
+  assert.match(ambiguous.reason, /100× apart/);
+  assert.match(ambiguous.reason, /129900|1299/, "the refusal does not show the two readings it is choosing between");
+
+  // …and it stops being ambiguous the moment the file says which convention it
+  // uses. Both readings must be reachable, or the refusal is unfixable.
+  assert.equal(readAmount("1,299", "dot").ok && readAmount("1,299", "dot").pence, 129900,
+    "with a dot-decimal file the comma groups thousands: £1,299");
+  assert.equal(readAmount("1,299", "comma").ok && readAmount("1,299", "comma").pence, 130,
+    "with a comma-decimal file the comma IS the decimal point: £1.299, which is 130p");
+});
+
+test("catalogue import: a negative, a non-number and an empty amount each say what is wrong", async () => {
+  const { readAmount, readPercent } = await import("../src/shared/catalogue-import.ts");
+
+  assert.equal(readAmount("").ok, false);
+  assert.equal(readAmount("-5").ok, false, "a negative price was accepted");
+  assert.match(readAmount("-5").ok ? "" : readAmount("-5").reason, /negative/);
+  assert.equal(readAmount("call us").ok, false);
+  assert.equal(readAmount("£").ok, false, "a currency mark with no number was accepted");
+
+  assert.equal(readPercent("").ok && readPercent("").pct, 0, "an absent returns allowance is zero, not an error");
+  assert.equal(readPercent("2.5%").ok && readPercent("2.5%").pct, 2.5);
+  assert.equal(readPercent("101").ok, false, "a returns allowance over 100% was accepted");
+});
+
+// A float multiplication is the classic penny-loser: 12.99 * 100 is
+// 1298.9999999999998 in IEEE 754, and a truncation there costs a penny on every
+// product in the catalogue.
+test("catalogue import: money is rounded once, at the end, so no penny is lost", async () => {
+  const { readAmount } = await import("../src/shared/catalogue-import.ts");
+  for (const [text, pence] of [["12.99", 1299], ["0.07", 7], ["1.10", 110], ["8.29", 829], ["19.99", 1999], ["0.29", 29], ["70.07", 7007]]) {
+    const a = readAmount(text);
+    assert.equal(a.ok && a.pence, pence, `${text} should be ${pence}p`);
+  }
+  // Three decimal places is not a rounding question, it is the AMBIGUOUS case:
+  // "1.005" is 1005 with dot-grouping and 1.005 with a dot decimal point. It is
+  // refused for the same reason "1,299" is, and that is the correct answer
+  // rather than a penny judgement call.
+  assert.equal(readAmount("1.005").ok, false, "a three-digit tail was resolved instead of refused");
+});
+
+test("the catalogue importer reads a real quoted export, embedded newlines and all", async () => {
+  const { parseDelimited, sniffDelimiter } = await import("../src/shared/catalogue-import.ts");
+
+  // A product description containing a line break is what breaks a parser that
+  // splits on newlines first: one row becomes two, and the second half reads as
+  // a product with no price.
+  const csv = 'Title,Price,Notes\n"Hand-made, oak desk","249.00","Two lines\nof description"\n"He said ""no""",10,fine\n';
+  const { rows, delimiter } = parseDelimited(csv);
+  assert.equal(delimiter, ",");
+  assert.equal(rows.length, 3, "an embedded newline split one row into two");
+  assert.deepEqual(rows[1], ["Hand-made, oak desk", "249.00", "Two lines\nof description"]);
+  assert.deepEqual(rows[2], ['He said "no"', "10", "fine"], "a doubled quote is one literal quote");
+
+  // A European Excel writes semicolons, and a tab export is common too.
+  assert.equal(sniffDelimiter("name;price;cost\nDesk;249;100"), ";");
+  assert.equal(sniffDelimiter("name\tprice\tcost"), "\t");
+
+  // THE DELIMITER IS DECIDED ON THE HEADER LINE ONLY. Counting the whole file
+  // lets prose in a description column outvote the real delimiter — one blurb
+  // with three commas beats a semicolon-separated header.
+  // The prose must genuinely OUTNUMBER the delimiter across the file, or this
+  // passes whether the sniff reads the header line or the whole text — which is
+  // exactly what the first version of this assertion did, and a mutation that
+  // counted the whole file survived it.
+  const semi = [
+    "name;price;notes",
+    "Desk;249;a, long, rambling, comma, filled, note",
+    "Stool;89;another, one, with, rather, many, commas",
+  ].join("\n");
+  assert.ok((semi.match(/,/g) || []).length > (semi.match(/;/g) || []).length,
+    "the fixture no longer has more commas than semicolons, so it cannot detect the defect");
+  assert.equal(sniffDelimiter(semi), ";", "prose in a later row outvoted the header's delimiter");
+
+  assert.deepEqual(parseDelimited("").rows, [], "an empty file is no rows");
+  assert.equal(parseDelimited("a,b\n").rows.length, 1, "a trailing newline invented a row");
+});
+
+test("the catalogue importer maps the headers real shops actually export", async () => {
+  const { mapProductColumns } = await import("../src/shared/catalogue-import.ts");
+
+  const shopify = mapProductColumns(["Handle", "Title", "Variant Price", "Cost per item", "Vendor"]);
+  assert.equal(shopify.columns.name, 1, "Shopify's Title column was not read as the name");
+  assert.equal(shopify.columns.price, 2);
+  // THE DEFECT THIS PINS. "Cost per item" contains "item", which is a `name`
+  // synonym — scoring fields in declaration order mapped a Shopify export's
+  // COST column to the product NAME and left the real cost unmapped, so every
+  // product imported with zero cost of goods and a commission computed on a
+  // margin the brand does not have. Exact matches now win across every field
+  // before any prefix matching happens.
+  assert.equal(shopify.columns.cogs, 3, "'Cost per item' was not read as the cost of goods");
+
+  const woo = mapProductColumns(["Name", "Regular price", "Shipping", "VAT", "Returns %"]);
+  assert.equal(woo.columns.name, 0);
+  assert.equal(woo.columns.price, 1);
+  assert.equal(woo.columns.fulfilment, 2);
+  assert.equal(woo.columns.tax, 3);
+  assert.equal(woo.columns.returnsPct, 4);
+
+  // Punctuation and case are not a different column.
+  assert.equal(mapProductColumns(["cost_per_item"]).columns.cogs, 0);
+  assert.equal(mapProductColumns(["COST PER ITEM"]).columns.cogs, 0);
+
+  // Unrecognised headers are REPORTED, not dropped in silence.
+  const odd = mapProductColumns(["Title", "Price", "Warehouse bay"]);
+  assert.equal(odd.unmapped.length, 1);
+  assert.equal(odd.unmapped[0].header, "Warehouse bay");
+
+  // Without a name and a price there is no product at all.
+  assert.deepEqual(mapProductColumns(["Vendor", "Barcode"]).missingRequired, ["name", "price"]);
+});
+
+test("the catalogue import plan reports what will happen before anything is stored", async () => {
+  const { planImport } = await import("../src/shared/catalogue-import.ts");
+
+  const csv = [
+    "Title,Variant Price,Cost per item,Shipping",
+    "Oak desk,249.00,120.00,15.00",
+    "Walnut stool,89.00,40.00,8.00",
+    "",                                   // a blank line mid-export is not a failed product
+    "Broken one,not a number,10,1",
+    "Ambiguous one,\"1,299\",100,10",
+    "Oak desk,255.00,120.00,15.00",       // same name again, later in the same file
+    ",50,10,1",                           // no name
+  ].join("\n");
+
+  const plan = planImport({ text: csv });
+  assert.equal(plan.fatal, "", `the file was rejected outright: ${plan.fatal}`);
+  assert.equal(plan.ready.length, 3, "wrong number of importable rows");
+  assert.equal(plan.refused.length, 3, "wrong number of refused rows");
+
+  // Money reached the offer as pence, through the mapped columns.
+  const desk = plan.ready.find((r) => r.name === "Walnut stool");
+  assert.equal(desk.offer.pricePence, 8900);
+  assert.equal(desk.offer.cogsPence, 4000);
+  assert.equal(desk.offer.fulfilmentPence, 800);
+  // A COST THE FILE DOES NOT CARRY IS ZERO **AND SAYS SO**. "this shop has no
+  // payment fee" and "this payment fee could not be read" must not both silently
+  // become zero — zero is the value that makes a product look most eligible.
+  assert.equal(desk.offer.paymentFeePence, 0);
+  assert.ok(desk.notes.some((n) => /payment fee not in the file/.test(n)), "a missing cost was zeroed without saying so");
+
+  // Each refusal names its row and its reason.
+  assert.ok(plan.refused.some((r) => r.problems.some((p) => /price: .*not a number/.test(p))));
+  assert.ok(plan.refused.some((r) => r.problems.some((p) => /100× apart/.test(p))));
+  assert.ok(plan.refused.some((r) => r.problems.includes("no product name")));
+
+  // The repeated name is reported rather than silently overwriting.
+  assert.equal(plan.duplicates.length, 1);
+  assert.equal(plan.duplicates[0].name, "Oak desk");
+
+  // The summary points at the ONE fixable thing rather than listing five failures.
+  assert.match(plan.summary, /1,299\.00 or 1\.299,00|100× apart|could mean two amounts/);
+
+  // AND THE AMBIGUOUS ROW IMPORTS ONCE THE FILE SAYS WHICH CONVENTION IT USES —
+  // otherwise the refusal is a dead end rather than a question.
+  const told = planImport({ text: csv, decimal: "dot" });
+  assert.equal(told.ready.length, 4, "declaring the convention did not rescue the ambiguous row");
+  assert.equal(told.ready.find((r) => r.name === "Ambiguous one").offer.pricePence, 129900);
+});
+
+test("the catalogue importer refuses a file it cannot use, and says why", async () => {
+  const { planImport } = await import("../src/shared/catalogue-import.ts");
+
+  const noPrice = planImport({ text: "Vendor,Barcode\nAcme,12345" });
+  assert.ok(noPrice.fatal, "a file with no name or price column was accepted");
+  assert.match(noPrice.fatal, /no name.*no price|no price/);
+  assert.match(noPrice.fatal, /Vendor, Barcode/, "the failure does not show what the headers actually were");
+  assert.equal(noPrice.ready.length, 0);
+
+  assert.match(planImport({ text: "" }).fatal, /empty/);
+  assert.match(planImport({ text: "a,b\n1,2", headerRow: 9 }).fatal, /no row 10/);
+});
+
+// Costs above price is a data error — usually two columns the wrong way round —
+// not a loss-leader to accept quietly. Every eligibility answer computed from a
+// negative margin is meaningless.
+test("catalogue import: a cost stack larger than the price is refused as a column mix-up", async () => {
+  const { planImport } = await import("../src/shared/catalogue-import.ts");
+  const plan = planImport({ text: "Title,Price,Cost per item\nBackwards,10.00,250.00" });
+  assert.equal(plan.ready.length, 0);
+  assert.match(plan.refused[0].problems.join(" "), /costs add up to more than the price/);
+  assert.match(plan.refused[0].problems.join(" "), /right way round/);
+});
+
+// ---------------------------------------------------------------------------
+// The import VERTICAL, through the real route: file text in, catalogue out.
+// ---------------------------------------------------------------------------
+test("bulk catalogue import: dry run stores nothing, confirm stores the ready rows", async () => {
+  const route = await import("../src/app/api/share2earn/route.ts");
+  const { __resetPromotable, listProducts } = await import("../src/backend/promotable.ts");
+  const { NextRequest } = await import("next/server");
+  __resetPromotable();
+
+  const brandId = "brand_import_test";
+  const csv = [
+    "Title,Variant Price,Cost per item,Shipping",
+    "Oak desk,249.00,120.00,15.00",
+    "Walnut stool,89.00,40.00,8.00",
+    "Broken,not a number,1,1",
+  ].join("\n");
+
+  const post = (payload) => route.POST(new NextRequest("https://mw.test/api/share2earn", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "import-catalogue", brandId, text: csv, ...payload }),
+  }));
+
+  // DRY RUN BY DEFAULT — the plan comes back and the catalogue is untouched.
+  const dry = await post({});
+  assert.equal(dry.status, 200);
+  const dryBody = await dry.json();
+  assert.equal(dryBody.dryRun, true, "an import without confirm was not a dry run");
+  assert.equal(dryBody.imported, 0);
+  assert.equal(dryBody.readyCount, 2);
+  assert.equal(dryBody.refused.length, 1);
+  assert.equal((await listProducts(brandId)).length, 0, "a dry run wrote to the catalogue");
+
+  // CONFIRM — the ready rows are stored, the refused one is not.
+  const done = await post({ confirm: true });
+  const doneBody = await done.json();
+  assert.equal(doneBody.dryRun, false);
+  assert.equal(doneBody.imported, 2, "the confirmed import did not store both ready rows");
+
+  const stored = await listProducts(brandId);
+  assert.equal(stored.length, 2, "the refused row was stored anyway");
+  const desk = stored.find((p) => p.name === "Oak desk");
+  assert.equal(desk.offer.pricePence, 24900);
+  assert.equal(desk.offer.cogsPence, 12000);
+  assert.equal(desk.offer.fulfilmentPence, 1500);
+
+  // IMPORTED PRODUCTS ARE OFF UNTIL SWITCHED ON. Uploading a price list is not
+  // the same decision as agreeing every line of it may be promoted — and in
+  // `curated` mode that switch is the brand's entire consent.
+  assert.equal(desk.promotable, false, "an imported product was promotable without the brand ever saying so");
+  assert.match(doneBody.permission, /OFF until you switch them on/);
+
+  // IDEMPOTENT. `productId` hashes brand + name, so re-running a corrected file
+  // updates rather than doubling the catalogue.
+  const again = await post({ confirm: true });
+  assert.equal((await again.json()).imported, 2);
+  assert.equal((await listProducts(brandId)).length, 2, "re-importing the same file duplicated the catalogue");
+});
+
+test("bulk catalogue import: the server re-derives the plan and refuses an unusable file", async () => {
+  const route = await import("../src/app/api/share2earn/route.ts");
+  const { __resetPromotable, listProducts } = await import("../src/backend/promotable.ts");
+  const { NextRequest } = await import("next/server");
+  __resetPromotable();
+
+  const brandId = "brand_import_bad";
+  const post = (payload) => route.POST(new NextRequest("https://mw.test/api/share2earn", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "import-catalogue", brandId, ...payload }),
+  }));
+
+  assert.equal((await post({ text: "" })).status, 400, "an empty body was accepted");
+
+  const noPrice = await post({ text: "Vendor,Barcode\nAcme,12345", confirm: true });
+  assert.equal(noPrice.status, 400);
+  assert.match((await noPrice.json()).fatal, /no price|no name/);
+  assert.equal((await listProducts(brandId)).length, 0, "an unusable file still wrote products");
+
+  // THE BROWSER CANNOT HAND THE SERVER A PLAN. Only `text` is read, so a
+  // fabricated `ready` list cannot mint products the server never derived —
+  // the same rule the claim path follows.
+  const forged = await post({
+    text: "Title,Price\nReal thing,10.00",
+    confirm: true,
+    ready: [{ name: "Free Ferrari", offer: { pricePence: 1, cogsPence: 0 } }],
+    readyCount: 99,
+  });
+  const forgedBody = await forged.json();
+  assert.equal(forgedBody.imported, 1, "a client-supplied plan changed what was imported");
+  const names = (await listProducts(brandId)).map((p) => p.name);
+  assert.deepEqual(names, ["Real thing"], "a product the server never parsed was stored");
+});
+
+// ---------------------------------------------------------------------------
+// A FAILED CAPABILITY PROBE IS NOT A MISSING KEY.
+//
+// Reported by the owner, with every key set and working: every studio card read
+// "Activate with a key", and the video length list collapsed to a single 8
+// seconds. Both surfaces did the same thing — swallow a failed request and fall
+// through to a default that is indistinguishable from an unconfigured
+// deployment. One failing call therefore made a fully configured platform look
+// completely dark, and nothing on the screen could tell the owner which it was.
+//
+// This is the codebase's oldest defect class landing on the page that sells the
+// product: a reason that exists and is discarded one line before it is read.
+// ---------------------------------------------------------------------------
+test("an unreachable capability check renders as 'could not check', never as 'activate with a key'", () => {
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/video/page.tsx", import.meta.url), "utf8"));
+
+  // A third state exists at all.
+  assert.match(page, /type Status = "live" \| "p1" \| "unknown"/, "there is no state for a probe that could not run");
+  assert.match(page, /Could not check/, "the chip cannot render an unreachable probe");
+
+  // NO SILENT SWALLOW. The empty `.catch(() => {})` on each probe is what turned
+  // a failed request into "no key" — every catch must now record which
+  // capabilities it failed to establish.
+  assert.doesNotMatch(page, /\.catch\(\(\) => \{\}\)/, "a capability probe still swallows its failure silently");
+  for (const probe of ["/api/health/live", "/api/video/jobs", "/api/voice"]) {
+    const at = page.indexOf(probe);
+    assert.notEqual(at, -1, `${probe} probe is gone — re-check the failure handling`);
+    const block = page.slice(at, at + 700);
+    assert.match(block, /cannotAsk\(/, `the ${probe} probe does not record an unreachable check`);
+  }
+
+  // And the status derives from it, rather than falling through to "p1".
+  assert.match(page, /cannotCheck\(s\) \? "unknown"/, "an unreachable capability still renders as unconfigured");
+  assert.match(page, /NOT a statement that the key is missing/, "the note does not distinguish the two cases");
+});
+
+test("an unreadable video length list says so instead of offering only 8 seconds", () => {
+  const src = codeOf(readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8"));
+
+  assert.match(src, /const \[lengthsUnavailable, setLengthsUnavailable\] = useState\(false\)/,
+    "there is no state for a length list that could not be read");
+  // The old shape: `if (!on || !Array.isArray(d?.lengths)) return;` then a bare
+  // catch — which left the <select> on its hardcoded single 8-second fallback.
+  assert.doesNotMatch(src, /if \(!on \|\| !Array\.isArray\(d\?\.lengths\)\) return;/,
+    "a failed length probe is silently ignored again");
+  assert.match(src, /\}\)\.catch\(\(\) => \{ if \(on\) setLengthsUnavailable\(true\); \}\);/,
+    "a network failure on the length probe is swallowed");
+  assert.match(src, /not the real list and it is not a limit on your account/,
+    "the fallback single length still reads as a statement about the product");
+});
+
+// ---------------------------------------------------------------------------
+// THE API FLOOR MUST NOT THROTTLE THE PERSON WHO OWNS THE ACCOUNT.
+//
+// The first version of D-13's floor counted EVERY /api request against one
+// per-address bucket at 120 a minute. The AI Video War Room fires four probes on
+// load and every other dashboard page adds more, so ordinary use burned through
+// it in a couple of minutes — and because each probe silently falls back when
+// its request fails, the result was every key-gated studio reading "Activate
+// with a key" and the render length list collapsing to a single 8 seconds, on a
+// deployment where every key was set and working.
+//
+// A security control that makes a working platform look broken gets removed, so
+// it has to be aimed at what it was built for: D-13 was ANONYMOUS denial of
+// wallet — 46 mutating routes that were unauthenticated AND unthrottled, where
+// each call is a billed invocation. A request carrying a session or a bearer is
+// attributable and is governed by requireAuth, per-route limits and the wallet.
+// ---------------------------------------------------------------------------
+test("the API rate-limit floor skips attributable requests and still stops anonymous ones", () => {
+  const src = codeOf(readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8"));
+
+  // Attribution is established from the same two things the gate itself treats
+  // as attributable, rather than a third opinion that could drift.
+  assert.match(src, /const attributable = Boolean\(req\.cookies\.get\(HUMAN_COOKIE\)\?\.value\) \|\| \(req\.headers\.get\("authorization"\) \|\| ""\)\.startsWith\("Bearer "\)/,
+    "the floor no longer works out whether the caller is attributable");
+
+  // …and the limiter is actually gated on it.
+  assert.match(src, /if \(path\.startsWith\("\/api\/"\) && !attributable &&/,
+    "the floor counts signed-in dashboard traffic again — this is what darkened the War Room");
+
+  // The ceiling was also raised: a limit a real session trips is a limit that
+  // gets removed, and 120 was reachable by one page.
+  const limit = Number(/const API_LIMIT = (\d+);/.exec(src)?.[1]);
+  assert.ok(limit >= 600, `API_LIMIT is back down to ${limit} — one dashboard page fires four probes`);
+
+  // The always_open and machine lanes stay exempt for their own reasons.
+  assert.match(src, /decision\.lane !== "always_open" && decision\.lane !== "machine"/,
+    "health and the human check are being throttled again");
+
+  // Verified against a running production build: 400 requests carrying a
+  // session cookie were all served, 700 anonymous requests from one address
+  // were cut off at 600, and a second anonymous address was unaffected.
+});
