@@ -20712,15 +20712,21 @@ test("the video render charges exactly what the button quoted", async () => {
 
   // One number: the plan's total, quoted and taken.
   assert.doesNotMatch(src, /worstCase/i, "the worst case across the chain is debited again");
-  assert.match(src, /const plan = bestVideoProviderFor\(requestedSeconds, chain\)/,
-    "the quote no longer comes from the plan that will actually be rendered");
+  // The quote comes from the plan that will actually be rendered — which is now
+  // the head of the plan list, and `bestVideoProviderFor` is DEFINED as that
+  // head, so the price on the button and the price in the render cannot drift.
+  assert.match(src, /const plans = videoPlansFor\(requestedSeconds, chain\)/,
+    "the quote no longer comes from the plans that will actually be rendered");
+  assert.match(src, /const plan = plans\[0\] \?\? null/);
+  assert.match(src, /return videoPlansFor\(seconds, providers\)\[0\] \?\? null/,
+    "the quoted 'best' plan is computed separately from the list the render walks");
   assert.match(src, /const quotedAcu = plan\.acus/);
   assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu\)/,
     "something other than the quote is being charged");
 
   // EVERY CLIP OR NONE. A 15s ad whose second clip never started is an 8s ad
   // charged at 15 — the exact fault this replaced.
-  assert.match(src, /started\.length === plan\.segments\.length/,
+  assert.match(src, /started\.length === attempt\.segments\.length/,
     "a partial set of clips can be handed over as the video that was bought");
   // WHAT WAS TAKEN, WHICH FOR A PAYING CUSTOMER IS THE QUOTE. `takenAcu` is
   // `debit.charged`, and the line above has just proved the debit is for
@@ -23161,4 +23167,232 @@ test("the four engines that debit a wallet directly carry the caller across", ()
     "the write button is still disabled for an account that is never charged");
   assert.match(page, /!plan\.unmetered && plan\.postsAffordableNow === 0/,
     "an unmetered account is told it is out of ACUs");
+});
+
+// ---------------------------------------------------------------------------
+// WHY A PROVIDER SAID NO — read it, don't guess it
+// ---------------------------------------------------------------------------
+
+test("an empty account is not a rate limit, and neither is a wrong model", async () => {
+  const { readProviderFailure, failureLine, tidyFailureBody } =
+    await import("../src/shared/provider-failure.ts");
+
+  // THE FAILURE THIS WAS BUILT FROM, verbatim from production. OpenAI returns an
+  // exhausted account as 429 — the same status as an ordinary rate limit — and
+  // the platform answered it with "confirm your model access, or set
+  // OPENAI_VIDEO_MODEL to a model your account can use". The model was fine.
+  const real = readProviderFailure({
+    provider: "sora", status: 429,
+    body: '{ "error": { "message": "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.", "type": "insufficient_quota" } }',
+  });
+  assert.equal(real.kind, "no_credit", "an exhausted account was read as a rate limit");
+  assert.match(real.remedy, /Add credit/i);
+  assert.match(real.remedy, /will not help/i, "the remedy does not rule out the fix that cannot work");
+  assert.doesNotMatch(failureLine(real), /try again|wait/i,
+    "the reader is told to wait for something that will never clear");
+
+  // A PLAIN 429 IS THE OTHER FAILURE, and has the opposite remedy.
+  const burst = readProviderFailure({ provider: "sora", status: 429, body: "Rate limit reached for requests" });
+  assert.equal(burst.kind, "rate_limited", "an ordinary rate limit was read as an empty account");
+  assert.doesNotMatch(burst.remedy, /credit|billing/i, "a rate limit sent somebody to buy credit they already have");
+
+  // A REFUSED PROMPT IS THE ONE FAILURE ANOTHER SUPPLIER DOES NOT FIX.
+  const policy = readProviderFailure({ provider: "veo", status: 400, body: "blocked by content policy" });
+  assert.equal(policy.kind, "content_refused");
+  assert.equal(policy.tryAnotherProvider, false,
+    "a prompt every engine will refuse is retried on every engine");
+  for (const f of [real, burst]) {
+    assert.equal(f.tryAnotherProvider, true, `${f.kind} should be worth another supplier`);
+  }
+
+  // The rest of the map, each with a remedy that matches its cause.
+  assert.equal(readProviderFailure({ provider: "veo", status: 404, body: "model_not_found" }).kind, "no_model");
+  assert.equal(readProviderFailure({ provider: "veo", status: 401, body: "bad key" }).kind, "bad_key");
+  assert.equal(readProviderFailure({ provider: "veo", status: 403, body: "forbidden" }).kind, "no_access");
+  assert.equal(readProviderFailure({ provider: "veo", status: 503, body: "" }).kind, "server");
+  assert.equal(readProviderFailure({ provider: "veo", status: 0, body: "" }).kind, "network");
+  assert.equal(readProviderFailure({ provider: "veo", status: -1, body: "missing api key" }).kind, "no_key");
+
+  // NO REMEDY IS BETTER THAN A WRONG ONE. An unrecognised refusal keeps the
+  // provider's own words and invents nothing — which is the whole lesson.
+  const odd = readProviderFailure({ provider: "veo", status: 418, body: "teapot" });
+  assert.equal(odd.kind, "unknown");
+  assert.equal(odd.remedy, "", "a remedy was invented for a failure nobody recognised");
+  assert.match(odd.why, /teapot/, "the provider's own words were thrown away");
+
+  // A KEY MUST NEVER RIDE ALONG IN AN ERROR BODY — these get logged and shown.
+  assert.doesNotMatch(tidyFailureBody("failed for key=AIzaSyABCDEFGHIJKLMNOP1234"), /AIzaSyABCDEFGH/);
+  assert.doesNotMatch(tidyFailureBody("Bearer sk-proj-ABCDEFGHIJKLMNOPQRST"), /sk-proj-ABCDEFGHIJ/);
+});
+
+test("a refused engine falls over to another one that fits the quote", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus } = await import("../src/backend/wallet.ts");
+
+  const env = { ...process.env };
+  process.env.OPENAI_API_KEY = "test-openai";
+  process.env.GEMINI_API_KEY = "test-gemini";
+  process.env.GEMINI_VIDEO_MODEL = "veo-test";
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-failover", 5_000);
+
+  // EIGHT SECONDS: both engines make it in one call and both price it the same,
+  // so Veo is a fallback that fits inside the quote. That is the case failover
+  // exists for, and until now it did not happen — the render picked one plan
+  // and abandoned the job when that provider refused.
+  const plans = g.videoPlansFor(8);
+  assert.equal(plans.length, 2, "both engines should make 8s");
+  assert.equal(plans[0].acus, plans[1].acus,
+    "this test's premise (8s costs the same on both) is gone — pick another length");
+
+  // WHICHEVER PLAN IS TRIED FIRST IS THE ONE THAT REFUSES. Derived rather than
+  // hardcoded: at a tie the chain's own order decides which comes first, and a
+  // test that assumed the answer would pass by accident if that order changed.
+  const first = plans[0].provider, second = plans[1].provider;
+  const hostOf = (p) => (p === "sora" ? "api.openai.com" : "generativelanguage.googleapis.com");
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes(hostOf(first))) {
+      calls.push(first);
+      // The production refusal, verbatim.
+      return new Response('{"error":{"message":"You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.","type":"insufficient_quota"}}', { status: 429 });
+    }
+    if (u.includes(hostOf(second))) {
+      calls.push(second);
+      return new Response(JSON.stringify(second === "sora" ? { id: "sora-1" } : { name: "operations/1" }), { status: 200 });
+    }
+    return new Response("{}", { status: 404 });
+  };
+
+  const job = await g.startVideoRender({ brandId: "t-failover", prompt: "a shop front", seconds: 8 });
+
+  assert.ok(calls.includes(first) && calls.includes(second),
+    "an empty account at one supplier abandoned the render instead of trying the other");
+  assert.equal(job.status, "rendering", "the fallback engine's render was not accepted");
+  assert.equal(job.provider, second);
+  assert.equal(job.chargedAcu, plans[0].acus, "the fallback charged something other than the quote");
+
+  // AND IT SAYS WHAT THE FIRST ENGINE COULD NOT DO. A silent fallback hides a
+  // billing problem the owner still has to fix.
+  assert.match(job.note, new RegExp(`${first} could not`, "i"), "the engine that failed is not mentioned");
+  assert.match(job.note, /credit/i, "why the first engine failed is not carried");
+});
+
+test("a dearer fallback is named with its price, never run behind the customer's back", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus } = await import("../src/backend/wallet.ts");
+
+  const env = { ...process.env };
+  process.env.OPENAI_API_KEY = "test-openai";
+  process.env.GEMINI_API_KEY = "test-gemini";
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-dear", 5_000);
+
+  // TWELVE SECONDS — the production case. Sora makes it in one call for 420;
+  // Veo needs 8 + 4 and costs 422. Video is sold at VIDEO_MARKUP = 2, the
+  // owner's hard floor, so charging 420 to render the 422 plan would put that
+  // render UNDER the floor. There is nothing to absorb the difference with.
+  const plans = g.videoPlansFor(12, ["veo", "sora"]);
+  assert.equal(plans[0].provider, "sora", "the cheapest plan is no longer tried first");
+  assert.ok(plans[1].acus > plans[0].acus, "this test's premise (Veo costs more at 12s) is gone");
+
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("api.openai.com")) { calls.push("sora"); return new Response('{"error":{"message":"You have no credits remaining.","type":"insufficient_quota"}}', { status: 429 }); }
+    if (u.includes("generativelanguage")) { calls.push("veo"); return new Response(JSON.stringify({ name: "operations/1" }), { status: 200 }); }
+    return new Response("{}", { status: 404 });
+  };
+
+  const job = await g.startVideoRender({ brandId: "t-dear", prompt: "a shop front", seconds: 12 });
+
+  assert.equal(calls.includes("veo"), false,
+    "a dearer engine was run without asking — the customer would be surprised upward");
+  assert.equal(job.status, "failed");
+  assert.equal(job.chargedAcu, 0, "a render that never started was charged for");
+
+  // THE REMEDY MUST MATCH THE CAUSE. This is the message the owner was shown in
+  // production, and every clause of it was wrong.
+  assert.match(job.note, /no credit|credit/i, "the real reason is missing");
+  assert.match(job.note, /Add credit/i, "the one action that fixes it is not offered");
+  assert.doesNotMatch(job.note, /Confirm your Veo\/Sora model access/, "the fixed remedy string is back");
+  assert.doesNotMatch(job.note, /GEMINI_VIDEO_MODEL \/ OPENAI_VIDEO_MODEL/,
+    "the reader is still told to change a model that was never the problem");
+
+  // AND THE ALTERNATIVE IS NAMED WITH ITS PRICE, so the choice is theirs.
+  assert.match(job.note, new RegExp(`veo could make it for ${plans[1].acus} ACUs`, "i"),
+    "the engine that could have done it, and what it costs, is not offered");
+  assert.match(job.note, /more than the 420 you were quoted/i);
+});
+
+test("a refused prompt is not retried on every engine, and the message says the right thing", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus } = await import("../src/backend/wallet.ts");
+  const env = { ...process.env };
+  process.env.OPENAI_API_KEY = "test-openai";
+  process.env.GEMINI_API_KEY = "test-gemini";
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-policy", 5_000);
+
+  // EIGHT SECONDS, where both engines price it the SAME — so the second engine
+  // is affordable and the only thing that can stop it being tried is the
+  // content decision itself.
+  //
+  // An earlier version of this test used 12s, where the second engine is over
+  // the quote and skipped on price anyway. It passed, and it would have gone on
+  // passing with the content rule deleted — a check that succeeds for a reason
+  // unrelated to what it tests, which is this repository's second defect class.
+  const plans = g.videoPlansFor(8);
+  assert.equal(plans[0].acus, plans[1].acus, "the premise (8s ties on price) is gone");
+  const first = plans[0].provider, second = plans[1].provider;
+  const hostOf = (p) => (p === "sora" ? "api.openai.com" : "generativelanguage.googleapis.com");
+
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes(hostOf(first))) { calls.push(first); return new Response('{"error":{"message":"Your request was blocked by our content policy"}}', { status: 400 }); }
+    if (u.includes(hostOf(second))) { calls.push(second); return new Response(JSON.stringify(second === "sora" ? { id: "s1" } : { name: "operations/1" }), { status: 200 }); }
+    return new Response("{}", { status: 404 });
+  };
+
+  const job = await g.startVideoRender({ brandId: "t-policy", prompt: "something refused", seconds: 8 });
+  assert.equal(calls.includes(second), false,
+    "a prompt refused on policy grounds was sent to a second supplier to be refused again");
+  assert.equal(job.status, "failed");
+  assert.equal(job.chargedAcu, 0, "a render that never started was charged for");
+
+  // THE SENTENCE THIS REPLACED. It named both engines whether or not either was
+  // configured, and named the one thing that could not have been wrong.
+  assert.doesNotMatch(job.note, /Confirm your Veo\/Sora model access/,
+    "the fixed remedy string is back");
+  assert.doesNotMatch(job.note, /GEMINI_VIDEO_MODEL \/ OPENAI_VIDEO_MODEL/,
+    "the message still tells the reader to change a model that was never the problem");
+  assert.match(job.note, /content decision|Reword the prompt/i,
+    "a policy refusal is not reported as one");
+});
+
+test("ElevenLabs: a burst and a spent allowance stop being the same sentence", async () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/voice.ts", import.meta.url), "utf8"));
+
+  // THE SAME DEFECT ON THE AUDIO SIDE. One line answered every 429 with "rate
+  // limit or quota reached — your character allowance is spent for this
+  // period", which is two failures with opposite remedies reported as one: a
+  // ten-second burst sent somebody to buy credit they already had.
+  assert.doesNotMatch(src, /rate limit or quota reached/,
+    "the conflated 429 message is back");
+  assert.match(src, /readProviderFailure\(\{ provider: "ElevenLabs"/,
+    "the audio side grew a second opinion instead of asking the one rulebook");
+
+  // ElevenLabs' OWN structured reasons are richer than anything generic and are
+  // still read first — this is a fallback, not a replacement.
+  assert.match(src, /const known = XI_401\[status\]/, "the ElevenLabs-specific reasons were dropped");
+  assert.match(src, /detected_unusual_activity/, "the free-tier-on-a-cloud-IP case was dropped");
+
+  const { readProviderFailure } = await import("../src/shared/provider-failure.ts");
+  assert.equal(readProviderFailure({ provider: "ElevenLabs", status: 429, body: "quota_exceeded" }).kind, "no_credit");
+  assert.equal(readProviderFailure({ provider: "ElevenLabs", status: 429, body: "too many requests" }).kind, "rate_limited");
 });

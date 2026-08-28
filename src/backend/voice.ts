@@ -65,6 +65,8 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
 //
 // Telling somebody to check a key that is not the problem costs them an
 // afternoon and teaches them to distrust the next message too.
+import { readProviderFailure, failureLine } from "@/shared/provider-failure";
+
 const XI_401: Record<string, string> = {
   invalid_api_key: "ElevenLabs says the key itself is invalid or revoked — generate a new one and replace ELEVENLABS_API_KEY.",
   missing_permissions: "The key is VALID but was created without the permission this action needs. Edit the key's scopes in ElevenLabs (text-to-speech, voices, dubbing as applicable) — replacing the key will not help.",
@@ -86,7 +88,20 @@ async function errorFrom(res: Response): Promise<string> {
       ? `ElevenLabs refused the request (401): ${detail}. That may or may not be the key — check the key's PERMISSIONS as well as its value.`
       : "ElevenLabs refused the request (401) without saying why. Check the key's value and its permissions — a key with the wrong scopes fails exactly like a wrong one.";
   }
-  if (res.status === 429) return `ElevenLabs rate limit or quota reached — your character allowance is spent for this period.${detail ? ` (${detail})` : ""}`;
+  // 429 IS TWO DIFFERENT FAILURES WITH OPPOSITE REMEDIES, and this line used to
+  // report both as one: "rate limit or quota reached — your character allowance
+  // is spent for this period." A burst that would clear in ten seconds was
+  // reported as an exhausted plan, which sends somebody to buy credit they
+  // already have; an exhausted plan reported as a rate limit sends them to wait
+  // for something that will never clear. The shared reader separates them from
+  // the body, exactly as it does for OpenAI's `insufficient_quota` — which is
+  // also a 429, and is also not a rate limit.
+  //
+  // ElevenLabs' own structured reasons are handled above and are richer than
+  // anything generic; everything else defers to the one rulebook rather than
+  // growing a second opinion here.
+  const read = readProviderFailure({ provider: "ElevenLabs", status: res.status, body: `${status} ${detail || ""}`.trim() });
+  if (read.kind !== "unknown") return failureLine(read);
   return detail || `ElevenLabs returned HTTP ${res.status}`;
 }
 

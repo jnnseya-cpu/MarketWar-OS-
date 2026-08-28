@@ -21,6 +21,7 @@ if (typeof window !== "undefined") {
 import { adminDb } from "@/backend/firebase-admin";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 import { spendAcus, creditAcus, type Spender } from "@/backend/wallet";
+import { readProviderFailure, failureLine, type ProviderFailure } from "@/shared/provider-failure";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
@@ -104,7 +105,11 @@ async function loadJob(jobId: string): Promise<VideoJob | null> {
 function safeReason(s: string): string {
   return s.replace(/key=[^&\s"]+/gi, "key=***").replace(/\s+/g, " ").trim().slice(0, 200);
 }
-type StartResult = { ref: string } | { error: string };
+// A failure carries the STATUS AND BODY, not just a sentence we made from them.
+// Formatting the reason and throwing the evidence away is what left the render
+// unable to tell "your account is empty" from "that model does not exist" —
+// the two failures with the least in common and the most similar first line.
+type StartResult = { ref: string } | { error: string; status: number; body: string };
 
 // Veo model ids drift (previews get promoted to `-001` GA and the old id 404s).
 // Try the configured model first, then a chain of currently-valid ids, and use
@@ -296,15 +301,32 @@ export function videoPlanAcus(provider: VideoProvider, seconds: number): number 
  * deployment is configured for. Ties go to the first in the chain.
  */
 export function bestVideoProviderFor(seconds: number, providers?: VideoProvider[]): { provider: VideoProvider; acus: number; segments: number[] } | null {
+  return videoPlansFor(seconds, providers)[0] ?? null;
+}
+
+/**
+ * EVERY engine that can make this length exactly, cheapest first.
+ *
+ * `bestVideoProviderFor` is the head of this list, and is defined as the head
+ * of this list so the two can never disagree about what "cheapest" means.
+ *
+ * The rest of the list is the failover chain, and until now it did not exist in
+ * practice: the render picked one plan and, if that provider refused at the
+ * API, abandoned the whole job. A chain that is only ever consulted once is a
+ * preference, not a fallback — and the first real refusal in production was an
+ * empty OpenAI account, which is precisely the case a second supplier answers.
+ */
+export function videoPlansFor(seconds: number, providers?: VideoProvider[]): { provider: VideoProvider; acus: number; segments: number[] }[] {
   const chain = providers ?? configuredChain();
-  let best: { provider: VideoProvider; acus: number; segments: number[] } | null = null;
+  const out: { provider: VideoProvider; acus: number; segments: number[] }[] = [];
   for (const p of chain) {
     const segments = segmentPlan(p, seconds);
     if (!segments) continue;
-    const acus = videoPlanAcus(p, seconds)!;
-    if (!best || acus < best.acus) best = { provider: p, acus, segments };
+    out.push({ provider: p, acus: videoPlanAcus(p, seconds)!, segments });
   }
-  return best;
+  // Cheapest first; ties keep the chain's own order, which is the deployment's
+  // stated preference.
+  return out.sort((a, b) => a.acus - b.acus);
 }
 
 /** The providers this deployment can actually render on, in failover order. */
@@ -455,7 +477,7 @@ async function veoTry(model: string, prompt: string, key: string, seconds: numbe
 
 async function veoStart(prompt: string, seconds: number): Promise<StartResult> {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) return { error: "No GEMINI_API_KEY set" };
+  if (!key) return { error: "No GEMINI_API_KEY set", status: -1, body: "missing api key" };
   const ordered = [process.env.GEMINI_VIDEO_MODEL, workingVeoModel, ...VEO_CANDIDATES]
     .filter((m): m is string => Boolean(m))
     .filter((m, i, a) => a.indexOf(m) === i);
@@ -466,9 +488,12 @@ async function veoStart(prompt: string, seconds: number): Promise<StartResult> {
     // 404 / 400 = wrong-or-unavailable model → try the next candidate.
     if (r.status === 404 || r.status === 400) { lastErr = `${model}: ${r.status} ${r.reason || ""}`.trim(); continue; }
     // 401/403/429/5xx are key/quota/server issues — stop and report (not a model problem).
-    return { error: `Veo API ${r.status} (model ${model})${r.reason ? ` — ${r.reason}` : ""}` };
+    return { error: `Veo API ${r.status} (model ${model})${r.reason ? ` — ${r.reason}` : ""}`, status: r.status, body: r.reason || "" };
   }
-  return { error: `No usable Veo model for your key. Tried ${ordered.join(", ")}. Last: ${lastErr}. Set GEMINI_VIDEO_MODEL to a Veo model your account/region can access.` };
+  return {
+    error: `No usable Veo model for your key. Tried ${ordered.join(", ")}. Last: ${lastErr}.`,
+    status: 404, body: `model_not_found: ${lastErr}`,
+  };
 }
 // Dig the video out of Veo's long-running-operation response. Google has shipped
 // several response shapes across model versions, and the clip may be a fetchable
@@ -528,7 +553,7 @@ async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer; dia
 }
 async function soraStart(prompt: string, seconds: number): Promise<StartResult> {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return { error: "No OPENAI_API_KEY set" };
+  if (!key) return { error: "No OPENAI_API_KEY set", status: -1, body: "missing api key" };
   const model = process.env.OPENAI_VIDEO_MODEL || "sora-2";
   try {
     const res = await fetch("https://api.openai.com/v1/videos", {
@@ -549,11 +574,11 @@ async function soraStart(prompt: string, seconds: number): Promise<StartResult> 
           if (typeof d?.id === "string") return { ref: d.id };
         }
       }
-      return { error: `Sora API ${res.status} (model ${model})${body ? ` — ${body}` : ""}` };
+      return { error: `Sora API ${res.status} (model ${model})${body ? ` — ${body}` : ""}`, status: res.status, body };
     }
     const data = await res.json().catch(() => null);
-    return typeof data?.id === "string" ? { ref: data.id } : { error: "Sora returned no video id" };
-  } catch (e) { return { error: `Sora request failed: ${e instanceof Error ? e.message : "network error"}` }; }
+    return typeof data?.id === "string" ? { ref: data.id } : { error: "Sora returned no video id", status: 200, body: "no video id in the response" };
+  } catch (e) { return { error: `Sora request failed: ${e instanceof Error ? e.message : "network error"}`, status: 0, body: e instanceof Error ? e.message : "network error" }; }
 }
 async function soraPoll(id: string): Promise<{ done: boolean; bytes?: Buffer }> {
   const key = process.env.OPENAI_API_KEY;
@@ -660,7 +685,8 @@ export async function startVideoRender(input: {
   // that makes this length EXACTLY, and returns the clips it will be made from.
   // With no plan on any configured engine the length is not sold — which cannot
   // happen from the panel, because the menu is built from the same function.
-  const plan = bestVideoProviderFor(requestedSeconds, chain);
+  const plans = videoPlansFor(requestedSeconds, chain);
+  const plan = plans[0] ?? null;
   if (!plan) {
     const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
       requestedSeconds, seconds: 0, chargedAcu: 0,
@@ -693,24 +719,63 @@ export async function startVideoRender(input: {
   // remove. So a segment that will not start abandons the render and refunds
   // the lot: partial delivery of something sold as one video is not a lesser
   // success, it is a failure with the customer's money still in our account.
-  const errors: string[] = [];
-  const started: { seconds: number; ref: string | null; url: string | null }[] = [];
-  for (const seconds of plan.segments) {
-    const r = plan.provider === "veo" ? await veoStart(prompt, seconds) : await soraStart(prompt, seconds);
-    if ("ref" in r) { started.push({ seconds, ref: r.ref, url: null }); continue; }
-    errors.push(`${plan.provider} ${seconds}s: ${r.error}`);
-    break;
+  // NOW THE CHAIN IS ACTUALLY A CHAIN.
+  //
+  // Every plan is tried in turn, and two rules decide whether the next one is:
+  //
+  //   • THE QUOTE IS THE CEILING, AND THERE IS NO HEADROOM TO BEND IT. A plan
+  //     costing more than what was quoted and taken is never run. Two reasons,
+  //     and the second is the one that settles it: the customer must never be
+  //     surprised upward, AND video is priced at VIDEO_MARKUP = 2, the owner's
+  //     hard floor. Absorbing the difference — charging Sora's 420 to render a
+  //     Veo plan priced 422 — would put that render at 1.99x its provider cost,
+  //     under the floor. There is nothing to absorb with, so the answer is to
+  //     refund and NAME the alternative with its price, and let the customer
+  //     decide whether to buy it. Silently spending more of their money, or
+  //     silently losing ours, are both worse than saying so.
+  //
+  //   • A REFUSED PROMPT ENDS IT. Content decisions are the same at every
+  //     engine, so retrying spends a second supplier's quota to be told no
+  //     twice. `tryAnotherProvider` is what separates the two.
+  //
+  // The failure this was built from was an empty OpenAI account with Sora as
+  // the cheapest plan — exactly the case a second supplier answers, and the
+  // case the old code abandoned the whole render on.
+  const failures: { provider: VideoProvider; failure: ProviderFailure }[] = [];
+  const tooDear: { provider: VideoProvider; acus: number }[] = [];
+  let started: { seconds: number; ref: string | null; url: string | null }[] = [];
+  let used: typeof plan | null = null;
+  let promptRefused = false;
+
+  for (const attempt of plans) {
+    if (attempt.acus > quotedAcu) { tooDear.push({ provider: attempt.provider, acus: attempt.acus }); continue; }
+    started = [];
+    let failed: ProviderFailure | null = null;
+    for (const seconds of attempt.segments) {
+      const r = attempt.provider === "veo" ? await veoStart(prompt, seconds) : await soraStart(prompt, seconds);
+      if ("ref" in r) { started.push({ seconds, ref: r.ref, url: null }); continue; }
+      failed = readProviderFailure({ provider: attempt.provider, status: r.status, body: r.body || r.error });
+      break;
+    }
+    if (!failed && started.length === attempt.segments.length) { used = attempt; break; }
+    if (failed) {
+      failures.push({ provider: attempt.provider, failure: failed });
+      if (!failed.tryAnotherProvider) { promptRefused = true; break; }
+    }
   }
 
-  if (started.length === plan.segments.length) {
-    const multi = plan.segments.length > 1;
+  if (used) {
+    const multi = used.segments.length > 1;
+    const alsoTried = failures.length
+      ? ` ${failures.map((f) => `${f.provider} could not: ${f.failure.why}`).join(" ")}`
+      : "";
     const job: VideoJob = {
-      jobId, brandId, prompt, provider: plan.provider, status: "rendering", mode: "live", videoUrl: null,
+      jobId, brandId, prompt, provider: used.provider, status: "rendering", mode: "live", videoUrl: null,
       // Kept for every reader written before segments existed.
       providerRef: started[0].ref,
       segments: started,
       requestedSeconds, seconds: requestedSeconds, chargedAcu: takenAcu,
-      note: `Rendering ${requestedSeconds}s via ${plan.provider}${multi ? ` as ${plan.segments.length} clips (${plan.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${takenAcu > 0 ? `${takenAcu} ACUs` : "not charged (staff)"}. Poll for the hosted MP4 (renders take up to a few minutes).`,
+      note: `Rendering ${requestedSeconds}s via ${used.provider}${multi ? ` as ${used.segments.length} clips (${used.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${takenAcu > 0 ? `${takenAcu} ACUs` : "not charged (staff)"}. Poll for the hosted MP4 (renders take up to a few minutes).${alsoTried}`,
     };
     await saveJob(job);
     return job;
@@ -720,10 +785,23 @@ export async function startVideoRender(input: {
   // taken comes back.
   if (takenAcu > 0) await creditAcus(walletId, takenAcu);
 
-  // Every configured provider failed — report each reason so it's debuggable.
-  const job: VideoJob = { jobId, brandId, prompt, provider: plan.provider, status: "failed", mode: "live", videoUrl: null, providerRef: null,
+  // EVERY REASON, WITH ITS OWN REMEDY.
+  //
+  // The sentence this replaces was fixed: "Confirm your Veo/Sora model access,
+  // or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can
+  // use." It named both engines whether or not either was configured, and it
+  // named the one thing that could not have been wrong — the provider had just
+  // said, in the same message, that the account had no credit.
+  const reasons = failures.map((f) => `${f.provider}: ${failureLine(f.failure)}`).join(" ");
+  const alternatives = tooDear.length
+    ? ` ${tooDear.map((t) => `${t.provider} could make it for ${t.acus} ACUs, which is more than the ${quotedAcu} you were quoted, so it was not run without asking you`).join("; ")}.`
+    : "";
+  const nothingElse = !promptRefused && failures.length > 0 && tooDear.length === 0 && plans.length === failures.length
+    ? " No other configured engine makes this length, so there was nothing to fall back to."
+    : "";
+  const job: VideoJob = { jobId, brandId, prompt, provider: (failures[0]?.provider ?? plan.provider), status: "failed", mode: "live", videoUrl: null, providerRef: null,
     requestedSeconds, seconds: 0, chargedAcu: 0,
-    note: `Couldn't start every clip of this ${requestedSeconds}s render, so none was kept${takenAcu > 0 ? ` and the ${takenAcu} ACUs are back in your wallet` : " (nothing was charged)"}. ${errors.join(" | ")}. Confirm your Veo/Sora model access, or set GEMINI_VIDEO_MODEL / OPENAI_VIDEO_MODEL to a model your account can use.` };
+    note: `This ${requestedSeconds}s render did not start, so nothing was kept${takenAcu > 0 ? ` and the ${takenAcu} ACUs are back in your wallet` : " and nothing was charged"}. ${reasons}${alternatives}${nothingElse}`.trim() };
   await saveJob(job);
   return job;
 }
