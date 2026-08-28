@@ -1,12 +1,15 @@
 {
   "name": "marketwar-os",
   "version": "0.1.0",
+  "engines": {
+    "node": "22.x"
+  },
   "private": true,
   "overrides": {
     "postcss": "^8.5.26",
     "sharp": "^0.35.3"
   },
-  "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
+  "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -38,7 +41,7 @@
     "react-dom": "^19.2.8",
     "sharp": "^0.35.3"
   },
-  "//overrides": "Next 15.5 pins postcss 8.4.31 and sharp 0.34.5 inside its own tree; both carry advisories that our direct copies do not. Only Next itself can bump them, and the next fixed release is another major. These force the nested copies up to the versions this project already uses everywhere else. Remove an entry the day Next ships it — an override that outlives its reason is how a build starts silently disagreeing with its own lockfile.",
+  "//overrides": "Next 15.5 pins postcss 8.4.31 and sharp 0.34.5 inside its own tree; both carry advisories that our direct copies do not. Only Next itself can bump them, and the next fixed release is another major. These force the nested copies up to the versions this project already uses everywhere else. Remove an entry the day Next ships it \u2014 an override that outlives its reason is how a build starts silently disagreeing with its own lockfile.",
   "devDependencies": {
     "@next/eslint-plugin-next": "^15.5.24",
     "@types/node": "^20",
