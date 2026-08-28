@@ -11,6 +11,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import CopyOut from "@/components/CopyOut";
+import { authedFetch } from "@/frontend/api-client";
 
 type Ecosystem = {
   vertical: string;
@@ -69,7 +70,7 @@ export default function WarfarePage() {
   async function design() {
     setBusy(true);
     try {
-      const res = await fetch("/api/warfare", {
+      const res = await authedFetch("/api/warfare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

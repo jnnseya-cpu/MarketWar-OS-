@@ -24958,3 +24958,181 @@ test("a capability READ is answered without a human session; the spend on the sa
   assert.equal((await ask("/api/dashboard-thing", "GET")).observed, false,
     "the gate is in observe mode in this test, so it proves nothing about enforcement");
 });
+
+// ---------------------------------------------------------------------------
+// THE LANE AUDIT — every route, every method, both directions.
+//
+// Asked for after the gate refused four capability probes: "go through the
+// whole platform and find every other lane mistake." Enumerating all 178 route
+// files and asking the REAL `decide()` about all 323 endpoints found one, and it
+// was far bigger than the four:
+//
+//   267 human-lane endpoints refused a request carrying a valid bearer token.
+//   A bearer rescued NOTHING — 286 of 323 endpoints refused it.
+//
+// So from the moment `HUMAN_CHECK_SECRET` was set, the entire product hung on a
+// twelve-hour `mw_human` cookie, and when that cookie lapsed every call failed
+// at once while the page stayed on screen. This module's own doctrine says a
+// request must be attributable "either to a verified human session or to a
+// machine we invited" — and a signed-in customer's Firebase ID token was
+// neither.
+//
+// This test is the audit, kept. It runs over the real route tree, so a route
+// added tomorrow is audited the day it is added.
+// ---------------------------------------------------------------------------
+test("the lane audit: every route, both directions", async () => {
+  const { decide } = await import("../src/backend/human-gate.ts");
+  const env = { HUMAN_CHECK_SECRET: "x".repeat(32) }; // enforced, not observing
+
+  const walk = (dir, base = "/api") => {
+    const out = [];
+    for (const name of readdirSync(dir)) {
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) out.push(...walk(p, `${base}/${name}`));
+      else if (name === "route.ts") {
+        const src = readFileSync(p, "utf8");
+        const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+          .filter((m) => new RegExp(`export async function ${m}\\b|export const ${m}\\b`).test(src));
+        out.push({ path: base, methods: methods.length ? methods : ["GET"] });
+      }
+    }
+    return out;
+  };
+
+  const routes = walk(new URL("../src/app/api", import.meta.url).pathname);
+  assert.ok(routes.length > 150, `only ${routes.length} routes found — the walk is broken, so this audit proves nothing`);
+
+  const endpoints = [];
+  for (const r of routes) {
+    for (const m of r.methods) {
+      endpoints.push({
+        path: r.path, method: m,
+        anon: await decide({ path: r.path, method: m, cookie: null, binding: "b", env }),
+        bearer: await decide({ path: r.path, method: m, cookie: null, binding: "b", authorization: "Bearer tok", env }),
+      });
+    }
+  }
+
+  // ---- DIRECTION 1: every gated path a BROWSER calls must go through
+  //      `authedFetch`, which is what carries the bearer AND re-runs the human
+  //      check on a 403 `humanCheckRequired`.
+  //
+  // A plain `fetch("/api/…")` sits outside that machinery entirely: no bearer,
+  // and a 403 is never acted on — the call just fails and the screen renders
+  // whatever its fallback is. The audit found 53 of them across 35 files, which
+  // is why a lapsed twelve-hour cookie made the whole product look broken while
+  // the page stayed on screen.
+  //
+  // NOTE ON WHAT WAS *NOT* CHANGED: a bearer alone still does not satisfy the
+  // gate. `critical.test.mjs` pins that deliberately — "a bearer alone is not a
+  // human session — it falls through and is judged, not waved past" — and it is
+  // right: the check is anti-bot, and a token sitting in a browser is exactly
+  // the thing a stolen session is. The fix is to make the client re-verify,
+  // not to let the gate wave it through.
+  const clientDirs = ["src/app", "src/components", "src/frontend"];
+  const openPrefixes = endpoints.filter((e) => e.anon.allow).map((e) => e.path);
+  // A client call to `/api/invites/${token}` truncates to "/api/invites/", while
+  // the route FILE is "/api/invites/[token]". The lane matches by prefix, so a
+  // truncated dynamic path is open if any open route sits under it — comparing
+  // the two literally reported a false offender.
+  const isOpenPath = (p) => openPrefixes.some((o) => p === o || p.startsWith(`${o}/`) || (p.endsWith("/") && o.startsWith(p)));
+
+  const offenders = [];
+  const scan = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) { scan(p); continue; }
+      if (!/\.(tsx|ts)$/.test(name)) continue;
+      const src = readFileSync(p, "utf8");
+      const isClient = /["']use client["']/.test(src) || p.includes("/components/") || p.includes("/frontend/");
+      if (!isClient || p.includes("api-client")) continue;
+      for (const m of src.matchAll(/(?<![A-Za-z])fetch\(\s*["'`](\/api\/[^"'`]*)/g)) {
+        const path = m[1].split("?")[0].split("${")[0];
+        if (!isOpenPath(path)) offenders.push(`${p.replace(/^.*\/src\//, "src/")} → ${path}`);
+      }
+    }
+  };
+  for (const d of clientDirs) scan(new URL(`../${d}`, import.meta.url).pathname);
+  assert.deepEqual(offenders, [],
+    `these client calls bypass authedFetch, so they carry no bearer and never re-verify on a 403:\n  ${offenders.join("\n  ")}`);
+
+  // ---- DIRECTION 2: money and credentials still need a RECENT human check ----
+  //
+  // The property that separates a sensitive path from an ordinary one is
+  // FRESHNESS, not whether it refuses a bearer — a bearer never satisfies the
+  // human lane anywhere, so asserting that would hold whether or not the path
+  // was sensitive. An earlier draft of this test had no Direction 2 at all, and
+  // deleting "/api/billing" from SENSITIVE_PREFIXES changed nothing. Mutation
+  // testing is the only reason that was noticed.
+  //
+  // So: a valid session checked longer ago than REVERIFY_MS must be refused on
+  // anything that moves money or credentials — with `reverify`, not `verify`,
+  // because telling somebody already inside to "log in again" is how a payout
+  // gets abandoned — while the same session sails through everywhere else.
+  const { issueSession, REVERIFY_MS } = await import("../src/backend/human-gate.ts");
+  const now = 1_800_000_000_000;
+  const binding = "bind";
+  const staleCookie = (await issueSession(binding, now - REVERIFY_MS - 60_000)).value;
+  const withStale = (path, method) => decide({ path, method, cookie: staleCookie, binding, now, env });
+
+  // The same cookie on an ordinary path is fine. Without this the assertions
+  // below could all pass because the cookie is simply broken.
+  assert.equal((await withStale("/api/strategy", "POST")).allow, true,
+    "a session inside its 12h window was refused on an ordinary path — the fixture is wrong, not the gate");
+
+  // `/api/connections` is in SENSITIVE_PREFIXES and has no route file yet — the
+  // prefix is guarding ground that has not been built on. That is correct and
+  // deliberate (the list of things that move money is exactly the list nobody
+  // should be able to extend by forgetting), so it is not asserted over here.
+  for (const prefix of ["/api/admin", "/api/billing", "/api/checkout", "/api/settings", "/api/creator-engine"]) {
+    const guarded = endpoints.filter((e) => e.path.startsWith(prefix));
+    assert.ok(guarded.length > 0, `${prefix} has no endpoints — the audit lost them`);
+    for (const e of guarded) {
+      const v = await withStale(e.path, e.method);
+      assert.equal(v.allow, false, `${e.method} ${e.path} accepts a session last checked over ${REVERIFY_MS / 60_000} minutes ago — money must need a RECENT check`);
+      assert.equal(v.action, "reverify", `${e.method} ${e.path} says "verify" rather than "reverify" — that tells somebody already inside to log in again`);
+    }
+  }
+
+  // ---- DIRECTION 3: nothing new is open to a completely anonymous caller ----
+  // Every one of these was read and justified. A route that joins this list is
+  // a deliberate decision, so it has to be made deliberately.
+  const anonOpen = endpoints.filter((e) => e.anon.allow).map((e) => `${e.method} ${e.path}`).sort();
+  const EXPECTED_ANON = [
+    // The door itself — closing it closes the only way to prove you are human.
+    "GET /api/auth/human", "POST /api/auth/human", "PUT /api/auth/human",
+    // Capability reads: "is this configured?" — no value, no customer data, no spend.
+    "GET /api/capabilities", "GET /api/video-render", "GET /api/video/jobs", "GET /api/voice",
+    // Browser error reporting. The GET enforces platform_admin inside the route.
+    "GET /api/client-error", "POST /api/client-error",
+    // Health: configuration verdicts and key SHAPES, never values. /api/health/email
+    // additionally gates recipients, the mail host and the account username.
+    "GET /api/health/ai", "GET /api/health/apollo", "GET /api/health/auth", "GET /api/health/email",
+    "GET /api/health/google", "GET /api/health/live", "GET /api/health/serper",
+    "GET /api/health/smtp", "GET /api/health/storage", "GET /api/health/stripe",
+    // Provider verification handshakes — a GET here returns no secret.
+    "GET /api/webhooks/email", "GET /api/webhooks/meta", "GET /api/webhooks/stripe", "GET /api/webhooks/zernio",
+    // Public forms: requiring a session to obtain a session is circular. Each
+    // carries proof-of-work, a honeypot, timing and its own rate limit.
+    "POST /api/audit", "POST /api/growth/apply",
+    // Three shipped no-account surfaces the gate was refusing: the client
+    // approval portal (the token is the credential), the public blog reader
+    // (writes enforce platform_admin inside the route), and the view/click
+    // beacon on a published landing page (reading the numbers back calls
+    // resolveBrandAccess).
+    "GET /api/portal", "POST /api/portal",
+    "GET /api/blog", "POST /api/blog",
+    "GET /api/page-analytics", "POST /api/page-analytics",
+    "GET /api/invites/[token]", "POST /api/invites/[token]",
+    "GET /api/landing", "POST /api/landing", "POST /api/landing/lead",
+    "POST /api/share2earn/join",
+    "GET /api/track/click", "GET /api/track/open",
+    "GET /api/track/unsubscribe", "POST /api/track/unsubscribe",
+    "GET /api/unsubscribe", "POST /api/unsubscribe",
+  ].sort();
+
+  const added = anonOpen.filter((e) => !EXPECTED_ANON.includes(e));
+  const removed = EXPECTED_ANON.filter((e) => !anonOpen.includes(e));
+  assert.deepEqual(added, [], `newly open to anonymous callers — justify each, then add it to EXPECTED_ANON: ${added.join(", ")}`);
+  assert.deepEqual(removed, [], `no longer open to anonymous callers — a public surface has been closed: ${removed.join(", ")}`);
+});

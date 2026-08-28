@@ -96,7 +96,7 @@ export default function SearchDominancePage() {
             searchDemandCoverage: cl(queries * 4),
           };
           setDom(derived);
-          const sr = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: derived }) });
+          const sr = await authedFetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: derived }) });
           setDomScore(await sr.json().catch(() => null));
         } else setGsc({ connected: false, needsSelection: Boolean(d.needsSelection), sites: Array.isArray(d.sites) ? d.sites.map((x: { siteUrl: string }) => x.siteUrl) : [], note: typeof d.note === "string" ? d.note : "" });
       } catch { if (on) setGsc({ connected: false }); }
@@ -115,27 +115,27 @@ export default function SearchDominancePage() {
     } finally { setBusySeo(false); }
   }
 
-  useEffect(() => { fetch("/api/search-dominance").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
+  useEffect(() => { authedFetch("/api/search-dominance").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
   async function runIntent() {
     if (!query.trim()) return;
     setBusyIntent(true);
     try {
-      const r = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "intent", query }) });
+      const r = await authedFetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "intent", query }) });
       setIntent(await r.json());
     } finally { setBusyIntent(false); }
   }
   async function runScore() {
     setBusyScore(true);
     try {
-      const r = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", inputs }) });
+      const r = await authedFetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", inputs }) });
       setScore(await r.json());
     } finally { setBusyScore(false); }
   }
   async function runDom() {
     setBusyDom(true);
     try {
-      const r = await fetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: dom }) });
+      const r = await authedFetch("/api/search-dominance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominanceScore", inputs: dom }) });
       setDomScore(await r.json());
     } finally { setBusyDom(false); }
   }

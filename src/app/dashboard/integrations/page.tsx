@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Plug, ShieldCheck, Hand, Building2, Sparkles, MousePointerClick } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import ChannelHealth from "@/components/ChannelHealth";
+import { authedFetch } from "@/frontend/api-client";
 
 type Integration = {
   provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: "connected" | "disconnected"; manualFallback: string[];
@@ -32,7 +33,7 @@ const CATEGORIES = ["paid_ads", "messaging", "email", "payments", "calendar", "e
 export default function IntegrationsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => { fetch("/api/integrations").then((r) => r.json()).then(setData).catch(() => {}); }, []);
+  useEffect(() => { authedFetch("/api/integrations").then((r) => r.json()).then(setData).catch(() => {}); }, []);
 
   return (
     <div>

@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Copy, Link as LinkIcon, Loader2, Sparkles, Store } from "lucide-react";
 import { SIGNUP_DOORS, UPGRADE_PATH, ratePct, SHARE2EARN_RATE } from "@/shared/creator-program";
+import { authedFetch } from "@/frontend/api-client";
 
 type PublicProduct = { id: string; brandId: string; name: string; url: string; pricePence: number; commissionPence: number; ratePct: number; reason: string };
 type Discovery = { brands: { brandId: string; mode: string; products: PublicProduct[] }[]; claimable: number };
@@ -39,7 +40,7 @@ export default function JoinShare2Earn() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/share2earn?discover=1");
+        const res = await authedFetch("/api/share2earn?discover=1");
         if (res.ok) setDiscovery(await res.json());
       } catch { /* the page works without it */ }
     })();

@@ -58,7 +58,7 @@ export default function AdCanvas({ imageUrl }: { imageUrl?: string }) {
   const [sizes, setSizes] = useState<{ placement: PlacementRow; svg: string; check: Check }[]>([]);
 
   useEffect(() => {
-    fetch("/api/ad-canvas")
+    authedFetch("/api/ad-canvas")
       .then((r) => r.json())
       .then((d) => setPlacements(Array.isArray(d?.placements) ? d.placements : []))
       .catch(() => { /* the form still works; the table is context */ });

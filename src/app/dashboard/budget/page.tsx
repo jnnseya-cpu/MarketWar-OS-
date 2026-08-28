@@ -14,6 +14,7 @@ import AgentRunner from "@/components/AgentRunner";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard, VerdictBadge } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type ProtectedCampaign = {
   name: string;
@@ -60,7 +61,7 @@ export default function BudgetProtectionPage() {
   const runBoard = (campaigns?: { name: string; spendGbp: number; revenueGbp: number }[]) => {
     if (!activeBrand) return;
     setBusy(true);
-    fetch("/api/budget", {
+    authedFetch("/api/budget", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ business: activeBrand.name, monthlyBudget: 600, campaigns }),

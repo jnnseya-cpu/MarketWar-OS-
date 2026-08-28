@@ -10,6 +10,7 @@ import { Loader2, Target, ListChecks } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Full = {
   avatar: { summaryParagraph: string; scores: Record<string, number> };
@@ -48,7 +49,7 @@ export default function StrategyPage() {
   async function run() {
     setBusy(true);
     try {
-      const res = await fetch("/api/strategy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "full", ...form }) });
+      const res = await authedFetch("/api/strategy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "full", ...form }) });
       setData(await res.json());
     } finally { setBusy(false); }
   }

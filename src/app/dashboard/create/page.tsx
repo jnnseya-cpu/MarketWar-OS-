@@ -47,7 +47,7 @@ export default function CreatePage() {
     setBusy(true);
     setDecision(null); setBuilt(null); setBuildError(null); setAnswers({});
     try {
-      const res = await fetch("/api/intent", {
+      const res = await authedFetch("/api/intent", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: q }),
       });

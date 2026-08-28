@@ -147,6 +147,33 @@ export const PUBLIC_FORM_LANES = [
   "/api/track",
   "/api/invites",
   "/api/contact",
+  // THREE SHIPPED, NO-ACCOUNT SURFACES THAT THE GATE WAS REFUSING.
+  //
+  // Found by auditing every plain `fetch("/api/…")` in client code against the
+  // lane each path lands in. These three are called from pages a stranger opens
+  // with no account at all, so in enforced mode the feature simply did not work
+  // for the only people it was built for:
+  //
+  //   /portal/[token]     → /api/portal          the client approval portal,
+  //     whose entire selling point is "a signed, expiring link an outside client
+  //     opens with no account". The TOKEN is the credential and every branch
+  //     goes through `client-portal.ts` to check it — the same shape as
+  //     `/api/invites`, which was already here.
+  //   /blog/[slug]        → /api/blog            a public blog reader. The route
+  //     puts `requireAuth({ scope: "platform_admin" })` on every write; the read
+  //     is the marketing site, which the gate deliberately does not cover.
+  //   /b/[brand]/[slug]   → /api/page-analytics  the view/click beacon on a
+  //     PUBLISHED landing page. Its own comment says the pixel "is deliberately
+  //     unauthenticated — it is fired by a public landing page a stranger is
+  //     looking at", and reading the numbers back already calls
+  //     `resolveBrandAccess`. The gate was overriding that stated design.
+  //
+  // Each one protects itself INSIDE the route, which is the division this module
+  // states: the gate decides whether a request has a lane, the route decides
+  // what it may do once inside.
+  "/api/portal",
+  "/api/blog",
+  "/api/page-analytics",
   // Leaving the newsletter. Its own route precisely so this exemption cannot
   // reach the endpoint that SENDS — and because a human check standing between
   // somebody and the unsubscribe button is the friction that makes them press
@@ -180,8 +207,25 @@ export const machineLaneFor = (path: string): MachineLane | null =>
 export const isPublicForm = (path: string): boolean =>
   PUBLIC_FORM_LANES.some((p) => path === p || path.startsWith(`${p}/`));
 
+/**
+ * A HYPHEN IS NOT A DIFFERENT FEATURE — found by the lane audit.
+ *
+ * The boundary characters were `/` and `?`, so `/api/admin` covered
+ * `/api/admin/grant-acus` and did NOT cover `/api/admin-billing`, which changes
+ * a user's plan, mints discount codes and WAIVES UP TO THREE MONTHS OF PAYMENT.
+ * `/api/admin-economics` was outside it too. Both are admin-only at the route,
+ * so neither was open — but neither demanded a check passed in the last fifteen
+ * minutes, which is the control that exists precisely so an unattended laptop is
+ * not a payout button. Twelve hours is a long time to leave a waiver reachable.
+ *
+ * `-` joins `/` and `?` as a boundary, so the rule now covers the sibling
+ * spelling as well as the child path, and an `/api/admin-anything` written
+ * tomorrow is sensitive the day it is added rather than the day somebody
+ * notices. Deliberately NOT a bare `startsWith`: that would make
+ * `/api/settings` swallow an unrelated `/api/settingsomething`.
+ */
 export const isSensitivePath = (path: string): boolean =>
-  SENSITIVE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`));
+  SENSITIVE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`) || path.startsWith(`${p}-`));
 
 /**
  * WHICH sensitive paths actually demand a check passed in the last 15 minutes.
@@ -548,6 +592,7 @@ export async function decide(input: {
   if (verdict.ok) {
     return { lane: "human", allow: true, observed: false, sensitivity, reason: `Human session, checked ${Math.round(verdict.freshMs / 60_000)} minute(s) ago.` };
   }
+
   return { lane: "human", allow: false, observed, action: verdict.action, reason: verdict.reason, sensitivity };
 }
 

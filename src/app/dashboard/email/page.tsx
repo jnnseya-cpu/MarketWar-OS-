@@ -121,7 +121,7 @@ export default function EmailPage() {
   const [engineInfo, setEngineInfo] = useState<{ provider?: string; from?: string }>({});
   useEffect(() => {
     let off = false;
-    fetch("/api/email").then((r) => r.json()).then((d) => {
+    authedFetch("/api/email").then((r) => r.json()).then((d) => {
       if (off) return;
       setEngineMode(d?.mode === "live" ? "live" : "demo");
       setEngineInfo({ provider: d?.provider, from: d?.from });
@@ -334,7 +334,7 @@ export default function EmailPage() {
       if (cancelled) return;
       if (listSize === 0) { setPosture(null); return; }
       try {
-        const r = await fetch("/api/email-metrics", {
+        const r = await authedFetch("/api/email-metrics", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ business: activeBrand.name, listSize, days: 14 }),
         });
@@ -348,7 +348,7 @@ export default function EmailPage() {
   async function runFilter() {
     setBusy(true);
     try {
-      const res = await fetch("/api/email", {
+      const res = await authedFetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "validate", emails: raw.split(/\s+/).filter(Boolean) }),

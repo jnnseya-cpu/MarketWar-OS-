@@ -8,6 +8,7 @@ import { Loader2, Mail, Bell, MessageSquare, Smartphone, MessageCircle, ShieldAl
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { useIsAdmin } from "@/frontend/use-is-admin";
+import { authedFetch } from "@/frontend/api-client";
 
 type Channel = "email" | "inapp" | "sms" | "push" | "whatsapp";
 type Sev = "info" | "success" | "warning" | "critical";
@@ -27,19 +28,19 @@ export default function CommsPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { fetch("/api/comms-events").then((r) => r.json()).then(setData).catch(() => {}); }, []);
+  useEffect(() => { authedFetch("/api/comms-events").then((r) => r.json()).then(setData).catch(() => {}); }, []);
 
   const allEvents = useMemo<Ev[]>(() => data ? Object.values(data.eventsByCategory).flat() : [], [data]);
   const selEvent = allEvents.find((e) => e.id === sel);
 
   async function runPreview() {
     setBusy(true); setTestResult(null);
-    const r = await fetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview", eventId: sel, brand: { name: activeBrand?.name || "Your brand", brandColour: activeBrand?.color || "#10b981", fromEmail: "info@marketwaros.com" } }) }).then((x) => x.json());
+    const r = await authedFetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview", eventId: sel, brand: { name: activeBrand?.name || "Your brand", brandColour: activeBrand?.color || "#10b981", fromEmail: "info@marketwaros.com" } }) }).then((x) => x.json());
     setPreview(r); setBusy(false);
   }
   async function runTest() {
     setBusy(true); setPreview(null);
-    const r = await fetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test", eventId: sel }) }).then((x) => x.json());
+    const r = await authedFetch("/api/comms-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test", eventId: sel }) }).then((x) => x.json());
     setTestResult(`${r.mode === "sandbox" ? "Sandbox" : "Live"} — ${r.delivered?.length ?? 0} channel(s): ${(r.delivered ?? []).map((d: { channel: string }) => d.channel).join(", ")}`);
     setBusy(false);
   }

@@ -11,6 +11,7 @@ import AgentRunner from "@/components/AgentRunner";
 import ReviewRequests from "@/components/ReviewRequests";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Trust = { business: string; trustScore: number; averageRating: number; reviewCount: number; starDistribution: Record<string, number>; verifiedShare: number; positiveShare: number; negativeShare: number; aiVisibilityReadiness: number; verdict: string };
 type Sentiment = { topicSentiment: { topic: string; mentions: number; sentiment: number }[]; painPoints: string[]; churnRiskSignals: string[]; customerHappiness: number; operationalPlan: string[] };
@@ -27,7 +28,7 @@ export default function ReputationPage() {
   async function run(action: "trust" | "sentiment") {
     setBusy(action);
     try {
-      const res = await fetch("/api/reputation", {
+      const res = await authedFetch("/api/reputation", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, business }),
       });

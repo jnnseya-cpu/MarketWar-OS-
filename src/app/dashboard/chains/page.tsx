@@ -12,6 +12,7 @@ import { AlertTriangle, CalendarClock, ChevronRight, Loader2, Lock, PlayCircle, 
 import { PageHeader, Pill } from "@/components/ui";
 import OneClickCampaign from "@/components/OneClickCampaign";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Effect = "draft" | "spend" | "send" | "publish";
 type Step = { id: string; agentId: string; effect: Effect; purpose: string; costAcu: number };
@@ -58,7 +59,7 @@ export default function ChainsPage() {
   const load = useCallback(async () => {
     const q = activeBrand?.id ? `?brandId=${encodeURIComponent(activeBrand.id)}` : "";
     try {
-      const d = await (await fetch(`/api/orchestrator${q}`)).json();
+      const d = await (await authedFetch(`/api/orchestrator${q}`)).json();
       setChains(Array.isArray(d?.chains) ? d.chains : []);
       setAgents(Array.isArray(d?.authoring?.agents) ? d.authoring.agents : []);
       setAuthoringNote(d?.authoring?.note || "");
@@ -75,7 +76,7 @@ export default function ChainsPage() {
     if (!activeBrand?.id) { setError("Pick a brand first."); return null; }
     setBusy(tag); setError("");
     try {
-      const res = await fetch("/api/orchestrator", {
+      const res = await authedFetch("/api/orchestrator", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId: activeBrand.id, ...body }),
       });
