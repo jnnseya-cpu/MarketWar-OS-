@@ -289,6 +289,20 @@ async function hmacKey(): Promise<CryptoKey> {
     keyPromise = (globalThis.crypto as Crypto).subtle.importKey(
       "raw", enc.encode(s), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
     );
+    // A REJECTED PROMISE MUST NOT BE CACHED.
+    //
+    // Without this, one failed `importKey` is permanent: `keyForSecret` is
+    // already set to `s`, so the guard above never re-enters, and every later
+    // request on that instance awaits the same rejected promise. Since this key
+    // signs the binding that the MIDDLEWARE computes for every request, a single
+    // transient crypto failure turned into a 500 on every route, for every
+    // visitor, for the life of the instance — with nothing in the logs
+    // connecting the two.
+    //
+    // Clearing the cache on rejection makes the failure per-request and
+    // recoverable instead of per-instance and terminal. The `catch` here only
+    // resets state; the rejection still propagates to the caller.
+    keyPromise.catch(() => { keyPromise = null; keyForSecret = ""; });
   }
   return keyPromise;
 }

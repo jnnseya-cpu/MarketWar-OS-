@@ -76,19 +76,68 @@ const SIGNATURE_HEADERS = [
 const API_LIMIT = 120;
 const API_WINDOW_MS = 60_000;
 
+// THE MIDDLEWARE MAY NOT TAKE THE SITE DOWN — the root cause of the production
+// 500 that three rounds of hardening inside `/api/audit` never touched.
+//
+// REPORTED FROM PRODUCTION, four times: the free audit answered HTTP 500 with
+// `500: Internal Server Error` and Next's own error-page stylesheet. The route
+// was searched for the throw. It was not there — and it could not have been,
+// because that body is not a shape any handler in this codebase can produce.
+// Every one of them answers JSON.
+//
+// CONFIRMED BY EXPERIMENT rather than reasoning: a bare `throw` placed at the
+// top of this function, built and served, returns exactly
+//   HTTP 500  <title>500: Internal Server Error</title> … .next-error-h1 …
+// on `/api/audit` and on `/` alike. That is the reported symptom, reproduced.
+//
+// This function runs BEFORE every route on a matcher that deliberately covers
+// nearly the whole site, and it had no error handling of any kind. So any throw
+// in `bindingFor` or `decide` — a Web Crypto failure, a cached rejected key
+// promise, a future edit to the gate — is not a broken request. It is the whole
+// platform answering 500 to everybody, with no handler anywhere able to catch it
+// and nothing in the response saying why.
+//
+// FAILS OPEN, DELIBERATELY, AND THAT IS A REAL TRADE. A gate that cannot run is
+// the case this module already has a name for — `observe` mode — and the header
+// at the top of this file states the policy: it fails to a CHALLENGE, never a
+// lockout. Failing closed here converts a gate bug into a total outage, which is
+// strictly worse for a platform whose front door is a free audit a stranger runs
+// without an account.
+//
+// WHAT THIS DOES NOT WEAKEN: the human gate is a bot speed bump, not the
+// authorisation boundary. Authorisation is `requireAuth` inside each route,
+// server-side, and it is untouched by this — a request that passes through here
+// still cannot read another tenant's data. The failure is recorded loudly rather
+// than swallowed, because a security control that turns itself off quietly is
+// one nobody finds out about.
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
-  const decision = await decide({
-    path,
-    cookie: req.cookies.get(HUMAN_COOKIE)?.value,
-    binding: await bindingFor(req),
-    authorization: req.headers.get("authorization"),
-    hasProviderSignature: SIGNATURE_HEADERS.some((h) => Boolean(req.headers.get(h))),
-    // A machine lane judges a safe READ differently from a write: a provider's
-    // verification handshake arrives as a GET with no signature.
-    method: req.method,
-  });
+  let decision;
+  try {
+    decision = await decide({
+      path,
+      cookie: req.cookies.get(HUMAN_COOKIE)?.value,
+      binding: await bindingFor(req),
+      authorization: req.headers.get("authorization"),
+      hasProviderSignature: SIGNATURE_HEADERS.some((h) => Boolean(req.headers.get(h))),
+      // A machine lane judges a safe READ differently from a write: a provider's
+      // verification handshake arrives as a GET with no signature.
+      method: req.method,
+    });
+  } catch (e) {
+    // Loud, and with the path — the one fact needed to reproduce it. This is the
+    // line that was missing while production answered 500 to every visitor.
+    console.error(`[gate] the human gate threw on ${path}: ${e instanceof Error ? e.message : String(e)} — passing the request through unjudged`);
+    const headers = new Headers(req.headers);
+    headers.set("x-mw-gate-lane", "unavailable");
+    headers.set("x-mw-gate-allow", "0");
+    headers.set("x-mw-gate-observed", "1");
+    // The API floor below is skipped on this path on purpose: stacking a second
+    // control on top of a broken first one is how a small failure becomes a
+    // large one. Routes that set their own `rateLimit` still have it.
+    return NextResponse.next({ request: { headers } });
+  }
 
   // THE LIMIT RUNS AFTER THE LANE IS KNOWN, AND SKIPS TWO OF THEM.
   //
