@@ -16,9 +16,8 @@ TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
 backend modules, 178 API routes, 68 dashboard pages, **1,634 tests** including one
 end-to-end run of the growth loop.
 
-**Two branches, differing by ONE thing.** `main` is production on **Next 14**; dev
-is identical but for the **Next 15 / React 19** upgrade — a diff returns only the
-package files, `next.config.mjs` and the files that await `params` (§5.2).
+**Both branches are now IDENTICAL, on Next 15 / React 19** (landed 2026-08-28).
+Mirror file-by-file, never by merge, verified on main's own `npm ci`.
 
 ---
 
@@ -43,8 +42,7 @@ is the paste-ready first campaign (§5.4). Both parse their prices out of `src/`
   adverts promise that and `npm run ads:verify` fails if it stops being true. Every
   failing finding carries what it costs and the fix (`shared/audit-copy.ts`), and
   **the page SHOWS the catalogue**. It refuses private and link-local destinations
-  on every hop (`shared/net-guard.ts`) — it would otherwise have read the cloud
-  metadata service.
+  on every hop — it would otherwise have read the cloud metadata service.
 - **The client approval portal** — a signed, expiring link an outside client opens
   with no account; **the screen recorder puts the presenter IN the file.**
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin
@@ -129,11 +127,13 @@ holds one rule: an envelope sender must be a mailbox that exists. **To close:** 
 `SMTP_USER` to change** — verified 2026-08-27: `appuser@` logs in, `info@` is the
 visible From, envelope + `Sender:` are `appuser@`, same domain so SPF/DMARC align.
 
-**2. RE-LAND NEXT 15. The one with a clock on it.** 21 advisories apply to 14.2.35
-— App Router XSS, RSC cache poisoning, SSRF in rewrites, middleware bypass — fixed
-only in 15.5.x+. Green on dev; rolled off 2026-08-21 during a live `/verify-human`
-failure, NOT proved to be the cause. **To close:** preview dev, open
-`/api/auth/human`; if it answers, merge.
+**2. NEXT 15 IS LANDED (2026-08-28) — confirm it in production.** `npm audit` on
+main went from **11 advisories, 5 high** (`next` itself, `postcss`, `nanoid`,
+`brace-expansion`, `fast-xml-parser`) to **6 moderate, 0 high**. The 2026-08-21
+rollback blamed `/verify-human` on suspicion; it was re-tested end to end on main's
+own Next 15 build — challenge issued, proof of work SOLVED, token and session
+issued, replay refused — plus every async-`params` route. **To close:** after the
+deploy, open `/verify-human` and complete one real signup.
 
 **3. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set.
 Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL —
@@ -164,10 +164,11 @@ ledger event, which bypasses the 10k gate. Firebase Admin is live.
 priority queue; §50 paid boost; §77 knowledge graph; §80 agent message bus; §14
 calendars, §21 carousels, §100 per-agent cost/impact; no bulk catalogue import (Task 13).
 
-**Security debt, with the reasoning.** 6 moderate npm advisories (uuid → … →
-firebase-admin), left deliberately: npm's "fix" is a four-major downgrade of
-firebase-admin, covering uuid v3/v5/v6 with a buffer neither consumer passes. The
-rate limiter is per-instance BY DESIGN; `guard.ts` says why.
+**Security debt, with the reasoning.** 6 moderate advisories and NO high ones —
+all the uuid → firebase-admin chain, left deliberately: npm's "fix" is a four-major
+downgrade of firebase-admin, covering uuid v3/v5/v6 with a buffer neither consumer
+passes. Two `overrides` force Next's nested postcss and sharp up to the versions
+used everywhere else; drop each the day Next ships it.
 
 ---
 
@@ -212,7 +213,6 @@ What only lives here:
 
 - **Verify before shipping:** typecheck, build, layer check, tests — then MUTATE
   the new tests. A test that has never failed is not evidence.
-- Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` — except
-  while §5.2 is open, where the branches deliberately differ on the Next version
-  and its async-`params` migration. Mirror file-by-file, never by merge, and
-  verify on main against its own `npm ci`.
+- Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` file-by-file,
+  never by merge, verified on main against its own `npm ci`. The branches no longer
+  differ on anything — a diff between them is now a mistake, not a plan.
