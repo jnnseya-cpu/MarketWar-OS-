@@ -24063,3 +24063,82 @@ test("audit D-16: the crawler stops reading at the cap, and an unexpected throw 
   assert.match(csrc, /readCapped\(res, MAX_HTML_BYTES\)/, "the crawler no longer caps as it reads");
   assert.doesNotMatch(csrc, /await res\.arrayBuffer\(\)\)\.slice/, "the unbounded read is back");
 });
+
+test("audit D-17: the free audit cannot answer 500, and does not load the Admin SDK to run", async (t) => {
+  const route = await import("../src/app/api/audit/route.ts");
+  const { NextRequest } = await import("next/server");
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; });
+
+  const post = (body) => route.POST(new NextRequest("https://x.test/api/audit", {
+    method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" },
+  }));
+
+  // NOTHING FROM THIS ROUTE MAY BE A 500. It is the platform's main lead-capture
+  // surface — a stranger's first contact, on a page promising to read their site
+  // right now. Production answered it with Next's own error page twice, which
+  // costs the lead and tells nobody anything.
+  //
+  // Wrapping the crawl was not enough: the ranking, scoring and dressing below
+  // it all run on whatever the crawl returned, and an unusual site is exactly
+  // the shape that produces an unusual report.
+  for (const body of [
+    { url: "https://example.com" },
+    { url: "not a url at all" },
+    { url: "http://127.0.0.1/" },
+    { url: "https://" },
+    { url: "x".repeat(5000) },
+    { url: "https://example.com", email: "not-an-email" },
+    { url: "https://example.com", email: "a@b.co" },
+  ]) {
+    const res = await post(body);
+    assert.notEqual(res.status, 500, `500 for ${JSON.stringify(body).slice(0, 60)}`);
+    assert.ok(res.status === 200 || res.status === 400 || res.status === 429,
+      `unexpected status ${res.status} for ${JSON.stringify(body).slice(0, 60)}`);
+    // Whatever happened, the answer is readable JSON with something to act on.
+    const parsed = await res.json();
+    assert.ok(typeof parsed === "object" && parsed !== null);
+  }
+
+  // THE ADMIN SDK IS NOT IN THE STATIC GRAPH. A module-level failure inside
+  // firebase-admin is thrown while the route module LOADS — before any handler
+  // code runs, so no try/catch in the file can catch it, and Next answers with
+  // its own 500 page. That is the reported symptom exactly, and a public route
+  // that reads a website has no business paying that cold start either.
+  const seen = new Set();
+  let reaches = null;
+  const resolveSpec = (spec) => {
+    if (!spec.startsWith("@/")) return null;
+    const base = new URL(`../src/${spec.slice(2)}`, import.meta.url);
+    for (const ext of [".ts", ".tsx", "/index.ts"]) {
+      const p = new URL(base.pathname + ext, import.meta.url);
+      if (existsSync(p)) return p;
+    }
+    return null;
+  };
+  const walk = (file, path) => {
+    if (seen.has(file.pathname) || reaches) return;
+    seen.add(file.pathname);
+    const src = readFileSync(file, "utf8");
+    if (/from "firebase-admin/.test(src)) { reaches = [...path, file.pathname].join(" -> "); return; }
+    for (const m of src.matchAll(/^import[^;]*?from\s+"([^"]+)"/gm)) {
+      const r = resolveSpec(m[1]);
+      if (r) walk(r, [...path, file.pathname]);
+    }
+  };
+  walk(new URL("../src/app/api/audit/route.ts", import.meta.url), []);
+  assert.equal(reaches, null,
+    `the audit route statically imports firebase-admin via ${reaches} — a module-load failure there is an uncatchable 500`);
+
+  // It is still RECORDED, just on the branch that needs it.
+  const src = codeOf(readFileSync(new URL("../src/app/api/audit/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /await import\("@\/backend\/acquisition"\)/,
+    "the prospect is no longer recorded at all — lazy must not mean dropped");
+  assert.match(src, /from "@\/backend\/rate-limit"/,
+    "the limiter comes from guard again, which drags the Admin SDK back in");
+
+  // And the outer wrapper exists, logging the address it failed on.
+  assert.match(src, /return await handleAudit\(req\);/, "the handler is no longer wrapped");
+  assert.match(src, /console\.error\(`\[audit\] handler threw for \$\{where\}/,
+    "a handler failure does not record which address caused it");
+});

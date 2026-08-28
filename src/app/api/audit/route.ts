@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { crawlSite } from "@/backend/crawler";
-import { addProspect, recordAttempt, setStage } from "@/backend/acquisition";
-import { rateLimit, clientKey } from "@/backend/guard";
+// `acquisition` is LOADED ON USE, not imported here — see the call site below.
+// It reaches firebase-admin, and a public route that reads somebody's website
+// should not pay the Admin SDK's cold start, nor risk a module-level failure
+// inside it becoming a 500 before any handler code runs. A throw at module load
+// is one no try/catch in this file can catch, and it is the exact shape this
+// route was reported with from production.
+// THE LIGHT LIMITER, NOT THE ONE BEHIND THE ADMIN SDK.
+//
+// `@/backend/guard` re-exports `rateLimit`, and importing it from there pulls
+// firebase-admin, gRPC and protobufjs into the module graph of a PUBLIC route
+// that never authenticates anybody. That is the exact cost `backend/rate-limit`
+// was split out to avoid.
+//
+// It is also a candidate for the production 500 this route was reported with:
+// a module-level failure inside the Admin SDK is thrown while the route module
+// is being loaded, which no try/catch inside the handler can catch, and which
+// Next answers with its own 500 page — the symptom exactly as reported.
+import { rateLimit, clientKey } from "@/backend/rate-limit";
 import { isDisposableEmail } from "@/backend/human-check";
 import { publicSendFailure, sendFailureOf, operatorFix } from "@/shared/send-failure";
 import { copyFor, auditHeadline, auditNextStep } from "@/shared/audit-copy";
@@ -43,7 +59,40 @@ const PLATFORM_BRAND = "marketwar_platform";
 /** How much is given away before anything is asked for. */
 const FREE_FINDINGS = 3;
 
+/**
+ * NOTHING FROM THIS ROUTE MAY EVER BE A 500.
+ *
+ * This is the platform's main lead-capture surface: a stranger's first contact,
+ * on a page that promises to read their site "right now". A Next error page
+ * there costs a lead and tells nobody anything — which is what was reported
+ * from production, twice.
+ *
+ * The crawl was wrapped first, because it is the hostile input. That was not
+ * enough: the scoring, ranking and dressing of the findings below it run on
+ * whatever the crawl returned, and an unusual site is exactly the shape that
+ * produces an unusual report. So the whole handler is wrapped, and the failure
+ * is logged WITH THE ADDRESS — the one fact needed to reproduce it.
+ *
+ * A wrapper is not an excuse to stop finding root causes. It is the floor under
+ * the ones not found yet, on the one endpoint where a stranger is watching.
+ */
 export async function POST(req: NextRequest) {
+  try {
+    return await handleAudit(req);
+  } catch (e) {
+    const why = e instanceof Error ? `${e.message}` : "unknown error";
+    let where = "";
+    try { where = String(((await req.clone().json()) as { url?: unknown }).url ?? ""); } catch { where = "(body unreadable)"; }
+    console.error(`[audit] handler threw for ${where}: ${why}`);
+    return NextResponse.json({
+      ok: false,
+      error: "Something on our side broke while building your report. That is our bug, not your site's — it has been logged with the address you gave, and we will fix it.",
+      block: null,
+    }, { status: 200 });
+  }
+}
+
+async function handleAudit(req: NextRequest) {
   // Tighter than the signed-in routes: this is public and it makes an outbound
   // fetch on behalf of whoever calls it, so it is the one endpoint that could be
   // pointed at somebody else's server in volume.
@@ -181,6 +230,7 @@ export async function POST(req: NextRequest) {
   const name = str("name") || (report.title ? report.title.slice(0, 80) : url);
   let recorded = false;
   try {
+    const { addProspect, recordAttempt, setStage } = await import("@/backend/acquisition");
     const host = new URL(report.finalUrl || report.url).hostname.replace(/^www\./, "");
     const added = await addProspect({
       brandId: PLATFORM_BRAND, targetId: "marketwar",
