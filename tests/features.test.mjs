@@ -23610,3 +23610,180 @@ test("the Veo fallback descends in cost and never escalates it", async () => {
   assert.match(src, /RENDERED LANDSCAPE, crop before publishing/,
     "a model that ignored the aspect ratio does not say so");
 });
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT — one-click unsubscribe must never report a success it did not have
+// ---------------------------------------------------------------------------
+
+test("audit D-04: one-click unsubscribe returns 200 ONLY when it recorded", async () => {
+  const route = await import("../src/app/api/track/unsubscribe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const ev = await import("../src/backend/email-events.ts");
+
+  const url = (t) => new NextRequest(`https://x.test/api/track/unsubscribe?t=${encodeURIComponent(t)}`, { method: "POST" });
+
+  // THE DEFECT. This endpoint is the RFC 8058 List-Unsubscribe-Post target —
+  // Gmail, Yahoo and Outlook read the STATUS, not the body, and treat any 2xx
+  // as "unsubscribed". It returned 200 with {ok:false} for a forged token, so
+  // the provider marked the request done and the recipient kept getting mail
+  // with the one control that was meant to stop it reporting success.
+  const forged = await route.POST(url("garbage.notasignature"));
+  assert.equal(forged.status, 400, "a forged unsubscribe token was answered with a success status");
+  const forgedBody = await forged.json();
+  assert.equal(forgedBody.ok, false);
+
+  const empty = await route.POST(url(""));
+  assert.equal(empty.status, 400, "a missing token was answered with a success status");
+
+  // A REAL TOKEN IS RECORDED, and only then is it a 200.
+  const token = ev.signToken("t-unsub-brand", "person@example.com", "camp-1");
+  const good = await route.POST(url(token));
+  assert.equal(good.status, 200, "a valid one-click unsubscribe was refused");
+  assert.equal((await good.json()).ok, true);
+
+  // A STORAGE FAILURE IS NOT A BAD TOKEN, and must not be answered 200 either.
+  // Driven for real: the recorder is injected and made to throw, which is why
+  // the outcome logic was moved out of the route file at all — a route cannot
+  // export a helper, so these branches were previously unreachable by any test.
+  const intake = await import("../src/backend/unsubscribe-intake.ts");
+  const broken = await intake.recordUnsubscribe(
+    ev.signToken("t-unsub-brand", "other@example.com", "c"),
+    async () => { throw new Error("firestore unavailable"); },
+  );
+  assert.equal(broken.ok, false);
+  assert.equal(broken.reason, "store_failed", "a storage outage is reported as a forged token");
+  assert.match(broken.detail, /firestore unavailable/, "the real cause is thrown away");
+
+  // A forged token never reaches storage at all.
+  let recorderCalled = 0;
+  const rejected = await intake.recordUnsubscribe("garbage.x", async () => { recorderCalled += 1; });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.reason, "bad_token");
+  assert.equal(recorderCalled, 0, "a forged token was written to the event store");
+
+  // THE HUMAN PAGE must not claim success either — and must not say "expired"
+  // when the truth is that our storage failed.
+  const page = await route.GET(new NextRequest("https://x.test/api/track/unsubscribe?t=garbage.x"));
+  assert.equal(page.status, 200, "a person clicking an old link should get a page, not a browser error");
+  const html = await page.text();
+  assert.match(html, /invalid or has expired/);
+  assert.doesNotMatch(html, /You're unsubscribed/, "a failed unsubscribe told the person they were unsubscribed");
+
+  // And the three outcomes are genuinely distinct in the source, not one
+  // boolean wearing three hats.
+  const src = codeOf(readFileSync(new URL("../src/app/api/track/unsubscribe/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /reason === "bad_token"/, "the route no longer distinguishes the two failures");
+  assert.match(src, /status: 400/, "a forged token is not answered 400");
+  assert.match(src, /status: 503/, "a storage failure is not answered 503");
+  // A 503 with no Retry-After leaves the provider to guess, and the guess is
+  // usually "never". Asserted on the source because the route's own storage
+  // failure has no injection seam — the behaviour itself is driven through
+  // `recordUnsubscribe` above.
+  assert.match(src, /"Retry-After": "300"/, "a retryable failure does not tell the provider when to retry");
+  const intakeSrc = codeOf(readFileSync(new URL("../src/backend/unsubscribe-intake.ts", import.meta.url), "utf8"));
+  assert.match(intakeSrc, /reason: "bad_token"/);
+  assert.match(intakeSrc, /reason: "store_failed"/, "a storage outage is still indistinguishable from a forged token");
+  assert.match(intakeSrc, /console\.error\(`\[unsubscribe\] FAILED TO RECORD/, "an unsubscribe that failed to save is still silent");
+  assert.doesNotMatch(intakeSrc, /console\.error\([^)]*claim\.email/, "the address of somebody asking to be forgotten is written to the logs");
+});
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT — Gate 5: the money boundary, driven adversarially
+// ---------------------------------------------------------------------------
+
+test("audit gate-5: the Stripe webhook refuses forgery, replay and tampering, and credits exactly once", async (t) => {
+  const env = { ...process.env };
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_audit_test_secret";
+  t.after(() => { process.env = env; });
+
+  const { createHmac } = await import("node:crypto");
+  const route = await import("../src/app/api/webhooks/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const wallet = await import("../src/backend/wallet.ts");
+
+  const sign = (payload, ts = Math.floor(Date.now() / 1000)) =>
+    `t=${ts},v1=${createHmac("sha256", "whsec_audit_test_secret").update(`${ts}.${payload}`).digest("hex")}`;
+  const post = (payload, sig) => route.POST(new NextRequest("https://x.test/api/webhooks/stripe", {
+    method: "POST", body: payload,
+    headers: sig ? { "stripe-signature": sig, "content-type": "application/json" } : { "content-type": "application/json" },
+  }));
+
+  const ORG = "audit-org-gate5";
+  // `invoice.paid` is the event that CREDITS. `checkout.session.completed`
+  // activates the plan and allocates zero on purpose, so the two cannot both
+  // credit the same month — that invariant is pinned separately below.
+  const evt = (id) => JSON.stringify({
+    id, type: "invoice.paid",
+    data: { object: {
+      amount_paid: 4900, currency: "gbp", subscription: "sub_1",
+      subscription_details: { metadata: { orgId: ORG, planId: "growth" } },
+      lines: { data: [{ price: { id: "price_x" }, metadata: { planId: "growth" } }] },
+    } },
+  });
+
+  const before = await wallet.getWallet(ORG);
+
+  // AN UNSIGNED EVENT IS NOT AN EVENT. Anyone who can reach the URL could
+  // otherwise credit any wallet on the platform.
+  assert.equal((await post(evt("e_nosig"))).status, 400, "an unsigned webhook was accepted");
+  assert.equal((await post(evt("e_forged"), `t=${Math.floor(Date.now() / 1000)},v1=${"0".repeat(64)}`)).status, 400,
+    "a forged signature was accepted");
+
+  // REPLAY. A captured event replayed days later must be refused on its
+  // timestamp, before idempotency is even consulted.
+  const stale = evt("e_stale");
+  assert.equal((await post(stale, sign(stale, Math.floor(Date.now() / 1000) - 4000))).status, 400,
+    "a stale event was accepted — a captured webhook could be replayed");
+
+  // TAMPERING. Sign a real body, then raise the amount by 1000x.
+  const good = evt("e_tamper");
+  const goodSig = sign(good);
+  const tampered = good.replace('"amount_paid":4900', '"amount_paid":4900000');
+  // The mutation must actually have happened, or this test proves nothing —
+  // a replace that silently matched nothing would "pass" against an unmodified
+  // body that is, correctly, still signed.
+  assert.notEqual(tampered, good, "the tamper payload did not change the body, so this asserts nothing");
+  assert.equal((await post(tampered, goodSig)).status, 400, "a body altered after signing was accepted");
+  assert.equal((await wallet.getWallet(ORG)).balanceAcu, before.balanceAcu,
+    "a rejected event still moved money");
+
+  // THE GENUINE ARTICLE credits once.
+  const real = evt("e_real");
+  const first = await post(real, sign(real));
+  const b1 = await wallet.getWallet(ORG);
+  assert.equal(first.status, 200, "a correctly signed event was refused");
+  assert.ok(b1.balanceAcu > before.balanceAcu, "a paid event credited nothing");
+  const singleCredit = b1.balanceAcu - before.balanceAcu;
+
+  // IDEMPOTENCY. Stripe redelivers; a redelivery must not pay twice.
+  await post(real, sign(real));
+  assert.equal((await wallet.getWallet(ORG)).balanceAcu, b1.balanceAcu,
+    "a redelivered webhook credited the wallet a second time");
+
+  // AND UNDER CONCURRENCY, which is how redelivery actually arrives — five at
+  // once, racing on the same event id. A check-then-write without a transaction
+  // credits five times here and looks fine in a sequential test.
+  const raced = evt("e_race");
+  const racedSig = sign(raced);
+  const b2 = await wallet.getWallet(ORG);
+  await Promise.all(Array.from({ length: 5 }, () => post(raced, racedSig)));
+  const b3 = await wallet.getWallet(ORG);
+  assert.equal(b3.balanceAcu - b2.balanceAcu, singleCredit,
+    `five concurrent deliveries of one event credited ${b3.balanceAcu - b2.balanceAcu} ACUs instead of ${singleCredit}`);
+
+  // AND THE TWO EVENTS OF ONE PURCHASE MUST NOT BOTH PAY. Stripe sends
+  // `checkout.session.completed` AND `invoice.paid` for the same subscription
+  // start. If both credited, every new customer would be paid twice on day one
+  // — the most expensive possible off-by-one and invisible without this check.
+  const start = JSON.stringify({
+    id: "e_checkout_start", type: "checkout.session.completed",
+    data: { object: { client_reference_id: ORG, amount_total: 4900, currency: "gbp", mode: "subscription", metadata: { planId: "growth" } } },
+  });
+  const b4 = await wallet.getWallet(ORG);
+  const startRes = await post(start, sign(start));
+  const b5 = await wallet.getWallet(ORG);
+  assert.equal(startRes.status, 200, "the checkout-completed event was refused");
+  assert.equal(b5.balanceAcu, b4.balanceAcu,
+    "checkout.session.completed credited ACUs — a new subscriber is paid twice, once here and once on invoice.paid");
+  assert.equal(b5.planId, "growth", "the plan was not activated by the checkout event");
+});
