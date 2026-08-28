@@ -23787,3 +23787,158 @@ test("audit gate-5: the Stripe webhook refuses forgery, replay and tampering, an
     "checkout.session.completed credited ACUs — a new subscriber is paid twice, once here and once on invoice.paid");
   assert.equal(b5.planId, "growth", "the plan was not activated by the checkout event");
 });
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT D-12 — a referred account that PAYS US must pay the creator
+// ---------------------------------------------------------------------------
+
+test("audit D-12: a MarketWar payment from a referred account accrues a commission", async () => {
+  const join = await import("../src/backend/share2earn-signup.ts");
+  const attr = await import("../src/backend/signup-attribution.ts");
+  const mc = await import("../src/backend/marketwar-commission.ts");
+  const ledger = await import("../src/backend/commission-ledger.ts");
+
+  const ce = await import("../src/backend/creator-engine.ts");
+  const nowISO = "2026-08-20T00:00:00.000Z";
+  const joined = await join.joinShare2Earn({ name: "Referrer", email: "d12-creator@example.com", nowISO });
+  assert.equal(joined.ok, true, "the creator could not join");
+
+  // A referral code is a SUBSCRIPTION to a programme — the same scheme /r/{CODE}
+  // resolves, not a second private one.
+  const programme = await ce.createProgramme({
+    brandId: "marketwar", brandName: "MarketWar OS", name: "Refer MarketWar",
+    product: "MarketWar OS subscription", description: "Refer a business to the platform.",
+    destinationUrl: "https://www.marketwaros.com", nowISO,
+  });
+  const sub = await ce.subscribe(joined.creatorId, programme.id, nowISO);
+  assert.ok(sub.subscription, `no subscription: ${sub.error}`);
+  const code = sub.subscription.code;
+
+  const ORG = "d12-paying-org";
+  const linked = await attr.attributeSignup({ accountId: ORG, code, email: "customer@example.com", nowISO });
+  assert.equal(linked.ok, true, `the signup was not attributed: ${linked.reason}`);
+
+  // THE DEFECT. Everything above this line already worked — the click, the
+  // attribution, the dashboard showing the referral. Then the account paid us
+  // and NOTHING happened: no code path joined a subscription payment to
+  // `accrue()`, so the platform's only revenue-share promise was tracked in
+  // full and paid never.
+  const paid = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980,   // £49 + 20% VAT
+    paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(paid.ok, true, `no commission accrued: ${paid.ok === false ? paid.reason : ""}`);
+  assert.equal(paid.paymentNumber, 1);
+  assert.ok(paid.earnedPence > 0, "the accrual earned nothing");
+
+  // COMMISSION IS NOT PAID ON VAT. £58.80 gross with £9.80 of tax leaves £49 —
+  // paying a share of tax we remit to HMRC is paying out of money that was
+  // never ours.
+  assert.equal(paid.eligiblePence, 4900,
+    "commission was computed on the gross including VAT");
+
+  // IDEMPOTENT. Stripe redelivers; a creator must not be paid twice for one
+  // invoice.
+  const again = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(again.ok, true);
+  assert.equal(again.created, false, "a redelivered invoice wrote a second accrual");
+  assert.equal(again.accrualId, paid.accrualId);
+  const rows = (await ledger.listForCode(code)).filter((a) => a.brandId === ORG);
+  assert.equal(rows.length, 1, `one payment produced ${rows.length} accruals`);
+
+  // A ZERO-VALUE INVOICE WRITES NOTHING. A 100% coupon or an all-tax line must
+  // not create a row: STATE.md names this — zero-value ledger events walk past
+  // the payout floor without a penny of revenue behind them.
+  const free = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_free", amountPaidPence: 0, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(free.ok, false);
+  assert.equal(free.code, "no_money");
+  assert.equal(free.terminal, true, "a zero-value invoice asked Stripe to retry forever");
+  const allTax = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_tax", amountPaidPence: 980, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(allTax.ok, false, "an invoice that was entirely tax still accrued");
+  assert.equal((await ledger.listForCode(code)).filter((a) => a.brandId === ORG).length, 1,
+    "a zero-value payment wrote a row");
+
+  // THE SECOND PAYMENT IS COUNTED, NOT ASSUMED. Whether a renewal earns is the
+  // programme's rule, and it needs the right payment number to apply it.
+  const second = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_second",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: "2026-09-20T00:00:00.000Z", nowISO: "2026-09-20T00:00:00.000Z",
+  });
+  assert.equal(second.ok, true, `the renewal did not accrue: ${second.ok === false ? second.reason : ""}`);
+  assert.equal(second.paymentNumber, 2, "the renewal was recorded as payment 1 again");
+
+  // AN UNREFERRED ACCOUNT IS NOT AN ERROR — it is the ordinary case.
+  const plain = await mc.commissionForPayment({
+    orgId: "d12-organic-org", paymentId: "in_d12_organic",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(plain.ok, false);
+  assert.equal(plain.code, "not_referred");
+  assert.equal(plain.terminal, true, "an unreferred payment asked Stripe to retry it");
+
+  // A REDELIVERY THAT ARRIVES LATER IS STILL THE SAME PAYMENT. The webhook used
+  // to stamp `paidAtISO` with the current time, so a retry three days on looked
+  // like a later payment, moved position in the ordering that derives the
+  // payment number, and hashed to a NEW accrual id — paying the creator twice.
+  const late = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980,
+    paidAtISO: "2026-12-25T00:00:00.000Z", nowISO: "2026-12-25T00:00:00.000Z",
+  });
+  assert.equal(late.ok, true);
+  assert.equal(late.accrualId, paid.accrualId,
+    "a redelivery with a later timestamp created a second accrual for one invoice");
+
+  // A VOIDED ROW IS NOT A PAYMENT. A reversed first month must not make the
+  // next one look like the third and fall outside the commissionable window.
+  await ledger.voidAccrual(paid.accrualId, "refunded in full", "2026-09-01T00:00:00.000Z");
+  const third = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_third",
+    amountPaidPence: 5880, taxPence: 980,
+    paidAtISO: "2026-10-20T00:00:00.000Z", nowISO: "2026-10-20T00:00:00.000Z",
+  });
+  assert.equal(third.ok, true, `the third payment did not accrue: ${third.ok === false ? third.reason : ""}`);
+  assert.equal(third.paymentNumber, 2,
+    "a voided accrual was counted as a payment, pushing later ones out of the window");
+
+  // A STORAGE FAILURE IS RETRYABLE, and must say so — money is owed and the
+  // only record of it failed to write. DRIVEN, not inferred from the source.
+  const brokenWrite = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_broken",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+    write: async () => { throw new Error("firestore unavailable"); },
+  });
+  assert.equal(brokenWrite.ok, false);
+  assert.equal(brokenWrite.code, "store_failed", "a ledger outage was reported as 'not commissionable'");
+  assert.equal(brokenWrite.terminal, false,
+    "a ledger outage was marked terminal, so the commission is never retried and never paid");
+  assert.match(brokenWrite.reason, /firestore unavailable/, "the real cause was thrown away");
+
+  // The READ side too — failing to look up prior accruals is equally a reason
+  // to retry, and equally not a reason to say "nothing was owed".
+  const brokenRead = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_broken_read",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+    read: async () => { throw new Error("ledger unreadable"); },
+  });
+  assert.equal(brokenRead.ok, false);
+  assert.equal(brokenRead.code, "store_failed", "a ledger read failure was reported as 'not commissionable'");
+  assert.equal(brokenRead.terminal, false, "a ledger read failure is never retried, so the commission is never paid");
+
+  // AND THE WEBHOOK ACTUALLY CALLS IT. A module nothing invokes is the defect
+  // this whole finding was about — so assert the CALL, not the identifier.
+  const route = codeOf(readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /commission = await commissionForPayment\(\{/, "the webhook still does not pay a commission");
+  assert.match(route, /!commission\.ok && !commission\.terminal/, "a retryable commission failure is acked as done");
+  assert.match(route, /walletApplied\?\.applied/, "a commission accrues for a payment that never credited a wallet");
+  assert.match(route, /paidAtISO: paidAtFromEvent\(event\)/,
+    "the webhook stamps its own clock instead of the time Stripe says the money moved");
+});
