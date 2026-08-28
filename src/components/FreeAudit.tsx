@@ -67,8 +67,41 @@ export default function FreeAudit() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(withEmail ? { url, email } : { url }),
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setError(d.error || "That did not run — try again."); return; }
+
+      // READ THE BODY AS TEXT FIRST, then try to parse it.
+      //
+      // THE DEFECT THIS REPLACES, reported from production: the audit stopped
+      // working and every failure said "That did not run — try again." That
+      // sentence is what is printed when `res.json()` throws AND the response
+      // carried no `error` field — which is precisely the case where the route
+      // did not answer at all: a platform 502/504, an HTML error page, a
+      // function killed at its duration limit. The one situation where the
+      // reason matters most was the one situation where it was discarded.
+      //
+      // The route's own refusals are already good — they name the host's 403,
+      // the DNS failure, the private address. This only affects the case where
+      // something ELSE answered, and there it now shows the status and the
+      // first line of whatever came back, so the failure can be diagnosed from
+      // a screenshot instead of guessed at.
+      const raw = await res.text();
+      let d: Record<string, unknown> = {};
+      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+
+      if (!res.ok) {
+        const stated = typeof d.error === "string" ? d.error : "";
+        if (stated) { setError(stated); return; }
+        // Nothing readable came back. Say what DID come back — a status alone
+        // is enough to tell a timeout from a block from a crash.
+        const snippet = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+        setError(
+          res.status === 504 || res.status === 502
+            ? `The audit did not finish in time (HTTP ${res.status}). Large or slow sites can exceed the limit — try again, and if it keeps happening tell us the address.`
+            : res.status === 429
+              ? "Too many requests in a short time. Wait a minute and try again."
+              : `The audit could not run — the server answered HTTP ${res.status}${snippet ? ` and said: ${snippet}` : " with no readable message"}. Please tell us the address you used.`,
+        );
+        return;
+      }
       setReport(d as Report);
       if (withEmail) setFull(true);
       // Fired on the RESULT, not the submit. A refused crawl is not an audit and
@@ -82,7 +115,12 @@ export default function FreeAudit() {
           grade: (d as Report).grade,
         });
       }
-    } catch { setError("Network error — try again."); } finally { setBusy(false); }
+    } catch (e) {
+      // The request never completed. Distinguish that from a server refusal —
+      // "network error" and "the server said no" send somebody to different
+      // places, and the previous message could mean either.
+      setError(`Could not reach the audit service — ${e instanceof Error ? e.message : "the request did not complete"}. Check your connection and try again.`);
+    } finally { setBusy(false); }
   }
 
   return (

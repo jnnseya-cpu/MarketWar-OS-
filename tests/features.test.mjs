@@ -17081,9 +17081,39 @@ test("human check: the GET path pulls nothing heavy into its module graph", () =
 test("human check: the light rate limiter has no firebase in its own graph", () => {
   const rl = readFileSync(new URL("../src/backend/rate-limit.ts", import.meta.url), "utf8");
   const topImports = [...rl.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
-  assert.deepEqual(topImports, [], `rate-limit.ts must import nothing at module scope; it imports ${topImports.join(", ")}`);
+
+  // THE PROPERTY, not a proxy for it. This used to assert `topImports` was
+  // EMPTY, which is stricter than the thing it was defending — and it blocked
+  // the fix for a real defect: `middleware.ts` runs on the EDGE runtime, where
+  // webpack traces even a dynamic import, so importing this module failed the
+  // whole build with `UnhandledSchemeError: node:crypto`. The arithmetic had to
+  // become importable from the edge, and it now lives in a shared module with
+  // no imports of its own.
+  //
+  // So the rule is: nothing at module scope may reach firebase-admin. Every
+  // static import must be a `@/shared/*` module, and each of those must itself
+  // import nothing — checked here rather than assumed, because a shared module
+  // that grows an import is exactly how the heavy graph would creep back.
+  for (const spec of topImports) {
+    assert.ok(spec.startsWith("@/shared/"),
+      `rate-limit.ts may only import from @/shared at module scope; it imports ${spec}`);
+    const rel = spec.replace("@/shared/", "../src/shared/") + ".ts";
+    const dep = readFileSync(new URL(rel, import.meta.url), "utf8");
+    const depImports = [...dep.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+    assert.deepEqual(depImports, [],
+      `${spec} must import nothing, or the edge build breaks again; it imports ${depImports.join(", ")}`);
+  }
+
   // Sentinel reaches firebase-admin, so it is loaded only on the refusal branch.
   assert.match(rl, /await import\("@\/backend\/sentinel"\)/, "sentinel is not loaded lazily");
+
+  // AND THE MIDDLEWARE USES THE EDGE-SAFE CORE, never this Node entry point —
+  // the mistake that produced the failed build in the first place.
+  const mw = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(mw, /from "@\/backend\/rate-limit"/,
+    "middleware imports the NODE limiter — webpack traces its lazy sentinel import and the edge build fails");
+  assert.match(mw, /from "@\/shared\/rate-limit-core"/,
+    "middleware no longer rate-limits, so 46 unauthenticated routes are unthrottled again");
 
   // guard.ts keeps working for every existing caller.
   const guard = readFileSync(new URL("../src/backend/guard.ts", import.meta.url), "utf8");
@@ -23941,4 +23971,35 @@ test("audit D-12: a MarketWar payment from a referred account accrues a commissi
   assert.match(route, /walletApplied\?\.applied/, "a commission accrues for a payment that never credited a wallet");
   assert.match(route, /paidAtISO: paidAtFromEvent\(event\)/,
     "the webhook stamps its own clock instead of the time Stripe says the money moved");
+});
+
+test("audit D-15: the free audit shows WHY it failed, not just that it did", () => {
+  const src = codeOf(readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8"));
+
+  // THE DEFECT, reported from production. Every failure the route did not
+  // itself describe collapsed into "That did not run — try again." That is the
+  // message shown when `res.json()` threw AND there was no `error` field —
+  // exactly the case where the route never answered: a platform 502/504, an
+  // HTML error page, a function killed at its duration limit. The one situation
+  // where the reason matters most was the one where it was discarded, so a
+  // report of "the audit is broken" carried nothing to act on.
+  assert.doesNotMatch(src, /That did not run — try again/,
+    "the message that hides every real cause is back");
+
+  // The body is read as TEXT first, so a non-JSON answer is still readable.
+  assert.match(src, /const raw = await res\.text\(\)/,
+    "a non-JSON error page is still parsed as JSON and discarded");
+  assert.match(src, /res\.status === 504 \|\| res\.status === 502/,
+    "a platform timeout is not distinguished from a refusal");
+  assert.match(src, /res\.status === 429/, "a rate limit is not named");
+  assert.match(src, /HTTP \$\{res\.status\}/, "the status code is never shown");
+
+  // The route's own refusals still win — they are better than anything generic.
+  assert.match(src, /const stated = typeof d\.error === "string" \? d\.error : ""/);
+  assert.match(src, /if \(stated\) \{ setError\(stated\); return; \}/,
+    "the route's own explanation is no longer preferred");
+
+  // A request that never completed is not the same as a server that refused.
+  assert.match(src, /Could not reach the audit service/,
+    "a network failure and a server refusal still read identically");
 });
