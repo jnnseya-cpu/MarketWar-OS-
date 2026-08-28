@@ -37,6 +37,9 @@ export default function VideoRenderAndPublish() {
   const [aspect, setAspect] = useState("16:9");
   // The price list, from the server. The browser never computes a price: that
   // would be a second source of truth about money, and the two would drift.
+  // True when the length list could not be read at all — distinct from "this
+  // deployment offers one length", which is a real answer.
+  const [lengthsUnavailable, setLengthsUnavailable] = useState(false);
   const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; segments: number[]; provider: string; note: string }[]>([]);
   const [maxSingle, setMaxSingle] = useState(0);
   const [saved, setSaved] = useState<"" | "saving" | "done" | "failed">("");
@@ -63,13 +66,21 @@ export default function VideoRenderAndPublish() {
   // deployment is actually configured with.
   useEffect(() => {
     let on = true;
+    // A FAILED PROBE IS NOT A ONE-LENGTH PLATFORM. This used to `return`
+    // silently when the response carried no lengths and swallow the error
+    // entirely, so the `<select>` fell through to its hardcoded single 8-second
+    // fallback — and the owner, whose deployment offers 8, 12 and 15, was shown
+    // "8 seconds" as the only possibility with nothing saying why. The reason
+    // existed and the screen dropped it.
     fetch("/api/video-render").then((r) => r.json()).then((d) => {
-      if (!on || !Array.isArray(d?.lengths)) return;
+      if (!on) return;
+      if (!Array.isArray(d?.lengths) || !d.lengths.length) { setLengthsUnavailable(true); return; }
+      setLengthsUnavailable(false);
       setLengths(d.lengths);
       if (typeof d.defaultSeconds === "number") setSeconds(d.defaultSeconds);
       if (typeof d.maxSingleRenderSeconds === "number") setMaxSingle(d.maxSingleRenderSeconds);
       if (Array.isArray(d.withheld)) setWithheld(d.withheld);
-    }).catch(() => {});
+    }).catch(() => { if (on) setLengthsUnavailable(true); });
     return () => { on = false; };
   }, []);
 
@@ -147,7 +158,7 @@ export default function VideoRenderAndPublish() {
             extra video or charging for what we do not deliver. The server
             de-duplicates by what actually arrives, and the per-second rate is
             printed so the proportion is checkable on the screen. */}
-        <select className="input max-w-[300px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
+        <select className="input max-w-[300px]" value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} disabled={lengthsUnavailable}>
           {(lengths.length ? lengths : [{ requested: 8, delivered: 8, acus: 0, acusPerSecond: 0, segments: [8], provider: "demo", note: "" }]).map((l) => (
             <option key={l.delivered} value={l.delivered}>
               {l.delivered} seconds{l.acus ? ` — ${l.acus} ACUs (${l.acusPerSecond}/second)` : ""}
@@ -155,6 +166,16 @@ export default function VideoRenderAndPublish() {
             </option>
           ))}
         </select>
+        {/* SAY WHY THE LIST IS SHORT. Without this the fallback single option
+            reads as "this platform only does 8 seconds", which is a statement
+            about the product rather than about a failed request. */}
+        {lengthsUnavailable && (
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-300">
+            We could not read the lengths this deployment offers, so only the fallback is shown — this is
+            not the real list and it is not a limit on your account. Reload; if it persists, the
+            <code className="mx-1 rounded bg-white/10 px-1">/api/video-render</code> check is what to look at.
+          </p>
+        )}
         <label className="label mb-0 ml-2">Shape</label>
         <select className="input max-w-[220px]" value={aspect} onChange={(e) => setAspect(e.target.value)}>
           <option value="16:9">16:9 landscape — YouTube, website</option>

@@ -30,6 +30,7 @@ import {
   Palette,
   Scissors,
   Search,
+  HelpCircle,
   Send,
   Sparkles,
   UserSquare2,
@@ -49,7 +50,9 @@ import PresenterVideo from "@/components/PresenterVideo";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 
-type Status = "live" | "p1";
+// "unknown" is a REAL state, not a missing key. A capability probe that could
+// not run must not render as an unconfigured deployment — see the probe below.
+type Status = "live" | "p1" | "unknown";
 // A studio gated on a real provider key flips to Live when the key is present
 // (read from the no-spend /api/health/live probe).
 // "render" is different from the others: it is not a key but a machine — the
@@ -64,6 +67,13 @@ const CAP_LABELS: Record<Exclude<Cap, "render" | "voice">, string> = {
 
 // Local honest status chip (per-page pattern; not shared across pages).
 function StatusChip({ status }: { status: Status }) {
+  if (status === "unknown") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-300">
+        <HelpCircle className="h-3 w-3" /> Could not check
+      </span>
+    );
+  }
   return status === "live" ? (
     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
       <CheckCircle2 className="h-3 w-3" /> Live now
@@ -131,26 +141,57 @@ export default function VideoWarRoomPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("video");
 
   // Live capability probe — flips the render/publish studios to "Live now".
+  //
+  // "WE COULD NOT ASK" IS NOT "YOU HAVE NO KEY", AND THIS SCREEN USED TO SAY IT
+  // WAS. Every probe below began `if (!Array.isArray(d?.capabilities)) return;`
+  // and ended `.catch(() => {})`, so a failed request left `caps` at its initial
+  // all-false value and EVERY key-gated studio rendered "Activate with a key" —
+  // the same words a genuinely unconfigured deployment gets.
+  //
+  // The owner hit exactly that: keys set and working, every card claiming they
+  // were not. One failing request makes a fully configured platform look
+  // completely dark, and nothing on the screen distinguishes the two. That is
+  // this codebase's oldest defect — a reason that exists and is discarded one
+  // line before it could be read — landing on the page that sells the product.
+  //
+  // So the probe has THREE states, not two, and an unreachable check says so.
   const [caps, setCaps] = useState<Record<Cap, boolean>>({ image: false, video: false, publish: false, render: false, voice: false });
+  const [unreachable, setUnreachable] = useState<Cap[]>([]);
   useEffect(() => {
     let on = true;
+    const cannotAsk = (...which: Cap[]) => { if (on) setUnreachable((u) => [...new Set([...u, ...which])]); };
+
     fetch("/api/health/live").then((r) => r.json()).then((d) => {
-      if (!on || !Array.isArray(d?.capabilities)) return;
+      if (!on) return;
+      // A response that carries no capability list is a failed probe, not a
+      // deployment with no capabilities.
+      if (!Array.isArray(d?.capabilities)) { cannotAsk("image", "video", "publish"); return; }
       const ready = (label: string) => Boolean(d.capabilities.find((c: { capability: string; ready: boolean }) => c.capability === label)?.ready);
       setCaps((c) => ({ ...c, image: ready(CAP_LABELS.image), video: ready(CAP_LABELS.video), publish: ready(CAP_LABELS.publish) }));
-    }).catch(() => {});
+    }).catch(() => cannotAsk("image", "video", "publish"));
+
     // The render worker announces itself on the queue endpoint; the voice
     // engine on its own. Both are separate from the model keys above.
     fetch("/api/video/jobs").then((r) => r.json()).then((d) => {
-      if (on) setCaps((c) => ({ ...c, render: Boolean(d?.workerConfigured) }));
-    }).catch(() => {});
+      if (!on) return;
+      if (typeof d?.workerConfigured !== "boolean") { cannotAsk("render"); return; }
+      setCaps((c) => ({ ...c, render: d.workerConfigured }));
+    }).catch(() => cannotAsk("render"));
+
     fetch("/api/voice").then((r) => r.json()).then((d) => {
-      if (on) setCaps((c) => ({ ...c, voice: Boolean(d?.configured) }));
-    }).catch(() => {});
+      if (!on) return;
+      if (typeof d?.configured !== "boolean") { cannotAsk("voice"); return; }
+      setCaps((c) => ({ ...c, voice: d.configured }));
+    }).catch(() => cannotAsk("voice"));
+
     return () => { on = false; };
   }, []);
-  const effStatus = (s: Studio): Status => (s.cap ? (caps[s.cap] ? "live" : "p1") : s.status);
-  const effNote = (s: Studio): string => (s.cap && caps[s.cap] && s.liveNote ? s.liveNote : s.note);
+  const cannotCheck = (s: Studio): boolean => Boolean(s.cap && unreachable.includes(s.cap));
+  const effStatus = (s: Studio): Status => (cannotCheck(s) ? "unknown" : s.cap ? (caps[s.cap] ? "live" : "p1") : s.status);
+  const effNote = (s: Studio): string =>
+    cannotCheck(s)
+      ? "We could not reach this deployment's capability check just now, so this card cannot say whether your key is working. It is NOT a statement that the key is missing — reload, and if it persists the server is the thing to look at."
+      : s.cap && caps[s.cap] && s.liveNote ? s.liveNote : s.note;
   const renderLive = caps.video;
 
   // Clip Intelligence Lab (live engine).
