@@ -31,6 +31,10 @@ export default function VideoRenderAndPublish() {
   // Asked for, rather than assumed. The renders came back at four seconds
   // because nothing in the chain ever named a length.
   const [seconds, setSeconds] = useState(15);
+  // WHERE THE CLIP IS GOING. Nothing sent a shape before, so every render came
+  // back 16:9 — wrong on the first render for every Reel, Short and TikTok, and
+  // cropping a landscape clip to portrait throws away most of the frame.
+  const [aspect, setAspect] = useState("16:9");
   // The price list, from the server. The browser never computes a price: that
   // would be a second source of truth about money, and the two would drift.
   const [lengths, setLengths] = useState<{ requested: number; delivered: number; acus: number; acusPerSecond: number; segments: number[]; provider: string; note: string }[]>([]);
@@ -75,7 +79,7 @@ export default function VideoRenderAndPublish() {
     if (!activeBrand || !prompt.trim()) return;
     setBusy(true); setJob(null);
     try {
-      const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt, seconds }) });
+      const r = await authedFetch("/api/video-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start", brandId: activeBrand.id, prompt, seconds, aspect }) });
       const j = (await r.json()) as VideoJob;
       setJob(j);
       if (j.status === "rendering") poll(j.jobId);
@@ -151,7 +155,20 @@ export default function VideoRenderAndPublish() {
             </option>
           ))}
         </select>
+        <label className="label mb-0 ml-2">Shape</label>
+        <select className="input max-w-[220px]" value={aspect} onChange={(e) => setAspect(e.target.value)}>
+          <option value="16:9">16:9 landscape — YouTube, website</option>
+          <option value="9:16">9:16 portrait — Reels, Shorts, TikTok</option>
+          <option value="1:1">1:1 square — feed post</option>
+        </select>
       </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+        Describe ONE thing happening — four seconds holds one action, and a brief with
+        three of them loses two without saying so. Leave words out of the picture: every
+        model garbles lettering, so text goes on afterwards in the Ad Canvas where it stays
+        readable and on brand. A brief that would come back wrong is refused before anything
+        is charged.
+      </p>
       {chosen && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
           {chosen.acus > 0

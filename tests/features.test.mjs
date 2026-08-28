@@ -10649,12 +10649,22 @@ const vg = await import("../src/backend/video-gateway.ts");
 
 test("video: a requested length reaches the provider", () => {
   const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
-  assert.match(src, /parameters: \{ durationSeconds: seconds \}/, "Veo is never told how long");
+  assert.match(src, /durationSeconds: seconds,/, "Veo is never told how long");
   assert.match(src, /seconds: String\(seconds\)/, "Sora is never told how long");
+  // And the SHAPE, which nothing sent at all until the first-render work — so a
+  // portrait placement came back landscape every time.
+  assert.match(src, /aspectRatio: gen\.aspect/, "Veo is never told what shape to render");
+  assert.match(src, /size: SORA_SIZE\[gen\.aspect\]/, "Sora is never told what shape to render");
   const route = readFileSync(new URL("../src/app/api/video-render/route.ts", import.meta.url), "utf8");
-  assert.match(route, /startVideoRender\(\{ brandId, prompt, seconds, spender: access \}\)/);
+  assert.match(route, /brandId, prompt, seconds, spender: access,/);
+  // The SHAPE travels too — without it every render is 16:9 and a portrait
+  // placement is wrong on the first render every time.
+  assert.match(route, /aspect: typeof body\.aspect === "string"/, "the route drops the shape the screen chose");
+  const ui2 = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
+  assert.match(ui2, /prompt, seconds, aspect \}\)/, "the screen never sends the shape it offers");
+  assert.match(ui2, /9:16 portrait/, "there is no way to ask for portrait on the screen");
   const ui = readFileSync(new URL("../src/components/VideoRenderAndPublish.tsx", import.meta.url), "utf8");
-  assert.match(ui, /prompt, seconds \}\)/, "the screen must send the length the user picked");
+  assert.match(ui, /prompt, seconds, aspect \}\)/, "the screen must send the length and shape the user picked");
 });
 
 test("video: what each model will actually deliver, not what was hoped for", () => {
@@ -23266,7 +23276,7 @@ test("a refused engine falls over to another one that fits the quote", async (t)
     return new Response("{}", { status: 404 });
   };
 
-  const job = await g.startVideoRender({ brandId: "t-failover", prompt: "a shop front", seconds: 8 });
+  const job = await g.startVideoRender({ brandId: "t-failover", prompt: "a plumber in a clean van pulls up outside a terraced house", seconds: 8 });
 
   assert.ok(calls.includes(first) && calls.includes(second),
     "an empty account at one supplier abandoned the render instead of trying the other");
@@ -23307,7 +23317,7 @@ test("a dearer fallback is named with its price, never run behind the customer's
     return new Response("{}", { status: 404 });
   };
 
-  const job = await g.startVideoRender({ brandId: "t-dear", prompt: "a shop front", seconds: 12 });
+  const job = await g.startVideoRender({ brandId: "t-dear", prompt: "a plumber in a clean van pulls up outside a terraced house", seconds: 12 });
 
   assert.equal(calls.includes("veo"), false,
     "a dearer engine was run without asking — the customer would be surprised upward");
@@ -23359,7 +23369,7 @@ test("a refused prompt is not retried on every engine, and the message says the 
     return new Response("{}", { status: 404 });
   };
 
-  const job = await g.startVideoRender({ brandId: "t-policy", prompt: "something refused", seconds: 8 });
+  const job = await g.startVideoRender({ brandId: "t-policy", prompt: "a plumber in a clean van pulls up outside a terraced house", seconds: 8 });
   assert.equal(calls.includes(second), false,
     "a prompt refused on policy grounds was sent to a second supplier to be refused again");
   assert.equal(job.status, "failed");
@@ -23395,4 +23405,208 @@ test("ElevenLabs: a burst and a spent allowance stop being the same sentence", a
   const { readProviderFailure } = await import("../src/shared/provider-failure.ts");
   assert.equal(readProviderFailure({ provider: "ElevenLabs", status: 429, body: "quota_exceeded" }).kind, "no_credit");
   assert.equal(readProviderFailure({ provider: "ElevenLabs", status: 429, body: "too many requests" }).kind, "rate_limited");
+});
+
+// ---------------------------------------------------------------------------
+// CORRECT ON THE FIRST RENDER — refused before it is paid for
+// ---------------------------------------------------------------------------
+
+test("a brief that will come back wrong is refused before anything is charged", async () => {
+  const { reviewBrief, countBeats, briefRefusal, NEGATIVE_PROMPT, SECONDS_PER_BEAT } =
+    await import("../src/shared/render-brief.ts");
+
+  // WORDS IN THE FRAME. Every generative model garbles lettering, at every
+  // quality tier — this is not a better-model problem, and the clip has to be
+  // thrown away. The platform already ships the right place to put text.
+  const signage = reviewBrief({ prompt: 'a shop window with a sign reading "50% OFF" at dusk', seconds: 8 });
+  assert.equal(signage.ok, false, "a render that would come back with garbled lettering was allowed");
+  assert.ok(signage.blockers.some((b) => b.code === "text_in_frame"));
+  assert.match(briefRefusal(signage), /Ad Canvas/, "the refusal does not say where the text should go instead");
+  for (const p of [
+    'a van with the words "CALL NOW" on the side',
+    "a title card that says welcome",
+    "open on a lower third with the offer",
+    "a billboard saying book today",
+    "text overlay with the price",
+  ]) {
+    assert.equal(reviewBrief({ prompt: p, seconds: 8 }).ok, false, `"${p}" was allowed through`);
+  }
+
+  // A QUOTED STRING IS ITS OWN SIGNAL, with no phrase to go with it. Every case
+  // above also trips a named phrase ("with the words", "saying", "text
+  // overlay"), so they would all still be caught with quote-detection deleted —
+  // a check passing for a reason unrelated to what it tests. This one is caught
+  // by the quote and nothing else.
+  const quoteOnly = reviewBrief({ prompt: 'a delivery van pulls away, "SWIFT LOGISTICS" down the side', seconds: 8 });
+  assert.equal(quoteOnly.ok, false, "a quoted string on its own was not read as words in the frame");
+  assert.ok(quoteOnly.blockers.some((b) => b.code === "text_in_frame"));
+  // But an ordinary scene with no lettering is fine — a rule that refuses
+  // everything is not a rule, it is an outage.
+  assert.equal(reviewBrief({ prompt: "a plumber in a clean van pulls up outside a terraced house, morning light", seconds: 8 }).ok, true);
+
+  // MORE HAPPENING THAN THE CLIP CAN HOLD. Four seconds is one action; a brief
+  // with three of them loses two, and the render still looks like a success.
+  assert.equal(SECONDS_PER_BEAT, 4);
+  assert.equal(countBeats("a van pulls up"), 1);
+  assert.equal(countBeats("a van pulls up, then the door opens, then a dog jumps out"), 3);
+  assert.equal(countBeats("a van pulls up. The door opens. A dog jumps out."), 3);
+  const crowded = reviewBrief({ prompt: "a van pulls up, then the door opens, then a dog jumps out", seconds: 4 });
+  assert.equal(crowded.ok, false, "three actions were allowed into four seconds");
+  assert.match(crowded.blockers[0].fix, /12 seconds/, "the refusal does not say what length would hold it");
+  // The same brief at a length that HOLDS it is allowed.
+  assert.equal(reviewBrief({ prompt: "a van pulls up, then the door opens, then a dog jumps out", seconds: 12 }).ok, true);
+
+  // NOTHING TO RENDER.
+  assert.equal(reviewBrief({ prompt: "product video", seconds: 8 }).ok, false);
+  assert.ok(reviewBrief({ prompt: "product video", seconds: 8 }).blockers.some((b) => b.code === "no_brief"));
+
+  // THE SHAPE IS A PARAMETER, and when it is assumed the review SAYS so —
+  // a portrait ad delivered landscape is wrong on the first render every time.
+  const assumed = reviewBrief({ prompt: "a plumber in a clean van pulls up outside a house", seconds: 8 });
+  assert.equal(assumed.aspect, "16:9");
+  assert.ok(assumed.notes.some((n) => n.code === "aspect_assumed"), "a defaulted shape was not mentioned");
+  const portrait = reviewBrief({ prompt: "a plumber in a clean van pulls up outside a house", seconds: 8, aspect: "9:16" });
+  assert.equal(portrait.aspect, "9:16");
+  assert.equal(portrait.notes.some((n) => n.code === "aspect_assumed"), false,
+    "a shape that WAS given is reported as assumed");
+
+  // The exclusions the model actually honours.
+  assert.match(NEGATIVE_PROMPT, /on-screen text/);
+  assert.match(NEGATIVE_PROMPT, /logos/);
+  assert.match(NEGATIVE_PROMPT, /garbled lettering/);
+});
+
+test("the render sends the shape and the exclusions, and says what made it", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus } = await import("../src/backend/wallet.ts");
+  const env = { ...process.env };
+  process.env.GEMINI_API_KEY = "test-gemini";
+  delete process.env.OPENAI_API_KEY;
+  process.env.GEMINI_VIDEO_MODEL = "veo-pinned-test";
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-shape", 5_000);
+
+  const bodies = [];
+  globalThis.fetch = async (url, init) => {
+    bodies.push({ url: String(url), body: JSON.parse(String(init?.body || "{}")) });
+    return new Response(JSON.stringify({ name: "operations/1" }), { status: 200 });
+  };
+
+  const job = await g.startVideoRender({
+    brandId: "t-shape", prompt: "a plumber in a clean van pulls up outside a terraced house",
+    seconds: 8, aspect: "9:16",
+  });
+
+  // THE PARAMETERS THAT WERE NEVER SENT. Before this the request carried a
+  // prompt and a duration and nothing else, so portrait was not askable and
+  // "do not invent a logo" was only ever a suggestion in the prompt text.
+  const sent = bodies[0].body.parameters;
+  assert.equal(sent.aspectRatio, "9:16", "the shape never reached the model");
+  assert.equal(sent.resolution, "720p");
+  assert.match(sent.negativePrompt, /logos/, "the exclusions never reached the model");
+  assert.equal(sent.durationSeconds, 8);
+
+  // WHAT MADE IT. A render nobody can attribute is a render nobody can judge —
+  // and a pinned model that was unavailable fails over in silence otherwise.
+  assert.equal(job.status, "rendering");
+  assert.match(job.note, /veo-pinned-test/, "the job does not say which model rendered it");
+  assert.match(job.note, /9:16/, "the job does not say what shape it rendered at");
+
+  // The owner's dial is the pinned model, tried BEFORE any fallback.
+  assert.match(bodies[0].url, /veo-pinned-test/, "the pinned model was not tried first");
+});
+
+test("a doomed brief never reaches a provider, and never costs anything", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus, getWallet } = await import("../src/backend/wallet.ts");
+  const env = { ...process.env };
+  process.env.GEMINI_API_KEY = "test-gemini";
+  process.env.OPENAI_API_KEY = "test-openai";
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-doomed", 5_000);
+  const before = await getWallet("t-doomed");
+
+  let called = 0;
+  globalThis.fetch = async () => { called += 1; return new Response(JSON.stringify({ name: "operations/1" }), { status: 200 }); };
+
+  // REVIEWED IS NOT ENFORCED. The review can be perfect and still be decoration
+  // if the engine renders anyway — this repository's oldest failure. So drive
+  // the real entry point with a brief that cannot come back right.
+  const job = await g.startVideoRender({
+    brandId: "t-doomed", seconds: 8,
+    prompt: 'a shop window with a sign reading "50% OFF"',
+  });
+
+  assert.equal(called, 0, "a brief that would come back garbled was sent to a provider anyway");
+  assert.equal(job.status, "failed");
+  assert.equal(job.chargedAcu, 0);
+  assert.match(job.note, /nothing was charged/i);
+  assert.match(job.note, /Ad Canvas/, "the refusal does not say where the text should go instead");
+
+  // AND THE WALLET IS UNTOUCHED — not debited and refunded, never debited.
+  const after = await getWallet("t-doomed");
+  assert.equal(after.balanceAcu, before.balanceAcu, "a refused brief moved money");
+  assert.equal(after.updatedAt, before.updatedAt, "a refused brief wrote to the wallet");
+});
+
+test("Sora is told what shape to render too", async (t) => {
+  const g = await import("../src/backend/video-gateway.ts");
+  const { creditAcus } = await import("../src/backend/wallet.ts");
+  const env = { ...process.env };
+  process.env.OPENAI_API_KEY = "test-openai";
+  delete process.env.GEMINI_API_KEY;
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; process.env = env; });
+  await creditAcus("t-sora-shape", 5_000);
+
+  const bodies = [];
+  globalThis.fetch = async (url, init) => {
+    bodies.push(JSON.parse(String(init?.body || "{}")));
+    return new Response(JSON.stringify({ id: "sora-1" }), { status: 200 });
+  };
+
+  await g.startVideoRender({
+    brandId: "t-sora-shape", seconds: 8, aspect: "9:16",
+    prompt: "a plumber in a clean van pulls up outside a terraced house",
+  });
+
+  // Sora takes the shape as a pixel size, not a ratio. Portrait must be
+  // portrait — a 9:16 placement handed a 1280x720 clip is wrong on arrival.
+  assert.equal(bodies[0].size, "720x1280", "Sora was never told what shape to render");
+  assert.equal(bodies[0].seconds, "8");
+});
+
+test("the Veo fallback descends in cost and never escalates it", async () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8"));
+  const g = await import("../src/backend/video-gateway.ts");
+
+  // THE DEFECT THIS PINS. The old list's own comment said "FAST FIRST — this
+  // order is a pricing decision" and then put `veo-3.0-generate-001` — the
+  // $0.40/s flagship, nearly three times the rate the cost constant assumes —
+  // SECOND. Veo ids drift by design, so the day Fast's id moved every render
+  // would have cost 3x what it was priced at with nothing saying so.
+  const list = src.slice(src.indexOf("const VEO_CANDIDATES"), src.indexOf("]", src.indexOf("const VEO_CANDIDATES")));
+  assert.doesNotMatch(list, /veo-3\.0-generate-001/,
+    "the flagship is back in the automatic fallback, where nobody chose to pay for it");
+  assert.doesNotMatch(list, /veo-3\.1-generate-preview/,
+    "the standard 3.1 tier is reachable without anybody asking for it");
+  assert.match(list, /veo-3\.1-lite-generate-preview/, "the efficiency tier is not in the fallback");
+
+  // The tiers an owner CAN pin are stated, and no rate is written into the code
+  // — this codebase sets the cost constant from an invoice, and a rate copied
+  // from a published price list is a loss waiting for a promotion.
+  assert.ok(g.VEO_TIERS.length >= 3, "the tiers an owner can choose are not listed anywhere");
+  assert.ok(g.VEO_TIERS.some((t) => t.model === "veo-3.1-generate-preview"), "the best tier is not offered");
+  for (const t of g.VEO_TIERS) {
+    assert.ok(t.label && t.note, `${t.model} is listed without saying what it is for`);
+    assert.doesNotMatch(t.note, /\$\d/, `${t.model} hardcodes a published rate into the code`);
+  }
+
+  // A model that rejects one parameter must not cost us the others.
+  assert.match(src, /const fallbacks: \{ params: Record<string, unknown>; note: string \}\[\]/,
+    "the 400 retry strips every parameter at once again");
+  assert.match(src, /RENDERED LANDSCAPE, crop before publishing/,
+    "a model that ignored the aspect ratio does not say so");
 });

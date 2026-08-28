@@ -22,6 +22,7 @@ import { adminDb } from "@/backend/firebase-admin";
 import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 import { spendAcus, creditAcus, type Spender } from "@/backend/wallet";
 import { readProviderFailure, failureLine, type ProviderFailure } from "@/shared/provider-failure";
+import { reviewBrief, briefRefusal, type Aspect, type Resolution } from "@/shared/render-brief";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
@@ -109,21 +110,49 @@ function safeReason(s: string): string {
 // Formatting the reason and throwing the evidence away is what left the render
 // unable to tell "your account is empty" from "that model does not exist" —
 // the two failures with the least in common and the most similar first line.
-type StartResult = { ref: string } | { error: string; status: number; body: string };
+// `model` and `note` come back on SUCCESS as well as failure. Without them the
+// job could not say what actually rendered it — and "was this the tier I asked
+// for?" is the first question anyone judging a render asks, especially when the
+// pinned model was unavailable and something else quietly answered.
+type StartResult = { ref: string; model?: string; note?: string } | { error: string; status: number; body: string };
 
-// Veo model ids drift (previews get promoted to `-001` GA and the old id 404s).
-// Try the configured model first, then a chain of currently-valid ids, and use
-// the first the key accepts. The last known-good id is remembered so we don't
-// re-probe 404s on every render.
-// FAST FIRST — this order is a pricing decision, not a preference.
+// WHICH VEO MODEL RENDERS — and why the owner sets it rather than this list.
 //
-// Veo 3 Fast is published at $0.15/s against Veo 3's $0.40/s. Asking for the
-// flagship first made every social clip cost the customer nearly three times
-// what it needed to. The rest of the chain is unchanged, so a key without Fast
-// access still renders on whatever it does have.
+// `GEMINI_VIDEO_MODEL` is tried FIRST and always has been. That is the quality
+// dial: set it to the tier the business wants (Veo 3.1 for the best output, the
+// 3.1 Lite preview for the cheapest 3.1-family output) and every render uses it.
+// This list is only the FALLBACK for when that model is unavailable to the key.
+//
+// THE DEFECT IN THE OLD ORDER. The comment above it said "FAST FIRST — this
+// order is a pricing decision", and then put `veo-3.0-generate-001` — the
+// $0.40/s flagship, nearly THREE TIMES the rate the cost constant assumes —
+// second in line. Veo ids drift by design (previews get promoted and the old id
+// 404s), so that fallback is not hypothetical: the day Fast's id moved, every
+// render would have cost 3x what it was priced at, the 2x floor would have been
+// enforced against a number that was wrong, and nothing would have said so.
+//
+// So the fallback NEVER ESCALATES COST. It descends through the rates we have
+// evidence for and stops; the flagship is reachable only by asking for it by
+// name, where the owner has decided to pay for it. This is the same rule the
+// provider failover follows — a fallback may deliver less, never cost more.
 const VEO_CANDIDATES = [
-  "veo-3.0-fast-generate-001", "veo-3.0-generate-001", "veo-3.1-generate-preview",
-  "veo-2.0-generate-001", "veo-3.0-generate-preview",
+  "veo-3.1-lite-generate-preview",  // 3.1 family, high-efficiency tier
+  "veo-3.0-fast-generate-001",
+  "veo-2.0-generate-001",
+];
+
+/**
+ * The tiers an owner can pin with `GEMINI_VIDEO_MODEL`, for the surface to show.
+ *
+ * NO RATES ARE WRITTEN HERE ON PURPOSE. Published prices move, and this
+ * codebase's rule is that the cost constant is set from an invoice — a rate
+ * copied from a blog post into pricing code is a loss waiting for a promotion.
+ * Set `VIDEO_COST_PER_SECOND_GBP_VEO` to match whichever tier is pinned.
+ */
+export const VEO_TIERS: { model: string; label: string; note: string }[] = [
+  { model: "veo-3.1-generate-preview", label: "Veo 3.1", note: "Best output. The tier to pin when the first render has to be right and the rate is set to match." },
+  { model: "veo-3.1-lite-generate-preview", label: "Veo 3.1 Lite", note: "The 3.1 family at its efficiency tier — no 4K, no extension. The default fallback." },
+  { model: "veo-3.0-fast-generate-001", label: "Veo 3 Fast", note: "Previous generation, low rate. Reached only if the 3.1 ids are unavailable to the key." },
 ];
 let workingVeoModel: string | null = null;
 
@@ -447,25 +476,53 @@ export function durationNote(provider: VideoProvider, requested: number, deliver
   return `You asked for ${requested}s and this clip is ${delivered}s — ${cap}. For longer, render segments and stitch them in the Video War Room rather than expecting one call to produce it.`;
 }
 
-async function veoTry(model: string, prompt: string, key: string, seconds: number): Promise<{ ref?: string; status: number; reason?: string }> {
+type GenParams = { aspect: Aspect; resolution: Resolution; negativePrompt: string };
+
+async function veoTry(model: string, prompt: string, key: string, seconds: number, gen: GenParams): Promise<{ ref?: string; status: number; reason?: string }> {
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       // `durationSeconds` is the documented Veo parameter. If a model or region
       // rejects it the call is retried WITHOUT it rather than failing the
       // render — a shorter clip beats no clip, and the note says which happened.
-      body: JSON.stringify({ instances: [{ prompt }], parameters: { durationSeconds: seconds } }),
+      // THE SHAPE AND THE EXCLUSIONS ARE PARAMETERS, NOT HOPES. Until now this
+      // sent a prompt and a duration and nothing else, so the platform could not
+      // ask for portrait at all — a 9:16 Reel came back 16:9, wrong on the first
+      // render every time — and "do not invent a logo" was an instruction the
+      // model was free to read past. `negativePrompt` is the one it honours.
+      body: JSON.stringify({
+        instances: [{ prompt }],
+        parameters: {
+          durationSeconds: seconds,
+          aspectRatio: gen.aspect,
+          resolution: gen.resolution,
+          negativePrompt: gen.negativePrompt,
+        },
+      }),
     });
     if (!res.ok) {
       const reason = safeReason(await res.text().catch(() => ""));
       if (res.status === 400) {
-        const retry = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ instances: [{ prompt }] }),
-        });
-        if (retry.ok) {
-          const d = await retry.json().catch(() => null);
-          if (typeof d?.name === "string") return { ref: d.name, status: 200, reason: "duration not accepted by this model — rendered at its default length" };
+        // STEP DOWN, DO NOT STRIP. An older model that rejects `resolution` will
+        // still honour `aspectRatio` and `negativePrompt`, and throwing all
+        // three away to satisfy one of them hands back the landscape-instead-of-
+        // portrait render this change exists to stop. So the newest parameter
+        // goes first, and only then the duration.
+        const fallbacks: { params: Record<string, unknown>; note: string }[] = [
+          { params: { durationSeconds: seconds, aspectRatio: gen.aspect, negativePrompt: gen.negativePrompt }, note: "resolution not accepted by this model — rendered at its default resolution" },
+          { params: { durationSeconds: seconds, aspectRatio: gen.aspect }, note: "this model accepts no negative prompt — exclusions are in the prompt text only" },
+          { params: { durationSeconds: seconds }, note: "this model accepts no aspect ratio — RENDERED LANDSCAPE, crop before publishing to a portrait placement" },
+          { params: {}, note: "duration not accepted by this model — rendered at its default length" },
+        ];
+        for (const step of fallbacks) {
+          const retry = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${key}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ instances: [{ prompt }], ...(Object.keys(step.params).length ? { parameters: step.params } : {}) }),
+          });
+          if (retry.ok) {
+            const d = await retry.json().catch(() => null);
+            if (typeof d?.name === "string") return { ref: d.name, status: 200, reason: step.note };
+          }
         }
       }
       return { status: res.status, reason };
@@ -475,7 +532,7 @@ async function veoTry(model: string, prompt: string, key: string, seconds: numbe
   } catch (e) { return { status: 0, reason: e instanceof Error ? e.message : "network error" }; }
 }
 
-async function veoStart(prompt: string, seconds: number): Promise<StartResult> {
+async function veoStart(prompt: string, seconds: number, gen: GenParams): Promise<StartResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { error: "No GEMINI_API_KEY set", status: -1, body: "missing api key" };
   const ordered = [process.env.GEMINI_VIDEO_MODEL, workingVeoModel, ...VEO_CANDIDATES]
@@ -483,8 +540,8 @@ async function veoStart(prompt: string, seconds: number): Promise<StartResult> {
     .filter((m, i, a) => a.indexOf(m) === i);
   let lastErr = "";
   for (const model of ordered) {
-    const r = await veoTry(model, prompt, key, seconds);
-    if (r.ref) { workingVeoModel = model; return { ref: r.ref }; }
+    const r = await veoTry(model, prompt, key, seconds, gen);
+    if (r.ref) { workingVeoModel = model; return { ref: r.ref, model, note: r.reason }; }
     // 404 / 400 = wrong-or-unavailable model → try the next candidate.
     if (r.status === 404 || r.status === 400) { lastErr = `${model}: ${r.status} ${r.reason || ""}`.trim(); continue; }
     // 401/403/429/5xx are key/quota/server issues — stop and report (not a model problem).
@@ -551,7 +608,9 @@ async function veoPoll(op: string): Promise<{ done: boolean; bytes?: Buffer; dia
     return { done: true, diag: `Veo returned no recognisable video field. Response shape: { ${inner} }.` };
   } catch (e) { return { done: false, diag: e instanceof Error ? e.message : "poll error" }; }
 }
-async function soraStart(prompt: string, seconds: number): Promise<StartResult> {
+const SORA_SIZE: Record<Aspect, string> = { "16:9": "1280x720", "9:16": "720x1280", "1:1": "720x720" };
+
+async function soraStart(prompt: string, seconds: number, gen: GenParams): Promise<StartResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { error: "No OPENAI_API_KEY set", status: -1, body: "missing api key" };
   const model = process.env.OPENAI_VIDEO_MODEL || "sora-2";
@@ -560,24 +619,33 @@ async function soraStart(prompt: string, seconds: number): Promise<StartResult> 
       method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       // Sora takes `seconds` as a string enum. Same rule as Veo: if it is
       // rejected, retry without it rather than losing the render.
-      body: JSON.stringify({ model, prompt, seconds: String(seconds) }),
+      // Sora takes the shape as a pixel SIZE rather than a ratio. Same reason as
+      // Veo above: without it a portrait placement comes back landscape.
+      body: JSON.stringify({ model, prompt, seconds: String(seconds), size: SORA_SIZE[gen.aspect] }),
     });
     if (!res.ok) {
       const body = safeReason(await res.text().catch(() => ""));
       if (res.status === 400) {
-        const retry = await fetch("https://api.openai.com/v1/videos", {
-          method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model, prompt }),
-        });
-        if (retry.ok) {
-          const d = await retry.json().catch(() => null);
-          if (typeof d?.id === "string") return { ref: d.id };
+        // Keep the shape if the duration is what was rejected — dropping both to
+        // satisfy one hands back a landscape clip for a portrait placement.
+        for (const body of [
+          { model, prompt, size: SORA_SIZE[gen.aspect] },
+          { model, prompt },
+        ]) {
+          const retry = await fetch("https://api.openai.com/v1/videos", {
+            method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (retry.ok) {
+            const d = await retry.json().catch(() => null);
+            if (typeof d?.id === "string") return { ref: d.id, model, note: "this model rejected part of the request — see the shape and length actually used" };
+          }
         }
       }
       return { error: `Sora API ${res.status} (model ${model})${body ? ` — ${body}` : ""}`, status: res.status, body };
     }
     const data = await res.json().catch(() => null);
-    return typeof data?.id === "string" ? { ref: data.id } : { error: "Sora returned no video id", status: 200, body: "no video id in the response" };
+    return typeof data?.id === "string" ? { ref: data.id, model } : { error: "Sora returned no video id", status: 200, body: "no video id in the response" };
   } catch (e) { return { error: `Sora request failed: ${e instanceof Error ? e.message : "network error"}`, status: 0, body: e instanceof Error ? e.message : "network error" }; }
 }
 async function soraPoll(id: string): Promise<{ done: boolean; bytes?: Buffer }> {
@@ -639,6 +707,9 @@ export function brandedVideoPrompt(prompt: string, brand: { name?: string; produ
 
 export async function startVideoRender(input: {
   brandId: string; prompt: string; seconds?: number;
+  /** Where the clip is going. 16:9 is assumed and SAID when omitted. */
+  aspect?: string;
+  resolution?: string;
   /** Who asked. Staff are not billed for their own platform; see spendAcus. */
   spender?: Spender | null;
 }): Promise<VideoJob> {
@@ -650,6 +721,30 @@ export async function startVideoRender(input: {
   const prompt = brandedVideoPrompt(askedPrompt, brand);
   const requestedSeconds = Math.max(1, Math.round(Number(input.seconds) || DEFAULT_SECONDS));
   const jobId = jobIdFor(brandId, prompt);
+
+  // WILL THIS COME BACK RIGHT? — asked before anything is charged.
+  //
+  // The brief is reviewed on what the CUSTOMER asked for, not on the branded
+  // prompt: the brand block adds sentences of its own, and counting those as
+  // actions would refuse every branded render for having too much happening.
+  //
+  // A refusal here is the cheapest possible outcome. Words in the frame come
+  // back garbled at every quality tier, and three actions in four seconds lose
+  // two of them — both produce a clip that looks like a successful render and
+  // has to be thrown away. Saying so now costs nothing; finding out costs a
+  // render, a wait, and the customer's confidence in the next one.
+  const brief = reviewBrief({
+    prompt: askedPrompt, seconds: requestedSeconds,
+    aspect: input.aspect, resolution: input.resolution,
+  });
+  const gen = { aspect: brief.aspect, resolution: brief.resolution, negativePrompt: brief.negativePrompt };
+  if (!brief.ok) {
+    const job: VideoJob = { jobId, brandId, prompt, provider: "demo", status: "failed", mode: "live", videoUrl: null, providerRef: null,
+      requestedSeconds, seconds: 0, chargedAcu: 0,
+      note: `Not rendered, and nothing was charged — this brief would have come back wrong. ${briefRefusal(brief)}` };
+    await saveJob(job);
+    return job;
+  }
 
   // Provider chain with automatic failover (like the AI gateway): try Veo, then
   // Sora — so if one provider's model is unavailable (404) or its quota is spent,
@@ -746,14 +841,23 @@ export async function startVideoRender(input: {
   let started: { seconds: number; ref: string | null; url: string | null }[] = [];
   let used: typeof plan | null = null;
   let promptRefused = false;
+  let renderedBy = "";
+  const stepDowns: string[] = [];
 
   for (const attempt of plans) {
     if (attempt.acus > quotedAcu) { tooDear.push({ provider: attempt.provider, acus: attempt.acus }); continue; }
     started = [];
+    renderedBy = "";
+    stepDowns.length = 0;
     let failed: ProviderFailure | null = null;
     for (const seconds of attempt.segments) {
-      const r = attempt.provider === "veo" ? await veoStart(prompt, seconds) : await soraStart(prompt, seconds);
-      if ("ref" in r) { started.push({ seconds, ref: r.ref, url: null }); continue; }
+      const r = attempt.provider === "veo" ? await veoStart(prompt, seconds, gen) : await soraStart(prompt, seconds, gen);
+      if ("ref" in r) {
+        started.push({ seconds, ref: r.ref, url: null });
+        if (r.model) renderedBy = r.model;
+        if (r.note) stepDowns.push(r.note);
+        continue;
+      }
       failed = readProviderFailure({ provider: attempt.provider, status: r.status, body: r.body || r.error });
       break;
     }
@@ -775,7 +879,14 @@ export async function startVideoRender(input: {
       providerRef: started[0].ref,
       segments: started,
       requestedSeconds, seconds: requestedSeconds, chargedAcu: takenAcu,
-      note: `Rendering ${requestedSeconds}s via ${used.provider}${multi ? ` as ${used.segments.length} clips (${used.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${takenAcu > 0 ? `${takenAcu} ACUs` : "not charged (staff)"}. Poll for the hosted MP4 (renders take up to a few minutes).${alsoTried}`,
+      // WHAT MADE IT, AND AT WHAT SHAPE. A render you cannot attribute is a
+      // render you cannot judge: "is this the tier I pinned?" is the first
+      // question, and a model that was unavailable fails over in silence
+      // otherwise. Anything the model refused to honour is named too — a clip
+      // rendered landscape because the model ignored the aspect ratio is wrong
+      // for a portrait placement, and the job should say so rather than let it
+      // be discovered on the timeline.
+      note: `Rendering ${requestedSeconds}s at ${brief.aspect} ${brief.resolution} via ${renderedBy || used.provider}${multi ? ` as ${used.segments.length} clips (${used.segments.map((n) => `${n}s`).join(" + ")})` : ""} — ${takenAcu > 0 ? `${takenAcu} ACUs` : "not charged (staff)"}. Poll for the hosted MP4 (renders take up to a few minutes).${stepDowns.length ? ` NOTE: ${[...new Set(stepDowns)].join(" ")}` : ""}${alsoTried}`,
     };
     await saveJob(job);
     return job;
