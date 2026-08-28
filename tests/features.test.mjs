@@ -24858,3 +24858,51 @@ test("the API rate-limit floor skips attributable requests and still stops anony
   // session cookie were all served, 700 anonymous requests from one address
   // were cut off at 600, and a second anonymous address was unaffected.
 });
+
+// ---------------------------------------------------------------------------
+// NO CAPABILITY PANEL MAY ASSERT "NOT CONFIGURED" FROM A FAILED REQUEST.
+//
+// Swept after the rate-limit regression, because the regression only mattered
+// so much thanks to this: three separate panels answered a refused request by
+// stating, positively and wrongly, that the owner had not set a key.
+//
+//   AudioStudio   `.catch(() => setConfigured(false))`  → "No voice engine is
+//                 connected. Set ELEVENLABS_API_KEY."
+//   RenderFarm    `.catch(() => setWorkerUp(false))`    → "no renderer connected"
+//   video/page    bare `.catch(() => {})`               → "Activate with a key"
+//
+// Each sent the owner to check a key that was fine. "We could not ask" and "you
+// have no key" need different actions and had identical words.
+// ---------------------------------------------------------------------------
+test("a capability panel that could not reach its check says so, rather than blaming the key", () => {
+  const panels = [
+    { file: "../src/components/AudioStudio.tsx", probe: "/api/voice", negative: /setConfigured\(false\)/ },
+    { file: "../src/components/RenderFarm.tsx", probe: "/api/video/jobs", negative: /setWorkerUp\(false\)/ },
+  ];
+
+  for (const { file, probe, negative } of panels) {
+    const src = codeOf(readFileSync(new URL(file, import.meta.url), "utf8"));
+
+    // The three-state flag exists and the failure path sets it.
+    assert.match(src, /const \[unreachable, setUnreachable\] = useState\(false\)/,
+      `${file} has no state for a check that could not run`);
+    assert.match(src, /\.catch\(\(\) => setUnreachable\(true\)\)/,
+      `${file} still turns a network failure into an answer about the key`);
+
+    // THE DEFECT ITSELF: a catch that asserts the negative.
+    const catches = src.match(/\.catch\([^)]*\)/g) || [];
+    for (const c of catches) {
+      assert.doesNotMatch(c, negative, `${file} still asserts "not configured" from a failed ${probe} request: ${c}`);
+    }
+
+    // A response missing the flag is a failed probe too, not a "no".
+    assert.match(src, /typeof d\?\.(configured|workerConfigured) !== "boolean"/,
+      `${file} reads a missing flag as a negative answer`);
+
+    // And the negative message is suppressed while unreachable, so the two
+    // states cannot both render.
+    assert.match(src, /(configured|workerUp) === false && !unreachable/,
+      `${file} shows the "no key" message even when the check never ran`);
+    assert.match(src, /not a statement that/i, `${file} does not tell the reader this is not a key problem`);
+  }
+});
