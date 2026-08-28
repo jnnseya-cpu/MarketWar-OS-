@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Loader2, Play, ArrowUpRight, Cpu } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { ENGINE_CATEGORIES, enginesByCategory, type EngineEntry } from "@/shared/engine-registry";
+import { authedFetch } from "@/frontend/api-client";
 
 function EngineCard({ engine }: { engine: EngineEntry }) {
   const [busy, setBusy] = useState(false);
@@ -19,7 +20,7 @@ function EngineCard({ engine }: { engine: EngineEntry }) {
   async function runDemo() {
     setBusy(true); setError(null); setDoctrine(null);
     try {
-      const res = await fetch(`/api/${engine.id}`);
+      const res = await authedFetch(`/api/${engine.id}`);
       const body = await res.json();
       const d = body.doctrine;
       const text =

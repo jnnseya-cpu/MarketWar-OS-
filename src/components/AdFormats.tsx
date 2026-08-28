@@ -37,7 +37,7 @@ export default function AdFormats() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/ad-styles")
+    authedFetch("/api/ad-styles")
       .then((r) => r.json())
       .then((d) => {
         const list: Style[] = Array.isArray(d?.styles) ? d.styles : [];

@@ -56,7 +56,7 @@ export default function AutopilotPage() {
   async function subscribe(on: boolean) {
     setSubBusy(true);
     try {
-      const res = await fetch("/api/autopilot/nightly", {
+      const res = await authedFetch("/api/autopilot/nightly", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: on ? "subscribe" : "unsubscribe", requestedLevel: level, budgetGbp: Number(budget) || 0, email: email.trim() || undefined }),
       });
@@ -70,7 +70,7 @@ export default function AutopilotPage() {
     if (!activeBrand || !email.trim()) return;
     setEmailBusy(true); setEmailResult(null);
     try {
-      const res = await fetch("/api/autopilot/nightly", {
+      const res = await authedFetch("/api/autopilot/nightly", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brands: [activeBrand], to: email.trim(), requestedLevel: level, budgetGbp: Number(budget) || 0 }),
       });

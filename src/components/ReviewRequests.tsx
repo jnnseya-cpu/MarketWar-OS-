@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Ban, Check, Copy, Info, Loader2, Send, Star } from "lucide-react";
 import { Pill } from "@/components/ui";
+import { authedFetch } from "@/frontend/api-client";
 
 type Platform = {
   id: string; label: string; ask: "encouraged" | "allowed-with-rules" | "restricted" | "prohibited";
@@ -55,7 +56,7 @@ export default function ReviewRequests({ brandId, brandName }: { brandId?: strin
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch("/api/review-requests")
+    authedFetch("/api/review-requests")
       .then((r) => r.json())
       .then((d) => { setPlatforms(Array.isArray(d?.platforms) ? d.platforms : []); setNotBuilt(d?.notBuilt || ""); })
       .catch(() => { /* the form still works; the table is context, not a dependency */ });
@@ -66,7 +67,7 @@ export default function ReviewRequests({ brandId, brandName }: { brandId?: strin
   async function plan() {
     setBusy(true); setError(""); setCampaign(null);
     try {
-      const res = await fetch("/api/review-requests", {
+      const res = await authedFetch("/api/review-requests", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "plan", platformId, channel, brandId, brandName,

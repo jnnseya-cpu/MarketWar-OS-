@@ -13,6 +13,7 @@ import { Loader2, MessageCircle, Play, Building2, Zap } from "lucide-react";
 import { AreaChart, FunnelChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type FunnelStage = { key: string; label: string; value: number };
 type TemplateStatus = "live-ready" | "primed" | "draft" | "needs-copy";
@@ -53,7 +54,7 @@ export default function WhatsAppCenterPage() {
     if (!business.trim()) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/whatsapp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ business }) });
+      const res = await authedFetch("/api/whatsapp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ business }) });
       setOverview(await res.json());
     } finally { setBusy(false); }
   }

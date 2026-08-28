@@ -116,7 +116,7 @@ export default function CreatorPayouts({ creatorId }: { creatorId?: string }) {
   }, [post, creatorId]);
 
   useEffect(() => {
-    fetch("/api/share2earn").then((r) => r.json()).then((d) => {
+    authedFetch("/api/share2earn").then((r) => r.json()).then((d) => {
       const p = d?.payouts;
       if (!p) return;
       const live: Record<string, boolean> = Object.fromEntries((p.live || []).map((l: { railId: string; live: boolean }) => [l.railId, l.live]));

@@ -46,7 +46,7 @@ export default function ChoosePlanPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/subscription").then((r) => r.json()).then((d) => setPlans(d.plans)).catch(() => {});
+    authedFetch("/api/subscription").then((r) => r.json()).then((d) => setPlans(d.plans)).catch(() => {});
   }, []);
 
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;

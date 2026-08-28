@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Command, CornerDownLeft, Loader2, Search, Sparkles } from "lucide-react";
 import { NAV } from "@/components/Sidebar";
+import { authedFetch } from "@/frontend/api-client";
 
 type Decision = {
   best: {
@@ -110,7 +111,7 @@ export default function CommandBar() {
     setBusy(true);
     setDecision(null);
     try {
-      const res = await fetch("/api/intent", {
+      const res = await authedFetch("/api/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),

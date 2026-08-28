@@ -11,6 +11,7 @@ import { Loader2, Coins, Target, ShieldAlert, TrendingDown } from "lucide-react"
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type ChannelROI = { channel: string; label: string; owned: boolean; predictedCacGbp: number; conversionProbability: number; predictedRoi: number; recommended: boolean; note: string };
 type RoiReport = { business: string; objective: string; budgetGbp: number; channels: ChannelROI[]; nextCheapestCustomer: { label: string; cacGbp: number; why: string }; allocation: { channel: string; label: string; amountGbp: number; share: number; owned: boolean }[]; ownedShare: number; doctrine: string; honesty: string };
@@ -40,14 +41,14 @@ export default function RoiPage() {
   async function runChannels() {
     setBusy("channels");
     try {
-      const res = await fetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "channels", business, objective, budgetGbp: budget, avgOrderValueGbp: aov }) });
+      const res = await authedFetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "channels", business, objective, budgetGbp: budget, avgOrderValueGbp: aov }) });
       setReport(await res.json());
     } finally { setBusy(""); }
   }
   async function runReadiness() {
     setBusy("readiness");
     try {
-      const res = await fetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "readiness", ...ready }) });
+      const res = await authedFetch("/api/roi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "readiness", ...ready }) });
       setReadiness(await res.json());
     } finally { setBusy(""); }
   }

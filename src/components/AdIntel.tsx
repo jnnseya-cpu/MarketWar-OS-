@@ -55,7 +55,7 @@ export default function AdIntel() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/ad-intel")
+    authedFetch("/api/ad-intel")
       .then((r) => r.json())
       .then((d) => { setWhere(Array.isArray(d?.whereToLook) ? d.whereToLook : []); setMinAds(Number(d?.minAdsToJudge) || 8); })
       .catch(() => { /* the form still posts */ });

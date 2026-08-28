@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Flame, Loader2, Sparkles, Target, Trophy, Wand2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type HubEntry = { href: string; label: string; does: string; isNew?: boolean };
 type Hub = { id: string; label: string; promise: string; entries: HubEntry[]; notYet: string[] };
@@ -39,7 +40,7 @@ export default function HubsPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/genz").then((r) => r.json())
+    authedFetch("/api/genz").then((r) => r.json())
       .then((d) => setHubs(Array.isArray(d?.hubs) ? d.hubs : []))
       .catch(() => { /* the board below still loads; the map is not a dependency */ });
   }, []);
@@ -48,7 +49,7 @@ export default function HubsPage() {
     if (!activeBrand?.id) { setPlay(null); return; }
     setBusy(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    fetch("/api/genz", {
+    authedFetch("/api/genz", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "play", brandId: activeBrand.id, timezone: tz }),
     })

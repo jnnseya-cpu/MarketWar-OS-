@@ -64,7 +64,7 @@ export default function OrganicDominancePage() {
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
-    fetch("/api/organic-dominance").then((r) => r.json()).then((d) => setMeta({ navigation: d.navigation, dataSources: d.dataSources })).catch(() => {});
+    authedFetch("/api/organic-dominance").then((r) => r.json()).then((d) => setMeta({ navigation: d.navigation, dataSources: d.dataSources })).catch(() => {});
   }, []);
   useEffect(() => {
     if (activeBrand) {

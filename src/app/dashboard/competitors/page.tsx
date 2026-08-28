@@ -16,6 +16,7 @@ import AdIntel from "@/components/AdIntel";
 import { HBarList } from "@/components/charts";
 import { PageHeader, Pill, StatCard, ScoreBar } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Momentum = "gaining" | "flat" | "losing";
 type SignalBoard = {
@@ -55,7 +56,7 @@ const threatTone = (n: number): "good" | "warn" | "bad" => (n >= 70 ? "bad" : n 
 const momentumTone = (m: Momentum): "good" | "warn" | "bad" => (m === "gaining" ? "bad" : m === "losing" ? "good" : "warn");
 
 async function post(action: string, input: Record<string, unknown>) {
-  const res = await fetch("/api/competitor-warroom", {
+  const res = await authedFetch("/api/competitor-warroom", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, input }),

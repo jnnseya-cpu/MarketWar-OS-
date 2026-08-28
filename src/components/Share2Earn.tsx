@@ -97,7 +97,7 @@ export default function Share2Earn() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/share2earn").then((r) => r.json()).then((d) => {
+    authedFetch("/api/share2earn").then((r) => r.json()).then((d) => {
       setBands(Array.isArray(d?.bands) ? d.bands : []);
       setActions(Array.isArray(d?.actions) ? d.actions : []);
       setKinds(Array.isArray(d?.missionKinds) ? d.missionKinds : []);

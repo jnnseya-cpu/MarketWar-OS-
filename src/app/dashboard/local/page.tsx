@@ -14,6 +14,7 @@ import { PageHeader, Pill } from "@/components/ui";
 import GoogleInsightsPanel from "@/components/GoogleInsightsPanel";
 import LocalOutreach from "@/components/LocalOutreach";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type ProfileStatus = "present" | "weak" | "missing";
 type CitationStatus = "listed" | "inconsistent" | "missing";
@@ -52,7 +53,7 @@ export default function LocalDominationPage() {
   async function run() {
     setBusy(true);
     try {
-      const res = await fetch("/api/local", {
+      const res = await authedFetch("/api/local", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business, location }),

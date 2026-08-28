@@ -10,6 +10,7 @@ import { Loader2, Workflow as WorkflowIcon, ShieldCheck, Play, AlertTriangle, Po
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Step = { kind: string; delayHours?: number; label?: string; action?: string; channel?: string; detail?: string; check?: string };
 type Wf = { id: string; name: string; trigger: string; goal: string; description: string; steps: Step[] };
@@ -33,7 +34,7 @@ export default function AutomationPage() {
   const storeKey = `mw.journeys.${activeBrand?.id || "demo"}`;
 
   useEffect(() => {
-    fetch("/api/automation").then((r) => r.json()).then((d) => setTemplates(d.templates || [])).catch(() => {});
+    authedFetch("/api/automation").then((r) => r.json()).then((d) => setTemplates(d.templates || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function AutomationPage() {
   async function load(id: string) {
     setBusy(true); setSim(null);
     try {
-      const res = await fetch("/api/automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "template", id }) });
+      const res = await authedFetch("/api/automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "template", id }) });
       const data = await res.json();
       setWf(data.workflow); setValidation(data.validation);
     } finally { setBusy(false); }
@@ -65,7 +66,7 @@ export default function AutomationPage() {
     if (!wf) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "simulate", workflow: wf, consented }) });
+      const res = await authedFetch("/api/automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "simulate", workflow: wf, consented }) });
       const data = await res.json();
       setSim(data.timeline);
     } finally { setBusy(false); }

@@ -49,6 +49,7 @@ import AdFormats from "@/components/AdFormats";
 import PresenterVideo from "@/components/PresenterVideo";
 import { PageHeader, Pill, ScoreBar, StatCard, HowToUse } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 // "unknown" is a REAL state, not a missing key. A capability probe that could
 // not run must not render as an unconfigured deployment — see the probe below.
@@ -210,7 +211,7 @@ export default function VideoWarRoomPage() {
   const [cutList, setCutList] = useState<{ startSec: number; endSec: number }[] | undefined>(undefined);
 
   const post = (body: Record<string, unknown>) =>
-    fetch("/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+    authedFetch("/api/video-intelligence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
 
   async function runLab() {
     setBusy(true);

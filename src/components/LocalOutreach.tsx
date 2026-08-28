@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { AlertTriangle, Check, Copy, Loader2, Printer, Users } from "lucide-react";
 import { Pill } from "@/components/ui";
+import { authedFetch } from "@/frontend/api-client";
 
 type FlyerBlock = { role: string; text: string; maxChars: number; over: boolean };
 type FlyerPlanView = {
@@ -55,7 +56,7 @@ export default function LocalOutreach({ brandName, town }: { brandName?: string;
   async function call(body: Record<string, unknown>, onOk: (d: unknown) => void) {
     setBusy(true); setError("");
     try {
-      const res = await fetch("/api/local-outreach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await authedFetch("/api/local-outreach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) { setError(data?.error || "That did not work."); return; }
       onOk(data);

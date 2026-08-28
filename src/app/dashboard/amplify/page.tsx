@@ -19,6 +19,7 @@ import {
 import AgentRunner from "@/components/AgentRunner";
 import { AreaChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { authedFetch } from "@/frontend/api-client";
 
 const PRINCIPLES = [
   { icon: Share2, title: "Reach is earned", desc: "Viral loops compound through people who choose to share — referral rewards, UGC, affiliates. We measure the viral coefficient honestly and never claim a fixed multiplier." },
@@ -35,7 +36,7 @@ export default function AmplifyPage() {
   async function calc() {
     setBusy(true);
     try {
-      const res = await fetch("/api/amplify", {
+      const res = await authedFetch("/api/amplify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "virality", ...inputs }),

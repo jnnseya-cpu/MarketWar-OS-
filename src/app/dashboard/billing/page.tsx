@@ -72,7 +72,7 @@ export default function BillingPage() {
   // changes the wallet, and a page still showing the old balance reads as a
   // failed click.
   const load = useCallback(() => {
-    fetch("/api/subscription").then((r) => r.json()).then(setData).catch(() => setError(true));
+    authedFetch("/api/subscription").then((r) => r.json()).then(setData).catch(() => setError(true));
     // Real ACU wallet (credited by the Stripe webhook, debited by AI use).
     authedFetch("/api/billing/wallet")
       .then((r) => r.json())

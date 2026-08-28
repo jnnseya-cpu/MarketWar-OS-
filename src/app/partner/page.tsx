@@ -9,6 +9,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, Wallet, Users, LinkIcon, Copy, ShieldCheck, TrendingUp, Coins, Store, Plus } from "lucide-react";
 import { MIN_WITHDRAWAL_GBP } from "@/shared/creator-program";
+import { authedFetch } from "@/frontend/api-client";
 
 
 type WalletData = {
@@ -54,7 +55,7 @@ function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/share2earn?discover=1");
+        const res = await authedFetch("/api/share2earn?discover=1");
         if (!res.ok) return;
         const d = await res.json();
         setProducts((d.brands || []).flatMap((b: { products?: PublicProduct[] }) => b.products || []));
@@ -66,7 +67,7 @@ function ClaimShelf({ token, onClaimed }: { token: string; onClaimed: () => void
   async function claim(id: string, kind: "product" | "programme" = "product") {
     setBusy(id); setError(null); setNote(null);
     try {
-      const res = await fetch("/api/share2earn", {
+      const res = await authedFetch("/api/share2earn", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(kind === "programme"
           ? { action: "claim", token, programmeId: id }
@@ -149,7 +150,7 @@ function PartnerDashboard() {
     if (!token) { setError("This dashboard needs your personal link. Check the email/confirmation from when you applied."); setLoading(false); return; }
     (async () => {
       try {
-        const res = await fetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "partner_portal", token }) });
+        const res = await authedFetch("/api/creator-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "partner_portal", token }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) {
           setError(d.error || "Couldn't load your dashboard.");

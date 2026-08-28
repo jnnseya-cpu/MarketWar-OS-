@@ -44,10 +44,10 @@ export default function OmnirankPage() {
   // Live Search Console → auto-fills the organic vital + flips SC-fed modules.
   const [gsc, setGsc] = useState<{ connected: boolean; avgPosition?: number; clicks?: number; impressions?: number; site?: string; needsSelection?: boolean; sites?: string[]; note?: string } | null>(null);
 
-  useEffect(() => { fetch("/api/omnirank").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
+  useEffect(() => { authedFetch("/api/omnirank").then((r) => r.json()).then(setInfo).catch(() => setInfo(null)); }, []);
 
   const scoreWith = useCallback(async (inputs: Record<string, number>) => {
-    const r = await fetch("/api/omnirank", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominion", inputs }) });
+    const r = await authedFetch("/api/omnirank", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dominion", inputs }) });
     setDom(await r.json());
   }, []);
 

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Loader2, Sparkles, Check } from "lucide-react";
 import PublishToChannels from "@/components/PublishToChannels";
 import { useActiveBrand } from "@/frontend/brand-context";
+import { authedFetch } from "@/frontend/api-client";
 
 type Hook = { type: string; family: string; text: string; score: number; deceptive: boolean };
 
@@ -26,7 +27,7 @@ export default function VisualStrikeHooks() {
   async function generate() {
     setBusy(true); setHooks(null); setChosen("");
     try {
-      const r = await fetch("/api/visualstrike", {
+      const r = await authedFetch("/api/visualstrike", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "hooks", product: { name: productName } }),
       });
