@@ -17081,9 +17081,39 @@ test("human check: the GET path pulls nothing heavy into its module graph", () =
 test("human check: the light rate limiter has no firebase in its own graph", () => {
   const rl = readFileSync(new URL("../src/backend/rate-limit.ts", import.meta.url), "utf8");
   const topImports = [...rl.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
-  assert.deepEqual(topImports, [], `rate-limit.ts must import nothing at module scope; it imports ${topImports.join(", ")}`);
+
+  // THE PROPERTY, not a proxy for it. This used to assert `topImports` was
+  // EMPTY, which is stricter than the thing it was defending — and it blocked
+  // the fix for a real defect: `middleware.ts` runs on the EDGE runtime, where
+  // webpack traces even a dynamic import, so importing this module failed the
+  // whole build with `UnhandledSchemeError: node:crypto`. The arithmetic had to
+  // become importable from the edge, and it now lives in a shared module with
+  // no imports of its own.
+  //
+  // So the rule is: nothing at module scope may reach firebase-admin. Every
+  // static import must be a `@/shared/*` module, and each of those must itself
+  // import nothing — checked here rather than assumed, because a shared module
+  // that grows an import is exactly how the heavy graph would creep back.
+  for (const spec of topImports) {
+    assert.ok(spec.startsWith("@/shared/"),
+      `rate-limit.ts may only import from @/shared at module scope; it imports ${spec}`);
+    const rel = spec.replace("@/shared/", "../src/shared/") + ".ts";
+    const dep = readFileSync(new URL(rel, import.meta.url), "utf8");
+    const depImports = [...dep.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+    assert.deepEqual(depImports, [],
+      `${spec} must import nothing, or the edge build breaks again; it imports ${depImports.join(", ")}`);
+  }
+
   // Sentinel reaches firebase-admin, so it is loaded only on the refusal branch.
   assert.match(rl, /await import\("@\/backend\/sentinel"\)/, "sentinel is not loaded lazily");
+
+  // AND THE MIDDLEWARE USES THE EDGE-SAFE CORE, never this Node entry point —
+  // the mistake that produced the failed build in the first place.
+  const mw = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(mw, /from "@\/backend\/rate-limit"/,
+    "middleware imports the NODE limiter — webpack traces its lazy sentinel import and the edge build fails");
+  assert.match(mw, /from "@\/shared\/rate-limit-core"/,
+    "middleware no longer rate-limits, so 46 unauthenticated routes are unthrottled again");
 
   // guard.ts keeps working for every existing caller.
   const guard = readFileSync(new URL("../src/backend/guard.ts", import.meta.url), "utf8");
@@ -23609,4 +23639,367 @@ test("the Veo fallback descends in cost and never escalates it", async () => {
     "the 400 retry strips every parameter at once again");
   assert.match(src, /RENDERED LANDSCAPE, crop before publishing/,
     "a model that ignored the aspect ratio does not say so");
+});
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT — one-click unsubscribe must never report a success it did not have
+// ---------------------------------------------------------------------------
+
+test("audit D-04: one-click unsubscribe returns 200 ONLY when it recorded", async () => {
+  const route = await import("../src/app/api/track/unsubscribe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const ev = await import("../src/backend/email-events.ts");
+
+  const url = (t) => new NextRequest(`https://x.test/api/track/unsubscribe?t=${encodeURIComponent(t)}`, { method: "POST" });
+
+  // THE DEFECT. This endpoint is the RFC 8058 List-Unsubscribe-Post target —
+  // Gmail, Yahoo and Outlook read the STATUS, not the body, and treat any 2xx
+  // as "unsubscribed". It returned 200 with {ok:false} for a forged token, so
+  // the provider marked the request done and the recipient kept getting mail
+  // with the one control that was meant to stop it reporting success.
+  const forged = await route.POST(url("garbage.notasignature"));
+  assert.equal(forged.status, 400, "a forged unsubscribe token was answered with a success status");
+  const forgedBody = await forged.json();
+  assert.equal(forgedBody.ok, false);
+
+  const empty = await route.POST(url(""));
+  assert.equal(empty.status, 400, "a missing token was answered with a success status");
+
+  // A REAL TOKEN IS RECORDED, and only then is it a 200.
+  const token = ev.signToken("t-unsub-brand", "person@example.com", "camp-1");
+  const good = await route.POST(url(token));
+  assert.equal(good.status, 200, "a valid one-click unsubscribe was refused");
+  assert.equal((await good.json()).ok, true);
+
+  // A STORAGE FAILURE IS NOT A BAD TOKEN, and must not be answered 200 either.
+  // Driven for real: the recorder is injected and made to throw, which is why
+  // the outcome logic was moved out of the route file at all — a route cannot
+  // export a helper, so these branches were previously unreachable by any test.
+  const intake = await import("../src/backend/unsubscribe-intake.ts");
+  const broken = await intake.recordUnsubscribe(
+    ev.signToken("t-unsub-brand", "other@example.com", "c"),
+    async () => { throw new Error("firestore unavailable"); },
+  );
+  assert.equal(broken.ok, false);
+  assert.equal(broken.reason, "store_failed", "a storage outage is reported as a forged token");
+  assert.match(broken.detail, /firestore unavailable/, "the real cause is thrown away");
+
+  // A forged token never reaches storage at all.
+  let recorderCalled = 0;
+  const rejected = await intake.recordUnsubscribe("garbage.x", async () => { recorderCalled += 1; });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.reason, "bad_token");
+  assert.equal(recorderCalled, 0, "a forged token was written to the event store");
+
+  // THE HUMAN PAGE must not claim success either — and must not say "expired"
+  // when the truth is that our storage failed.
+  const page = await route.GET(new NextRequest("https://x.test/api/track/unsubscribe?t=garbage.x"));
+  assert.equal(page.status, 200, "a person clicking an old link should get a page, not a browser error");
+  const html = await page.text();
+  assert.match(html, /invalid or has expired/);
+  assert.doesNotMatch(html, /You're unsubscribed/, "a failed unsubscribe told the person they were unsubscribed");
+
+  // And the three outcomes are genuinely distinct in the source, not one
+  // boolean wearing three hats.
+  const src = codeOf(readFileSync(new URL("../src/app/api/track/unsubscribe/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /reason === "bad_token"/, "the route no longer distinguishes the two failures");
+  assert.match(src, /status: 400/, "a forged token is not answered 400");
+  assert.match(src, /status: 503/, "a storage failure is not answered 503");
+  // A 503 with no Retry-After leaves the provider to guess, and the guess is
+  // usually "never". Asserted on the source because the route's own storage
+  // failure has no injection seam — the behaviour itself is driven through
+  // `recordUnsubscribe` above.
+  assert.match(src, /"Retry-After": "300"/, "a retryable failure does not tell the provider when to retry");
+  const intakeSrc = codeOf(readFileSync(new URL("../src/backend/unsubscribe-intake.ts", import.meta.url), "utf8"));
+  assert.match(intakeSrc, /reason: "bad_token"/);
+  assert.match(intakeSrc, /reason: "store_failed"/, "a storage outage is still indistinguishable from a forged token");
+  assert.match(intakeSrc, /console\.error\(`\[unsubscribe\] FAILED TO RECORD/, "an unsubscribe that failed to save is still silent");
+  assert.doesNotMatch(intakeSrc, /console\.error\([^)]*claim\.email/, "the address of somebody asking to be forgotten is written to the logs");
+});
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT — Gate 5: the money boundary, driven adversarially
+// ---------------------------------------------------------------------------
+
+test("audit gate-5: the Stripe webhook refuses forgery, replay and tampering, and credits exactly once", async (t) => {
+  const env = { ...process.env };
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_audit_test_secret";
+  t.after(() => { process.env = env; });
+
+  const { createHmac } = await import("node:crypto");
+  const route = await import("../src/app/api/webhooks/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const wallet = await import("../src/backend/wallet.ts");
+
+  const sign = (payload, ts = Math.floor(Date.now() / 1000)) =>
+    `t=${ts},v1=${createHmac("sha256", "whsec_audit_test_secret").update(`${ts}.${payload}`).digest("hex")}`;
+  const post = (payload, sig) => route.POST(new NextRequest("https://x.test/api/webhooks/stripe", {
+    method: "POST", body: payload,
+    headers: sig ? { "stripe-signature": sig, "content-type": "application/json" } : { "content-type": "application/json" },
+  }));
+
+  const ORG = "audit-org-gate5";
+  // `invoice.paid` is the event that CREDITS. `checkout.session.completed`
+  // activates the plan and allocates zero on purpose, so the two cannot both
+  // credit the same month — that invariant is pinned separately below.
+  const evt = (id) => JSON.stringify({
+    id, type: "invoice.paid",
+    data: { object: {
+      amount_paid: 4900, currency: "gbp", subscription: "sub_1",
+      subscription_details: { metadata: { orgId: ORG, planId: "growth" } },
+      lines: { data: [{ price: { id: "price_x" }, metadata: { planId: "growth" } }] },
+    } },
+  });
+
+  const before = await wallet.getWallet(ORG);
+
+  // AN UNSIGNED EVENT IS NOT AN EVENT. Anyone who can reach the URL could
+  // otherwise credit any wallet on the platform.
+  assert.equal((await post(evt("e_nosig"))).status, 400, "an unsigned webhook was accepted");
+  assert.equal((await post(evt("e_forged"), `t=${Math.floor(Date.now() / 1000)},v1=${"0".repeat(64)}`)).status, 400,
+    "a forged signature was accepted");
+
+  // REPLAY. A captured event replayed days later must be refused on its
+  // timestamp, before idempotency is even consulted.
+  const stale = evt("e_stale");
+  assert.equal((await post(stale, sign(stale, Math.floor(Date.now() / 1000) - 4000))).status, 400,
+    "a stale event was accepted — a captured webhook could be replayed");
+
+  // TAMPERING. Sign a real body, then raise the amount by 1000x.
+  const good = evt("e_tamper");
+  const goodSig = sign(good);
+  const tampered = good.replace('"amount_paid":4900', '"amount_paid":4900000');
+  // The mutation must actually have happened, or this test proves nothing —
+  // a replace that silently matched nothing would "pass" against an unmodified
+  // body that is, correctly, still signed.
+  assert.notEqual(tampered, good, "the tamper payload did not change the body, so this asserts nothing");
+  assert.equal((await post(tampered, goodSig)).status, 400, "a body altered after signing was accepted");
+  assert.equal((await wallet.getWallet(ORG)).balanceAcu, before.balanceAcu,
+    "a rejected event still moved money");
+
+  // THE GENUINE ARTICLE credits once.
+  const real = evt("e_real");
+  const first = await post(real, sign(real));
+  const b1 = await wallet.getWallet(ORG);
+  assert.equal(first.status, 200, "a correctly signed event was refused");
+  assert.ok(b1.balanceAcu > before.balanceAcu, "a paid event credited nothing");
+  const singleCredit = b1.balanceAcu - before.balanceAcu;
+
+  // IDEMPOTENCY. Stripe redelivers; a redelivery must not pay twice.
+  await post(real, sign(real));
+  assert.equal((await wallet.getWallet(ORG)).balanceAcu, b1.balanceAcu,
+    "a redelivered webhook credited the wallet a second time");
+
+  // AND UNDER CONCURRENCY, which is how redelivery actually arrives — five at
+  // once, racing on the same event id. A check-then-write without a transaction
+  // credits five times here and looks fine in a sequential test.
+  const raced = evt("e_race");
+  const racedSig = sign(raced);
+  const b2 = await wallet.getWallet(ORG);
+  await Promise.all(Array.from({ length: 5 }, () => post(raced, racedSig)));
+  const b3 = await wallet.getWallet(ORG);
+  assert.equal(b3.balanceAcu - b2.balanceAcu, singleCredit,
+    `five concurrent deliveries of one event credited ${b3.balanceAcu - b2.balanceAcu} ACUs instead of ${singleCredit}`);
+
+  // AND THE TWO EVENTS OF ONE PURCHASE MUST NOT BOTH PAY. Stripe sends
+  // `checkout.session.completed` AND `invoice.paid` for the same subscription
+  // start. If both credited, every new customer would be paid twice on day one
+  // — the most expensive possible off-by-one and invisible without this check.
+  const start = JSON.stringify({
+    id: "e_checkout_start", type: "checkout.session.completed",
+    data: { object: { client_reference_id: ORG, amount_total: 4900, currency: "gbp", mode: "subscription", metadata: { planId: "growth" } } },
+  });
+  const b4 = await wallet.getWallet(ORG);
+  const startRes = await post(start, sign(start));
+  const b5 = await wallet.getWallet(ORG);
+  assert.equal(startRes.status, 200, "the checkout-completed event was refused");
+  assert.equal(b5.balanceAcu, b4.balanceAcu,
+    "checkout.session.completed credited ACUs — a new subscriber is paid twice, once here and once on invoice.paid");
+  assert.equal(b5.planId, "growth", "the plan was not activated by the checkout event");
+});
+
+// ---------------------------------------------------------------------------
+// LAUNCH AUDIT D-12 — a referred account that PAYS US must pay the creator
+// ---------------------------------------------------------------------------
+
+test("audit D-12: a MarketWar payment from a referred account accrues a commission", async () => {
+  const join = await import("../src/backend/share2earn-signup.ts");
+  const attr = await import("../src/backend/signup-attribution.ts");
+  const mc = await import("../src/backend/marketwar-commission.ts");
+  const ledger = await import("../src/backend/commission-ledger.ts");
+
+  const ce = await import("../src/backend/creator-engine.ts");
+  const nowISO = "2026-08-20T00:00:00.000Z";
+  const joined = await join.joinShare2Earn({ name: "Referrer", email: "d12-creator@example.com", nowISO });
+  assert.equal(joined.ok, true, "the creator could not join");
+
+  // A referral code is a SUBSCRIPTION to a programme — the same scheme /r/{CODE}
+  // resolves, not a second private one.
+  const programme = await ce.createProgramme({
+    brandId: "marketwar", brandName: "MarketWar OS", name: "Refer MarketWar",
+    product: "MarketWar OS subscription", description: "Refer a business to the platform.",
+    destinationUrl: "https://www.marketwaros.com", nowISO,
+  });
+  const sub = await ce.subscribe(joined.creatorId, programme.id, nowISO);
+  assert.ok(sub.subscription, `no subscription: ${sub.error}`);
+  const code = sub.subscription.code;
+
+  const ORG = "d12-paying-org";
+  const linked = await attr.attributeSignup({ accountId: ORG, code, email: "customer@example.com", nowISO });
+  assert.equal(linked.ok, true, `the signup was not attributed: ${linked.reason}`);
+
+  // THE DEFECT. Everything above this line already worked — the click, the
+  // attribution, the dashboard showing the referral. Then the account paid us
+  // and NOTHING happened: no code path joined a subscription payment to
+  // `accrue()`, so the platform's only revenue-share promise was tracked in
+  // full and paid never.
+  const paid = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980,   // £49 + 20% VAT
+    paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(paid.ok, true, `no commission accrued: ${paid.ok === false ? paid.reason : ""}`);
+  assert.equal(paid.paymentNumber, 1);
+  assert.ok(paid.earnedPence > 0, "the accrual earned nothing");
+
+  // COMMISSION IS NOT PAID ON VAT. £58.80 gross with £9.80 of tax leaves £49 —
+  // paying a share of tax we remit to HMRC is paying out of money that was
+  // never ours.
+  assert.equal(paid.eligiblePence, 4900,
+    "commission was computed on the gross including VAT");
+
+  // IDEMPOTENT. Stripe redelivers; a creator must not be paid twice for one
+  // invoice.
+  const again = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(again.ok, true);
+  assert.equal(again.created, false, "a redelivered invoice wrote a second accrual");
+  assert.equal(again.accrualId, paid.accrualId);
+  const rows = (await ledger.listForCode(code)).filter((a) => a.brandId === ORG);
+  assert.equal(rows.length, 1, `one payment produced ${rows.length} accruals`);
+
+  // A ZERO-VALUE INVOICE WRITES NOTHING. A 100% coupon or an all-tax line must
+  // not create a row: STATE.md names this — zero-value ledger events walk past
+  // the payout floor without a penny of revenue behind them.
+  const free = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_free", amountPaidPence: 0, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(free.ok, false);
+  assert.equal(free.code, "no_money");
+  assert.equal(free.terminal, true, "a zero-value invoice asked Stripe to retry forever");
+  const allTax = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_tax", amountPaidPence: 980, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(allTax.ok, false, "an invoice that was entirely tax still accrued");
+  assert.equal((await ledger.listForCode(code)).filter((a) => a.brandId === ORG).length, 1,
+    "a zero-value payment wrote a row");
+
+  // THE SECOND PAYMENT IS COUNTED, NOT ASSUMED. Whether a renewal earns is the
+  // programme's rule, and it needs the right payment number to apply it.
+  const second = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_second",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: "2026-09-20T00:00:00.000Z", nowISO: "2026-09-20T00:00:00.000Z",
+  });
+  assert.equal(second.ok, true, `the renewal did not accrue: ${second.ok === false ? second.reason : ""}`);
+  assert.equal(second.paymentNumber, 2, "the renewal was recorded as payment 1 again");
+
+  // AN UNREFERRED ACCOUNT IS NOT AN ERROR — it is the ordinary case.
+  const plain = await mc.commissionForPayment({
+    orgId: "d12-organic-org", paymentId: "in_d12_organic",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+  });
+  assert.equal(plain.ok, false);
+  assert.equal(plain.code, "not_referred");
+  assert.equal(plain.terminal, true, "an unreferred payment asked Stripe to retry it");
+
+  // A REDELIVERY THAT ARRIVES LATER IS STILL THE SAME PAYMENT. The webhook used
+  // to stamp `paidAtISO` with the current time, so a retry three days on looked
+  // like a later payment, moved position in the ordering that derives the
+  // payment number, and hashed to a NEW accrual id — paying the creator twice.
+  const late = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_first",
+    amountPaidPence: 5880, taxPence: 980,
+    paidAtISO: "2026-12-25T00:00:00.000Z", nowISO: "2026-12-25T00:00:00.000Z",
+  });
+  assert.equal(late.ok, true);
+  assert.equal(late.accrualId, paid.accrualId,
+    "a redelivery with a later timestamp created a second accrual for one invoice");
+
+  // A VOIDED ROW IS NOT A PAYMENT. A reversed first month must not make the
+  // next one look like the third and fall outside the commissionable window.
+  await ledger.voidAccrual(paid.accrualId, "refunded in full", "2026-09-01T00:00:00.000Z");
+  const third = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_third",
+    amountPaidPence: 5880, taxPence: 980,
+    paidAtISO: "2026-10-20T00:00:00.000Z", nowISO: "2026-10-20T00:00:00.000Z",
+  });
+  assert.equal(third.ok, true, `the third payment did not accrue: ${third.ok === false ? third.reason : ""}`);
+  assert.equal(third.paymentNumber, 2,
+    "a voided accrual was counted as a payment, pushing later ones out of the window");
+
+  // A STORAGE FAILURE IS RETRYABLE, and must say so — money is owed and the
+  // only record of it failed to write. DRIVEN, not inferred from the source.
+  const brokenWrite = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_broken",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+    write: async () => { throw new Error("firestore unavailable"); },
+  });
+  assert.equal(brokenWrite.ok, false);
+  assert.equal(brokenWrite.code, "store_failed", "a ledger outage was reported as 'not commissionable'");
+  assert.equal(brokenWrite.terminal, false,
+    "a ledger outage was marked terminal, so the commission is never retried and never paid");
+  assert.match(brokenWrite.reason, /firestore unavailable/, "the real cause was thrown away");
+
+  // The READ side too — failing to look up prior accruals is equally a reason
+  // to retry, and equally not a reason to say "nothing was owed".
+  const brokenRead = await mc.commissionForPayment({
+    orgId: ORG, paymentId: "in_d12_broken_read",
+    amountPaidPence: 5880, taxPence: 980, paidAtISO: nowISO, nowISO,
+    read: async () => { throw new Error("ledger unreadable"); },
+  });
+  assert.equal(brokenRead.ok, false);
+  assert.equal(brokenRead.code, "store_failed", "a ledger read failure was reported as 'not commissionable'");
+  assert.equal(brokenRead.terminal, false, "a ledger read failure is never retried, so the commission is never paid");
+
+  // AND THE WEBHOOK ACTUALLY CALLS IT. A module nothing invokes is the defect
+  // this whole finding was about — so assert the CALL, not the identifier.
+  const route = codeOf(readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /commission = await commissionForPayment\(\{/, "the webhook still does not pay a commission");
+  assert.match(route, /!commission\.ok && !commission\.terminal/, "a retryable commission failure is acked as done");
+  assert.match(route, /walletApplied\?\.applied/, "a commission accrues for a payment that never credited a wallet");
+  assert.match(route, /paidAtISO: paidAtFromEvent\(event\)/,
+    "the webhook stamps its own clock instead of the time Stripe says the money moved");
+});
+
+test("audit D-15: the free audit shows WHY it failed, not just that it did", () => {
+  const src = codeOf(readFileSync(new URL("../src/components/FreeAudit.tsx", import.meta.url), "utf8"));
+
+  // THE DEFECT, reported from production. Every failure the route did not
+  // itself describe collapsed into "That did not run — try again." That is the
+  // message shown when `res.json()` threw AND there was no `error` field —
+  // exactly the case where the route never answered: a platform 502/504, an
+  // HTML error page, a function killed at its duration limit. The one situation
+  // where the reason matters most was the one where it was discarded, so a
+  // report of "the audit is broken" carried nothing to act on.
+  assert.doesNotMatch(src, /That did not run — try again/,
+    "the message that hides every real cause is back");
+
+  // The body is read as TEXT first, so a non-JSON answer is still readable.
+  assert.match(src, /const raw = await res\.text\(\)/,
+    "a non-JSON error page is still parsed as JSON and discarded");
+  assert.match(src, /res\.status === 504 \|\| res\.status === 502/,
+    "a platform timeout is not distinguished from a refusal");
+  assert.match(src, /res\.status === 429/, "a rate limit is not named");
+  assert.match(src, /HTTP \$\{res\.status\}/, "the status code is never shown");
+
+  // The route's own refusals still win — they are better than anything generic.
+  assert.match(src, /const stated = typeof d\.error === "string" \? d\.error : ""/);
+  assert.match(src, /if \(stated\) \{ setError\(stated\); return; \}/,
+    "the route's own explanation is no longer preferred");
+
+  // A request that never completed is not the same as a server that refused.
+  assert.match(src, /Could not reach the audit service/,
+    "a network failure and a server refusal still read identically");
 });

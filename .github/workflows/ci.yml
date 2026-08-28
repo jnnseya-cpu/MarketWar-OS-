@@ -1,0 +1,130 @@
+# THE GATE. Nothing reaches `main` without passing this.
+#
+# LAUNCH-AUDIT FINDING D-02 (P1). Before this file, the only workflow in the
+# repository pushed secrets to Secret Manager. Nothing ran the type checker, the
+# tests, the build or the dependency audit on any push or pull request — so
+# "1,634 tests pass" was true only because somebody had just run them by hand,
+# and stayed true only until the next commit. A test suite that does not gate a
+# merge is documentation, not a control.
+#
+# The audit's Gate 1 asks that the release be traceable to a reviewed commit and
+# that automated tests execute successfully. Both were failing on the second
+# clause: they executed, but nothing required them to.
+#
+# WHAT RUNS, AND WHY EACH ONE IS HERE:
+#   layers/casts  — this repository's own two invariants. `check-layers` keeps
+#                   backend code out of the browser bundle; `check-casts` stops
+#                   new `as` assertions on data that crossed a network boundary.
+#                   Both are cheap and both have caught real defects.
+#   typecheck     — `strict: true`, and the build alone does not fail on every
+#                   type error in test/script files.
+#   test          — 1,636 cases, no network, no keys.
+#   build         — a production build is the only proof the app compiles as it
+#                   will be served, not as it runs in dev.
+#   audit         — fails on HIGH or CRITICAL. Moderate is reported and allowed:
+#                   the uuid → firebase-admin chain is left deliberately (npm's
+#                   "fix" is a four-major downgrade of firebase-admin) and a
+#                   permanently red pipeline teaches people to ignore it.
+#   secret scan   — a credential in a commit is unrecoverable once pushed.
+#
+# NOT HERE ON PURPOSE: nothing that needs a credential. This workflow must pass
+# on a fork with no secrets, or it stops being a gate and becomes a bottleneck.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `ci`, not `install` — the lockfile is the contract. An install that
+      # silently resolves a different tree is a build you did not test.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Layer separation
+        run: npm run check:layers
+
+      - name: Cast guard
+        run: npm run check:casts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # HIGH or CRITICAL fails the run. Moderate is printed for the record.
+      - name: Dependency audit (high+)
+        run: |
+          npm audit --audit-level=high
+          echo "--- full advisory list (informational) ---"
+          npm audit || true
+
+      # Cheap, and the one class of mistake that cannot be undone by a revert.
+      - name: Secret scan
+        run: |
+          set -o pipefail
+          if git grep -nEI "(sk-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,}|whsec_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{30,})" \
+               -- ':!tests/*' ':!docs/*' ':!.github/*' ; then
+            echo "::error::A credential-shaped string is present in tracked source."
+            exit 1
+          fi
+          echo "No credential-shaped strings outside tests/docs."
+
+      # An .env that reaches the repository is a credential leak waiting for a
+      # public clone. `.env.example` files are the intended, valueless form.
+      - name: No .env committed
+        run: |
+          if git ls-files | grep -E '^\.env$|^\.env\.(local|production|development)$|/\.env$'; then
+            echo "::error::An .env file is tracked. Remove it and rotate anything it held."
+            exit 1
+          fi
+          echo "No .env files tracked."
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # BLOCKING. LAUNCH-AUDIT FINDING D-03: lint had never run here at all. Its
+    # first pass found 139 errors — 137 of which were one false positive
+    # repeated (a backend helper named `useDb()` read as a React hook) and are
+    # now correctly scoped away. The remainder were fixed. It exits clean, so it
+    # blocks: a check allowed to fail forever is the nothing it replaced.
+    #
+    # 63 warnings remain (unused vars, exhaustive-deps, <img>). Warnings do not
+    # fail the run yet. Work them down, then add `--max-warnings 0`.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint

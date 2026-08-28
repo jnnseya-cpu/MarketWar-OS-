@@ -5,6 +5,7 @@ import {
 } from "@/backend/stripe-billing";
 import { recordEvent } from "@/backend/ledger";
 import { applyWebhookOutcome } from "@/backend/wallet";
+import { commissionForPayment, type CommissionOutcome } from "@/backend/marketwar-commission";
 
 // Locate the org whose wallet a payment credits. MarketWar-created checkouts stamp
 // the id three ways (client_reference_id + metadata.orgId + metadata.marketwar_org_id)
@@ -22,6 +23,23 @@ function orgIdFromEvent(event: StripeEventLike): string {
   ];
   for (const c of candidates) { if (typeof c === "string" && c.trim()) return c.trim(); }
   return "";
+}
+
+/**
+ * When the money actually moved, according to Stripe.
+ *
+ * `status_transitions.paid_at` on an invoice, else the object's `created`, else
+ * the event's `created`. All are Unix seconds. Falls back to now only when the
+ * event carries no timestamp at all, which no real Stripe event does.
+ */
+function paidAtFromEvent(event: StripeEventLike): string {
+  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+  const st = obj.status_transitions as Record<string, unknown> | undefined;
+  const candidates = [st?.paid_at, obj.created, (event as { created?: unknown }).created];
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c) && c > 0) return new Date(c * 1000).toISOString();
+  }
+  return new Date().toISOString();
 }
 
 // Stripe webhook endpoint — https://marketwaros.com/api/webhooks/stripe
@@ -87,6 +105,51 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // THE CREATOR WHO SENT THIS CUSTOMER GETS PAID — launch-audit finding D-12.
+  //
+  // §101 attributed the signup and nothing ever turned that into money. This is
+  // the join: a payment that credited a wallet, against the referral recorded
+  // when the account was created.
+  //
+  // A STORAGE FAILURE HERE RETURNS 500 ON PURPOSE. Stripe redelivers for three
+  // days and `commissionForPayment` is idempotent by invoice id, so the accrual
+  // lands by itself once the store is reachable. The alternative — acking a 200
+  // and logging the miss — is a commission somebody earned and will never be
+  // paid, discovered only if they complain.
+  let commission: CommissionOutcome | null = null;
+  if (outcome.handled && walletApplied?.applied) {
+    const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+    commission = await commissionForPayment({
+      orgId: orgIdFromEvent(event),
+      // The INVOICE id where there is one, so two events describing the same
+      // payment cannot both accrue; the event id otherwise.
+      paymentId: typeof obj.id === "string" && obj.id ? obj.id : event.id,
+      amountPaidPence: typeof obj.amount_paid === "number" ? obj.amount_paid
+        : typeof obj.amount_total === "number" ? obj.amount_total : 0,
+      // Gross minus tax. Paying a creator a share of VAT is paying them out of
+      // money that was never ours.
+      taxPence: typeof obj.tax === "number" ? obj.tax
+        : typeof obj.total_tax_amounts === "object" && Array.isArray(obj.total_tax_amounts)
+          ? obj.total_tax_amounts.reduce((n: number, t: unknown) => n + (typeof (t as { amount?: unknown })?.amount === "number" ? (t as { amount: number }).amount : 0), 0)
+          : 0,
+      // WHEN STRIPE SAYS IT WAS PAID, not when we happened to process it.
+      // Using `now` here meant a redelivery three days later carried a LATER
+      // timestamp than the original, which moved this payment's position in the
+      // ordering that derives its payment number — the one input the accrual id
+      // is hashed from. The order-id guard in `commissionForPayment` catches it,
+      // but a timestamp that changes per delivery is wrong on its own terms and
+      // would surface again the moment that guard was touched.
+      paidAtISO: paidAtFromEvent(event),
+      nowISO: new Date().toISOString(),
+    });
+    if (!commission.ok && !commission.terminal) {
+      return NextResponse.json(
+        { received: false, error: commission.reason, eventId: event.id, willRetry: true },
+        { status: 500 },
+      );
+    }
+  }
+
   // Automatic revenue attribution: if this is a payment on a MarketWar-created
   // checkout (metadata.marketwar_brand_id), record it as attributed revenue for
   // that brand — idempotent by event id. Never blocks the 200 response.
@@ -101,7 +164,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed });
+  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed, commission });
 }
 
 export async function GET(req: NextRequest) {

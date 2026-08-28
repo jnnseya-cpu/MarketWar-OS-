@@ -220,8 +220,13 @@ export default function CustomerVaultPage() {
         const raw = await res.text();
         let d: Record<string, unknown> = {};
         try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
-        // eslint-disable-next-line no-console
-        console.log("[vault] import batch", b + 1, "/", batches.length, res.status, d);
+        // LAUNCH-AUDIT D-01: this logged the whole parsed response `d` for every
+        // batch of a CUSTOMER import. Whatever the server echoes back — counts,
+        // errors, and anything it chose to include about the rows — went to the
+        // browser console of whoever ran the import, and stayed in it. Debug
+        // output in a flow that handles other people's customer records is not
+        // a style question. The batch position is kept because it is genuinely
+        // useful when a long import stalls; the payload is not.
         if (!res.ok) {
           const reason = (typeof d.error === "string" && d.error) || `Import failed (HTTP ${res.status})${raw && !d.error ? ` — ${raw.slice(0, 140)}` : ""}`;
           setMsg({ text: `${reason}${done > 0 ? ` (imported ${done.toLocaleString()} before this)` : ""}`, error: true });

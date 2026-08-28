@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { decide, bindingFor, HUMAN_COOKIE } from "@/backend/human-gate";
+import { rateLimitCore, clientKey } from "@/shared/rate-limit-core";
 
 // THE ONE PLACE THE HUMAN GATE IS APPLIED.
 //
@@ -45,8 +46,50 @@ const SIGNATURE_HEADERS = [
   "x-zernio-signature",
 ];
 
+// A FLOOR UNDER EVERY API ROUTE — launch-audit finding D-13 (P2).
+//
+// The audit enumerated 59 mutating API routes with no authentication, and 46 of
+// those had no rate limit either. Most are pure-computation engines with no
+// storage behind them, which is why they are unauthenticated and why that is
+// defensible. It is not defensible that anybody could call them without limit:
+// 200 unauthenticated POSTs at 20 concurrent were accepted with zero 429s, and
+// on a serverless deployment each one is a billed invocation. That is a
+// denial-of-wallet surface, and it scales with the attacker's concurrency
+// rather than ours.
+//
+// The floor lives HERE for the same reason the human gate does: a per-route
+// limit is a checklist every future route has to remember to be on, and the
+// list of 46 is exactly what happens when it is. A matcher covers the route
+// somebody writes tomorrow.
+//
+// GENEROUS ON PURPOSE. This is a ceiling on abuse, not a quota — a busy
+// dashboard fans out many calls per screen, and a limit that a real session
+// trips is a limit that gets removed. Routes with a genuine reason to be
+// stricter keep their own tighter `rateLimit` call; this never overrides one.
+//
+// PER-INSTANCE, and `backend/rate-limit.ts` explains why that is accepted here:
+// it is a Map, so a serverless fleet enforces it per instance rather than
+// globally. That makes it a speed bump against a single abusive client rather
+// than a defence against a distributed one — which is the honest description,
+// and still strictly better than the nothing it replaces. A global limiter
+// needs shared state this deployment does not have.
+const API_LIMIT = 120;
+const API_WINDOW_MS = 60_000;
+
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
+
+  if (path.startsWith("/api/")) {
+    // Keyed on the client, not the route, so spraying 46 different endpoints
+    // costs an attacker exactly what hammering one does.
+    const rl = rateLimitCore(clientKey(req, "api"), API_LIMIT, API_WINDOW_MS, Date.now());
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Slow down and try again shortly.", retryAfterSec: rl.retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+      );
+    }
+  }
 
   const decision = await decide({
     path,

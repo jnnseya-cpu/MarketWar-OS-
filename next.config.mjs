@@ -49,6 +49,10 @@ const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
   { key: "Content-Security-Policy", value: csp },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  // Launch audit D-07: without this, any other origin may embed our responses
+  // as a subresource. `same-site` rather than `same-origin` because the app is
+  // served from `www.` while assets and the apex share the registrable domain.
+  { key: "Cross-Origin-Resource-Policy", value: "same-site" },
 ];
 
 const nextConfig = {
@@ -61,6 +65,11 @@ const nextConfig = {
   // which is how the Admin SDK is designed to be consumed. Graduated out of
   // `experimental` in Next 15 — same behaviour, top-level key.
   serverExternalPackages: ["firebase-admin"],
+  // Launch audit D-06: `X-Powered-By: Next.js` shipped on every response, which
+  // hands a scanner the framework for free and buys us nothing. Version
+  // disclosure is not a vulnerability on its own; it is the first line of
+  // somebody else's exploit-selection script.
+  poweredByHeader: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
