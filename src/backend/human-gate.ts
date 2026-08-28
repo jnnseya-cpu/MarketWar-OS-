@@ -212,6 +212,45 @@ export const requiresFreshCheck = (path: string): boolean =>
 export const isAlwaysOpen = (path: string): boolean =>
   ALWAYS_OPEN_PREFIXES.some((p) => path === p || path.startsWith(p));
 
+/**
+ * CAPABILITY READS — "is this configured?", answered to anyone, on GET only.
+ *
+ * THE FAULT THIS FIXES, reported as the whole platform breaking. The moment
+ * `HUMAN_CHECK_SECRET` was set in production the gate went from `observe` to
+ * `enforced`, and every one of these went from answering to 403 "No human
+ * session on this request." They are the probes the dashboard fires to decide
+ * whether a studio is live, so the Video War Room reported Audio Studio,
+ * Translation & Dubbing, Repurposing, Brand Kit and B-Roll as unavailable, and
+ * the render length list collapsed — on a deployment where every key was set.
+ *
+ * `/api/health/live` sat in ALWAYS_OPEN and kept answering, which is exactly
+ * why some cards stayed right while the rest went dark: same page, same keys,
+ * different lane.
+ *
+ * These belong in the same class as `/api/health`. A GET here returns whether a
+ * provider key exists — never its value, never customer data, never a byte that
+ * costs money. Refusing it protects nothing and breaks the screen that tells an
+ * owner what they have paid for.
+ *
+ * **GET AND HEAD ONLY, AND THAT IS THE WHOLE POINT.** POST to these same paths
+ * renders video, synthesises speech and queues machine time. Those stay in the
+ * human lane, gated exactly as before. The safe read is opened; the spend is
+ * not — the same split `machineLaneFor`'s `openToRead` already makes for a
+ * provider's verification handshake.
+ */
+export const CAPABILITY_READ_PATHS = [
+  "/api/voice",         // GET: is the voice engine connected? POST: synthesises speech.
+  "/api/video/jobs",    // GET: is a render worker connected? POST: queues a paid job.
+  "/api/video-render",  // GET: which lengths, at what cost? POST: renders.
+  "/api/capabilities",  // The deployment's own capability list.
+];
+
+export const isCapabilityRead = (path: string, method?: string): boolean => {
+  const m = (method || "GET").toUpperCase();
+  if (m !== "GET" && m !== "HEAD") return false;
+  return CAPABILITY_READ_PATHS.some((p) => path === p);
+};
+
 // ---------------------------------------------------------------------------
 // Enforcement mode
 //
@@ -433,6 +472,14 @@ export async function decide(input: {
 
   if (isAlwaysOpen(input.path)) {
     return { lane: "always_open", allow: true, observed: false, sensitivity, reason: "This path is how a human proves they are one; closing it would close the only door." };
+  }
+
+  // A SAFE READ OF WHAT THIS DEPLOYMENT CAN DO. See CAPABILITY_READ_PATHS: the
+  // GET returns whether a key exists and nothing else, and refusing it made a
+  // fully configured platform report itself as unconfigured. The POST on the
+  // same path spends money and is judged below like everything else.
+  if (isCapabilityRead(input.path, input.method)) {
+    return { lane: "always_open", allow: true, observed: false, sensitivity, reason: "Reading whether a capability is configured returns no secret and costs nothing; refusing it only breaks the screen that reports it." };
   }
 
   const machine = machineLaneFor(input.path);
