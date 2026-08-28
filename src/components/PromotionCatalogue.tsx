@@ -13,7 +13,7 @@
 // uses. The browser does not decide eligibility; it renders the decision.
 
 import { useCallback, useEffect, useState } from "react";
-import { Ban, Check, Loader2, Package, Plus, ShieldCheck, Store, Trash2 } from "lucide-react";
+import { AlertTriangle, Ban, Check, Loader2, Package, Plus, ShieldCheck, Store, Trash2, Upload } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { ratePct, SHARE2EARN_RATE } from "@/shared/creator-program";
@@ -28,6 +28,17 @@ type Decision = {
 };
 type Product = { id: string; name: string; url: string; promotable: boolean; paused?: boolean; excludedReason?: string; offer: { pricePence: number } };
 type Catalogue = { policy: { mode: Mode }; products: { product: Product; decision: Decision }[]; summary: string; modes: ModeSpec[] };
+
+type ImportPlan = {
+  summary: string; fatal?: string; readyCount: number; imported: number; dryRun: boolean;
+  delimiter: string; decimal: string; headers: string[];
+  mappedColumns: Record<string, number>;
+  unmappedColumns: { index: number; header: string }[];
+  sample: { row: number; name: string; url: string; offer: Record<string, number>; notes: string[] }[];
+  refused: { row: number; name: string; problems: string[] }[];
+  duplicates: { row: number; name: string; firstSeenRow: number }[];
+  totalRows: number; permission?: string; next?: string;
+};
 
 const money = (p: number) => `£${(p / 100).toFixed(2)}`;
 const toPence = (v: string) => Math.max(0, Math.round((Number(v) || 0) * 100));
@@ -58,6 +69,11 @@ export default function PromotionCatalogue() {
   // the one number that must not be invented, because the commission is checked
   // against it. Only empty boxes are filled, and only until the form is touched.
   const [touched, setTouched] = useState(false);
+
+  // BULK IMPORT. Two steps on purpose: a plan you can read, then the write.
+  const [importText, setImportText] = useState("");
+  const [decimal, setDecimal] = useState<"unknown" | "dot" | "comma">("unknown");
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
   useEffect(() => {
     if (!activeBrand || touched) return;
     setName((v) => v || activeBrand.product || "");
@@ -101,6 +117,23 @@ export default function PromotionCatalogue() {
     if (d) { setName(""); setUrl(""); await load(); }
   }
 
+  async function runImport(confirm: boolean) {
+    const d = await post({ action: "import-catalogue", text: importText, decimal, confirm });
+    if (d) {
+      setPlan(d as ImportPlan);
+      if (confirm) await load();
+    }
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Read locally and send the TEXT. The server parses it — the browser never
+    // hands over a plan, so a stale page cannot mint a product nobody derived.
+    setImportText(await file.text());
+    setPlan(null);
+  }
+
   if (!brandId) return <p className="text-sm text-slate-400">Pick a brand to set what creators can promote.</p>;
 
   const mode = data?.policy?.mode || "mission_only";
@@ -132,6 +165,154 @@ export default function PromotionCatalogue() {
           ))}
         </div>
         {data?.summary && <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-ink-950/40 p-3 text-xs text-slate-400"><ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> {data.summary}</p>}
+      </div>
+
+      {/* BULK IMPORT — the door onto the catalogue.
+          Open catalogue mode asks a brand to list everything and exclude
+          individually, which is unusable if every product has to be typed. */}
+      <div className="rounded-xl border border-white/10 bg-ink-900/50 p-5">
+        <h3 className="flex items-center gap-2 font-display font-bold text-white">
+          <Upload className="h-4 w-4 text-emerald-400" /> Import your whole range
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          Export from Shopify, WooCommerce or a spreadsheet and drop it in. We read the columns we
+          recognise — name, price, cost, shipping, fees, tax — and show you exactly what will happen
+          before anything is saved. <strong className="text-slate-300">Imported products stay switched off</strong> until you turn them on.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="cursor-pointer rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-emerald-400/50 hover:text-white">
+            Choose a CSV
+            <input type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" className="hidden" onChange={onFile} />
+          </label>
+          <span className="text-[11px] text-slate-500">or paste the rows below</span>
+        </div>
+
+        <textarea
+          value={importText}
+          onChange={(e) => { setImportText(e.target.value); setPlan(null); }}
+          rows={4}
+          spellCheck={false}
+          placeholder={"Title,Price,Cost per item,Shipping\nOak desk,249.00,120.00,15.00"}
+          className="mt-3 w-full rounded-lg border border-white/10 bg-ink-950/60 p-3 font-mono text-[11px] text-slate-200 placeholder:text-slate-600"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy || !importText.trim()}
+            onClick={() => void runImport(false)}
+            className="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Check the file"}
+          </button>
+          {plan && !plan.fatal && plan.readyCount > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void runImport(true)}
+              className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-ink-950 hover:bg-emerald-400 disabled:opacity-40"
+            >
+              Import {plan.readyCount} product{plan.readyCount === 1 ? "" : "s"}
+            </button>
+          )}
+        </div>
+
+        {/* THE CONVENTION QUESTION, asked only when it is the thing standing in
+            the way. "1,299" is 1299 or 1.299 depending on where the file was
+            written, and those are 100x apart — so it is asked, never guessed. */}
+        {plan?.refused?.some((r) => r.problems.some((p) => p.includes("100× apart"))) && (
+          <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3">
+            <p className="flex items-start gap-2 text-xs text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Some numbers in this file could mean two amounts a hundred times apart, so we have not
+                guessed. How does your file write one thousand two hundred and ninety-nine pounds?
+              </span>
+            </p>
+            <div className="mt-2 flex gap-2">
+              {([["dot", "1,299.00"], ["comma", "1.299,00"]] as const).map(([mode, example]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => { setDecimal(mode); void post({ action: "import-catalogue", text: importText, decimal: mode, confirm: false }).then((d) => d && setPlan(d as ImportPlan)); }}
+                  className={`rounded-lg px-3 py-1.5 font-mono text-[11px] font-semibold ${decimal === mode ? "bg-emerald-500 text-ink-950" : "bg-white/10 text-slate-200 hover:bg-white/15"}`}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {plan && (
+          <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+            <p className="text-xs font-semibold text-slate-200">{plan.fatal || plan.summary}</p>
+            {plan.imported > 0 && (
+              <p className="text-xs text-emerald-300">
+                {plan.imported} imported. {plan.permission}
+              </p>
+            )}
+
+            {/* A SAMPLE, not a summary. Seeing one product's price and cost land
+                in the right fields is what catches a mis-mapped column before
+                two hundred wrong ones are stored. */}
+            {plan.sample?.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[420px] text-left text-[11px]">
+                  <thead className="text-slate-500">
+                    <tr><th className="py-1 pr-3 font-semibold">Product</th><th className="py-1 pr-3 font-semibold">Price</th><th className="py-1 pr-3 font-semibold">Cost</th><th className="py-1 font-semibold">Shipping</th></tr>
+                  </thead>
+                  <tbody className="text-slate-300">
+                    {plan.sample.map((r) => (
+                      <tr key={r.row} className="border-t border-white/5">
+                        <td className="py-1 pr-3">{r.name}</td>
+                        <td className="py-1 pr-3 font-mono">{money(r.offer.pricePence)}</td>
+                        <td className="py-1 pr-3 font-mono">{money(r.offer.cogsPence)}</td>
+                        <td className="py-1 font-mono">{money(r.offer.fulfilmentPence)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {plan.readyCount > plan.sample.length && (
+                  <p className="mt-1 text-[11px] text-slate-500">…and {plan.readyCount - plan.sample.length} more, read the same way.</p>
+                )}
+              </div>
+            )}
+
+            {plan.unmappedColumns?.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                Columns we did not use: {plan.unmappedColumns.map((c) => c.header).join(", ")}. Nothing was
+                dropped from your file — we simply have no field for them.
+              </p>
+            )}
+
+            {/* THE REFUSALS IN FULL. These are the actionable half: a price that
+                could not be read is a commission that would have been wrong. */}
+            {plan.refused?.length > 0 && (
+              <div className="rounded-lg border border-white/10 bg-ink-950/50 p-3">
+                <p className="text-[11px] font-semibold text-slate-300">
+                  {plan.refused.length} row{plan.refused.length === 1 ? "" : "s"} not imported
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {plan.refused.slice(0, 12).map((r) => (
+                    <li key={r.row} className="text-[11px] leading-relaxed text-slate-400">
+                      <span className="text-slate-500">Row {r.row}</span> {r.name ? <strong className="text-slate-300">{r.name}</strong> : null} — {r.problems.join("; ")}
+                    </li>
+                  ))}
+                </ul>
+                {plan.refused.length > 12 && <p className="mt-1 text-[11px] text-slate-500">…and {plan.refused.length - 12} more.</p>}
+              </div>
+            )}
+
+            {plan.duplicates?.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                {plan.duplicates.length} name{plan.duplicates.length === 1 ? " appears" : "s appear"} more than
+                once in this file — the last one wins, the same as re-importing would.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <form onSubmit={addProduct} className="rounded-xl border border-white/10 bg-ink-900/50 p-5">

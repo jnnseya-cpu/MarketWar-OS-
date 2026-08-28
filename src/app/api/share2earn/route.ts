@@ -39,6 +39,7 @@ import { SIGNUP_DOORS, UPGRADE_PATH } from "@/shared/creator-program";
 import { getBrandById } from "@/backend/brand-store";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { planImport, type ImportPlan } from "@/shared/catalogue-import";
 
 // MarketWar SHARE2EARN™ — post, move your audience, earn.
 //
@@ -160,6 +161,34 @@ export async function GET(req: NextRequest) {
     holdDays: HOLD_DAYS,
     doctrine: SHARE2EARN_DOCTRINE,
   });
+}
+
+/**
+ * The plan, shaped for the screen.
+ *
+ * The full `ready` list carries every product's whole cost stack, and on a
+ * two-hundred-row import that is a large payload nobody reads. What a person
+ * needs is the count, the refusals IN FULL — those are the actionable half —
+ * and enough of the accepted rows to confirm the columns were read the way they
+ * meant. `sample` is deliberately the first few rather than a summary: seeing
+ * one product's price and cost land in the right fields is what catches a
+ * mis-mapped column before two hundred wrong ones are stored.
+ */
+function planResponse(plan: ImportPlan) {
+  return {
+    summary: plan.summary,
+    fatal: plan.fatal || undefined,
+    delimiter: plan.delimiter === "\t" ? "tab" : plan.delimiter,
+    decimal: plan.decimal,
+    headers: plan.headers,
+    mappedColumns: plan.mapping.columns,
+    unmappedColumns: plan.mapping.unmapped,
+    readyCount: plan.ready.length,
+    sample: plan.ready.slice(0, 5).map((r) => ({ row: r.row, name: r.name, url: r.url, offer: r.offer, notes: r.notes })),
+    refused: plan.refused,
+    duplicates: plan.duplicates,
+    totalRows: plan.totalRows,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -436,6 +465,97 @@ export async function POST(req: NextRequest) {
 
   if (action === "catalogue") {
     return NextResponse.json({ ...(await catalogue(brandId, nowISO)), modes: PROMOTION_MODES, doctrine: PROMOTION_DOCTRINE });
+  }
+
+  // ---------------------------------------------------------------------------
+  // BULK IMPORT — the door onto the catalogue, not a second catalogue.
+  //
+  // The products, the modes and both gates have existed since §101. What did not
+  // exist was any way to get a real shop's range in: `open_catalogue` mode asks
+  // a brand to list everything and exclude individually, which is unusable if
+  // every product has to be typed one at a time. So this reads a file and calls
+  // the SAME `saveProduct` a single manual entry calls — no second write path,
+  // and therefore no second set of rules to drift.
+  //
+  // DRY RUN BY DEFAULT. Without `confirm: true` nothing is stored and the plan
+  // comes back for a person to look at. Importing two hundred products blind is
+  // how a catalogue gets wrecked, and the rows that were REFUSED are the
+  // interesting ones — a price that could not be read is a commission that would
+  // have been wrong, silently.
+  //
+  // PARSED SERVER-SIDE, ALWAYS. The browser sends the file's text, never a
+  // parsed plan: this route recomputes it from the raw text every time. The same
+  // rule the claim path already follows — a browser holding a stale page must
+  // not be able to mint an answer the server did not derive.
+  //
+  // IDEMPOTENT FOR FREE. `productId` hashes brand + name, so re-importing a
+  // corrected file updates the same documents rather than doubling the
+  // catalogue, and a half-finished import is safe to run again.
+  if (action === "import-catalogue") {
+    const text = str("text");
+    if (!text) return NextResponse.json({ error: "Paste the file's contents, or upload it — there is nothing here to read." }, { status: 400 });
+    // A bound, because this is a body that arrives over the network and every
+    // row becomes a write. Ten thousand rows is far past any small business's
+    // range and well inside what one request should carry.
+    if (text.length > 4_000_000) {
+      return NextResponse.json({ error: "That file is over 4MB. Split it, or export just the columns that matter: name, price, cost, shipping, fees, tax." }, { status: 413 });
+    }
+
+    const decimalRaw = str("decimal");
+    const plan = planImport({
+      text,
+      decimal: decimalRaw === "dot" || decimalRaw === "comma" ? decimalRaw : "unknown",
+      delimiter: (["\t", ";", "|", ","] as const).includes(str("delimiter") as never) ? (str("delimiter") as never) : undefined,
+      headerRow: typeof body.headerRow === "number" ? body.headerRow : undefined,
+    });
+
+    if (plan.fatal) return NextResponse.json({ ok: false, ...planResponse(plan), imported: 0 }, { status: 400 });
+
+    if (body.confirm !== true) {
+      return NextResponse.json({
+        ok: true, dryRun: true, imported: 0, ...planResponse(plan),
+        next: `Nothing has been stored. Send the same request with confirm: true to import the ${plan.ready.length} ready row${plan.ready.length === 1 ? "" : "s"}.`,
+      });
+    }
+
+    // The refused rows are simply not written. They are still reported, because
+    // "we imported 196 of your 200 products and here are the four that need a
+    // look" is the truthful outcome and the one a brand can act on.
+    const written: string[] = [];
+    const failed: { row: number; name: string; problem: string }[] = [];
+    for (const r of plan.ready) {
+      try {
+        const p = await saveProduct({
+          brandId,
+          name: r.name,
+          url: r.url || str("defaultUrl"),
+          offer: r.offer,
+          // NEVER promotable on import. A brand that uploads a price list has
+          // not decided that every line of it may be promoted, and in `curated`
+          // mode that switch is the brand's whole consent. Importing a
+          // catalogue must not also grant the permission — they are two
+          // decisions and the second one belongs on the screen.
+          promotable: false,
+          nowISO,
+        });
+        written.push(p.id);
+      } catch (e) {
+        failed.push({ row: r.row, name: r.name, problem: e instanceof Error ? e.message : "could not be stored" });
+      }
+    }
+
+    const cat = await catalogue(brandId, nowISO);
+    return NextResponse.json({
+      ok: true, dryRun: false,
+      imported: written.length,
+      storeFailures: failed,
+      ...planResponse(plan),
+      // Said plainly, because it is the one thing a brand will otherwise assume
+      // went the other way.
+      permission: "Imported products are OFF until you switch them on. Uploading a price list is not the same decision as agreeing every line of it may be promoted.",
+      ...cat,
+      modes: PROMOTION_MODES,
+    });
   }
 
   if (action === "product") {
