@@ -205,6 +205,12 @@ async function handleAudit(req: NextRequest) {
       url: report.finalUrl || report.url,
       score: report.score,
       grade: report.grade,
+      // THE SCORE BY AREA, GIVEN AWAY FREE. "How is my SEO?" is the question
+      // people arrive with, and the six numbers are the most persuasive thing on
+      // the page — a visitor who sees SEO 55 against Technical 90 knows exactly
+      // what to fix, and that is what makes the report worth an address.
+      // Holding it back would gate the answer to the question that brought them.
+      areaScores: report.areaScores,
       loadMs: report.loadMs,
       https: report.https,
       title: report.title,
@@ -334,6 +340,7 @@ async function handleAudit(req: NextRequest) {
     url: report.finalUrl || report.url,
     score: report.score,
     grade: report.grade,
+    areaScores: report.areaScores,
     loadMs: report.loadMs,
     https: report.https,
     title: report.title,
