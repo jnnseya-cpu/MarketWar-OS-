@@ -53,6 +53,29 @@ export type CrawlReport = {
   htmlBytes?: number;
   score: number;                 // 0-100, from measured checks
   grade: "A" | "B" | "C" | "D" | "F";
+  /**
+   * The same score cut by area — SEO, Content, Technical, Mobile, Social,
+   * Structured data. Computed by the SAME rule as `score`, on a filtered set of
+   * the same findings, so the two can never disagree.
+   *
+   * `score` and `grade` are NULL for an area where nothing could be measured.
+   * Zero would read as "you failed every check in this area" when the truth is
+   * "we could not read any of them", and those want opposite actions.
+   */
+  areaScores?: {
+    area: Finding["area"];
+    score: number | null;
+    grade: CrawlReport["grade"] | null;
+    measured: number;
+    checks: number;
+    failures: number;
+    warnings: number;
+    /** This area's share of the whole score, so one bad area is not read as one sixth. */
+    weightShare: number;
+    coveragePct: number;
+    worst: string;
+    note: string;
+  }[];
   title?: string;
   metaDescription?: string;
   h1Count?: number;
@@ -344,8 +367,70 @@ const metaContent = (html: string, nameOrProp: string): string | undefined => {
 const stripTags = (html: string): string =>
   html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
+/** Total weight of every finding, measured or not — the denominator for share. */
+function allFindingWeight(list: Finding[]): number {
+  return list.reduce((s, f) => s + f.weight, 0);
+}
+
 function grade(score: number): CrawlReport["grade"] {
   return score >= 90 ? "A" : score >= 75 ? "B" : score >= 60 ? "C" : score >= 40 ? "D" : "F";
+}
+
+/**
+ * THE SCORE, CUT BY AREA.
+ *
+ * "How is my SEO?" is the question people arrive with, and one number for the
+ * whole site cannot answer it: a site can be 82 overall while its SEO is 55, and
+ * the 82 is exactly what stops somebody acting on the 55.
+ *
+ * EXPORTED AND PURE so it can be driven directly. The `null` branch below cannot
+ * be reached through `crawlSite` with any HTML — every area always has at least
+ * one check readable from the markup — so a test that went through the crawler
+ * asserted nothing about it and two mutations of that branch survived. A rule
+ * this important has to be reachable by the test that guards it.
+ *
+ * ONE SCORING RULE: pass counts full weight, warn counts half, and a finding
+ * that was not measured or does not apply is counted neither way. Identical to
+ * the overall score, on a filtered set of the same findings, so the two can
+ * never disagree.
+ */
+export function scoreByArea(findings: Finding[]): NonNullable<CrawlReport["areaScores"]> {
+  const AREAS: Finding["area"][] = ["SEO", "Content", "Technical", "Mobile", "Social", "Structured data"];
+  const allWeight = allFindingWeight(findings);
+
+  return AREAS.map((area) => {
+    const inArea = findings.filter((f) => f.area === area);
+    const measurable = inArea.filter((f) => f.measured !== false && f.applicable !== false);
+    const earned = measurable.reduce((s, f) => s + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
+    const weight = measurable.reduce((s, f) => s + f.weight, 0);
+    const score = weight > 0 ? Math.round((earned / weight) * 100) : 0;
+    const areaAllWeight = inArea.reduce((s, f) => s + f.weight, 0);
+
+    return {
+      area,
+      // NULL, NEVER ZERO, when nothing here could be measured. Zero reads as
+      // "you failed every check in this area" when the truth is "we could not
+      // read any of them", and those two want opposite actions. Same doctrine
+      // the Clip Lab states outright: a dimension whose inputs nobody measured
+      // stays blank rather than being filled in.
+      score: measurable.length ? score : null,
+      grade: measurable.length ? grade(score) : null,
+      measured: measurable.length,
+      checks: inArea.length,
+      failures: measurable.filter((f) => f.severity === "fail").length,
+      warnings: measurable.filter((f) => f.severity === "warn").length,
+      // What this area is worth against the whole score, so one weak area of six
+      // is not read as one sixth of the problem.
+      weightShare: allWeight > 0 ? Math.round((areaAllWeight / allWeight) * 100) : 0,
+      // Coverage is PER AREA: the overall caveat is not transferable, because a
+      // page can be fully readable for Technical and unreadable for Content.
+      coveragePct: areaAllWeight > 0 ? Math.round((weight / areaAllWeight) * 100) : 0,
+      worst: measurable.filter((f) => f.severity !== "pass").sort((a, b) => b.weight - a.weight)[0]?.label || "",
+      note: measurable.length
+        ? ""
+        : `Nothing in ${area} could be read on this page, so it has no score. That is not a zero — it is an unknown, and it usually means the page renders in the browser.`,
+    };
+  });
 }
 
 export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
@@ -603,9 +688,25 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   // Excluded from the score for two different reasons, both honest: we could
   // not read it, or it is not a question about this business.
   const scored = findings.filter((f) => f.measured !== false && f.applicable !== false);
-  const earned = scored.reduce((s, f) => s + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
-  const total = scored.reduce((s, f) => s + f.weight, 0);
-  const score = total > 0 ? Math.round((earned / total) * 100) : 0;
+
+  // ONE SCORING RULE, APPLIED TO WHATEVER SET IT IS GIVEN.
+  //
+  // The overall score and the per-area scores must never be able to disagree, so
+  // there is one function and the only difference is which findings go in. A
+  // second copy computing "the SEO score" its own way is two numbers that drift
+  // the first time either is edited — and both are printed on the same page.
+  const tally = (list: Finding[]) => {
+    const earned = list.reduce((s, f) => s + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
+    const weight = list.reduce((s, f) => s + f.weight, 0);
+    return { earned, weight, score: weight > 0 ? Math.round((earned / weight) * 100) : 0 };
+  };
+
+  const overall = tally(scored);
+  const earned = overall.earned;
+  const total = overall.weight;
+  const score = overall.score;
+
+  const areaScores = scoreByArea(findings);
 
   // The score has to carry its own coverage or it lies by omission.
   //
@@ -622,6 +723,9 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   return {
     ok: true, url, finalUrl, httpStatus: status, https, loadMs: ms, htmlBytes: html.length, renderGap,
     score, grade: grade(score), coveragePct, unreadable,
+    // The same score, cut by area. "How is my SEO?" is the question people
+    // arrive with; one number for the whole site cannot answer it.
+    areaScores,
     scoreNote: coveragePct >= 100
       ? ""
       : `This score is computed from the ${coveragePct}% of the audit we could actually read in the HTML. ${unreadable.length} check(s) — ${unreadable.join(", ")} — are unknown because this page renders in the browser, and they are counted neither for nor against you. Treat ${score}/100 as "of what was readable", not as a verdict on the page.`,

@@ -6236,6 +6236,111 @@ const crawlWith = async (pages) => {
   finally { globalThis.fetch = real; }
 };
 
+// ---------------------------------------------------------------------------
+// THE SCORE, BY AREA — SEO scored separately from the rest.
+//
+// "How is my SEO?" is the question people arrive with, and one number for the
+// whole site cannot answer it: a site can be 82 overall while its SEO is 55,
+// and the 82 is exactly what stops somebody acting on the 55.
+//
+// ONE SCORING RULE. The per-area numbers go through the same `tally` as the
+// overall score, on a filtered set of the same findings, so the two can never
+// disagree — a second implementation of "the SEO score" is two numbers that
+// drift the first time either is edited, printed side by side on one page.
+// ---------------------------------------------------------------------------
+test("the audit scores each area separately, by the same rule as the overall score", async () => {
+  // A page deliberately strong on one axis and weak on another, so a single
+  // number would hide the weakness.
+  const report = await crawlWith({
+    "veryxjnn.com": {
+      status: 200,
+      body: `<html lang="en"><head>` +
+        `<title>VeryX</title>` +
+        `<meta name="viewport" content="width=device-width">` +
+        `</head><body><h1>VeryX</h1>` +
+        `<p>${"word ".repeat(400)}</p>` +
+        `<a href="mailto:hi@veryxjnn.com">Email us</a>` +
+        `</body></html>`,
+      headers: { "content-type": "text/html" },
+    },
+  });
+
+  assert.equal(report.ok, true, `the crawl failed: ${report.error || ""}`);
+  assert.ok(Array.isArray(report.areaScores) && report.areaScores.length > 0, "the report carries no per-area scores");
+
+  const seo = report.areaScores.find((a) => a.area === "SEO");
+  assert.ok(seo, "there is no SEO score");
+
+  // EVERY AREA IS DERIVED FROM ITS OWN FINDINGS, by the same arithmetic — pass
+  // counts full weight, warn counts half, and nothing else is counted.
+  for (const a of report.areaScores) {
+    const mine = report.findings.filter((f) => f.area === a.area && f.measured !== false && f.applicable !== false);
+    assert.equal(a.measured, mine.length, `${a.area} counted ${a.measured} checks but has ${mine.length}`);
+    if (!mine.length) continue;
+    const earned = mine.reduce((n, f) => n + (f.severity === "pass" ? f.weight : f.severity === "warn" ? f.weight * 0.5 : 0), 0);
+    const weight = mine.reduce((n, f) => n + f.weight, 0);
+    assert.equal(a.score, Math.round((earned / weight) * 100), `${a.area} does not match the one scoring rule`);
+    assert.equal(a.failures, mine.filter((f) => f.severity === "fail").length);
+    assert.equal(a.warnings, mine.filter((f) => f.severity === "warn").length);
+  }
+
+  // AND THE BREAKDOWN MUST BE ABLE TO DISAGREE WITH THE HEADLINE — otherwise it
+  // adds nothing. On this page at least one area differs from the overall score,
+  // which is the entire reason for showing them.
+  const spread = report.areaScores.filter((a) => a.score != null).map((a) => a.score);
+  assert.ok(spread.length >= 2, "fewer than two areas scored — this fixture cannot show a difference");
+  assert.ok(spread.some((v) => v !== report.score),
+    `every area equals the overall score (${report.score}), so the breakdown tells the reader nothing`);
+});
+
+test("an area nothing could be measured in scores null, never zero", async () => {
+  const { scoreByArea } = await import("../src/backend/crawler.ts");
+
+  // DRIVEN DIRECTLY, and that is the point. This branch cannot be reached
+  // through `crawlSite` with any HTML — every area always has at least one check
+  // readable from the markup — so the first version of this test went through
+  // the crawler, never entered the branch, and TWO mutations of it survived:
+  // returning 0 instead of null, and grading it anyway. A rule has to be
+  // reachable by the test that guards it.
+  const findings = [
+    // SEO: readable, and mixed, so the arithmetic is exercised too.
+    { area: "SEO", label: "Title tag", severity: "pass", detail: "", weight: 10 },
+    { area: "SEO", label: "Meta description", severity: "warn", detail: "", weight: 10 },
+    { area: "SEO", label: "Canonical tag", severity: "fail", detail: "", weight: 20 },
+    // Content: every check unreadable — a JavaScript-rendered page.
+    { area: "Content", label: "Content depth", severity: "fail", detail: "", weight: 10, measured: false },
+    { area: "Content", label: "Heading structure", severity: "fail", detail: "", weight: 5, measured: false },
+    // Social: present but not a question about this business.
+    { area: "Social", label: "Local address", severity: "fail", detail: "", weight: 8, applicable: false },
+  ];
+
+  const areas = Object.fromEntries(scoreByArea(findings).map((a) => [a.area, a]));
+
+  // pass 10 + warn 10×0.5 + fail 0 = 15 of 40 → 38.
+  assert.equal(areas.SEO.score, 38, "the SEO score does not follow the one scoring rule");
+  assert.equal(areas.SEO.failures, 1);
+  assert.equal(areas.SEO.warnings, 1);
+  assert.equal(areas.SEO.worst, "Canonical tag", "the worst finding is not the heaviest failing one");
+
+  // THE POINT, for both reasons an area can end up with nothing measured.
+  for (const blank of ["Content", "Social"]) {
+    assert.equal(areas[blank].score, null, `${blank} scored ${areas[blank].score} with nothing measured — that is an unknown, not a failure`);
+    assert.equal(areas[blank].grade, null, `${blank} was graded with nothing measured`);
+    assert.equal(areas[blank].measured, 0);
+    assert.match(areas[blank].note, /not a zero/i, `${blank} does not explain that a blank is an unknown`);
+  }
+
+  // Coverage is PER AREA — the overall caveat is not transferable. Content is
+  // fully unreadable while SEO is fully readable, on the same page.
+  assert.equal(areas.SEO.coveragePct, 100);
+  assert.equal(areas.Content.coveragePct, 0);
+
+  // An area with no checks at all is still reported, so the six are always the
+  // six and a missing one is never mistaken for a perfect one.
+  assert.equal(areas.Mobile.measured, 0);
+  assert.equal(areas.Mobile.score, null);
+});
+
 test("crawler: a bot-protection challenge is not audited as if it were the site", async () => {
   const report = await crawlWith({
     "veryxjnn.com": { status: 403, body: "<html><head><title>Attention Required! | Cloudflare</title></head><body>cf-browser-verification</body></html>", headers: { server: "cloudflare" } },
@@ -25189,4 +25294,74 @@ test("jwks-rsa still require()s the ESM-only jose, which is what the Node pin is
     "jwks-rsa no longer require()s jose — re-check whether engines.node still needs to be 22.x");
   const jose = JSON.parse(readFileSync(new URL("../node_modules/jose/package.json", import.meta.url), "utf8"));
   assert.equal(jose.type, "module", `jose is no longer ESM-only (type: ${jose.type}) — the Node pin may no longer be required`);
+});
+
+// The value has to CROSS THE BOUNDARY. This repository's oldest and most
+// repeated defect is a value that exists on one side and is never carried to the
+// other — twenty-three of them so far, most recently a send failure whose reason
+// reached the browser and was dropped one line before it could be read. So the
+// per-area scores are asserted where a visitor actually meets them: in the JSON
+// the route returns, both before and after an email is given.
+test("the per-area scores reach the audit API response, with and without an email", async () => {
+  const { POST } = await import("../src/app/api/audit/route.ts");
+  const { NextRequest } = await import("next/server");
+
+  // The route keeps its own 12-per-minute limiter keyed on the caller, and every
+  // test in this file arrives as the same "local" client — so by the time this
+  // runs the budget is spent and the response is a 429 with no `ok` at all. The
+  // first version of this test failed on that rather than on the feature, which
+  // is the safe direction to be wrong but still tests nothing.
+  const { __resetRateLimits } = await import("../src/backend/rate-limit.ts");
+  __resetRateLimits();
+
+  const BODY = `<html lang="en"><head><title>VeryX — a work-centric CDE</title>` +
+    `<meta name="viewport" content="width=device-width"><link rel="canonical" href="https://veryxjnn.com/">` +
+    `</head><body><h1>VeryX</h1><p>${"word ".repeat(300)}</p>` +
+    `<a href="mailto:hi@veryxjnn.com">Email us</a></body></html>`;
+
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    ok: true, status: 200, url: String(url),
+    headers: { get: (n) => (n.toLowerCase() === "content-type" ? "text/html" : null) },
+    arrayBuffer: async () => new TextEncoder().encode(BODY).buffer,
+    text: async () => BODY,
+  });
+
+  try {
+    const call = (payload) => POST(new NextRequest("https://mw.test/api/audit", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://veryxjnn.com/", ...payload }),
+    }));
+
+    // FREE, no email — the breakdown is given away, because "how is my SEO?" is
+    // the question that brought them and gating the answer to it is what stopped
+    // this tool ever winning anybody.
+    const free = await (await call({})).json();
+    assert.equal(free.ok, true, `the crawl failed: ${free.error || ""}`);
+    assert.ok(Array.isArray(free.areaScores), "areaScores never reached the free response");
+    assert.equal(free.areaScores.length, 6, "not every area is reported");
+
+    const seo = free.areaScores.find((a) => a.area === "SEO");
+    assert.ok(seo, "there is no SEO score in the response");
+    assert.equal(typeof seo.score, "number", "the SEO score did not survive the boundary as a number");
+    assert.ok(seo.score >= 0 && seo.score <= 100);
+
+    // And it must be able to DIFFER from the headline, or it adds nothing.
+    assert.ok(free.areaScores.some((a) => a.score != null && a.score !== free.score),
+      `every area equals the overall score (${free.score}) — the breakdown tells the reader nothing`);
+
+    // The full report carries it too. It was added to two response shapes and
+    // one of them would otherwise be exactly the kind of half-wiring this test
+    // exists to catch.
+    const full = await (await call({ email: "owner@example.org" })).json();
+    assert.equal(full.ok, true);
+    assert.ok(Array.isArray(full.areaScores), "areaScores never reached the emailed report");
+    assert.deepEqual(
+      full.areaScores.map((a) => a.area),
+      free.areaScores.map((a) => a.area),
+      "the free and full reports disagree about which areas exist",
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
 });

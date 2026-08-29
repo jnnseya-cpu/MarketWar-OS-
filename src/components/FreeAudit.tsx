@@ -27,6 +27,10 @@ type Finding = {
 type Report = {
   ok: boolean; error?: string; gated?: boolean;
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
+  areaScores?: {
+    area: string; score: number | null; grade: string | null; measured: number; checks: number;
+    failures: number; warnings: number; weightShare: number; coveragePct: number; worst: string; note: string;
+  }[];
   findings?: Finding[]; heldBack?: number; unmeasured?: number; note?: string; recorded?: boolean;
   /** Every page this report is based on. Shown, because a claim about "your website" has to name what was read. */
   pagesRead?: string[]; pagesTried?: string[];
@@ -113,6 +117,10 @@ export default function FreeAudit() {
         track(withEmail ? "audit_lead" : "audit_started", {
           score: typeof (d as Report).score === "number" ? (d as Report).score : undefined,
           grade: (d as Report).grade,
+          // The SEO score as a scalar, because "which area is weak" is the one
+          // thing worth knowing across many audits — and this call takes numbers
+          // and letters only, never the URL, the address or a nested object.
+          seoScore: (d as Report).areaScores?.find((a) => a.area === "SEO")?.score ?? undefined,
         });
       }
     } catch (e) {
@@ -161,6 +169,54 @@ export default function FreeAudit() {
               </p>
             </div>
           </div>
+
+          {/* THE SCORE BY AREA. "How is my SEO?" is the question people arrive
+              with, and one number for the whole site cannot answer it — a site
+              can be 82 overall while its SEO is 55, and the 82 is exactly what
+              stops somebody acting. Free, because gating the answer to the
+              question that brought them here is what kept this tool from ever
+              winning anybody.
+
+              An area with nothing measured shows a dash, never a 0: zero reads
+              as "you failed every SEO check" when the truth is "we could not
+              read any of them", and those want opposite actions. */}
+          {report.areaScores && report.areaScores.length > 0 && (
+            <div className="rounded-xl border border-white/10 bg-ink-900/40 p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Your score, by area</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {report.areaScores.map((a) => {
+                  const tone =
+                    a.score == null ? "text-slate-500"
+                      : a.score >= 75 ? "text-emerald-300"
+                        : a.score >= 50 ? "text-amber-300"
+                          : "text-rose-300";
+                  return (
+                    <div key={a.area} className="rounded-lg border border-white/5 bg-ink-950/40 p-3">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[13px] font-semibold text-slate-200">{a.area}</span>
+                        <span className={`font-display text-lg font-bold ${tone}`}>
+                          {a.score == null ? "—" : a.score}
+                          {a.score != null && <span className="ml-0.5 text-[10px] font-normal text-slate-600">/100</span>}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        {a.score == null
+                          ? "Nothing here could be read — an unknown, not a zero."
+                          : a.failures || a.warnings
+                            ? `${a.failures ? `${a.failures} failing` : ""}${a.failures && a.warnings ? ", " : ""}${a.warnings ? `${a.warnings} to improve` : ""}${a.worst ? ` · worst: ${a.worst}` : ""}`
+                            : `All ${a.measured} checks pass.`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+                Each area is scored by the same rule as the overall number, on its own checks only — so a
+                weak area is visible even when the total looks healthy. A dash means nothing in that area
+                could be read from the page, which is an unknown rather than a failure.
+              </p>
+            </div>
+          )}
 
           {/* WHAT WAS READ, before anything is claimed about it.
               A live audit told a business with a working /contact page that
