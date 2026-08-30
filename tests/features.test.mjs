@@ -25562,3 +25562,88 @@ test("the quota never stores a raw IP address", async () => {
   // past its purpose is data held for no reason.
   assert.match(write, /cutoff/, "spent rows are kept forever");
 });
+
+// ---------------------------------------------------------------------------
+// EVERY ENVIRONMENT VARIABLE IS DOCUMENTED, OR THIS FAILS.
+//
+// `/api/health/live` reported `envPresent` from a hand-typed list of 35 names
+// while the codebase read 133. Ninety-one — including RESEND_API_KEY,
+// APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY, ONFIDO_API_TOKEN, WHATSAPP_TOKEN,
+// FB_APP_SECRET, the Google OAuth trio and every webhook secret — were invisible
+// to the one diagnostic that answers "what does this deployment actually hold?".
+//
+// A key you cannot see is a key you cannot tell is missing, and a hand-typed
+// list drifts the moment somebody adds a variable and forgets. So the source is
+// walked and the catalogue has to cover it.
+// ---------------------------------------------------------------------------
+test("every process.env variable in the source is catalogued", async () => {
+  const { ENV_CATALOGUE, ENV_TUNING, ENV_PLATFORM } = await import("../src/shared/env-catalogue.ts");
+
+  const found = new Map();
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === ".next" || name === ".git") continue;
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (!/\.(ts|tsx|mjs|js)$/.test(name)) continue;
+      const src = readFileSync(p, "utf8");
+      for (const m of src.matchAll(/process\.env\.([A-Z0-9_]+)/g)) {
+        if (!found.has(m[1])) found.set(m[1], p);
+      }
+      for (const m of src.matchAll(/process\.env\[["'`]([A-Z0-9_]+)["'`]\]/g)) {
+        if (!found.has(m[1])) found.set(m[1], p);
+      }
+    }
+  };
+  for (const d of ["src", "scripts", "worker"]) {
+    try { walk(new URL(`../${d}`, import.meta.url).pathname); } catch { /* worker/ may be absent */ }
+  }
+
+  assert.ok(found.size > 100, `only ${found.size} variables found — the walk is broken, so this proves nothing`);
+
+  const known = new Set([...ENV_CATALOGUE.map((e) => e.name), ...ENV_TUNING, ...ENV_PLATFORM]);
+  const undocumented = [...found.entries()].filter(([n]) => !known.has(n)).map(([n, p]) => `${n} (${p.replace(/^.*\/src\//, "src/")})`);
+  assert.deepEqual(undocumented, [],
+    `these are read from the environment but appear in no list — add each to ENV_CATALOGUE with what it unlocks and where to get it, or to ENV_TUNING/ENV_PLATFORM if it needs neither:\n  ${undocumented.join("\n  ")}`);
+
+  // AND NOTHING IS CATALOGUED THAT THE CODE NEVER READS — a variable somebody is
+  // told to set, that nothing looks at, is worse than an undocumented one: it
+  // sends them to a provider to buy a key that changes nothing.
+  //
+  // A NAME IS "READ" IF IT APPEARS AT ALL, not only as `process.env.NAME`.
+  // Several are reached through helpers — `envKey("ANTHROPIC_API_KEY")`,
+  // `env("NEWSLETTER_SECRET")` — so a scan for the direct form alone reported
+  // three live keys as phantoms, ANTHROPIC_API_KEY among them. Matching the
+  // quoted name catches both shapes.
+  const referenced = new Set(found.keys());
+  const quoted = new Set();
+  const scanQuoted = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === ".next" || name === ".git") continue;
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) { scanQuoted(p); continue; }
+      if (!/\.(ts|tsx|mjs|js)$/.test(name)) continue;
+      const src = readFileSync(p, "utf8");
+      for (const m of src.matchAll(/["'`]([A-Z][A-Z0-9_]{3,})["'`]/g)) quoted.add(m[1]);
+    }
+  };
+  for (const d of ["src", "scripts", "worker"]) {
+    try { scanQuoted(new URL(`../${d}`, import.meta.url).pathname); } catch { /* worker/ may be absent */ }
+  }
+  const phantom = ENV_CATALOGUE.map((e) => e.name).filter((n) => !referenced.has(n) && !quoted.has(n));
+  assert.deepEqual(phantom, [], `catalogued but never read anywhere: ${phantom.join(", ")}`);
+
+  // Every entry has to actually say something. An empty `where` is a row that
+  // looks like documentation and answers nothing.
+  for (const e of ENV_CATALOGUE) {
+    assert.ok(e.unlocks.length > 20, `${e.name} does not say what it unlocks`);
+    assert.ok(e.where.length > 5, `${e.name} does not say where to get it`);
+  }
+});
+
+// The readiness report must read the catalogue, not a second list beside it.
+test("the health report's envPresent comes from the catalogue", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /env-catalogue/, "/api/health/live still keeps its own hand-typed list of variables");
+  assert.doesNotMatch(src, /const KEYS = \[[\s\S]{200,}?\];/, "a second, hand-maintained key list is back");
+});
