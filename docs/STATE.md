@@ -126,6 +126,11 @@ APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 - **The free audit is limited to personal use** (08-29) — 10 per site, 3 sites, 15 total per
   90 days, unlimited when paid. Site key is the registrable domain. The IP is never stored.
 - **§50 autonomous paid boost** (08-30) — the ladder, above.
+- **§100 per-agent cost and impact** (08-30) — one row per charge, because `debitAcus`
+  took a wallet id and an amount and one total was all that survived for nineteen agents.
+  Revenue nobody attributed is `null`, never zero.
+- **§77 content performance knowledge graph** (08-30) — typed entities and edges over
+  measured posts. Never claims causation; no verdict below three posts.
 - **Bulk catalogue import** — an amount 100× ambiguous ("1,299") is REFUSED, not guessed.
 
 **Owner actions (nothing in code can substitute):**
@@ -140,6 +145,11 @@ APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 4. **Run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness. Build the five custom audiences FIRST — they cannot be backfilled.
 5. **`COMPANIES_HOUSE_API_KEY`** — free, the second free source in the contact waterfall. `SERPER_API_KEY` gates live company discovery; the current value is rejected 401/403.
 6. **Video needs credit at a provider**, not a model change — OpenAI's account is empty. Add credit, or render on Veo. Pin the tier with `GEMINI_VIDEO_MODEL` and set `VIDEO_COST_PER_SECOND_GBP_VEO` from the invoice.
+
+**No feature section of the growth spec is MISSING as of 2026-08-30.** §50, §77 and §100
+were the last three; §80 (an agent message bus) is recorded as considered and rejected —
+nothing subscribes to another agent's output. What remains is partial rows, each naming
+the one absent part. See `GROWTH-ENGINE-COVERAGE.md`.
 
 **Surfaces: six of seven** — §70, §92, §95, §98, §102, §103. **Not built:** §97's priority
 queue; §50 paid boost; §77 knowledge graph; §80 agent message bus; §14 calendars, §21

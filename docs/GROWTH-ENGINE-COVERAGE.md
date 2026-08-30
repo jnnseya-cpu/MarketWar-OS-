@@ -8,8 +8,11 @@ rebuilding the 80% that already exists.
 sections are delivered, never appended to. `docs/STATE.md` remains the single
 description of where the platform stands overall.
 
-Verified mechanically on 2026-08-17 by reading module exports and searching for
-each concept, not by recollection. 219 backend modules, 1,201 tests (2026-08-22). §108's four classes are used throughout: EXISTS ✅ / PARTIAL 🟡 / MISSING ❌.
+Verified mechanically by reading module exports and searching for each concept,
+not by recollection. 240 backend modules, 1,707 tests (2026-08-30). §108's four
+classes are used throughout: EXISTS ✅ / PARTIAL 🟡 / MISSING ❌ — plus ⛔ for a
+section considered and deliberately not built, which is a different thing from
+one nobody has reached.
 
 ---
 
@@ -22,9 +25,19 @@ specialist agents behave like one autonomous growth department"* — exists:
 Growth Intelligence Memory, and `chain-exec.ts` carries memory into every step
 and writes back afterwards. It was not missing.
 
-What is genuinely absent clusters in four places: **safety controls around
-publishing**, **agency/multi-tenant structure**, **the audit and versioning
-trail**, and **paid-media guardrails**. Those are the build list.
+**As of 2026-08-30 no feature section is MISSING.** The four clusters that were
+absent — safety controls around publishing, agency/multi-tenant structure, the
+audit and versioning trail, and paid-media guardrails — have all been built. The
+last three ❌ feature rows closed on 2026-08-30: §50 the autonomous paid boost
+ladder, §77 the content performance knowledge graph, and §100's per-agent cost
+and impact. §80 is marked ⛔: an agent message bus was considered and rejected
+because nothing subscribes to another agent's output, and the note below §100
+says so rather than leaving it to be rediscovered as a gap.
+
+What remains is 🟡 — sections where the engine exists and one named part of it
+does not. Each 🟡 row states which part, so none of them is a vague "partly
+done". The only ❌ left is §106, a build list that correctly has not started
+because it sits on top of P1.
 
 ---
 
@@ -81,7 +94,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 47 | AI outreach agent, personalised | `prospecting.ts` (`buildSequence`), `local-outreach.ts`, `whatsapp.ts`, `copywriter.ts` | ✅ |
 | 48 | Share2Earn escalation + spend caps | `share2earn.ts`, `creator-engine.ts`, `promotable.ts` (`marginAllows`) | ✅ |
 | 49 | Share2Earn AI selection scoring | `promotable.ts`, `creator-intel.ts` | 🟡 eligibility and margin are computed; the five-factor score is not |
-| 50 | **Autonomous paid boost (organic → small paid → scale)** | nothing. `amplify.ts` recommends amplification but not the staged-validation ladder | ❌ |
+| 50 | **Autonomous paid boost (organic → small paid → scale)** | `shared/boost-ladder.ts` (pure rungs, the brand's own median as the bar) + `backend/boost-ladder.ts` (composes `withinBudget` / `stopLoss` / `scaleStep` / `economicsFor` / the emergency stop) + `/api/boost-ladder` + `BoostLadder.tsx` on `/dashboard/amplify` — **delivered 2026-08-30** | ✅ |
 | 51 | Budget guardrails | `paid-guardrails.ts` (`withinBudget`, every §51 field by name) + `budget.ts` + `agent-budget.ts` — **delivered this session** | ✅ |
 | 52 | Scale winner engine (+20% step) | `paid-guardrails.ts` (`scaleStep`) — **delivered this session** | ✅ |
 | 53 | Stop-loss engine | `paid-guardrails.ts` (`stopLoss`, all six triggers) — **delivered this session** | ✅ |
@@ -102,7 +115,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 63 | Undo / restore | `asset-versions.restoreVersion` + `work-library.restoreDeleted` — **delivered this session** | ✅ |
 | 64 | Creative approval audit | `approvals.ts` (`transition` records actor, role, note) | 🟡 approver and time yes; version, channel and publication time no |
 | 65 | Agency / multi-brand hierarchy | `membership.ts` (workspaces group brands; grants inherited) + `brand-access.ts` now consults grants — **delivered this session** | 🟡 engine + isolation wired; no agency dashboard yet |
-| 66 | Client approval portal (secure link, no account) | `client-portal.ts` — signed, single-item, expiring, revocable — **engine delivered this session; the route and page are not built** | 🟡 |
+| 66 | Client approval portal (secure link, no account) | `client-portal.ts` (signed, single-item, expiring, revocable) + the route and `ClientPortalView.tsx` — **the page shipped; this row said otherwise for weeks** | ✅ |
 | 67–68 | Team roles and permissions | `shared/workspace.ts` (all ten roles, all ten permissions) + `membership.ts` enforcement — **delivered this session** | ✅ |
 | 69 | Growth command centre | `src/app/dashboard/command`, `command-summary.ts`, `warlord.ts` | ✅ |
 | 70 | **AI activity feed** | `shared/activity-feed.ts` — unattended work separated from your own; an unmapped action is shown, not hidden | ✅ |
@@ -112,10 +125,10 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 74 | Morning briefing | `command-summary.ts` (`commandBriefing`), `src/app/dashboard/briefing` | ✅ |
 | 75 | Weekly executive report | `reporting.ts` (`buildReport`, export specs) | ✅ |
 | 76 | Learning loop on a cycle | `creative-learning.ts`, `autopilot.ts` | 🟡 the steps exist; they are not run as one scheduled loop that writes back to memory |
-| 77 | **Content performance knowledge graph** | nothing. Facts are key/value in `brand-memory.ts`; there are no typed entities and relationships | ❌ |
+| 77 | **Content performance knowledge graph** | `shared/knowledge-graph.ts` (7 entity types, 5 edge kinds, `whatWorks` per dimension against the brand's own median) + `/api/knowledge-graph` — **delivered 2026-08-30**. Never claims causation; no verdict below 3 posts | ✅ |
 | 78 | Core database entities | `brand-store.ts`, `contacts.ts`, `ledger.ts`, `work-library.ts`, `chain-store.ts`, `landing-store.ts`, `blog-store.ts`, `settings-store.ts`, `ad-canvas-store.ts` | 🟡 most named collections have a home; `organisations`, `workspaces`, `asset_versions`, `audit_logs` do not |
 | 79 | Agent execution model (per-agent schema, budget, timeout) | `shared/agents.ts`, `orchestrator.ts` (`ChainStep` cost + effect), `agent-budget.ts` | 🟡 objective, tools, budget and timeout exist; `input_schema` / `output_schema` are not declared |
-| 80 | **Agent message bus / event subscriptions** | nothing. Chains are sequential by construction, which is a deliberate simplification | ❌ |
+| 80 | **Agent message bus / event subscriptions** | nothing, and **deliberately so — see the note below**. Chains are sequential by construction and nothing in the platform needs to subscribe to another agent's output | ⛔ won't build |
 | 81 | Recursion limits | bounded by construction — chain steps are a flat list, so depth is 1 — plus `agent-budget.ts` cost ceiling | ✅ (by construction) |
 | 82 | Human-in-the-loop for sensitive operations | `orchestrator.ts` (`effectFor` — spend/send/publish always queue), `approvals.ts`, `payout-approvals.ts` | ✅ |
 | 83 | Provider adapters | `gateway.ts`, `image-gateway.ts`, `video-gateway.ts`, `avatar-gateway.ts`, `integrations.ts` | ✅ |
@@ -150,7 +163,7 @@ trail**, and **paid-media guardrails**. Those are the build list.
 
 | § | Requirement | Where it lives | State |
 |---|---|---|---|
-| 100 | AI Team screen with live agent state | `shared/warlord-roster.ts` (26 agents, division, mission, KPI, honest live/activate/roadmap status), `/dashboard/ai-agents`, `/dashboard/command` | 🟡 the roster and its status are real; per-agent *current task*, discoveries, cost and impact are not tracked |
+| 100 | AI Team screen with live agent state | `shared/warlord-roster.ts` (26 agents, division, mission, KPI, honest live/activate/roadmap status), `/dashboard/ai-agents`, `/dashboard/command` — plus **cost and impact per agent, delivered 2026-08-30**: `backend/agent-spend.ts` records one row per charge and `shared/agent-economics.ts` reports it, with revenue nobody attributed shown as `null` and never zero | 🟡 cost and impact are now real; *current task* and discoveries are not tracked |
 | 101 | Campaign creation wizard | `/dashboard/campaigns`, `GuideWizard.tsx` | 🟡 a builder and a guide exist; not the nine-step wizard with an advanced bypass |
 | 102 | **One-click campaign from Brand Brain context** | `shared/campaign-plan.ts` — one sentence to a costed plan; never starts a chain it cannot finish | ✅ |
 | 103 | **"Let MarketWar grow my business" autonomous mode** | `/dashboard/autopilot` runs cycles; `shared/autonomy-config.ts` is now the one validated config block — budget, target, allowed/forbidden channels, max CPA, approval threshold. Forbidden beats allowed; contradictions are refused rather than resolved quietly. **The screen that renders it does not exist yet.** | 🟡 |
@@ -158,6 +171,17 @@ trail**, and **paid-media guardrails**. Those are the build list.
 | 105 | P1 build list (13 items) | 7 ✅ / 6 open — comment intelligence, creative fatigue, paid testing, scale engine, agency mode, deeper attribution | 🟡 |
 | 106 | P2 build list | not started, and correctly so — it sits on top of P1 | ❌ |
 
+> **2026-08-30 — §80 is a decision, not a gap.** An agent message bus was the
+> last MISSING row that could be built, and it is deliberately not built.
+> Chains are a flat list of steps executed in order; nothing in the platform
+> subscribes to another agent's output, and no requirement here asks for one.
+> Adding a bus with no subscriber would be a second mechanism doing a job the
+> orchestrator already does, which `CLAUDE.md` forbids more strongly than it
+> asks for full spec coverage — and an unused message bus is an entire failure
+> surface (ordering, redelivery, dead letters) bought for nothing. It is marked
+> ⛔ rather than ❌ so it is read as considered and rejected rather than
+> outstanding. Revisit it the moment a real subscriber exists.
+>
 > **2026-08-22 audit.** The ❌ rows above were re-verified against the code, not
 > recollection, and eleven were built: §32, §38, §41, §70, §89, §92, §95, §97,
 > §98, §102 and §103. Each is a tested, mutation-checked engine with NO SURFACE
