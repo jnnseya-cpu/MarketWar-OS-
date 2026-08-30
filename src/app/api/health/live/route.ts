@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ENV_CATALOGUE, ENV_NAMES } from "@/shared/env-catalogue";
 
 // Live-readiness matrix — a SAFE, no-spend pre-flight for the deployed app.
 // Reports which live capabilities are wired vs still demo, and exactly what to
@@ -97,29 +98,16 @@ export async function GET() {
   // key in Vercel but it reads false here, the running deployment does not have
   // it: usually set on the wrong Environment (Preview vs Production), or set but
   // NOT redeployed since, or a different project/domain is serving this URL.
-  const KEYS = [
-    "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "GEMINI_API_KEY", "AI_GATEWAY_ORDER",
-    "NEXT_PUBLIC_FIREBASE_API_KEY", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY", "FIREBASE_STORAGE_BUCKET",
-    "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "ZERNIO_API_KEY", "SERPER_API_KEY", "PLATFORM_ADMIN_EMAILS",
-    // Email is the highest-revenue action in the platform and the one most
-    // often missed, because nothing else fails without it — it simply does not
-    // send. Surfaced here so a go-live check can catch it.
-    "SMTP_HOST", "SMTP_USER", "SMTP_PASS", "EMAIL_FROM",
-    "ELEVENLABS_API_KEY", "FFMPEG_CLOUD_API_KEY", "VIDEO_WORKER_SECRET",
-    // THE REST OF WHAT A GO-LIVE ACTUALLY NEEDS.
-    //
-    // This list was the answer to "which variables did my deployment really
-    // receive?", and it omitted the secrets, the trader's legal details and the
-    // canonical host — so the owner could set eight things in Vercel and this
-    // endpoint would confirm three of them. A presence report with holes sends
-    // somebody back to the dashboard to guess, which is the position that
-    // produced a month of unexplained mail.
-    "CRON_SECRET", "HUMAN_CHECK_SECRET", "FIELD_ENCRYPTION_MASTER_KEY",
-    "PORTAL_LINK_SECRET", "NEWSLETTER_SECRET", "POSTBACK_ROOT_SECRET",
-    "AI_MONTHLY_CEILING_USD", "MW_SITE_HOST", "MW_BOUNCE_ADDRESS", "MW_BOUNCE_HOST",
-    "NEXT_PUBLIC_LEGAL_ENTITY_NAME", "NEXT_PUBLIC_REGISTERED_ADDRESS",
-    "NEXT_PUBLIC_COMPANY_NUMBER", "NEXT_PUBLIC_VAT_NUMBER",
-  ];
+  // EVERY VARIABLE THIS PLATFORM READS, from the one registry.
+  //
+  // This was a hand-typed list of 35 names while the codebase read 133 — so
+  // RESEND_API_KEY, APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY, ONFIDO_API_TOKEN,
+  // WHATSAPP_TOKEN, FB_APP_SECRET, the Google OAuth trio and every webhook
+  // secret were invisible here. A key you cannot see is a key you cannot tell is
+  // missing. `shared/env-catalogue.ts` is now the single list, and a test walks
+  // the source and fails if anything read from the environment is missing from
+  // it, so this can no longer drift.
+  const KEYS = ENV_NAMES;
   const envPresent: Record<string, boolean> = {};
   for (const k of KEYS) envPresent[k] = env(k);
 
@@ -179,6 +167,28 @@ export async function GET() {
     capabilities: caps,
     // The raw truth about what this running build actually has:
     envPresent,
+    // AND WHAT IS MISSING, WITH WHAT IT COSTS AND WHERE TO GET IT.
+    //
+    // `envPresent` answers "is it set?" one name at a time, which is the right
+    // answer to the wrong question when somebody is standing in front of a
+    // half-configured deployment asking "what do I still need?". This is that
+    // question, answered from the same registry: every variable the code reads
+    // that this process does not hold, grouped, with what stops working and
+    // where the owner obtains it. Names and prose only — never a value.
+    envMissing: ENV_CATALOGUE
+      .filter((e) => !env(e.name))
+      .map((e) => ({ name: e.name, group: e.group, secret: e.secret, unlocks: e.unlocks, where: e.where })),
+    envSummary: (() => {
+      const missing = ENV_CATALOGUE.filter((e) => !env(e.name));
+      const byGroup: Record<string, number> = {};
+      for (const m of missing) byGroup[m.group] = (byGroup[m.group] || 0) + 1;
+      return {
+        catalogued: ENV_CATALOGUE.length,
+        set: ENV_CATALOGUE.length - missing.length,
+        missing: missing.length,
+        missingByGroup: byGroup,
+      };
+    })(),
     // Present ONLY if a backend module failed to import/probe — names the module
     // and the exact error so a 500's root cause is visible without server logs.
     moduleErrors: Object.keys(errors).length ? errors : undefined,
