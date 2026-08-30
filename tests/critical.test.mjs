@@ -1228,7 +1228,10 @@ test("the render guard runs before the debit, not after", async () => {
   // guard must still come before the money moves.
   // `spendAcus` is `debitAcus` with the caller attached, so staff are not billed
   // for their own platform. The property under test is untouched by that.
-  const debit = src.indexOf("await spendAcus(input.spender ?? null, walletId, cost)");
+  // NOT anchored on the closing paren: `spendAcus` now takes an optional label
+  // so the cost report can say WHICH engine spent, and pinning the paren would
+  // fail this test on a change that leaves its property untouched.
+  const debit = src.indexOf("await spendAcus(input.spender ?? null, walletId, cost");
   assert.ok(guard > 0 && debit > 0, "both must exist");
   assert.ok(guard < debit, "the guard must come first");
 });

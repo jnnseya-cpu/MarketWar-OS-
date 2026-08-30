@@ -20884,7 +20884,10 @@ test("the video render charges exactly what the button quoted", async () => {
   assert.match(src, /return videoPlansFor\(seconds, providers\)\[0\] \?\? null/,
     "the quoted 'best' plan is computed separately from the list the render walks");
   assert.match(src, /const quotedAcu = plan\.acus/);
-  assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu\)/,
+  // Deliberately not anchored on the closing paren — `spendAcus` takes an
+  // optional label now. The property is that `quotedAcu` is the AMOUNT, so the
+  // match ends where the amount does.
+  assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu[,)]/,
     "something other than the quote is being charged");
 
   // EVERY CLIP OR NONE. A 15s ad whose second clip never started is an 8s ad
@@ -25949,4 +25952,171 @@ test("the boost route never takes its emergency-stop scope from the body", async
   const src = codeOf(readFileSync(new URL("../src/app/api/boost-ladder/route.ts", import.meta.url), "utf8"));
   assert.match(src, /scope: brandId/, "the halt scope must be the verified brand");
   assert.doesNotMatch(src, /scope:\s*(typeof\s*)?b\.scope/, "the halt scope is being taken from the request body");
+});
+
+// ---------------------------------------------------------------------------
+// §100 — per-agent cost and impact
+//
+// The defect this guards against is not a crash. It is a fabricated zero: an
+// agent nobody has tagged, reported as having earned nothing, and switched off
+// on the strength of it.
+// ---------------------------------------------------------------------------
+
+const spendRow = (agent, acus, over = {}) =>
+  ({ agent, kind: "llm", acus, at: "2026-02-01T00:00:00.000Z", brandId: "b1", ...over });
+
+test("revenue nobody attributed is null, and never zero", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: Array.from({ length: 6 }, () => spendRow("content-engine", 100)),
+    revenue: [],
+  });
+  const line = rep.lines[0];
+  assert.equal(line.agent, "content-engine");
+  assert.equal(line.costGbp, 6, "600 ACUs at 1p is £6.00");
+  assert.equal(line.attributedRevenueGbp, null, "an untagged agent must never be reported as earning zero");
+  assert.equal(line.netGbp, null, "there is no net without both halves");
+  assert.equal(line.returnMultiple, null);
+  assert.equal(line.verdict, "cost_only");
+  assert.match(line.reason, /not zero/i);
+});
+
+test("an attributed £0 event is a DIFFERENT state from no event at all", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const spend = Array.from({ length: 6 }, () => spendRow("lead-hunter", 50));
+
+  const untagged = agentEconomics({ spend, revenue: [] }).lines[0];
+  // A logged lead is worth £0 and IS attribution — the loop is closed, the
+  // result was simply not a sale. `?? 0` would collapse these two into one.
+  const leadOnly = agentEconomics({
+    spend, revenue: [{ source: "lead-hunter", amountGbp: 0, at: "2026-02-02T00:00:00.000Z" }],
+  }).lines[0];
+
+  assert.equal(untagged.attributedRevenueGbp, null);
+  assert.equal(untagged.verdict, "cost_only");
+  assert.equal(leadOnly.attributedRevenueGbp, 0, "an attributed zero must survive as zero");
+  assert.equal(leadOnly.verdict, "losing");
+  assert.notEqual(untagged.verdict, leadOnly.verdict, "the two states collapsed into one");
+});
+
+test("source matching is on whole segments — an agent cannot claim a stranger's revenue", async () => {
+  const { agentNamedBy, agentEconomics } = await import("../src/shared/agent-economics.ts");
+  assert.equal(agentNamedBy("content-engine", ["content-engine"]), "content-engine");
+  assert.equal(agentNamedBy("paid/content-engine", ["content-engine"]), "content-engine");
+  assert.equal(agentNamedBy("CONTENT-ENGINE", ["content-engine"]), "content-engine", "matching must be case-insensitive");
+  assert.equal(agentNamedBy("content-engineering-blog", ["content-engine"]), null, "a substring match over-credits an agent, which is worse than under-crediting it");
+  assert.equal(agentNamedBy("google/organic", ["content-engine"]), null);
+
+  const rep = agentEconomics({
+    spend: Array.from({ length: 6 }, () => spendRow("content-engine", 100)),
+    revenue: [{ source: "content-engineering-blog", amountGbp: 900, at: "2026-02-02T00:00:00.000Z" }],
+  });
+  assert.equal(rep.lines[0].attributedRevenueGbp, null, "£900 of somebody else's revenue was claimed");
+  assert.equal(rep.attributedRevenueGbp, 0);
+});
+
+test("below five runs nothing is judged", async () => {
+  const { agentEconomics, MIN_RUNS_TO_JUDGE } = await import("../src/shared/agent-economics.ts");
+  const four = agentEconomics({ spend: Array.from({ length: 4 }, () => spendRow("new-agent", 400)) }).lines[0];
+  assert.equal(four.verdict, "not_enough_runs");
+  assert.match(four.reason, new RegExp(String(MIN_RUNS_TO_JUDGE)));
+  // The cost is still reported — it was really spent. Only the VERDICT waits.
+  assert.equal(four.costGbp, 16);
+
+  const five = agentEconomics({ spend: Array.from({ length: 5 }, () => spendRow("new-agent", 400)) }).lines[0];
+  assert.equal(five.verdict, "cost_only");
+});
+
+test("earning, losing, and the spend ordering", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 6 }, () => spendRow("cheap-winner", 50)),   // £3.00
+      ...Array.from({ length: 6 }, () => spendRow("expensive-loser", 500)), // £30.00
+    ],
+    revenue: [
+      { source: "cheap-winner", amountGbp: 400, at: "2026-02-02T00:00:00.000Z" },
+      { source: "expensive-loser", amountGbp: 5, at: "2026-02-02T00:00:00.000Z" },
+    ],
+  });
+  assert.equal(rep.lines[0].agent, "expensive-loser", "most expensive first — an alphabetical list buries where the money goes");
+  assert.equal(rep.lines[0].verdict, "losing");
+  assert.equal(rep.lines[0].netGbp, -25);
+  assert.equal(rep.lines[1].verdict, "earning");
+  assert.equal(rep.lines[1].returnMultiple, 133.33);
+  assert.equal(rep.totalCostGbp, 33);
+  assert.equal(rep.attributedCoveragePct, 100);
+});
+
+test("coverage reports how much of the spend has revenue tracking at all", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 6 }, () => spendRow("tagged", 100)),   // 600 ACUs
+      ...Array.from({ length: 6 }, () => spendRow("untagged", 300)), // 1800 ACUs
+    ],
+    revenue: [{ source: "tagged", amountGbp: 50, at: "2026-02-02T00:00:00.000Z" }],
+  });
+  assert.equal(rep.attributedCoveragePct, 25, "600 of 2400 ACUs have revenue against them");
+  assert.match(rep.headline, /25% of the spend/);
+});
+
+test("the metering boundary now carries the agent across it", async () => {
+  // The point of §100: meterAction has always known the action kind, and
+  // debitAcus takes a wallet id and an amount — so before this, one total was
+  // all that survived. This drives the real path and asserts the row exists.
+  const { __resetAgentSpend, readSpend, recordSpend } = await import("../src/backend/agent-spend.ts");
+  __resetAgentSpend();
+
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "llm", acus: 5, brandId: "b1" });
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "image", acus: 10, brandId: "b1" });
+  // A zero charge is NOT a run that cost nothing — an exempt call must leave no
+  // trace, or every staff run drags the averages down.
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "llm", acus: 0, brandId: "b1" });
+
+  const rows = await readSpend("w1");
+  assert.equal(rows.length, 2, "a zero-cost charge was recorded as a run");
+  assert.deepEqual(rows.map((r) => r.kind).sort(), ["image", "llm"]);
+  assert.equal(rows.every((r) => r.agent === "market-analyst"), true);
+  assert.deepEqual(await readSpend("w2"), [], "spend must not leak between wallets");
+});
+
+test("a malformed stored row is dropped rather than costed to an agent named undefined", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  // The storage layer checks rows; this asserts the calculation is also not
+  // fooled by an agent name that is only whitespace.
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 5 }, () => spendRow("   ", 100)),
+      ...Array.from({ length: 5 }, () => spendRow("real", 100)),
+    ],
+  });
+  const names = rep.lines.map((l) => l.agent);
+  assert.ok(names.includes("unattributed"), "a blank agent must be named, not left blank");
+  assert.ok(!names.some((n) => n.trim() === ""), "an agent with an empty name reached the report");
+});
+
+test("the agent runner names itself, and the direct spenders do too", () => {
+  // Without the fourth argument all nineteen agents charge under "llm" and the
+  // report can only say the platform spent money.
+  const runner = codeOf(readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8"));
+  assert.match(runner, /meterAction\(auth, "llm", 1, agentId\)/, "the agent runner is charging anonymously again");
+
+  for (const [file, agent] of [
+    ["../src/backend/seo-autopilot.ts", "seo-autopilot"],
+    ["../src/backend/video-jobs.ts", "video-render"],
+    ["../src/backend/video-gateway.ts", "video-gateway"],
+  ]) {
+    const src = codeOf(readFileSync(new URL(file, import.meta.url), "utf8"));
+    assert.match(src, new RegExp(`spendAcus\\([^)]*agent: "${agent}"`), `${file} spends without naming itself`);
+  }
+});
+
+test("the economics endpoint reads the CALLER'S wallet and never one from the body", async () => {
+  // Spend rows are keyed by wallet id, and a wallet id is a user id — so a
+  // wallet taken from the request would hand any signed-in customer a full
+  // breakdown of another customer's AI spending.
+  const src = codeOf(readFileSync(new URL("../src/app/api/agent-economics/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /const walletId = auth\.uid/, "the wallet must come from the verified caller");
+  assert.doesNotMatch(src, /readSpend\((?!walletId)/, "readSpend is being called with something other than the caller's own wallet");
 });

@@ -12,6 +12,7 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { STRATEGY_AGENTS } from "@/shared/strategy-agents";
 import CopyOut from "@/components/CopyOut";
+import AgentEconomics from "@/components/AgentEconomics";
 
 type Result = { output: string; mode: "live" | "demo" };
 
@@ -65,6 +66,11 @@ export default function AiAgentsPage() {
         subtitle="Seven connected AI agents that turn a confused business into a clear customer, message, channels, funnel and 30-day plan. Each agent builds on the last."
         actions={<Pill tone="info">{done}/{STRATEGY_AGENTS.length} complete</Pill>}
       />
+
+      {/* §100 — what the agents have actually cost, and what named them back.
+          On this page rather than Billing because the decision it informs is
+          "which agent do I keep running", not "what is my bill". */}
+      <AgentEconomics />
 
       <div className="card mb-6 p-5">
         <label className="block">

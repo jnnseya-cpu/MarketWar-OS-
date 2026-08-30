@@ -793,7 +793,7 @@ export async function startVideoRender(input: {
   const quotedAcu = plan.acus;
   // The OWNING ACCOUNT's wallet, not the brand id — see walletIdForBrand.
   const walletId = await walletIdForBrand(brandId);
-  const debit = await spendAcus(input.spender ?? null, walletId, quotedAcu);
+  const debit = await spendAcus(input.spender ?? null, walletId, quotedAcu, { agent: "video-gateway", kind: "video" });
   if (!debit.ok) {
     const job: VideoJob = { jobId, brandId, prompt, provider: chain[0], status: "failed", mode: "live", videoUrl: null, providerRef: null,
       requestedSeconds, seconds: 0, chargedAcu: 0,

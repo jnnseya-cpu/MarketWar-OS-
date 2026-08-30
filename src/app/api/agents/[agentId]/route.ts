@@ -61,7 +61,10 @@ export async function POST(
   // Require auth + meter ACUs (demo passes through; staff are not metered).
   const auth = await requireAuth(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  const meter = await meterAction(auth, "llm");
+  // NAMED. Without the fourth argument all nineteen agents charge under "llm"
+  // and the cost report can only say the platform spent money, not which agent
+  // spent it — which is the whole of §100.
+  const meter = await meterAction(auth, "llm", 1, agentId);
   if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
 
   let input: Record<string, string> = {};

@@ -26,6 +26,7 @@ import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { WebhookOutcome } from "@/backend/stripe-billing";
 import type { AuthResult } from "@/backend/guard";
 import { isStaff, type Role } from "@/shared/roles";
+import { recordSpend } from "@/backend/agent-spend";
 
 // New wallets start with a small free allowance so a brand-new public user can
 // actually try the AI surfaces before paying (the Free plan's 100 ACUs).
@@ -615,7 +616,18 @@ export function meteringExempt(who: Spender | null | undefined): { exempt: boole
   return { exempt: false, why: "A customer account pays for what it uses." };
 }
 
-export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1): Promise<MeterResult> {
+/**
+ * `agent` is what makes §100 possible, and its absence is what made it
+ * impossible for as long as this function has existed.
+ *
+ * Every caller has always known which agent or engine was spending; `debitAcus`
+ * takes a wallet id and an amount, so that knowledge died at this line and the
+ * wallet ended up knowing a total and nothing else. Optional, defaulting to the
+ * action kind, so all forty-two existing call sites keep working unchanged and
+ * still record more than the nothing they recorded before — a caller that names
+ * itself simply gets a better answer.
+ */
+export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1, agent?: string): Promise<MeterResult> {
   if (!auth.ok) return { allowed: false, status: auth.status, error: auth.error, metered: false };
   if (meteringExempt(auth).exempt) return { allowed: true, status: 200, metered: false };
   // Belt and braces, and it is also what narrows `uid` for the debit below:
@@ -632,6 +644,9 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1)
       error: `Out of ACUs — this action needs ${cost} ACUs but your balance is ${res.balanceAcu}. Top up on the Billing page to continue.`,
     };
   }
+  // Only after a debit that actually happened, and never allowed to throw — the
+  // customer has been charged by this point and their work must proceed.
+  await recordSpend({ walletId: auth.uid, agent: agent || kind, kind, acus: res.charged });
   return { allowed: true, status: 200, metered: true, balanceAcu: res.balanceAcu, charged: res.charged };
 }
 
@@ -651,7 +666,7 @@ export type SpendResult =
  * `why` says why it charged, so a reader never has to guess whether an exemption
  * was considered and rejected or simply never asked about.
  */
-export async function spendAcus(who: Spender | null, walletId: string, cost: number): Promise<SpendResult> {
+export async function spendAcus(who: Spender | null, walletId: string, cost: number, label?: { agent?: string; kind?: string }): Promise<SpendResult> {
   const verdict = meteringExempt(who);
   // NOT A ZERO-COST DEBIT. A debit of zero writes a ledger entry saying this
   // account paid nothing, which is a different claim from "this account was
@@ -664,5 +679,9 @@ export async function spendAcus(who: Spender | null, walletId: string, cost: num
       error: `Not enough ACUs — this costs ${cost} ACUs and the balance is ${res.balanceAcu}. Top up on Billing.`,
     };
   }
+  // Same record as `meterAction` writes, for the engines that debit directly.
+  // Without it the video queue, the gateway and the SEO autopilot — three of the
+  // biggest spenders — would be the three missing from the cost report.
+  await recordSpend({ walletId, agent: label?.agent || label?.kind || "engine", kind: label?.kind || "llm", acus: res.charged });
   return { ok: true, charged: res.charged, exempt: false, why: verdict.why, balanceAcu: res.balanceAcu };
 }
