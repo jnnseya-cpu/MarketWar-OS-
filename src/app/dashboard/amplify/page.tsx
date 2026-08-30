@@ -17,6 +17,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
+import BoostLadder from "@/components/BoostLadder";
 import { AreaChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
@@ -68,6 +69,12 @@ export default function AmplifyPage() {
         subtitle="Earned virality that compounds through people who choose to share, plus consent-based retargeting that pursues every lead until they convert or opt out. Built inside frequency caps and PECR — so it keeps working instead of getting you banned."
         actions={<Pill tone="info">viral loop · K-factor modelling</Pill>}
       />
+
+      {/* §50 — the decision that comes BEFORE any of the amplification maths
+          below: which organic post has earned a budget at all. Placed first
+          because spending on the wrong post is the expensive mistake, and no
+          amount of loop modelling recovers from it. */}
+      <BoostLadder />
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {PRINCIPLES.map((p) => (

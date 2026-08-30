@@ -178,7 +178,7 @@ export async function enqueueVideoJob(input: {
 
   // The owning ACCOUNT pays, not a purse named after the brand.
   const walletId = await walletIdForBrand(input.brandId);
-  const debit = await spendAcus(input.spender ?? null, walletId, cost);
+  const debit = await spendAcus(input.spender ?? null, walletId, cost, { agent: "video-render", kind: "video" });
   if (!debit.ok) {
     return { ok: false, balanceAcu: debit.balanceAcu, error: `Not enough ACUs — this render costs ${cost} ACUs and your balance is ${debit.balanceAcu}. Top up on Billing.` };
   }

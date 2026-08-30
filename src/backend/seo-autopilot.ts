@@ -147,7 +147,7 @@ export async function runBrandSeoPost(input: {
   if (ent.automationsPaused) {
     return { ok: false, charged: 0, error: `Autopilot is paused — ${ent.reason}` };
   }
-  const debit = await spendAcus(input.spender ?? null, spendWalletId, ACU_PER_POST);
+  const debit = await spendAcus(input.spender ?? null, spendWalletId, ACU_PER_POST, { agent: "seo-autopilot", kind: "post" });
   if (!debit.ok) {
     return {
       ok: false, charged: 0, balanceAcu: debit.balanceAcu,

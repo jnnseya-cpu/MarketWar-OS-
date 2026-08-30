@@ -20884,7 +20884,10 @@ test("the video render charges exactly what the button quoted", async () => {
   assert.match(src, /return videoPlansFor\(seconds, providers\)\[0\] \?\? null/,
     "the quoted 'best' plan is computed separately from the list the render walks");
   assert.match(src, /const quotedAcu = plan\.acus/);
-  assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu\)/,
+  // Deliberately not anchored on the closing paren — `spendAcus` takes an
+  // optional label now. The property is that `quotedAcu` is the AMOUNT, so the
+  // match ends where the amount does.
+  assert.match(src, /spendAcus\(input\.spender \?\? null, walletId, quotedAcu[,)]/,
     "something other than the quote is being charged");
 
   // EVERY CLIP OR NONE. A 15s ad whose second clip never started is an 8s ad
@@ -25646,4 +25649,598 @@ test("the health report's envPresent comes from the catalogue", () => {
   const src = codeOf(readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8"));
   assert.match(src, /env-catalogue/, "/api/health/live still keeps its own hand-typed list of variables");
   assert.doesNotMatch(src, /const KEYS = \[[\s\S]{200,}?\];/, "a second, hand-maintained key list is back");
+});
+
+// ---------------------------------------------------------------------------
+// §50 — the autonomous paid boost ladder
+//
+// This is money, so every test below drives a real branch and asserts on a value
+// only that branch can produce. The ladder's whole purpose is refusing to spend,
+// so the tests that matter most are the refusals.
+// ---------------------------------------------------------------------------
+
+const ladderPost = (over = {}) => ({
+  id: "p1", impressions: 5000, engagements: 500,
+  publishedAtISO: "2026-01-01T00:00:00.000Z", ...over,
+});
+// Five posts at a flat 5% engagement — a median of exactly 0.05 to compare to.
+const ladderHistory = () =>
+  Array.from({ length: 5 }, (_, i) => ({
+    id: `h${i}`, impressions: 1000, engagements: 50,
+    publishedAtISO: "2025-12-01T00:00:00.000Z",
+  }));
+const LADDER_NOW = "2026-01-05T00:00:00.000Z";
+
+test("the organic bar is the brand's OWN median, not a constant", async () => {
+  const { organicBaseline, assessOrganic, PROVEN_MULTIPLE } = await import("../src/shared/boost-ladder.ts");
+
+  const base = organicBaseline(ladderHistory());
+  assert.equal(base.usable, true);
+  assert.equal(base.engagementRate, 0.05, "five posts at 5% must produce a median of exactly 0.05");
+
+  // 10% against a 5% median is 2x — above the 1.5x bar.
+  const strong = assessOrganic(ladderPost({ impressions: 5000, engagements: 500 }), base, LADDER_NOW);
+  assert.equal(strong.proven, true);
+  assert.equal(strong.evidence.multipleOfMedian, 2);
+
+  // The SAME post against a brand whose own normal is 10% is merely average,
+  // and must not be promoted. This is the assertion a hardcoded threshold fails.
+  const richer = organicBaseline(
+    Array.from({ length: 5 }, (_, i) => ({ id: `r${i}`, impressions: 1000, engagements: 100, publishedAtISO: "2025-12-01T00:00:00.000Z" })),
+  );
+  assert.equal(richer.engagementRate, 0.1);
+  const sameContent = assessOrganic(ladderPost({ impressions: 5000, engagements: 500 }), richer, LADDER_NOW);
+  assert.equal(sameContent.proven, false, "identical content must not earn money at a brand where that rate is ordinary");
+  assert.equal(sameContent.status, "below_median");
+  assert.equal(sameContent.evidence.multipleOfMedian, 1);
+  assert.ok(PROVEN_MULTIPLE > 1);
+});
+
+test("the baseline is a MEDIAN — one viral post must not become the bar", async () => {
+  const { organicBaseline } = await import("../src/shared/boost-ladder.ts");
+  const history = [
+    ...Array.from({ length: 4 }, (_, i) => ({ id: `n${i}`, impressions: 1000, engagements: 50, publishedAtISO: "2025-12-01T00:00:00.000Z" })),
+    { id: "viral", impressions: 1000, engagements: 900, publishedAtISO: "2025-12-02T00:00:00.000Z" },
+  ];
+  const base = organicBaseline(history);
+  // Mean would be (0.05*4 + 0.9)/5 = 0.22 — nothing would ever clear 1.5x of that.
+  assert.equal(base.engagementRate, 0.05, "one outlier moved the bar, so this is a mean rather than a median");
+});
+
+test("too young and too small are refused separately, and neither is a verdict", async () => {
+  const { organicBaseline, assessOrganic, MIN_HOURS_LIVE, MIN_IMPRESSIONS_TO_JUDGE } = await import("../src/shared/boost-ladder.ts");
+  const base = organicBaseline(ladderHistory());
+
+  const young = assessOrganic(ladderPost({ publishedAtISO: "2026-01-04T22:00:00.000Z" }), base, LADDER_NOW);
+  assert.equal(young.status, "not_yet", "a two-hour-old post has not finished being seen");
+  assert.match(young.reason, new RegExp(String(MIN_HOURS_LIVE)));
+
+  const tiny = assessOrganic(ladderPost({ impressions: 50, engagements: 40 }), base, LADDER_NOW);
+  assert.equal(tiny.status, "not_yet", "80% of fifty impressions is arithmetic, not evidence");
+  assert.match(tiny.reason, new RegExp(String(MIN_IMPRESSIONS_TO_JUDGE)));
+  assert.notEqual(tiny.status, "below_median", "not measured must never be reported as underperforming");
+});
+
+test("a brand with no history is told there is no normal yet — never given a benchmark", async () => {
+  const { organicBaseline, assessOrganic, MIN_POSTS_FOR_BASELINE } = await import("../src/shared/boost-ladder.ts");
+  const base = organicBaseline([]);
+  assert.equal(base.usable, false);
+  assert.equal(base.engagementRate, null, "an invented benchmark is the one thing this must never do");
+  assert.match(base.why, new RegExp(String(MIN_POSTS_FOR_BASELINE)));
+  const v = assessOrganic(ladderPost(), base, LADDER_NOW);
+  assert.equal(v.proven, false);
+  assert.equal(v.status, "not_yet");
+});
+
+test("no conversion tracking means the ladder never promotes past the test rung", async () => {
+  const { organicBaseline, assessOrganic, nextStep } = await import("../src/shared/boost-ladder.ts");
+  const base = organicBaseline(ladderHistory());
+  const organic = assessOrganic(ladderPost(), base, LADDER_NOW);
+
+  // Spectacular numbers, and no way to attribute any of them.
+  const step = nextStep({
+    rung: "testing", organic,
+    test: { spendGbp: 500, revenueGbp: 9000, conversions: 90, conversionTracking: false },
+    testBudgetGbp: 150, scalePct: 20, scaleRoas: 3, minConversions: 5,
+  });
+  assert.equal(step.action, "hold");
+  assert.equal(step.to, "testing");
+  assert.equal(step.proposedGbp, 0, "an 18x return with no attribution still buys nothing");
+  assert.ok(step.blockers.some((b) => /conversion tracking/i.test(b)));
+});
+
+test("spending the WHOLE test budget with nothing to show retires it; spending part does not", async () => {
+  const { organicBaseline, assessOrganic, nextStep } = await import("../src/shared/boost-ladder.ts");
+  const base = organicBaseline(ladderHistory());
+  const organic = assessOrganic(ladderPost(), base, LADDER_NOW);
+  const at = (spendGbp) => nextStep({
+    rung: "testing", organic,
+    test: { spendGbp, conversions: 0, conversionTracking: true },
+    testBudgetGbp: 150, scalePct: 20, scaleRoas: 3, minConversions: 5,
+  });
+
+  assert.equal(at(8).action, "hold", "zero conversions on £8 is a Tuesday, not a decision");
+  assert.equal(at(8).to, "testing");
+  assert.equal(at(150).action, "retire", "the trigger is the cap being spent, not the zero");
+  assert.equal(at(150).to, "retired");
+});
+
+test("converting at a price the offer cannot afford is retired, not scaled", async () => {
+  const { organicBaseline, assessOrganic, nextStep } = await import("../src/shared/boost-ladder.ts");
+  const base = organicBaseline(ladderHistory());
+  const organic = assessOrganic(ladderPost(), base, LADDER_NOW);
+
+  // 10 conversions on £400 = £40 each, against an offer that affords £25.
+  const step = nextStep({
+    rung: "testing", organic,
+    test: { spendGbp: 400, revenueGbp: 900, conversions: 10, conversionTracking: true },
+    testBudgetGbp: 400, maxCpaGbp: 25, scalePct: 20, scaleRoas: 3, minConversions: 5,
+  });
+  assert.equal(step.action, "retire", "it converts and it still cannot be paid for");
+  assert.match(step.reason, /cannot be paid for/i);
+
+  // The same figures where the offer affords £50 graduate instead.
+  const rich = nextStep({
+    rung: "testing", organic,
+    test: { spendGbp: 400, revenueGbp: 900, conversions: 10, conversionTracking: true },
+    testBudgetGbp: 400, maxCpaGbp: 50, scalePct: 20, scaleRoas: 3, minConversions: 5,
+  });
+  assert.equal(rich.to, "validated");
+});
+
+test("planBoost applies the budget ceiling and never proposes money it cannot spend", async () => {
+  const { planBoost } = await import("../src/backend/boost-ladder.ts");
+  const plan = await planBoost({
+    post: ladderPost(), history: ladderHistory(), rung: "organic",
+    testBudgetGbp: 150,
+    guardrails: { monthlyBudgetGbp: 100 },
+    spentThisMonthGbp: 60,
+    nowISO: LADDER_NOW,
+  });
+  assert.equal(plan.step.action, "start_test");
+  assert.equal(plan.step.proposedGbp, 150, "the ladder asked for the full test budget");
+  assert.equal(plan.approvedGbp, 40, "only £40 of the monthly ceiling was left, so £40 is what may be spent");
+  assert.equal(plan.trimmed, true);
+});
+
+test("a post is never part of the median it is measured against", async () => {
+  const { planBoost } = await import("../src/backend/boost-ladder.ts");
+  const post = ladderPost({ id: "shared-id", impressions: 5000, engagements: 500 });
+  // The history CONTAINS the post being judged. If it were counted, its own 10%
+  // would drag the median up and hide part of its outperformance.
+  const plan = await planBoost({
+    post, history: [...ladderHistory(), post], rung: "organic",
+    testBudgetGbp: 150, nowISO: LADDER_NOW,
+  });
+  assert.equal(plan.baseline.posts, 5, "the post under judgement was counted into its own baseline");
+  assert.equal(plan.baseline.engagementRate, 0.05);
+  assert.equal(plan.organic.evidence.multipleOfMedian, 2);
+});
+
+test("the maximum cost per customer comes from the offer's arithmetic, never a guess", async () => {
+  const { planBoost } = await import("../src/backend/boost-ladder.ts");
+  const { economicsFor } = await import("../src/backend/profit-guard-economics.ts");
+  const offer = {
+    pricePence: 10000, cogsPence: 3000, fulfilmentPence: 1000, paymentFeePence: 300,
+    taxPence: 0, returnsAllowancePct: 0, otherVariablePence: 0, minProtectedMarginPence: 2000,
+  };
+  const plan = await planBoost({
+    post: ladderPost(), history: ladderHistory(), rung: "organic",
+    offer, testBudgetGbp: 50, nowISO: LADDER_NOW,
+  });
+  const expected = Math.round((economicsFor(offer).maxCpaPence / 100) * 100) / 100;
+  assert.equal(plan.maxCpaGbp, expected, "the ceiling per customer must be the economics engine's number, not this module's");
+  assert.ok(expected > 0);
+
+  // With no offer and no guardrail, there is no ceiling to state — and stating
+  // one anyway would be the fabrication this codebase forbids.
+  const noOffer = await planBoost({ post: ladderPost(), history: ladderHistory(), rung: "organic", testBudgetGbp: 50, nowISO: LADDER_NOW });
+  assert.equal(noOffer.maxCpaGbp, undefined);
+});
+
+test("a blocker means nothing is approved, whatever the arithmetic produced", async () => {
+  // THE FIRST VERSION OF THIS TEST PROVED NOTHING, and the mutation pass is what
+  // said so: it asserted `approvedGbp === 0` on a rung whose arithmetic already
+  // produced 0, so deleting the line that zeroes it changed nothing. The whole
+  // point is that a REAL amount is computed and then withdrawn, so the test has
+  // to drive a case that computes one.
+  const { planBoost } = await import("../src/backend/boost-ladder.ts");
+  const { engage, release } = await import("../src/backend/emergency-stop.ts");
+  const scope = "brand-halt-under-test";
+
+  // Same inputs, no halt: £150 is computed AND approved. This is the control,
+  // and without it the assertion below is unfalsifiable.
+  const before = await planBoost({
+    post: ladderPost(), history: ladderHistory(), rung: "organic",
+    testBudgetGbp: 150, scope, nowISO: LADDER_NOW,
+  });
+  assert.equal(before.step.proposedGbp, 150);
+  assert.equal(before.approvedGbp, 150, "with nothing in the way the full test budget is approved");
+  assert.deepEqual(before.blockers, []);
+
+  const engaged = await engage({ scope, lanes: ["spend"], reason: "testing the halt blocks a boost", engagedBy: "test" });
+  assert.equal(engaged.ok, true);
+  try {
+    const during = await planBoost({
+      post: ladderPost(), history: ladderHistory(), rung: "organic",
+      testBudgetGbp: 150, scope, nowISO: LADDER_NOW,
+    });
+    assert.equal(during.step.proposedGbp, 150, "the ladder still computed the amount — that is what makes the withdrawal meaningful");
+    assert.equal(during.approvedGbp, 0, "a halt must withdraw an amount the arithmetic really produced");
+    assert.ok(during.blockers.some((b) => /emergency stop/i.test(b)));
+    assert.match(during.summary, /Nothing goes ahead yet/);
+  } finally {
+    await release({ scope, releasedBy: "test", note: "end of test" });
+  }
+});
+
+test("the ladder cannot out-scale the guardrail that owns scaling", async () => {
+  const { planBoost } = await import("../src/backend/boost-ladder.ts");
+  const { scaleStep } = await import("../src/backend/paid-guardrails.ts");
+  const test = { spendGbp: 400, revenueGbp: 2000, conversions: 40, conversionTracking: true };
+  const guardrails = { maximumScalePct: 20, monthlyBudgetGbp: 500 };
+  const plan = await planBoost({
+    post: ladderPost(), history: ladderHistory(), rung: "validated",
+    test, currentBudgetGbp: 100, spentThisMonthGbp: 380,
+    guardrails, nowISO: LADDER_NOW,
+  });
+  const guardrail = scaleStep({ campaign: { name: "p1", ...test }, currentBudgetGbp: 100, spentThisMonthGbp: 380 }, guardrails);
+  assert.ok(plan.approvedGbp <= guardrail.toGbp, "the ladder approved more than the guardrail allows");
+  assert.equal(plan.approvedGbp, 120, "£120 is the +20% step and it fits the £120 of monthly headroom");
+});
+
+test("plan-all puts money decisions above observations", async () => {
+  const { planBoosts } = await import("../src/backend/boost-ladder.ts");
+  const history = ladderHistory();
+  const plans = await planBoosts({
+    history, testBudgetGbp: 150, nowISO: LADDER_NOW,
+    posts: [
+      // An ordinary post — a hold.
+      { post: ladderPost({ id: "ordinary", impressions: 5000, engagements: 250 }), rung: "organic" },
+      // A test that has burned its whole budget — a retire.
+      { post: ladderPost({ id: "dying" }), rung: "testing", test: { spendGbp: 150, conversions: 0, conversionTracking: true } },
+    ],
+  });
+  assert.equal(plans[0].postId, "dying", "the post about to be retired was buried below an observation");
+  assert.equal(plans[0].step.action, "retire");
+  assert.equal(plans[1].step.action, "hold");
+});
+
+test("the boost route CHECKS the request body rather than trusting it", async () => {
+  // A request body is whatever the caller sent. Numbers arriving as strings is
+  // the ordinary case for a form or a spreadsheet paste, and `"1200" / 1000`
+  // silently produces a verdict computed from a value nobody validated.
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/boost-ladder/route.ts");
+  const hist = Array.from({ length: 5 }, (_, i) => ({ id: `h${i}`, impressions: 1000, engagements: 50, publishedAtISO: "2025-12-01T00:00:00.000Z" }));
+  const call = (body) => route.POST(new NextRequest("https://mw.test/api/boost-ladder", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+
+  // Strings where counts belong are read as zero, not coerced into a verdict.
+  const res = await call({
+    action: "plan", brandId: "t-boost-1", rung: "organic", testBudgetGbp: 150, history: hist,
+    post: { id: "p", impressions: "5000", engagements: "500", publishedAtISO: "2026-01-01T00:00:00.000Z" },
+    nowISO: "2026-01-05T00:00:00.000Z",
+  });
+  const d = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(d.organic.evidence.impressions, 0, "a string count was trusted as a number");
+  assert.equal(d.step.action, "hold");
+  assert.equal(d.approvedGbp, 0);
+
+  // A post with no usable timestamp is refused outright rather than dated now.
+  const bad = await call({ action: "plan", brandId: "t-boost-1", post: { id: "p", impressions: 5000, engagements: 500, publishedAtISO: "whenever" }, history: hist });
+  assert.equal(bad.status, 400);
+
+  // conversionTracking absent must read as FALSE. Defaulting it true would let a
+  // caller who simply omitted the field scale on unattributed engagement.
+  const noFlag = await call({
+    action: "plan", brandId: "t-boost-1", rung: "testing", testBudgetGbp: 150, history: hist,
+    post: { id: "p", impressions: 5000, engagements: 500, publishedAtISO: "2026-01-01T00:00:00.000Z" },
+    test: { spendGbp: 500, revenueGbp: 9000, conversions: 90 },
+    nowISO: "2026-01-05T00:00:00.000Z",
+  });
+  const nf = await noFlag.json();
+  assert.equal(nf.approvedGbp, 0);
+  assert.ok(nf.blockers.some((b) => /conversion tracking/i.test(b)), "an omitted tracking flag was treated as present");
+});
+
+test("the boost route never takes its emergency-stop scope from the body", async () => {
+  // The caller is verified against brandId. If the halt scope came from the body
+  // instead, one tenant could read another's halt state through this endpoint.
+  const src = codeOf(readFileSync(new URL("../src/app/api/boost-ladder/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /scope: brandId/, "the halt scope must be the verified brand");
+  assert.doesNotMatch(src, /scope:\s*(typeof\s*)?b\.scope/, "the halt scope is being taken from the request body");
+});
+
+// ---------------------------------------------------------------------------
+// §100 — per-agent cost and impact
+//
+// The defect this guards against is not a crash. It is a fabricated zero: an
+// agent nobody has tagged, reported as having earned nothing, and switched off
+// on the strength of it.
+// ---------------------------------------------------------------------------
+
+const spendRow = (agent, acus, over = {}) =>
+  ({ agent, kind: "llm", acus, at: "2026-02-01T00:00:00.000Z", brandId: "b1", ...over });
+
+test("revenue nobody attributed is null, and never zero", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: Array.from({ length: 6 }, () => spendRow("content-engine", 100)),
+    revenue: [],
+  });
+  const line = rep.lines[0];
+  assert.equal(line.agent, "content-engine");
+  assert.equal(line.costGbp, 6, "600 ACUs at 1p is £6.00");
+  assert.equal(line.attributedRevenueGbp, null, "an untagged agent must never be reported as earning zero");
+  assert.equal(line.netGbp, null, "there is no net without both halves");
+  assert.equal(line.returnMultiple, null);
+  assert.equal(line.verdict, "cost_only");
+  assert.match(line.reason, /not zero/i);
+});
+
+test("an attributed £0 event is a DIFFERENT state from no event at all", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const spend = Array.from({ length: 6 }, () => spendRow("lead-hunter", 50));
+
+  const untagged = agentEconomics({ spend, revenue: [] }).lines[0];
+  // A logged lead is worth £0 and IS attribution — the loop is closed, the
+  // result was simply not a sale. `?? 0` would collapse these two into one.
+  const leadOnly = agentEconomics({
+    spend, revenue: [{ source: "lead-hunter", amountGbp: 0, at: "2026-02-02T00:00:00.000Z" }],
+  }).lines[0];
+
+  assert.equal(untagged.attributedRevenueGbp, null);
+  assert.equal(untagged.verdict, "cost_only");
+  assert.equal(leadOnly.attributedRevenueGbp, 0, "an attributed zero must survive as zero");
+  assert.equal(leadOnly.verdict, "losing");
+  assert.notEqual(untagged.verdict, leadOnly.verdict, "the two states collapsed into one");
+});
+
+test("source matching is on whole segments — an agent cannot claim a stranger's revenue", async () => {
+  const { agentNamedBy, agentEconomics } = await import("../src/shared/agent-economics.ts");
+  assert.equal(agentNamedBy("content-engine", ["content-engine"]), "content-engine");
+  assert.equal(agentNamedBy("paid/content-engine", ["content-engine"]), "content-engine");
+  assert.equal(agentNamedBy("CONTENT-ENGINE", ["content-engine"]), "content-engine", "matching must be case-insensitive");
+  assert.equal(agentNamedBy("content-engineering-blog", ["content-engine"]), null, "a substring match over-credits an agent, which is worse than under-crediting it");
+  assert.equal(agentNamedBy("google/organic", ["content-engine"]), null);
+
+  const rep = agentEconomics({
+    spend: Array.from({ length: 6 }, () => spendRow("content-engine", 100)),
+    revenue: [{ source: "content-engineering-blog", amountGbp: 900, at: "2026-02-02T00:00:00.000Z" }],
+  });
+  assert.equal(rep.lines[0].attributedRevenueGbp, null, "£900 of somebody else's revenue was claimed");
+  assert.equal(rep.attributedRevenueGbp, 0);
+});
+
+test("below five runs nothing is judged", async () => {
+  const { agentEconomics, MIN_RUNS_TO_JUDGE } = await import("../src/shared/agent-economics.ts");
+  const four = agentEconomics({ spend: Array.from({ length: 4 }, () => spendRow("new-agent", 400)) }).lines[0];
+  assert.equal(four.verdict, "not_enough_runs");
+  assert.match(four.reason, new RegExp(String(MIN_RUNS_TO_JUDGE)));
+  // The cost is still reported — it was really spent. Only the VERDICT waits.
+  assert.equal(four.costGbp, 16);
+
+  const five = agentEconomics({ spend: Array.from({ length: 5 }, () => spendRow("new-agent", 400)) }).lines[0];
+  assert.equal(five.verdict, "cost_only");
+});
+
+test("earning, losing, and the spend ordering", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 6 }, () => spendRow("cheap-winner", 50)),   // £3.00
+      ...Array.from({ length: 6 }, () => spendRow("expensive-loser", 500)), // £30.00
+    ],
+    revenue: [
+      { source: "cheap-winner", amountGbp: 400, at: "2026-02-02T00:00:00.000Z" },
+      { source: "expensive-loser", amountGbp: 5, at: "2026-02-02T00:00:00.000Z" },
+    ],
+  });
+  assert.equal(rep.lines[0].agent, "expensive-loser", "most expensive first — an alphabetical list buries where the money goes");
+  assert.equal(rep.lines[0].verdict, "losing");
+  assert.equal(rep.lines[0].netGbp, -25);
+  assert.equal(rep.lines[1].verdict, "earning");
+  assert.equal(rep.lines[1].returnMultiple, 133.33);
+  assert.equal(rep.totalCostGbp, 33);
+  assert.equal(rep.attributedCoveragePct, 100);
+});
+
+test("coverage reports how much of the spend has revenue tracking at all", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 6 }, () => spendRow("tagged", 100)),   // 600 ACUs
+      ...Array.from({ length: 6 }, () => spendRow("untagged", 300)), // 1800 ACUs
+    ],
+    revenue: [{ source: "tagged", amountGbp: 50, at: "2026-02-02T00:00:00.000Z" }],
+  });
+  assert.equal(rep.attributedCoveragePct, 25, "600 of 2400 ACUs have revenue against them");
+  assert.match(rep.headline, /25% of the spend/);
+});
+
+test("the metering boundary now carries the agent across it", async () => {
+  // The point of §100: meterAction has always known the action kind, and
+  // debitAcus takes a wallet id and an amount — so before this, one total was
+  // all that survived. This drives the real path and asserts the row exists.
+  const { __resetAgentSpend, readSpend, recordSpend } = await import("../src/backend/agent-spend.ts");
+  __resetAgentSpend();
+
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "llm", acus: 5, brandId: "b1" });
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "image", acus: 10, brandId: "b1" });
+  // A zero charge is NOT a run that cost nothing — an exempt call must leave no
+  // trace, or every staff run drags the averages down.
+  await recordSpend({ walletId: "w1", agent: "market-analyst", kind: "llm", acus: 0, brandId: "b1" });
+
+  const rows = await readSpend("w1");
+  assert.equal(rows.length, 2, "a zero-cost charge was recorded as a run");
+  assert.deepEqual(rows.map((r) => r.kind).sort(), ["image", "llm"]);
+  assert.equal(rows.every((r) => r.agent === "market-analyst"), true);
+  assert.deepEqual(await readSpend("w2"), [], "spend must not leak between wallets");
+});
+
+test("a malformed stored row is dropped rather than costed to an agent named undefined", async () => {
+  const { agentEconomics } = await import("../src/shared/agent-economics.ts");
+  // The storage layer checks rows; this asserts the calculation is also not
+  // fooled by an agent name that is only whitespace.
+  const rep = agentEconomics({
+    spend: [
+      ...Array.from({ length: 5 }, () => spendRow("   ", 100)),
+      ...Array.from({ length: 5 }, () => spendRow("real", 100)),
+    ],
+  });
+  const names = rep.lines.map((l) => l.agent);
+  assert.ok(names.includes("unattributed"), "a blank agent must be named, not left blank");
+  assert.ok(!names.some((n) => n.trim() === ""), "an agent with an empty name reached the report");
+});
+
+test("the agent runner names itself, and the direct spenders do too", () => {
+  // Without the fourth argument all nineteen agents charge under "llm" and the
+  // report can only say the platform spent money.
+  const runner = codeOf(readFileSync(new URL("../src/app/api/agents/[agentId]/route.ts", import.meta.url), "utf8"));
+  assert.match(runner, /meterAction\(auth, "llm", 1, agentId\)/, "the agent runner is charging anonymously again");
+
+  for (const [file, agent] of [
+    ["../src/backend/seo-autopilot.ts", "seo-autopilot"],
+    ["../src/backend/video-jobs.ts", "video-render"],
+    ["../src/backend/video-gateway.ts", "video-gateway"],
+  ]) {
+    const src = codeOf(readFileSync(new URL(file, import.meta.url), "utf8"));
+    assert.match(src, new RegExp(`spendAcus\\([^)]*agent: "${agent}"`), `${file} spends without naming itself`);
+  }
+});
+
+test("the economics endpoint reads the CALLER'S wallet and never one from the body", async () => {
+  // Spend rows are keyed by wallet id, and a wallet id is a user id — so a
+  // wallet taken from the request would hand any signed-in customer a full
+  // breakdown of another customer's AI spending.
+  const src = codeOf(readFileSync(new URL("../src/app/api/agent-economics/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /const walletId = auth\.uid/, "the wallet must come from the verified caller");
+  assert.doesNotMatch(src, /readSpend\((?!walletId)/, "readSpend is being called with something other than the caller's own wallet");
+});
+
+// ---------------------------------------------------------------------------
+// §77 — the content performance knowledge graph
+//
+// The failure mode here is not a crash either: it is a platform confidently
+// recommending noise, which is worse than one that says nothing.
+// ---------------------------------------------------------------------------
+
+const kgPost = (id, engagements, over = {}) =>
+  ({ id, impressions: 1000, engagements, publishedAtISO: "2026-01-01T00:00:00.000Z", ...over });
+
+test("no verdict below three posts — one that landed is not a finding", async () => {
+  const { whatWorks, MIN_SAMPLES } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    // A single spectacular post using a rocket emoji.
+    kgPost("a", 400, { hook: "rocket" }),
+    // Nine ordinary posts, so the brand median is a real 5%.
+    ...Array.from({ length: 9 }, (_, i) => kgPost(`n${i}`, 50, { hook: "plain" })),
+  ];
+  const rocket = whatWorks(records, "hook").find((f) => f.value === "rocket");
+  assert.equal(rocket.posts, 1);
+  assert.equal(rocket.verdict, "not_enough_evidence", "one post that landed was turned into a recommendation");
+  assert.equal(rocket.liftPct, null, "a lift was claimed from a single post");
+  assert.match(rocket.reason, new RegExp(String(MIN_SAMPLES)));
+
+  // And it is still LISTED — omitting it reads as "we never tried that".
+  assert.ok(whatWorks(records, "hook").some((f) => f.value === "rocket"));
+});
+
+test("findings are associations and never causes", async () => {
+  const { whatWorks } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    ...Array.from({ length: 4 }, (_, i) => kgPost(`q${i}`, 100, { hook: "question" })),
+    ...Array.from({ length: 6 }, (_, i) => kgPost(`p${i}`, 50, { hook: "plain" })),
+  ];
+  const all = whatWorks(records, "hook");
+  const q = all.find((f) => f.value === "question");
+  assert.equal(q.verdict, "above");
+  assert.ok(q.liftPct > 0);
+  assert.match(q.reason, /not a proven cause/i, "a finding asserted a mechanism it has not measured");
+  for (const f of all) {
+    assert.doesNotMatch(f.reason, /\b(drives|causes|because of|leads to)\b/i, `"${f.reason}" claims causation`);
+  }
+});
+
+test("tiny posts are excluded from the median, not just from the verdicts", async () => {
+  const { buildGraph, MIN_IMPRESSIONS } = await import("../src/shared/knowledge-graph.ts");
+  const real = Array.from({ length: 5 }, (_, i) => kgPost(`r${i}`, 50));            // 5%
+  // Five posts of 30 impressions with one engagement each — 3.3%, and noise.
+  const tiny = Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, impressions: 30, engagements: 12, publishedAtISO: "2026-01-01T00:00:00.000Z" }));
+  const g = buildGraph([...real, ...tiny]);
+  assert.equal(g.measuredPosts, 5, "posts below the reach floor were measured");
+  assert.equal(g.medianEngagementRate, 0.05, "noise from tiny posts moved the brand's normal");
+  assert.ok(MIN_IMPRESSIONS > 30);
+  // Their entities must not exist either — a graph node for a post nothing can
+  // say anything about is a node that will be queried.
+  assert.ok(!g.entities.some((e) => e.label.startsWith("t")), "an unmeasurable post became a graph entity");
+});
+
+test("within the material band is level, not a win", async () => {
+  const { whatWorks, MATERIAL_LIFT_PCT } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    ...Array.from({ length: 5 }, (_, i) => kgPost(`a${i}`, 52, { format: "carousel" })), // 5.2%
+    ...Array.from({ length: 5 }, (_, i) => kgPost(`b${i}`, 50, { format: "single" })),   // 5.0%
+  ];
+  const carousel = whatWorks(records, "format").find((f) => f.value === "carousel");
+  assert.ok(Math.abs(carousel.liftPct) < MATERIAL_LIFT_PCT);
+  assert.equal(carousel.verdict, "level", "a 4% difference was sold as a win");
+  assert.match(carousel.reason, /No real difference/i);
+});
+
+test("the graph uses §50's median — there are not two versions of a brand's normal", async () => {
+  const { buildGraph } = await import("../src/shared/knowledge-graph.ts");
+  const { median } = await import("../src/shared/boost-ladder.ts");
+  // One post that travelled unusually far. A mean would drag the normal up and
+  // make every other post look weak.
+  const records = [
+    ...Array.from({ length: 4 }, (_, i) => kgPost(`n${i}`, 50)),
+    kgPost("viral", 900),
+  ];
+  const g = buildGraph(records);
+  assert.equal(g.medianEngagementRate, 0.05, "an outlier moved the normal, so this is a mean");
+  assert.equal(g.medianEngagementRate, median([0.05, 0.05, 0.05, 0.05, 0.9]));
+
+  // And the module genuinely imports it rather than keeping its own copy.
+  const src = codeOf(readFileSync(new URL("../src/shared/knowledge-graph.ts", import.meta.url), "utf8"));
+  assert.match(src, /import \{ median \} from "@\/shared\/boost-ladder"/, "a second median has been written beside the first");
+  assert.doesNotMatch(src, /function median\(/, "knowledge-graph has its own median again");
+});
+
+test("the graph builds typed entities and the right edge for each dimension", async () => {
+  const { buildGraph, EDGE_FOR } = await import("../src/shared/knowledge-graph.ts");
+  const g = buildGraph([kgPost("p1", 50, { hook: "question", channel: "instagram", audience: "35-44" })]);
+  const types = new Set(g.entities.map((e) => e.type));
+  assert.deepEqual([...types].sort(), ["audience", "channel", "hook", "post"]);
+  const edge = (kind) => g.edges.find((e) => e.kind === kind);
+  assert.ok(edge(EDGE_FOR.hook), "a post is not linked to its hook");
+  assert.ok(edge(EDGE_FOR.channel));
+  assert.ok(edge(EDGE_FOR.audience));
+  assert.equal(g.edges.length, 3);
+  // Every edge must point from the post to the attribute, never the reverse.
+  assert.ok(g.edges.every((e) => e.from.startsWith("post:")), "an edge runs the wrong way");
+});
+
+test("the knowledge-graph route refuses to coerce a missing attribute into an entity", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/knowledge-graph/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/knowledge-graph", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "graph", brandId: "t-kg-1",
+      records: [
+        // hook is a number, and audience is absent. Neither may become a node:
+        // `String(undefined)` is the literal "undefined", which would be queried.
+        { id: "p1", impressions: 1000, engagements: 50, publishedAtISO: "2026-01-01T00:00:00.000Z", hook: 42 },
+      ],
+    }),
+  }));
+  const d = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(d.entities.map((e) => e.type), ["post"]);
+  assert.equal(d.edges.length, 0);
+  assert.ok(!JSON.stringify(d).includes("undefined"), "a missing attribute became an entity labelled undefined");
 });
