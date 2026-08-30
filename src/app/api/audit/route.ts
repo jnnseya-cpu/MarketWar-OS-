@@ -92,6 +92,42 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/** The caller's address, as the edge saw it. First hop only — the rest is forgeable. */
+function ipOf(req: NextRequest): string {
+  return (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "";
+}
+
+/**
+ * Who is asking, if anybody, and are they paying?
+ *
+ * A stranger has neither, which is the ordinary case for this route and is not a
+ * failure. Everything is loaded on use and wrapped, because both paths reach
+ * firebase-admin and this route must never carry it in its static graph.
+ */
+async function callerFor(req: NextRequest): Promise<{ accountId: string | null; paid: boolean }> {
+  if (!(req.headers.get("authorization") || "").startsWith("Bearer ")) return { accountId: null, paid: false };
+  try {
+    const { requireAuth } = await import("@/backend/guard");
+    const auth = await requireAuth(req);
+    if (!auth.ok || !auth.uid) return { accountId: null, paid: false };
+    try {
+      const { entitlementFor } = await import("@/backend/entitlement");
+      const ent = await entitlementFor(auth.uid);
+      // Paying means an ACTIVE subscription on a plan that is not the free one.
+      // `active` alone is true of a free account, and a lapsed payment inside its
+      // grace window is still paying — that is what `entitlementOf` decides, and
+      // this route does not get a second opinion about it.
+      return { accountId: auth.uid, paid: Boolean(ent.active && ent.planId !== "free") };
+    } catch {
+      // Signed in, entitlement unreadable: treat as unpaid but ATTRIBUTED. The
+      // account id is the fairer counter anyway — a shared office address is not.
+      return { accountId: auth.uid, paid: false };
+    }
+  } catch {
+    return { accountId: null, paid: false };
+  }
+}
+
 async function handleAudit(req: NextRequest) {
   // Tighter than the signed-in routes: this is public and it makes an outbound
   // fetch on behalf of whoever calls it, so it is the one endpoint that could be
@@ -111,9 +147,67 @@ async function handleAudit(req: NextRequest) {
   // way into a real fetch attempt, on an unauthenticated path, for the cost of
   // one request. The longest URL any browser will follow is well under 2,048
   // characters, so nothing legitimate is refused here.
+  const nowISO = new Date().toISOString();
   const MAX_URL_CHARS = 2_048;
   if (url.length > MAX_URL_CHARS) {
     return NextResponse.json({ error: "That address is far longer than any real web address — check it and try again." }, { status: 400 });
+  }
+
+  // WHO IS ASKING, AND HAVE THEY HAD THEIR FREE AUDITS?
+  //
+  // Owner directive: the free audit is for a person checking their own site, not
+  // for companies running it as a service. Ten looks at one address, three
+  // websites, fifteen in total, per ninety days — unlimited on a paid plan.
+  // The numbers live in `shared/audit-quota.ts`; nothing here re-states them.
+  //
+  // LOADED ON USE, like `acquisition` below and for the same reason: this module
+  // reaches firebase-admin, and a public route that reads somebody's website
+  // must not carry the Admin SDK in its static graph. A module-level failure
+  // there is an uncatchable 500 on the platform's front door, which is exactly
+  // the defect this route was reported with.
+  //
+  // CHECKED BEFORE THE CRAWL, so a refused visitor does not cost us a fetch —
+  // and RECORDED AFTER a real report, so a site that blocks our crawler never
+  // spends somebody's allowance on nothing.
+  let quota: { allowed: boolean; refusal?: { headline: string; detail: string; cta: string }; paid: boolean; remaining?: number } = { allowed: true, paid: false };
+  try {
+    const [{ checkAuditQuota }, { quotaRefusalCopy }] = await Promise.all([
+      import("@/backend/audit-quota"),
+      import("@/shared/audit-quota"),
+    ]);
+    const who = await callerFor(req);
+    const verdict = await checkAuditQuota({ url, ip: ipOf(req), accountId: who.accountId, paid: who.paid, nowISO });
+    quota = {
+      allowed: verdict.allowed,
+      paid: Boolean(verdict.unlimited),
+      remaining: verdict.allowed ? (verdict as { remainingForSite?: number }).remainingForSite : 0,
+      ...(verdict.allowed ? {} : { refusal: quotaRefusalCopy(verdict) }),
+    };
+  } catch (e) {
+    // The quota could not be evaluated. ALLOW — see `audit-quota.ts`: closing
+    // the acquisition front door because a counter is unavailable costs more
+    // than the handful of free crawls it would save.
+    console.error(`[audit] quota check failed, allowing: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  if (!quota.allowed && quota.refusal) {
+    // 200, not 429. This is not a rate limit and it is not an error — it is the
+    // free tier ending, which is a SALES MOMENT and the one point at which an
+    // interested person is most likely to pay. It renders as a message, not a
+    // failure, and it names what to do about it.
+    return NextResponse.json({
+      ok: false,
+      quotaReached: true,
+      error: quota.refusal.detail,
+      // Deliberately NOT `headline`/`cta`: `headline` already means the audit's
+      // own summary line ("2 things are costing you enquiries") on a successful
+      // report. One field with two meanings is a defect waiting for whoever
+      // renders it next.
+      quotaHeadline: quota.refusal.headline,
+      quotaCta: quota.refusal.cta,
+      quotaCtaHref: "/pricing",
+      block: null,
+    }, { status: 200 });
   }
 
   // THE CRAWL IS WRAPPED. It reads an arbitrary third-party site, which is the
@@ -195,6 +289,24 @@ async function handleAudit(req: NextRequest) {
   const headline = auditHeadline({ failures, warnings, worst, score: report.score });
 
   const email = str("email").toLowerCase();
+
+  // ONE COMPLETED AUDIT, RECORDED ONCE. Placed here — after the crawl succeeded
+  // and before either response is built — so both the free view and the emailed
+  // report count exactly the same, and a refused crawl counts for nothing.
+  // Never awaited into the response: a failure to record is a free audit
+  // somebody got for nothing, which is the safe direction, and must not cost
+  // them the report they already have.
+  if (!quota.paid) {
+    void (async () => {
+      try {
+        const { recordAuditUse } = await import("@/backend/audit-quota");
+        const who = await callerFor(req);
+        await recordAuditUse({ url: report.finalUrl || report.url, ip: ipOf(req), accountId: who.accountId, paid: who.paid, nowISO });
+      } catch (e) {
+        console.error(`[audit] could not record the use: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+  }
 
   // No email: give the score and the first three properly, and say exactly how
   // many are being held back rather than implying there are hundreds.

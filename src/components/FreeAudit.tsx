@@ -27,6 +27,7 @@ type Finding = {
 type Report = {
   ok: boolean; error?: string; gated?: boolean;
   url?: string; score?: number; grade?: string; loadMs?: number; https?: boolean; title?: string;
+  quotaReached?: boolean; quotaHeadline?: string; quotaCta?: string; quotaCtaHref?: string;
   areaScores?: {
     area: string; score: number | null; grade: string | null; measured: number; checks: number;
     failures: number; warnings: number; weightShare: number; coveragePct: number; worst: string; note: string;
@@ -151,7 +152,25 @@ export default function FreeAudit() {
         {error && <p className="mt-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-2.5 text-xs text-rose-200">{error}</p>}
       </form>
 
-      {report && report.ok === false && (
+      {/* RUNNING OUT IS NOT AN ERROR — it is the free tier ending, and it is the
+          single moment an interested person is most likely to pay. Rendering it
+          in the same amber "something went wrong" box as a failed crawl would
+          throw that away and read as a fault on our side. It gets its own
+          treatment, the reason in plain words, and the way forward. */}
+      {report && report.ok === false && report.quotaReached && (
+        <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5">
+          <p className="font-display text-base font-bold text-white">{report.quotaHeadline || "You have used your free audits"}</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-slate-300">{report.error}</p>
+          <a
+            href={report.quotaCtaHref || "/pricing"}
+            className="mt-3 inline-block rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-ink-950 hover:bg-emerald-400"
+          >
+            {report.quotaCta || "See the plans"}
+          </a>
+        </div>
+      )}
+
+      {report && report.ok === false && !report.quotaReached && (
         <p className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4 text-sm text-amber-100">{report.error}</p>
       )}
 
