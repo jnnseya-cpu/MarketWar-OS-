@@ -13817,7 +13817,25 @@ test("the free audit is genuinely free, findable, and the first thing asked for"
 
   // No auth on the way in. A stranger who has never heard of us cannot be asked
   // to create an account to find out whether we are any good.
-  assert.doesNotMatch(route, /requireAuth|resolveBrandAccess/, "the free audit requires an account");
+  //
+  // A TENANT GATE IS STILL FORBIDDEN OUTRIGHT: `resolveBrandAccess` refuses
+  // anybody without a brand, which is an account by another name.
+  assert.doesNotMatch(route, /resolveBrandAccess/, "the free audit is gated behind a brand");
+
+  // `requireAuth` IS allowed here, and only for one reason: reading whether the
+  // caller is on a paid plan, so their free-audit quota can be lifted. It must
+  // never be able to REFUSE. A grep cannot tell those two apart — it used to
+  // forbid the string outright, and that would have blocked the quota work while
+  // proving nothing about the property it defends — so the property is asserted
+  // by driving the real handler with no credentials at all, below.
+  const authUses = [...route.matchAll(/requireAuth\s*\(/g)].length;
+  assert.ok(authUses <= 1, `requireAuth appears ${authUses} times — the free audit must ask at most once, to read the plan`);
+  if (authUses === 1) {
+    const at = route.indexOf("requireAuth(");
+    const fn = route.slice(0, at).lastIndexOf("async function ");
+    assert.match(route.slice(fn, fn + 60), /async function callerFor/,
+      "requireAuth is used outside callerFor — anywhere else it can refuse a stranger");
+  }
   // And no wallet: a free audit that debits somebody is not free.
   assert.doesNotMatch(route, /meterAction|debitAcus/, "the free audit charges for itself");
   // No AI provider either, so it runs on the deployment exactly as it stands —
@@ -25364,4 +25382,183 @@ test("the per-area scores reach the audit API response, with and without an emai
   } finally {
     globalThis.fetch = real;
   }
+});
+
+// ---------------------------------------------------------------------------
+// THE FREE AUDIT IS FOR A PERSON CHECKING THEIR OWN SITE.
+//
+// Owner directive: stop companies running the free audit as a business —
+// auditing other people's sites in volume, reselling the report, grinding it for
+// data. Personal usage only; an active paid subscription lifts it entirely.
+//
+// The two instructions given conflict — "one address, ten times" against "three
+// websites, five times each" — so they are enforced as three independent caps
+// and the strictest binds: 10 per site, 3 sites, 15 in total, per 90 days. Both
+// sentences are then literally true.
+// ---------------------------------------------------------------------------
+test("the audit quota: ten of one site, three sites, fifteen in all", async () => {
+  const { checkQuota, AUDIT_QUOTA } = await import("../src/shared/audit-quota.ts");
+  const now = "2026-03-01T12:00:00.000Z";
+  const uses = (site, n, at = "2026-02-01T00:00:00.000Z") => Array.from({ length: n }, () => ({ site, at }));
+
+  // ONE ADDRESS, TEN TIMES — the first instruction, literally.
+  assert.equal(checkQuota({ history: uses("a.com", 9), site: "a.com", nowISO: now }).allowed, true, "the tenth look at one site was refused");
+  const eleventh = checkQuota({ history: uses("a.com", 10), site: "a.com", nowISO: now });
+  assert.equal(eleventh.allowed, false, "an eleventh audit of the same site was allowed");
+  assert.equal(eleventh.hit, "per_site");
+  assert.match(eleventh.reason, /a\.com/, "the refusal does not name the site it is about");
+
+  // THREE WEBSITES, FIVE EACH — the second instruction, literally.
+  const three = [...uses("a.com", 5), ...uses("b.com", 5), ...uses("c.com", 5)];
+  assert.equal(three.length, AUDIT_QUOTA.total, "the fixture no longer matches the stated total");
+  const fourthSite = checkQuota({ history: [...uses("a.com", 1), ...uses("b.com", 1), ...uses("c.com", 1)], site: "d.com", nowISO: now });
+  assert.equal(fourthSite.allowed, false, "a fourth website was allowed");
+  assert.equal(fourthSite.hit, "sites");
+
+  // …but the three already used stay open. Refusing a NEW site must not refuse
+  // the site somebody is actually working on.
+  assert.equal(checkQuota({ history: [...uses("a.com", 1), ...uses("b.com", 1), ...uses("c.com", 1)], site: "b.com", nowISO: now }).allowed, true,
+    "a site already in use was refused because three sites had been seen");
+
+  // THE TOTAL CEILING stops 10 + 10 + 10.
+  const spent = checkQuota({ history: [...uses("a.com", 8), ...uses("b.com", 7)], site: "a.com", nowISO: now });
+  assert.equal(spent.allowed, false, "the total ceiling did not bind");
+  assert.equal(spent.hit, "total");
+
+  // NINETY DAYS. A use older than the window is not counted, and the refusal
+  // names the date the door reopens rather than a vague "later".
+  const old = uses("a.com", 10, "2025-06-01T00:00:00.000Z");
+  assert.equal(checkQuota({ history: old, site: "a.com", nowISO: now }).allowed, true, "audits from outside the window are still being counted");
+  const blocked = checkQuota({ history: uses("a.com", 10, "2026-02-14T00:00:00.000Z"), site: "a.com", nowISO: now });
+  assert.equal(blocked.allowed, false);
+  assert.equal(new Date(blocked.resetsAt).getTime(), Date.parse("2026-02-14T00:00:00.000Z") + AUDIT_QUOTA.windowDays * 86_400_000,
+    "the reset date is not when the oldest use actually ages out");
+
+  // A PAID SUBSCRIPTION LIFTS IT ENTIRELY, without even reading the history.
+  const paid = checkQuota({ history: uses("a.com", 500), site: "a.com", nowISO: now, paid: true });
+  assert.equal(paid.allowed, true, "a paying subscriber was refused");
+  assert.equal(paid.unlimited, true);
+});
+
+// THE ABUSE VECTOR, AND THE WHOLE REASON THIS HOLDS. If a query string makes a
+// new "website", the three-site cap is bypassed by typing a question mark and
+// the limit is decoration.
+test("the audit quota counts one website however the address is typed", async () => {
+  const { siteKey } = await import("../src/shared/audit-quota.ts");
+  const same = [
+    "example.com", "www.example.com", "https://example.com", "https://www.example.com/",
+    "https://example.com/about", "https://example.com/?utm_source=x", "HTTPS://Example.COM",
+    "https://example.com:443/deep/path?a=1#frag", "example.com.",
+  ];
+  const keys = new Set(same.map(siteKey));
+  assert.deepEqual([...keys], ["example.com"], `these should all be ONE site, got: ${[...keys].join(", ")}`);
+
+  // …and genuinely different sites stay different, or the cap would refuse
+  // somebody for auditing a site they never touched.
+  assert.notEqual(siteKey("shop.example.com"), siteKey("example.com"), "a subdomain is a different site");
+  assert.notEqual(siteKey("example.co.uk"), siteKey("example.com"));
+  assert.equal(siteKey(""), "", "an unreadable address is not a site named empty-string");
+  assert.equal(siteKey("not a url"), "", "junk is not counted as a site");
+});
+
+test("the audit route enforces the quota, and a refused crawl costs nothing", async () => {
+  const { POST } = await import("../src/app/api/audit/route.ts");
+  const { NextRequest } = await import("next/server");
+  const { __resetAuditQuota } = await import("../src/backend/audit-quota.ts");
+  const { __resetRateLimits } = await import("../src/backend/rate-limit.ts");
+  const { AUDIT_QUOTA } = await import("../src/shared/audit-quota.ts");
+  __resetAuditQuota();
+
+  // ONE HOST, and the one this suite already proves the crawler will accept.
+  // The net guard does a real DNS lookup, so an invented hostname fails the
+  // CRAWL rather than the quota — the first version of this test used
+  // `.example` names and measured the guard instead. The site and total caps are
+  // covered exhaustively against the pure rules above, where no network is
+  // involved at all; what needs proving HERE is the wiring.
+  const HOST = "veryxjnn.com";
+  const OK_BODY = `<html lang="en"><head><title>Site</title><meta name="viewport" content="width=device-width"></head><body><h1>Site</h1><p>${"word ".repeat(200)}</p></body></html>`;
+
+  const real = globalThis.fetch;
+  let status = 200;
+  globalThis.fetch = async (url) => ({
+    ok: status >= 200 && status < 300, status, url: String(url),
+    headers: { get: (n) => (n.toLowerCase() === "content-type" ? "text/html" : null) },
+    arrayBuffer: async () => new TextEncoder().encode(OK_BODY).buffer,
+    text: async () => OK_BODY,
+  });
+
+  const audit = async (ip = "203.0.113.5") => {
+    // The route's own per-minute limiter is a DIFFERENT control; without this
+    // reset the test would be measuring that one.
+    __resetRateLimits();
+    const res = await POST(new NextRequest("https://mw.test/api/audit", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": ip },
+      body: JSON.stringify({ url: `https://${HOST}/` }),
+    }));
+    return res.json();
+  };
+  // The record is written without being awaited into the response, so the next
+  // call has to see it.
+  const settle = () => new Promise((r) => setTimeout(r, 25));
+
+  try {
+    // A REFUSED CRAWL MUST NOT SPEND THE ALLOWANCE. They received nothing, and
+    // charging for it would mean somebody whose host blocks our crawler loses
+    // their free audits without ever seeing one.
+    status = 403;
+    for (let i = 0; i < AUDIT_QUOTA.perSite + 4; i++) { await audit(); await settle(); }
+    status = 200;
+    const afterBlocks = await audit();
+    assert.equal(afterBlocks.ok, true, `a run of refused crawls burned the quota: ${afterBlocks.error || ""}`);
+
+    // TEN OF ONE SITE, then refused.
+    //
+    // The settle() before the reset is not padding: that last successful audit
+    // records without being awaited, so clearing the store first lets its write
+    // land AFTER the reset and start the next section one use down. It cost the
+    // tenth audit of the loop before this line existed.
+    await settle();
+    __resetAuditQuota();
+    for (let i = 0; i < AUDIT_QUOTA.perSite; i++) {
+      const r = await audit();
+      assert.equal(r.ok, true, `audit ${i + 1} of ${AUDIT_QUOTA.perSite} was refused: ${r.error || ""}`);
+      await settle();
+    }
+    const over = await audit();
+    assert.equal(over.ok, false, "an eleventh audit of the same site went through");
+    assert.equal(over.quotaReached, true, "the refusal is not marked as a quota refusal");
+    assert.ok(over.quotaHeadline && over.quotaCta && over.quotaCtaHref,
+      "the refusal is not a sales moment — this is the point at which an interested person is most likely to pay");
+
+    // A DIFFERENT ADDRESS IS A DIFFERENT PERSON. The counter must not be global,
+    // or one heavy user would close the front door for everybody.
+    const other = await audit("198.51.100.9");
+    assert.equal(other.ok, true, "another visitor was refused because of somebody else's usage");
+  } finally {
+    globalThis.fetch = real;
+    __resetAuditQuota();
+  }
+});
+
+// The address is personal data under UK GDPR, and this platform sells itself on
+// handling lawful basis properly. A ninety-day table of "this address audited
+// these websites" must not be readable as addresses.
+test("the quota never stores a raw IP address", async () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/audit-quota.ts", import.meta.url), "utf8"));
+
+  assert.match(src, /createHash\("sha256"\)/, "the subject key is not hashed");
+  // SALTED, and that is not decoration: there are only four billion IPv4
+  // addresses, so an unsalted hash of one is reversible by enumeration in
+  // seconds — an encoding, not a protection.
+  assert.match(src, /AUDIT_QUOTA_SALT/, "the hash is unsalted, so it is reversible by enumerating the IPv4 space");
+  assert.match(src, /\$\{salt\}\|ip\|\$\{ip\}/, "the salt is read but not actually mixed into the hash");
+
+  // The raw address must never reach storage.
+  const write = src.slice(src.indexOf("async function writeUses"), src.indexOf("export type QuotaCheck"));
+  assert.doesNotMatch(write, /\bip\b/, "writeUses touches the address itself");
+
+  // Rows outside the window are dropped rather than kept: personal data held
+  // past its purpose is data held for no reason.
+  assert.match(write, /cutoff/, "spent rows are kept forever");
 });
