@@ -26120,3 +26120,127 @@ test("the economics endpoint reads the CALLER'S wallet and never one from the bo
   assert.match(src, /const walletId = auth\.uid/, "the wallet must come from the verified caller");
   assert.doesNotMatch(src, /readSpend\((?!walletId)/, "readSpend is being called with something other than the caller's own wallet");
 });
+
+// ---------------------------------------------------------------------------
+// §77 — the content performance knowledge graph
+//
+// The failure mode here is not a crash either: it is a platform confidently
+// recommending noise, which is worse than one that says nothing.
+// ---------------------------------------------------------------------------
+
+const kgPost = (id, engagements, over = {}) =>
+  ({ id, impressions: 1000, engagements, publishedAtISO: "2026-01-01T00:00:00.000Z", ...over });
+
+test("no verdict below three posts — one that landed is not a finding", async () => {
+  const { whatWorks, MIN_SAMPLES } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    // A single spectacular post using a rocket emoji.
+    kgPost("a", 400, { hook: "rocket" }),
+    // Nine ordinary posts, so the brand median is a real 5%.
+    ...Array.from({ length: 9 }, (_, i) => kgPost(`n${i}`, 50, { hook: "plain" })),
+  ];
+  const rocket = whatWorks(records, "hook").find((f) => f.value === "rocket");
+  assert.equal(rocket.posts, 1);
+  assert.equal(rocket.verdict, "not_enough_evidence", "one post that landed was turned into a recommendation");
+  assert.equal(rocket.liftPct, null, "a lift was claimed from a single post");
+  assert.match(rocket.reason, new RegExp(String(MIN_SAMPLES)));
+
+  // And it is still LISTED — omitting it reads as "we never tried that".
+  assert.ok(whatWorks(records, "hook").some((f) => f.value === "rocket"));
+});
+
+test("findings are associations and never causes", async () => {
+  const { whatWorks } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    ...Array.from({ length: 4 }, (_, i) => kgPost(`q${i}`, 100, { hook: "question" })),
+    ...Array.from({ length: 6 }, (_, i) => kgPost(`p${i}`, 50, { hook: "plain" })),
+  ];
+  const all = whatWorks(records, "hook");
+  const q = all.find((f) => f.value === "question");
+  assert.equal(q.verdict, "above");
+  assert.ok(q.liftPct > 0);
+  assert.match(q.reason, /not a proven cause/i, "a finding asserted a mechanism it has not measured");
+  for (const f of all) {
+    assert.doesNotMatch(f.reason, /\b(drives|causes|because of|leads to)\b/i, `"${f.reason}" claims causation`);
+  }
+});
+
+test("tiny posts are excluded from the median, not just from the verdicts", async () => {
+  const { buildGraph, MIN_IMPRESSIONS } = await import("../src/shared/knowledge-graph.ts");
+  const real = Array.from({ length: 5 }, (_, i) => kgPost(`r${i}`, 50));            // 5%
+  // Five posts of 30 impressions with one engagement each — 3.3%, and noise.
+  const tiny = Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, impressions: 30, engagements: 12, publishedAtISO: "2026-01-01T00:00:00.000Z" }));
+  const g = buildGraph([...real, ...tiny]);
+  assert.equal(g.measuredPosts, 5, "posts below the reach floor were measured");
+  assert.equal(g.medianEngagementRate, 0.05, "noise from tiny posts moved the brand's normal");
+  assert.ok(MIN_IMPRESSIONS > 30);
+  // Their entities must not exist either — a graph node for a post nothing can
+  // say anything about is a node that will be queried.
+  assert.ok(!g.entities.some((e) => e.label.startsWith("t")), "an unmeasurable post became a graph entity");
+});
+
+test("within the material band is level, not a win", async () => {
+  const { whatWorks, MATERIAL_LIFT_PCT } = await import("../src/shared/knowledge-graph.ts");
+  const records = [
+    ...Array.from({ length: 5 }, (_, i) => kgPost(`a${i}`, 52, { format: "carousel" })), // 5.2%
+    ...Array.from({ length: 5 }, (_, i) => kgPost(`b${i}`, 50, { format: "single" })),   // 5.0%
+  ];
+  const carousel = whatWorks(records, "format").find((f) => f.value === "carousel");
+  assert.ok(Math.abs(carousel.liftPct) < MATERIAL_LIFT_PCT);
+  assert.equal(carousel.verdict, "level", "a 4% difference was sold as a win");
+  assert.match(carousel.reason, /No real difference/i);
+});
+
+test("the graph uses §50's median — there are not two versions of a brand's normal", async () => {
+  const { buildGraph } = await import("../src/shared/knowledge-graph.ts");
+  const { median } = await import("../src/shared/boost-ladder.ts");
+  // One post that travelled unusually far. A mean would drag the normal up and
+  // make every other post look weak.
+  const records = [
+    ...Array.from({ length: 4 }, (_, i) => kgPost(`n${i}`, 50)),
+    kgPost("viral", 900),
+  ];
+  const g = buildGraph(records);
+  assert.equal(g.medianEngagementRate, 0.05, "an outlier moved the normal, so this is a mean");
+  assert.equal(g.medianEngagementRate, median([0.05, 0.05, 0.05, 0.05, 0.9]));
+
+  // And the module genuinely imports it rather than keeping its own copy.
+  const src = codeOf(readFileSync(new URL("../src/shared/knowledge-graph.ts", import.meta.url), "utf8"));
+  assert.match(src, /import \{ median \} from "@\/shared\/boost-ladder"/, "a second median has been written beside the first");
+  assert.doesNotMatch(src, /function median\(/, "knowledge-graph has its own median again");
+});
+
+test("the graph builds typed entities and the right edge for each dimension", async () => {
+  const { buildGraph, EDGE_FOR } = await import("../src/shared/knowledge-graph.ts");
+  const g = buildGraph([kgPost("p1", 50, { hook: "question", channel: "instagram", audience: "35-44" })]);
+  const types = new Set(g.entities.map((e) => e.type));
+  assert.deepEqual([...types].sort(), ["audience", "channel", "hook", "post"]);
+  const edge = (kind) => g.edges.find((e) => e.kind === kind);
+  assert.ok(edge(EDGE_FOR.hook), "a post is not linked to its hook");
+  assert.ok(edge(EDGE_FOR.channel));
+  assert.ok(edge(EDGE_FOR.audience));
+  assert.equal(g.edges.length, 3);
+  // Every edge must point from the post to the attribute, never the reverse.
+  assert.ok(g.edges.every((e) => e.from.startsWith("post:")), "an edge runs the wrong way");
+});
+
+test("the knowledge-graph route refuses to coerce a missing attribute into an entity", async () => {
+  const { NextRequest } = await import("next/server");
+  const route = await import("../src/app/api/knowledge-graph/route.ts");
+  const res = await route.POST(new NextRequest("https://mw.test/api/knowledge-graph", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "graph", brandId: "t-kg-1",
+      records: [
+        // hook is a number, and audience is absent. Neither may become a node:
+        // `String(undefined)` is the literal "undefined", which would be queried.
+        { id: "p1", impressions: 1000, engagements: 50, publishedAtISO: "2026-01-01T00:00:00.000Z", hook: 42 },
+      ],
+    }),
+  }));
+  const d = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(d.entities.map((e) => e.type), ["post"]);
+  assert.equal(d.edges.length, 0);
+  assert.ok(!JSON.stringify(d).includes("undefined"), "a missing attribute became an entity labelled undefined");
+});

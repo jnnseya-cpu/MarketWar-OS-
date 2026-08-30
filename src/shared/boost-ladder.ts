@@ -94,7 +94,13 @@ export type OrganicBaseline = {
 
 const rate = (num: number, den: number): number | null => (den > 0 ? num / den : null);
 
-function median(values: number[]): number | null {
+/**
+ * Exported because §77's knowledge graph asks the same question one level up —
+ * "did posts using this hook beat your normal?" — and a second median written
+ * beside this one is exactly how two parts of a platform come to disagree about
+ * what a brand's normal is. Median, not mean, for the reason given above.
+ */
+export function median(values: number[]): number | null {
   const v = values.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
   if (!v.length) return null;
   const mid = v.length >> 1;
