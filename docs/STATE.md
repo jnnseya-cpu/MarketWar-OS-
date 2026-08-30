@@ -1,7 +1,7 @@
 # MarketWar OS — current state
 
 **This file describes where things stand right now. It is REPLACED, never appended to.**
-Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-08-28.
+Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-08-30.
 
 ## 1. What this is
 
@@ -9,8 +9,11 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,662 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,675 tests** including one
 end-to-end run of the growth loop.
+
+**THE RUNTIME IS PINNED TO NODE 22** (`package.json` → `engines`, 2026-08-29). This is
+not hygiene; read §5.0 before changing it.
 
 **Both branches are now IDENTICAL, on Next 15 / React 19** (landed 2026-08-28). Mirror
 file-by-file, never by merge, verified on main's own `npm ci`.
@@ -85,6 +88,17 @@ always what somebody TYPED**, worst a 4.0x ROAS rule where the guardrail says 3.
 
 ## 5. Outstanding — the whole list, deduplicated
 
+**0. THE WHOLE WAR ROOM WAS DARK BECAUSE PRODUCTION RAN NODE 20 — CLOSED (2026-08-29).**
+Every studio read "Activate with a key" and every render length collapsed to 8 seconds
+with all four AI keys correctly set. `/api/health/live` → `moduleErrors` named it in one
+line: `jwks-rsa@4.1.0` does `require('jose')`, `jose@6` is `"type":"module"`, and
+`require(esm)` landed in **Node 22.12**. On Node 20 four modules died AT IMPORT, which is
+an uncatchable 500 no handler sees, so every capability probe failed and every panel
+reported the only thing it could distinguish — no key. The repo declared no `engines`, so
+the host picked its own default. `"engines": { "node": "22.x" }` is now the fix, and it is
+the single most load-bearing line in `package.json`. **A day was lost reasoning from the
+symptom; the answer was one field in a diagnostic that already existed.**
+
 **1. MAIL STILL SENDS NOTHING, AND THE SENDING PATH IS *THROWING* (2026-08-28).**
 Reported with every setting in place. Every `ok:false` path in `sendEmail` carries a
 category, so the audit route reaching its `catch` means the send THREW and classified
@@ -136,12 +150,44 @@ amount 100× ambiguous between conventions ("1,299") is REFUSED with the reason 
 imports once the file says which convention it uses. Imported products are NOT promotable
 until the brand says so.
 
+**7. THE AUDIT NOW SCORES SEO SEPARATELY (2026-08-29).** `scoreByArea` in
+`backend/crawler.ts` splits the 29 checks into SEO, Content, Technical, Mobile, Social and
+Structured data, exported and PURE so every branch is drivable without a crawl. An area
+with nothing measurable scores **`null`, never zero** — a site with no social tags has an
+unknown social score, and printing 0/100 is a fabricated number the owner would have to
+defend. Both response shapes carry `areaScores`.
+
+**8. THE FREE AUDIT IS RATE-LIMITED TO PERSONAL USE (2026-08-29).** Rules in
+`shared/audit-quota.ts` (pure), storage and identity in `backend/audit-quota.ts`. Three
+independent caps in a 90-day window: **10 per site, 3 sites, 15 total**; an active paid
+subscription is unlimited and consults no history. **The site key is the registrable
+domain** — `www.`, path, query and port all reduce to one host, or the three-site cap is
+bypassed with a question mark. A refused crawl does not spend an allowance. Keyed on the
+ACCOUNT when signed in and only on the address otherwise, so an office behind one IP is
+not locked out. The address is never stored: `sha256(salt + ip)`, salted from
+`AUDIT_QUOTA_SALT` falling back to `FIELD_ENCRYPTION_MASTER_KEY`. Fails OPEN on a storage
+error — a closed front door costs more than a few free crawls.
+
+**9. 91 OF 133 ENVIRONMENT VARIABLES WERE INVISIBLE — CLOSED (2026-08-29).**
+`/api/health/live` reported `envPresent` from a hand-typed list of 35 names while the
+codebase read 133, so `RESEND_API_KEY`, `APOLLO_API_KEY`, `COMPANIES_HOUSE_API_KEY`,
+`ONFIDO_API_TOKEN`, `WHATSAPP_TOKEN`, `FB_APP_SECRET`, the Google OAuth trio and every
+webhook secret could not be seen to be missing. `shared/env-catalogue.ts` is now the one
+registry — 110 documented entries with what each unlocks and where to obtain it, plus two
+explicit exclusion lists (tuning, host-set). A test walks `src`, `scripts` and `worker` and
+fails in BOTH directions: a variable read but not catalogued, or catalogued but never read.
+`/api/health/live` reports all 110 plus `envMissing` and `envSummary`, and a `build` block
+naming the commit and which host stamped it. **14 are confirmed missing** — the four
+`NEXT_PUBLIC_LEGAL_*` are a launch blocker, `CRON_SECRET` kills every scheduled run.
+
 **Owner actions (nothing in code can substitute):**
 1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE, then never again; check `/api/health/live`
    → `envPresent` before asking. It makes the owner `executive`, never metered.
    No-redeploy alternative: `node scripts/grant-admin.mjs you@… executive`.
-2. Open `/api/health/live` after every change — `envPresent` is the only proof the running
-   build received it. Submit the sitemap.
+2. Open `/api/health/live` after every change — `envPresent`/`envMissing` is the only proof
+   the running build received it, and `build.commit` the only proof of WHICH code is
+   serving. All 110 variables, what each unlocks and where to get it:
+   `shared/env-catalogue.ts`. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand.
 4. **Run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness. Build the five custom audiences FIRST — they cannot be backfilled.
 5. **`COMPANIES_HOUSE_API_KEY`** — free, the second free source in the contact waterfall. `SERPER_API_KEY` gates live company discovery; the current value is rejected 401/403.
@@ -159,7 +205,11 @@ used everywhere else.
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWENTY-THREE. Newest (2026-08-28): `sendEmail` knew exactly why a send failed and the
+TWENTY-FOUR. Newest (2026-08-29): the codebase read 133 environment variables and the
+diagnostic that answers "what does this deployment hold?" knew 35 of them — the other 91
+existed on one side of that boundary and were never carried across, so a missing key was
+indistinguishable from a key nobody had ever asked about. Before it (2026-08-28):
+`sendEmail` knew exactly why a send failed and the
 caller reported `unknown` — "the send did not complete" — so the owner spent days
 checking mail settings that were never the cause. Before it: the render sent a prompt and
 a duration and NO aspect ratio, so every portrait placement came back landscape; a
@@ -167,6 +217,11 @@ provider's start failure was formatted into a sentence with its status and body 
 away; `meterAction` exempted staff while the video queue took a wallet id, not a caller.
 Worst: a message whose login, envelope sender and From were three mailboxes, one invented
 in source and never created. The rest: `REQUIREMENTS-COVERAGE.md`.
+
+**ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM.** The Node 20 failure
+(§5.0) was diagnosed in one line of `moduleErrors` after a day spent inferring from a
+screenshot of dark panels. The endpoint that named it already existed on the first hour.
+Reading it first would have cost one message.
 
 **Check the boundary first; a reported success is not a happening. And a second class, about
 tests rather than code: a check that passes — or FAILS — for a reason unrelated to what it
