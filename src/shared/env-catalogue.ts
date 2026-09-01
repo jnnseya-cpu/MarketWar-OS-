@@ -64,7 +64,7 @@ export const ENV_CATALOGUE: EnvVar[] = [
   { name: "GOOGLE_CLOUD_PROJECT", group: "Firebase", secret: false, unlocks: "The same project id under the spelling some Google runtimes use instead.", where: "Usually set by the host; otherwise your Google Cloud project id." },
   { name: "STRIPE_SECRET_KEY", group: "Payments", secret: true, unlocks: "Taking money at all. Without it choosing a paid plan returns 503.", where: "dashboard.stripe.com → Developers → API keys." },
   { name: "STRIPE_WEBHOOK_SECRET", group: "Payments", secret: true, unlocks: "Crediting a wallet after payment. Without it Stripe charges the card and nothing is credited.", where: "Stripe → Developers → Webhooks → your endpoint → Signing secret (whsec_…)." },
-  { name: "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", group: "Payments", secret: false, unlocks: "The browser half of Stripe checkout.", where: "Same API keys page, pk_… ." },
+  { name: "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", group: "Payments", secret: false, unlocks: "NOTHING, on this build. Checkout is created server-side and the browser is redirected to Stripe's own page, so no publishable key is needed. Set it only if a card form is ever embedded in these pages.", where: "Same API keys page, pk_… . Not required today." },
   { name: "BITRIPAY_API_KEY", group: "Payments", secret: true, unlocks: "BitriPay payouts to creators in the Creator Engine.", where: "Your BitriPay account." },
   { name: "SMTP_HOST", group: "Email", secret: false, unlocks: "Sending email at all — audit reports, campaigns, receipts.", where: "Your mail host." },
   { name: "SMTP_USER", group: "Email", secret: true, unlocks: "The mailbox that authenticates.", where: "Your mail host." },
