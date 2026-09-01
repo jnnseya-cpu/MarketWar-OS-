@@ -16,7 +16,6 @@ import {
   RefreshCcw,
   Rocket,
   Scissors,
-  Sparkles,
   TrendingUp,
   Users,
   Workflow,
@@ -213,7 +212,7 @@ export default function LandingPage() {
           </nav>
           <div className="flex items-center gap-3">
             <SiteAuthLinks
-              ctaClassName="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/25 transition hover:shadow-emerald-500/40"
+              ctaClassName="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition hover:"
             />
           </div>
         </div>
@@ -222,61 +221,74 @@ export default function LandingPage() {
       {/* ============================== HERO ============================= */}
       <section className="relative pt-36 sm:pt-44">
         <div className="grid-bg pointer-events-none absolute inset-0" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[760px] bg-[radial-gradient(ellipse_55%_50%_at_50%_-5%,rgba(16,185,129,0.20),transparent_68%)]" />
-        <div className="pointer-events-none absolute right-[-12%] top-52 h-[26rem] w-[26rem] rounded-full bg-emerald-500/[0.07] blur-[140px]" />
-        <div className="pointer-events-none absolute left-[-12%] top-96 h-80 w-80 rounded-full bg-emerald-400/[0.05] blur-[130px]" />
+        {/* ONE LIGHT, FROM ABOVE AND SLIGHTLY LEFT. There were three here — a
+            wide emerald ellipse across the top plus two 140px-blurred coloured
+            balls floating off each edge. Blurred coloured circles behind a hero
+            are the most-copied device on the generated web, and they are also
+            the reason the old page had a green cast no amount of restraint
+            elsewhere could cancel. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(ellipse_60%_45%_at_38%_-8%,rgba(190,146,71,0.055),transparent_70%)]" />
 
-        <div className="relative mx-auto max-w-6xl px-5 text-center">
-          <div className="animate-fade-up mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-300">
-            <Sparkles className="h-3.5 w-3.5" />
-            The AI customer-acquisition &amp; revenue-growth operating system
-            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">v1.0</span>
-          </div>
-
-          <h1 className="animate-fade-up mx-auto max-w-4xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-6xl lg:text-7xl" style={{ animationDelay: "0.08s" }}>
-            More customers. More revenue.{" "}
-            <span className="text-gradient">Less waste.</span>
-          </h1>
-
-          <p className="animate-fade-up mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl" style={{ animationDelay: "0.16s" }}>
-            MarketWar doesn&rsquo;t help you look busy — it helps you make money. From day one it
-            shows you where the money is, what&rsquo;s blocking it, and the exact action that
-            unlocks it: find demand, acquire customers, convert sales, recover lost revenue and
-            outperform competitors — from one operating system.
-          </p>
-
-          <div className="animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "0.2s" }}>
-            {["More customers", "More revenue", "Less waste"].map((b) => (
-              <span key={b} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-slate-300">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> {b}
+        {/* LEFT-ALIGNED, DELIBERATELY. A centred badge over a centred headline
+            over a centred paragraph over two centred buttons is the archetypal
+            generated hero — it is what a layout looks like when nobody decided
+            anything. Real products anchor the eye at one edge and let the line
+            lengths vary. */}
+        <div className="relative mx-auto max-w-6xl px-5">
+          <div className="max-w-3xl">
+            {/* A LIVE INDICATOR, NOT A SPARKLE. The ✨ icon is the single most
+                recognisable "written by an AI" mark on the web, and it sat in
+                the first element of the first screen. A small steady brass dot
+                says the same thing — this is running — and says it the way a
+                piece of equipment does. */}
+            <div className="animate-fade-up mb-7 inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.03] py-1.5 pl-3 pr-3.5 text-xs font-medium text-slate-300">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300" />
               </span>
-            ))}
-          </div>
+              The AI customer-acquisition &amp; revenue-growth operating system
+              <span className="font-mono text-[10px] tracking-wide text-slate-500">v1.0</span>
+            </div>
 
-          <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: "0.24s" }}>
-            {/* THE FIRST ASK IS NOT "SIGN UP".
-                A stranger who has never heard of us will not create an account
-                to find out whether we are any good. They will, however, type
-                their own website into a box to see what is wrong with it — and
-                that is the same product, on the outside of the login. */}
-            <Link
-              href="/audit"
-              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-7 py-3.5 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
-            >
-              Audit my website free
-              <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-            </Link>
-            <Link
-              href="/signup"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-emerald-500/50 hover:bg-white/10"
-            >
-              Get started free
-            </Link>
+            <h1 className="animate-fade-up font-display text-[2.6rem] font-bold leading-[1.02] tracking-tightest text-white sm:text-6xl lg:text-[4.6rem]" style={{ animationDelay: "0.08s" }}>
+              More customers. More revenue.{" "}
+              <span className="text-gradient">Less waste.</span>
+            </h1>
+
+            <p className="animate-fade-up mt-7 max-w-xl text-lg leading-relaxed text-slate-400" style={{ animationDelay: "0.16s" }}>
+              MarketWar doesn&rsquo;t help you look busy — it helps you make money. From day one it
+              shows you where the money is, what&rsquo;s blocking it, and the exact action that
+              unlocks it: find demand, acquire customers, convert sales, recover lost revenue and
+              outperform competitors — from one operating system.
+            </p>
+
+            {/* The three pills that used to sit here read "More customers ·
+                More revenue · Less waste" — the headline again, word for word,
+                in a smaller size. Padding, not content. */}
+
+            <div className="animate-fade-up mt-9 flex flex-wrap items-center gap-3.5" style={{ animationDelay: "0.24s" }}>
+              {/* THE FIRST ASK IS NOT "SIGN UP".
+                  A stranger who has never heard of us will not create an account
+                  to find out whether we are any good. They will, however, type
+                  their own website into a box to see what is wrong with it — and
+                  that is the same product, on the outside of the login. */}
+              <Link href="/audit" className="btn-primary group !px-7 !py-3.5 !text-base">
+                Audit my website free
+                <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+              </Link>
+              <Link href="/signup" className="btn-ghost !px-7 !py-3.5 !text-base">
+                Get started free
+              </Link>
+            </div>
+
+            <p className="animate-fade-up mt-5 font-mono text-[11px] tracking-wide text-slate-600" style={{ animationDelay: "0.28s" }}>
+              No account. No card. 29 checks, and the three worst free.
+            </p>
           </div>
 
           {/* Product mockup */}
           <div className="animate-fade-up relative mx-auto mt-16 max-w-4xl" style={{ animationDelay: "0.4s" }}>
-            <div className="pointer-events-none absolute -inset-x-10 top-10 -bottom-10 bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.15),transparent_65%)]" />
+            <div className="pointer-events-none absolute -inset-x-10 top-10 -bottom-10 bg-[radial-gradient(ellipse_at_center,rgba(190,146,71,0.068),transparent_65%)]" />
             <HeroMockup />
           </div>
         </div>
@@ -560,7 +572,7 @@ export default function LandingPage() {
 
       {/* ========================== AGENT CORPS ========================== */}
       <section id="agents" className="relative mx-auto max-w-6xl px-5 py-24">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_50%_40%_at_50%_0%,rgba(144,133,233,0.08),transparent_70%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_50%_40%_at_50%_0%,rgba(190,146,71,0.036),transparent_70%)]" />
         <p className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">The revenue army</p>
         {/* The count is DERIVED from the list rendered below it. It used to read
             "26-agent" above a grid of 39 cards anybody could count, because the
@@ -734,7 +746,7 @@ export default function LandingPage() {
                 key={p.name}
                 className={`relative flex flex-col rounded-2xl p-6 ${
                   p.featured
-                    ? "gradient-border bg-ink-900 shadow-[0_30px_80px_-20px_rgba(16,185,129,0.3)]"
+                    ? "gradient-border bg-ink-900 shadow-[0_30px_80px_-20px_rgba(190,146,71,0.135)]"
                     : "border border-white/10 bg-ink-900/70"
                 }`}
               >
@@ -760,7 +772,7 @@ export default function LandingPage() {
                   href={p.href}
                   className={`mt-7 rounded-xl py-3 text-center text-sm font-bold transition ${
                     p.featured
-                      ? "bg-gradient-to-r from-emerald-400 to-emerald-500 text-ink-950 shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50"
+                      ? "bg-gradient-to-r from-emerald-400 to-emerald-500 text-ink-950 shadow-lg hover:"
                       : "border border-white/15 text-white hover:border-emerald-500/50"
                   }`}
                 >
@@ -792,9 +804,9 @@ export default function LandingPage() {
 
       {/* =========================== FINAL CTA =========================== */}
       <section className="relative overflow-hidden border-t border-white/5">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_100%,rgba(16,185,129,0.15),transparent_70%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_100%,rgba(190,146,71,0.068),transparent_70%)]" />
         <div className="relative mx-auto max-w-3xl px-5 py-28 text-center">
-          <span className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-2xl shadow-emerald-500/40">
+          <span className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950 shadow-2xl">
             <Rocket className="h-7 w-7" />
           </span>
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.25em] text-emerald-400">Built for winners</p>
@@ -809,7 +821,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/signup"
-            className="group mt-9 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-8 py-4 text-base font-bold text-ink-950 shadow-xl shadow-emerald-500/30 transition hover:shadow-emerald-500/50"
+            className="group mt-9 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-8 py-4 text-base font-bold text-ink-950 shadow-xl transition hover:"
           >
             Get started free
             <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />

@@ -17,7 +17,7 @@
 // campaign, and delivers the failure after the money.
 
 import { useCallback, useState } from "react";
-import { Loader2, Sparkles, AlertTriangle, UserCheck, Play, Info } from "lucide-react";
+import { Loader2, Cpu, AlertTriangle, UserCheck, Play, Info } from "lucide-react";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -72,7 +72,7 @@ export default function OneClickCampaign() {
   return (
     <div className="card mb-6 p-5">
       <div className="mb-1 flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-emerald-400" />
+        <Cpu className="h-4 w-4 text-emerald-400" />
         <h2 className="font-display font-bold text-white">Say what you want</h2>
       </div>
       <p className="mb-3 text-xs text-slate-400">
@@ -87,7 +87,7 @@ export default function OneClickCampaign() {
           aria-label="What do you want to happen"
         />
         <button type="submit" className="btn-primary" disabled={planning || !sentence.trim()}>
-          {planning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Plan it
+          {planning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />} Plan it
         </button>
       </form>
 

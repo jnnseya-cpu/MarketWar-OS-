@@ -6,7 +6,7 @@
 // Wired to GET /api/integrations.
 
 import { useEffect, useState } from "react";
-import { Plug, ShieldCheck, Hand, Building2, Sparkles, MousePointerClick } from "lucide-react";
+import { Plug, ShieldCheck, Hand, Building2, Cpu, MousePointerClick } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import ChannelHealth from "@/components/ChannelHealth";
 import { authedFetch } from "@/frontend/api-client";
@@ -65,7 +65,7 @@ export default function IntegrationsPage() {
           {/* How connections work */}
           <div className="mb-6 grid gap-4 sm:grid-cols-3">
             <div className="card p-4">
-              <div className="mb-1.5 flex items-center gap-2"><Sparkles className="h-4 w-4 text-emerald-400" /><h3 className="text-sm font-display font-bold text-white">Managed for you</h3></div>
+              <div className="mb-1.5 flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-400" /><h3 className="text-sm font-display font-bold text-white">Managed for you</h3></div>
               <p className="text-xs text-slate-400"><span className="font-bold text-emerald-300">{data.platformManagedCount}</span> connectors run on MarketWar&apos;s own pooled infrastructure. No keys, no setup — billed from your plan at the protected margin, and interchangeable so no vendor is a dependency.</p>
             </div>
             <div className="card p-4">
@@ -124,15 +124,15 @@ export default function IntegrationsPage() {
                           <div className="flex items-center gap-2">
                             {i.userStatus === "ready" ? (
                               i.adminConfigured ? (
-                                <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Live · managed for you</Pill>
+                                <Pill tone="good"><Cpu className="mr-1 inline h-3 w-3" />Live · managed for you</Pill>
                               ) : (
                                 // Honest: the managed model needs no keys from the tenant, but the
                                 // pool is not live in THIS environment yet — never show it as connected.
-                                <Pill tone="info"><Sparkles className="mr-1 inline h-3 w-3" />Managed · activates when enabled</Pill>
+                                <Pill tone="info"><Cpu className="mr-1 inline h-3 w-3" />Managed · activates when enabled</Pill>
                               )
                             ) : i.userStatus === "connect" ? (
                               i.status === "connected" ? (
-                                <Pill tone="good"><Sparkles className="mr-1 inline h-3 w-3" />Connected</Pill>
+                                <Pill tone="good"><Cpu className="mr-1 inline h-3 w-3" />Connected</Pill>
                               ) : i.connectLive ? (
                                 <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
                                   <MousePointerClick className="h-3 w-3" /> Connect

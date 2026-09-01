@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Flame, Loader2, Sparkles, Target, Trophy, Wand2 } from "lucide-react";
+import { Flame, Loader2, Cpu, Target, Trophy, Wand2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -135,7 +135,7 @@ export default function HubsPage() {
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {play.badges.filter((b) => b.earned).map((b) => (
                   <span key={b.id} className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-2 py-1 text-xs text-amber-200" title={b.why}>
-                    <Sparkles className="h-3 w-3" /> {b.label}
+                    <Cpu className="h-3 w-3" /> {b.label}
                   </span>
                 ))}
               </div>

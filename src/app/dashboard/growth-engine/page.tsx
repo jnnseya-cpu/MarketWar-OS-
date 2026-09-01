@@ -18,7 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3, Clock, Hash, Image as ImageIcon, Layers, Loader2, Mail,
-  MousePointerClick, Plane, Sparkles, Target, Users, Video,
+  MousePointerClick, Plane, Cpu, Target, Users, Video,
 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -47,9 +47,9 @@ type PostingAdvice = {
 const PLATFORMS = ["instagram", "tiktok", "linkedin", "x", "facebook", "youtube", "threads", "pinterest"] as const;
 
 // The eight that already exist. Each goes to the surface that does the work.
-const TOOLS: { icon: typeof Sparkles; title: string; does: string; needs: string; href: string; cta: string }[] = [
+const TOOLS: { icon: typeof Cpu; title: string; does: string; needs: string; href: string; cta: string }[] = [
   {
-    icon: Sparkles, title: "AI social media post generator",
+    icon: Cpu, title: "AI social media post generator",
     does: "Writes the post in your brand voice for the channel you pick, then publishes or queues it.",
     needs: "Your brand set up. Connect a channel to publish straight from here; without one you copy the post out.",
     href: "/dashboard/content", cta: "Open the Content Factory",

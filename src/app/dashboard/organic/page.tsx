@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Gauge, Loader2, Radar, Rocket, Search, Sparkles, Wrench } from "lucide-react";
+import { Gauge, Loader2, Radar, Rocket, Search, Cpu, Wrench } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { BarChart } from "@/components/charts";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
@@ -73,7 +73,7 @@ export default function OrganicPage() {
       {/* Free GEO audit — the flagship magnet */}
       <div className="mb-8 card border-emerald-500/30 p-6">
         <div className="mb-1 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-emerald-400" />
+          <Cpu className="h-5 w-5 text-emerald-400" />
           <h2 className="font-display font-bold text-white">Free GEO Audit — does ChatGPT recommend you?</h2>
         </div>
         <p className="mb-4 text-xs text-slate-500">

@@ -29,7 +29,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Command, CornerDownLeft, Loader2, Search, Sparkles } from "lucide-react";
+import { ArrowRight, Command, CornerDownLeft, Loader2, Search, Cpu } from "lucide-react";
 import { NAV } from "@/components/Sidebar";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -138,7 +138,7 @@ export default function CommandBar() {
         onClick={() => setOpen(true)}
         className="mb-6 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left text-sm text-slate-500 transition hover:border-emerald-500/40 hover:text-slate-300"
       >
-        <Sparkles className="h-4 w-4 shrink-0 text-emerald-400/70" />
+        <Cpu className="h-4 w-4 shrink-0 text-emerald-400/70" />
         <span className="flex-1 truncate">What do you want MarketWar to do?</span>
         <span className="hidden shrink-0 items-center gap-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 sm:flex">
           <Command className="h-3 w-3" />K
@@ -151,7 +151,7 @@ export default function CommandBar() {
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink-950/80 p-4 pt-[12vh] backdrop-blur-sm" onClick={() => setOpen(false)}>
       <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-ink-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
-          <Sparkles className="h-4 w-4 shrink-0 text-emerald-400" />
+          <Cpu className="h-4 w-4 shrink-0 text-emerald-400" />
           <input
             ref={inputRef}
             value={q}

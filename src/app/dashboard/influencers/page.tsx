@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Loader2, Users, Sparkles, Copy, Calculator, Share2, CheckCircle2 } from "lucide-react";
+import { Loader2, Users, Cpu, Copy, Calculator, Share2, CheckCircle2 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -77,7 +77,7 @@ export default function InfluencersPage() {
 
       {activeBrand && (
         <div className="mb-6 card border-emerald-500/30 p-6">
-          <div className="mb-2 flex items-center gap-2"><Sparkles className="h-5 w-5 text-emerald-400" /><h2 className="font-display text-lg font-bold text-white">Who should {activeBrand.name} recruit?</h2></div>
+          <div className="mb-2 flex items-center gap-2"><Cpu className="h-5 w-5 text-emerald-400" /><h2 className="font-display text-lg font-bold text-white">Who should {activeBrand.name} recruit?</h2></div>
           <p className="mb-4 text-sm text-slate-400">The recruitment agent builds a niche-specific target list from your brand — creator profiles, why they fit, where to find them, and a ready outreach opener.</p>
           <button className="btn-primary" onClick={run} disabled={busy}>
             {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building your target list…</> : <><Users className="h-4 w-4" /> Recommend creators to recruit</>}

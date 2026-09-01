@@ -4,29 +4,47 @@
 
 :root {
   color-scheme: dark;
-  /* Cinematic ground tokens — colorful AND premium (approved preview). A
-     rainbow accent ramp lights the board over a deep cinematic ground. */
-  --mw-bg: #070a11;
-  --mw-glow: rgba(16, 185, 129, 0.10);
-  /* Rainbow accent ramp */
-  --c1: #10b981; /* emerald */
-  --c2: #38bdf8; /* sky */
-  --c3: #a78bfa; /* violet */
-  --c4: #fbbf24; /* amber */
-  --c5: #fb7185; /* rose */
-  --c6: #60a5fa; /* blue */
-  --c7: #2dd4bf; /* teal */
-  --c8: #f472b6; /* pink */
+
+  /* ONE ACCENT, AND A GROUND THAT IS NOT BLUE.
+     The previous version declared eight accent hues (--c1..--c8) and lit the
+     page with four coloured blobs, one in each corner. That is the look this
+     replaces: a page whose background emits violet and green is a render, and
+     no amount of good typography on top of it reads as a real product.
+     The ramp variables are KEPT, because .accent-1..8 are used across the app
+     and deleting them would break every board that uses one — but they now
+     resolve to a single-hue brass ramp, so a "colourful" tile is a tile with a
+     slightly warmer or cooler hairline rather than a different colour. */
+  --mw-bg: #0A0A0B;
+  --mw-panel: #121213;
+  --mw-line: rgba(255, 255, 255, 0.07);
+  --mw-line-strong: rgba(255, 255, 255, 0.11);
+  --mw-brass: #BE9247;
+  --mw-brass-lit: #DABE81;
+
+  --c1: #BE9247;
+  --c2: #A88544;
+  --c3: #CDA75E;
+  --c4: #8E7038;
+  --c5: #DABE81;
+  --c6: #9E763A;
+  --c7: #C09B55;
+  --c8: #7C5C2F;
 }
 
 body {
   @apply text-slate-200 antialiased;
   background: var(--mw-bg);
   position: relative;
+  /* Real interfaces have a type colour that is not pure white and a body size
+     that was chosen. Both were inherited before. */
+  font-feature-settings: "cv05" 1, "ss01" 1;
 }
 
-/* Atmospheric ground: a single restrained emerald light from above + a
-   cinematic vignette. Fixed, behind everything, on every page. */
+/* THE GROUND IS LIT, NOT LUMINOUS.
+   One cool light from high on the left and one warm from high on the right,
+   both almost colourless, plus a vignette. This is how a photographed surface
+   behaves — the light comes from somewhere and falls off. The old version put
+   a saturated blob in all four corners, which is how nothing behaves. */
 body::before {
   content: "";
   position: fixed;
@@ -34,54 +52,104 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(80% 55% at 8% -6%, color-mix(in oklab, var(--c3) 24%, transparent), transparent 60%),
-    radial-gradient(80% 55% at 92% -4%, color-mix(in oklab, var(--c2) 22%, transparent), transparent 60%),
-    radial-gradient(70% 55% at 90% 72%, color-mix(in oklab, var(--c5) 16%, transparent), transparent 60%),
-    radial-gradient(70% 55% at 6% 76%, color-mix(in oklab, var(--c1) 16%, transparent), transparent 60%),
-    radial-gradient(90% 90% at 50% 40%, transparent 60%, rgba(0, 0, 0, 0.42) 100%);
+    radial-gradient(120% 80% at 18% -20%, rgba(255, 252, 245, 0.055), transparent 62%),
+    radial-gradient(100% 70% at 88% -14%, rgba(190, 146, 71, 0.05), transparent 60%),
+    radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.5) 100%);
 }
 
-/* Fine film grain — the premium "shot, not generated" texture. Very low
-   opacity so it reads as depth, never noise. */
+/* Fine grain. Kept and lowered — at 0.035 over a coloured wash it read as
+   noise; over a neutral ground at 0.022 it reads as a surface having a
+   texture, which is most of why a screen looks photographed rather than
+   drawn. */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.035;
+  opacity: 0.022;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 ::selection {
-  @apply bg-emerald-500/30;
+  background: rgba(190, 146, 71, 0.28);
 }
 
-/* Premium panel: lit-from-above hairline + layered depth shadow, restrained
-   border. Reads as an institutional glass panel, not a generic AI card. */
+/* Numbers are set in the mono face, tabular, everywhere. A column of figures
+   that does not line up is the fastest way to look unfinished, and proportional
+   digits in a metric card are the tell that nobody looked at it. */
+.tabular, .stat, table td, table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A PANEL, NOT A PIECE OF GLASS.
+   Was: rounded-xl, 70% opacity, backdrop-blur-xl, and a 48px shadow. Four
+   separate ways of saying "floating card", stacked. Now: a real surface, a
+   hairline, one soft contact shadow and a single lit edge along the top. The
+   radius comes down because a large radius on a dense data panel is what makes
+   an operator tool look like a marketing site. */
 .card {
-  @apply rounded-xl border border-white/[0.07] bg-ink-900/70 backdrop-blur-xl;
+  border-radius: 10px;
+  background: var(--mw-panel);
+  border: 1px solid var(--mw-line);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
-    0 1px 2px 0 rgba(0, 0, 0, 0.3),
-    0 24px 48px -32px rgba(0, 0, 0, 0.8);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.035),
+    0 1px 1px 0 rgba(0, 0, 0, 0.45);
 }
 
+/* NO GLOW. The old primary button cast a 30px emerald light onto the page.
+   Nothing physical does that, and it is the single strongest signal that an
+   interface was generated. This is a struck metal key: a lit top edge, a real
+   shadow beneath, and it moves 1px when pressed. */
 .btn-primary {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50;
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.25) inset, 0 10px 30px -12px rgba(16, 185, 129, 0.55);
+  @apply inline-flex items-center justify-center gap-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45;
+  border-radius: 7px;
+  padding: 0.6rem 1.05rem;
+  color: #17130B;
+  background: linear-gradient(180deg, #D3AA65 0%, #BE9247 100%);
+  border: 1px solid #8E6C33;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 240, 214, 0.45),
+    0 1px 2px 0 rgba(0, 0, 0, 0.5);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #E0C489 0%, #CDA75E 100%);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.35);
 }
 
 .btn-ghost {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink-600 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/60 hover:text-emerald-300;
+  @apply inline-flex items-center justify-center gap-2 text-sm font-semibold text-slate-200 transition;
+  border-radius: 7px;
+  padding: 0.6rem 1.05rem;
+  border: 1px solid var(--mw-line-strong);
+  background: rgba(255, 255, 255, 0.018);
+}
+.btn-ghost:hover {
+  border-color: rgba(190, 146, 71, 0.5);
+  color: var(--mw-brass-lit);
 }
 
+/* An input is RECESSED. The old one sat on a lighter fill than the panel
+   around it, so it read as raised — the opposite of what a field is. */
 .input {
-  @apply w-full rounded-lg border border-ink-600 bg-ink-850 px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:border-emerald-500/70 focus:ring-1 focus:ring-emerald-500/40;
+  @apply w-full text-sm text-slate-100 placeholder-slate-500 outline-none transition;
+  border-radius: 7px;
+  padding: 0.6rem 0.75rem;
+  background: #0C0C0D;
+  border: 1px solid var(--mw-line-strong);
+  box-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.input:focus {
+  border-color: rgba(190, 146, 71, 0.55);
+  box-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(190, 146, 71, 0.12);
 }
 
 .label {
-  @apply mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400;
+  @apply mb-1.5 block text-[11px] font-semibold uppercase text-slate-400;
+  letter-spacing: 0.09em;
 }
 
 /* ---- Motion & cinematic utilities ---- */
@@ -167,20 +235,29 @@ body::after {
 }
 
 .glass {
-  @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+  border: 1px solid var(--mw-line-strong);
+  background: rgba(255, 255, 255, 0.022);
 }
 
+/* A lit edge, not a rainbow outline. The brass catches the light along the top
+   and fades to the panel hairline by the bottom — which is what a bevelled edge
+   actually does under a light source that is above the screen. */
 .gradient-border {
   position: relative;
   background:
-    linear-gradient(#0b0f19, #0b0f19) padding-box,
-    linear-gradient(135deg, var(--c2), var(--c3) 45%, var(--c5) 80%, var(--c4)) border-box;
+    linear-gradient(var(--mw-panel), var(--mw-panel)) padding-box,
+    linear-gradient(180deg, rgba(218, 190, 129, 0.42), rgba(255, 255, 255, 0.05) 45%, rgba(255, 255, 255, 0.05)) border-box;
   border: 1px solid transparent;
 }
 
-/* Colorful AND premium — the approved multi-hue accent gradient. */
+/* THE RAINBOW HEADLINE IS GONE, and it was the loudest thing on the site.
+   A four-hue blue-violet-pink-amber gradient across the words of a headline is
+   the single most recognisable mark of a generated page. This is struck brass
+   catching a light from the left: two stops of ONE hue, and the emphasis comes
+   from the metal being brighter than the white around it, not from being a
+   different colour. */
 .text-gradient {
-  background-image: linear-gradient(100deg, var(--c2), var(--c3) 40%, var(--c5) 74%, var(--c4));
+  background-image: linear-gradient(96deg, #E4CB96 0%, #C79C51 46%, #A67C39 100%);
   @apply bg-clip-text text-transparent;
 }
 
@@ -195,23 +272,27 @@ body::after {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
-  opacity: 0.9;
+  height: 1px;
+  opacity: 0.75;
 }
-.accent-1::before { background: var(--c1); }
-.accent-2::before { background: var(--c2); }
-.accent-3::before { background: var(--c3); }
-.accent-4::before { background: var(--c4); }
-.accent-5::before { background: var(--c5); }
-.accent-6::before { background: var(--c6); }
-.accent-7::before { background: var(--c7); }
-.accent-8::before { background: var(--c8); }
+/* A 2px full-width bar of a different colour on every tile was the "rainbow
+   dashboard" effect. The bar is now a 1px hairline that fades out across the
+   card, in one hue at eight brightnesses — so a board of tiles reads as one
+   material lit unevenly, which is what a row of physical panels looks like. */
+.accent-1::before { background: linear-gradient(90deg, var(--c1), transparent 72%); }
+.accent-2::before { background: linear-gradient(90deg, var(--c2), transparent 72%); }
+.accent-3::before { background: linear-gradient(90deg, var(--c3), transparent 72%); }
+.accent-4::before { background: linear-gradient(90deg, var(--c4), transparent 72%); }
+.accent-5::before { background: linear-gradient(90deg, var(--c5), transparent 72%); }
+.accent-6::before { background: linear-gradient(90deg, var(--c6), transparent 72%); }
+.accent-7::before { background: linear-gradient(90deg, var(--c7), transparent 72%); }
+.accent-8::before { background: linear-gradient(90deg, var(--c8), transparent 72%); }
 
 .grid-bg {
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 72px 72px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 45%, transparent 100%);
 }
 

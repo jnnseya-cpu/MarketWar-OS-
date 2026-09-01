@@ -6,7 +6,7 @@
 // live review sources plug in at go-live. Ties trust to AI-search visibility.
 
 import { useState } from "react";
-import { Loader2, ShieldCheck, MessageSquare, Sparkles, AlertTriangle, Star } from "lucide-react";
+import { Loader2, ShieldCheck, MessageSquare, Cpu, AlertTriangle, Star } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import ReviewRequests from "@/components/ReviewRequests";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
@@ -58,7 +58,7 @@ export default function ReputationPage() {
             {busy === "trust" ? <><Loader2 className="h-4 w-4 animate-spin" /> Scoring…</> : <><ShieldCheck className="h-4 w-4" /> Compute TrustScore</>}
           </button>
           <button className="btn-ghost" onClick={() => run("sentiment")} disabled={busy === "sentiment"}>
-            {busy === "sentiment" ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</> : <><Sparkles className="h-4 w-4" /> Sentiment & CX intel</>}
+            {busy === "sentiment" ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</> : <><Cpu className="h-4 w-4" /> Sentiment & CX intel</>}
           </button>
         </div>
       </div>

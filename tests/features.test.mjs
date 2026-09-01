@@ -26244,3 +26244,25 @@ test("the knowledge-graph route refuses to coerce a missing attribute into an en
   assert.equal(d.edges.length, 0);
   assert.ok(!JSON.stringify(d).includes("undefined"), "a missing attribute became an entity labelled undefined");
 });
+
+test("the chart palette is checked, not merely described", async () => {
+  // The palette carried the words "CVD-optimised ... validated" while series 6
+  // and 7 were 5.8 apart under deuteranopia and 7.8 apart for normal vision.
+  // The words were the whole of the validation. This asserts the check exists,
+  // is wired to CI, and actually passes right now.
+  const { execFileSync } = await import("node:child_process");
+  const root = new URL("..", import.meta.url).pathname;
+  const out = execFileSync("node", ["scripts/check-palette.mjs"], { cwd: root, encoding: "utf8" });
+  assert.match(out, /Palette check passed/);
+
+  // The surface it checks against must be the surface the app actually paints.
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  const panel = css.match(/--mw-panel:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  const script = readFileSync(new URL("../scripts/check-palette.mjs", import.meta.url), "utf8");
+  const checked = script.match(/const SURFACE = "(#[0-9a-fA-F]{6})"/)?.[1];
+  assert.equal(checked?.toLowerCase(), panel?.toLowerCase(),
+    "the palette is validated against a surface the app no longer uses — which is how the last claim expired");
+
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.match(ci, /check:palette/, "the palette check is not wired to CI, so it will rot again");
+});

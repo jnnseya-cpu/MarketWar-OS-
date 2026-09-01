@@ -7,7 +7,7 @@
 // contact at send time.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle, Wand2, Sparkles } from "lucide-react";
+import { Loader2, FileText, Plus, Save, Trash2, Eye, Code, Check, AlertTriangle, Wand2, Cpu } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -342,7 +342,7 @@ export default function EmailTemplatesPage() {
             <div className="mb-3 rounded-lg border border-violet-500/25 bg-violet-500/[0.06] p-3">
               <div className="flex flex-wrap items-end gap-2">
                 <label className="min-w-[190px] flex-1">
-                  <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-violet-200"><Sparkles className="h-3.5 w-3.5" /> Write this email with AI</span>
+                  <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-violet-200"><Cpu className="h-3.5 w-3.5" /> Write this email with AI</span>
                   <select className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
                     {PURPOSES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                   </select>
@@ -352,7 +352,7 @@ export default function EmailTemplatesPage() {
                   <input className="input" value={aiNotes} onChange={(e) => setAiNotes(e.target.value)} placeholder="e.g. mention the free site survey, we're booked to March" />
                 </label>
                 <button onClick={writeWithAi} disabled={aiBusy} className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-violet-500/50 bg-violet-500/15 px-3 text-sm font-semibold text-violet-100 hover:bg-violet-500/25 disabled:opacity-60">
-                  {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {aiBusy ? "Writing…" : "Write it"}
+                  {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />} {aiBusy ? "Writing…" : "Write it"}
                 </button>
               </div>
               <p className="mt-1.5 text-[11px] text-slate-500">

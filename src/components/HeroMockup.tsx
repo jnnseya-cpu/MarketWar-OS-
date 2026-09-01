@@ -8,7 +8,7 @@ import { SERIES } from "@/shared/palette";
 // Photorealistic in-browser product mockup for the landing hero.
 export default function HeroMockup() {
   return (
-    <div className="gradient-border animate-float-slow rounded-2xl shadow-[0_40px_120px_-20px_rgba(16,185,129,0.25)]">
+    <div className="gradient-border animate-float-slow rounded-2xl shadow-[0_40px_120px_-20px_rgba(190,146,71,0.113)]">
       <div className="overflow-hidden rounded-2xl bg-ink-900">
         {/* Browser chrome */}
         <div className="flex items-center gap-3 border-b border-white/5 bg-ink-850/80 px-4 py-2.5">
