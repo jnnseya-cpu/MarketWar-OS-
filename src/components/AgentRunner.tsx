@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, Zap, Download, Image as ImageIcon, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Loader2, Cpu, Zap, Download, Image as ImageIcon, ShieldAlert, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { AgentMarkdown, Pill } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
@@ -438,7 +438,7 @@ export default function AgentRunner({
                       disabled={nextRunning}
                       className="btn-primary mt-2 !bg-sky-500 hover:!bg-sky-400 disabled:opacity-60"
                     >
-                      {nextRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {nextRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />}
                       {nextRunning ? "Running…" : `Do this with ${result.nextStep.agentName}`}
                     </button>
                     <p className="mt-1.5 text-[11px] text-slate-500">
@@ -468,7 +468,7 @@ export default function AgentRunner({
           </div>
         ) : (
           <div className="flex h-full min-h-[240px] flex-col items-center justify-center text-center">
-            <Sparkles className="mb-3 h-8 w-8 text-emerald-500/60" />
+            <Cpu className="mb-3 h-8 w-8 text-emerald-500/60" />
             <p className="max-w-xs text-sm text-slate-500">
               {autoRunLabel ??
                 "Fill in the mission parameters and deploy the agent. Output renders here."}

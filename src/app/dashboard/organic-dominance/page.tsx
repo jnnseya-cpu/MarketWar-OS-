@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Loader2, Radar, Search, Sparkles, Target, Gauge, Plug, ArrowRight, ShieldCheck,
+  Loader2, Radar, Search, Cpu, Target, Gauge, Plug, ArrowRight, ShieldCheck,
   MessageSquare, FileText, LayoutTemplate, Swords, Rocket, CheckCircle2, Circle,
 } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
@@ -40,7 +40,7 @@ const ACTION_ROUTES: Record<string, { label: string; icon: typeof FileText; href
   create_article: { label: "Create article", icon: FileText, href: "/dashboard/content" },
   create_landing: { label: "Build landing page", icon: LayoutTemplate, href: "/dashboard/landing-builder" },
   create_comparison: { label: "Comparison page", icon: Swords, href: "/dashboard/competitors" },
-  create_offer: { label: "Create offer", icon: Sparkles, href: "/dashboard/offers" },
+  create_offer: { label: "Create offer", icon: Cpu, href: "/dashboard/offers" },
   brief_sales: { label: "Brief the team", icon: MessageSquare, href: "/dashboard/prospecting" },
   launch_campaign: { label: "Launch campaign", icon: Rocket, href: "/dashboard/campaigns" },
   add_to_pipeline: { label: "Add to pipeline", icon: Target, href: "/dashboard/war-room" },
@@ -113,7 +113,7 @@ export default function OrganicDominancePage() {
           <div className="sm:col-span-2"><label className="label">Competitors (comma or line separated)</label><input className="input" value={competitors} onChange={(e) => setCompetitors(e.target.value)} placeholder="competitor one, competitor two, competitor three" /></div>
         </div>
         <button className="btn-primary mt-4" onClick={runWorkup} disabled={busy}>
-          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building your growth engine…</> : <><Sparkles className="h-4 w-4" /> Run the intelligence workup</>}
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Building your growth engine…</> : <><Cpu className="h-4 w-4" /> Run the intelligence workup</>}
         </button>
         {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
       </div>
@@ -172,7 +172,7 @@ export default function OrganicDominancePage() {
               </div>
             </div>
             <div className="card p-6">
-              <div className="mb-3 flex items-center gap-2"><Sparkles className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">AI-prompt universe</h3><span className="text-[10px] text-slate-500">what buyers ask assistants</span></div>
+              <div className="mb-3 flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-400" /><h3 className="font-display font-bold text-white">AI-prompt universe</h3><span className="text-[10px] text-slate-500">what buyers ask assistants</span></div>
               <div className="space-y-1.5">
                 {result.promptUniverse.map((p, i) => (
                   <div key={i} className="flex items-center justify-between gap-2 text-sm">

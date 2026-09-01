@@ -21,7 +21,7 @@ function Screen({ title, accent, children, className = "" }: { title: string; ac
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: SERIES[2] }} />
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: SERIES[1] }} />
         <span className="ml-2 text-[11px] font-semibold text-slate-400">{title}</span>
-        <span className="ml-auto flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(16,185,129,0.6)]" />live</span>
+        <span className="ml-auto flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(190,146,71,0.27)]" />live</span>
       </div>
       <div className="p-4">{children}</div>
     </div>

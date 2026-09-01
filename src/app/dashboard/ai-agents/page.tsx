@@ -6,7 +6,7 @@
 // funnel → paid-ads → battle plan.
 
 import { useState } from "react";
-import { Loader2, Sparkles, CheckCircle2 } from "lucide-react";
+import { Loader2, Cpu, CheckCircle2 } from "lucide-react";
 import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -123,7 +123,7 @@ export default function AiAgentsPage() {
               )}
 
               <button onClick={() => run(a.id, a.order)} disabled={busy} className="btn-primary mt-3 justify-center disabled:opacity-60">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {r ? "Regenerate" : "Run agent"}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />} {r ? "Regenerate" : "Run agent"}
               </button>
 
               {r && (

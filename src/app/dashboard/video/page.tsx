@@ -32,7 +32,7 @@ import {
   Search,
   HelpCircle,
   Send,
-  Sparkles,
+  Cpu,
   UserSquare2,
   Users2,
 } from "lucide-react";
@@ -357,7 +357,7 @@ export default function VideoWarRoomPage() {
       {/* LIVE Clip Intelligence Lab — wired to the real VideoDominance engine */}
       <div className="mb-8 card border-emerald-500/30 p-6">
         <div className="mb-1 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-emerald-400" />
+          <Cpu className="h-5 w-5 text-emerald-400" />
           <h2 className="font-display text-lg font-bold text-white">Clip Intelligence Lab</h2>
           <StatusChip status="live" />
         </div>
@@ -379,7 +379,7 @@ export default function VideoWarRoomPage() {
           </div>
         </div>
         <button className="btn-primary mt-4" onClick={runLab} disabled={busy}>
-          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</> : <><Sparkles className="h-4 w-4" /> Detect genre, rank & score moments</>}
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</> : <><Cpu className="h-4 w-4" /> Detect genre, rank & score moments</>}
         </button>
         {error && <p className="mt-3 text-xs text-rose-400">{error}</p>}
 

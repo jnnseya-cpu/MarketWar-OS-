@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Loader2, Wand2, ArrowRight, Gauge, Sparkles, Hammer } from "lucide-react";
+import { Loader2, Wand2, ArrowRight, Gauge, Cpu, Hammer } from "lucide-react";
 import { PageHeader, Pill, AgentMarkdown } from "@/components/ui";
 import type { AgentResult } from "@/shared/types";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -104,7 +104,7 @@ export default function CreatePage() {
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button className="btn-primary" onClick={() => run()} disabled={busy}>
-            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Detecting…</> : <><Sparkles className="h-4 w-4" /> Detect & route</>}
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Detecting…</> : <><Cpu className="h-4 w-4" /> Detect & route</>}
           </button>
           <span className="text-xs text-slate-500">⌘/Ctrl + Enter</span>
         </div>

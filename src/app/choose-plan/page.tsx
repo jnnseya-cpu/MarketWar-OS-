@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, Loader2, Sparkles } from "lucide-react";
+import { Check, Loader2, Cpu } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { BrandLockup } from "@/components/Logo";
 import { AGENT_LIST } from "@/shared/agents";
@@ -109,7 +109,7 @@ export default function ChoosePlanPage() {
                   {!isFree && cycle === "annual" && <p className="text-[11px] text-emerald-300">{money(p.annualGbp)}/yr · save {money(p.annualSavingGbp)}</p>}
                   {!isFree && cycle === "monthly" && <p className="text-[11px] text-slate-500">billed monthly</p>}
                   <ul className="mt-4 flex-1 space-y-1.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5 text-emerald-400" />{acus}{cycle === "annual" && !isFree ? " released" : ""}</li>
+                    <li className="flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-emerald-400" />{acus}{cycle === "annual" && !isFree ? " released" : ""}</li>
                     <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" />{p.brands === "custom" ? "Custom" : p.brands} brand{p.brands === 1 ? "" : "s"} · {p.users === "custom" ? "custom" : p.users} user{p.users === 1 ? "" : "s"}</li>
                     <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" />{p.storageGb >= 1024 ? `${p.storageGb / 1024} TB` : `${p.storageGb} GB`} storage</li>
                     {(HIGHLIGHTS[p.id] ?? []).map((h) => (

@@ -40,7 +40,7 @@ export default function GuideWizard() {
       {/* Floating trigger — bottom-right on every dashboard page */}
       <button
         type="button" onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-bold text-ink-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400"
+        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-bold text-ink-950 shadow-lg transition hover:bg-emerald-400"
         aria-label="Open the guide for this page"
       >
         <HelpCircle className="h-4 w-4" /> Guide

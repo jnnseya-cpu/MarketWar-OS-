@@ -71,6 +71,12 @@ jobs:
       - name: Cast guard
         run: npm run check:casts
 
+      # The chart palette claimed to be CVD-optimised for months while three of
+      # its eight series merged under deuteranopia. A claim nothing re-runs is
+      # not a property, so it runs here.
+      - name: Chart palette (contrast + colour-blind separation)
+        run: npm run check:palette
+
       - name: Typecheck
         run: npm run typecheck
 

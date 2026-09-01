@@ -25,7 +25,7 @@
 //   button, not behind a link.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, Loader2, Plus, Rocket, ShieldCheck, Sparkles, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, Loader2, Plus, Rocket, ShieldCheck, Cpu, Trash2, XCircle } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 import type { Brand } from "@/shared/brand";
@@ -251,7 +251,7 @@ export default function SeoDeployPanel({
           <div className="flex flex-wrap gap-2">
             {crawl?.ok && (
               <button className="btn-ghost !py-1 text-xs" onClick={draftFromCrawl} disabled={drafting}>
-                {drafting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Draft from this crawl
+                {drafting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Cpu className="h-3 w-3" />} Draft from this crawl
               </button>
             )}
             <button className="btn-ghost !py-1 text-xs" onClick={addBlank} disabled={!config}><Plus className="h-3 w-3" /> Write one</button>

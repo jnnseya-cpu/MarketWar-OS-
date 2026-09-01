@@ -22,6 +22,7 @@
     "verify": "npm run check:layers && npm run check:casts && npm run lint && npm run typecheck && npm test && npm run build",
     "check:layers": "node scripts/check-layers.mjs",
     "check:casts": "node scripts/check-casts.mjs",
+    "check:palette": "node scripts/check-palette.mjs",
     "test": "NODE_ENV=test node --import tsx --test tests/*.test.mjs",
     "splash": "node scripts/generate-splash.mjs",
     "social": "node scripts/build-social-assets.mjs",

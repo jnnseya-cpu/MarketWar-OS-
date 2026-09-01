@@ -6,7 +6,7 @@
 // Reads the active brand for the product default; demo-safe.
 
 import { useState } from "react";
-import { Loader2, Sparkles, Check } from "lucide-react";
+import { Loader2, Cpu, Check } from "lucide-react";
 import PublishToChannels from "@/components/PublishToChannels";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -42,7 +42,7 @@ export default function VisualStrikeHooks() {
 
   return (
     <div className="mb-8 card border-emerald-500/20 p-5">
-      <div className="mb-1 flex items-center gap-2"><Sparkles className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Hook Lab — generate &amp; publish a hook</h2></div>
+      <div className="mb-1 flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-400" /><h2 className="font-display font-bold text-white">Hook Lab — generate &amp; publish a hook</h2></div>
       <p className="mb-3 text-xs text-slate-400">Generate the 130-hook library (13 families × 10, each deception-checked), pick the strongest, and publish it straight to your channels.</p>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -50,7 +50,7 @@ export default function VisualStrikeHooks() {
           <label className="label">Product</label>
           <input className="input" placeholder={activeBrand?.name ? `${activeBrand.name} — e.g. Family platter` : "e.g. AuraGlow Serum"} value={product} onChange={(e) => setProduct(e.target.value)} />
         </div>
-        <button className="btn-primary" onClick={generate} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Generate hooks</button>
+        <button className="btn-primary" onClick={generate} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />} Generate hooks</button>
       </div>
 
       {hooks && (

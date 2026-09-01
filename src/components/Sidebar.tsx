@@ -21,7 +21,6 @@ import {
   Crown,
   Receipt,
   Coins,
-  Cpu,
   Crosshair,
   Factory,
   FileText,
@@ -49,7 +48,7 @@ import {
   Share2,
   Shield,
   ShieldCheck,
-  Sparkles,
+  Cpu,
   Stethoscope,
   Target,
   Wand2,
@@ -75,7 +74,7 @@ export const NAV = [
       { href: "/dashboard/autopilot", label: "Revenue Autopilot", icon: Moon },
       { href: "/dashboard/chains", label: "Agent Chains", icon: Workflow },
       { href: "/dashboard/engines", label: "AI Engines", icon: Cpu },
-      { href: "/dashboard/ai-agents", label: "Strategy Agents", icon: Sparkles },
+      { href: "/dashboard/ai-agents", label: "Strategy Agents", icon: Cpu },
       { href: "/dashboard/create", label: "Make Anything", icon: Wand2 },
       // The ten built-in reach tools in one place — two of them (hashtags,
       // posting times) live on that page; the rest link to the surface that
@@ -110,7 +109,7 @@ export const NAV = [
       // Content & creative.
       { href: "/dashboard/content", label: "Content Factory", icon: Factory },
       { href: "/dashboard/blog", label: "SEO Blog Studio", icon: ScrollText, adminOnly: true },
-      { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Sparkles },
+      { href: "/dashboard/product-engine", label: "VisualStrike AI", icon: Cpu },
       { href: "/dashboard/video", label: "Video War Room", icon: Clapperboard },
       // Landing & publish.
       { href: "/dashboard/landing-pages", label: "Landing Pages", icon: Flame },

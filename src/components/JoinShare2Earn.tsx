@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Copy, Link as LinkIcon, Loader2, Sparkles, Store } from "lucide-react";
+import { ArrowRight, CheckCircle2, Copy, Link as LinkIcon, Loader2, Cpu, Store } from "lucide-react";
 import { SIGNUP_DOORS, UPGRADE_PATH, ratePct, SHARE2EARN_RATE } from "@/shared/creator-program";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -117,7 +117,7 @@ export default function JoinShare2Earn() {
       </div>
 
       <form onSubmit={submit} className="rounded-xl border border-white/10 bg-ink-900/60 p-5">
-        <p className="flex items-center gap-2 font-display text-base font-bold text-white"><Sparkles className="h-4 w-4 text-emerald-400" /> Join SHARE2EARN</p>
+        <p className="flex items-center gap-2 font-display text-base font-bold text-white"><Cpu className="h-4 w-4 text-emerald-400" /> Join SHARE2EARN</p>
         <p className="mt-1 text-xs leading-relaxed text-slate-400">
           No application. No follower count — we do not ask, and there is nowhere to put one. You earn {ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces.
         </p>

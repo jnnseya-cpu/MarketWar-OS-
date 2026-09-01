@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Loader2, Sparkles, Trash2, Send, EyeOff, Copy, Check, ExternalLink, Link as LinkIcon } from "lucide-react";
+import { Loader2, Cpu, Trash2, Send, EyeOff, Copy, Check, ExternalLink, Link as LinkIcon } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 import { useIsAdmin } from "@/frontend/use-is-admin";
@@ -146,7 +146,7 @@ export default function BlogStudioPage() {
             className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500/60" />
         </label>
         <button type="submit" disabled={busy || !topic.trim()} className="btn-primary mt-4 justify-center disabled:opacity-60">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cpu className="h-4 w-4" />}
           {topic.split("\n").filter((t) => t.trim()).length > 1 ? `Generate ${topic.split("\n").filter((t) => t.trim()).length} articles` : "Generate article"}
         </button>
         <p className="mt-2 text-[11px] text-slate-500">Each article is written against a menu of pages that exist on this site, so it links to real destinations. Anything it links that is not on the menu is unlinked before the draft is saved, and said so below.</p>

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
-import { Space_Grotesk, Inter } from "next/font/google";
+import { Archivo, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import PWARegister from "@/components/PWARegister";
 import SiteJsonLd from "@/components/SiteJsonLd";
@@ -9,14 +9,42 @@ import ReferralCapture from "@/components/ReferralCapture";
 import AnalyticsRouteTracker from "@/components/AnalyticsRouteTracker";
 import { splashLinks } from "@/shared/pwa-splash";
 
-const display = Space_Grotesk({
+// SPACE GROTESK AND INTER ARE OUT, and that is not a matter of taste.
+//
+// They are the two faces that appear on almost every generated interface, so a
+// reader who has seen a few recognises the pairing before they have read a word
+// — which is exactly the impression this platform cannot afford while it is
+// asking a business to trust it with an ad budget.
+//
+// ARCHIVO for display. A grotesque with a real width axis, drawn for signage
+// and tabular work: it holds a tight headline without the geometric roundness
+// that makes Space Grotesk instantly placeable, and the extra width at large
+// sizes gives the page a built, engineered feel rather than a typed one.
+//
+// INSTRUMENT SANS for text. Crisp, slightly condensed, with a lower x-height
+// than Inter and more distinct letterforms, so long UI copy reads as written
+// rather than defaulted.
+//
+// JETBRAINS MONO for every figure. Money, counts, percentages and identifiers
+// are set in it and made tabular in globals.css, because a column of numbers
+// that does not line up is the fastest way for a serious tool to look unfinished.
+const display = Archivo({
   subsets: ["latin"],
   variable: "--font-display",
+  // Variable weight AND width: `axes` may only be used when the weight is left
+  // variable, so the width axis is opened here and driven from CSS.
+  axes: ["wdth"],
 });
 
-const body = Inter({
+const body = Instrument_Sans({
   subsets: ["latin"],
   variable: "--font-body",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500", "700"],
 });
 
 export const metadata: Metadata = {
@@ -48,7 +76,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <head>
         {/* iOS LAUNCH IMAGES.
             Android needs nothing here — Chrome builds its splash from the
