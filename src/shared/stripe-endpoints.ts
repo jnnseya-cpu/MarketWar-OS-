@@ -30,7 +30,21 @@ export type StripeEndpointRow = {
   pointsAtThisApp: boolean;
   /** …and at the host actually serving us, which is the half that gets missed. */
   hostServingThisRequest: boolean;
-  events: number;
+  /**
+   * The number of event TYPES this endpoint subscribes to — NOT deliveries.
+   *
+   * It was called `events`, and that was a real fault in a diagnostic: the
+   * owner read "246" beside every endpoint and understood it as 246 delivered
+   * events, which is exactly the reading the name invites. Stripe has around
+   * 250 event types, so 246 means "subscribed to almost everything". A
+   * diagnostic that invites a wrong reading is worse than one that says
+   * nothing, because it is acted on.
+   */
+  enabledEventTypes: number;
+  /** True when this endpoint subscribes to everything the app actually handles. */
+  coversHandledEvents: boolean;
+  /** The handled events this endpoint is NOT subscribed to. Empty is correct. */
+  missingEvents: string[];
 };
 
 export type EndpointVerdict = {
@@ -49,10 +63,13 @@ const hostOf = (url: string): string => {
 };
 
 /** One row from `GET /v1/webhook_endpoints`, checked rather than asserted. */
-export function endpointFromStripe(raw: unknown, servingHost: string, webhookPath: string): StripeEndpointRow {
+export function endpointFromStripe(raw: unknown, servingHost: string, webhookPath: string, handled: readonly string[] = []): StripeEndpointRow {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const url = typeof r.url === "string" ? r.url : "";
   const host = hostOf(url);
+  const enabled: string[] = Array.isArray(r.enabled_events)
+    ? r.enabled_events.filter((e): e is string => typeof e === "string")
+    : [];
   return {
     id: typeof r.id === "string" ? r.id : "",
     url,
@@ -61,7 +78,10 @@ export function endpointFromStripe(raw: unknown, servingHost: string, webhookPat
     // Compared, never assumed. Hardcoding this true is what makes a wrong-host
     // endpoint — the likeliest cause of the whole fault — invisible.
     hostServingThisRequest: Boolean(servingHost) && host === servingHost.trim().toLowerCase(),
-    events: Array.isArray(r.enabled_events) ? r.enabled_events.length : 0,
+    enabledEventTypes: enabled.length,
+    // `["*"]` is Stripe's "everything", and it genuinely covers everything.
+    coversHandledEvents: enabled.includes("*") || handled.every((h) => enabled.includes(h)),
+    missingEvents: enabled.includes("*") ? [] : handled.filter((h) => !enabled.includes(h)),
   };
 }
 
@@ -69,8 +89,11 @@ export function classifyEndpoints(input: {
   rows: unknown[];
   servingHost: string;
   webhookPath: string;
+  /** The events the app actually acts on, so an under-subscribed endpoint is caught. */
+  handledEvents?: readonly string[];
 }): EndpointVerdict {
-  const endpoints = input.rows.map((r) => endpointFromStripe(r, input.servingHost, input.webhookPath));
+  const handled = input.handledEvents ?? [];
+  const endpoints = input.rows.map((r) => endpointFromStripe(r, input.servingHost, input.webhookPath, handled));
   const here = endpoints.filter((e) => e.pointsAtThisApp && e.hostServingThisRequest);
   const wrongHost = endpoints.filter((e) => e.pointsAtThisApp && !e.hostServingThisRequest);
   const servingUrl = input.servingHost ? `https://${input.servingHost}${input.webhookPath}` : `…${input.webhookPath}`;
@@ -78,7 +101,9 @@ export function classifyEndpoints(input: {
   if (here.length === 1) {
     return {
       count: endpoints.length, endpoints, matching: 1, wrongHost: wrongHost.length, problem: "none",
-      verdict: `Exactly one endpoint points at this app on this host (${here[0].id}). Its signing secret is the one STRIPE_WEBHOOK_SECRET must hold — open that endpoint in Stripe, reveal its secret, and compare. If deliveries still fail after that, the secret is simply the wrong one.`,
+      verdict: here[0].coversHandledEvents
+        ? `Exactly one endpoint points at this app on this host (${here[0].id}), and it subscribes to every event the app acts on. The URL and the event selection are both correct, so if payments still are not landing the only thing left is the signing secret: open that endpoint in Stripe, reveal its secret, and compare it with STRIPE_WEBHOOK_SECRET.`
+        : `One endpoint points at this app on this host (${here[0].id}), but it is NOT subscribed to ${here[0].missingEvents.length} event${here[0].missingEvents.length === 1 ? "" : "s"} the app acts on: ${here[0].missingEvents.join(", ")}. Those simply never arrive, so the money they carry never lands and nothing anywhere records an error. Add them to the endpoint in Stripe.`,
     };
   }
   if (here.length > 1) {

@@ -60,6 +60,21 @@ export function webhookEndpointUrl(domain = MAIN_DOMAIN): string {
 // Events we act on (others are acknowledged 200 + ignored, per Stripe guidance).
 export const HANDLED_EVENTS = [
   "checkout.session.completed",
+  // A TOP-UP THAT ARRIVES AS A BARE PAYMENT INTENT WAS MISSING FROM THIS LIST.
+  //
+  // The dispatcher below acts on `payment_intent.succeeded` — it is half of the
+  // ACU top-up branch — and this list, which is what the diagnostic and the
+  // setup instructions tell an owner to subscribe to, did not name it. Nothing
+  // broke loudly: the list does not gate dispatch, so an event that arrived was
+  // still handled. It broke QUIETLY, by telling somebody configuring the
+  // endpoint to tick eight boxes when the code needs nine, so a top-up paid
+  // through a payment intent would never reach the wallet and the money would
+  // simply not appear.
+  //
+  // The boundary again: a value that exists on one side (the dispatcher) and is
+  // never carried to the other (the advertised list). A test now derives the
+  // dispatcher's own branches from source and fails if the two disagree.
+  "payment_intent.succeeded",
   "invoice.paid",
   "invoice.payment_failed",
   "customer.subscription.updated",
