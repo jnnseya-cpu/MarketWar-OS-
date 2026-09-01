@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
-import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH } from "@/backend/stripe-billing";
+import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH, HANDLED_EVENTS } from "@/backend/stripe-billing";
 import { classifyEndpoints } from "@/shared/stripe-endpoints";
 
 // Stripe self-diagnostic — is the money path live? Reports which Stripe env vars
@@ -118,10 +118,58 @@ export async function GET(req: NextRequest) {
         // The classification is pure and lives in `shared/stripe-endpoints.ts`,
         // because inline here it could only be exercised with a live Stripe key
         // — and a branch that can only run in production is an untested branch.
-        endpoints = { ran: true, ok: true, ...classifyEndpoints({ rows, servingHost, webhookPath: STRIPE_WEBHOOK_PATH }) };
+        endpoints = { ran: true, ok: true, ...classifyEndpoints({ rows, servingHost, webhookPath: STRIPE_WEBHOOK_PATH, handledEvents: HANDLED_EVENTS }) };
       }
     } catch (e) {
       endpoints = { ran: true, ok: false, error: (e as Error).message, note: "Could not reach Stripe to list endpoints." };
+    }
+  }
+
+  // 5. HAS ANYTHING RELEVANT ACTUALLY HAPPENED?
+  //
+  // The question nobody asked, and it reframes the whole investigation. Every
+  // check above is about whether an event COULD land. None of them says whether
+  // there was ever an event to land — and this platform has zero customers, so
+  // "the webhook is not working" and "nobody has paid yet" produce the exact
+  // same evidence: no credits, no ledger rows, nothing.
+  //
+  // Stripe lists recent events read-only, so this counts the ones the app
+  // actually acts on. Zero is not a fault; it is the answer, and it stops
+  // somebody debugging a pipeline that has never had anything in it.
+  let activity: Record<string, unknown> = { ran: false };
+  if (secret) {
+    try {
+      const res = await fetch("https://api.stripe.com/v1/events?limit=100", { headers: { Authorization: `Bearer ${secret}` } });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        activity = { ran: true, ok: false, error: j.error?.message || `HTTP ${res.status}` };
+      } else {
+        const j = (await res.json().catch(() => ({}))) as { data?: unknown };
+        const rows = Array.isArray(j.data) ? j.data : [];
+        const handled: { type: string; created: number }[] = [];
+        for (const raw of rows) {
+          const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+          const type = typeof r.type === "string" ? r.type : "";
+          if ((HANDLED_EVENTS as readonly string[]).includes(type)) {
+            handled.push({ type, created: typeof r.created === "number" ? r.created : 0 });
+          }
+        }
+        const byType: Record<string, number> = {};
+        for (const h of handled) byType[h.type] = (byType[h.type] ?? 0) + 1;
+        const newest = handled.reduce((m, h) => Math.max(m, h.created), 0);
+        activity = {
+          ran: true, ok: true,
+          lastHundredEvents: rows.length,
+          payableEventsAmongThem: handled.length,
+          byType,
+          mostRecentPayableEvent: newest ? new Date(newest * 1000).toISOString() : null,
+          note: handled.length === 0
+            ? "In the last 100 events on this whole Stripe account, NOT ONE is an event this app acts on — no completed checkout, no paid invoice, no top-up. So there is nothing for the webhook to have delivered, and no evidence here of anything being broken. Make one real payment (or send a test webhook from the endpoint) and check this figure again; until then a silent wallet is the correct behaviour, not a fault."
+            : `${handled.length} payable events in the last 100 on this account. If the wallet did not move for these, the webhook path is genuinely at fault — open the newest one in Stripe and read the response body it recorded.`,
+        };
+      }
+    } catch (e) {
+      activity = { ran: true, ok: false, error: (e as Error).message };
     }
   }
 
@@ -149,6 +197,7 @@ export async function GET(req: NextRequest) {
       signatureRoundTrip: roundTrip,
       endpointUrl,
       accountEndpoints: endpoints,
+      recentActivity: activity,
       whatThisCannotSee: "The signing secrets themselves — Stripe returns those only when an endpoint is created, so no diagnostic can compare them for you. `accountEndpoints` narrows it to the ONE endpoint whose secret should be in STRIPE_WEBHOOK_SECRET; reveal that endpoint's secret in Stripe and compare it by eye. Also invisible here: what status Stripe recorded per delivery. Open a failed event in Stripe and read the response body — this route returns the reason in it.",
     },
   });

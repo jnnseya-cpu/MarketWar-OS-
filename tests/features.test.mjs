@@ -26398,6 +26398,41 @@ test("the endpoint classifier tells the three causes of 'delivered, nothing land
   assert.equal(messy.count, 3);
 });
 
+test("an endpoint subscribed to too few events is caught — money vanishes silently", async () => {
+  const { classifyEndpoints } = await import("../src/shared/stripe-endpoints.ts");
+  const { HANDLED_EVENTS } = await import("../src/backend/stripe-billing.ts");
+  const PATH = "/api/webhooks/stripe";
+  const at = (enabled) => classifyEndpoints({
+    rows: [{ id: "we_1", url: "https://www.marketwaros.com" + PATH, status: "enabled", enabled_events: enabled }],
+    servingHost: "www.marketwaros.com", webhookPath: PATH, handledEvents: HANDLED_EVENTS,
+  });
+
+  // A URL can be perfect and the money still never arrive, because the endpoint
+  // was never subscribed to the event that carries it. Nothing errors — the
+  // event is simply never sent — so this is invisible everywhere else.
+  const partial = at(["checkout.session.completed"]);
+  assert.equal(partial.problem, "none", "the URL is right, so the URL verdict must stay 'none'");
+  assert.equal(partial.endpoints[0].coversHandledEvents, false);
+  assert.ok(partial.endpoints[0].missingEvents.includes("invoice.paid"));
+  assert.match(partial.verdict, /NOT subscribed/, "an under-subscribed endpoint must be named in the verdict");
+  assert.match(partial.verdict, /never arrive/);
+
+  // Stripe's "everything" wildcard genuinely covers everything.
+  const star = at(["*"]);
+  assert.equal(star.endpoints[0].coversHandledEvents, true);
+  assert.deepEqual(star.endpoints[0].missingEvents, []);
+  assert.match(star.verdict, /every event the app acts on/);
+
+  // The full list is also complete.
+  assert.equal(at([...HANDLED_EVENTS]).endpoints[0].coversHandledEvents, true);
+
+  // The count is TYPES, not deliveries. It was called `events`, and the owner
+  // read "246" as 246 delivered events — which is exactly what that name
+  // invites, and it sent the whole investigation down the wrong road.
+  assert.equal(star.endpoints[0].enabledEventTypes, 1);
+  assert.equal("events" in star.endpoints[0], false, "the misleading field name is back");
+});
+
 test("both themes are readable, and it is computed rather than eyeballed", async () => {
   // The first light build shipped `text-amber-200` — a tint drawn for a black
   // background — onto a pale amber warning card at 1.5:1. An invisible warning
@@ -26444,4 +26479,28 @@ test("colours resolve through tokens, or a second theme is impossible", () => {
   // The alpha placeholder is what keeps `bg-white/5` and `border-white/10`
   // working — 529 of those exist.
   assert.match(cfg, /white: "rgb\(var\(--c-white\) \/ <alpha-value>\)"/);
+});
+
+test("the advertised Stripe events match the ones the dispatcher acts on", async () => {
+  // HANDLED_EVENTS is what /api/health/stripe reports and what an owner ticks
+  // in the Stripe dashboard. It does not gate dispatch, so a mismatch does not
+  // throw — it quietly tells somebody to subscribe to fewer events than the
+  // code needs, and the money for those events never arrives.
+  const { HANDLED_EVENTS } = await import("../src/backend/stripe-billing.ts");
+  const src = codeOf(readFileSync(new URL("../src/backend/stripe-billing.ts", import.meta.url), "utf8"));
+
+  // Every event type the dispatcher compares against, taken from the source.
+  const branched = new Set(
+    [...src.matchAll(/event\.type === "([a-z_]+\.[a-z_.]+)"/g)].map((m) => m[1]),
+  );
+  assert.ok(branched.size >= 8, "the branch scan found nothing — the shape of the dispatcher changed");
+
+  const advertised = new Set(HANDLED_EVENTS);
+  const missing = [...branched].filter((e) => !advertised.has(e)).sort();
+  assert.deepEqual(missing, [], `acted on but never advertised, so nobody subscribes to them: ${missing.join(", ")}`);
+
+  // And the other direction: advertising an event nothing handles makes an
+  // owner tick a box for nothing and reads as coverage the code does not have.
+  const unused = [...advertised].filter((e) => !branched.has(e)).sort();
+  assert.deepEqual(unused, [], `advertised but never acted on: ${unused.join(", ")}`);
 });
