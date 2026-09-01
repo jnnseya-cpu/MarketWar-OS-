@@ -17,8 +17,17 @@ export async function GET(req: NextRequest) {
   const present = {
     STRIPE_SECRET_KEY: Boolean(secret),
     STRIPE_WEBHOOK_SECRET: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+    // REPORTED, BUT IT GATES NOTHING — and listing it beside two variables that
+    // genuinely stop money moving made it look like a third. Checkout is created
+    // server-side (`POST /v1/checkout/sessions` with the secret key) and the
+    // browser is redirected to Stripe's own hosted page; there is no
+    // `@stripe/stripe-js` in this project and no card form of our own, so a
+    // publishable key has nothing to do. It stays here because it becomes
+    // necessary the day a card field is embedded in these pages, and a
+    // deployment that has it ready is one less thing to discover then.
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY),
   };
+  const publishableKeyNeeded = false;
   // Recognise both standard (sk_) and restricted (rk_) keys, live vs test.
   const keyMode = /^(sk|rk)_live/.test(secret) ? "live" : /^(sk|rk)_test/.test(secret) ? "test" : secret ? "unknown" : "none";
 
@@ -189,6 +198,13 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     service: "stripe",
     verdict,
+    // Named explicitly so a `false` here never sends anybody looking for a
+    // fault. It was reported as missing, acted on, and it changes nothing.
+    optional: {
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: publishableKeyNeeded
+        ? "Required by this build."
+        : "Not needed on this build — checkout is created server-side and the browser is redirected to Stripe's hosted page. A false here is not a fault and does not affect payments.",
+    },
     keyMode,
     present,
     probe,

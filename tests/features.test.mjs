@@ -26504,3 +26504,44 @@ test("the advertised Stripe events match the ones the dispatcher acts on", async
   const unused = [...advertised].filter((e) => !branched.has(e)).sort();
   assert.deepEqual(unused, [], `advertised but never acted on: ${unused.join(", ")}`);
 });
+
+test("a variable read only by a health endpoint must not claim to unlock a feature", () => {
+  // THE CLASS THIS CATCHES. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` was catalogued
+  // as unlocking "the browser half of Stripe checkout" and reported beside two
+  // variables that genuinely stop money moving. Nothing read it except the
+  // diagnostic that reported it: checkout is created server-side and the browser
+  // is redirected to Stripe's hosted page, so the key has nothing to do. The
+  // owner was told to go and set it. It changed nothing.
+  //
+  // The existing drift test could not see this — the variable IS read, so it
+  // passed. "Read only by the thing that reports it" is a different question,
+  // and it is the one that decides whether an `unlocks` sentence is true.
+  const catalogue = readFileSync(new URL("../src/shared/env-catalogue.ts", import.meta.url), "utf8");
+  const entries = [...catalogue.matchAll(/\{ name: "([^"]+)",[\s\S]{0,400}?unlocks: "((?:[^"\\]|\\.)*)"/g)]
+    .map((m) => ({ name: m[1], unlocks: m[2] }));
+  assert.ok(entries.length > 100, "the catalogue scan found almost nothing — its shape changed");
+
+  const root = new URL("../src", import.meta.url).pathname;
+  const files = [];
+  (function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (/\.(ts|tsx)$/.test(name) && !p.endsWith("env-catalogue.ts")) files.push(p);
+    }
+  })(root);
+
+  const offenders = [];
+  for (const e of entries) {
+    const readers = files.filter((f) => readFileSync(f, "utf8").includes(e.name));
+    if (!readers.length) continue; // the other drift test owns that case
+    const gatesSomething = readers.some((f) => !f.includes("/api/health/"));
+    if (gatesSomething) continue;
+    // Read only by a diagnostic. That is allowed — but it must SAY so, rather
+    // than describe a capability it does not gate.
+    if (!/\bNOTHING\b|not required|not needed/i.test(e.unlocks)) {
+      offenders.push(e.name);
+    }
+  }
+  assert.deepEqual(offenders, [], `only a health endpoint reads these, so they gate nothing — their "unlocks" must say so rather than name a feature: ${offenders.join(", ")}`);
+});
