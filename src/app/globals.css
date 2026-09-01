@@ -5,6 +5,82 @@
 :root {
   color-scheme: dark;
 
+  /* ---- THE TOKEN SET, DARK (the default and the identity) ---- */
+    --c-white: 255 255 255;
+    --c-ink-600: 58 58 61;
+    --c-ink-700: 42 42 44;
+    --c-ink-800: 28 28 30;
+    --c-ink-850: 21 21 22;
+    --c-ink-900: 16 16 17;
+    --c-ink-950: 10 10 11;
+    --c-slate-50: 248 248 247;
+    --c-slate-100: 239 239 237;
+    --c-slate-200: 222 222 219;
+    --c-slate-300: 196 196 192;
+    --c-slate-400: 156 156 151;
+    --c-slate-500: 122 122 117;
+    --c-slate-600: 94 94 90;
+    --c-slate-700: 70 70 67;
+    --c-slate-800: 47 47 45;
+    --c-slate-900: 29 29 28;
+    --c-slate-950: 19 19 18;
+    --c-emerald-50: 251 247 239;
+    --c-emerald-100: 244 234 214;
+    --c-emerald-200: 232 212 172;
+    --c-emerald-300: 218 190 129;
+    --c-emerald-400: 205 167 94;
+    --c-emerald-500: 190 146 71;
+    --c-emerald-600: 158 118 58;
+    --c-emerald-700: 124 92 47;
+    --c-emerald-800: 93 69 38;
+    --c-emerald-900: 67 50 28;
+    --c-emerald-950: 38 28 16;
+    --c-amber-50: 252 245 239;
+    --c-amber-100: 247 231 215;
+    --c-amber-200: 237 204 172;
+    --c-amber-300: 223 172 124;
+    --c-amber-400: 206 139 82;
+    --c-amber-500: 185 112 58;
+    --c-amber-600: 152 90 47;
+    --c-amber-700: 118 71 38;
+    --c-amber-800: 88 54 30;
+    --c-amber-900: 64 40 22;
+    --c-amber-950: 36 22 12;
+    --c-rose-50: 253 243 242;
+    --c-rose-100: 250 223 220;
+    --c-rose-200: 240 186 180;
+    --c-rose-300: 224 147 138;
+    --c-rose-400: 204 110 99;
+    --c-rose-500: 178 76 64;
+    --c-rose-600: 147 61 51;
+    --c-rose-700: 115 48 41;
+    --c-rose-800: 87 37 31;
+    --c-rose-900: 63 27 23;
+    --c-rose-950: 35 15 13;
+    --c-sky-50: 243 246 249;
+    --c-sky-100: 225 233 241;
+    --c-sky-200: 193 210 226;
+    --c-sky-300: 156 182 206;
+    --c-sky-400: 117 151 181;
+    --c-sky-500: 90 124 156;
+    --c-sky-600: 73 102 129;
+    --c-sky-700: 58 81 101;
+    --c-sky-800: 44 61 76;
+    --c-sky-900: 32 45 56;
+    --c-sky-950: 19 26 32;
+    --c-violet-50: 247 245 248;
+    --c-violet-100: 235 230 238;
+    --c-violet-200: 214 204 220;
+    --c-violet-300: 188 173 198;
+    --c-violet-400: 159 140 173;
+    --c-violet-500: 134 113 146;
+    --c-violet-600: 109 91 120;
+    --c-violet-700: 86 71 94;
+    --c-violet-800: 63 53 70;
+    --c-violet-900: 45 38 50;
+    --c-violet-950: 25 20 25;
+
+
   /* ONE ACCENT, AND A GROUND THAT IS NOT BLUE.
      The previous version declared eight accent hues (--c1..--c8) and lit the
      page with four coloured blobs, one in each corner. That is the look this
@@ -20,6 +96,17 @@
   --mw-line-strong: rgba(255, 255, 255, 0.11);
   --mw-brass: #BE9247;
   --mw-brass-lit: #DABE81;
+  /* Every hard-coded value below that differs between themes is a token, so a
+     theme is a block of numbers rather than a second stylesheet. */
+  --mw-lit-edge: rgba(255, 255, 255, 0.035);
+  --mw-contact: rgba(0, 0, 0, 0.45);
+  --mw-input-bg: #0C0C0D;
+  --mw-ghost-bg: rgba(255, 255, 255, 0.018);
+  --mw-grain: 0.022;
+  --mw-key-top: #D3AA65;
+  --mw-key-bottom: #BE9247;
+  --mw-key-edge: #8E6C33;
+  --mw-key-ink: #17130B;
 
   --c1: #BE9247;
   --c2: #A88544;
@@ -29,6 +116,133 @@
   --c6: #9E763A;
   --c7: #C09B55;
   --c8: #7C5C2F;
+}
+
+/* ---------------------------------------------------------------------------
+   LIGHT.
+   ---------------------------------------------------------------------------
+   Opt-in, never automatic: the document is dark unless `data-theme="light"` is
+   stamped on it. A system-preference default would flip the app under people
+   who have used it dark for months, and this identity is dark-first — light is
+   the alternative, not the other half of a pair.
+
+   THREE SUBSTITUTIONS DO ALMOST ALL THE WORK, and they are worth naming because
+   they are why no page needed editing:
+
+     `white` becomes near-black. `text-white` means "the highest-contrast text
+     on this surface", which on a light ground is ink — and the same swap fixes
+     423 `border-white/10` and 106 `bg-white/5` overlays for free, because a 5%
+     black wash on white is exactly the tint a 5% white wash is on black.
+
+     `ink-*` inverts: it carries SURFACES, so the darkest step becomes the page
+     and the panel step becomes white.
+
+     `slate-*` inverts: it carries TEXT, so `text-slate-400` (secondary on dark)
+     lands on a mid grey that is secondary on light, and `border-slate-800`
+     lands on a hairline rather than a black bar.
+
+   The accent ramps DO invert, and that is measured rather than assumed: steps
+   100, 200 and 300 of emerald, amber, rose, sky and violet are used 590 times
+   as TEXT and zero times as a solid background, so in light mode they become
+   the dark end. Getting this wrong is not subtle — the first light build had
+   `text-amber-200` on a pale amber card, which is a warning nobody can read. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+    --c-white: 17 17 16;
+    --c-ink-600: 199 199 194;
+    --c-ink-700: 220 220 216;
+    --c-ink-800: 234 234 231;
+    --c-ink-850: 242 242 240;
+    --c-ink-900: 255 255 255;
+    --c-ink-950: 247 247 245;
+    --c-slate-50: 19 19 18;
+    --c-slate-100: 29 29 28;
+    --c-slate-200: 47 47 45;
+    --c-slate-300: 70 70 67;
+    --c-slate-400: 94 94 90;
+    --c-slate-500: 118 118 111;
+    --c-slate-600: 149 149 143;
+    --c-slate-700: 189 189 184;
+    --c-slate-800: 219 219 215;
+    --c-slate-900: 237 237 235;
+    --c-slate-950: 246 246 244;
+    --c-emerald-50: 26 20 9;
+    --c-emerald-100: 45 34 17;
+    --c-emerald-200: 67 50 28;
+    --c-emerald-300: 92 68 31;
+    --c-emerald-400: 124 92 47;
+    --c-emerald-500: 138 106 46;
+    --c-emerald-600: 163 128 60;
+    --c-emerald-700: 192 155 85;
+    --c-emerald-800: 223 201 164;
+    --c-emerald-900: 240 227 203;
+    --c-emerald-950: 251 247 239;
+    --c-amber-50: 29 17 9;
+    --c-amber-100: 51 29 17;
+    --c-amber-200: 69 40 23;
+    --c-amber-300: 92 53 27;
+    --c-amber-400: 138 82 40;
+    --c-amber-500: 154 95 47;
+    --c-amber-600: 176 113 58;
+    --c-amber-700: 201 145 97;
+    --c-amber-800: 232 199 166;
+    --c-amber-900: 247 231 215;
+    --c-amber-950: 252 245 239;
+    --c-rose-50: 29 11 9;
+    --c-rose-100: 51 20 17;
+    --c-rose-200: 69 28 23;
+    --c-rose-300: 92 37 30;
+    --c-rose-400: 138 56 45;
+    --c-rose-500: 156 65 53;
+    --c-rose-600: 178 76 64;
+    --c-rose-700: 204 110 99;
+    --c-rose-800: 238 178 171;
+    --c-rose-900: 250 223 220;
+    --c-rose-950: 253 243 242;
+    --c-sky-50: 14 19 23;
+    --c-sky-100: 24 32 39;
+    --c-sky-200: 31 42 52;
+    --c-sky-300: 40 55 67;
+    --c-sky-400: 58 81 101;
+    --c-sky-500: 66 92 116;
+    --c-sky-600: 78 108 136;
+    --c-sky-700: 112 147 176;
+    --c-sky-800: 182 202 221;
+    --c-sky-900: 225 233 241;
+    --c-sky-950: 243 246 249;
+    --c-violet-50: 17 14 19;
+    --c-violet-100: 29 24 33;
+    --c-violet-200: 40 32 44;
+    --c-violet-300: 53 43 58;
+    --c-violet-400: 79 65 88;
+    --c-violet-500: 93 77 103;
+    --c-violet-600: 109 91 120;
+    --c-violet-700: 144 130 160;
+    --c-violet-800: 207 195 214;
+    --c-violet-900: 235 230 238;
+    --c-violet-950: 247 245 248;
+
+  --mw-bg: #F7F7F5;
+  --mw-panel: #FFFFFF;
+  --mw-line: rgba(17, 17, 16, 0.10);
+  --mw-line-strong: rgba(17, 17, 16, 0.16);
+  --mw-brass: #7C5C2F;
+  --mw-brass-lit: #5C441F;
+  --mw-lit-edge: rgba(255, 255, 255, 0.9);
+  --mw-contact: rgba(17, 17, 16, 0.09);
+  --mw-input-bg: #FBFBFA;
+  --mw-ghost-bg: rgba(17, 17, 16, 0.02);
+  /* Grain reads as dirt on a white ground rather than as texture. */
+  --mw-grain: 0.012;
+  --mw-key-top: #A87F45;
+  --mw-key-bottom: #8A6A2E;
+  --mw-key-edge: #6A5024;
+  --mw-key-ink: #FFFAF0;
+
+  /* The tile ramp darkens with everything else, or the hairlines vanish. */
+  --c1: #8A6A2E; --c2: #7C5C2F; --c3: #A3803C; --c4: #6A5024;
+  --c5: #B8955A; --c6: #6F5327; --c7: #96742F; --c8: #55401F;
 }
 
 body {
@@ -57,6 +271,14 @@ body::before {
     radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.5) 100%);
 }
 
+/* On a white page a dark vignette is a smudge, not depth. The light theme gets
+   the warmth and drops the falloff. */
+:root[data-theme="light"] body::before {
+  background:
+    radial-gradient(120% 80% at 18% -20%, rgba(190, 146, 71, 0.07), transparent 62%),
+    radial-gradient(100% 70% at 88% -14%, rgba(120, 130, 150, 0.05), transparent 60%);
+}
+
 /* Fine grain. Kept and lowered — at 0.035 over a coloured wash it read as
    noise; over a neutral ground at 0.022 it reads as a surface having a
    texture, which is most of why a screen looks photographed rather than
@@ -67,7 +289,7 @@ body::after {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.022;
+  opacity: var(--mw-grain);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -93,8 +315,8 @@ body::after {
   background: var(--mw-panel);
   border: 1px solid var(--mw-line);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.035),
-    0 1px 1px 0 rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 0 var(--mw-lit-edge),
+    0 1px 1px 0 var(--mw-contact);
 }
 
 /* NO GLOW. The old primary button cast a 30px emerald light onto the page.
@@ -105,12 +327,12 @@ body::after {
   @apply inline-flex items-center justify-center gap-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45;
   border-radius: 7px;
   padding: 0.6rem 1.05rem;
-  color: #17130B;
-  background: linear-gradient(180deg, #D3AA65 0%, #BE9247 100%);
-  border: 1px solid #8E6C33;
+  color: var(--mw-key-ink);
+  background: linear-gradient(180deg, var(--mw-key-top) 0%, var(--mw-key-bottom) 100%);
+  border: 1px solid var(--mw-key-edge);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 240, 214, 0.45),
-    0 1px 2px 0 rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 0 rgba(255, 240, 214, 0.35),
+    0 1px 2px 0 var(--mw-contact);
 }
 .btn-primary:hover:not(:disabled) {
   background: linear-gradient(180deg, #E0C489 0%, #CDA75E 100%);
@@ -125,7 +347,7 @@ body::after {
   border-radius: 7px;
   padding: 0.6rem 1.05rem;
   border: 1px solid var(--mw-line-strong);
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--mw-ghost-bg);
 }
 .btn-ghost:hover {
   border-color: rgba(190, 146, 71, 0.5);
@@ -138,9 +360,9 @@ body::after {
   @apply w-full text-sm text-slate-100 placeholder-slate-500 outline-none transition;
   border-radius: 7px;
   padding: 0.6rem 0.75rem;
-  background: #0C0C0D;
+  background: var(--mw-input-bg);
   border: 1px solid var(--mw-line-strong);
-  box-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 2px 0 var(--mw-contact);
 }
 .input:focus {
   border-color: rgba(190, 146, 71, 0.55);
@@ -236,7 +458,7 @@ body::after {
 
 .glass {
   border: 1px solid var(--mw-line-strong);
-  background: rgba(255, 255, 255, 0.022);
+  background: var(--mw-ghost-bg);
 }
 
 /* A lit edge, not a rainbow outline. The brass catches the light along the top
@@ -259,6 +481,13 @@ body::after {
 .text-gradient {
   background-image: linear-gradient(96deg, #E4CB96 0%, #C79C51 46%, #A67C39 100%);
   @apply bg-clip-text text-transparent;
+}
+
+/* The same metal, lit from the other side. The dark-mode stops start at
+   #E4CB96, which is a 1.4:1 whisper on a white page — a headline nobody can
+   read is worse than a headline with no treatment at all. */
+:root[data-theme="light"] .text-gradient {
+  background-image: linear-gradient(96deg, #B08A46 0%, #8A6A2E 46%, #6B5124 100%);
 }
 
 /* Per-tile accent ramp — colorful cards without losing the premium ground.

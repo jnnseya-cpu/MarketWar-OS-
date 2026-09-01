@@ -23,6 +23,7 @@
     "check:layers": "node scripts/check-layers.mjs",
     "check:casts": "node scripts/check-casts.mjs",
     "check:palette": "node scripts/check-palette.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
     "test": "NODE_ENV=test node --import tsx --test tests/*.test.mjs",
     "splash": "node scripts/generate-splash.mjs",
     "social": "node scripts/build-social-assets.mjs",

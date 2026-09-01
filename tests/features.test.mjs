@@ -26397,3 +26397,51 @@ test("the endpoint classifier tells the three causes of 'delivered, nothing land
   assert.equal(messy.problem, "none");
   assert.equal(messy.count, 3);
 });
+
+test("both themes are readable, and it is computed rather than eyeballed", async () => {
+  // The first light build shipped `text-amber-200` — a tint drawn for a black
+  // background — onto a pale amber warning card at 1.5:1. An invisible warning
+  // is the worst possible failure for a warning, and it looked fine in every
+  // screenshot I happened to take.
+  const { execFileSync } = await import("node:child_process");
+  const root = new URL("..", import.meta.url).pathname;
+  const out = execFileSync("node", ["scripts/check-contrast.mjs"], { cwd: root, encoding: "utf8" });
+  assert.match(out, /Contrast check passed/);
+  assert.match(out, /in both themes/);
+
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.match(ci, /check:contrast/, "the contrast check is not wired to CI, so it will rot");
+});
+
+test("the light theme is opt-in and applied before the first paint", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  // In the head, synchronously. Reading the choice in React means a light-theme
+  // user gets a black flash on every navigation.
+  assert.match(layout, /localStorage\.getItem\('mw-theme'\)==='light'/,
+    "the theme must be stamped before paint, not in an effect");
+  assert.ok(layout.indexOf("mw-theme") < layout.indexOf("<body"),
+    "the stamp script must run before the body exists");
+  // It must never be able to stop a page rendering.
+  assert.match(layout, /try\{[^}]*localStorage[\s\S]{0,120}catch\(e\)\{\}/,
+    "localStorage throws outright in some privacy modes");
+
+  // Dark stays the default: no stamp means dark. Anything that flips the app
+  // on system preference would change it under people who never asked.
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /@media \(prefers-color-scheme: light\)/,
+    "light must be opt-in, not automatic");
+  assert.match(css, /:root\[data-theme="light"\]/);
+});
+
+test("colours resolve through tokens, or a second theme is impossible", () => {
+  // `bg-ink-900` cannot mean one fixed hex if the same class has to render in
+  // two themes. This is what let 92 pages change without being edited.
+  const cfg = readFileSync(new URL("../tailwind.config.ts", import.meta.url), "utf8");
+  for (const fam of ["ink", "slate", "emerald", "amber", "rose", "sky", "violet"]) {
+    assert.match(cfg, new RegExp(`${fam}: \\{[\\s\\S]{0,80}rgb\\(var\\(--c-${fam}-`),
+      `${fam} is back to fixed hex values, so it cannot switch theme`);
+  }
+  // The alpha placeholder is what keeps `bg-white/5` and `border-white/10`
+  // working — 529 of those exist.
+  assert.match(cfg, /white: "rgb\(var\(--c-white\) \/ <alpha-value>\)"/);
+});

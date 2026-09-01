@@ -31,6 +31,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import ThemeToggle from "@/components/ThemeToggle";
 import { useAuthUser } from "@/frontend/use-auth-user";
 import { creditableCode, withReferral } from "@/frontend/referral";
 
@@ -64,14 +65,20 @@ export default function SiteAuthLinks({
 
   if (user) {
     return (
-      <Link href="/dashboard" className={ctaClassName}>
-        Go to dashboard
-      </Link>
+      <>
+        <ThemeToggle className="mr-1" />
+        <Link href="/dashboard" className={ctaClassName}>
+          Go to dashboard
+        </Link>
+      </>
     );
   }
 
   return (
     <>
+      {/* On the public header too, so a visitor who prefers a light screen is
+          not made to sign up in the dark first. */}
+      <ThemeToggle className="mr-1" />
       <Link href={withReferral(signInHref, ref)} className={signInClassName}>{signInLabel}</Link>
       <Link href={withReferral(ctaHref, ref)} className={ctaClassName}>{ctaLabel}</Link>
     </>
