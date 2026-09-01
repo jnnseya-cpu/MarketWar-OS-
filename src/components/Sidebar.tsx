@@ -7,6 +7,7 @@ import BrandSwitcher from "@/components/BrandSwitcher";
 import { BrandLockup } from "@/components/Logo";
 import UserMenu from "@/components/UserMenu";
 import LanguageSelector from "@/components/LanguageSelector";
+import ThemeToggle from "@/components/ThemeToggle";
 import { useIsAdmin } from "@/frontend/use-is-admin";
 import {
   Activity,
@@ -219,8 +220,9 @@ export default function Sidebar() {
       <div className="border-t border-ink-700/60 px-5 py-3">
         <UserMenu />
       </div>
-      <div className="border-t border-ink-700/60 px-5 py-3">
+      <div className="flex items-center justify-between gap-3 border-t border-ink-700/60 px-5 py-3">
         <LanguageSelector />
+        <ThemeToggle />
       </div>
       <div className="border-t border-ink-700/60 px-5 py-4">
         {liveReady === null ? (

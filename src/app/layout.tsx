@@ -78,6 +78,22 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <head>
+        {/* THE THEME, BEFORE THE FIRST PAINT.
+            Reading the stored choice in React means the first frame is always
+            the default, so a light-theme user sees a black flash on every
+            navigation. This runs synchronously in the head, before the body
+            exists, so the document is already stamped when it is painted.
+            Deliberately tiny and dependency-free — anything in here blocks the
+            page. Wrapped in try/catch because localStorage throws outright in
+            some privacy modes, and a theme preference must never be able to
+            stop a page rendering. Dark is the default: the app has always been
+            dark and this identity is dark-first, so light is opt-in rather than
+            something that flips under people who never asked. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('mw-theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}`,
+          }}
+        />
         {/* iOS LAUNCH IMAGES.
             Android needs nothing here — Chrome builds its splash from the
             manifest's name, background colour and 512px icon, all of which are

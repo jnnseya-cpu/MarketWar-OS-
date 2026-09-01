@@ -26266,3 +26266,182 @@ test("the chart palette is checked, not merely described", async () => {
   const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(ci, /check:palette/, "the palette check is not wired to CI, so it will rot again");
 });
+
+// ---------------------------------------------------------------------------
+// Mail: sendEmail must never throw
+//
+// This is the defect that cost a month. Every failure sendEmail DECIDES on was
+// classified; the ones that mattered were exceptions, and a caller cannot
+// classify an exception it did not create.
+// ---------------------------------------------------------------------------
+
+test("sendEmail returns a classified result when the send path throws", async () => {
+  const email = await import("../src/backend/email.ts");
+
+  // A REAL exception, from a real path. A recipient address that is not a
+  // string — read back from storage, or out of an imported list — reaches
+  // `validateAddress` and throws on `.trim()`. Before the wrapper that threw
+  // straight out of sendEmail, and the caller's own catch reported
+  // "unknown: the send did not complete", which names no problem and points
+  // squarely at the mail settings. That sentence is where a month went.
+  for (const bad of [42, null, { address: "x" }]) {
+    const res = await email.sendEmail({ to: bad, subject: "s", html: "<p>h</p>" });
+    assert.equal(res.ok, false);
+    assert.equal(res.failure, "crashed", `an exception for to=${JSON.stringify(bad)} must arrive as a category, not as a thrown error`);
+    assert.equal(res.provider, "crashed");
+    assert.match(res.detail, /trim/, "the actual fault must be named, not summarised as 'did not complete'");
+    assert.match(res.detail, /not a missing mail setting/i, "the wording must stop sending somebody back to the settings");
+  }
+
+  // And a well-formed call on an unconfigured deployment is still the ordinary
+  // decision, not a crash — or the guard would be hiding real classifications.
+  const ok = await email.sendEmail({ to: "someone@example.com", subject: "s", html: "<p>h</p>" });
+  assert.equal(ok.failure, "not_configured", "the wrapper must not swallow the decisions the function does make");
+});
+
+test("crashed is a category the type allows, and it is distinct from provider", async () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8"));
+  assert.match(src, /failure\?:[^;]*"crashed"/, "the failure union must be able to express an exception");
+  // A crash and a provider refusal need different actions: one is a fault in
+  // our code, the other is a fault at the relay.
+  assert.match(src, /failure: "crashed"/);
+  assert.match(src, /export async function sendEmail\(opts: Parameters<typeof sendEmailInner>\[0\]\)/,
+    "sendEmail must be the wrapper, or the whole guarantee is gone");
+});
+
+test("a provider that cannot be reached falls through instead of throwing", async () => {
+  // `fetch` rejects on DNS failure, TLS error or blocked egress. Both provider
+  // calls were unwrapped, so a host that could not reach Resend did not fall
+  // through to SendGrid — it threw out of the middle of the chain.
+  const src = codeOf(readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8"));
+  const resend = src.indexOf("api.resend.com");
+  const sendgrid = src.indexOf("api.sendgrid.com");
+  assert.ok(resend > 0 && sendgrid > 0);
+  // Each provider block must contain a catch between its fetch and the next.
+  const betweenProviders = src.slice(resend, sendgrid);
+  assert.match(betweenProviders, /catch\s*\(/, "the Resend call can still throw out of the provider chain");
+  assert.match(src.slice(sendgrid), /catch\s*\(/, "the SendGrid call can still throw out of the provider chain");
+});
+
+test("a batch that fails gives every recipient a row, so a retry cannot double-send", async () => {
+  const src = codeOf(readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8"));
+  assert.match(src, /export async function sendEmailBatch\(/);
+  assert.match(src, /async function sendEmailBatchInner\(/, "the batch path is unguarded again");
+  // The crash row must say nothing was sent — a retry decision depends on it.
+  assert.match(src, /Nothing was sent, so this batch is safe to retry/);
+});
+
+test("the Stripe diagnostic lists the account's endpoints and names which one is ours", async () => {
+  // 246 events delivered and nothing landing has exactly three causes: no
+  // endpoint pointing here, an endpoint on the wrong host, or the wrong one of
+  // several secrets. The first two are answerable read-only and now are.
+  const src = codeOf(readFileSync(new URL("../src/app/api/health/stripe/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /v1\/webhook_endpoints/, "the account's endpoints are still invisible to the diagnostic");
+  assert.match(src, /classifyEndpoints/, "the classification must stay in the pure module where it can be tested");
+  assert.match(src, /Stripe does not follow redirects/);
+  // It must never claim to compare secrets — Stripe does not return them.
+  assert.match(src, /returns those only when an endpoint is created/i,
+    "the diagnostic must state what it cannot see rather than imply it checked");
+
+  const route = await import("../src/app/api/health/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const res = await route.GET(new NextRequest("https://mw.test/api/health/stripe"));
+  const d = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(d.webhookDiagnostic?.accountEndpoints, "the endpoint listing is missing from the response");
+  // With no key configured here it must say so rather than report zero endpoints.
+  assert.equal(d.webhookDiagnostic.accountEndpoints.ran, false);
+});
+
+test("the endpoint classifier tells the three causes of 'delivered, nothing landing' apart", async () => {
+  const { classifyEndpoints } = await import("../src/shared/stripe-endpoints.ts");
+  const PATH = "/api/webhooks/stripe";
+  const ep = (id, url, events = 3) => ({ id, url, status: "enabled", enabled_events: Array(events).fill("x") });
+  const at = (rows, host = "www.marketwaros.com") => classifyEndpoints({ rows, servingHost: host, webhookPath: PATH });
+
+  // 1. THE REDIRECT TRAP. Right path, apex host, app served on www. Stripe does
+  //    not follow redirects, so every one of 246 events is recorded as failed.
+  const apex = at([ep("we_1", "https://marketwaros.com" + PATH)]);
+  assert.equal(apex.problem, "wrong_host", "an endpoint on the apex while the app serves www must be caught — this is the likeliest cause");
+  assert.equal(apex.matching, 0);
+  assert.equal(apex.wrongHost, 1);
+  assert.match(apex.verdict, /does not follow redirects/);
+  assert.match(apex.verdict, /www\.marketwaros\.com/);
+
+  // 2. THE RIGHT ONE, among seven.
+  const seven = at([
+    ep("we_a", "https://other.example.com/hooks"),
+    ep("we_b", "https://marketwaros.com" + PATH),
+    ep("we_c", "https://www.marketwaros.com" + PATH),
+    ...Array.from({ length: 4 }, (_, i) => ep(`we_x${i}`, `https://x${i}.example.com/hook`)),
+  ]);
+  assert.equal(seven.problem, "none");
+  assert.equal(seven.matching, 1);
+  assert.equal(seven.count, 7);
+  assert.match(seven.verdict, /we_c/, "the verdict must name WHICH endpoint's secret to copy");
+
+  // 3. DUPLICATES. Only one secret can be configured, so the others always fail.
+  const dupes = at([ep("we_1", "https://www.marketwaros.com" + PATH), ep("we_2", "https://www.marketwaros.com" + PATH)]);
+  assert.equal(dupes.problem, "duplicates");
+  assert.equal(dupes.matching, 2);
+  assert.match(dupes.verdict, /we_1, we_2/);
+
+  // 4. NOTHING POINTS HERE AT ALL.
+  assert.equal(at([ep("we_1", "https://elsewhere.example.com/hook")]).problem, "no_endpoint");
+  assert.equal(at([]).problem, "no_endpoint");
+  assert.match(at([]).verdict, /no webhook endpoints at all/);
+
+  // A malformed row must not crash the whole diagnostic — a row is whatever
+  // Stripe sent, and one bad entry must not hide the other six.
+  const messy = at([null, { url: 42 }, ep("we_ok", "https://www.marketwaros.com" + PATH)]);
+  assert.equal(messy.problem, "none");
+  assert.equal(messy.count, 3);
+});
+
+test("both themes are readable, and it is computed rather than eyeballed", async () => {
+  // The first light build shipped `text-amber-200` — a tint drawn for a black
+  // background — onto a pale amber warning card at 1.5:1. An invisible warning
+  // is the worst possible failure for a warning, and it looked fine in every
+  // screenshot I happened to take.
+  const { execFileSync } = await import("node:child_process");
+  const root = new URL("..", import.meta.url).pathname;
+  const out = execFileSync("node", ["scripts/check-contrast.mjs"], { cwd: root, encoding: "utf8" });
+  assert.match(out, /Contrast check passed/);
+  assert.match(out, /in both themes/);
+
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.match(ci, /check:contrast/, "the contrast check is not wired to CI, so it will rot");
+});
+
+test("the light theme is opt-in and applied before the first paint", () => {
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  // In the head, synchronously. Reading the choice in React means a light-theme
+  // user gets a black flash on every navigation.
+  assert.match(layout, /localStorage\.getItem\('mw-theme'\)==='light'/,
+    "the theme must be stamped before paint, not in an effect");
+  assert.ok(layout.indexOf("mw-theme") < layout.indexOf("<body"),
+    "the stamp script must run before the body exists");
+  // It must never be able to stop a page rendering.
+  assert.match(layout, /try\{[^}]*localStorage[\s\S]{0,120}catch\(e\)\{\}/,
+    "localStorage throws outright in some privacy modes");
+
+  // Dark stays the default: no stamp means dark. Anything that flips the app
+  // on system preference would change it under people who never asked.
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /@media \(prefers-color-scheme: light\)/,
+    "light must be opt-in, not automatic");
+  assert.match(css, /:root\[data-theme="light"\]/);
+});
+
+test("colours resolve through tokens, or a second theme is impossible", () => {
+  // `bg-ink-900` cannot mean one fixed hex if the same class has to render in
+  // two themes. This is what let 92 pages change without being edited.
+  const cfg = readFileSync(new URL("../tailwind.config.ts", import.meta.url), "utf8");
+  for (const fam of ["ink", "slate", "emerald", "amber", "rose", "sky", "violet"]) {
+    assert.match(cfg, new RegExp(`${fam}: \\{[\\s\\S]{0,80}rgb\\(var\\(--c-${fam}-`),
+      `${fam} is back to fixed hex values, so it cannot switch theme`);
+  }
+  // The alpha placeholder is what keeps `bg-white/5` and `border-white/10`
+  // working — 529 of those exist.
+  assert.match(cfg, /white: "rgb\(var\(--c-white\) \/ <alpha-value>\)"/);
+});

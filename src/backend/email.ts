@@ -773,7 +773,17 @@ export type SendResult = {
    * the truth is that this deployment has no sending server and the list was
    * never the problem.
    */
-  failure?: "not_configured" | "halted" | "hygiene" | "provider";
+  /**
+   * `crashed` is the one that took a month to name.
+   *
+   * Every other value here is a DECISION this function made. `crashed` means it
+   * never got to make one — something threw and the caller was handed an
+   * exception instead of a result. The caller's own catch then reported
+   * "unknown: the send did not complete", which names no problem and points at
+   * the mail settings, so the settings were checked over and over while the
+   * actual fault was somewhere else entirely.
+   */
+  failure?: "not_configured" | "halted" | "hygiene" | "provider" | "crashed";
 };
 
 /**
@@ -790,7 +800,33 @@ export type SendResult = {
 /** Which path a batch actually took — surfaced so the send result can say so. */
 export let lastBatchMode: "session" | "one-at-a-time" | "mixed" | "none" = "none";
 
+/**
+ * A CAMPAIGN CANNOT THROW EITHER, and for a worse reason than a single send.
+ *
+ * A batch that throws loses the per-recipient results, so nobody can say which
+ * of two thousand messages went and which did not — and a retry then re-sends
+ * the ones that did. Every recipient gets a `crashed` row instead, which is a
+ * complete answer rather than an exception.
+ */
 export async function sendEmailBatch(
+  items: { to: string; subject: string; html: string; listUnsubscribe?: string }[],
+  common?: Parameters<typeof sendEmailBatchInner>[1],
+): Promise<SendResult[]> {
+  try {
+    return await sendEmailBatchInner(items, common);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.error(`[email] sendEmailBatch threw for ${items.length} recipients: ${err.message}\n${err.stack || "(no stack)"}`);
+    const mode = emailIsConfigured() ? ("live" as const) : ("demo" as const);
+    return items.map(() => ({
+      ok: false, mode, provider: "crashed", id: null, filteredOut: [],
+      failure: "crashed" as const,
+      detail: `The sending code failed before any message was handed to a provider: ${err.message}. Nothing was sent, so this batch is safe to retry once the fault is fixed.`,
+    }));
+  }
+}
+
+async function sendEmailBatchInner(
   items: { to: string; subject: string; html: string; listUnsubscribe?: string }[],
   common: {
     from?: string; replyTo?: string;
@@ -930,7 +966,51 @@ export async function sendEmailBatch(
   return out;
 }
 
-export async function sendEmail(opts: {
+/**
+ * SEND ONE MESSAGE, AND NEVER THROW.
+ *
+ * This wrapper is the fix for a month of "mail sends nothing and we cannot say
+ * why". `sendEmailInner` classifies every failure it DECIDES on — not_configured,
+ * halted, hygiene, provider — and the caller reported `unknown` anyway, because
+ * the interesting failures were not decisions. They were exceptions:
+ *
+ *   • `haltFor` reads the emergency-stop store. A storage error there threw
+ *     before a single line of sending logic ran.
+ *   • The Resend and SendGrid `fetch` calls were unwrapped, so a DNS failure or
+ *     a blocked egress route threw out of the middle of the provider chain.
+ *   • Anything else — a bad `MW_SENDING_POOL`, a malformed attachment, a
+ *     provider SDK — had the same effect.
+ *
+ * A caller cannot classify an exception it did not create, so "the send did not
+ * complete" was the honest limit of what it could say, and that sentence points
+ * at the mail settings, which is where the time went.
+ *
+ * The remedy is structural rather than another catch at another call site:
+ * ONE function, which always returns a `SendResult`. `crashed` carries the
+ * message, and the stack goes to the log rather than the response — an SMTP or
+ * provider message is safe to show, an internal stack is not.
+ */
+export async function sendEmail(opts: Parameters<typeof sendEmailInner>[0]): Promise<SendResult> {
+  try {
+    return await sendEmailInner(opts);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.error(`[email] sendEmail threw for ${opts.to}: ${err.message}\n${err.stack || "(no stack)"}`);
+    return {
+      ok: false,
+      mode: emailIsConfigured() ? "live" : "demo",
+      provider: "crashed",
+      id: null,
+      filteredOut: [],
+      failure: "crashed",
+      // NAMES THE FAULT, and says plainly that it is not the settings — because
+      // the previous wording sent somebody to check the settings for a month.
+      detail: `The sending code itself failed before it could reach a provider: ${err.message}. This is a fault in the send path, not a missing mail setting — changing SMTP_HOST, SMTP_USER or EMAIL_FROM will not affect it.`,
+    };
+  }
+}
+
+async function sendEmailInner(opts: {
   attachments?: EmailAttachment[];
   to: string;
   subject: string;
@@ -1033,6 +1113,7 @@ export async function sendEmail(opts: {
     }
   }
   if (RESEND_KEY) {
+   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
@@ -1043,9 +1124,19 @@ export async function sendEmail(opts: {
       return { ok: true, mode: "live", provider: "resend", id: body.id ?? null, filteredOut: [], detail: "accepted" };
     }
     // fall through to next provider on failure
+   } catch (e) {
+    // A NETWORK FAILURE HERE USED TO THROW OUT OF sendEmail ENTIRELY.
+    // `fetch` rejects on DNS failure, a TLS error, a blocked egress route or an
+    // abort — none of which is exotic on a fresh host — and neither provider
+    // call was wrapped. So a deployment that could not reach Resend did not
+    // fall through to SendGrid and did not return "provider": it threw, and
+    // every caller reported an unclassified failure.
+    smtpError = smtpError || `Resend unreachable: ${e instanceof Error ? e.message : String(e)}`;
+   }
   }
 
   if (SENDGRID_KEY) {
+   try {
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: { Authorization: `Bearer ${SENDGRID_KEY}`, "Content-Type": "application/json" },
@@ -1060,6 +1151,9 @@ export async function sendEmail(opts: {
     if (res.status === 202) {
       return { ok: true, mode: "live", provider: "sendgrid", id: res.headers.get("x-message-id"), filteredOut: [], detail: "accepted" };
     }
+   } catch (e) {
+    smtpError = smtpError || `SendGrid unreachable: ${e instanceof Error ? e.message : String(e)}`;
+   }
   }
 
   return {

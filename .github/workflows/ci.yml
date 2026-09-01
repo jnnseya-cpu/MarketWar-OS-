@@ -77,6 +77,11 @@ jobs:
       - name: Chart palette (contrast + colour-blind separation)
         run: npm run check:palette
 
+      # A theme is ~150 numbers. The first light build put pale-on-pale warning
+      # text at 1.5:1 and looked fine in every screenshot I happened to take.
+      - name: Theme contrast (both themes, real class pairs)
+        run: npm run check:contrast
+
       - name: Typecheck
         run: npm run typecheck
 

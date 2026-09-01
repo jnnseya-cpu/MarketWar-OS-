@@ -35,116 +35,107 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // The ground and its surfaces. Warm graphite: a hint of red in the
-        // neutral so it never reads as "blue tech", and no saturation beyond
-        // that — the accent is the only thing on screen with a hue worth naming.
+        // EVERY COLOUR IS A VARIABLE, so the same utility can render in two
+        // themes. `bg-ink-900` cannot mean one fixed hex if a light mode is ever
+        // to exist without editing 92 pages — it has to resolve through a token
+        // the document can redefine. The `<alpha-value>` placeholder is what
+        // keeps `bg-white/5` and `border-white/10` working: Tailwind
+        // substitutes the opacity into the rgb() itself.
+        //
+        // The values live in globals.css, in two blocks: `:root` (dark, the
+        // default and the identity) and `:root[data-theme="light"]`.
+        white: "rgb(var(--c-white) / <alpha-value>)",
         ink: {
-          950: "#0A0A0B",
-          900: "#101011",
-          850: "#151516",
-          800: "#1C1C1E",
-          700: "#2A2A2C",
-          600: "#3A3A3D",
+          600: "rgb(var(--c-ink-600) / <alpha-value>)",
+          700: "rgb(var(--c-ink-700) / <alpha-value>)",
+          800: "rgb(var(--c-ink-800) / <alpha-value>)",
+          850: "rgb(var(--c-ink-850) / <alpha-value>)",
+          900: "rgb(var(--c-ink-900) / <alpha-value>)",
+          950: "rgb(var(--c-ink-950) / <alpha-value>)",
         },
-
-        // Neutral text and lines. Tailwind's `slate` is blue; this is not, and
-        // that single change is most of the difference between the two versions.
         slate: {
-          50: "#F8F8F7",
-          100: "#EFEFED",
-          200: "#DEDEDB",
-          300: "#C4C4C0",
-          400: "#9C9C97",
-          500: "#7A7A75",
-          600: "#5E5E5A",
-          700: "#464643",
-          800: "#2F2F2D",
-          900: "#1D1D1C",
-          950: "#131312",
+          50: "rgb(var(--c-slate-50) / <alpha-value>)",
+          100: "rgb(var(--c-slate-100) / <alpha-value>)",
+          200: "rgb(var(--c-slate-200) / <alpha-value>)",
+          300: "rgb(var(--c-slate-300) / <alpha-value>)",
+          400: "rgb(var(--c-slate-400) / <alpha-value>)",
+          500: "rgb(var(--c-slate-500) / <alpha-value>)",
+          600: "rgb(var(--c-slate-600) / <alpha-value>)",
+          700: "rgb(var(--c-slate-700) / <alpha-value>)",
+          800: "rgb(var(--c-slate-800) / <alpha-value>)",
+          900: "rgb(var(--c-slate-900) / <alpha-value>)",
+          950: "rgb(var(--c-slate-950) / <alpha-value>)",
         },
-
-        // BRASS — the one accent. Every `emerald-*` in the app becomes this.
         emerald: {
-          50: "#FBF7EF",
-          100: "#F4EAD6",
-          200: "#E8D4AC",
-          300: "#DABE81",
-          400: "#CDA75E",
-          500: "#BE9247",
-          600: "#9E763A",
-          700: "#7C5C2F",
-          800: "#5D4526",
-          900: "#43321C",
-          950: "#261C10",
+          50: "rgb(var(--c-emerald-50) / <alpha-value>)",
+          100: "rgb(var(--c-emerald-100) / <alpha-value>)",
+          200: "rgb(var(--c-emerald-200) / <alpha-value>)",
+          300: "rgb(var(--c-emerald-300) / <alpha-value>)",
+          400: "rgb(var(--c-emerald-400) / <alpha-value>)",
+          500: "rgb(var(--c-emerald-500) / <alpha-value>)",
+          600: "rgb(var(--c-emerald-600) / <alpha-value>)",
+          700: "rgb(var(--c-emerald-700) / <alpha-value>)",
+          800: "rgb(var(--c-emerald-800) / <alpha-value>)",
+          900: "rgb(var(--c-emerald-900) / <alpha-value>)",
+          950: "rgb(var(--c-emerald-950) / <alpha-value>)",
         },
-
-        // Caution — clay. Warm, but browner and duller than brass, and always
-        // carried by a written label as well, so the two are never told apart
-        // by hue alone.
         amber: {
-          50: "#FCF5EF",
-          100: "#F7E7D7",
-          200: "#EDCCAC",
-          300: "#DFAC7C",
-          400: "#CE8B52",
-          500: "#B9703A",
-          600: "#985A2F",
-          700: "#764726",
-          800: "#58361E",
-          900: "#402816",
-          950: "#24160C",
+          50: "rgb(var(--c-amber-50) / <alpha-value>)",
+          100: "rgb(var(--c-amber-100) / <alpha-value>)",
+          200: "rgb(var(--c-amber-200) / <alpha-value>)",
+          300: "rgb(var(--c-amber-300) / <alpha-value>)",
+          400: "rgb(var(--c-amber-400) / <alpha-value>)",
+          500: "rgb(var(--c-amber-500) / <alpha-value>)",
+          600: "rgb(var(--c-amber-600) / <alpha-value>)",
+          700: "rgb(var(--c-amber-700) / <alpha-value>)",
+          800: "rgb(var(--c-amber-800) / <alpha-value>)",
+          900: "rgb(var(--c-amber-900) / <alpha-value>)",
+          950: "rgb(var(--c-amber-950) / <alpha-value>)",
         },
-
-        // Critical — oxide red. Deliberately dark and matte: an alert should
-        // look grave, not neon.
         rose: {
-          50: "#FDF3F2",
-          100: "#FADFDC",
-          200: "#F0BAB4",
-          300: "#E0938A",
-          400: "#CC6E63",
-          500: "#B24C40",
-          600: "#933D33",
-          700: "#733029",
-          800: "#57251F",
-          900: "#3F1B17",
-          950: "#230F0D",
+          50: "rgb(var(--c-rose-50) / <alpha-value>)",
+          100: "rgb(var(--c-rose-100) / <alpha-value>)",
+          200: "rgb(var(--c-rose-200) / <alpha-value>)",
+          300: "rgb(var(--c-rose-300) / <alpha-value>)",
+          400: "rgb(var(--c-rose-400) / <alpha-value>)",
+          500: "rgb(var(--c-rose-500) / <alpha-value>)",
+          600: "rgb(var(--c-rose-600) / <alpha-value>)",
+          700: "rgb(var(--c-rose-700) / <alpha-value>)",
+          800: "rgb(var(--c-rose-800) / <alpha-value>)",
+          900: "rgb(var(--c-rose-900) / <alpha-value>)",
+          950: "rgb(var(--c-rose-950) / <alpha-value>)",
         },
-
-        // Information — steel blue. The only cool hue on the board, kept quiet.
         sky: {
-          50: "#F3F6F9",
-          100: "#E1E9F1",
-          200: "#C1D2E2",
-          300: "#9CB6CE",
-          400: "#7597B5",
-          500: "#5A7C9C",
-          600: "#496681",
-          700: "#3A5165",
-          800: "#2C3D4C",
-          900: "#202D38",
-          950: "#131A20",
+          50: "rgb(var(--c-sky-50) / <alpha-value>)",
+          100: "rgb(var(--c-sky-100) / <alpha-value>)",
+          200: "rgb(var(--c-sky-200) / <alpha-value>)",
+          300: "rgb(var(--c-sky-300) / <alpha-value>)",
+          400: "rgb(var(--c-sky-400) / <alpha-value>)",
+          500: "rgb(var(--c-sky-500) / <alpha-value>)",
+          600: "rgb(var(--c-sky-600) / <alpha-value>)",
+          700: "rgb(var(--c-sky-700) / <alpha-value>)",
+          800: "rgb(var(--c-sky-800) / <alpha-value>)",
+          900: "rgb(var(--c-sky-900) / <alpha-value>)",
+          950: "rgb(var(--c-sky-950) / <alpha-value>)",
         },
-
-        // Kept so the handful of existing usages stop being neon. Muted plum.
         violet: {
-          50: "#F7F5F8",
-          100: "#EBE6EE",
-          200: "#D6CCDC",
-          300: "#BCADC6",
-          400: "#9F8CAD",
-          500: "#867192",
-          600: "#6D5B78",
-          700: "#56475E",
-          800: "#3F3546",
-          900: "#2D2632",
-          950: "#191419",
+          50: "rgb(var(--c-violet-50) / <alpha-value>)",
+          100: "rgb(var(--c-violet-100) / <alpha-value>)",
+          200: "rgb(var(--c-violet-200) / <alpha-value>)",
+          300: "rgb(var(--c-violet-300) / <alpha-value>)",
+          400: "rgb(var(--c-violet-400) / <alpha-value>)",
+          500: "rgb(var(--c-violet-500) / <alpha-value>)",
+          600: "rgb(var(--c-violet-600) / <alpha-value>)",
+          700: "rgb(var(--c-violet-700) / <alpha-value>)",
+          800: "rgb(var(--c-violet-800) / <alpha-value>)",
+          900: "rgb(var(--c-violet-900) / <alpha-value>)",
+          950: "rgb(var(--c-violet-950) / <alpha-value>)",
         },
 
-        war: { DEFAULT: "#BE9247", dim: "#9E763A" },
-        alert: "#B24C40",
-        caution: "#B9703A",
-        intel: "#5A7C9C",
+        war: { DEFAULT: "rgb(var(--c-emerald-500) / <alpha-value>)", dim: "rgb(var(--c-emerald-600) / <alpha-value>)" },
+        alert: "rgb(var(--c-rose-500) / <alpha-value>)",
+        caution: "rgb(var(--c-amber-500) / <alpha-value>)",
+        intel: "rgb(var(--c-sky-500) / <alpha-value>)",
       },
 
       fontFamily: {

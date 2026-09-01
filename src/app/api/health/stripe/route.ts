@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
 import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH } from "@/backend/stripe-billing";
+import { classifyEndpoints } from "@/shared/stripe-endpoints";
 
 // Stripe self-diagnostic — is the money path live? Reports which Stripe env vars
 // are present (booleans only) and validates the secret key by calling Stripe
@@ -92,6 +93,38 @@ export async function GET(req: NextRequest) {
         : "No Host header on this request, so the serving host could not be compared.",
   };
 
+  // 4. WHICH ENDPOINTS DOES THIS ACCOUNT ACTUALLY HAVE?
+  //
+  // This is the question the diagnostic could not answer and the one that
+  // matters: the account has SEVEN webhook endpoints, each with its own signing
+  // secret, and copying the wrong one fails every delivery with a signature
+  // mismatch that looks identical to a wrong URL. Stripe will list them
+  // read-only, and it does NOT return signing secrets on a list — only on
+  // create — so this can name the endpoints without ever handling a secret.
+  //
+  // With the list in hand, "which of the seven is mine" stops being a guess:
+  // the one whose URL matches the host serving this request is the one whose
+  // secret belongs in STRIPE_WEBHOOK_SECRET.
+  let endpoints: Record<string, unknown> = { ran: false, note: "No STRIPE_SECRET_KEY, so the account's endpoints cannot be listed." };
+  if (secret) {
+    try {
+      const res = await fetch("https://api.stripe.com/v1/webhook_endpoints?limit=100", { headers: { Authorization: `Bearer ${secret}` } });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        endpoints = { ran: true, ok: false, error: j.error?.message || `HTTP ${res.status}`, note: "A restricted key without webhook read permission will fail here; that is not itself a fault." };
+      } else {
+        const j = (await res.json().catch(() => ({}))) as { data?: unknown };
+        const rows = Array.isArray(j.data) ? j.data : [];
+        // The classification is pure and lives in `shared/stripe-endpoints.ts`,
+        // because inline here it could only be exercised with a live Stripe key
+        // — and a branch that can only run in production is an untested branch.
+        endpoints = { ran: true, ok: true, ...classifyEndpoints({ rows, servingHost, webhookPath: STRIPE_WEBHOOK_PATH }) };
+      }
+    } catch (e) {
+      endpoints = { ran: true, ok: false, error: (e as Error).message, note: "Could not reach Stripe to list endpoints." };
+    }
+  }
+
   const webhook = present.STRIPE_WEBHOOK_SECRET;
   const verdict = !secret
     ? "RED — no Stripe key; cannot take payment (demo mode)."
@@ -115,7 +148,8 @@ export async function GET(req: NextRequest) {
       secretShape: shape,
       signatureRoundTrip: roundTrip,
       endpointUrl,
-      whatThisCannotSee: "Whether the signing secret belongs to the endpoint Stripe is posting to, and what status Stripe recorded. Open the endpoint in Stripe, click a failed event, and read the response body — this route returns the reason in it (a missing secret, a signature mismatch, or a payment that could not be persisted).",
+      accountEndpoints: endpoints,
+      whatThisCannotSee: "The signing secrets themselves — Stripe returns those only when an endpoint is created, so no diagnostic can compare them for you. `accountEndpoints` narrows it to the ONE endpoint whose secret should be in STRIPE_WEBHOOK_SECRET; reveal that endpoint's secret in Stripe and compare it by eye. Also invisible here: what status Stripe recorded per delivery. Open a failed event in Stripe and read the response body — this route returns the reason in it.",
     },
   });
 }
