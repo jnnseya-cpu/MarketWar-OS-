@@ -132,7 +132,7 @@ export default function RecoveryPage() {
       {activeBrand && report && report.cohorts.length > 0 && (
         <>
           <div className="mb-8 card border-emerald-500/40 bg-emerald-500/5 p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">AI Revenue Recovery Score™</p>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">AI Revenue Recovery Score</p>
             <p className="mt-2 font-display text-4xl font-bold text-white">
               £{report.totalRecoverableGbp.toLocaleString()} <span className="text-lg font-semibold text-slate-400">recoverable</span>
             </p>

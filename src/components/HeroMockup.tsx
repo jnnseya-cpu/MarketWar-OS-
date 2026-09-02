@@ -56,7 +56,7 @@ export default function HeroMockup() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
                   Operational Ledger
                 </p>
-                <p className="font-display text-sm font-bold text-white">Alex Carter</p>
+                <p className="font-display text-sm font-bold text-white">Sample brand</p>
               </div>
               <div className="flex items-center gap-2 rounded-md bg-ink-850 px-2.5 py-1.5 text-[10px] text-slate-500">
                 <Search className="h-3 w-3" /> Ask the OS anything…
@@ -66,7 +66,7 @@ export default function HeroMockup() {
             {/* Stat row */}
             <div className="mb-3 grid grid-cols-3 gap-2">
               {[
-                { label: "Total Revenue", value: "$124,560", delta: "+24.5% vs last 30 days", spark: [4, 6, 5, 8, 9, 11, 14], color: SERIES[1] },
+                { label: "Total Revenue", value: "£124,560", delta: "+24.5% vs last 30 days", spark: [4, 6, 5, 8, 9, 11, 14], color: SERIES[1] },
                 { label: "New Customers", value: "2,345", delta: "+18.2% vs last 30 days", spark: [3, 4, 6, 5, 7, 8, 10], color: SERIES[0] },
                 { label: "AI Opportunity Score", value: "94", delta: "High", spark: [5, 6, 6, 7, 8, 8, 9], color: SERIES[4] },
               ].map((s) => (

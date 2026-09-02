@@ -22,6 +22,8 @@ import {
   Zap,
 } from "lucide-react";
 import HeroMockup from "@/components/HeroMockup";
+import HeroAudit from "@/components/HeroAudit";
+import AgentCorps from "@/components/AgentCorps";
 import SiteAuthLinks from "@/components/SiteAuthLinks";
 import LandingVisuals from "@/components/LandingVisuals";
 import { FunnelChart, HBarList, Sparkline } from "@/components/charts";
@@ -34,6 +36,19 @@ import { FREE_SIGNUP_ACUS } from "@/backend/wallet";
 import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
 import { INCLUDED_TOOLS, includedSummary } from "@/shared/included-tools";
 import { BrandLockup } from "@/components/Logo";
+import { auditCheckCount } from "@/shared/audit-copy";
+
+// EVERY FIGURE ON THE FIRST SCREEN IS READ FROM THE THING THAT ENFORCES IT.
+// A price typed into a headline drifts from checkout the first time it changes,
+// and a guardrail quoted in marketing copy drifts from the guardrail. Both are
+// exactly the class of claim this platform sells itself on never making.
+const CHECK_COUNT = auditCheckCount();
+const STARTER = PLAN_ENGINE.find((p) => p.id === "starter")?.monthlyGbp ?? 0;
+const GROWTH = PLAN_ENGINE.find((p) => p.id === "growth")?.monthlyGbp ?? 0;
+const MIN_SPEND = MIN_SPEND_TO_JUDGE_GBP;
+const MIN_CONV = MIN_CONVERSIONS_TO_JUDGE_CPA;
+const SCALE_ROAS = DEFAULT_GUARDRAILS.scaleRoas;
+const SCALE_PCT = DEFAULT_GUARDRAILS.maximumScalePct;
 
 const PILLARS = [
   {
@@ -80,7 +95,7 @@ const PILLARS = [
     icon: Users,
     color: SERIES[3],
     title: "An audience that sells for you",
-    desc: "Turn customers and creators into a performance-based distribution network. SHARE2EARN pays 0.5% of a verified sale with no follower requirement at all; the creator programme pays 0.75% and 1% on verified counts. Commission is only ever charged on sales those people produced, capped at 5% of the value generated, and the platform refuses any reward that would breach the margin you chose to protect.",
+    desc: "Turn customers and creators into a performance-based distribution network on YOUR products, at your margins. SHARE2EARN pays 0.5% of a verified sale with no follower requirement; the creator programme pays 0.75% and 1% on verified counts. Be clear-eyed about the size of that: on a £500 job it is £2.50 to £5, so this is a loyalty and word-of-mouth mechanic for people who already like you, not a living for a full-time influencer. Commission is only ever charged on sales those people actually produced, capped at 5% of the value generated, and the platform refuses any reward that would breach the margin you chose to protect.",
     cta: "See how creators earn",
     href: "/blog/creator-earning-programmes",
   },
@@ -250,74 +265,130 @@ export default function LandingPage() {
               <span className="font-mono text-[10px] tracking-wide text-slate-500">v1.0</span>
             </div>
 
-            <h1 className="animate-fade-up font-display text-[2.6rem] font-bold leading-[1.02] tracking-tightest text-white sm:text-6xl lg:text-[4.6rem]" style={{ animationDelay: "0.08s" }}>
-              More customers. More revenue.{" "}
-              <span className="text-gradient">Less waste.</span>
+            {/* THE HEADLINE NAMES THE SITUATION, NOT THE CATEGORY.
+                It read "More customers. More revenue. Less waste." — three
+                outcomes that fit under any of four hundred marketing products.
+                It named no enemy, no moment and no surprise, so it taught a
+                stranger nothing about why this exists.
+                The best sentence anywhere on this page was buried at line ~380:
+                "£2,400 on boosted posts, a handful of orders, no idea where the
+                money leaked." That is the reader's own humiliation written down,
+                and it belongs first. */}
+            <h1 className="animate-fade-up font-display text-[2.6rem] font-bold leading-[1.02] tracking-tightest text-white sm:text-6xl lg:text-[4.3rem]" style={{ animationDelay: "0.08s" }}>
+              You spent the money.{" "}
+              <span className="text-gradient">Nobody can tell you where it went.</span>
             </h1>
 
             <p className="animate-fade-up mt-7 max-w-xl text-lg leading-relaxed text-slate-400" style={{ animationDelay: "0.16s" }}>
-              MarketWar doesn&rsquo;t help you look busy — it helps you make money. From day one it
-              shows you where the money is, what&rsquo;s blocking it, and the exact action that
-              unlocks it: find demand, acquire customers, convert sales, recover lost revenue and
-              outperform competitors — from one operating system.
+              Put your website in below. We read the actual page — not a database of averages —
+              and name what is quietly costing you enquiries, what each fault costs, and what to
+              change. Then the same system runs your campaigns and refuses to spend on the ones
+              that are not working.
             </p>
 
-            {/* The three pills that used to sit here read "More customers ·
-                More revenue · Less waste" — the headline again, word for word,
-                in a smaller size. Padding, not content. */}
+            {/* THE PRODUCT, NOT A PICTURE OF IT. See HeroAudit.tsx. */}
+            <HeroAudit checks={CHECK_COUNT} />
 
-            <div className="animate-fade-up mt-9 flex flex-wrap items-center gap-3.5" style={{ animationDelay: "0.24s" }}>
-              {/* THE FIRST ASK IS NOT "SIGN UP".
-                  A stranger who has never heard of us will not create an account
-                  to find out whether we are any good. They will, however, type
-                  their own website into a box to see what is wrong with it — and
-                  that is the same product, on the outside of the login. */}
-              <Link href="/audit" className="btn-primary group !px-7 !py-3.5 !text-base">
-                Audit my website free
-                <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-              </Link>
-              <Link href="/signup" className="btn-ghost !px-7 !py-3.5 !text-base">
-                Get started free
-              </Link>
+            {/* PRICE, ON THE FIRST SCREEN.
+                It was behind a "See the price" link. Hiding a £19 entry price
+                signals "expensive, book a call" to exactly the small business
+                this is built for — and the price IS the argument against an
+                agency. Every figure is read from PLANS, so it cannot drift from
+                what checkout actually charges. */}
+            <p className="animate-fade-up mt-7 text-sm text-slate-400" style={{ animationDelay: "0.3s" }}>
+              After that: <strong className="text-slate-200">£{STARTER}/month</strong> to start,{" "}
+              <strong className="text-slate-200">£{GROWTH}/month</strong> for the whole machine.
+              One bill, cancel any time. <Link href="/choose-plan" className="text-emerald-400 underline-offset-4 hover:underline">All plans</Link>
+            </p>
+
+            {/* WHAT IT REFUSES TO DO — the most persuasive thing on the site,
+                and it was three screens down in a section titled "operating
+                targets".
+                Everyone landing here has been burned by a tool that showed them
+                a confident number that meant nothing. A system that says when it
+                does NOT know is the one claim in this market that cannot be
+                faked, and every figure below is a constant in the code that
+                enforces it, not a promise in marketing copy. */}
+            <div className="animate-fade-up mt-10 max-w-2xl rounded-lg border border-white/10 bg-white/[0.02] p-4" style={{ animationDelay: "0.34s" }}>
+              <p className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                What it refuses to do with your money
+              </p>
+              <ul className="grid gap-2.5 text-sm text-slate-300 sm:grid-cols-2">
+                <li className="flex gap-2.5">
+                  <span className="mt-0.5 font-mono text-xs font-bold text-emerald-400">£{MIN_SPEND}</span>
+                  <span className="text-slate-400">and {MIN_CONV} conversions before it will judge a campaign at all. Under that it refuses to have an opinion.</span>
+                </li>
+                <li className="flex gap-2.5">
+                  <span className="mt-0.5 font-mono text-xs font-bold text-emerald-400">{SCALE_ROAS}×</span>
+                  <span className="text-slate-400">return before it will scale anything — and never more than +{SCALE_PCT}% in one step.</span>
+                </li>
+                <li className="flex gap-2.5">
+                  <span className="mt-0.5 font-mono text-xs font-bold text-emerald-400">0</span>
+                  <span className="text-slate-400">pounds spent, messages sent or posts published without you pressing it.</span>
+                </li>
+                <li className="flex gap-2.5">
+                  <span className="mt-0.5 font-mono text-xs font-bold text-emerald-400">0</span>
+                  <span className="text-slate-400">invented numbers. Nothing you did not give it, and nothing measured is ever shown as a guess.</span>
+                </li>
+              </ul>
             </div>
-
-            <p className="animate-fade-up mt-5 font-mono text-[11px] tracking-wide text-slate-600" style={{ animationDelay: "0.28s" }}>
-              No account. No card. 29 checks, and the three worst free.
-            </p>
           </div>
 
-          {/* Product mockup */}
-          <div className="animate-fade-up relative mx-auto mt-16 max-w-4xl" style={{ animationDelay: "0.4s" }}>
+          {/* THE MOCKUP IS LABELLED NOW, AND IT IS NOT THE FIRST THING.
+              It carried "$124,560 total revenue · 2,345 new customers · Alex
+              Carter" — invented figures, in DOLLARS on a site that prices in
+              pounds — directly above copy that promises we never publish a
+              number we have not earned. A product illustration is a legitimate
+              thing to show; an unlabelled one on this page in particular is the
+              page contradicting itself in the first screen.
+              It stays, because a buyer should see the shape of the thing they
+              are buying. It says what it is. */}
+          <figure className="animate-fade-up relative mx-auto mt-20 max-w-4xl" style={{ animationDelay: "0.4s" }}>
+            <figcaption className="mb-3 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Layout illustration · sample figures, not a customer&rsquo;s
+            </figcaption>
             <div className="pointer-events-none absolute -inset-x-10 top-10 -bottom-10 bg-[radial-gradient(ellipse_at_center,rgba(190,146,71,0.068),transparent_65%)]" />
             <HeroMockup />
-          </div>
+          </figure>
         </div>
       </section>
 
-      {/* ======================== INFRASTRUCTURE STRIP ===================== */}
-      {/* Honest: we're invitation-only and new, so no invented customer logos.
-          Instead we show the real production stack the OS runs on — every name
-          here is a service we genuinely build on. */}
-      <section className="relative mt-20 border-y border-white/5 bg-ink-900/40 py-8">
-        <p className="mb-5 text-center text-xs font-semibold uppercase tracking-[0.25em] text-slate-600">
-          Built on production-grade infrastructure
-        </p>
-        <div className="relative overflow-hidden">
-          <div className="animate-marquee flex w-max gap-14 px-7">
-            {[...Array(3)].flatMap((_, half) =>
-              [
-                "VERCEL", "CLOUDFLARE", "FIREBASE", "STRIPE", "ANTHROPIC CLAUDE",
-              ].map((name) => (
-                <span key={`${half}-${name}`} className="whitespace-nowrap font-display text-lg font-bold text-slate-600">
-                  {name}
-                </span>
-              ))
-            )}
-          </div>
-          <div className="pointer-events-none absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-ink-950 to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-ink-950 to-transparent" />
+      {/* ===================== WHY THERE ARE NO LOGOS HERE ================== */}
+      {/* WHAT WAS HERE: a scrolling marquee reading VERCEL · CLOUDFLARE ·
+          FIREBASE · STRIPE · ANTHROPIC CLAUDE, under "Built on production-grade
+          infrastructure".
+
+          No customer has ever chosen a marketing tool because of its hosting
+          provider. Listing your own vendors is what a solo developer does when
+          they have no logos of their own, and a reader clocks that instantly —
+          so a strip meant to borrow credibility spends it instead, and quietly
+          announces that nobody uses this yet.
+
+          The honest position is stronger than the borrowed one. We are new, we
+          have no customer logos, and we will not invent any — which is the same
+          rule that governs every number in the product. Saying so, and then
+          pointing at the things that CAN be checked right now, is the one form
+          of proof available to a product on day one. */}
+      <section className="relative mt-20 border-y border-white/5 bg-ink-900/40 py-10">
+        <div className="mx-auto max-w-3xl px-5 text-center">
+          <p className="text-base leading-relaxed text-slate-300">
+            No customer logos on this page. We are new, and we are not going to borrow
+            somebody else&rsquo;s — the same reason nothing in the product invents a number.
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-500">
+            What you can check instead, before you give us anything:{" "}
+            <Link href="/audit" className="text-emerald-400 underline-offset-4 hover:underline">
+              run the {CHECK_COUNT} checks on your own site
+            </Link>{" "}
+            with no account, and read{" "}
+            <Link href="#results" className="text-emerald-400 underline-offset-4 hover:underline">
+              every rule the system refuses to break
+            </Link>{" "}
+            with your money.
+          </p>
         </div>
       </section>
+
 
       {/* ==================== VISUAL SHOWCASE (dashboards) ================ */}
       <LandingVisuals />
@@ -582,30 +653,18 @@ export default function LandingPage() {
           A {AGENT_LIST.length}-agent revenue army. Zero generic advice.
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
-          Money first, blunt verdicts, local fidelity — and never a number about your business that
-          you did not give it. In the Command Centre, {ARMY.length} front-line units are grouped
-          into {DIVISIONS.length - 1} divisions under one commander (WARLORD), each carrying a
-          revenue KPI. Every pound they make you is stamped in a live Money Ledger with your ROI.
-          No agent exists for &ldquo;activity.&rdquo;
+          Money first, blunt verdicts, and never a number about your business that you did not give
+          it. Every pound they make you is stamped in a live Money Ledger with your ROI, and no
+          agent exists for &ldquo;activity&rdquo;. The eight below are the ones whose job you can name
+          without being taught a vocabulary first.{" "}
+          <span className="text-slate-500">
+            (Separately, the Command Centre groups {ARMY.length} front-line units into{" "}
+            {DIVISIONS.length - 1} divisions under one commander — a different roster, for running
+            the operation rather than doing the work.)
+          </span>
         </p>
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {AGENT_LIST.map((a, i) => (
-            <div
-              key={a.id}
-              className="group rounded-2xl border border-white/10 bg-ink-900/70 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
-            >
-              <span
-                className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg"
-                style={{ background: `${SERIES[i % SERIES.length]}22`, color: SERIES[i % SERIES.length] }}
-              >
-                <Bot className="h-5 w-5" />
-              </span>
-              <h3 className="font-display text-sm font-bold text-white">{a.name}</h3>
-              <p className="mt-1 text-xs font-semibold text-slate-500">{a.role}</p>
-              <p className="mt-2 text-xs leading-relaxed text-slate-400">{a.description}</p>
-            </div>
-          ))}
-        </div>
+        {/* Eight first, the other thirty-one behind one press. See AgentCorps. */}
+        <AgentCorps agents={AGENT_LIST.map((a) => ({ id: a.id, name: a.name, role: a.role, description: a.description }))} />
       </section>
 
       {/* ========================== TARGETS BAND ========================= */}

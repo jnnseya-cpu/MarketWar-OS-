@@ -72,7 +72,14 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-export default function AuditPage() {
+export default async function AuditPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // The address the hero handed over. Checked, never trusted: it is a query
+  // string, so it is whatever anybody put in a link. Only the shape of a host
+  // survives — anything else arrives as an empty field, which is exactly what
+  // this page did before.
+  const sp = await searchParams;
+  const raw = typeof sp.url === "string" ? sp.url.trim().slice(0, 300) : "";
+  const startUrl = /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw.replace(/^https?:\/\//i, "")) ? raw : "";
   const groups = checksByArea();
   const conditional = conditionalChecks();
 
@@ -110,7 +117,10 @@ export default function AuditPage() {
         {/* A real anchor, because the closing button below points at it. A
             href to an id nothing carries scrolls nowhere and reads as broken. */}
         <div id="run-the-audit" className="scroll-mt-24">
-          <FreeAudit />
+          {/* The address typed in the hero arrives here already filled in, so the
+              journey is one field rather than two. Server-rendered from the
+              query string; `searchParams` is a promise in Next 15. */}
+          <FreeAudit initialUrl={startUrl} />
         </div>
 
         {/* THE CATALOGUE. The strongest thing this page can do is stop making

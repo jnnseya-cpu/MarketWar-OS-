@@ -12,7 +12,7 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 
-// SiteRaid AI™ API — Website → Autonomous Viral Growth brain (deterministic).
+// SiteRaid AI API — Website → Autonomous Viral Growth brain (deterministic).
 // Live crawl / competitor fetch route through connectors; this surface is the
 // DNA / Truth-Layer / audit / attack-map brain.
 // POST { action: "authorise", authorisation }              → ingestion gate
@@ -178,8 +178,8 @@ async function keepCrawl(req: NextRequest, body: Record<string, unknown>, crawl:
 
 export async function GET() {
   return NextResponse.json({
-    engine: "SiteRaid AI™ — Website → Autonomous Viral Growth engine",
-    doctrine: "Not a URL-to-ad scraper: understand → diagnose → map where to win. Ingestion needs ownership/permission (competitor URLs are public-analysis only, never republished). The Website Truth Layer™ blocks unsubstantiated superlatives and links every publishable claim to a source — no hallucinated advertising.",
+    engine: "SiteRaid AI — Website → Autonomous Viral Growth engine",
+    doctrine: "Not a URL-to-ad scraper: understand → diagnose → map where to win. Ingestion needs ownership/permission (competitor URLs are public-analysis only, never republished). The Website Truth Layer blocks unsubstantiated superlatives and links every publishable claim to a source — no hallucinated advertising.",
     inputTypes: INPUT_TYPES,
     gapClasses: GAP_CLASSES,
     attackPriorities: ATTACK_PRIORITIES,

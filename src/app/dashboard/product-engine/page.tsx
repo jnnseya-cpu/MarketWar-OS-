@@ -66,9 +66,9 @@ const ANALYSIS_ATTRS = [
 ];
 
 const GUARANTEES: { title: string; desc: string; status: Status }[] = [
-  { title: "Product Identity Lock™", status: "live", desc: "Shape, colour, logo, packaging, text and proportions are locked before any generation — ads never misrepresent the real product. Exact preservation is mandatory for regulated products." },
-  { title: "Viral Potential Score™", status: "live", desc: "Every concept scored 0–100 across 15 dimensions (stopping power → purchase intent) with explained reasons — plus a separate Commercial Potential Score so views are never confused with profit." },
-  { title: "Hook Laboratory™", status: "live", desc: "130+ scored hooks per product (13 families × 10), each deception-checked — visual, spoken, text, curiosity, pain, comparison, objection, urgency, community, conversion, authority, social-proof and transformation. Deceptive clickbait is detected and blocked." },
+  { title: "Product Identity Lock", status: "live", desc: "Shape, colour, logo, packaging, text and proportions are locked before any generation — ads never misrepresent the real product. Exact preservation is mandatory for regulated products." },
+  { title: "Viral Potential Score", status: "live", desc: "Every concept scored 0–100 across 15 dimensions (stopping power → purchase intent) with explained reasons — plus a separate Commercial Potential Score so views are never confused with profit." },
+  { title: "Hook Laboratory", status: "live", desc: "130+ scored hooks per product (13 families × 10), each deception-checked — visual, spoken, text, curiosity, pain, comparison, objection, urgency, community, conversion, authority, social-proof and transformation. Deceptive clickbait is detected and blocked." },
   { title: "Autonomous test loop", status: "p1", desc: "19-variable testing matrix: publish variants → find winners → kill waste → recombine → attribute revenue → store learnings in Creative Intelligence Memory. The scoring + optimisation brain is live; the closed publish-and-measure loop activates once channel connectors are set." },
 ];
 
@@ -111,9 +111,9 @@ export default function ProductEnginePage() {
   return (
     <div>
       <PageHeader
-        kicker="MarketWar VisualStrike AI™"
+        kicker="MarketWar VisualStrike AI"
         title="Upload one product picture. Launch a viral campaign factory."
-        subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock™ guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
+        subtitle="Not an image tool — an autonomous factory that researches, creates, tests, publishes, learns and optimises. Product Identity Lock guarantees the ads always show the real product; Viral + Commercial Potential Scores make sure attention turns into revenue, not empty views."
         actions={<Pill tone="info">{renderLive ? "product creative · render + publish live" : "product creative · render + publish activate with a key"}</Pill>}
       />
 

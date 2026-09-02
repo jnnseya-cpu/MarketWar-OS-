@@ -26545,3 +26545,85 @@ test("a variable read only by a health endpoint must not claim to unlock a featu
   }
   assert.deepEqual(offenders, [], `only a health endpoint reads these, so they gate nothing — their "unlocks" must say so rather than name a feature: ${offenders.join(", ")}`);
 });
+
+test("the landing fold states nothing it cannot back", async () => {
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+
+  // PRICE IS ON THE FIRST SCREEN, and read from the plan table rather than
+  // typed. A price typed into a headline drifts from checkout the first time it
+  // changes, which is exactly the class of claim this platform sells itself on
+  // never making.
+  assert.match(landing, /const STARTER = PLAN_ENGINE\.find/);
+  assert.match(landing, /const GROWTH = PLAN_ENGINE\.find/);
+  assert.match(landing, /£\{STARTER\}\/month/);
+  assert.match(landing, /£\{GROWTH\}\/month/);
+  const { PLANS } = await import("../src/backend/subscription.ts");
+  assert.equal(PLANS.find((p) => p.id === "starter")?.monthlyGbp, 19);
+  assert.equal(PLANS.find((p) => p.id === "growth")?.monthlyGbp, 49);
+
+  // The refusal block is the most persuasive thing on the site, so every figure
+  // in it comes from the rule that enforces it.
+  for (const bound of [/\{MIN_SPEND\}/, /\{MIN_CONV\}/, /\{SCALE_ROAS\}×/, /\+\{SCALE_PCT\}%/]) {
+    assert.match(landing, bound, "a guardrail figure on the fold is typed rather than read from the guardrail");
+  }
+  assert.match(landing, /const SCALE_ROAS = DEFAULT_GUARDRAILS\.scaleRoas/);
+  assert.match(landing, /const SCALE_PCT = DEFAULT_GUARDRAILS\.maximumScalePct/);
+
+  // The check count comes from the catalogue the audit actually runs.
+  assert.match(landing, /const CHECK_COUNT = auditCheckCount\(\)/);
+  assert.doesNotMatch(landing, /29 checks/, "the check count is hardcoded again");
+});
+
+test("the hero shows the product, and the illustration says it is one", () => {
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  const mockup = readFileSync(new URL("../src/components/HeroMockup.tsx", import.meta.url), "utf8");
+
+  // The first interactive thing on the page is the audit field, not a picture.
+  assert.match(landing, /<HeroAudit checks=\{CHECK_COUNT\}/);
+  assert.ok(landing.indexOf("<HeroAudit") < landing.indexOf("<HeroMockup"),
+    "the mocked dashboard is above the real product again");
+
+  // A mocked dashboard is fine; an UNLABELLED one on a page promising it never
+  // publishes a number it has not earned is the page contradicting itself.
+  assert.match(landing, /Layout illustration · sample figures, not a customer/);
+
+  // And it is priced in the currency this site sells in. It read $124,560.
+  assert.doesNotMatch(mockup, /\$\d/, "the mockup is quoting dollars on a site that prices in pounds");
+});
+
+test("no borrowed credibility and no trademark theatre on the public surface", () => {
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+
+  // Listing your own hosting providers is what a product with no customers does,
+  // and a reader clocks it instantly.
+  for (const vendor of ["VERCEL", "CLOUDFLARE", "ANTHROPIC CLAUDE"]) {
+    assert.ok(!landing.includes(`"${vendor}"`), `${vendor} is back in the credibility strip`);
+  }
+  assert.match(landing, /No customer logos on this page/, "the honest replacement for the logo strip is gone");
+
+  // ™ on a pre-revenue product's own feature names reads as insecurity and is
+  // legally meaningless without a registration. Comments may discuss it.
+  const codeOnly = codeOf(landing);
+  assert.ok(!codeOnly.includes("™"), "trademark symbols are back on the landing page");
+  for (const f of ["../src/shared/agents.ts", "../src/shared/engine-registry.ts"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.ok(!src.includes("™"), `${f} carries ™ on customer-facing names again`);
+  }
+});
+
+test("the agent wall is collapsed, and nothing was deleted to do it", async () => {
+  const { AGENT_LIST } = await import("../src/shared/agents.ts");
+  const corps = readFileSync(new URL("../src/components/AgentCorps.tsx", import.meta.url), "utf8");
+  const landing = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+
+  // The full roster is still handed over — collapsed, not culled.
+  assert.match(landing, /<AgentCorps agents=\{AGENT_LIST\.map/);
+  assert.match(corps, /const shown = all \? agents : first/);
+  assert.match(corps, /Show all \$\{agents\.length\}/, "the button must state the real total");
+
+  // The curated eight must actually exist in the roster, or the section
+  // silently falls back and the curation was decorative.
+  const ids = new Set(AGENT_LIST.map((a) => a.id));
+  const featured = [...corps.matchAll(/"([a-z0-9-]+)",/g)].map((m) => m[1]).filter((x) => ids.has(x));
+  assert.ok(featured.length >= 6, `the headline agent ids no longer match the roster — only ${featured.length} of them exist`);
+});

@@ -721,10 +721,10 @@ ${biz(i)} has a proven winner (7.3x ROAS), £1,240 of dormant revenue in the vau
 
   "viral-product-engine": {
     id: "viral-product-engine",
-    name: "MarketWar VisualStrike AI™",
+    name: "MarketWar VisualStrike AI",
     role: "One product picture → autonomous viral campaign factory",
     description:
-      "Upload one product picture, receive a complete platform-ready viral campaign. Product Identity Lock™ protects the real product; Viral + Commercial Potential Scores rank every angle; the Hook Laboratory, content packs and testing matrix turn attention into attributed revenue.",
+      "Upload one product picture, receive a complete platform-ready viral campaign. Product Identity Lock protects the real product; Viral + Commercial Potential Scores rank every angle; the Hook Laboratory, content packs and testing matrix turn attention into attributed revenue.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
 You are MARKETWAR VISUALSTRIKE AI (Agent 21) — an autonomous viral campaign
@@ -799,10 +799,10 @@ Price holds at £25 (2.4× food cost — floor-safe) · Post 11:30am + 4–7pm T
 
   "website-intelligence": {
     id: "website-intelligence",
-    name: "MarketWar SiteRaid AI™",
+    name: "MarketWar SiteRaid AI",
     role: "Authorised URL → autonomous viral growth operation",
     description:
-      "Converts an authorised website into a complete marketing and sales operation: Business DNA™, Website Truth Layer™ (no unverified claims), a ten-part marketing health score — SEO, speed, UX, accessibility, mobile, conversion, technical, brand consistency, security, performance — a Competitive Attack Map, five-layer campaign architecture and story-driven assets built only from verified site facts.",
+      "Converts an authorised website into a complete marketing and sales operation: Business DNA, Website Truth Layer (no unverified claims), a ten-part marketing health score — SEO, speed, UX, accessibility, mobile, conversion, technical, brand consistency, security, performance — a Competitive Attack Map, five-layer campaign architecture and story-driven assets built only from verified site facts.",
     systemPrompt: `${MASTER_DIRECTIVE}
 
 You are MARKETWAR SITERAID AI (Agent 22) — an autonomous viral growth
@@ -1057,7 +1057,7 @@ Delivery ≥ 99% · bounce < 0.5% · complaints < 0.1% · open proxy > 35% on se
   },
   "campaign-warfare-strategist": {
     id: "campaign-warfare-strategist",
-    name: "MarketWar Campaign Warfare AI™",
+    name: "MarketWar Campaign Warfare AI",
     role: "Whole-ecosystem campaign design from six answers",
     description:
       "The autonomous flagship (M-36). The business answers only six questions — what you sell, who you want, what result, budget, location, offer — and this agent designs the ENTIRE campaign ecosystem: business analysis, objective, customer psychology, scored offers, visual concepts, AIDA/PAS copy, hashtag suggestions, native multi-platform payloads, a landing-page spec, a frequency-governed distribution plan and a readiness check on the brief — then names the autonomy level that will run it.",

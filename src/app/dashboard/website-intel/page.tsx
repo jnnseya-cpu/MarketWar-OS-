@@ -59,8 +59,8 @@ const CRAWL_EXTRACTS = [
 ];
 
 const GUARANTEES: { title: string; desc: string; status: Status }[] = [
-  { title: "Website Truth Layer™", status: "live", desc: "Every claim links to its source and carries a classification — verified, user-confirmed, inferred-awaiting-confirmation or prohibited. 'Best in the UK' is blocked unless substantiated. No hallucinated advertising, ever." },
-  { title: "Business DNA Builder™", status: "live", desc: "A continuously updated 24-field profile — model, offers, segments, value proposition, objections and every gap (trust, content, conversion, SEO, GEO, social) — that all campaigns draw from." },
+  { title: "Website Truth Layer", status: "live", desc: "Every claim links to its source and carries a classification — verified, user-confirmed, inferred-awaiting-confirmation or prohibited. 'Best in the UK' is blocked unless substantiated. No hallucinated advertising, ever." },
+  { title: "Business DNA Builder", status: "live", desc: "A continuously updated 24-field profile — model, offers, segments, value proposition, objections and every gap (trust, content, conversion, SEO, GEO, social) — that all campaigns draw from." },
   { title: "Competitive Attack Map", status: "live", desc: "Where to win without copying: competitor weaknesses, saturated angles, unclaimed topics — prioritised from quick revenue wins to long-term defensibility." },
   { title: "Authorised & monitored", status: "live", desc: "Ownership or permission is confirmed before extraction (live gate below); competitor URLs get public analysis only. Continuous rescans that auto-detect site changes activate with the crawler soon — nothing auto-publishes without approved autopilot rules." },
 ];
@@ -77,8 +77,8 @@ const SUITES: Suite[] = [
   { icon: Radar, title: "AI Competitor Intelligence", status: "live", note: "Powered by the Competitive Attack Map engine — run it live below.", desc: "Benchmarks products, pricing, SEO, keywords, advertising, social presence, messaging and sentiment — highlights market gaps and differentiation plays." },
   { icon: Sprout, title: "AI Growth Opportunities", status: "live", note: "Ranked opportunities (revenue impact × effort) come from the live attack map + strategy agent.", desc: "New products, subscriptions, memberships, bundles, geographic expansion, partnerships, affiliate/influencer/marketplace plays — each with revenue impact, effort and ROI." },
   { icon: Gauge, title: "AI Brand Consistency Engine", status: "p1", cap: "image", note: "Enforced at generation time — activates with the creative render pipeline.", liveNote: "Your logo + brand colours (Brand Studio) lock onto every creative at generation time — live.", desc: "Every generated asset locks to the site's logo, colours, typography, tone of voice, messaging and visual style — enforced at generation time." },
-  { icon: Globe, title: "Site-to-Story Engine™", status: "live", note: "Founder / customer / origin stories generated live by the strategy agent from verified facts.", desc: "Turns website facts into founder journeys, customer transformations, origin and mission stories — every story traceable to verified business information." },
-  { icon: Radar, title: "Trend Hijack with Brand Relevance™", status: "p1", note: "The 8-factor relevance gate runs live; continuous trend monitoring activates once a trends data feed is connected.", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
+  { icon: Globe, title: "Site-to-Story Engine", status: "live", note: "Founder / customer / origin stories generated live by the strategy agent from verified facts.", desc: "Turns website facts into founder journeys, customer transformations, origin and mission stories — every story traceable to verified business information." },
+  { icon: Radar, title: "Trend Hijack with Brand Relevance", status: "p1", note: "The 8-factor relevance gate runs live; continuous trend monitoring activates once a trends data feed is connected.", desc: "Monitors trends the business can credibly join, scored through an 8-factor relevance gate — rejects anything that damages the brand, exploits tragedy or misleads." },
   { icon: Rocket, title: "Website-to-Influencer Campaign", status: "p1", note: "Briefs generate live; creator marketplace matching lands at P2.", desc: "Creator briefs with talking points, prohibited claims, mandatory disclosure, shot lists, tracking links and performance scorecards — marketplace matching at P2." },
 ];
 
@@ -261,9 +261,9 @@ export default function WebsiteIntelPage() {
   return (
     <div>
       <PageHeader
-        kicker="MarketWar SiteRaid AI™"
+        kicker="MarketWar SiteRaid AI"
         title="Paste an authorised URL. Launch a growth operation."
-        subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA™, a Website Truth Layer™ that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
+        subtitle="Converts a website into a complete, continuously optimised marketing and sales operation: Business DNA, a Website Truth Layer that blocks unverified claims, six audits in one scan, a Competitive Attack Map and five-layer campaign architecture — nothing publishes without your rules."
         actions={<Pill tone="good">website intelligence · live crawler</Pill>}
       />
 

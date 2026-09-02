@@ -3,7 +3,7 @@ import {
   detectDrivers, briefForObjective, demoBuyerMind, DRIVERS, type Driver,
 } from "@/backend/buyer-psychology";
 
-// BuyerMind AI™ API — customer-psychology engine (VideoDominance Gap 4 / the
+// BuyerMind AI API — customer-psychology engine (VideoDominance Gap 4 / the
 // Buyer Psychology Agent). Detects the 15 purchase drivers in supplied text and
 // builds a clip brief for a chosen psychological objective. Deterministic;
 // reads only supplied text; scores are labelled ESTIMATES.
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    engine: "BuyerMind AI™ — customer-psychology engine (the Buyer Psychology Agent)",
+    engine: "BuyerMind AI — customer-psychology engine (the Buyer Psychology Agent)",
     doctrine: "Finds the moment most likely to influence a SPECIFIC buyer motivation, not a generic 'interesting' clip. Detects the 15 purchase drivers in supplied text (lexicon-based estimate, never fabricated) and engineers a clip brief per driver. Honesty guard: urgency/social-proof/revenue proof must be real and evidenced.",
     drivers: DRIVERS,
     demo: demoBuyerMind(),

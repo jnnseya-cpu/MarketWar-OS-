@@ -5,7 +5,7 @@ import {
   type Moment, type ClipScoreInput, type Genre,
 } from "@/backend/video-intelligence";
 
-// VideoDominance AI™ API — clip-intelligence brain (OpusClip/WayinVideo class).
+// VideoDominance AI API — clip-intelligence brain (OpusClip/WayinVideo class).
 // Multimodal analysis/render is model-gated; this surface is the deterministic
 // decision core. Scores are labelled ESTIMATES; moments are never fabricated.
 // POST { action: "genre", title?, transcript? }        → genre detection
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const genre: Genre = "product_demo";
   return NextResponse.json({
-    engine: "VideoDominance AI™ — clip-intelligence brain",
+    engine: "VideoDominance AI — clip-intelligence brain",
     doctrine: "Not a clipping utility: genre → moment ranking → EIGHT separate commercial clip scores (reach/ad/engagement/retention/lead/conversion/brand-safety/profitability), never one vanity number. NL moment search returns timestamped, transcript-evidenced results. Scores are ESTIMATES; brand-safety gates publishing; moments are never fabricated.",
     genres: GENRES,
     clipScoreDimensions: CLIP_SCORE_DIMENSIONS,
