@@ -12,7 +12,7 @@ import { learnFromExperiments, type ExperimentRecord } from "@/backend/creative-
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 
-// VisualStrike AI™ API — Product Picture → Viral Campaign brain (deterministic).
+// VisualStrike AI API — Product Picture → Viral Campaign brain (deterministic).
 // Heavy generation (vision extraction, image/video synthesis) routes through the
 // gateway + image-gateway; this surface is the scoring/angle/identity-lock brain.
 // POST { action: "lock", regulated?, highValue?, requestedMode? }
@@ -147,8 +147,8 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    engine: "VisualStrike AI™ — Product Picture → Viral Campaign engine",
-    doctrine: "Not an image-to-ad toy: research → score → angle → pipeline. Product Identity Lock™ keeps the real product intact (exact preservation forced for regulated/high-value); the honesty guard never invents a capability or a health/financial/technical/performance claim; clickbait the content can't fulfil is blocked.",
+    engine: "VisualStrike AI — Product Picture → Viral Campaign engine",
+    doctrine: "Not an image-to-ad toy: research → score → angle → pipeline. Product Identity Lock keeps the real product intact (exact preservation forced for regulated/high-value); the honesty guard never invents a capability or a health/financial/technical/performance claim; clickbait the content can't fulfil is blocked.",
     angleFamilies: ANGLE_FAMILIES,
     viralDimensions: VIRAL_DIMENSIONS,
     campaignModes: CAMPAIGN_MODES,

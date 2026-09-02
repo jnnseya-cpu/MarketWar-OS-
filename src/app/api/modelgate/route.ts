@@ -6,7 +6,7 @@ import {
   type TaskType, type RoutingMode, type ProviderId, type Sensitivity,
 } from "@/backend/modelgate";
 
-// ModelGate™ API — the provider-neutral AI Gateway brain (deterministic).
+// ModelGate API — the provider-neutral AI Gateway brain (deterministic).
 // The actual provider execution + demo fallback lives in gateway.ts; this
 // surface is the registry / classification / routing / reservation core.
 // Provider cost is used internally only — never returned to a customer field.
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    engine: "ModelGate™ — provider-neutral AI Gateway brain",
+    engine: "ModelGate — provider-neutral AI Gateway brain",
     doctrine: "One internal contract for every AI action regardless of provider. No provider key in the frontend; no direct browser-to-provider request; ACUs reserved before execution and reconciled after; provider failure never charges the customer; models controlled via a central registry; provider prices configurable without a code deploy; any provider disablable instantly. Provider identity + cost are never exposed to the customer.",
     fallbackChainExample: fallbackChain("openai"),
     nonNegotiableRules: NON_NEGOTIABLE_RULES,

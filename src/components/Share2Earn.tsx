@@ -1,6 +1,6 @@
 "use client";
 
-// MarketWar SHARE2EARN™ — post, move your audience, earn.
+// MarketWar SHARE2EARN — post, move your audience, earn.
 //
 // Two audiences on one screen, because they are two halves of one deal: the
 // creator needs to know what they can earn and how it is counted, and the brand

@@ -57,8 +57,18 @@ const sev = (s: string) =>
 /** The path a reader recognises, not the whole absolute URL. */
 const pathOf = (u: string) => { try { return new URL(u).pathname.replace(/\/$/, "") || "/"; } catch { return u; } };
 
-export default function FreeAudit() {
-  const [url, setUrl] = useState("");
+/**
+ * `initialUrl` lets the landing page hand an address straight over.
+ *
+ * The hero used to show a PICTURE of a dashboard with invented revenue in it.
+ * The strongest thing this platform owns is a product that runs before signup,
+ * so the hero now takes the address itself and this page starts with it already
+ * typed — one field, one journey, no retyping. It is not auto-run: a stranger
+ * arriving from an ad has not agreed to us fetching their site, and a button
+ * they press is a different thing from a page that acts on arrival.
+ */
+export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } = {}) {
+  const [url, setUrl] = useState(initialUrl);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
