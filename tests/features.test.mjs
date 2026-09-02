@@ -26659,3 +26659,53 @@ test("the CSP permits every third party the site itself loads", async () => {
   assert.doesNotMatch(layout, /fonts\.googleapis\.com/,
     "a font is being loaded from a CDN that font-src does not permit — it will silently fall back");
 });
+
+test("credentials set and the SDK refusing them is a BLOCKER, not silence", async () => {
+  // THE OUTAGE THIS CATCHES. All three Firebase credentials present, Admin
+  // rejecting them, and the go-live report saying nothing at all — because it
+  // asked the environment whether the variables existed rather than asking the
+  // SDK whether it started. Nothing persisted, nobody stayed signed in, every
+  // dashboard was empty, and the diagnostic reported one `false` among fourteen.
+  const { readLaunchEnv, launchReport } = await import("../src/backend/launch-check.ts");
+  const env = {
+    FIREBASE_CLIENT_EMAIL: "svc@example.iam.gserviceaccount.com",
+    FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+    FIREBASE_PROJECT_ID: "p", VERCEL_ENV: "production",
+    ANTHROPIC_API_KEY: "k", FIELD_ENCRYPTION_MASTER_KEY: "x".repeat(64),
+    PLATFORM_ADMIN_EMAILS: "a@b.com",
+  };
+
+  // Told the truth: the SDK refused them.
+  const broken = launchReport(readLaunchEnv(env, { adminConfigured: false, adminInitError: "cert() rejected the credentials: bad PEM" }));
+  const hit = broken.findings.find((x) => x.id === "firebase-admin-rejected");
+  assert.ok(hit, "credentials present and Admin down raised NO finding — the exact state that produced the outage");
+  assert.equal(hit.severity, "blocker", "this must outrank a missing key: a missing key announces itself, a rejected one looks configured");
+  assert.match(hit.consequence, /bad PEM/, "the SDK's own reason must reach the report");
+  assert.match(hit.fix, /Do NOT set the variables again/, "the fix must not send somebody to set a variable they have already set");
+
+  // Working: no finding.
+  const ok = launchReport(readLaunchEnv(env, { adminConfigured: true }));
+  assert.equal(ok.findings.find((x) => x.id === "firebase-admin-rejected"), undefined);
+
+  // And with no runtime state supplied it still behaves exactly as before, so
+  // every existing caller is unaffected.
+  const legacy = readLaunchEnv(env);
+  assert.equal(legacy.firebaseAdminConfigured, true);
+  assert.equal(legacy.firebaseAdminCredsPresent, true);
+});
+
+test("the live diagnostic gives a reason for Firebase, not a boolean", () => {
+  const src = codeOf(readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8"));
+
+  // The reason existed all along in adminDiagnostics and was surfaced only on
+  // /api/health/auth — an endpoint nobody opens when the symptom is "nothing
+  // works". The value existed on one side of a boundary and was never carried.
+  assert.match(src, /adminWhy = m\.adminDiagnostics/, "the Admin diagnostic is not captured");
+  assert.match(src, /firebaseAdmin: adminWhy/, "the Admin diagnostic is not returned");
+  assert.match(src, /why:/, "the capability row must carry a reason when it is not ready");
+  assert.match(src, /impact:/, "it must say what a user actually loses, not just which key is missing");
+
+  // And the launch report must be handed the real state rather than re-reading env.
+  assert.match(src, /readLaunchEnv\(process\.env, \{ adminConfigured: admin/,
+    "the go-live report is inferring Firebase from the environment again");
+});

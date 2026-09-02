@@ -54,7 +54,26 @@ export type LaunchReport = {
 export type LaunchEnv = {
   stripeSecretKey: string;
   stripeWebhookSecret: string;
+  /**
+   * Did the Admin SDK ACTUALLY initialise — not "are the variables present".
+   *
+   * This was `Boolean(FIREBASE_CLIENT_EMAIL && FIREBASE_PRIVATE_KEY)`, which is
+   * a check that passes for a reason unrelated to what it tests. A deployment
+   * with all three credentials set and a private key the SDK rejects reported
+   * Firebase as configured, raised no finding, and left the owner with a
+   * platform where nothing persisted and nobody could stay signed in — while
+   * the go-live report said everything about Firebase was fine.
+   *
+   * Presence is still recorded separately, because the two states need opposite
+   * actions: absent means "go and set it", present-but-rejected means "the value
+   * you set is wrong", and telling somebody to set a variable they have already
+   * set is how a day disappears.
+   */
   firebaseAdminConfigured: boolean;
+  /** The credentials exist in the environment, whatever the SDK made of them. */
+  firebaseAdminCredsPresent: boolean;
+  /** Why the SDK refused them, when it did. */
+  firebaseAdminInitError: string;
   fieldEncryptionKey: string;
   platformAdminEmails: string;
   aiKeys: { anthropic: boolean; openai: boolean; gemini: boolean };
@@ -67,15 +86,27 @@ export type LaunchEnv = {
   vercelEnv: string;
 };
 
-export function readLaunchEnv(env: NodeJS.ProcessEnv = process.env): LaunchEnv {
+export function readLaunchEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  /**
+   * The Admin SDK's real state, when the caller can see it. Optional so this
+   * stays a pure function of the environment for every existing caller; when it
+   * is omitted the presence of the credentials is the best available answer and
+   * is used, exactly as before.
+   */
+  runtime?: { adminConfigured: boolean; adminInitError?: string | null },
+): LaunchEnv {
   const s = (k: string) => (env[k] || "").trim();
+  const credsPresent = Boolean(s("FIREBASE_CLIENT_EMAIL") && s("FIREBASE_PRIVATE_KEY"));
   return {
     stripeSecretKey: s("STRIPE_SECRET_KEY"),
     stripeWebhookSecret: s("STRIPE_WEBHOOK_SECRET"),
     // Both halves of the Admin credential are needed; one alone configures
     // nothing, and reporting "Firebase is on" from a lone client email would
     // send the owner looking in the wrong place.
-    firebaseAdminConfigured: Boolean(s("FIREBASE_CLIENT_EMAIL") && s("FIREBASE_PRIVATE_KEY")),
+    firebaseAdminConfigured: runtime ? runtime.adminConfigured : credsPresent,
+    firebaseAdminCredsPresent: credsPresent,
+    firebaseAdminInitError: (runtime?.adminInitError || "").trim(),
     fieldEncryptionKey: s("FIELD_ENCRYPTION_MASTER_KEY"),
     platformAdminEmails: s("PLATFORM_ADMIN_EMAILS"),
     aiKeys: { anthropic: Boolean(s("ANTHROPIC_API_KEY")), openai: Boolean(s("OPENAI_API_KEY")), gemini: Boolean(s("GEMINI_API_KEY")) },
@@ -154,6 +185,25 @@ export function launchReport(env: LaunchEnv): LaunchReport {
   }
 
   // --- The product itself --------------------------------------------------
+
+  // CREDENTIALS SET AND THE SDK STILL REFUSED THEM.
+  //
+  // The worst state a dependency can be in, because it looks configured from
+  // every angle: the variables are present, the dashboard shows them, and the
+  // only symptom is that nothing works. Without Admin there is no persistence
+  // and no session — no sign-in, no brand, every dashboard empty, saved work
+  // lost — so this is a blocker rather than a warning, and it is deliberately
+  // ranked above a missing key, which at least announces itself.
+  if (env.firebaseAdminCredsPresent && !env.firebaseAdminConfigured) {
+    f.push({
+      id: "firebase-admin-rejected", severity: "blocker",
+      title: "Firebase credentials are set and the Admin SDK rejected them",
+      consequence:
+        "Nothing persists and nobody stays signed in. Brands do not load, dashboards are empty, and anything saved is lost on the next request — which is indistinguishable from the whole platform being broken. The variables ARE present, so nothing about the environment looks wrong."
+        + (env.firebaseAdminInitError ? ` The SDK's own reason: ${env.firebaseAdminInitError}` : ""),
+      fix: "Do NOT set the variables again — they are already there. The value is what is wrong. Open /api/health/live and read `firebaseAdmin`: it gives the exact reason, which variable supplied the credentials, whether the private key is a well-formed PEM, the length of each value as this deployment sees it, and a fingerprint so you can confirm a redeploy actually changed it. The most common cause by far is the private key's newlines: paste the WHOLE service-account JSON into FIREBASE_PRIVATE_KEY, unquoted, and redeploy.",
+    });
+  }
 
   const anyAi = env.aiKeys.anthropic || env.aiKeys.openai || env.aiKeys.gemini;
   if (!anyAi) {
