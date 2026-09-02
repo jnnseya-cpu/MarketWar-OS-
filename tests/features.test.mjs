@@ -26627,3 +26627,35 @@ test("the agent wall is collapsed, and nothing was deleted to do it", async () =
   const featured = [...corps.matchAll(/"([a-z0-9-]+)",/g)].map((m) => m[1]).filter((x) => ids.has(x));
   assert.ok(featured.length >= 6, `the headline agent ids no longer match the roster — only ${featured.length} of them exist`);
 });
+
+test("the CSP permits every third party the site itself loads", async () => {
+  // A hardening header written once, and features added later that it silently
+  // forbids. The Meta Pixel shipped in CookieConsent.tsx and connect.facebook.net
+  // was never in script-src, so the browser refused it on every one of 92 pages:
+  // the pixel id could be set, consent granted, and Meta would still record
+  // nothing, because the site was blocking its own measurement.
+  const cfg = readFileSync(new URL("../next.config.mjs", import.meta.url), "utf8");
+  const scriptSrc = cfg.match(/`script-src ([^`]+)`/)?.[1] ?? "";
+  const imgSrc = cfg.match(/`img-src ([^`]+)`/)?.[1] ?? "";
+
+  // Every external script host the app injects must be permitted.
+  const sources = ["src/components/CookieConsent.tsx", "src/app/layout.tsx"];
+  const hosts = new Set();
+  for (const f of sources) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    for (const m of src.matchAll(/https:\/\/([a-z0-9.-]+)\/[^'"`\s]*\.js/g)) hosts.add(m[1]);
+  }
+  assert.ok(hosts.size > 0, "the scan found no external scripts — its shape changed");
+  for (const host of hosts) {
+    const allowed = scriptSrc.includes(host) || /\$\{(GA|META)\}/.test(scriptSrc);
+    assert.ok(allowed, `the app loads a script from ${host} and script-src does not permit it — it is blocked on every page`);
+  }
+  assert.match(scriptSrc, /\$\{META\}/, "connect.facebook.net is not permitted, so the pixel cannot fire");
+  assert.match(imgSrc, /\$\{META_IMG\}/, "the pixel's tracking image is not permitted");
+
+  // Fonts are self-hosted by next/font, so font-src stays closed. If that ever
+  // changes to a CDN link, this fails rather than silently losing the typeface.
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(layout, /fonts\.googleapis\.com/,
+    "a font is being loaded from a CDN that font-src does not permit — it will silently fall back");
+});
