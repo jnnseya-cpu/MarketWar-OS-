@@ -13,11 +13,26 @@ const GA = "https://www.googletagmanager.com https://www.google-analytics.com ht
 // video actually DISPLAY inline (previously blocked by default-src, so a hosted
 // MP4/image only opened via a direct link, not in the on-page player).
 const MEDIA = "https://firebasestorage.googleapis.com https://storage.googleapis.com https://*.googleusercontent.com";
+// META PIXEL — BLOCKED BY THIS VERY HEADER ON EVERY PAGE UNTIL NOW.
+//
+// `CookieConsent.tsx` injects the standard pixel snippet, which loads
+// connect.facebook.net/en_US/fbevents.js. That host was never in `script-src`,
+// so the browser refused it on every route — a console error on all 92 pages
+// and a pixel that could never fire. NEXT_PUBLIC_META_PIXEL_ID could be set
+// correctly, consent could be granted, and Meta would still record nothing,
+// because the site was blocking its own measurement.
+//
+// This is the same shape of fault as the camera Permissions-Policy noted below:
+// a hardening header written once, and a feature added later that it silently
+// forbids. The pixel still only runs after consent — this changes what the
+// browser PERMITS, not when it fires.
+const META = "https://connect.facebook.net";
+const META_IMG = "https://www.facebook.com";
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com`,
+  `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com ${META}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${GA} ${MEDIA}`,
+  `img-src 'self' data: blob: ${GA} ${MEDIA} ${META_IMG}`,
   "font-src 'self' data:",
   `media-src 'self' blob: data: ${MEDIA}`,
   `connect-src 'self' https: ${GA}`,
