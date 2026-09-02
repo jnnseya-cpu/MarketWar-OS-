@@ -77,23 +77,71 @@ function parseJsonCreds(raw: string): Creds | null {
 // health diagnostic so a misconfig is never a silent mystery again.
 let credSource = "none";
 
+/**
+ * ASSEMBLE THE CREDENTIAL FIELD BY FIELD, FROM WHEREVER EACH ONE IS.
+ *
+ * THE BUG THIS REPLACES, and it is the reason a correct key was rejected over
+ * and over while every variable read `true`:
+ *
+ * There were two paths and neither could finish the job.
+ *   • The JSON path demanded projectId AND clientEmail AND privateKey all out
+ *     of the SAME blob. A service-account JSON with no `project_id` field — or
+ *     one where the loose recovery got two fields and not the third — failed it
+ *     outright, even with FIREBASE_PROJECT_ID sitting right there, correct, in
+ *     its own variable.
+ *   • The individual-fields path then did:
+ *         privateKey: rawKey && !rawKey.startsWith("{") ? normalize(rawKey) : undefined
+ *     So if FIREBASE_PRIVATE_KEY held JSON, the key was DISCARDED. Not
+ *     re-parsed, not recovered — dropped, leaving privateKey undefined and the
+ *     whole thing reported as "missing credentials".
+ *
+ * Put together: paste the whole service-account JSON into FIREBASE_PRIVATE_KEY
+ * — which is precisely what this module's own error message instructs — and if
+ * that JSON is missing one field, both paths fail and Admin reports missing
+ * credentials while all three variables are visibly present. The advice and the
+ * loader disagreed, and the advice was the loud one.
+ *
+ * There are no paths now. Every source contributes whatever fields it has, the
+ * first non-empty value for each field wins, and the three are assembled from
+ * across them. A private key out of a JSON blob composes with a project id from
+ * its own variable, because there was never a reason those had to arrive
+ * together.
+ */
 function loadCreds(): Creds {
-  // 1) Any of the single-var JSON candidates, in priority order.
+  const found: { projectId?: string; clientEmail?: string; privateKey?: string } = {};
+  const sources: string[] = [];
+
+  const take = (from: Creds | null, label: string) => {
+    if (!from) return;
+    let used = false;
+    if (!found.projectId && from.projectId) { found.projectId = from.projectId; used = true; }
+    if (!found.clientEmail && from.clientEmail) { found.clientEmail = from.clientEmail; used = true; }
+    if (!found.privateKey && from.privateKey) { found.privateKey = from.privateKey; used = true; }
+    if (used) sources.push(label);
+  };
+
+  // Every variable that might carry a service-account blob, in priority order.
+  // A blob that yields only SOME fields is no longer wasted.
   for (const name of ["FIREBASE_SERVICE_ACCOUNT", "GOOGLE_APPLICATION_CREDENTIALS_JSON", "FIREBASE_PRIVATE_KEY"]) {
     const v = (process.env[name] || "").trim();
     if (!v) continue;
-    const parsed = parseJsonCreds(v);
-    if (parsed?.projectId && parsed.clientEmail && parsed.privateKey) { credSource = `${name} (json)`; return parsed; }
+    take(parseJsonCreds(v), `${name} (json)`);
   }
-  // 2) Individual fields (FIREBASE_PRIVATE_KEY holding a bare PEM, not JSON).
-  const rawKey = (process.env.FIREBASE_PRIVATE_KEY || "").trim();
-  const creds: Creds = {
+
+  // FIREBASE_PRIVATE_KEY holding a bare PEM rather than JSON.
+  const rawKey = stripWrap((process.env.FIREBASE_PRIVATE_KEY || "").trim());
+  if (!found.privateKey && rawKey && !rawKey.startsWith("{")) {
+    take({ privateKey: normalizeKey(rawKey) }, "FIREBASE_PRIVATE_KEY (pem)");
+  }
+
+  // The individual fields, filling whatever the blobs did not supply.
+  take({
     projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: rawKey && !stripWrap(rawKey).startsWith("{") ? normalizeKey(rawKey) : undefined,
-  };
-  if (creds.projectId && creds.clientEmail && creds.privateKey) credSource = "individual fields";
-  return creds;
+  }, "individual fields");
+
+  if (sources.length) credSource = sources.join(" + ");
+  return found;
 }
 
 const { projectId, clientEmail, privateKey } = loadCreds();

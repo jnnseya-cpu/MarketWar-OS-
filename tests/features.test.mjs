@@ -26709,3 +26709,76 @@ test("the live diagnostic gives a reason for Firebase, not a boolean", () => {
   assert.match(src, /readLaunchEnv\(process\.env, \{ adminConfigured: admin/,
     "the go-live report is inferring Firebase from the environment again");
 });
+
+test("a credential is assembled from wherever each field is, not all-or-nothing", async () => {
+  // THE BUG THIS PINS. loadCreds had two paths and neither could finish:
+  //   • the JSON path demanded projectId AND clientEmail AND privateKey from the
+  //     SAME blob, so a service account without `project_id` failed it even with
+  //     FIREBASE_PROJECT_ID set correctly in its own variable;
+  //   • the individual-fields path then DISCARDED the key outright if
+  //     FIREBASE_PRIVATE_KEY started with "{".
+  // Net effect: paste the whole service-account JSON — which is precisely what
+  // the module's own error message instructs — and if it lacks one field, Admin
+  // reports "missing credentials" while every variable visibly reads true.
+  const { execFileSync } = await import("node:child_process");
+  const { writeFileSync, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = new URL("..", import.meta.url).pathname;
+
+  // A real 2048-bit key, so cert() is genuinely exercised.
+  const dir = mkdtempSync(join(tmpdir(), "mw-fb-"));
+  const pem = execFileSync("openssl", ["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"], { encoding: "utf8" });
+  const noProject = {
+    type: "service_account", private_key: pem,
+    client_email: "svc@demo.iam.gserviceaccount.com", client_id: "1",
+  };
+  const file = join(dir, "sa.json");
+  writeFileSync(file, JSON.stringify(noProject));
+
+  const run = () => execFileSync("node", ["scripts/check-firebase-key.mjs", file], {
+    cwd: root, encoding: "utf8",
+    env: { ...process.env, FIREBASE_PROJECT_ID: "demo", FIREBASE_CLIENT_EMAIL: "svc@demo.iam.gserviceaccount.com" },
+  });
+
+  const out = run();
+  assert.match(out, /SDK initialised\s+: YES/,
+    "a service-account JSON missing project_id, with FIREBASE_PROJECT_ID set beside it, must still initialise");
+  assert.match(out, /private key\s+: found/);
+  // The source must name BOTH contributors, or the fields did not compose.
+  assert.match(out, /source\s+: FIREBASE_PRIVATE_KEY \(json\) \+ individual fields/);
+});
+
+test("the offline checker runs the real loader, not a second copy of it", () => {
+  // A validator with its own parsing would pass on something the server rejects,
+  // which is worse than no validator: it would end the guessing loop with the
+  // wrong answer.
+  const src = readFileSync(new URL("../scripts/check-firebase-key.mjs", import.meta.url), "utf8");
+  assert.match(src, /await import\("\.\.\/src\/backend\/firebase-admin\.ts"\)/,
+    "the checker must import the server's own loader");
+  assert.doesNotMatch(src, /BEGIN [A-Z ]*PRIVATE KEY-----\\n/, "the checker is re-implementing PEM handling");
+
+  // AND IT CANNOT PRINT THE KEY, because the only thing it is given cannot
+  // contain one. Asserted on the diagnostic object rather than on the script's
+  // text: a grep for "privateKey" matches `hasPrivateKey` and `privateKeyLength`,
+  // which are exactly the safe fields, so the text check was a false positive
+  // waiting to happen and told us nothing about the actual risk.
+  assert.match(src, /keyFingerprint/, "it must print a fingerprint so a deployed value can be compared");
+  assert.doesNotMatch(src, /d\.privateKey\b/, "the checker is reaching for a raw key value");
+});
+
+test("the Firebase diagnostic object cannot leak the key it describes", async () => {
+  const { adminDiagnostics } = await import("../src/backend/firebase-admin.ts");
+  // Every value must be a boolean, a number, or a short derived string. A PEM
+  // is ~1700 characters and contains its own markers; nothing here may be one.
+  const blob = JSON.stringify(adminDiagnostics);
+  assert.doesNotMatch(blob, /BEGIN [A-Z ]*PRIVATE KEY/, "the diagnostic carries the PEM itself");
+  for (const [k, v] of Object.entries(adminDiagnostics)) {
+    if (typeof v === "string") {
+      assert.ok(v.length < 400, `${k} is ${v.length} chars — long enough to be carrying a credential`);
+    }
+  }
+  // The fingerprint is one-way and short enough to be useless as a key, but long
+  // enough to tell two deployed values apart.
+  if (adminDiagnostics.keyFingerprint) assert.equal(adminDiagnostics.keyFingerprint.length, 12);
+});
