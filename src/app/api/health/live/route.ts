@@ -35,8 +35,29 @@ export async function GET() {
     return r.ready;
   };
 
+  // THE REASON, NOT JUST THE BOOLEAN.
+  //
+  // This read `Boolean(m.adminConfigured)` and reported `ready: false`. On a
+  // deployment where FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY and
+  // FIREBASE_PROJECT_ID are ALL present, that single word is the most misleading
+  // thing this endpoint can say: it looks like a missing key when it is in fact
+  // a credential the SDK rejected, and the two need completely different actions.
+  //
+  // Without Admin nothing persists and nothing authenticates, so from the seat
+  // of whoever is using it the entire platform is broken — no sign-in, no brand,
+  // every dashboard empty. That is the loudest possible failure reported here as
+  // one `false` among fourteen.
+  //
+  // `adminDiagnostics` has held the exact reason all along — initError, the
+  // credential source, whether the PEM is well formed, the raw length of each
+  // variable as the DEPLOYED build sees it, and a fingerprint of the key so two
+  // redeploys can be told apart. It was surfaced only on /api/health/auth, which
+  // nobody opens when the symptom is "nothing works". The value existed on one
+  // side of a boundary and was never carried across: the twenty-sixth time.
+  let adminWhy: Record<string, unknown> | null = null;
   const admin = track("firebase-admin", await probe(async () => {
     const m = await import("@/backend/firebase-admin");
+    adminWhy = m.adminDiagnostics as unknown as Record<string, unknown>;
     return Boolean(m.adminConfigured);
   }));
   const storage = track("storage", await probe(async () => {
@@ -56,7 +77,17 @@ export async function GET() {
 
   const caps = [
     { capability: "AI intelligence (agents + engines)", ready: ai, activates: "ANTHROPIC_API_KEY (or OPENAI_API_KEY / GEMINI_API_KEY)" },
-    { capability: "Firebase Admin (persistence, storage, auth)", ready: admin, activates: "FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY" },
+    {
+      capability: "Firebase Admin (persistence, storage, auth)", ready: admin,
+      activates: "FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY",
+      // Credentials present and STILL not ready is a different fault from
+      // credentials absent, and it is the more serious one — it looks configured.
+      ...(admin ? {} : {
+        why: (adminWhy as { initError?: string } | null)?.initError
+          || "Admin did not initialise and reported no reason. Open /api/health/auth for the full credential diagnostic.",
+        impact: "Nothing persists and nobody stays signed in. Every dashboard is empty, no brand loads, and saved work is lost — which from a user's seat is the whole platform being broken, not one capability being off.",
+      }),
+    },
     { capability: "Media hosting (Firebase Storage)", ready: storage, activates: "Firebase Admin secrets + FIREBASE_STORAGE_BUCKET" },
     { capability: "Hosted, attachable images (Brand Studio)", ready: storage, activates: "Firebase Storage (above) — brand-safe PNG hosts even without an image model" },
     { capability: "Photoreal image backgrounds", ready: env("OPENAI_API_KEY"), activates: "OPENAI_API_KEY (gpt-image-1)" },
@@ -120,7 +151,11 @@ export async function GET() {
   const launch = await (async () => {
     try {
       const m = await import("@/backend/launch-check");
-      return m.launchReport(m.readLaunchEnv());
+      // The REAL Admin state, not the presence of its variables. Without this
+      // the go-live report reads the environment and declares Firebase fine on
+      // a deployment where the SDK rejected the credentials and nothing persists.
+      const a = adminWhy as { initError?: string } | null;
+      return m.launchReport(m.readLaunchEnv(process.env, { adminConfigured: admin, adminInitError: a?.initError ?? null }));
     } catch (e) {
       errors["launch-check"] = (e as Error).message;
       return undefined;
@@ -143,6 +178,9 @@ export async function GET() {
     // means this deployment cannot tell you what it is running, which is itself
     // the finding: compare `commit` against the SHA you pushed before spending
     // another hour on a bug that may already be fixed.
+    // The full credential diagnostic, beside the capability it explains. Safe:
+    // lengths, a one-way fingerprint and a reason — never a key.
+    firebaseAdmin: adminWhy,
     build: (() => {
       const sources: [string, string | undefined][] = [
         ["vercel", process.env.VERCEL_GIT_COMMIT_SHA],
