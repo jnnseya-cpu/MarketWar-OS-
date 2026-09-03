@@ -37,6 +37,22 @@ type Probe = {
   proves: string;
   path: string;
   method: "GET" | "POST";
+  /**
+   * The non-2xx statuses that mean this probe WORKED.
+   *
+   * A DIAGNOSTIC THAT CRIES WOLF GETS IGNORED, AND THEN IT IS WORSE THAN NONE.
+   * With the outage fixed, this page still announced "3 answered properly with an
+   * error" and pointed at /api/organic-dominance as though it were the diagnosis.
+   * It was not. This page sends its probes with a plain `fetch` carrying no human
+   * session and an empty body ON PURPOSE — so a 403 from the gate and a 400 from
+   * validation are the two controls DOING THEIR JOB, and reporting them as
+   * findings teaches the reader to distrust the whole page.
+   *
+   * A 500 is never in this list. A route that breaks still goes red.
+   */
+  expect: number[];
+  /** Why that status is the correct answer to THIS probe. Shown when it happens. */
+  expectNote: string;
 };
 
 // Ordered so the first failure is the most informative one. If the first probe
@@ -48,30 +64,40 @@ const PROBES: Probe[] = [
     proves: "that this browser can receive data from the platform at all. If this one fails, nothing else on this page means anything — the fault is between you and the app, not in any feature.",
     path: "/api/health/live",
     method: "GET",
+    expect: [],
+    expectNote: "",
   },
   {
     label: "Capabilities",
     proves: "that an ordinary dashboard read works. Every screen calls something like this on load.",
     path: "/api/capabilities",
     method: "GET",
+    expect: [],
+    expectNote: "",
   },
   {
     label: "Engine read",
     proves: "that a feature engine answers a GET.",
     path: "/api/organic-dominance",
     method: "GET",
+    expect: [403],
+    expectNote: "403 is the RIGHT answer here. This page deliberately sends no signed-in session, and the human gate refused it — that refusal is the gate working, and it proves the route ran.",
   },
   {
     label: "Engine write",
     proves: "that a POST gets through. A bot challenge and a firewall rule treat a POST differently from a GET, so a GET that passes and a POST that does not is the signature of one.",
     path: "/api/organic-dominance",
     method: "POST",
+    expect: [400, 403],
+    expectNote: "403 (no session) or 400 (this probe sends an empty body) are both correct. Either proves the POST reached the route and was judged, rather than being stopped by something in front of it.",
   },
   {
     label: "Free audit",
     proves: "that the front door works for a stranger with no account — the one thing on the site that has to work before anybody signs up.",
     path: "/api/audit",
     method: "POST",
+    expect: [400],
+    expectNote: "400 is correct: this probe sends no website address, and the audit asks for one. It answered in its own words, which is the front door working.",
   },
 ];
 
@@ -92,7 +118,9 @@ const PROBES: Probe[] = [
 type Outcome =
   /** JSON, and a success status. Nothing to look at. */
   | "ok"
-  /** JSON, and an error status — the platform answered PROPERLY and said what was wrong. */
+  /** JSON, and exactly the error status this probe is SUPPOSED to get. Also fine. */
+  | "expected"
+  /** JSON, and an error status nobody predicted — the platform said what was wrong. */
   | "refused"
   /** Not data at all. Something answered with a page. */
   | "not_data";
@@ -136,7 +164,7 @@ async function run(probe: Probe): Promise<Result> {
         probe,
         status: res.status,
         ms,
-        outcome: res.ok ? "ok" : "refused",
+        outcome: res.ok ? "ok" : probe.expect.includes(res.status) ? "expected" : "refused",
         origin: null,
         body: res.ok ? "" : raw.slice(0, BODY_LIMIT),
         snippet: "",
@@ -187,11 +215,18 @@ export default function ConnectionDiagnostic() {
   const done = !running && results.length === PROBES.length;
   /** Something answered with a page. The transport or the platform is at fault. */
   const broken = results.filter((r) => r.outcome === "not_data");
-  /** The platform answered properly and said no. The BODY is the diagnosis. */
+  /** An error status nobody predicted. The BODY is the diagnosis. */
   const refused = results.filter((r) => r.outcome === "refused");
+  /** The error this probe is SUPPOSED to get. A control working, not a finding. */
+  const expected = results.filter((r) => r.outcome === "expected");
   const allGood = done && broken.length === 0 && refused.length === 0;
 
-  const LABEL: Record<Outcome, string> = { ok: "DATA", refused: "DATA, ERROR STATUS", not_data: "NOT DATA" };
+  const LABEL: Record<Outcome, string> = {
+    ok: "DATA",
+    expected: "DATA, EXPECTED REFUSAL",
+    refused: "DATA, UNEXPECTED ERROR",
+    not_data: "NOT DATA",
+  };
 
   const report = [
     `MarketWar OS connection report — ${new Date().toISOString()}`,
@@ -200,6 +235,10 @@ export default function ConnectionDiagnostic() {
     ...results.map((r) => {
       const head = `${r.probe.method} ${r.probe.path} → ${r.transportError ? "no response" : r.status} (${r.ms}ms) ${LABEL[r.outcome]}`;
       if (r.outcome === "ok") return head;
+      // An expected refusal is a control doing its job. Print one line saying so
+      // and move on — burying it in the same detail as a real fault is what made
+      // a healthy platform read as three problems.
+      if (r.outcome === "expected") return `${head}\n  correct: ${r.probe.expectNote}`;
       const lines = [head];
       if (r.transportError) lines.push(`  the request never completed: ${r.transportError}`);
       if (r.origin) {
@@ -245,12 +284,19 @@ export default function ConnectionDiagnostic() {
         <div className={`rounded-xl border p-4 ${allGood ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"}`}>
           <p className="font-display text-base font-bold">
             {allGood
-              ? "Every request came back as data. The connection is healthy."
+              ? "Everything answered correctly. The platform is healthy."
               : [
                   broken.length ? `${broken.length} of ${results.length} answered with a page instead of data` : "",
-                  refused.length ? `${refused.length} answered properly with an error` : "",
+                  refused.length ? `${refused.length} returned an error nobody expected` : "",
                 ].filter(Boolean).join(", ") + "."}
           </p>
+          {allGood && expected.length > 0 && (
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+              {expected.length} of the {results.length} answered with a refusal, and that is the correct
+              result: this page sends no signed-in session and an empty body on purpose, so the human
+              gate and the input validation are supposed to say no. Each row below says why.
+            </p>
+          )}
           {broken[0]?.origin && (
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
               <strong className="text-white">{broken[0].origin.explanation}</strong>{" "}
@@ -281,7 +327,7 @@ export default function ConnectionDiagnostic() {
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-semibold text-white">
                     {!r ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
-                      : r.outcome === "ok" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                      : r.outcome === "ok" || r.outcome === "expected" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
                       : r.outcome === "refused" ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
                       : <XCircle className="h-4 w-4 shrink-0 text-rose-400" />}
                     {p.label}
@@ -294,11 +340,20 @@ export default function ConnectionDiagnostic() {
                 </span>
               </div>
 
-              {r && r.outcome !== "ok" && (
+              {r && r.outcome === "expected" && (
+                <div className="mt-3 space-y-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <p className="text-xs leading-relaxed text-white">{r.probe.expectNote}</p>
+                  {r.body && (
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded border border-ink-800 bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-slate-400">{r.body}</pre>
+                  )}
+                </div>
+              )}
+
+              {r && r.outcome !== "ok" && r.outcome !== "expected" && (
                 <div className={`mt-3 space-y-2 rounded-lg border p-3 ${r.outcome === "refused" ? "border-amber-500/20 bg-amber-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
                   {r.outcome === "refused" && (
                     <p className="text-xs leading-relaxed text-white">
-                      The platform answered properly and returned an error. Its own words:
+                      This status was not expected here. The platform answered properly and said why:
                     </p>
                   )}
                   {r.body && (
@@ -326,7 +381,7 @@ export default function ConnectionDiagnostic() {
         })}
       </div>
 
-      {done && !allGood && (
+      {done && (
         <div className="rounded-xl border border-ink-800 bg-ink-900/40 p-4">
           <p className="text-sm font-semibold text-white">The whole report, as text</p>
           <p className="mt-1 text-xs text-slate-500">Send this and nothing else is needed to find the cause.</p>

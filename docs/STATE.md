@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,741 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,742 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -76,7 +76,8 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**STILL OPEN — three things. Item 0 is CLOSED, and kept here because it recurred once already.**
+**STILL OPEN — three things. Item 0 is CLOSED and CONFIRMED on the deployment; it is kept here
+because it already recurred once and the pin that "fixed" it the first time did not hold.**
 
 **0. FOUND AND FIXED — `require(esm)`, THE SAME PAIR THAT TOOK PRODUCTION DOWN ON 08-29
 (2026-09-03).** `/diagnose` printed it from the owner's browser, verbatim: *"@/backend/capabilities
@@ -86,9 +87,7 @@ failed to load: require() of ES Module /var/task/node_modules/jose/dist/webapi/i
 works only on Node ≥ 22.12, so it ran perfectly on a 22.22 laptop and died at MODULE LOAD on the
 host. Every route importing it answered Next's HTML page; only `/api/health/live` survived,
 because it loads its modules inside a catch.
-**The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has
-to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it
-stayed green all through this outage and would only have gone red on the repair.
+**The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it stayed green all through this outage and would only have gone red on the repair.
 **The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node and
 the host's choice stops mattering. jwks-rsa uses only `importJWK` and `exportSPKI`, both present
 in 5.x. Proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a real signature
@@ -97,6 +96,7 @@ returns NO KEYS silently and every sign-in fails "kid not found". The regression
 proved by reinstalling jose 6 and watching it go red.
 `/api/health/live` now reports `runtime.node` and `canRequireEsm`, because at no point in either
 outage could anyone see which Node was running without opening the host's dashboard.
+**Confirmed fixed on the deployment**: `/diagnose` reads 200 / 200, with the two 403s (no session) and the 400 (no address) the probes are SUPPOSED to get. Those three now show green with their reason — the page had announced them as findings on a healthy platform, and a diagnostic that cries wolf gets ignored, which is worse than none.
 
 **1. MAIL SENDS NOTHING; THE SENDING PATH IS *THROWING* (2026-08-28).** Every `ok:false` path
 in `sendEmail` carries a category, so the audit route reaching its `catch` means the send THREW

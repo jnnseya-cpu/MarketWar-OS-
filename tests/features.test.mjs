@@ -27082,9 +27082,11 @@ test("the diagnostic shows the error BODY, not just the status", async () => {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
   assert.doesNotMatch(code, /gotData/, "the boolean that conflated parsing with succeeding must be gone");
-  // A 2xx and an error status must land in different outcomes, from res.ok.
-  assert.match(code, /outcome:\s*res\.ok\s*\?\s*["']ok["']\s*:\s*["']refused["']/,
-    "an error status must be its own outcome, not folded into success");
+  // A 2xx and an error status must land in different outcomes, decided by res.ok.
+  assert.match(code, /outcome:\s*res\.ok\s*\?\s*["']ok["']\s*:/,
+    "an error status must never be folded into success");
+  assert.doesNotMatch(code, /outcome:\s*["']ok["']\s*,/,
+    "no branch may hardcode success — that is how the 500 body was thrown away");
   // And the body has to be kept, or there is nothing to show.
   assert.match(code, /body:\s*res\.ok\s*\?\s*""\s*:\s*raw\./, "the error body must be retained");
   assert.match(code, /it answered: \$\{r\.body\}/, "the copyable report must include the body — that is the diagnosis");
@@ -27175,4 +27177,42 @@ test("jwks-rsa still recovers a usable signing key under the pinned jose", async
   const sig = createSign("RSA-SHA256").update(data).sign(privateKey);
   assert.ok(createVerify("RSA-SHA256").update(data).verify(createPublicKey(pem), sig),
     "the recovered public key does not verify a signature from its own private key");
+});
+
+test("the diagnostic does not report a correct refusal as a problem", async () => {
+  // A DIAGNOSTIC THAT CRIES WOLF GETS IGNORED, AND IS THEN WORSE THAN NONE.
+  // With the outage fixed, the page still announced "3 answered properly with an
+  // error" and pointed at /api/organic-dominance as though that were the
+  // diagnosis. It was not: the page sends no session and an empty body ON
+  // PURPOSE, so the 403 from the human gate and the 400 from validation are the
+  // two controls doing their job.
+  const src = readFileSync("src/components/ConnectionDiagnostic.tsx", "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  // Every probe declares what a correct refusal looks like, with a reason.
+  const probes = code.split("const PROBES")[1].split("];")[0];
+  assert.equal((probes.match(/expect:/g) || []).length, 5, "all five probes must declare their expected statuses");
+  assert.match(probes, /expect: \[403\]/, "an unauthenticated GET to a gated engine is supposed to be refused");
+  assert.match(probes, /expect: \[400\]/, "an audit with no address is supposed to be refused");
+
+  // AND EVERY EXPECTATION MUST CARRY ITS REASON. Emptying a note leaves a green
+  // box with no explanation on the one page whose entire job is explaining — and
+  // an assertion that merely COUNTS the notes passes happily while they are all
+  // blank, which is the exact defect class this file keeps catching.
+  const pairs = [...probes.matchAll(/expect:\s*\[([^\]]*)\][\s\S]{0,40}?expectNote:\s*"([^"]*)"/g)];
+  assert.equal(pairs.length, 5, "each probe must pair its expected statuses with a note");
+  for (const [, statuses, note] of pairs) {
+    if (!statuses.trim()) continue; // no expectation, no note needed
+    assert.ok(note.trim().length > 40,
+      `a probe expects [${statuses}] but explains it in ${note.trim().length} characters — a green row with no reason is not a diagnosis`);
+  }
+
+  // A 500 must NEVER be expected — that is the outage this page was built for.
+  assert.doesNotMatch(probes, /expect: \[[^\]]*5\d\d/, "a 5xx can never be an expected result");
+
+  // The classification, and the summary that reads off it.
+  assert.match(code, /probe\.expect\.includes\(res\.status\)\s*\?\s*["']expected["']\s*:\s*["']refused["']/,
+    "an expected status must be its own outcome");
+  assert.match(code, /const allGood = done && broken\.length === 0 && refused\.length === 0;/,
+    "expected refusals must NOT stop the page reporting a healthy platform");
 });
