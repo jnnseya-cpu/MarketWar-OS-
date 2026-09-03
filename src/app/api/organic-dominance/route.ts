@@ -22,7 +22,7 @@ export const maxDuration = 120;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "organic-dominance"), 20, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: "Unknown action — use onboard or score" }, { status: 400 });
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     product: "MarketWar Organic Dominance OS — autonomous demand-intelligence + market-execution",
     doctrine: "Listen → Predict → Decide → Create → Publish → Engage → Capture → Convert → Attribute → Optimise. Every insight carries a recommended action and a one-click execution. Honesty law: metrics are computed from real signals or clearly labelled; capabilities needing licensed external data are marked 'connect a data source' — never fabricated mentions, citations or share-of-voice.",
@@ -78,3 +78,11 @@ export async function GET() {
     opportunityFormula: "Score = Demand × Commercial Intent × Relevance × Timing × Authority × Conversion ÷ Competition (each factor 0–1, computed server-side, transparent + editable).",
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/organic-dominance" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/organic-dominance" });

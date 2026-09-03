@@ -26782,3 +26782,72 @@ test("the Firebase diagnostic object cannot leak the key it describes", async ()
   // enough to tell two deployed values apart.
   if (adminDiagnostics.keyFingerprint) assert.equal(adminDiagnostics.keyFingerprint.length, 12);
 });
+
+test("an API route can never answer with HTML", async () => {
+  // THE SYMPTOM THIS ENDS, and it was unactionable by design:
+  //     Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+  // A `fetch` expecting JSON receiving Next's error page. Every screen that
+  // calls an API shows the same sentence, so one throw in one engine reads as
+  // the whole platform being broken — and it names no cause, route or fix.
+  const { jsonRoute } = await import("../src/backend/route-guard.ts");
+
+  // A handler that throws must become JSON carrying the real reason.
+  const thrower = jsonRoute(async () => { throw new Error("gateway refused: 429 insufficient_quota"); },
+    { maxSeconds: 10, label: "/api/test" });
+  const a = await thrower(new Request("https://x/api/test"));
+  assert.equal(a.status, 500);
+  assert.match(a.headers.get("content-type") || "", /application\/json/);
+  const aj = await a.json();
+  assert.equal(aj.reason, "crashed");
+  assert.match(aj.error, /429 insufficient_quota/, "the provider's own words must survive to the caller");
+  assert.equal(aj.route, "/api/test", "the failing route must name itself, or a screenshot is undiagnosable");
+  assert.doesNotMatch(JSON.stringify(aj), /route-guard\.ts|at guarded/, "an internal stack must never reach the response");
+
+  // A handler that overruns must answer BEFORE the host kills it. A catch
+  // cannot do this half: when the platform kills a function nothing in the
+  // process runs, and the caller gets the platform's HTML instead.
+  const t0 = Date.now();
+  const slow = jsonRoute(async () => new Promise(() => {}), { maxSeconds: 3, label: "/api/slow" });
+  const b = await slow(new Request("https://x/api/slow"));
+  const took = Date.now() - t0;
+  assert.equal(b.status, 504);
+  assert.equal((await b.json()).reason, "timeout");
+  assert.ok(took < 3000, `answered in ${took}ms — it must beat its own ${3000}ms budget, not equal it`);
+
+  // The success path is untouched.
+  const ok = jsonRoute(async () => Response.json({ fine: true }), { maxSeconds: 10, label: "/api/ok" });
+  const c = await ok(new Request("https://x/api/ok"));
+  assert.equal(c.status, 200);
+  assert.deepEqual(await c.json(), { fine: true });
+});
+
+test("every AI-backed route is guarded and has a duration budget", async () => {
+  const { readdirSync, statSync } = await import("node:fs");
+  const root = new URL("../src/app/api", import.meta.url).pathname;
+  const routes = [];
+  (function walk(d) {
+    for (const n of readdirSync(d)) {
+      const p = `${d}/${n}`;
+      if (statSync(p).isDirectory()) walk(p);
+      else if (n === "route.ts") routes.push(p);
+    }
+  })(root);
+  assert.ok(routes.length > 150, "the route scan found almost nothing — its shape changed");
+
+  const HEAVY = /from "@\/backend\/(gateway|provider|crawler|deep-crawl|organic-dominance|siteraid|visualstrike|orchestrator)"/;
+  const unguarded = [];
+  const unbudgeted = [];
+  for (const f of routes) {
+    const src = readFileSync(f, "utf8");
+    if (!HEAVY.test(src)) continue;
+    const name = f.slice(f.indexOf("/api/"));
+    // Either wrapped by the guard, or it catches everything itself.
+    const guarded = src.includes("jsonRoute(") || (src.match(/try \{/g) || []).length >= 2;
+    if (!guarded) unguarded.push(name);
+    // Heavy work with no budget is killed at the platform's ~10s default, long
+    // before any provider can answer — and that kill returns HTML too.
+    if (!/export const maxDuration/.test(src)) unbudgeted.push(name);
+  }
+  assert.deepEqual(unguarded, [], `these call a provider or a crawler and can still answer with HTML: ${unguarded.join(", ")}`);
+  assert.deepEqual(unbudgeted, [], `these do heavy work with no duration budget, so the host kills them at ~10s: ${unbudgeted.join(", ")}`);
+});

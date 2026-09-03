@@ -47,7 +47,7 @@ function inputFrom(body: Record<string, unknown>): LandingInput {
   };
 }
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "generate";
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(generateLandingPage(inputFrom(body)));
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     engine: "AI Landing Page Creation Engine — the central agent (attention → action)",
     pageTypes: ["lead_capture", "whatsapp_conversion", "booking", "order", "app_download", "partner_signup", "event_ticket", "reactivation", "local_seo", "offer_claim"],
@@ -145,3 +145,11 @@ export async function GET() {
     doctrine: "Never a generic page. Every page is built from the business, objective, offer, audience and pain — with the 10-section structure, 8-score matrix, A/B variants and objective-driven forms; scores are estimates, real performance is measured post-launch. Published pages are served live at /b/{brandId}/{slug}.",
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/landing" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/landing" });

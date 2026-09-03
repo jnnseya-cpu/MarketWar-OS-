@@ -28,7 +28,7 @@ import { meterAction } from "@/backend/wallet";
 export const maxDuration = 120;
 const DEEP_BUDGET_MS = 105_000;
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const startedAt = Date.now();
   // P1 denial-of-wallet: this route spends real provider budget (AI/search/crawl).
   // Rate-limit always; require auth + meter ACUs once accounts are enforced.
@@ -176,7 +176,7 @@ async function keepCrawl(req: NextRequest, body: Record<string, unknown>, crawl:
   };
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     engine: "SiteRaid AI — Website → Autonomous Viral Growth engine",
     doctrine: "Not a URL-to-ad scraper: understand → diagnose → map where to win. Ingestion needs ownership/permission (competitor URLs are public-analysis only, never republished). The Website Truth Layer blocks unsubstantiated superlatives and links every publishable claim to a source — no hallucinated advertising.",
@@ -186,3 +186,11 @@ export async function GET() {
     demo: demoSiteRaid(),
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/siteraid" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/siteraid" });

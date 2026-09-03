@@ -100,7 +100,7 @@ async function tick(nowISO: string) {
   };
 }
 
-export async function GET(req: NextRequest) {
+async function GETImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "orchestrator-cron"), 12, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const gate = await authorise(req);
@@ -108,6 +108,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(await tick(new Date().toISOString()));
 }
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   return GET(req);
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 300, label: "/api/orchestrator/scheduled" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 300, label: "/api/orchestrator/scheduled" });
