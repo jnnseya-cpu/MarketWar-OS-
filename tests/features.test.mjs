@@ -4,6 +4,7 @@
 
 import { test } from "node:test";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { join as pathJoin } from "node:path";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -25305,16 +25306,22 @@ test("the Node runtime is pinned to a version that can require() an ES module", 
   }
 });
 
-// The dependency that forced the pin. If this stops being true — jwks-rsa moves
-// to `import`, or firebase-admin drops it — the pin can be revisited, and this
-// test is where somebody will find out.
-test("jwks-rsa still require()s the ESM-only jose, which is what the Node pin is for", () => {
+// THE DEPENDENCY, AND THE TEST THAT DOCUMENTED THE PROBLEM INSTEAD OF PREVENTING IT.
+//
+// Written 2026-08-29, this test asserted that jose IS ESM-only — recording the
+// hazard as a fact of life and leaving the whole defence to `engines.node`, a pin
+// the host has to agree to honour. On 2026-09-03 the host did not, the same
+// require(esm) failure took every screen down for a day, and this test was green
+// throughout: it was pinned to the broken arrangement, so it could only ever have
+// gone red if somebody FIXED it.
+//
+// A test that passes while production is down, and would fail on the repair, is
+// worse than no test. It now asserts the arrangement that WORKS.
+test("jwks-rsa require()s jose, so jose must be requireable", () => {
   const utils = new URL("../node_modules/jwks-rsa/src/utils.js", import.meta.url).pathname;
   if (!existsSync(utils)) return; // not installed in this tree — nothing to assert
   assert.match(readFileSync(utils, "utf8"), /require\(['"]jose['"]\)/,
-    "jwks-rsa no longer require()s jose — re-check whether engines.node still needs to be 22.x");
-  const jose = JSON.parse(readFileSync(new URL("../node_modules/jose/package.json", import.meta.url), "utf8"));
-  assert.equal(jose.type, "module", `jose is no longer ESM-only (type: ${jose.type}) — the Node pin may no longer be required`);
+    "jwks-rsa no longer require()s jose — the jose override in package.json can then be revisited");
 });
 
 // The value has to CROSS THE BOUNDARY. This repository's oldest and most
@@ -27099,4 +27106,73 @@ test("/api/organic-dominance loads its engines inside the handler", async () => 
       `${m} must be loaded through loadModule so a failure is named`);
   }
   assert.match(code, /jsonRoute\(/, "both handlers must still be guarded");
+});
+
+// ---------------------------------------------------------------------------
+// THE DEPENDENCY THAT TOOK THE PLATFORM DOWN FOR A DAY.
+//
+// Production, from the owner's own browser, via /diagnose:
+//
+//   @/backend/capabilities failed to load: require() of ES Module
+//   /var/task/node_modules/jose/dist/webapi/index.js from
+//   /var/task/node_modules/jwks-rsa/src/utils.js not supported.
+//
+// `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM). A CommonJS
+// `require()` of an ESM package works only on Node ≥ 22.12, so the app ran
+// perfectly on a 22.22 laptop and died at MODULE LOAD on the host — which is why
+// no test, no build and no local run ever saw it, and why every screen showed
+// "Unexpected token '<'" while /api/health/live (which loads its modules inside
+// a catch) kept answering.
+//
+// This is the SECOND outage from this exact pair; the first was diagnosed on
+// 2026-08-29 and "fixed" by pinning `engines` to Node 22, which the host did not
+// honour. A pin somebody else has to honour is not a fix. `jose` is now
+// overridden to the 5.x line, which ships CommonJS, so `require()` works on every
+// Node and the host's version stops mattering.
+// ---------------------------------------------------------------------------
+test("jose can be require()d from CommonJS — the exact thing that broke production", async () => {
+  const { createRequire } = await import("node:module");
+  const root = createRequire(pathJoin(process.cwd(), "package.json"));
+
+  // Resolved FROM jwks-rsa's own file, because that is the exact resolution that
+  // failed in production. Asking the top level answers a different question — the
+  // override installs jose beside jwks-rsa, not at the root.
+  const fromJwks = createRequire(root.resolve("jwks-rsa/src/utils.js"));
+  const josePkg = JSON.parse(readFileSync(fromJwks.resolve("jose/package.json"), "utf8"));
+
+  assert.notEqual(josePkg.type, "module",
+    `jose ${josePkg.version} is pure ESM, so jwks-rsa's require('jose') fails at module load on any Node below 22.12 — which is how every screen in the platform went dark`);
+  assert.match(josePkg.version, /^5\./, "the override must hold jose on the 5.x line, which ships CommonJS");
+
+  // And prove it, rather than trusting the manifest. This call IS the one that
+  // threw `require() of ES Module ... not supported` on the host.
+  const jose = fromJwks("jose");
+  assert.equal(typeof jose.importJWK, "function");
+  assert.equal(typeof jose.exportSPKI, "function");
+});
+
+test("jwks-rsa still recovers a usable signing key under the pinned jose", async () => {
+  // jwks-rsa does `catch (err) { continue; }` around every key. A broken jose
+  // therefore does not throw — it silently returns NO KEYS, and every token
+  // verification fails with "kid not found". So asserting "it did not throw"
+  // would be exactly the check-that-passes-for-the-wrong-reason this codebase
+  // keeps producing. The assertion is that a key comes back AND verifies a real
+  // signature.
+  const { createRequire } = await import("node:module");
+  const require_ = createRequire(pathJoin(process.cwd(), "package.json"));
+  const { retrieveSigningKeys } = require_("jwks-rsa/src/utils.js");
+  const { generateKeyPairSync, createPublicKey, createSign, createVerify } = await import("node:crypto");
+
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-kid", use: "sig", alg: "RS256" };
+
+  const keys = await retrieveSigningKeys([jwk]);
+  assert.equal(keys.length, 1, "no signing key came back — jwks-rsa swallows the reason, and every sign-in would fail with 'kid not found'");
+  const pem = keys[0].getPublicKey();
+  assert.match(pem, /^-----BEGIN PUBLIC KEY-----/, "the recovered key must be a PEM");
+
+  const data = Buffer.from("marketwar-os");
+  const sig = createSign("RSA-SHA256").update(data).sign(privateKey);
+  assert.ok(createVerify("RSA-SHA256").update(data).verify(createPublicKey(pem), sig),
+    "the recovered public key does not verify a signature from its own private key");
 });
