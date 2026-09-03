@@ -27063,3 +27063,40 @@ test("/api/capabilities loads its engine inside the handler, not above it", asyn
     "the engine must be loaded through loadModule so a failure is named rather than rendered as a page");
   assert.match(code, /jsonRoute\(/, "and the handler must be guarded so it can only answer JSON");
 });
+
+test("the diagnostic shows the error BODY, not just the status", async () => {
+  // THE ROUND TRIP THIS COST. /api/capabilities answered HTTP 500 with a
+  // perfectly good JSON body naming the module that failed to load — the exact
+  // fact the page exists to obtain — and the row read "DATA" and printed none
+  // of it, because the only question asked was "did it parse?".
+  //
+  // "The transport worked" and "the request worked" are different questions.
+  const src = readFileSync("src/components/ConnectionDiagnostic.tsx", "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  assert.doesNotMatch(code, /gotData/, "the boolean that conflated parsing with succeeding must be gone");
+  // A 2xx and an error status must land in different outcomes, from res.ok.
+  assert.match(code, /outcome:\s*res\.ok\s*\?\s*["']ok["']\s*:\s*["']refused["']/,
+    "an error status must be its own outcome, not folded into success");
+  // And the body has to be kept, or there is nothing to show.
+  assert.match(code, /body:\s*res\.ok\s*\?\s*""\s*:\s*raw\./, "the error body must be retained");
+  assert.match(code, /it answered: \$\{r\.body\}/, "the copyable report must include the body — that is the diagnosis");
+  assert.match(code, /\{r\.body &&/, "and the page must render it");
+});
+
+test("/api/organic-dominance loads its engines inside the handler", async () => {
+  // It answered production with an HTML page on BOTH verbs at ~180ms. jsonRoute
+  // already wrapped both handlers and could not help: the imports were static,
+  // so the failure happened before either handler existed.
+  const src = readFileSync("src/app/api/organic-dominance/route.ts", "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  for (const m of ["@/backend/guard", "@/backend/wallet", "@/backend/gateway", "@/backend/organic-dominance"]) {
+    // `import type` is erased at compile time and loads nothing, so it is fine.
+    const staticValueImport = new RegExp(`^import\\s+(?!type\\s)[^\\n]*from\\s+["']${m.replace("/", "\\/")}["']`, "m");
+    assert.doesNotMatch(code, staticValueImport, `${m} is imported statically — that load is outside every catch`);
+    assert.match(code, new RegExp(`loadModule\\(\\s*["']${m.replace("/", "\\/")}["']`),
+      `${m} must be loaded through loadModule so a failure is named`);
+  }
+  assert.match(code, /jsonRoute\(/, "both handlers must still be guarded");
+});

@@ -28,7 +28,7 @@
 // what is being measured. This measures the pipe.
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, XCircle, Loader2, RefreshCw, Copy, Check } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, Loader2, RefreshCw, Copy, Check } from "lucide-react";
 import { whoAnswered, type Origin } from "@/shared/response-origin";
 
 type Probe = {
@@ -75,16 +75,42 @@ const PROBES: Probe[] = [
   },
 ];
 
+// THREE OUTCOMES, NOT TWO — AND CONFLATING TWO OF THEM THREW AWAY THE ANSWER.
+//
+// The first version of this page asked one question: did the body parse as JSON?
+// If it did, the row was green and nothing more was shown.
+//
+// That cost a full round trip. `/api/capabilities` answered **HTTP 500 with a
+// perfectly good JSON body naming the module that failed to load** — the exact
+// fact this whole page exists to obtain — and the row read "DATA" and printed
+// none of it, because parsing had succeeded. "The transport worked" and "the
+// request worked" are different questions and only one of them was being asked.
+//
+// It is this codebase's second recurring defect in its purest form: a check that
+// passes for a reason unrelated to what it tests. So the outcomes are now named
+// separately and the error body is always shown.
+type Outcome =
+  /** JSON, and a success status. Nothing to look at. */
+  | "ok"
+  /** JSON, and an error status — the platform answered PROPERLY and said what was wrong. */
+  | "refused"
+  /** Not data at all. Something answered with a page. */
+  | "not_data";
+
 type Result = {
   probe: Probe;
   status: number | null;
   ms: number;
-  /** The response parsed as JSON — the only outcome that means the pipe works. */
-  gotData: boolean;
+  outcome: Outcome;
   origin: Origin | null;
+  /** The error body, as text, for a `refused` row. This is the payload that matters. */
+  body: string;
   snippet: string;
   transportError: string | null;
 };
+
+/** Keep a body readable and bounded; a diagnostic that dumps a megabyte is unread. */
+const BODY_LIMIT = 600;
 
 async function run(probe: Probe): Promise<Result> {
   const started = Date.now();
@@ -97,23 +123,28 @@ async function run(probe: Probe): Promise<Result> {
     });
     const raw = await res.text();
     const ms = Date.now() - started;
+    const empty = !raw.trim();
     try {
-      if (raw) JSON.parse(raw);
-      // An empty body with a 2xx is a valid answer; an empty body with an error
-      // status is not data either, and is worth showing as such.
-      const empty = !raw.trim();
+      if (!empty) JSON.parse(raw);
+      // An empty body on a 2xx is a legitimate answer. An empty body on an error
+      // status is not data either — and it is exactly what a handler throw
+      // produces, so it is worth naming rather than passing.
+      if (empty && !res.ok) {
+        return { probe, status: res.status, ms, outcome: "not_data", origin: whoAnswered(res.status, res.headers, ""), body: "", snippet: "", transportError: null };
+      }
       return {
         probe,
         status: res.status,
         ms,
-        gotData: !empty || res.ok,
-        origin: empty && !res.ok ? whoAnswered(res.status, res.headers, "") : null,
+        outcome: res.ok ? "ok" : "refused",
+        origin: null,
+        body: res.ok ? "" : raw.slice(0, BODY_LIMIT),
         snippet: "",
         transportError: null,
       };
     } catch {
       const snippet = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-      return { probe, status: res.status, ms, gotData: false, origin: whoAnswered(res.status, res.headers, snippet), snippet, transportError: null };
+      return { probe, status: res.status, ms, outcome: "not_data", origin: whoAnswered(res.status, res.headers, snippet), body: "", snippet, transportError: null };
     }
   } catch (e) {
     // The request did not complete at all — DNS, TLS, a dropped connection, or a
@@ -122,8 +153,9 @@ async function run(probe: Probe): Promise<Result> {
       probe,
       status: null,
       ms: Date.now() - started,
-      gotData: false,
+      outcome: "not_data",
       origin: null,
+      body: "",
       snippet: "",
       transportError: e instanceof Error ? e.message : String(e),
     };
@@ -153,16 +185,21 @@ export default function ConnectionDiagnostic() {
   useEffect(() => { void runAll(); }, [runAll]);
 
   const done = !running && results.length === PROBES.length;
-  const failures = results.filter((r) => !r.gotData);
-  const allGood = done && failures.length === 0;
+  /** Something answered with a page. The transport or the platform is at fault. */
+  const broken = results.filter((r) => r.outcome === "not_data");
+  /** The platform answered properly and said no. The BODY is the diagnosis. */
+  const refused = results.filter((r) => r.outcome === "refused");
+  const allGood = done && broken.length === 0 && refused.length === 0;
+
+  const LABEL: Record<Outcome, string> = { ok: "DATA", refused: "DATA, ERROR STATUS", not_data: "NOT DATA" };
 
   const report = [
     `MarketWar OS connection report — ${new Date().toISOString()}`,
     `page: ${typeof location !== "undefined" ? location.origin : "?"}`,
     "",
     ...results.map((r) => {
-      const head = `${r.probe.method} ${r.probe.path} → ${r.transportError ? "no response" : r.status} (${r.ms}ms) ${r.gotData ? "DATA" : "NOT DATA"}`;
-      if (r.gotData) return head;
+      const head = `${r.probe.method} ${r.probe.path} → ${r.transportError ? "no response" : r.status} (${r.ms}ms) ${LABEL[r.outcome]}`;
+      if (r.outcome === "ok") return head;
       const lines = [head];
       if (r.transportError) lines.push(`  the request never completed: ${r.transportError}`);
       if (r.origin) {
@@ -172,6 +209,10 @@ export default function ConnectionDiagnostic() {
         lines.push(`  fix: ${r.origin.fix}`);
         lines.push(`  evidence: ${r.origin.evidence.join(" · ")}`);
       }
+      // THE LINE THAT WAS MISSING, AND IT COST A ROUND TRIP. The platform answers
+      // its own failures in JSON that names the cause; printing the status and
+      // withholding the body is withholding the entire diagnosis.
+      if (r.body) lines.push(`  it answered: ${r.body}`);
       if (r.snippet) lines.push(`  page said: "${r.snippet}"`);
       return lines.join("\n");
     }),
@@ -205,18 +246,27 @@ export default function ConnectionDiagnostic() {
           <p className="font-display text-base font-bold">
             {allGood
               ? "Every request came back as data. The connection is healthy."
-              : `${failures.length} of ${results.length} requests did not come back as data.`}
+              : [
+                  broken.length ? `${broken.length} of ${results.length} answered with a page instead of data` : "",
+                  refused.length ? `${refused.length} answered properly with an error` : "",
+                ].filter(Boolean).join(", ") + "."}
           </p>
-          {!allGood && failures[0]?.origin && (
+          {broken[0]?.origin && (
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              <strong className="text-white">{failures[0].origin.explanation}</strong>{" "}
-              {failures[0].origin.fix}
+              <strong className="text-white">{broken[0].origin.explanation}</strong>{" "}
+              {broken[0].origin.fix}
             </p>
           )}
-          {!allGood && failures[0]?.transportError && (
+          {broken[0]?.transportError && (
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              The first failing request never completed at all: {failures[0].transportError}. That is a network,
+              The first failing request never completed at all: {broken[0].transportError}. That is a network,
               DNS or certificate fault between this browser and the site, not something inside the platform.
+            </p>
+          )}
+          {!broken.length && refused[0] && (
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+              Nothing is wrong with the connection itself — the platform answered every request properly.
+              What it said about {refused[0].probe.path} is below, and that message IS the diagnosis.
             </p>
           )}
         </div>
@@ -231,7 +281,8 @@ export default function ConnectionDiagnostic() {
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-semibold text-white">
                     {!r ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
-                      : r.gotData ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                      : r.outcome === "ok" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                      : r.outcome === "refused" ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
                       : <XCircle className="h-4 w-4 shrink-0 text-rose-400" />}
                     {p.label}
                   </p>
@@ -243,8 +294,16 @@ export default function ConnectionDiagnostic() {
                 </span>
               </div>
 
-              {r && !r.gotData && (
-                <div className="mt-3 space-y-2 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+              {r && r.outcome !== "ok" && (
+                <div className={`mt-3 space-y-2 rounded-lg border p-3 ${r.outcome === "refused" ? "border-amber-500/20 bg-amber-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
+                  {r.outcome === "refused" && (
+                    <p className="text-xs leading-relaxed text-white">
+                      The platform answered properly and returned an error. Its own words:
+                    </p>
+                  )}
+                  {r.body && (
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded border border-ink-800 bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-slate-300">{r.body}</pre>
+                  )}
                   {r.transportError && (
                     <p className="text-xs leading-relaxed text-slate-300">
                       The request never completed: <span className="font-mono">{r.transportError}</span>
