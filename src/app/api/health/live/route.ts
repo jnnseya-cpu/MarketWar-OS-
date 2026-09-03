@@ -198,6 +198,33 @@ export async function GET() {
       };
     })(),
     vercelEnv: process.env.VERCEL_ENV || "unknown", // "production" | "preview" | "development"
+    // THE VERSION THE HOST ACTUALLY CHOSE, WHICH IS NOT NECESSARILY THE ONE ASKED FOR.
+    //
+    // `engines.node` is a request. On 2026-08-29 the host ignored it and served
+    // Node 20; four modules died at import and the platform read as "no keys
+    // configured" for a day. On 2026-09-03 it happened AGAIN — same pair, same
+    // require(esm) failure, another day — and at no point could anyone see which
+    // Node was running without opening the host's dashboard.
+    //
+    // A number nobody can read is a number nobody checks. This is the running
+    // process's own answer, so a mismatch with `declared` is visible in the same
+    // breath as the symptom it causes.
+    runtime: (() => {
+      const running = process.version;                       // e.g. "v22.22.2"
+      const major = Number(running.replace(/^v/, "").split(".")[0]) || 0;
+      const minor = Number(running.replace(/^v/, "").split(".")[1]) || 0;
+      // `require()` of an ES module landed unflagged in 22.12. Below that, any
+      // CommonJS dependency that requires an ESM package throws at MODULE LOAD —
+      // before any handler exists, so nothing in this codebase can catch it.
+      const canRequireEsm = major > 22 || (major === 22 && minor >= 12);
+      return {
+        node: running,
+        canRequireEsm,
+        note: canRequireEsm
+          ? "This Node can require() an ES module, so a CommonJS dependency importing an ESM package loads normally."
+          : "This Node CANNOT require() an ES module. Any CommonJS dependency that requires an ESM package dies at module load, which takes out every route that imports it and shows as 'Unexpected token <' on every screen. The dependency versions in package.json avoid needing it — if you are seeing this note alongside load failures, an override has been lost.",
+      };
+    })(),
     liveReady: readyCount,
     total: caps.length,
     allDemo: readyCount === 0,

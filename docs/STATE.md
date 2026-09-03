@@ -9,11 +9,12 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,739 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,741 tests** including one
 end-to-end run of the growth loop.
 
-**THE RUNTIME IS PINNED TO NODE 22** (`package.json` → `engines`, 2026-08-29). This is
-not hygiene; read §5.0 before changing it.
+**`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
+package and every route importing firebase-admin dies at module load. Read §5.0 before touching
+it or `engines`. The Node 22 pin remains, but is no longer the only defence.
 
 **Both branches are now IDENTICAL, on Next 15 / React 19** (landed 2026-08-28). Mirror
 file-by-file, never by merge, verified on main's own `npm ci`.
@@ -75,24 +76,27 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**STILL OPEN — four things, and only these.**
+**STILL OPEN — three things. Item 0 is CLOSED, and kept here because it recurred once already.**
 
-**0. TWO ROUTES FAIL AT MODULE LOAD IN PRODUCTION — that WAS "the whole OS is broken"
-(2026-09-03).** `/diagnose`, run from the owner's browser, found `/api/capabilities` and
-`/api/organic-dominance` (both verbs) answering HTTP 500 with Next's own HTML page: `server:
-vercel`, `x-vercel-id` present, **no `cf-ray`** — Cloudflare is not proxying; the app failed.
-Every dashboard screen calls capabilities on load, which is all of "every screen is broken".
-**Settled by experiment** (three routes built and served): a throw INSIDE a handler returns an
-EMPTY 500; a module that always throws at load fails the BUILD; a module that throws at load only
-at RUNTIME returns exactly the `500: Internal Server Error` / `.next-error-h1` page production
-sent. A STATIC import is evaluated before the handler exists, so `jsonRoute` — already wrapping
-organic-dominance — could never have caught it. Both routes now load their engines through
-`loadModule` INSIDE the guard, proved end to end against a forced load failure and with both
-handlers driven directly. **Ruled out: Cloudflare** (never in the path) and **firebase-admin**
-(it loads, and reports its own init failure rather than throwing).
-**Still open: WHICH module throws.** A differential over the failing and working import graphs
-leaves 16 candidates; the route now names it in its own body, and the diagnostic had to be fixed
-to show that body at all — see §6.
+**0. FOUND AND FIXED — `require(esm)`, THE SAME PAIR THAT TOOK PRODUCTION DOWN ON 08-29
+(2026-09-03).** `/diagnose` printed it from the owner's browser, verbatim: *"@/backend/capabilities
+failed to load: require() of ES Module /var/task/node_modules/jose/dist/webapi/index.js from
+/var/task/node_modules/jwks-rsa/src/utils.js not supported."*
+`firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM). `require()` of an ESM package
+works only on Node ≥ 22.12, so it ran perfectly on a 22.22 laptop and died at MODULE LOAD on the
+host. Every route importing it answered Next's HTML page; only `/api/health/live` survived,
+because it loads its modules inside a catch.
+**The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has
+to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it
+stayed green all through this outage and would only have gone red on the repair.
+**The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node and
+the host's choice stops mattering. jwks-rsa uses only `importJWK` and `exportSPKI`, both present
+in 5.x. Proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a real signature
+with the PEM it returns — necessary, because jwks-rsa does `catch { continue }`, so a broken jose
+returns NO KEYS silently and every sign-in fails "kid not found". The regression test itself was
+proved by reinstalling jose 6 and watching it go red.
+`/api/health/live` now reports `runtime.node` and `canRequireEsm`, because at no point in either
+outage could anyone see which Node was running without opening the host's dashboard.
 
 **1. MAIL SENDS NOTHING; THE SENDING PATH IS *THROWING* (2026-08-28).** Every `ok:false` path
 in `sendEmail` carries a category, so the audit route reaching its `catch` means the send THREW
@@ -112,21 +116,15 @@ app serves `www.`. **To close:** `/api/health/stripe`.
 
 **CLOSED THIS WEEK — one line each; detail is in `REQUIREMENTS-COVERAGE.md`.**
 
-- **Production ran Node 20** (08-29). `jwks-rsa` does `require('jose')`, `jose@6` is ESM and
-  `require(esm)` landed in **22.12** — four modules died AT IMPORT, an uncatchable 500, which
-  is why every studio read "Activate with a key". No `engines` was declared. `"node": "22.x"`.
-- **A production 500 was the middleware** (08-28) — no error handling before every route, so
-  any throw in the gate was site-wide. Fails OPEN now; `hmacKey` had memoised a REJECTED promise.
-- **A rate limit I added darkened the War Room** (08-28) — the API floor now applies only to
-  UNATTRIBUTABLE requests, ceiling 600. Three panels separate "could not ask" from "no key".
-- **91 of 133 environment variables were invisible** (08-29) — `shared/env-catalogue.ts` is the one registry (110 entries); `/api/health/live` reports all of them. **14 still missing.**
+- **Production ran Node 20** (08-29) — the first half of §5.0; the pin alone did not hold.
+- **A production 500 was the middleware** (08-28) — no error handling before every route, so any throw in the gate was site-wide. Fails OPEN now; `hmacKey` had memoised a REJECTED promise.
+- **A rate limit I added darkened the War Room** (08-28) — the API floor applies only to UNATTRIBUTABLE requests, ceiling 600; three panels separate "could not ask" from "no key".
+- **91 of 133 env variables were invisible** (08-29) — `shared/env-catalogue.ts` is the one registry (110 entries); `/api/health/live` reports all. **14 still missing.**
 - **The free audit is limited to personal use** (08-29) — 10 per site, 3 sites, 15 per 90 days,
   unlimited when paid; keyed on the registrable domain, IP never stored. It also scores SEO across
   six areas separately, where nothing measurable is `null` rather than 0.
 - **§50 autonomous paid boost** (08-30) — the ladder, above.
-- **§100 per-agent cost and impact** (08-30) — one row per charge; `debitAcus` took a wallet
-  id and an amount, so one total was all that survived nineteen agents. Unattributed revenue
-  is `null`, never zero.
+- **§100 per-agent cost and impact** (08-30) — one row per charge; `debitAcus` took a wallet id and an amount, so one total was all that survived nineteen agents. Unattributed revenue is `null`, never zero.
 - **§77 knowledge graph** (08-30) — typed entities over measured posts; never claims causation.
 - **Bulk catalogue import** — an amount 100× ambiguous ("1,299") is REFUSED, not guessed.
 
@@ -177,7 +175,11 @@ from a screenshot. The HTML fault took three wrong theories and three redeploys 
 existed; writing it first would have cost one of them.
 
 **A second class, about tests rather than code: a check that passes — or FAILS — for a reason
-unrelated to what it tests.** NINETEEN. Newest (2026-09-03): `/diagnose` asked one question of
+unrelated to what it tests.** TWENTY. Newest (2026-09-03): a test written on 08-29 asserted that
+`jose` IS ESM-only — recording the hazard as a fact of life and leaving the entire defence to a
+Node pin the host had to honour. It was green through the whole second outage, because it was
+pinned to the broken arrangement and could only have failed on the repair. **A test that passes
+while production is down, and would fail on the fix, is worse than no test.** Before it: `/diagnose` asked one question of
 every response — did it parse as JSON? — and `/api/capabilities` answered HTTP 500 with a
 perfectly good JSON body naming the module that failed to load. The row read "DATA", printed
 none of it, and the diagnosis was thrown away by the page built to obtain it: "the transport
@@ -196,9 +198,7 @@ the memoised key; a containment check accepting an ungated field because an earl
 an "exempt spend left the ledger alone" assertion reading `=== 0` when adding zero leaves zero; a
 department table with STEMS inside `\b(...)\b`, so Chief Financial Officer matched nothing.
 
-**A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT
-open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public
-by the same test: it only reports which machine answered its own requests.
+**A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public by the same test: it only reports which machine answered its own requests.
 
 **AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused fetch by asserting a key was missing; "could not ask" and "no key" need different actions.
 
