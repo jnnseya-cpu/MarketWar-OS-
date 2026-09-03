@@ -79,6 +79,13 @@ export const ALWAYS_OPEN_PREFIXES = [
   "/login",
   "/signup",
   "/r/",                  // a creator's tracked link — a public redirect
+  // THE PAGE THAT EXPLAINS WHY NOTHING WORKS CANNOT BE BEHIND A CHECK.
+  // /diagnose exists for the case where the platform is unreachable or an
+  // intermediary is answering in its place. Gating it means the one address that
+  // could name the cause redirects to /verify-human — which is itself a page, so
+  // it fails the same way, and the diagnostic is unreachable exactly when it is
+  // needed. It reads nothing private: it sends requests and reports who answered.
+  "/diagnose",
 ];
 
 /**
