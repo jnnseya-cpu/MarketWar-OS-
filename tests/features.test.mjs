@@ -26880,7 +26880,8 @@ test("Unexpected token '<' can never reach a person again", async () => {
       assert.match(e.message, /\/api\/organic-dominance/, "the failing address must be named");
       assert.match(e.message, /HTTP 500/, "the status must be named");
       assert.match(e.message, /server-side exception/, "what the page actually said must survive");
-      assert.match(e.message, /not something you typed/, "it must say whose fault it is");
+      assert.match(e.message, /MarketWar OS itself threw/, "it must name WHICH machine answered, not just that a page came back");
+      assert.match(e.message, /\/diagnose/, "it must point at the page that produces the full report");
       assert.doesNotMatch(e.message, /Unexpected token/, "the browser's useless message must not reach a person");
       return true;
     });
@@ -26908,4 +26909,98 @@ test("Unexpected token '<' can never reach a person again", async () => {
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// ---------------------------------------------------------------------------
+// WHO ANSWERED? — the classifier that ends three wrong theories in a row.
+//
+// The evidence that forced it: all 177 API routes were built, served and probed
+// with a GET and a POST, and every one answered JSON. Production still reported
+// HTML on every screen. Both can only be true if something between the browser
+// and the app is answering — and this deployment has two candidates that both
+// send `<!DOCTYPE`, need opposite fixes, and are indistinguishable to JSON.parse.
+//
+// These tests are the real header combinations each hop actually sends.
+// ---------------------------------------------------------------------------
+test("whoAnswered names the machine, and never guesses one it cannot see", async () => {
+  const { whoAnswered } = await import("../src/shared/response-origin.ts");
+  const H = (o) => new Headers(o);
+
+  // 1. CLOUDFLARE CHALLENGED IT. Only Cloudflare sets cf-mitigated.
+  const challenged = whoAnswered(403, H({ "cf-ray": "8f2a1", "cf-mitigated": "challenge", server: "cloudflare" }), "Just a moment...");
+  assert.equal(challenged.answeredBy, "cloudflare");
+  assert.equal(challenged.reachedTheApp, false, "a challenged request never reaches the app — saying otherwise sends the fix to the wrong place");
+  assert.match(challenged.fix, /Bot Fight Mode|\/api\/\*/, "the fix must be the one a person can actually perform in Cloudflare");
+  assert.ok(challenged.evidence.some((e) => e.includes("cf-mitigated")), "the conclusion must carry the header it rests on");
+
+  // 2. CLOUDFLARE TOUCHED IT AND VERCEL NEVER DID. The single clearest signal
+  //    there is, and the one nothing in this repository could have produced.
+  const stoppedAtEdge = whoAnswered(403, H({ "cf-ray": "8f2a1", server: "cloudflare" }), "Attention Required! Cloudflare");
+  assert.equal(stoppedAtEdge.answeredBy, "cloudflare");
+  assert.equal(stoppedAtEdge.reachedTheApp, false);
+
+  // 3. THE SAME STATUS, WITH VERCEL'S FINGERPRINT ON IT, IS OUR 403 — the human
+  //    gate refusing a request in JSON. Confusing these two is the whole point
+  //    of the module: identical status, opposite cause.
+  const ourRefusal = whoAnswered(403, H({ "cf-ray": "8f2a1", "x-vercel-id": "lhr1::abc" }), "");
+  assert.equal(ourRefusal.answeredBy, "application");
+  assert.equal(ourRefusal.reachedTheApp, true, "cf-ray alone must not convict Cloudflare when x-vercel-id proves the app answered");
+
+  // 4. THE PLATFORM KILLED THE FUNCTION. Vercel sets x-vercel-error on responses
+  //    IT generates and never on ours, so it is proof the handler never ran.
+  const killed = whoAnswered(504, H({ "x-vercel-error": "FUNCTION_INVOCATION_TIMEOUT", "x-vercel-id": "lhr1::xyz" }), "");
+  assert.equal(killed.answeredBy, "vercel-platform");
+  assert.match(killed.explanation, /time limit/);
+  assert.match(killed.fix, /maxDuration/, "the fix must name the thing to change");
+
+  // 5. A CRASH AT MODULE LOAD. No handler-level guard can catch this, and the
+  //    fix has to say so or the next hour goes into wrapping more handlers.
+  const crashed = whoAnswered(500, H({ "x-vercel-error": "FUNCTION_INVOCATION_FAILED" }), "");
+  assert.equal(crashed.answeredBy, "vercel-platform");
+  assert.match(crashed.fix, /Runtime Logs/);
+  assert.match(crashed.fix, /module failing to load|cannot catch/i, "the reason a guard would not have helped must be stated");
+
+  // 6. A CLOUDFLARE ORIGIN ERROR IS CLOUDFLARE'S OPINION OF US, NOT OUR ANSWER.
+  const timeout524 = whoAnswered(524, H({ "cf-ray": "8f2a1", server: "cloudflare" }), "");
+  assert.equal(timeout524.answeredBy, "cloudflare");
+  assert.equal(timeout524.reachedTheApp, true, "a 524 means the app WAS reached and was too slow — the opposite fix from a 521");
+  const unreachable521 = whoAnswered(521, H({ "cf-ray": "8f2a1" }), "");
+  assert.equal(unreachable521.reachedTheApp, false);
+
+  // 7. DEPLOYMENT PROTECTION — the fault where the app is perfect and nobody can
+  //    reach it, including the app's own calls.
+  const gated = whoAnswered(401, H({}), "Authentication Required You must log in with Vercel to access this deployment");
+  assert.equal(gated.answeredBy, "vercel-platform");
+  assert.match(gated.fix, /Deployment Protection/);
+
+  // 8. NO EVIDENCE AT ALL → SAY SO. A diagnostic that invents a culprit is worse
+  //    than one that admits it cannot tell, because the invented one gets acted
+  //    on. This assertion is the whole discipline of the module.
+  const silent = whoAnswered(502, H({}), "");
+  assert.equal(silent.answeredBy, "unknown");
+  assert.equal(silent.reachedTheApp, null);
+  assert.match(silent.fix, /Network tab|cf-ray/, "when it cannot tell, it must say how the person can find out");
+});
+
+test("the diagnostic page is reachable exactly when the platform is not", async () => {
+  // A page that explains why nothing works cannot itself be behind the check
+  // that may be what is failing — /verify-human is a page too, so it fails the
+  // same way, and the one address that could name the cause is unreachable
+  // precisely when it is needed.
+  const { ALWAYS_OPEN_PREFIXES, decide, bindingFor } = await import("../src/backend/human-gate.ts");
+  assert.ok(ALWAYS_OPEN_PREFIXES.includes("/diagnose"), "/diagnose must be in the lane the gate can never close");
+
+  // Prove it through the gate itself rather than trusting the list — a constant
+  // that is exported but not consulted is exactly the check-that-passes-for-the-
+  // wrong-reason this codebase keeps producing.
+  const decision = await decide({
+    path: "/diagnose",
+    cookie: undefined,
+    binding: await bindingFor(new Request("https://marketwaros.com/diagnose")),
+    authorization: null,
+    hasProviderSignature: false,
+    method: "GET",
+  });
+  assert.equal(decision.lane, "always_open");
+  assert.equal(decision.allow, true, "a visitor with no cookie must be able to open the diagnostic");
 });

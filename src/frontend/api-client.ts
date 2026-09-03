@@ -20,6 +20,7 @@
 import { firebaseAuth } from "@/frontend/firebase-client";
 import { runHumanCheck } from "@/frontend/human-check";
 import { fetchWithHumanRetry, replayable, type HumanRetryOutcome } from "@/shared/human-retry";
+import { whoAnswered } from "@/shared/response-origin";
 
 /**
  * The server refuses a submission faster than a hand can make one (1.2s). This
@@ -132,12 +133,20 @@ function describing(res: Response, url: string): Response {
       try {
         return raw ? JSON.parse(raw) : {};
       } catch {
-        const looksHtml = /^\s*<(!doctype|html|head|body)/i.test(raw);
         const snippet = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+        // NAME THE MACHINE, not just the shape of the answer. Saying "a web page
+        // came back" was still a mystery: three different hops can send one, and
+        // they need three unrelated fixes. The headers say which, and they are
+        // readable from a same-origin fetch.
+        const who = whoAnswered(res.status, res.headers, snippet);
         throw new Error(
-          looksHtml
-            ? `${url} returned a web page instead of data (HTTP ${res.status}).${snippet ? ` The page said: "${snippet}".` : ""} That is a server fault or a redirect, not something you typed.`
-            : `${url} returned something that is not data (HTTP ${res.status}).${snippet ? ` It sent: "${snippet}".` : ""}`,
+          // The status is stated HERE rather than left to the explanation. Some
+          // branches name it and some do not, and a message that carries it only
+          // sometimes is a message nobody can rely on reading it from.
+          `${url} (HTTP ${res.status}) — ${who.explanation} ${who.fix}` +
+          (snippet ? ` (The page said: "${snippet}".)` : "") +
+          ` [${who.evidence.join(" · ")}]` +
+          " Open /diagnose for the full report.",
         );
       }
     },
