@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,735 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,739 tests** including one
 end-to-end run of the growth loop.
 
 **THE RUNTIME IS PINNED TO NODE 22** (`package.json` → `engines`, 2026-08-29). This is
@@ -44,16 +44,15 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong
   is REFUSED before a penny moves: words in the frame, more actions than the length holds, nothing
   to render. Shape is a PARAMETER — nothing sent one, so every portrait placement came back wide.
-- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render
-  died on `429 insufficient_quota` and we answered "confirm your model access"; the account was
-  empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal
-  keeps the provider's words and offers NO remedy, because inventing one IS the defect.
-- **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked
-  by `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A
-  refund returns what was TAKEN, so an exempt render cannot mint ACUs. No caller ≠ exempt.
-- **The provider waterfall** — one name and company through every supplier in COST order
-  inside 14s. Free sources first; **only calls that ran AND returned are charged**. Three
-  scores, never one. **A Companies House officer is not a buyer.**
+- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died
+  on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit
+  is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the
+  provider's words and offers NO remedy, because inventing one IS the defect.
+- **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked by
+  `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A refund
+  returns what was TAKEN, so an exempt render cannot mint ACUs. No caller ≠ exempt.
+- **The provider waterfall** — one name and company through every supplier in COST order inside
+  14s. Free first; **only calls that ran AND returned are charged**. Three scores, never one.
 - **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED
   third party's expense, so publishing needs a register entry or two failing sources.
 - **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how
@@ -78,22 +77,22 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 **STILL OPEN — four things, and only these.**
 
-**0. `/api/capabilities` FAILS TO LOAD IN PRODUCTION — that WAS "the whole OS is broken"
-(2026-09-03).** `/diagnose` measured it from the owner's browser: five requests, four returned
-data, and `/api/capabilities` returned HTTP 500 with Next's own HTML page. `server: vercel`,
-`x-vercel-id` present, **no `cf-ray`** — so Cloudflare is not proxying, the request reached the
-app, and the app failed. Every dashboard screen calls this route on load, so one route printed
-`Unexpected token '<'` on every screen at once.
-**The mechanism was settled by experiment, not inference** (three routes built and served):
-a throw INSIDE a handler returns an EMPTY 500; a throw at module load ALWAYS fails the build; a
-throw at module load that depends on RUNTIME state returns exactly the `500: Internal Server
-Error` / `.next-error-h1` page production sent. A STATIC import is evaluated before the handler
-exists, so no try/catch and no wrapper could catch it — which is why two earlier fixes were real
-but irrelevant. The route now loads `@/backend/capabilities` through `loadModule` INSIDE
-`jsonRoute`, proved end to end against a runtime-only load failure.
-**Still open: WHICH of the 43 modules in that graph throws.** The next load of
-`/api/capabilities` says so in its own response body. Inspection found nothing — no filesystem
-or `process.cwd()` use in the graph, and a production-shaped env does not reproduce it locally.
+**0. TWO ROUTES FAIL AT MODULE LOAD IN PRODUCTION — that WAS "the whole OS is broken"
+(2026-09-03).** `/diagnose`, run from the owner's browser, found `/api/capabilities` and
+`/api/organic-dominance` (both verbs) answering HTTP 500 with Next's own HTML page: `server:
+vercel`, `x-vercel-id` present, **no `cf-ray`** — Cloudflare is not proxying; the app failed.
+Every dashboard screen calls capabilities on load, which is all of "every screen is broken".
+**Settled by experiment** (three routes built and served): a throw INSIDE a handler returns an
+EMPTY 500; a module that always throws at load fails the BUILD; a module that throws at load only
+at RUNTIME returns exactly the `500: Internal Server Error` / `.next-error-h1` page production
+sent. A STATIC import is evaluated before the handler exists, so `jsonRoute` — already wrapping
+organic-dominance — could never have caught it. Both routes now load their engines through
+`loadModule` INSIDE the guard, proved end to end against a forced load failure and with both
+handlers driven directly. **Ruled out: Cloudflare** (never in the path) and **firebase-admin**
+(it loads, and reports its own init failure rather than throwing).
+**Still open: WHICH module throws.** A differential over the failing and working import graphs
+leaves 16 candidates; the route now names it in its own body, and the diagnostic had to be fixed
+to show that body at all — see §6.
 
 **1. MAIL SENDS NOTHING; THE SENDING PATH IS *THROWING* (2026-08-28).** Every `ok:false` path
 in `sendEmail` carries a category, so the audit route reaching its `catch` means the send THREW
@@ -120,16 +119,15 @@ app serves `www.`. **To close:** `/api/health/stripe`.
   any throw in the gate was site-wide. Fails OPEN now; `hmacKey` had memoised a REJECTED promise.
 - **A rate limit I added darkened the War Room** (08-28) — the API floor now applies only to
   UNATTRIBUTABLE requests, ceiling 600. Three panels separate "could not ask" from "no key".
-- **91 of 133 environment variables were invisible** (08-29) — `shared/env-catalogue.ts` is
-  the one registry (110 entries); `/api/health/live` reports all of them. **14 still missing.**
-- **The audit scores SEO separately** (08-29) — six areas; nothing measurable is `null`, never 0.
+- **91 of 133 environment variables were invisible** (08-29) — `shared/env-catalogue.ts` is the one registry (110 entries); `/api/health/live` reports all of them. **14 still missing.**
 - **The free audit is limited to personal use** (08-29) — 10 per site, 3 sites, 15 per 90 days,
-  unlimited when paid; keyed on the registrable domain. The IP is never stored.
+  unlimited when paid; keyed on the registrable domain, IP never stored. It also scores SEO across
+  six areas separately, where nothing measurable is `null` rather than 0.
 - **§50 autonomous paid boost** (08-30) — the ladder, above.
 - **§100 per-agent cost and impact** (08-30) — one row per charge; `debitAcus` took a wallet
   id and an amount, so one total was all that survived nineteen agents. Unattributed revenue
   is `null`, never zero.
-- **§77 knowledge graph** (08-30) — typed entities over measured posts. Never claims causation.
+- **§77 knowledge graph** (08-30) — typed entities over measured posts; never claims causation.
 - **Bulk catalogue import** — an amount 100× ambiguous ("1,299") is REFUSED, not guessed.
 
 **Owner actions (nothing in code can substitute):**
@@ -152,8 +150,8 @@ agent message bus (considered, rejected), §14 calendars, §21 carousels. (This 
 listed §50/§77/§100 as missing while the closed list four lines above said they had landed.)
 
 **Security debt.** 6 moderate advisories, NO high — all the uuid → firebase-admin chain, left
-deliberately: npm's "fix" is a four-major downgrade of firebase-admin. Two `overrides` force
-Next's nested postcss and sharp up to the versions used everywhere else.
+deliberately: npm's "fix" is a four-major downgrade. Two `overrides` force Next's nested postcss
+and sharp up to the versions used everywhere else.
 
 ## 6. The defect class that keeps recurring
 
@@ -173,13 +171,18 @@ portrait placement came back landscape; `meterAction` exempted staff while the v
 wallet id, not a caller. Worst: a message whose login, envelope sender and From were three
 mailboxes, one invented in source and never created. The rest: `REQUIREMENTS-COVERAGE.md`.
 
-**ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD
-IT BEFORE THE THIRD GUESS.** Node 20 was diagnosed in one line of `moduleErrors` after a day
-inferring from a screenshot. The HTML-response fault took three wrong theories and three
-redeploys before `/diagnose` was written; writing it first would have cost one of them.
+**ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT
+BEFORE THE THIRD GUESS.** Node 20 was diagnosed in one line of `moduleErrors` after a day inferring
+from a screenshot. The HTML fault took three wrong theories and three redeploys before `/diagnose`
+existed; writing it first would have cost one of them.
 
 **A second class, about tests rather than code: a check that passes — or FAILS — for a reason
-unrelated to what it tests.** EIGHTEEN. Newest (2026-09-03): the test guarding the
+unrelated to what it tests.** NINETEEN. Newest (2026-09-03): `/diagnose` asked one question of
+every response — did it parse as JSON? — and `/api/capabilities` answered HTTP 500 with a
+perfectly good JSON body naming the module that failed to load. The row read "DATA", printed
+none of it, and the diagnosis was thrown away by the page built to obtain it: "the transport
+worked" and "the request worked" are different questions. Three outcomes now, and the error body
+is always shown. Before it: the test guarding the
 "Unexpected token '<'" message asserted the literal phrase *"not something you typed"*. That
 is wording, not behaviour — it would have passed a message that blamed the wrong machine, and
 it FAILED the moment the message started naming the right one. It now asserts that the
@@ -188,21 +191,19 @@ matched the slug `ask-customers-for-reviews-properly`, red for twelve runs, neve
 credential — a gate added to stop work being called done without proof, then called done
 without one run being read. Patterns now match keys as providers issue them, proved BOTH
 ways, because a pattern catching nothing passes a false-positive test perfectly. Caught by
-mutation, never by reading: a key-import-poisoning test whose patch never ran because an earlier
-test had warmed the memoised key; a containment check that accepted an ungated field because an
-earlier one was gated; a policy-refusal test using a length where the engine was skipped on price
-anyway; an "exempt spend left the ledger alone" assertion reading `=== 0` when adding zero leaves
-zero; a department table with STEMS inside `\b(...)\b`, so Chief Financial Officer matched nothing.
+mutation, never by reading: a key-import test whose patch never ran because an earlier test warmed
+the memoised key; a containment check accepting an ungated field because an earlier one was gated;
+an "exempt spend left the ledger alone" assertion reading `=== 0` when adding zero leaves zero; a
+department table with STEMS inside `\b(...)\b`, so Chief Financial Officer matched nothing.
 
-**A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` and left the REPORT
-open on an always_open path — twenty recipient addresses beside the SMTP host and username. Gated.
-`/diagnose` is public by the same test: it only reports which machine answered its own requests.
+**A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT
+open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public
+by the same test: it only reports which machine answered its own requests.
 
-**AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused
-fetch by asserting a key was missing. "Could not ask" and "no key" needed different actions.
+**AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused fetch by asserting a key was missing; "could not ask" and "no key" need different actions.
 
 **A test that passes is not evidence until something has broken it.** Drive the real handler and
-assert on a value only the real path can produce. SEVEN tests have failed on their own comments:
+assert on a value only the real path can produce. SEVEN tests have failed on their own comments —
 strip comments before scanning. A counter a no-op leaves unchanged proves nothing.
 
 ## 7. Rules that outrank preference
