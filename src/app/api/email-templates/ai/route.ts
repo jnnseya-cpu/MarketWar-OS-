@@ -26,13 +26,13 @@ export const maxDuration = 60;
 
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     purposes: EMAIL_PURPOSES.map((p) => ({ id: p.id, label: p.label, needs: p.needs ?? null })),
   });
 }
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "email-template-ai"), 20, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
@@ -91,3 +91,9 @@ export async function POST(req: NextRequest) {
     balanceAcu: meter.balanceAcu,
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 60, label: "/api/email-templates/ai" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 60, label: "/api/email-templates/ai" });

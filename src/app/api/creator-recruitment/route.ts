@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // runs — the ~10s default would take the ACUs and deliver nothing.
 export const maxDuration = 60;
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "creator-recruitment"), 20, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   // Paid AI — require a signed-in user (denial-of-wallet protection).
@@ -32,3 +32,8 @@ export async function POST(req: NextRequest) {
   const input: RecruitInput = { business, industry: s("industry"), product: s("product"), audience: s("audience"), location: s("location"), lang: gatewayLangFrom(req) };
   return NextResponse.json(await recommendCreators(input));
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 60, label: "/api/creator-recruitment" });

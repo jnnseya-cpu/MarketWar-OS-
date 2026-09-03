@@ -38,7 +38,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "visualstrike"), 60, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: "Unknown action — use lock, angles, score, pack, hooks or guard" }, { status: 400 });
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     engine: "VisualStrike AI — Product Picture → Viral Campaign engine",
     doctrine: "Not an image-to-ad toy: research → score → angle → pipeline. Product Identity Lock keeps the real product intact (exact preservation forced for regulated/high-value); the honesty guard never invents a capability or a health/financial/technical/performance claim; clickbait the content can't fulfil is blocked.",
@@ -158,3 +158,9 @@ export async function GET() {
     demoCampaign: demoCampaign(),
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/visualstrike" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/visualstrike" });

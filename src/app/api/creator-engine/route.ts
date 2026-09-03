@@ -33,7 +33,7 @@ export const maxDuration = 120;
 const ADMIN_ACTIONS = new Set(["record_conversion", "payout", "admin_verify"]);
 const AUTHED_ACTIONS = new Set(["list_creators", "creator", "wallet", "subscriptions", "subscribe", "register_creator", "scout", "match", "brief", "verify_followers"]);
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "creator-engine"), 40, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     engine: "MarketWar Creator & Partner Monetisation Engine (Activation Playbook v1.0)",
     tiers: EARNING_TIERS,
@@ -206,3 +206,11 @@ export async function GET() {
     agents: ["Scout (applicant scoring)", "Match (programme matching)", "Brief (campaign brief)", "Attribution (split + cycle + fraud)", "Payout (10K gate + BitriPay release)"],
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/creator-engine" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/creator-engine" });

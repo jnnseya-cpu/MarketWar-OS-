@@ -23,10 +23,13 @@ const BUILD = {
 // AI_GATEWAY_ORDER it did not recognise.
 //
 // SAFE: never returns a key, a prefix, or a length — only whether one is present.
+// Heavy work behind this route. With no budget the host kills the function
+// at its ~10s default — and that kill returns HTML, not JSON.
+export const maxDuration = 120;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETImpl() {
   const st = gatewayStatus();
   const unknown = unknownProvidersInOrder();
   const configured = st.providers.filter((p) => p.configured);
@@ -66,3 +69,8 @@ export async function GET() {
     ].filter(Boolean).join(" "),
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/health/ai" });

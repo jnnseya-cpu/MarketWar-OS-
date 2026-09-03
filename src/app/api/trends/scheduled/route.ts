@@ -30,7 +30,7 @@ const RUN_BUDGET_MS = 270_000;
 // The sweep runs three news searches per brand (watchTrends).
 const SEARCHES_PER_BRAND = 3;
 
-export async function GET(req: NextRequest) {
+async function GETImpl(req: NextRequest) {
   const startedAt = Date.now();
 
   // THIS USED TO BE BYPASSABLE WITH A QUERY STRING. The guard read "if it is
@@ -109,3 +109,10 @@ export async function GET(req: NextRequest) {
     ].filter(Boolean).join(" "),
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 300, label: "/api/trends/scheduled" });

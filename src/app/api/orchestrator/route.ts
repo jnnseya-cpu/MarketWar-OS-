@@ -33,7 +33,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "orchestrator"), 30, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const auth = await requireAuth(req);
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(result.run);
 }
 
-export async function GET(req: NextRequest) {
+async function GETImpl(req: NextRequest) {
   const auth = await requireAuth(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const brandId = new URL(req.url).searchParams.get("brandId") || "";
@@ -169,3 +169,9 @@ export async function GET(req: NextRequest) {
     budgetNote: "This ceiling limits what the orchestrator spends on its own initiative. Anything you run yourself is governed by your ACU balance, not by this.",
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 300, label: "/api/orchestrator" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 300, label: "/api/orchestrator" });

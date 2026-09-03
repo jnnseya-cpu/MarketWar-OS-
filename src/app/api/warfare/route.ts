@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   });
 }
 
-export async function GET() {
+async function GETImpl() {
   return NextResponse.json({
     engine: "M-36 Autonomous Campaign Warfare Engine (STEPS 1–11 + brief readiness check)",
     answerOnly: ["What do you sell?", "Who do you want?", "What result?", "Budget?", "Location?", "Promotion/offer? (optional)"],
@@ -88,3 +88,9 @@ export async function GET() {
     doctrine: "One prompt → the whole ecosystem. Score is a probability estimate, never a guarantee; offers stay inside the margin floor; distribution respects the frequency cap.",
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/warfare" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/warfare" });

@@ -88,7 +88,7 @@ async function siteQuestions(req: NextRequest, body: Record<string, unknown>, st
 
 const brandIdOf = (body: Record<string, unknown>) => (typeof body.brandId === "string" ? body.brandId : "");
 
-export async function GET(req: NextRequest) {
+async function GETImpl(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("brandId") || "";
   if (!brandId) return NextResponse.json({ error: "brandId required" }, { status: 400 });
   const access = await resolveBrandAccess(req, brandId);
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   // Anchored at the top of the request, not at the top of the run: auth, access
   // and metering all take time, and a budget measured from after them can still
   // push the function past maxDuration. Overrunning it returns HTTP 504 with no
@@ -211,3 +211,11 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean).join(" "),
   });
 }
+
+
+// EVERY ANSWER FROM THIS ROUTE IS JSON — see backend/route-guard.ts.
+// A throw here used to become Next's HTML error page, which every caller
+// reported as: Unexpected token '<', "<!DOCTYPE "... is not valid JSON.
+import { jsonRoute } from "@/backend/route-guard";
+export const POST = jsonRoute(POSTImpl as never, { maxSeconds: 120, label: "/api/ai-visibility" });
+export const GET = jsonRoute(GETImpl as never, { maxSeconds: 120, label: "/api/ai-visibility" });
