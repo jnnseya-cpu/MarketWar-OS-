@@ -26851,3 +26851,61 @@ test("every AI-backed route is guarded and has a duration budget", async () => {
   assert.deepEqual(unguarded, [], `these call a provider or a crawler and can still answer with HTML: ${unguarded.join(", ")}`);
   assert.deepEqual(unbudgeted, [], `these do heavy work with no duration budget, so the host kills them at ~10s: ${unbudgeted.join(", ")}`);
 });
+
+test("Unexpected token '<' can never reach a person again", async () => {
+  // THE MESSAGE THIS REPLACES, reported from production over and over:
+  //     Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+  // That is the browser's message for JSON.parse meeting an HTML page. It names
+  // nothing — not the address, not the status, not a word of what the page said
+  // — and every screen shows the same sentence, so one bad response reads as
+  // the whole platform being broken with no thread to pull.
+  //
+  // 239 call sites do res.json() the instant a call returns. Fixing them one at
+  // a time is 239 chances to miss one, so the RESPONSE is taught to explain.
+  const mod = await import("../src/frontend/api-client.ts");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const u = String(input);
+    if (u.includes("organic-dominance")) return new Response("<!DOCTYPE html><html><body><h1>Application error: a server-side exception has occurred</h1></body></html>", { status: 500, headers: { "content-type": "text/html" } });
+    if (u.includes("empty")) return new Response(null, { status: 200 });
+    if (u.includes("garbage")) return new Response("not json at all", { status: 502 });
+    return new Response(JSON.stringify({ fine: true }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    // An HTML page must produce a message naming the route, the status and the
+    // page's own words.
+    const html = await mod.authedFetch("/api/organic-dominance");
+    assert.equal(html.status, 500, "status must survive untouched — callers check it before parsing");
+    await assert.rejects(() => html.json(), (e) => {
+      assert.match(e.message, /\/api\/organic-dominance/, "the failing address must be named");
+      assert.match(e.message, /HTTP 500/, "the status must be named");
+      assert.match(e.message, /server-side exception/, "what the page actually said must survive");
+      assert.match(e.message, /not something you typed/, "it must say whose fault it is");
+      assert.doesNotMatch(e.message, /Unexpected token/, "the browser's useless message must not reach a person");
+      return true;
+    });
+
+    // Non-HTML rubbish gets the same treatment without claiming it was a page.
+    const junk = await mod.authedFetch("/api/garbage");
+    await assert.rejects(() => junk.json(), (e) => {
+      assert.match(e.message, /HTTP 502/);
+      assert.match(e.message, /not json at all/);
+      assert.doesNotMatch(e.message, /web page/, "only an actual page may be called one");
+      return true;
+    });
+
+    // THE SUCCESS PATH IS UNCHANGED. This is the assertion that matters most:
+    // a wrapper that breaks valid responses would be far worse than the message
+    // it replaces.
+    const ok = await mod.authedFetch("/api/fine");
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { fine: true });
+
+    // An empty body is not a parse failure — a 200 with nothing in it is a
+    // legitimate answer and must not be reported as a fault.
+    const empty = await mod.authedFetch("/api/empty");
+    assert.deepEqual(await empty.json(), {});
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

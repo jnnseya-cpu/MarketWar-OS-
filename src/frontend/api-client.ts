@@ -72,11 +72,78 @@ export async function authedFetch(input: RequestInfo | URL, init: RequestInit = 
     return fetch(input, { ...init, headers });
   };
 
-  return fetchWithHumanRetry({
+  const res = await fetchWithHumanRetry({
     send,
     check: passHumanCheck,
     // A Request carries its own consumed body; only the string/URL form can be
     // sent a second time from the same init.
     bodyReplayable: replayable(init.body) && !(typeof Request !== "undefined" && input instanceof Request),
   });
+
+  return describing(res, urlOf(input));
+}
+
+/** The address a caller used, for the message below. Never throws on an odd input. */
+function urlOf(input: RequestInfo | URL): string {
+  try {
+    if (typeof input === "string") return input;
+    if (input instanceof URL) return input.pathname + input.search;
+    if (typeof Request !== "undefined" && input instanceof Request) return new URL(input.url).pathname;
+  } catch { /* fall through */ }
+  return "the server";
+}
+
+/**
+ * MAKE `Unexpected token '<'` IMPOSSIBLE TO SEE.
+ *
+ * THE MESSAGE THIS REPLACES, reported from production and impossible to act on:
+ *
+ *     ⚠️ Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+ *
+ * That is `JSON.parse` meeting an HTML page. It is the browser's message, not
+ * ours, and it names nothing: not the address, not the status, not a word of
+ * what the page said. Every screen in the platform shows the same sentence, so
+ * one bad response reads as everything being broken — and there is no thread to
+ * pull, which is exactly how days disappear.
+ *
+ * 239 call sites do `res.json()` the moment a call returns. Fixing them one at a
+ * time is 239 chances to miss one, and the next route added is a 240th. So the
+ * response itself is taught to explain: `json()` reads the body as TEXT first,
+ * and only then parses. When the parse fails, the error names the address, the
+ * status and the first line of whatever actually came back — so a screenshot is
+ * a diagnosis rather than a mystery.
+ *
+ * The success path is byte-for-byte unchanged: valid JSON parses and returns
+ * exactly as before. `ok`, `status`, `headers` and every other member of the
+ * Response are untouched, because callers check them before parsing.
+ */
+function describing(res: Response, url: string): Response {
+  const original = res.json.bind(res);
+  Object.defineProperty(res, "json", {
+    configurable: true,
+    value: async () => {
+      let raw: string;
+      try {
+        raw = await res.text();
+      } catch {
+        // The body could not even be read — a dropped connection mid-response.
+        throw new Error(`${url} did not send a complete answer (HTTP ${res.status}). The connection dropped part-way through.`);
+      }
+      try {
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        const looksHtml = /^\s*<(!doctype|html|head|body)/i.test(raw);
+        const snippet = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+        throw new Error(
+          looksHtml
+            ? `${url} returned a web page instead of data (HTTP ${res.status}).${snippet ? ` The page said: "${snippet}".` : ""} That is a server fault or a redirect, not something you typed.`
+            : `${url} returned something that is not data (HTTP ${res.status}).${snippet ? ` It sent: "${snippet}".` : ""}`,
+        );
+      }
+    },
+  });
+  // `original` stays reachable so the binding is not optimised away, and so a
+  // future caller that wants the raw behaviour has it.
+  Object.defineProperty(res, "__rawJson", { configurable: true, enumerable: false, value: original });
+  return res;
 }
