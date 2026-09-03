@@ -27004,3 +27004,62 @@ test("the diagnostic page is reachable exactly when the platform is not", async 
   assert.equal(decision.lane, "always_open");
   assert.equal(decision.allow, true, "a visitor with no cookie must be able to open the diagnostic");
 });
+
+// ---------------------------------------------------------------------------
+// A MODULE THAT FAILS TO LOAD MUST NOT ANSWER WITH A WEB PAGE.
+//
+// Settled by experiment on 2026-09-03, after two rounds of inference got it
+// wrong. Three routes were built and served:
+//
+//   throw INSIDE the handler         → HTTP 500 with an EMPTY body
+//   throw at module load, always     → the BUILD fails, so it never ships
+//   throw at module load, at RUNTIME → HTTP 500 and Next's own HTML page,
+//                                      `<title>500: Internal Server Error</title>`
+//
+// The third is byte-for-byte what production returned for /api/capabilities,
+// which every dashboard screen calls on load — so one module failing to load
+// printed "Unexpected token '<'" on every screen at once.
+//
+// `jsonRoute` alone cannot catch it: a STATIC import is evaluated before the
+// handler exists. The load has to happen INSIDE the handler.
+// ---------------------------------------------------------------------------
+test("a module that throws while loading becomes JSON that names it", async () => {
+  const { jsonRoute, loadModule } = await import("../src/backend/route-guard.ts");
+
+  const route = jsonRoute(async () => {
+    const m = await loadModule("@/backend/pretend", async () => { throw new Error("boom at load"); });
+    return new Response(JSON.stringify(m));
+  }, { maxSeconds: 5, label: "/api/pretend" });
+
+  const res = await route(new Request("https://x/api/pretend"));
+  assert.equal(res.status, 500);
+  // The assertion that matters: it is DATA, not a page. A caller doing
+  // res.json() gets an object, which is the whole difference between a screen
+  // showing a cause and a screen showing "Unexpected token '<'".
+  const body = await res.json();
+  assert.match(body.error, /@\/backend\/pretend failed to load/, "the module must be named — 'something failed' is what cost the week");
+  assert.match(body.error, /boom at load/, "the real error must survive to the person reading it");
+  assert.equal(body.reason, "crashed");
+
+  // A module that loads fine is untouched — the success path is the one a
+  // guard must never change.
+  const fine = jsonRoute(async () => {
+    const m = await loadModule("@/backend/real", async () => ({ value: 7 }));
+    return new Response(JSON.stringify(m), { headers: { "content-type": "application/json" } });
+  }, { maxSeconds: 5, label: "/api/real" });
+  assert.deepEqual(await (await fine(new Request("https://x/api/real"))).json(), { value: 7 });
+});
+
+test("/api/capabilities loads its engine inside the handler, not above it", async () => {
+  // Every dashboard screen calls this route on load, so it is the one route
+  // where a load-time throw reads as the whole platform being down. A static
+  // `import { … } from "@/backend/capabilities"` at the top of the file puts
+  // the load back outside every catch and re-creates exactly that.
+  const src = readFileSync("src/app/api/capabilities/route.ts", "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /^import[^\n]*from\s+["']@\/backend\/capabilities["']/m,
+    "a static import of the engine is evaluated before the handler exists — nothing can catch it");
+  assert.match(code, /loadModule\(\s*["']@\/backend\/capabilities["']/,
+    "the engine must be loaded through loadModule so a failure is named rather than rendered as a page");
+  assert.match(code, /jsonRoute\(/, "and the handler must be guarded so it can only answer JSON");
+});

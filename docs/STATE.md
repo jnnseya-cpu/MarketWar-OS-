@@ -41,10 +41,9 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine** and the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice.
 - **Eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
 - **Contact Hunter + Contact Finder** — find a business contact, or upload a list and have it filled in. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. **Confirmed / inferred / provider never convert**, and objections are permanent.
-- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back
-  wrong is REFUSED before a penny moves: words in the frame, more actions than the length
-  holds (4s = one), nothing to render. Shape and exclusions are PARAMETERS — nothing sent an
-  aspect ratio, so every portrait placement came back landscape.
+- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong
+  is REFUSED before a penny moves: words in the frame, more actions than the length holds, nothing
+  to render. Shape is a PARAMETER — nothing sent one, so every portrait placement came back wide.
 - **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render
   died on `429 insufficient_quota` and we answered "confirm your model access"; the account was
   empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal
@@ -57,9 +56,9 @@ paste-ready first campaign. Both parse their prices out of `src/`.
   scores, never one. **A Companies House officer is not a buyer.**
 - **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED
   third party's expense, so publishing needs a register entry or two failing sources.
-- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and
-  how much next. Compared to the brand's own median, never a constant; refuses to promote at
-  all without conversion tracking; never spends.
+- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how
+  much next. Against the brand's own median, never a constant; refuses to promote without
+  conversion tracking; never spends.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26). Landing stats, plan prices/ACUs, 39 agent cards, answer pages — twelve tests. **What broke was always what somebody TYPED**, worst a 4.0x ROAS rule where the guardrail says 3.
 
@@ -79,21 +78,22 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 **STILL OPEN — four things, and only these.**
 
-**0. PRODUCTION ANSWERS HTML TO EVERY SCREEN; THE APP IS NOT THE ONE ANSWERING (2026-09-03).**
-Reported as `Unexpected token '<', "<!DOCTYPE "… is not valid JSON` on every page, across
-several redeploys. **Measured, not reasoned about:** all 177 API routes were built, served
-and probed with a GET and a POST — every one answered JSON. The only five that answer
-anything else are meant to (two OAuth callbacks, two tracking pixels, the unsubscribe page).
-No route in this codebase returns HTML to a caller expecting data, so something BETWEEN the
-browser and the app is answering: this deployment is Hostinger → **Cloudflare** → **Vercel** →
-app, and all three send `<!DOCTYPE` that `JSON.parse` cannot tell apart. Three theories were
-formed from the symptom alone and all three were wrong; that is what stopped.
-**To close: open `/diagnose`.** It sends five real requests from the browser and reads the
-headers that name each hop — `cf-mitigated` means Cloudflare challenged it, `cf-ray` with no
-`x-vercel-id` means it never reached Vercel, `x-vercel-error` means the platform killed the
-function, and `x-vercel-id` alone means the fault is ours. The page prints the verdict, the
-fix for that specific hop, and a copyable report. `/diagnose` is in the gate's `always_open`
-lane, because a page explaining why nothing works cannot sit behind the thing that is failing.
+**0. `/api/capabilities` FAILS TO LOAD IN PRODUCTION — that WAS "the whole OS is broken"
+(2026-09-03).** `/diagnose` measured it from the owner's browser: five requests, four returned
+data, and `/api/capabilities` returned HTTP 500 with Next's own HTML page. `server: vercel`,
+`x-vercel-id` present, **no `cf-ray`** — so Cloudflare is not proxying, the request reached the
+app, and the app failed. Every dashboard screen calls this route on load, so one route printed
+`Unexpected token '<'` on every screen at once.
+**The mechanism was settled by experiment, not inference** (three routes built and served):
+a throw INSIDE a handler returns an EMPTY 500; a throw at module load ALWAYS fails the build; a
+throw at module load that depends on RUNTIME state returns exactly the `500: Internal Server
+Error` / `.next-error-h1` page production sent. A STATIC import is evaluated before the handler
+exists, so no try/catch and no wrapper could catch it — which is why two earlier fixes were real
+but irrelevant. The route now loads `@/backend/capabilities` through `loadModule` INSIDE
+`jsonRoute`, proved end to end against a runtime-only load failure.
+**Still open: WHICH of the 43 modules in that graph throws.** The next load of
+`/api/capabilities` says so in its own response body. Inspection found nothing — no filesystem
+or `process.cwd()` use in the graph, and a production-shaped env does not reproduce it locally.
 
 **1. MAIL SENDS NOTHING; THE SENDING PATH IS *THROWING* (2026-08-28).** Every `ok:false` path
 in `sendEmail` carries a category, so the audit route reaching its `catch` means the send THREW
@@ -104,13 +104,12 @@ evidence: the renderer, `getPool()`'s JSON parse, `resolveSender`. **To close:**
 with an address. Still owed: `EMAIL_FROM` = `MarketWar OS <info@marketwaros.com>`. **Do NOT
 change `SMTP_USER`** — verified 08-27: `appuser@` logs in, `info@` is the From, SPF/DMARC align.
 
-**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left:
-(a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the
-APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
+**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the
+wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the
+app serves `www.`. **To close:** `/api/health/stripe`.
 
-**3. NEXT 15 IS LANDED — confirm it in production.** `npm audit` went from 11 advisories /
-5 high to 6 moderate / 0 high. `/verify-human` re-tested end to end on main's own build.
-**To close:** complete one real signup.
+**3. NEXT 15 IS LANDED — confirm it in production.** `npm audit` went 11 advisories / 5 high →
+6 moderate / 0 high; `/verify-human` re-tested end to end. **To close:** one real signup.
 
 **CLOSED THIS WEEK — one line each; detail is in `REQUIREMENTS-COVERAGE.md`.**
 
@@ -134,17 +133,15 @@ APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 - **Bulk catalogue import** — an amount 100× ambiguous ("1,299") is REFUSED, not guessed.
 
 **Owner actions (nothing in code can substitute):**
-1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE, then never again; check `/api/health/live`
-   → `envPresent` before asking. It makes the owner `executive`, never metered.
-   No-redeploy alternative: `node scripts/grant-admin.mjs you@… executive`.
+1. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; check `/api/health/live` → `envPresent` before asking.
+   Makes the owner `executive`, never metered. Or `node scripts/grant-admin.mjs you@… executive`.
 2. Open `/api/health/live` after every change — `envPresent`/`envMissing` is the only proof
    the running build received it, and `build.commit` the only proof of WHICH code is
    serving. All 110 variables, what each unlocks and where to get it:
    `shared/env-catalogue.ts`. Submit the sitemap.
-3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand.
-4. **Run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness. Build the five custom audiences FIRST — they cannot be backfilled.
-5. **`COMPANIES_HOUSE_API_KEY`** — free, the second free source in the contact waterfall. `SERPER_API_KEY` gates live company discovery; the current value is rejected 401/403.
-6. **Video needs credit at a provider**, not a model change — OpenAI's account is empty. Add credit, or render on Veo. Pin the tier with `GEMINI_VIDEO_MODEL` and set `VIDEO_COST_PER_SECOND_GBP_VEO` from the invoice.
+3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand. Then **run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness, and build the five custom audiences FIRST — they cannot be backfilled.
+4. **`COMPANIES_HOUSE_API_KEY`** — free, the second free source in the contact waterfall. `SERPER_API_KEY` gates live company discovery; the current value is rejected 401/403.
+5. **Video needs credit at a provider**, not a model change — OpenAI's account is empty. Add credit, or render on Veo. Pin the tier with `GEMINI_VIDEO_MODEL` and set `VIDEO_COST_PER_SECOND_GBP_VEO` from the invoice.
 
 **No feature section of the growth spec is MISSING as of 2026-08-30.** §50, §77 and §100 were
 the last three; §80 (an agent message bus) is recorded as considered and rejected. What remains
@@ -161,8 +158,11 @@ Next's nested postcss and sharp up to the versions used everywhere else.
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWENTY-FIVE. Newest (2026-09-03): the browser held, in the response headers of every failed
-call, the name of the machine that answered — `cf-ray`, `cf-mitigated`, `x-vercel-id`,
+TWENTY-SIX. Newest (2026-09-03): a route's engine was imported STATICALLY, so its load failure
+happened outside every catch in the process and the reason never crossed into any response —
+`/api/capabilities` knew exactly why it could not start and the browser got a rendered HTML page.
+Loads now happen inside the handler, through `loadModule`. Before it: the browser held, in the
+response headers of every failed call, the name of the machine that answered — `cf-ray`, `cf-mitigated`, `x-vercel-id`,
 `x-vercel-error` — and nothing carried it across to the person reading the screen. They got
 `Unexpected token '<'`, which names no machine, so three redeploys went into fixing the app
 when the evidence for whether the app was even reached was sitting on the response the whole
@@ -195,9 +195,8 @@ anyway; an "exempt spend left the ledger alone" assertion reading `=== 0` when a
 zero; a department table with STEMS inside `\b(...)\b`, so Chief Financial Officer matched nothing.
 
 **A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` and left the REPORT
-open on an always_open path — `recentSends` is twenty recipient addresses, beside the SMTP host and
-username. Gated; the load verdict stays public, naming nobody. `/diagnose` is public by the same
-test: it reads nothing private, it only reports which machine answered its own five requests.
+open on an always_open path — twenty recipient addresses beside the SMTP host and username. Gated.
+`/diagnose` is public by the same test: it only reports which machine answered its own requests.
 
 **AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused
 fetch by asserting a key was missing. "Could not ask" and "no key" needed different actions.

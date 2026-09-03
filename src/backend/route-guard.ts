@@ -40,6 +40,51 @@ if (typeof window !== "undefined") {
 
 import { NextResponse } from "next/server";
 
+// ---------------------------------------------------------------------------
+// THE THIRD WAY A ROUTE FAILS, AND THE ONE THIS GUARD COULD NOT SEE
+// ---------------------------------------------------------------------------
+//
+// PROVED BY EXPERIMENT, 2026-09-03, because two rounds of inference got it wrong.
+// Three routes were built and served, and each failure mode answers differently:
+//
+//   throw INSIDE the handler          → HTTP 500, EMPTY body
+//   throw at module load, always      → the BUILD FAILS ("failed to collect page
+//                                       data"), so it never reaches production
+//   throw at module load, at RUNTIME  → HTTP 500 and Next's own HTML page,
+//     only (build env differs)          `<title>500: Internal Server Error</title>`
+//                                       with `.next-error-h1`
+//
+// The third is byte-for-byte what production returned for `/api/capabilities`,
+// which every dashboard screen calls on load — so one module failing to load read
+// to the owner as the entire OS being broken.
+//
+// `jsonRoute` alone cannot help there. A STATIC import is evaluated before the
+// handler exists; there is no try/catch anywhere that can be around it. The only
+// place a load failure can be caught is INSIDE the handler, which means the
+// module has to be loaded there — a dynamic `import()`, awaited in the try.
+//
+// That is not a new trick in this codebase: `/api/health/live` already loads its
+// modules dynamically, and it is the ONLY route that kept answering while the
+// others returned HTML. This makes the trick reusable and names the module in the
+// answer, because "something failed to load" and "`@/backend/capabilities` failed
+// to load: <the actual error>" are hours apart.
+
+/**
+ * Load a module inside a handler so a failure is catchable, and name it if it fails.
+ *
+ * The specifier is OUR OWN source path, not a stack — safe to show, and the one
+ * fact that turns an unactionable 500 into a line somebody can search for.
+ */
+export async function loadModule<T>(spec: string, load: () => Promise<T>): Promise<T> {
+  try {
+    return await load();
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    console.error(`[route-guard] ${spec} failed to LOAD: ${why}\n${e instanceof Error ? e.stack : ""}`);
+    throw new Error(`${spec} failed to load: ${why}`);
+  }
+}
+
 export type GuardOptions = {
   /**
    * Seconds this route is allowed, matching its `maxDuration`. The deadline is
