@@ -27,6 +27,7 @@ import { companiesHouseKey, firstRegisterHit } from "@/backend/market-exit-detec
 import { parseRobots, robotsAllows, OUR_AGENT } from "@/backend/robots";
 import { candidateFromPattern, learnPattern } from "@/shared/contact-hunter";
 import { readTitle } from "@/shared/contact-confidence";
+import { ACU_PER_GBP, USD_TO_GBP } from "@/shared/creative";
 import {
   registerProvider,
   type EnrichmentProvider, type CompanyCandidate, type PersonCandidate,
@@ -249,6 +250,208 @@ export const companiesHouse: EnrichmentProvider = {
 };
 
 // ---------------------------------------------------------------------------
+// 3. Hunter — the first PAID supplier, and the only one that verifies
+// ---------------------------------------------------------------------------
+//
+// WHY THIS ONE, AND WHY LAST IN THE ORDER. Our crawl and the register answer
+// "who is this company and who runs it" for nothing. Neither can answer "what is
+// this person's address when the company does not publish it", and no amount of
+// pattern-guessing turns an inference into a fact. Hunter can, and — the part
+// that matters more — it can CHECK one against the real mailbox, which is the
+// step that moves a contact out of `inferred` in `lead-harvest`.
+//
+// It runs after both free sources, so a lookup the crawl already answered never
+// spends a credit. `enoughFound` stops the waterfall before it gets here in the
+// common case; this exists for the hard one.
+//
+// EVERY ADDRESS IT RETURNS IS `provenance: "provider"`, INCLUDING THE ONES WITH
+// SOURCES. Hunter reports where it saw an address, and it is tempting to promote
+// that to `confirmed` — the codebase already had the discipline to refuse this,
+// and it stands: `confirmed` in this platform means WE fetched the page and read
+// it. A supplier's assertion that it once saw an address on a page is a
+// different claim with a different failure mode, and the three provenances never
+// convert into one another. The source URL travels with the candidate so a human
+// can check it; what it does not do is upgrade the claim.
+//
+// COST, AND THE OWNER'S FLOOR. Hunter's Data Platform prices a Domain Search or
+// Email Finder call at $0.05 and a verification at $0.011. `costAcu` is OUR
+// spend, and `/api/contact-hunter` charges the customer exactly twice it, which
+// is the margin floor. One number has to cover both calls, so it is the DEARER
+// one: reserving for a search and spending on a verification recovers more than
+// it cost, and the reverse would breach the floor. Derived from the shared
+// constants rather than typed as a magic number, so a change to either moves
+// this with it.
+const HUNTER_SEARCH_USD = 0.05;
+/** 4 ACUs at today's constants: $0.05 × 0.79 × 100 = 3.95, rounded up so the floor cannot be undercut. */
+const HUNTER_COST_ACU = Math.ceil(HUNTER_SEARCH_USD * USD_TO_GBP * ACU_PER_GBP);
+
+export const hunterKey = (): string => (process.env.HUNTER_API_KEY || "").trim();
+
+/**
+ * Read Hunter's answer WITHOUT asserting its shape.
+ *
+ * `scripts/check-casts.mjs` forbids a cast on external data, and this is why:
+ * a supplier's JSON is the definition of data we do not control, and a cast
+ * would turn a changed field into `undefined` flowing silently through the
+ * engine rather than an empty result. Every field is checked and anything
+ * unrecognised is simply absent.
+ */
+const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? { ...v } : {});
+const asString = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+const asNumber = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** The first source URL Hunter cites for an address, if it cites any. */
+function firstSourceUrl(v: unknown): string | undefined {
+  if (!Array.isArray(v)) return undefined;
+  for (const s of v) {
+    const uri = asString(asRecord(s).uri);
+    if (uri) return uri;
+  }
+  return undefined;
+}
+
+/**
+ * Hunter's own error envelope, turned into a sentence.
+ *
+ * It answers 4xx with `{ errors: [{ id, code, details }] }`, and the id is the
+ * fact that decides what to do: `wrong_auth` is a bad key, `usage_exceeded` is
+ * an empty balance, `too_many_requests` is a rate limit. Reporting "the lookup
+ * failed" for all three is the failure this repository keeps writing down.
+ */
+export function hunterErrorNote(status: number, body: unknown): string {
+  const errs = asRecord(body).errors;
+  const first = Array.isArray(errs) ? asRecord(errs[0]) : {};
+  const id = asString(first.id);
+  const details = asString(first.details);
+  if (id === "wrong_auth" || status === 401) return `Hunter rejected the API key${details ? ` — ${details}` : ""}. Check HUNTER_API_KEY on this deployment.`;
+  if (id === "usage_exceeded" || status === 402) return `Hunter has no credits left${details ? ` — ${details}` : ""}. Buy more, or this provider stays dark and the free sources still run.`;
+  if (id === "too_many_requests" || status === 429) return "Hunter rate-limited this deployment. Nothing was charged; try again shortly.";
+  if (details) return `Hunter refused the request: ${details}`;
+  return `Hunter answered HTTP ${status} with no reason given.`;
+}
+
+async function hunterGet(path: string, params: Record<string, string>, signal: AbortSignal): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; why: string }> {
+  const key = hunterKey();
+  if (!key) return { ok: false, why: "Not configured." };
+  const q = new URLSearchParams({ ...params, api_key: key });
+  let res: Response;
+  try {
+    res = await fetch(`https://api.hunter.io/v2/${path}?${q.toString()}`, { signal, headers: { Accept: "application/json" } });
+  } catch (e) {
+    // A network failure is not a refusal, and it is not billable either.
+    return { ok: false, why: `Hunter could not be reached: ${e instanceof Error ? e.message : String(e)}. Nothing was charged.` };
+  }
+  let body: unknown = null;
+  try { body = await res.json(); } catch { /* an empty or non-JSON body is handled below */ }
+  if (!res.ok) return { ok: false, why: hunterErrorNote(res.status, body) };
+  return { ok: true, data: asRecord(asRecord(body).data) };
+}
+
+export const hunter: EnrichmentProvider = {
+  id: "hunter",
+  costAcu: HUNTER_COST_ACU,
+  // After both free sources. The order is the product decision this whole file
+  // is built around: a paid credit is spent only on what free evidence missed.
+  order: 2,
+
+  health(): ProviderHealth {
+    const key = hunterKey();
+    return {
+      id: this.id,
+      configured: Boolean(key),
+      note: key
+        ? `Email finder and verifier. ${HUNTER_COST_ACU} ACUs a call, charged only when it returns something, and only after the free sources have run.`
+        : "Not configured. Set HUNTER_API_KEY for an email finder and a real mailbox verifier — the one thing the crawl and the register cannot do.",
+    };
+  },
+
+  async findPeople(input, signal): Promise<PersonCandidate[]> {
+    const domain = HOST(input.domain || "");
+    if (!domain) return [];
+    const got = await hunterGet("domain-search", { domain, limit: "10" }, signal);
+    if (!got.ok) return [];
+
+    const organization = asString(got.data.organization);
+    const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
+    const people: PersonCandidate[] = [];
+    for (const row of rows) {
+      const r = asRecord(row);
+      const first = asString(r.first_name), last = asString(r.last_name);
+      const fullName = [first, last].filter(Boolean).join(" ");
+      // NO NAME, NO PERSON. A generic `info@` row carries an address and nobody
+      // to address — it belongs in findEmails, not here, and inventing a name
+      // from the local part is the fabrication this platform refuses.
+      if (!fullName) continue;
+      people.push({
+        fullName,
+        jobTitle: asString(r.position) || undefined,
+        company: organization || input.company,
+        domain,
+        sourceUrl: firstSourceUrl(r.sources),
+      });
+    }
+    return people;
+  },
+
+  async findEmails(input, signal): Promise<EmailCandidate[]> {
+    const domain = HOST(input.domain || "");
+    if (!domain) return [];
+
+    // A NAME MAKES THIS A DIFFERENT, CHEAPER QUESTION. Email Finder answers one
+    // person; Domain Search returns the mailbox list. Asking the broad one when
+    // the narrow one would do spends the same credit for a worse answer.
+    if (input.firstName && input.lastName) {
+      const got = await hunterGet("email-finder", { domain, first_name: input.firstName, last_name: input.lastName }, signal);
+      if (!got.ok) return [];
+      const value = asString(got.data.email);
+      if (!value) return [];
+      return [{ value, provenance: "provider", sourceUrl: firstSourceUrl(got.data.sources) }];
+    }
+
+    const got = await hunterGet("domain-search", { domain, limit: "10" }, signal);
+    if (!got.ok) return [];
+    const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
+    const out: EmailCandidate[] = [];
+    for (const row of rows) {
+      const r = asRecord(row);
+      const value = asString(r.value);
+      if (!value) continue;
+      out.push({
+        value,
+        provenance: "provider",
+        sourceUrl: firstSourceUrl(r.sources),
+        // Hunter reports the firm's convention. Carried as evidence, never used
+        // to generate an address here — `candidateFromPattern` owns that, from a
+        // pattern WE learned, and two pattern engines would disagree eventually.
+        pattern: asString(asRecord(got.data).pattern) || undefined,
+      });
+    }
+    return out;
+  },
+
+  async verifyEmail(email, signal): Promise<EmailVerification> {
+    const got = await hunterGet("email-verifier", { email }, signal);
+    if (!got.ok) {
+      // COULD NOT ASK IS NOT INVALID. Returning `invalid: true` here would let a
+      // rate limit or an empty balance delete a real contact — the exact defect
+      // this codebase has written down four times, in a place where the cost is
+      // a customer's data rather than a screen.
+      return { email, deliverable: null, catchAll: false, invalid: false, why: got.why };
+    }
+    const status = asString(got.data.status).toLowerCase();
+    const score = asNumber(got.data.score);
+    const acceptAll = got.data.accept_all === true || status === "accept_all";
+    const scoreNote = score === null ? "" : ` Hunter's confidence: ${score}/100.`;
+    if (status === "valid") return { email, deliverable: true, catchAll: acceptAll, invalid: false, why: `Hunter's mailbox check accepted this address.${scoreNote}` };
+    if (status === "invalid") return { email, deliverable: false, catchAll: acceptAll, invalid: true, why: `Hunter's mailbox check REFUSED this address — it does not exist.${scoreNote}` };
+    if (acceptAll) return { email, deliverable: null, catchAll: true, invalid: false, why: `This domain accepts mail for every address, so no verifier on earth can tell whether this mailbox exists.${scoreNote}` };
+    if (status === "disposable") return { email, deliverable: null, catchAll: false, invalid: false, why: "A disposable-mail domain. Deliverable today and gone next week; not worth outreach." };
+    if (status === "webmail") return { email, deliverable: null, catchAll: false, invalid: false, why: `A personal webmail address rather than a company mailbox.${scoreNote}` };
+    return { email, deliverable: null, catchAll: acceptAll, invalid: false, why: `Hunter could not determine this address${status ? ` (${status})` : ""} — which is an unknown, not a rejection.${scoreNote}` };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Providers this platform does NOT have, stated rather than stubbed
 // ---------------------------------------------------------------------------
 
@@ -263,7 +466,6 @@ export const companiesHouse: EnrichmentProvider = {
  * registration order with no other change.
  */
 export const NOT_IMPLEMENTED: { id: string; needs: string; wouldProvide: string }[] = [
-  { id: "hunter", needs: "HUNTER_API_KEY", wouldProvide: "Domain search, email finder and a second verifier — the strongest single addition, because it verifies against real mailboxes rather than inferring." },
   { id: "people-data-labs", needs: "PDL_API_KEY", wouldProvide: "Person enrichment from a name plus an employer, which is what fills in the people our crawl cannot find on a team page." },
   { id: "abstract-phone", needs: "ABSTRACT_PHONE_KEY", wouldProvide: "Carrier lookup, so a number can move from PUBLISHED_UNVERIFIED to verified — which nothing here can do today." },
 ];
@@ -274,6 +476,12 @@ export function registerBuiltInProviders(): void {
   if (registered) return;
   registerProvider(marketwarWeb);
   registerProvider(companiesHouse);
+  // Registered unconditionally. `health()` reports whether it is configured and
+  // every call returns [] without a key, so a deployment with no key behaves
+  // exactly as it did before — and one that adds the key needs no redeploy of
+  // this list. Registering only when configured would read the environment at
+  // module load, which is the thing that makes a variable set later invisible.
+  registerProvider(hunter);
   registered = true;
 }
 
