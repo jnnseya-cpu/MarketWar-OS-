@@ -23178,13 +23178,37 @@ test("the adapters that exist are real, and the ones that do not are stated rath
   const src = readFileSync(new URL("../src/backend/enrichment-adapters.ts", import.meta.url), "utf8");
   assert.doesNotMatch(codeOf(src), /api\.peopledatalabs\.com/,
     "an adapter was written against an API that has never been called from here");
-  const probe = readFileSync(new URL("../scripts/check-hunter.mjs", import.meta.url), "utf8");
-  assert.match(probe, /api\.hunter\.io\/v2\/\$\{path\}/, "the probe must call the real API, not a fixture");
+  // ONE IMPLEMENTATION, TWO CALLERS. The script and the health route share
+  // `backend/hunter-probe.ts`; a second copy of the field list would drift from
+  // the first, silently, which is the "one source of truth per concept" rule
+  // this codebase keeps being bitten by.
+  const probeMod = readFileSync(new URL("../src/backend/hunter-probe.ts", import.meta.url), "utf8");
+  assert.match(probeMod, /api\.hunter\.io\/v2\/\$\{path\}/, "the probe must call the real API, not a fixture");
   for (const endpoint of ["domain-search", "email-finder", "email-verifier", "account"]) {
-    assert.ok(probe.includes(`"${endpoint}"`), `the probe does not exercise ${endpoint}, so that mapping stays unverified`);
+    assert.ok(probeMod.includes(`"${endpoint}"`), `the probe does not exercise ${endpoint}, so that mapping stays unverified`);
   }
-  assert.match(probe, /spends real credits|SPENDS REAL CREDITS/i, "a script that costs money must say so before it is run");
-  assert.match(probe, /split\(key\)\.join/, "the probe must be incapable of printing the key");
+  const script = readFileSync(new URL("../scripts/check-hunter.mjs", import.meta.url), "utf8");
+  assert.match(script, /probeHunter/, "the script must run the server's own probe, not a second copy of it");
+  assert.match(script, /spends real credits|SPENDS REAL CREDITS/i, "a script that costs money must say so before it is run");
+  // NEITHER MAY PRINT A KEY OR A CONTACT. A diagnostic that leaks the thing it
+  // is diagnosing is a defect this codebase has already fixed once, on the mail
+  // report, where `recentSends` was twenty recipient addresses on a public path.
+  // Comments and string literals stripped first: the usage line and the "not set"
+  // error both name the VARIABLE, and scanning raw text reads those as the value
+  // leaking. That is a check failing for a reason unrelated to what it tests —
+  // the same trap this file caught on the mail report an hour earlier.
+  const scriptCode = script.replace(/^\s*\/\/.*$/gm, "").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  assert.equal((scriptCode.match(/HUNTER_API_KEY/g) || []).length, 1,
+    "the script reads the key somewhere other than its one presence check");
+  assert.doesNotMatch(scriptCode, /console\.(log|error)\([^)]*HUNTER_API_KEY/, "the script must never print the key");
+  // NO TEXTUAL LEAK CHECK HERE, DELIBERATELY. The first version matched
+  // `saw: str(f.email)` and called it a leak — the full line is
+  // `str(f.email) ? "an address" : "null"`, a ternary that never emits the
+  // address. A pattern that flags safe code teaches people to ignore it. The
+  // real guard is behavioural and lives in "the enrichment probe reports shape,
+  // never contacts": it serialises a complete report from stubbed responses and
+  // asserts no address, name or key appears anywhere in it. That one cannot be
+  // fooled by how the code is written.
 });
 
 test("the waterfall is reachable, metered and suppression-checked — not a module nobody can call", () => {
@@ -25304,6 +25328,16 @@ test("the lane audit: every route, both directions", async () => {
     "GET /api/health/ai", "GET /api/health/apollo", "GET /api/health/auth", "GET /api/health/email",
     "GET /api/health/google", "GET /api/health/live", "GET /api/health/serper",
     "GET /api/health/smtp", "GET /api/health/storage", "GET /api/health/stripe",
+    // /api/health/enrichment is anonymous for its FREE half only — which
+    // providers this build can see, which is the same list /api/contact-hunter
+    // already returns publicly and answers the question an owner asks after
+    // setting a variable: did the running build get it? Its `?probe=1` half
+    // SPENDS REAL HUNTER CREDIT and is refused inside the route without a
+    // platform-admin session or the scheduler bearer, exactly as
+    // /api/health/email gates `?send=`. The refusal names the script that runs
+    // the same checks without a session, because a control nobody locked out can
+    // read is not a control anybody uses.
+    "GET /api/health/enrichment",
     // Provider verification handshakes — a GET here returns no secret.
     "GET /api/webhooks/email", "GET /api/webhooks/meta", "GET /api/webhooks/stripe", "GET /api/webhooks/zernio",
     // Public forms: requiring a session to obtain a session is circular. Each
@@ -27578,4 +27612,102 @@ test("Hunter costs money, so it runs last and stays dark without a key", async (
   assert.deepEqual(await hunter.findEmails({ domain: "acme.co.uk" }, sig), []);
   const v = await hunter.verifyEmail("a@b.com", sig);
   assert.equal(v.invalid, false, "an unconfigured provider called an address invalid");
+});
+
+test("the enrichment probe reports shape, never contacts — and gates what costs money", async () => {
+  // THE ADAPTER'S MAPPING IS REASONED, NOT OBSERVED — this environment cannot
+  // reach api.hunter.io. This module is what makes it observed, from wherever the
+  // code is actually running. It has to be trustworthy on two counts: it must
+  // report enough to find a changed field, and it must leak nothing while doing
+  // it, because a probe is an endpoint too.
+  const { probeHunter, KNOWN_VERIFIER_STATUSES } = await import("../src/backend/hunter-probe.ts");
+
+  // WITHOUT A KEY IT SPENDS NOTHING AND SAYS SO. A probe that calls a paid API
+  // to discover it has no key is a probe that costs money to tell you nothing.
+  delete process.env.HUNTER_API_KEY;
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; return new Response("{}", { status: 200 }); };
+  try {
+    const dark = await probeHunter();
+    assert.equal(dark.configured, false);
+    assert.equal(dark.ok, false);
+    assert.equal(calls, 0, "an unconfigured probe called the paid API anyway");
+    assert.match(dark.verdict, /HUNTER_API_KEY/);
+    assert.match(dark.costNote, /Nothing was spent/);
+
+    // A REFUSED KEY STOPS EVERYTHING. Interpreting a domain search when the
+    // account call already failed reports a mapping problem that is really an
+    // authentication problem — two causes, opposite fixes.
+    process.env.HUNTER_API_KEY = "test-key";
+    calls = 0;
+    globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ errors: [{ id: "wrong_auth", details: "Invalid API key" }] }), { status: 401 }); };
+    const refused = await probeHunter();
+    assert.equal(refused.ok, false);
+    assert.equal(calls, 1, "it kept spending after the key was refused");
+    assert.match(refused.verdict, /key was refused/i);
+    assert.match(refused.costNote, /No search or verification credit was spent/);
+
+    // A HEALTHY RUN. Every field present, every status recognised.
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      const body = u.includes("/account") ? { data: { plan_name: "Free", requests: { searches: { available: 24 }, verifications: { available: 49 } } } }
+        : u.includes("domain-search") ? { data: { organization: "Acme Ltd", pattern: "{first}", emails: [
+            { value: "jane@acme.co.uk", first_name: "Jane", last_name: "Doe", position: "Director", sources: [{ uri: "https://acme.co.uk/team" }] },
+          ] } }
+        : u.includes("email-finder") ? { data: { email: "a@reddit.com", sources: [] } }
+        : { data: { status: "valid", score: 96, accept_all: false } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const good = await probeHunter("acme.co.uk");
+    assert.equal(good.ok, true, `a clean run was reported as a failure: ${good.verdict}`);
+    assert.equal(good.searchCreditsLeft, 24, "the balance must be reported — 'no results' and 'no credit' are different faults");
+    assert.equal(good.sections.length, 4, "all four endpoints must be exercised");
+
+    // THE LEAK TEST, AND IT IS THE POINT OF THE `saw` FIELD BEING A DESCRIPTION.
+    // Everything this returns can end up in a screenshot or a support thread.
+    const dump = JSON.stringify(good);
+    for (const secret of ["jane@acme.co.uk", "Jane", "Doe", "a@reddit.com", "patrick@stripe.com", "test-key"]) {
+      assert.ok(!dump.includes(secret), `the probe leaked "${secret}" — it must report presence, not values`);
+    }
+
+    // AN UNRECOGNISED STATUS IS INFORMATION THE ADAPTER LOSES, so it must fail
+    // the check rather than pass quietly into "could not determine".
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      const body = u.includes("/account") ? { data: { plan_name: "Free", requests: { searches: { available: 5 }, verifications: { available: 5 } } } }
+        : u.includes("domain-search") ? { data: { organization: "x", pattern: "y", emails: [] } }
+        : u.includes("email-finder") ? { data: { email: null, sources: [] } }
+        : { data: { status: "brand_new_status", score: 1, accept_all: false } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const odd = await probeHunter();
+    assert.equal(odd.ok, false, "an unrecognised verifier status passed silently");
+    assert.match(odd.verdict, /changed a shape/);
+    assert.ok(!KNOWN_VERIFIER_STATUSES.includes("brand_new_status"));
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.HUNTER_API_KEY;
+  }
+});
+
+test("the live enrichment probe is gated, and names a route forward when it refuses", async () => {
+  const src = readFileSync("src/app/api/health/enrichment/route.ts", "utf8");
+  const code = codeOf(src);
+
+  // The free half answers "did the running build get the key?" — the question an
+  // owner asks after setting a variable, and not a secret.
+  assert.match(code, /providerHealth\(\)/, "the free half must report which providers this build can see");
+  // The paid half moves money, so it follows the same rule as /api/health/email?send=.
+  assert.match(code, /probe.*===\s*"1"/s, "the live probe must be opt-in, never the default");
+  assert.match(code, /cronAuthorised|platform_admin/, "the live probe spends real credit and must be authorised");
+  assert.match(code, /status: 403/, "an unauthorised caller must be refused, not served");
+  // A REFUSAL WITH NO ROUTE FORWARD IS HOW SOMEBODY ENDS UP UNABLE TO RUN THE ONE
+  // CHECK THAT ANSWERS THEIR QUESTION — which happened today with the mail probe.
+  assert.match(code, /insteadRunThis/, "the refusal must name the way to run it without a session");
+  assert.match(code, /check-hunter\.mjs/);
+  // Loaded inside the guard, so a load failure is JSON naming the module rather
+  // than the HTML page that read as the whole platform being down.
+  assert.match(code, /loadModule\(/, "the engines must load inside the guard");
+  assert.match(code, /jsonRoute\(/);
 });

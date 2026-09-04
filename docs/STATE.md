@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,748 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,750 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -49,8 +49,9 @@ paste-ready first campaign. Both parse their prices out of `src/`.
   so a credit is spent only on what the free sources missed, `costAcu` derived from `USD_TO_GBP ×
   ACU_PER_GBP` and charged at 2×. Every address is `provenance: "provider"` even when Hunter cites a
   source — `confirmed` means WE read the page. **Its mapping is REASONED, not observed** (no network
-  to api.hunter.io here), so `node scripts/check-hunter.mjs` proves it live; a test fails if that
-  script stops exercising all four endpoints.
+  to api.hunter.io here), so **`/api/health/enrichment?probe=1`** (admin/cron — spends ~$0.11) or
+  `node --import tsx scripts/check-hunter.mjs` proves it live. Both run the SAME module,
+  `backend/hunter-probe.ts`; the route's free half is anonymous and answers "did the build get it?".
 - **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED third party's expense, so publishing needs a register entry or two failing sources.
 - **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how much next. Against the brand's own median, never a constant; refuses to promote without conversion tracking; never spends.
 
