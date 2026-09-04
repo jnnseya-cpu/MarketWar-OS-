@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,750 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,753 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -32,17 +32,20 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 ## 3. What works with NO keys at all — no provider, no card, no configuration
 
-- **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three WORST free, the
-  lead recorded as an inbound prospect. No account, no card; six adverts promise that and
-  `npm run ads:verify` fails if it stops being true. Every failing finding carries what it costs
-  and the fix (`shared/audit-copy.ts`). Refuses private and link-local destinations on every hop.
-  **Confirmed working on the live deployment 2026-09-03** — construxvg.com, 3 pages, 83/100.
+- **The free website audit** (`/audit`) — a real crawl, **30 checks** (DERIVED from `AUDIT_COPY`,
+  never typed), the three WORST free, the lead recorded as an inbound prospect. No account, no card;
+  six adverts promise that and `npm run ads:verify` fails if it stops being true. Every failing
+  finding carries what it costs and the fix. Refuses private and link-local destinations.
+  **Confirmed live 09-03** — construxvg.com, 3 pages, 83→92/100. **§AI search (09-03):** "AI crawler
+  access" — robots.txt PARSED (not pattern-matched) for the ten crawlers feeding assistants, plus
+  text-in-HTML and structured data. Free; it never claims anybody IS cited — that costs AI calls.
 - **The client approval portal** — a signed, expiring link a client opens with no account.
-- **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine**, the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice. Plus **eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
-- **Contact Hunter + Contact Finder** — find a business contact, or upload a list and have it filled in. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. **Confirmed / inferred / provider never convert**, and objections are permanent.
-- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. Shape is a PARAMETER; nothing sent one, so every portrait placement came back wide.
+- **The command bar**, the **ad canvas**, **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine**, the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel rather than posting twice. Plus **eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
+- **Contact Hunter + Contact Finder** — find a business contact, or fill in a list. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis. **Confirmed / inferred / provider never convert.**
+- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves; shape is a PARAMETER, and nothing sent one, so every portrait came back wide.
 - **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the provider's words and offers NO remedy. Hunter's refusals follow the same rule: an empty balance, a rate limit and a bad key give three different sentences, and none of them marks an address invalid.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked by `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A refund returns what was TAKEN, so an exempt render cannot mint ACUs.
+- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, against the brand's own median; refuses to promote without conversion tracking; never spends. **Market Exit Capture** — a closed firm's demand sent to one that trades, published only on a register entry or two failing sources.
 - **The provider waterfall** — one name and company through every supplier in COST order inside
   14s. Free first; **only calls that ran AND returned are charged**. Three scores, never one.
   **Hunter is the first PAID adapter (09-03)** — email finder plus a real mailbox verifier, `order: 2`
@@ -52,10 +55,8 @@ paste-ready first campaign. Both parse their prices out of `src/`.
   to api.hunter.io here), so **`/api/health/enrichment?probe=1`** (admin/cron — spends ~$0.11) or
   `node --import tsx scripts/check-hunter.mjs` proves it live. Both run the SAME module,
   `backend/hunter-probe.ts`; the route's free half is anonymous and answers "did the build get it?".
-- **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED third party's expense, so publishing needs a register entry or two failing sources.
-- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how much next. Against the brand's own median, never a constant; refuses to promote without conversion tracking; never spends.
 
-**EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26). Landing stats, plan prices/ACUs, 39 agent cards, answer pages — twelve tests. **What broke was always what somebody TYPED**, worst a 4.0x ROAS rule where the guardrail says 3.
+**EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (08-26). Landing stats, plan prices/ACUs, 39 agent cards, answer pages — twelve tests. **What broke was always what somebody TYPED.**
 
 ## 4. What is dark without keys, and the one action for each
 
@@ -136,8 +137,7 @@ true, no `Sender:` header (no arrangement to declare), bounces to the one inbox 
    serving. All 110 variables, what each unlocks and where to get it:
    `shared/env-catalogue.ts`. Submit the sitemap.
 3. **Send the first ten messages.** `/dashboard/acquisition` has the text per brand. Then **run the first Facebook campaign** (`npm run ads:doc`): Traffic, not Awareness, and build the five custom audiences FIRST — they cannot be backfilled.
-4. **`COMPANIES_HOUSE_API_KEY`** — free, the second free source in the contact waterfall. `SERPER_API_KEY` gates live company discovery; the current value is rejected 401/403.
-5. **Video needs credit at a provider**, not a model change — OpenAI's account is empty. Add credit, or render on Veo. Pin the tier with `GEMINI_VIDEO_MODEL` and set `VIDEO_COST_PER_SECOND_GBP_VEO` from the invoice.
+4. **`SERPER_API_KEY`** gates live company discovery; the current value is rejected 401/403. **Video** needs credit at a provider, not a model change — OpenAI's account is empty; add credit or render on Veo.
 
 **No feature section of the growth spec is MISSING as of 2026-08-30.** §50, §77 and §100 were
 the last three; §80 (an agent message bus) is recorded as considered and rejected. What remains

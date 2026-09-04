@@ -163,6 +163,12 @@ export const AUDIT_COPY: Record<string, FindingCopy> = {
     fix: "Add LocalBusiness or Organization markup, plus Product or Service where it applies.",
     ours: "Generated per page and validated before it publishes.",
   },
+  "AI crawler access": {
+    area: "AI search",
+    costs: "When somebody asks an assistant who does this near them, the answer is built from pages its crawler was allowed to fetch and could actually read. A site can rank perfectly in Google and be missing from that conversation entirely — most often because a line in robots.txt names the AI crawlers, which usually arrived in a template rather than as a decision. Google-Extended is the one worth checking first: it does not affect your Google ranking at all, only whether you can appear in Gemini and AI Overviews, so blocking it costs you the new thing and protects nothing.",
+    fix: "Remove the AI crawlers from any site-wide Disallow in robots.txt, make sure your text is in the HTML rather than loaded by scripts, and add structured data so what you do and where is stated rather than inferred.",
+    ours: "We keep robots.txt correct, publish server-rendered pages, and generate the structured data. Whether you are actually being cited, and for which questions, is measured inside the platform — that needs asking the assistants, which costs AI calls, so it is not part of the free audit.",
+  },
   "Rendered by JavaScript": {
     area: "Technical",
     conditional: true,
@@ -269,7 +275,7 @@ export type AuditCheck = { label: string; area: string; costs: string };
  * the crawler tomorrow appears on the marketing page the same day and one
  * removed cannot linger there as a promise nothing keeps.
  */
-export const AUDIT_AREAS = ["Technical", "SEO", "Content", "Mobile", "Structured data", "Social"] as const;
+export const AUDIT_AREAS = ["Technical", "SEO", "Content", "Mobile", "Structured data", "Social", "AI search"] as const;
 
 export function checksByArea(): { area: string; checks: AuditCheck[] }[] {
   const all: AuditCheck[] = Object.entries(AUDIT_COPY).map(([label, c]) => ({ label, area: c.area, costs: c.costs }));

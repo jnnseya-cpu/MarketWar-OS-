@@ -3,7 +3,7 @@ import { emailConfigured, emailIsConfigured, filterList, sendEmail, sendEmailBat
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
-import { sendFailureOf, publicSendFailure, operatorFix, type SendFailure } from "@/shared/send-failure";
+import { sendFailureOf, publicSendFailure, operatorFix, isRecipientRejection, type SendFailure } from "@/shared/send-failure";
 import { hasScope } from "@/shared/roles";
 
 // M-34 email engine API.
@@ -357,9 +357,20 @@ export async function POST(req: NextRequest) {
         failed++; if (failures.length < 10) failures.push(to);
         const cat = sendFailureOf(r.failure);
         byFailure.set(cat, (byFailure.get(cat) ?? 0) + 1);
-        // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
-        // so it's never retried. Async bounces arrive via /api/webhooks/email.
-        if (/\b5\d\d\b/.test(r.detail || "") || r.failure === "hygiene") {
+        // SUPPRESS ONLY WHEN THE SERVER NAMED THE RECIPIENT.
+        //
+        // This used to be `/\b5\d\d\b/.test(r.detail)` — any 5xx anywhere in the
+        // text. The SMTP server was refusing our PASSWORD, `535 5.7.8`, and 535
+        // is a 5xx: 104 good prospects on one brand and 250 on another were
+        // recorded as hard bounces and suppressed for ever because OUR credential
+        // was wrong. The vault went from 104 sendable to 0, and the fabricated
+        // bounce rate then had the deliverability agent telling the owner to buy
+        // a list-cleaning service.
+        //
+        // A wrongful suppression is permanent and costs a customer; a retry costs
+        // a fraction of a penny. `isRecipientRejection` therefore refuses unless
+        // the server's words identify the mailbox.
+        if (isRecipientRejection(r.detail) || r.failure === "hygiene") {
           try { await recordEvent({ brandId, email: to, type: "bounce", at: new Date().toISOString(), campaign }); } catch { /* best-effort */ }
         }
       }

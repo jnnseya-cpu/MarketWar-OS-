@@ -27762,3 +27762,195 @@ test("a campaign that fails 104 times says WHY, once", async () => {
   assert.equal(sendFailureOf("something-new"), "unknown");
   assert.equal(sendFailureOf(undefined), "unknown");
 });
+
+// ---------------------------------------------------------------------------
+// AI CRAWLER ACCESS — a free, measured finding, and the false accusation it
+// would have been if robots.txt were pattern-matched instead of parsed.
+// ---------------------------------------------------------------------------
+test("robots.txt is PARSED, so a file that allows GPTBot is never reported as blocking it", async () => {
+  const { blockedAiCrawlers, aiReadability, AI_CRAWLERS } = await import("../src/shared/ai-readability.ts");
+  const names = (body) => blockedAiCrawlers(body).map((b) => b.name);
+
+  // THE FALSE ACCUSATION THIS EXISTS TO PREVENT. Searching for "gptbot" and
+  // "disallow" anywhere in the file flags a robots.txt that mentions GPTBot only
+  // to ALLOW it. This report is the thing the platform is sold on, and it has
+  // already shipped one accusation that was true of a page and false about a
+  // business — the owner knew it was wrong, and every correct finding beside it
+  // stopped counting too.
+  assert.deepEqual(names("User-agent: GPTBot\nAllow: /\n\nUser-agent: BadBot\nDisallow: /"), []);
+  assert.deepEqual(names(""), [], "a site with no robots.txt blocks nobody");
+  assert.deepEqual(names("# GPTBot disallow was discussed here\nUser-agent: *\nAllow: /"), [], "a comment is not a rule");
+
+  // A PARTIAL DISALLOW IS A DECISION, NOT AN ACCIDENT. Keeping a crawler out of
+  // /admin is sensible, and calling it "invisible to AI search" would be wrong.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: /admin"), []);
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow:"), [], "an empty Disallow is the explicit allow-everything");
+
+  // Real blocks are caught, including through the wildcard.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: /"), ["GPTBot"]);
+  assert.equal(names("User-agent: *\nDisallow: /").length, AI_CRAWLERS.length, "a site-wide block shuts out every one of them");
+  // THE LAST GROUP NAMING AN AGENT WINS — how "block everything, then re-allow
+  // one" is read correctly. Getting this backwards reports the opposite of the truth.
+  assert.ok(!names("User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nDisallow:").includes("GPTBot"));
+  // AND WHEN THE SAME AGENT IS NAMED TWICE, the later group is the live one.
+  // Mutation caught this: "any group with a site-wide disallow blocks it" passed
+  // every case above, because none of them named one agent in two groups.
+  assert.ok(!names("User-agent: GPTBot\nDisallow: /\n\nUser-agent: GPTBot\nDisallow:").includes("GPTBot"),
+    "a later group re-allowing this crawler was ignored");
+  assert.ok(names("User-agent: GPTBot\nDisallow:\n\nUser-agent: GPTBot\nDisallow: /").includes("GPTBot"),
+    "a later group blocking this crawler was ignored");
+
+  // A TRAILING COMMENT MUST NOT HIDE A REAL BLOCK. Without stripping, the value
+  // reads "/ # temporarily" rather than "/", and a genuinely blocked site is
+  // reported as open — the report saying nothing is wrong when something is.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: / # temporarily, while we think about it"), ["GPTBot"]);
+
+  // GOOGLE-EXTENDED IS THE ONE PEOPLE BLOCK BY MISTAKE, so the sentence has to
+  // say what it actually costs: it does not touch Google ranking at all.
+  const ge = aiReadability({ robotsBody: "User-agent: Google-Extended\nDisallow: /", wordCount: 900, hasStructuredData: true });
+  assert.equal(ge.readable, false);
+  assert.match(ge.detail, /does not affect your Google ranking/);
+
+  // THE THREE VERDICTS MUST BE DIFFERENT SENTENCES ABOUT DIFFERENT PROBLEMS.
+  const blocked = aiReadability({ robotsBody: "User-agent: *\nDisallow: /", wordCount: 900, hasStructuredData: true });
+  const empty = aiReadability({ robotsBody: "", wordCount: 12, hasStructuredData: true });
+  const noSchema = aiReadability({ robotsBody: "", wordCount: 900, hasStructuredData: false });
+  const fine = aiReadability({ robotsBody: "", wordCount: 900, hasStructuredData: true });
+  assert.equal(new Set([blocked.detail, empty.detail, noSchema.detail, fine.detail]).size, 4);
+  assert.equal(blocked.readable, false);
+  assert.equal(empty.readable, false, "a page whose text arrives only with scripts is not readable by these crawlers");
+  assert.equal(noSchema.readable, true, "missing structured data is a handicap, not a wall");
+  assert.equal(fine.readable, true);
+
+  // AND IT MUST NEVER CLAIM CITATION. Saying "you are invisible to AI search"
+  // from a robots.txt read is the fabricated claim this whole report refuses to
+  // print — whether anybody is actually cited needs asking the assistants.
+  for (const v of [blocked, empty, noSchema, fine]) {
+    assert.doesNotMatch(v.detail, /\b\d+%|cited|citation|invisible\b/i,
+      `"${v.detail}" claims something no fetch can measure`);
+  }
+});
+
+test("the AI check is in the audit, free, and counted like every other", async () => {
+  const copy = await import("../src/shared/audit-copy.ts");
+  const entry = copy.AUDIT_COPY["AI crawler access"];
+  assert.ok(entry, "the check has no copy, so the report would print a bare label");
+  assert.equal(entry.area, "AI search");
+  assert.ok(copy.AUDIT_AREAS.includes("AI search"), "the area is missing from the catalogue order");
+  assert.ok(!entry.conditional, "it is measurable on every site, so it counts toward the promised number");
+
+  // THE SALES LINE IS UNDER THE PROBLEM IT SOLVES, and it is honest about the
+  // boundary: what is free is whether they CAN read it; whether you are actually
+  // cited costs AI calls and is inside.
+  assert.match(entry.ours, /not part of the free audit/, "the paid boundary must be stated where the reader meets it");
+  assert.match(entry.costs, /Google-Extended/, "the mistake people actually make must be named");
+
+  // No fabricated numbers, the rule the whole report is built on.
+  for (const field of [entry.costs, entry.fix, entry.ours]) {
+    assert.doesNotMatch(field, /\d+\s*%|[£$]\d/, "a percentage or a currency amount reached the audit copy");
+  }
+
+  // The crawler must actually produce it, or the count promises a check nobody runs.
+  const src = readFileSync("src/backend/crawler.ts", "utf8");
+  assert.match(codeOf(src), /add\("AI search", "AI crawler access"/, "the check is catalogued but never measured");
+  assert.match(codeOf(src), /aiReadability\(\{ robotsBody: robots\.body/, "the verdict must come from the real robots.txt body");
+});
+
+// ---------------------------------------------------------------------------
+// A WRONG PASSWORD MUST NOT DESTROY A CUSTOMER'S LIST.
+//
+// WHAT HAPPENED, TWICE, ON THE LIVE PLATFORM. The campaign route suppressed any
+// failure whose text contained a 5xx code. The SMTP server was refusing OUR
+// password — `535 5.7.8 Authentication failed` — and 535 is a 5xx. 104 good
+// prospects on one brand and 250 on another were recorded as hard bounces and
+// permanently suppressed. The vault went from 104 sendable to 0, and the
+// fabricated 18.77% bounce rate then had the deliverability agent telling the
+// owner to buy a list-cleaning service. A wrong number producing wrong advice
+// producing wrong spending.
+// ---------------------------------------------------------------------------
+test("only the server naming the MAILBOX suppresses an address", async () => {
+  const { isRecipientRejection } = await import("../src/shared/send-failure.ts");
+
+  // THE ONE THAT CAUSED IT. Authentication is never the recipient's doing.
+  assert.equal(isRecipientRejection("535 5.7.8 Authentication failed"), false,
+    "our own refused password suppressed 354 innocent addresses");
+  assert.equal(isRecipientRejection("530 5.7.0 Must issue a STARTTLS command first"), false);
+  assert.equal(isRecipientRejection("Invalid login or password"), false, "words, not codes, can still name our fault");
+
+  // Real bounces still suppress, or the ledger stops doing its job.
+  assert.equal(isRecipientRejection("550 5.1.1 The email account does not exist"), true);
+  assert.equal(isRecipientRejection("550 No such user here"), true);
+  assert.equal(isRecipientRejection("552 5.2.2 Mailbox full"), true);
+
+  // A MAILBOX CODE WEARING A POLICY CODE'S CLOTHES. `550 5.7.1` is a policy
+  // rejection of US — the address is fine and must survive.
+  assert.equal(isRecipientRejection("550 5.7.1 Message rejected due to content policy"), false);
+  assert.equal(isRecipientRejection("554 5.7.1 Service unavailable; client host blocked"), false);
+
+  // Temporary is never permanent.
+  assert.equal(isRecipientRejection("451 4.3.0 Try again later"), false);
+  assert.equal(isRecipientRejection("421 Service not available, closing channel"), false);
+
+  // Ours, not theirs.
+  assert.equal(isRecipientRejection("500 5.5.2 Syntax error"), false);
+  assert.equal(isRecipientRejection("521 Server does not accept mail"), false);
+
+  // FOUR CASES THAT EXIST BECAUSE MUTATION FOUND THEM. Every assertion above was
+  // caught by an EARLIER branch, so four of the five guards could be deleted with
+  // the suite still green. Each of these reaches exactly one of them.
+  //
+  // Some servers answer a bad login with a mailbox code. Only the words save it.
+  assert.equal(isRecipientRejection("550 Authentication required"), false,
+    "a 550 that is really an auth refusal would suppress a good address");
+  // A multiline reply carrying a temporary code alongside a permanent one is not
+  // a settled verdict — permanent must not win by being listed first.
+  assert.equal(isRecipientRejection("550 requested action not taken; 451 local error in processing"), false,
+    "a 4xx anywhere means try later, and a retry is cheaper than a lost customer");
+  // …and one carrying a code that is about US alongside one about the mailbox.
+  assert.equal(isRecipientRejection("550 mailbox unavailable; 554 transaction failed"), false,
+    "a code naming our own fault appeared beside the mailbox code and was ignored");
+  // An unrecognised 5xx is an unknown. The list of codes that suppress is an
+  // ALLOWLIST, so a code nobody has considered can never destroy an address.
+  assert.equal(isRecipientRejection("555 5.5.4 Parameters not recognized"), false,
+    "an unrecognised 5xx suppressed — the rule is an allowlist, not a catch-all");
+
+  // IF IN DOUBT, DO NOT SUPPRESS — the asymmetry that decides the default. A
+  // retry costs a fraction of a penny; a wrongful suppression costs a customer
+  // for ever.
+  assert.equal(isRecipientRejection(""), false);
+  assert.equal(isRecipientRejection(undefined), false);
+  assert.equal(isRecipientRejection("send failed"), false, "an unexplained failure must never be read as a bad address");
+  assert.equal(isRecipientRejection("The connection dropped"), false);
+
+  // And the route must actually use it.
+  const route = codeOf(readFileSync("src/app/api/email/route.ts", "utf8"));
+  assert.match(route, /isRecipientRejection\(r\.detail\)/, "the campaign route still suppresses on a bare 5xx");
+  assert.doesNotMatch(route, /\/\\b5\\d\\d\\b\/\.test/, "the pattern that suppressed 354 good addresses is still here");
+});
+
+test("a batch failure carries its category instead of arriving as 'unknown'", async () => {
+  // The batch path set ok/mode/provider/id/filteredOut/detail and NOT `failure`,
+  // so every batch failure reached the route with the category undefined —
+  // `sendFailureOf` maps that to `unknown`, whose sentence is "the send did not
+  // complete". 250 failures were reported with the one category that names no
+  // problem, while the SMTP server had said exactly what was wrong. The
+  // classification existed two lines above, for the attempt ledger, and was not
+  // carried across.
+  // SCOPED TO THE RESULT MAPPING, not the loop header. There are TWO
+  // `for (const r of batchResults)` loops — the first writes the attempt ledger,
+  // which ALREADY carried the category correctly, and slicing from the header
+  // measured that one and reported a pass about the wrong code.
+  const src = codeOf(readFileSync("src/backend/email.ts", "utf8"));
+  const at = src.indexOf("results.set(r.to, {");
+  assert.notEqual(at, -1, "the batch result mapping has been restructured — re-check by hand");
+  const mapping = src.slice(at, src.indexOf("});", at));
+  assert.match(mapping, /failure: "provider"/, "the batch result still drops the category it just computed");
+  assert.match(mapping, /r\.ok \? \{\} :/, "a SUCCESS must not be given a failure category");
+
+  const { sendFailureOf, publicSendFailure } = await import("../src/shared/send-failure.ts");
+  // The category it now carries must produce an actionable sentence, not the
+  // one that names nothing.
+  assert.equal(sendFailureOf("provider"), "provider");
+  assert.notEqual(publicSendFailure("provider"), publicSendFailure(undefined));
+  assert.match(publicSendFailure("provider"), /refused/);
+});
