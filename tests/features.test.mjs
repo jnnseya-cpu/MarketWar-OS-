@@ -27304,3 +27304,49 @@ test("the SMTP stage is sayable signed out, and names a different fix each time"
   // "the email health report withholds recipients and the mail host from strangers".
   assert.match(route, /\.\.\.\(privileged \? \{/, "the privileged-only groups must still exist");
 });
+
+test("a refused password says whether whitespace is the cause, without echoing it", async () => {
+  // THE EVENING THIS SAVES. `/api/health/email` reported stage "auth-pass" on the
+  // live deployment: the mail host refused the password. The one cause nobody can
+  // see is a value pasted with a trailing newline or a leading space — it looks
+  // correct in every screen, including this one, which never echoes it, and the
+  // owner then resets a credential that was never wrong.
+  const src = readFileSync("src/app/api/health/email/route.ts", "utf8");
+  const code = codeOf(src);
+
+  // Booleans, computed by comparing the value with its own trim. Never the value,
+  // never its length — the whole point is that this can be public.
+  assert.match(code, /smtpPassHasSurroundingWhitespace: \(process\.env\.SMTP_PASS \|\| ""\) !== \(process\.env\.SMTP_PASS \|\| ""\)\.trim\(\)/,
+    "the padding check must compare the value with its own trim");
+  assert.match(code, /smtpUserHasSurroundingWhitespace/, "the username can be padded too, and is just as invisible");
+
+  // ATTACHED TO A FAILURE, NOT A STANDING DESCRIPTION OF A CREDENTIAL. It appears
+  // only when the server actually refused the login.
+  assert.match(code, /probe && !probe\.ok && String\(probe\.stage\)\.startsWith\("auth"\)/,
+    "the padding flags must appear only on a real auth failure");
+
+  // AND THE VALUE MUST NEVER FOLLOW IT OUT. A length is not a secret on its own,
+  // but beside "the password is refused" it is a head start nobody needs.
+  const openAt = code.indexOf("...(privileged ? {} : {");
+  let depth = 0, end = code.indexOf("{", openAt + "...(privileged ? {}".length);
+  for (; end < code.length; end++) {
+    if (code[end] === "{") depth += 1;
+    else if (code[end] === "}") { depth -= 1; if (depth === 0) break; }
+  }
+  const signedOut = code.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const leak of ["SMTP_PASS.length", "SMTP_PASS)", "process.env.SMTP_PASS ||"]) {
+    const uses = signedOut.split(leak).length - 1;
+    if (leak === "process.env.SMTP_PASS ||") {
+      // Used exactly twice — the value and its trim, in one comparison.
+      assert.equal(uses, 2, "SMTP_PASS is read somewhere other than the trim comparison");
+    } else {
+      assert.equal(uses, 0, `${leak} reaches a signed-out caller`);
+    }
+  }
+
+  // Both verdict branches must be actionable: one names the paste, the other
+  // rules it out — "no whitespace" is what stops the owner re-pasting all night.
+  assert.match(code, /WHITESPACE AROUND IT/, "a padded value must be named as the likely whole fault");
+  assert.match(code, /no stray whitespace, so this is a genuinely wrong or expired credential/,
+    "ruling the paste OUT is as valuable as ruling it in — otherwise the owner re-pastes forever");
+});
