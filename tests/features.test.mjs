@@ -27347,6 +27347,55 @@ test("a refused password says whether whitespace is the cause, without echoing i
   // Both verdict branches must be actionable: one names the paste, the other
   // rules it out — "no whitespace" is what stops the owner re-pasting all night.
   assert.match(code, /WHITESPACE AROUND IT/, "a padded value must be named as the likely whole fault");
-  assert.match(code, /no stray whitespace, so this is a genuinely wrong or expired credential/,
-    "ruling the paste OUT is as valuable as ruling it in — otherwise the owner re-pastes forever");
+  // Ruling the paste OUT is as valuable as ruling it in — otherwise the owner
+  // re-pastes the same correct value all night. The non-whitespace path now
+  // splits further (wrong mailbox vs wrong password), so BOTH of its branches
+  // must still say the whitespace has been excluded.
+  assert.match(code, /neither value has stray whitespace/,
+    "the wrong-password branch must say the paste has been ruled out");
+  assert.match(code, /SMTP_USER IS A DIFFERENT MAILBOX/,
+    "the other branch must name the mailbox mismatch rather than falling back to the paste");
+});
+
+test("a refused login separates the two causes, and names neither mailbox", async () => {
+  // THE FAULT THIS SEPARATES. `auth-pass` has two causes on this deployment and
+  // the same stage for both:
+  //
+  //   SMTP_USER is a DIFFERENT mailbox from the one we send as — which is how
+  //     appuser@ came to be configured, a mailbox recorded as "verified" that had
+  //     never been created; or
+  //   SMTP_USER is the send-as address and the password is wrong or expired.
+  //
+  // The first is fixed by changing SMTP_USER, the second by changing SMTP_PASS.
+  // A diagnostic that cannot tell them apart sends somebody to reset a password
+  // on an account that does not exist. It did.
+  const src = readFileSync("src/app/api/health/email/route.ts", "utf8");
+  const code = codeOf(src);
+
+  assert.match(code, /smtpUserIsTheFromAddress: \(process\.env\.SMTP_USER \|\| ""\)\.trim\(\)\.toLowerCase\(\) === fromAddr\.toLowerCase\(\)/,
+    "the comparison must be the login against the send-as address, normalised both sides");
+
+  // Both branches must exist and must point at DIFFERENT variables, or the
+  // separation buys nothing.
+  const mismatch = /SMTP_USER IS A DIFFERENT MAILBOX[\s\S]{0,600}?"/.exec(code)?.[0] ?? "";
+  const samebox = /SMTP_USER is the same mailbox[\s\S]{0,600}?"/.exec(code)?.[0] ?? "";
+  assert.ok(mismatch, "the mismatch branch is missing");
+  assert.ok(samebox, "the wrong-password branch is missing");
+  assert.match(mismatch, /exists at all before touching the password/,
+    "the mismatch branch must stop somebody resetting a password on a mailbox that may not exist");
+  assert.match(samebox, /app-specific|locked/,
+    "the wrong-password branch must name what to try beyond retyping the same value");
+
+  // AND IT MUST STAY A BOOLEAN. The addresses are withheld for the same reason
+  // the rest of the report is: they name a mailbox.
+  const openAt = code.indexOf("...(privileged ? {} : {");
+  let depth = 0, end = code.indexOf("{", openAt + "...(privileged ? {}".length);
+  for (; end < code.length; end++) {
+    if (code[end] === "{") depth += 1;
+    else if (code[end] === "}") { depth -= 1; if (depth === 0) break; }
+  }
+  const signedOut = code.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const leak of ["fromAddr,", "SMTP_USER,", "process.env.SMTP_USER }", "user:"]) {
+    assert.ok(!signedOut.includes(leak), `"${leak}" would put an address in the signed-out answer`);
+  }
 });

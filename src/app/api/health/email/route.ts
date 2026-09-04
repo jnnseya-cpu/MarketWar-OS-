@@ -494,6 +494,22 @@ export async function GET(req: NextRequest) {
       ...(probe && !probe.ok && String(probe.stage).startsWith("auth") ? {
         smtpPassHasSurroundingWhitespace: (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim(),
         smtpUserHasSurroundingWhitespace: (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim(),
+        // WHICH ACCOUNT WAS REFUSED — WITHOUT NAMING IT, AND IT IS TWO DIFFERENT FAULTS.
+        //
+        // A refused login has two completely separate causes on this deployment
+        // and the same stage for both:
+        //
+        //   logging in as a DIFFERENT mailbox from the one we send as — which is
+        //     how `appuser@` came to be configured, a mailbox that was recorded
+        //     as verified and had never been created at all; or
+        //   logging in as the send-as address, with a wrong or expired password.
+        //
+        // The first is fixed by changing SMTP_USER, the second by changing
+        // SMTP_PASS, and a diagnostic that cannot separate them sends somebody to
+        // reset a password on an account that does not exist. It happened.
+        //
+        // A boolean, not the address. Both values are ours and neither is printed.
+        smtpUserIsTheFromAddress: (process.env.SMTP_USER || "").trim().toLowerCase() === fromAddr.toLowerCase(),
       } : {}),
     }),
     // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
@@ -546,7 +562,9 @@ export async function GET(req: NextRequest) {
             ? `${smtpStageVerdict(probe.stage, probe.ok)}${
                 (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim() || (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim()
                   ? " AND ONE OF THEM HAS WHITESPACE AROUND IT — a password or username pasted with a trailing newline or a leading space looks correct everywhere and is refused by the server. Re-paste it with nothing before or after, and redeploy; that alone may be the whole fault."
-                  : " The stored username and password have no stray whitespace, so this is a genuinely wrong or expired credential rather than a paste that picked up a space."
+                  : (process.env.SMTP_USER || "").trim().toLowerCase() !== fromAddr.toLowerCase()
+                    ? " AND SMTP_USER IS A DIFFERENT MAILBOX FROM THE ONE THIS DEPLOYMENT SENDS AS. That is the more likely fault: check that mailbox exists at all before touching the password, because a login for a mailbox nobody created is refused at exactly this stage. Setting SMTP_USER to the send-as address, with THAT mailbox's own password, makes the login, the envelope and the From one address — which is the arrangement with the fewest ways to be wrong."
+                    : " SMTP_USER is the same mailbox this deployment sends as, and neither value has stray whitespace — so this is a genuinely wrong or expired password for a real mailbox. Reset it at the mail host; if the host offers app-specific passwords, use one, and check SMTP authentication is enabled for that mailbox and that repeated failures have not locked it."
               } (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
             : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")
       : !node
