@@ -15,11 +15,12 @@ if (typeof window !== "undefined") {
 // HTML produces a confident, entirely fictional report.
 
 import { detectRenderGap, classifyBlock, type RenderGap, type BlockVerdict } from "@/backend/render-gap";
+import { aiReadability } from "@/shared/ai-readability";
 import { blockedUrlReason, blockedAddressReason, MAX_REDIRECTS } from "@/shared/net-guard";
 
 export type Severity = "pass" | "warn" | "fail";
 export type Finding = {
-  area: "SEO" | "Technical" | "Mobile" | "Social" | "Content" | "Structured data";
+  area: "SEO" | "Technical" | "Mobile" | "Social" | "Content" | "Structured data" | "AI search";
   label: string;
   severity: Severity;
   detail: string;
@@ -254,6 +255,25 @@ export async function readCapped(res: Response, limit: number): Promise<string> 
   let at = 0;
   for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
   return decoder.decode(joined);
+}
+
+/**
+ * Fetch a small text file, returning its body.
+ *
+ * `exists()` below answers "is it there". robots.txt needs more than that now:
+ * whether it shuts the AI crawlers out is IN the body, and asking twice would be
+ * a second request for a question one request already answers.
+ */
+async function fetchText(url: string, timeoutMs = 7_000): Promise<{ ok: boolean; body: string }> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, method: "GET", headers: { "User-Agent": "MarketWarBot/1.0" } });
+    if (!res.ok) return { ok: false, body: "" };
+    // robots.txt is tiny by specification; a "robots.txt" that is a megabyte is
+    // not one, and reading it all would be the crawl's own denial of service.
+    return { ok: true, body: (await res.text()).slice(0, 100_000) };
+  } catch { return { ok: false, body: "" }; } finally { clearTimeout(t); }
 }
 
 async function exists(url: string, timeoutMs = 7_000): Promise<boolean> {
@@ -545,12 +565,14 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   // probes, so answering "can a customer reach this business" costs the crawl
   // no extra wall-clock beyond the slowest single request.
   const candidates = contactCandidates(html, origin, finalUrl);
-  const [robotsTxt, sitemapXml, altReachable, extraPages] = await Promise.all([
-    exists(`${origin}/robots.txt`),
+  const [robots, sitemapXml, altReachable, extraPages] = await Promise.all([
+    fetchText(`${origin}/robots.txt`),
     exists(`${origin}/sitemap.xml`),
     altHost ? exists(altHost) : Promise.resolve(true),
     Promise.all(candidates.map((u) => fetchPage(u, 8_000).catch(() => null))),
   ]);
+
+  const robotsTxt = robots.ok;
 
   // Every page actually read, the landing page first. The contact family is
   // answered from ALL of them; everything else stays a statement about the one
@@ -594,6 +616,25 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   add("Social", "Open Graph", Boolean(ogTitle && ogImage), 5, "Open Graph tags present (rich social previews).", "Missing Open Graph title/image — links share without a preview.", Boolean(ogTitle || ogImage));
   add("Social", "Twitter card", Boolean(twitterCard), 2, "Twitter card present.", "No Twitter card meta.", true);
   add("Structured data", "Schema.org", sdTypes.length > 0, 6, `Structured data present (${[...new Set(sdTypes)].slice(0, 5).join(", ")}).`, "No schema.org structured data — you miss rich results.", true);
+
+  // CAN AN ASSISTANT READ THIS PAGE AT ALL? — measured from the fetch already made.
+  //
+  // A site can rank perfectly in Google and be invisible when somebody asks an
+  // assistant "who does this near me", for reasons that have nothing to do with
+  // ranking: robots.txt naming the AI crawlers, a page that arrives empty and
+  // fills in with scripts, or nothing machine-readable saying what the page is.
+  //
+  // IT NEVER CLAIMS ANYBODY IS OR IS NOT BEING CITED. That needs asking the
+  // assistants, which costs real AI calls and belongs to the paid engines.
+  // "You are invisible to AI search", said from a robots.txt read, would be the
+  // fabricated claim this whole report exists not to print. The narrow question
+  // is answerable for nothing, so it is the one that gets answered.
+  //
+  // A block is a FAIL — nothing else matters if the fetch never happens. Missing
+  // structured data is a handicap rather than a wall, so it warns.
+  const aiRead = aiReadability({ robotsBody: robots.body, wordCount, hasStructuredData: sdTypes.length > 0 });
+  add("AI search", "AI crawler access", aiRead.readable && aiRead.hasStructuredData, 6,
+    aiRead.detail, aiRead.detail, aiRead.readable);
 
   // ---- the deeper set: what a local business is actually judged on ----
   // ---- the three questions about the BUSINESS, answered from every page read

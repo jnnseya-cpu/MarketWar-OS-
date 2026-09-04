@@ -27762,3 +27762,96 @@ test("a campaign that fails 104 times says WHY, once", async () => {
   assert.equal(sendFailureOf("something-new"), "unknown");
   assert.equal(sendFailureOf(undefined), "unknown");
 });
+
+// ---------------------------------------------------------------------------
+// AI CRAWLER ACCESS — a free, measured finding, and the false accusation it
+// would have been if robots.txt were pattern-matched instead of parsed.
+// ---------------------------------------------------------------------------
+test("robots.txt is PARSED, so a file that allows GPTBot is never reported as blocking it", async () => {
+  const { blockedAiCrawlers, aiReadability, AI_CRAWLERS } = await import("../src/shared/ai-readability.ts");
+  const names = (body) => blockedAiCrawlers(body).map((b) => b.name);
+
+  // THE FALSE ACCUSATION THIS EXISTS TO PREVENT. Searching for "gptbot" and
+  // "disallow" anywhere in the file flags a robots.txt that mentions GPTBot only
+  // to ALLOW it. This report is the thing the platform is sold on, and it has
+  // already shipped one accusation that was true of a page and false about a
+  // business — the owner knew it was wrong, and every correct finding beside it
+  // stopped counting too.
+  assert.deepEqual(names("User-agent: GPTBot\nAllow: /\n\nUser-agent: BadBot\nDisallow: /"), []);
+  assert.deepEqual(names(""), [], "a site with no robots.txt blocks nobody");
+  assert.deepEqual(names("# GPTBot disallow was discussed here\nUser-agent: *\nAllow: /"), [], "a comment is not a rule");
+
+  // A PARTIAL DISALLOW IS A DECISION, NOT AN ACCIDENT. Keeping a crawler out of
+  // /admin is sensible, and calling it "invisible to AI search" would be wrong.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: /admin"), []);
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow:"), [], "an empty Disallow is the explicit allow-everything");
+
+  // Real blocks are caught, including through the wildcard.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: /"), ["GPTBot"]);
+  assert.equal(names("User-agent: *\nDisallow: /").length, AI_CRAWLERS.length, "a site-wide block shuts out every one of them");
+  // THE LAST GROUP NAMING AN AGENT WINS — how "block everything, then re-allow
+  // one" is read correctly. Getting this backwards reports the opposite of the truth.
+  assert.ok(!names("User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nDisallow:").includes("GPTBot"));
+  // AND WHEN THE SAME AGENT IS NAMED TWICE, the later group is the live one.
+  // Mutation caught this: "any group with a site-wide disallow blocks it" passed
+  // every case above, because none of them named one agent in two groups.
+  assert.ok(!names("User-agent: GPTBot\nDisallow: /\n\nUser-agent: GPTBot\nDisallow:").includes("GPTBot"),
+    "a later group re-allowing this crawler was ignored");
+  assert.ok(names("User-agent: GPTBot\nDisallow:\n\nUser-agent: GPTBot\nDisallow: /").includes("GPTBot"),
+    "a later group blocking this crawler was ignored");
+
+  // A TRAILING COMMENT MUST NOT HIDE A REAL BLOCK. Without stripping, the value
+  // reads "/ # temporarily" rather than "/", and a genuinely blocked site is
+  // reported as open — the report saying nothing is wrong when something is.
+  assert.deepEqual(names("User-agent: GPTBot\nDisallow: / # temporarily, while we think about it"), ["GPTBot"]);
+
+  // GOOGLE-EXTENDED IS THE ONE PEOPLE BLOCK BY MISTAKE, so the sentence has to
+  // say what it actually costs: it does not touch Google ranking at all.
+  const ge = aiReadability({ robotsBody: "User-agent: Google-Extended\nDisallow: /", wordCount: 900, hasStructuredData: true });
+  assert.equal(ge.readable, false);
+  assert.match(ge.detail, /does not affect your Google ranking/);
+
+  // THE THREE VERDICTS MUST BE DIFFERENT SENTENCES ABOUT DIFFERENT PROBLEMS.
+  const blocked = aiReadability({ robotsBody: "User-agent: *\nDisallow: /", wordCount: 900, hasStructuredData: true });
+  const empty = aiReadability({ robotsBody: "", wordCount: 12, hasStructuredData: true });
+  const noSchema = aiReadability({ robotsBody: "", wordCount: 900, hasStructuredData: false });
+  const fine = aiReadability({ robotsBody: "", wordCount: 900, hasStructuredData: true });
+  assert.equal(new Set([blocked.detail, empty.detail, noSchema.detail, fine.detail]).size, 4);
+  assert.equal(blocked.readable, false);
+  assert.equal(empty.readable, false, "a page whose text arrives only with scripts is not readable by these crawlers");
+  assert.equal(noSchema.readable, true, "missing structured data is a handicap, not a wall");
+  assert.equal(fine.readable, true);
+
+  // AND IT MUST NEVER CLAIM CITATION. Saying "you are invisible to AI search"
+  // from a robots.txt read is the fabricated claim this whole report refuses to
+  // print — whether anybody is actually cited needs asking the assistants.
+  for (const v of [blocked, empty, noSchema, fine]) {
+    assert.doesNotMatch(v.detail, /\b\d+%|cited|citation|invisible\b/i,
+      `"${v.detail}" claims something no fetch can measure`);
+  }
+});
+
+test("the AI check is in the audit, free, and counted like every other", async () => {
+  const copy = await import("../src/shared/audit-copy.ts");
+  const entry = copy.AUDIT_COPY["AI crawler access"];
+  assert.ok(entry, "the check has no copy, so the report would print a bare label");
+  assert.equal(entry.area, "AI search");
+  assert.ok(copy.AUDIT_AREAS.includes("AI search"), "the area is missing from the catalogue order");
+  assert.ok(!entry.conditional, "it is measurable on every site, so it counts toward the promised number");
+
+  // THE SALES LINE IS UNDER THE PROBLEM IT SOLVES, and it is honest about the
+  // boundary: what is free is whether they CAN read it; whether you are actually
+  // cited costs AI calls and is inside.
+  assert.match(entry.ours, /not part of the free audit/, "the paid boundary must be stated where the reader meets it");
+  assert.match(entry.costs, /Google-Extended/, "the mistake people actually make must be named");
+
+  // No fabricated numbers, the rule the whole report is built on.
+  for (const field of [entry.costs, entry.fix, entry.ours]) {
+    assert.doesNotMatch(field, /\d+\s*%|[£$]\d/, "a percentage or a currency amount reached the audit copy");
+  }
+
+  // The crawler must actually produce it, or the count promises a check nobody runs.
+  const src = readFileSync("src/backend/crawler.ts", "utf8");
+  assert.match(codeOf(src), /add\("AI search", "AI crawler access"/, "the check is catalogued but never measured");
+  assert.match(codeOf(src), /aiReadability\(\{ robotsBody: robots\.body/, "the verdict must come from the real robots.txt body");
+});

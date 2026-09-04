@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,750 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,753 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -32,11 +32,14 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 
 ## 3. What works with NO keys at all — no provider, no card, no configuration
 
-- **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three WORST free, the
+- **The free website audit** (`/audit`) — a real crawl, **30 checks** (the count is DERIVED from
+  `AUDIT_COPY`, never typed), the three WORST free, the
   lead recorded as an inbound prospect. No account, no card; six adverts promise that and
   `npm run ads:verify` fails if it stops being true. Every failing finding carries what it costs
   and the fix (`shared/audit-copy.ts`). Refuses private and link-local destinations on every hop.
-  **Confirmed working on the live deployment 2026-09-03** — construxvg.com, 3 pages, 83/100.
+  **Confirmed live 09-03** — construxvg.com, 3 pages, 83→92/100. **§AI search (09-03):** "AI crawler
+  access" — robots.txt PARSED (not pattern-matched) for the ten crawlers feeding assistants, plus
+  text-in-HTML and structured data. Free; it never claims anybody IS cited — that costs AI calls.
 - **The client approval portal** — a signed, expiring link a client opens with no account.
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine**, the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice. Plus **eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
 - **Contact Hunter + Contact Finder** — find a business contact, or upload a list and have it filled in. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. **Confirmed / inferred / provider never convert**, and objections are permanent.
