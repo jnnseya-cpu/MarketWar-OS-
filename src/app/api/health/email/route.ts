@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
-import { publicSendFailure, operatorFix, smtpStageVerdict } from "@/shared/send-failure";
+import { publicSendFailure, operatorFix, smtpStageVerdict, redactSmtpLine, readSmtpRefusal } from "@/shared/send-failure";
 // THE DIAGNOSTIC MUST OUTLIVE THE THING IT DIAGNOSES.
 //
 // These three were static imports, and that made this endpoint useless in the
@@ -510,6 +510,19 @@ export async function GET(req: NextRequest) {
         //
         // A boolean, not the address. Both values are ours and neither is printed.
         smtpUserIsTheFromAddress: (process.env.SMTP_USER || "").trim().toLowerCase() === fromAddr.toLowerCase(),
+        // THE SERVER'S OWN WORDS, WITH THE NAMES TAKEN OUT.
+        //
+        // `535 5.7.8 authentication failed`, `535 Incorrect authentication
+        // data` and `550 SMTP is disabled for this account` are the same stage
+        // and three different actions — and all of it was behind a sign-in.
+        // The owner reset a password twice because the line that would have
+        // separated them was unreadable to them. A diagnostic only its author
+        // can read is not a diagnostic.
+        //
+        // The mail host, the account and any IP are stripped; a status code and
+        // the server's sentence about itself are evidence, not identity.
+        serverSaid: redactSmtpLine(probe?.detail),
+        ...(readSmtpRefusal(probe?.detail) ? { whatThatMeans: readSmtpRefusal(probe?.detail) } : {}),
       } : {}),
     }),
     // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
