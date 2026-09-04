@@ -24555,12 +24555,58 @@ test("the email health report withholds recipients and the mail host from strang
   }
   assert.ok(spreads.length >= 3, `expected several privileged-only groups, found ${spreads.length}`);
 
-  for (const field of ["recentSends", "activeNode", "vars", "envelopeSender", "dnsCheck", "probe"]) {
+  for (const field of ["recentSends", "activeNode", "vars", "envelopeSender", "dnsCheck"]) {
     const at = new RegExp(`\\b${field}\\b`).exec(report)?.index ?? -1;
     assert.notEqual(at, -1, `${field} has been renamed — re-check that it is still gated`);
     assert.ok(spreads.some(([from, to]) => at > from && at < to),
       `${field} is outside every privileged-only group — it is exposed to an unauthenticated caller`);
   }
+
+  // THE PROBE, SPLIT — AND THE SPLIT IS THE POINT.
+  //
+  // The whole probe object stays gated: `detail` is the mail server's own line,
+  // which can carry the host, the account and the reasoning, and `envelopeTested`
+  // is two real mailbox addresses.
+  //
+  // Two scalars are deliberately outside it: `probeReachedStage` (which SMTP verb
+  // was refused — "auth-pass", "rcpt-to") and `probeSucceeded`. Neither names a
+  // person, a mailbox or a machine; they name a protocol step. They are public
+  // because gating them was a dead end: the audit told the owner "the mail server
+  // refused the message", the reason lived only in this probe, and reaching it
+  // required a sign-in that was itself broken. A control that can only be read by
+  // someone who is not locked out is not a control anybody uses.
+  //
+  // This is an EXCEPTION WITH A NAME, so widening it further trips this test.
+  const probeField = /\bprobe,/.exec(report)?.index ?? -1;
+  assert.notEqual(probeField, -1, "the full probe object has been renamed — re-check that it is still gated");
+  assert.ok(spreads.some(([from, to]) => probeField > from && probeField < to),
+    "the full probe object is exposed — it carries the server's own line and two real mailboxes");
+
+  // The signed-out group, by brace matching — the same discipline as above. A
+  // looser slice sweeps in the PRIVILEGED verdict branches, which legitimately
+  // read probe.detail, and then reports a leak that is not there. (It did.)
+  const openAt = report.indexOf("...(privileged ? {} : {");
+  assert.notEqual(openAt, -1, "the signed-out group has been restructured — re-check by hand");
+  let depth = 0, end = report.indexOf("{", openAt + "...(privileged ? {}".length);
+  for (; end < report.length; end++) {
+    if (report[end] === "{") depth += 1;
+    else if (report[end] === "}") { depth -= 1; if (depth === 0) break; }
+  }
+  // STRING LITERALS ARE STRIPPED FIRST. The `restricted:` sentence explains that
+  // "the mail host" is withheld — prose about a field, not the field. Scanning the
+  // raw text flags that as a leak, which is a check failing for a reason unrelated
+  // to what it tests, in the middle of a test written to catch exactly that.
+  const signedOut = report.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const leak of ["detail", "envelopeTested", "node.user", "node?.user", "host"]) {
+    assert.ok(!signedOut.includes(leak), `"${leak}" reaches a signed-out caller — that names a machine or a mailbox`);
+  }
+
+  // And the signed-out VERDICT may read only the two scalars, through the shared
+  // copy function. Interpolating probe.detail there would leak the server's line
+  // just as surely as putting it in the object.
+  const signedOutVerdict = report.slice(report.indexOf("verdict: !privileged"), report.indexOf(": !node"));
+  assert.match(signedOutVerdict, /smtpStageVerdict\(probe\.stage, probe\.ok\)/, "the signed-out verdict must go through the shared, name-free copy");
+  assert.ok(!signedOutVerdict.includes("detail"), "the signed-out verdict must not interpolate the server's own line");
 
   // THE DIAGNOSTIC HALF MUST SURVIVE, or closing the leak has broken the reason
   // the endpoint exists: a deployment that cannot load its own mail code should
@@ -27215,4 +27261,46 @@ test("the diagnostic does not report a correct refusal as a problem", async () =
     "an expected status must be its own outcome");
   assert.match(code, /const allGood = done && broken\.length === 0 && refused\.length === 0;/,
     "expected refusals must NOT stop the page reporting a healthy platform");
+});
+
+test("the SMTP stage is sayable signed out, and names a different fix each time", async () => {
+  // THE DEAD END THIS ENDS. The audit told the owner "the mail server refused the
+  // message" — correct for a stranger, useless to the person who can fix it. The
+  // reason existed in /api/health/email's live probe and was behind a
+  // platform-admin session, on a platform where signing in was itself broken.
+  const { smtpStageVerdict } = await import("../src/shared/send-failure.ts");
+
+  // Every stage must map to a DIFFERENT instruction. A diagnostic where two
+  // causes read the same is a diagnostic that has not diagnosed anything.
+  const stages = ["connect", "starttls", "auth-pass", "mail-from", "rcpt-to"];
+  const said = stages.map((s) => smtpStageVerdict(s, false));
+  assert.equal(new Set(said).size, stages.length, "two stages produce the same sentence — they need different fixes");
+  for (const [i, s] of said.entries()) {
+    assert.match(s, /^NOT SENDING/, `${stages[i]} must say plainly that nothing is going out`);
+    assert.ok(s.length > 80, `${stages[i]} is too terse to act on`);
+  }
+
+  // The password stage is the common one and must name the per-mailbox trap.
+  assert.match(smtpStageVerdict("auth-pass", false), /per mailbox, not per domain/);
+  // Connect must say what has NOT been tested, or the reader checks the password
+  // for an hour when the port is wrong.
+  assert.match(smtpStageVerdict("connect", false), /has been tested yet/);
+  // Success must not be reported as a configuration pass when it is a delivery
+  // question — "authenticated" is not "arrived".
+  assert.match(smtpStageVerdict("rcpt-to", true), /^SENDING/);
+  assert.match(smtpStageVerdict("rcpt-to", true), /SPF, DKIM, DMARC/);
+
+  // AND IT MUST NEVER CARRY A NAME. The whole reason this was gated is that the
+  // server's line can hold the mail host, the account and the recipient.
+  for (const s of [...said, smtpStageVerdict(null, false), smtpStageVerdict("x", true)]) {
+    assert.doesNotMatch(s, /@/, "a stage verdict must never contain an address");
+  }
+
+  // The route must actually use it signed out, and must still withhold the rest.
+  const route = readFileSync("src/app/api/health/email/route.ts", "utf8");
+  assert.match(route, /probeReachedStage: probe\?\.stage/, "the stage must be reported to a signed-out caller");
+  assert.match(route, /smtpStageVerdict\(probe\.stage, probe\.ok\)/, "the signed-out verdict must be derived from the stage");
+  // The things that DO name people stay gated — asserted in full by
+  // "the email health report withholds recipients and the mail host from strangers".
+  assert.match(route, /\.\.\.\(privileged \? \{/, "the privileged-only groups must still exist");
 });
