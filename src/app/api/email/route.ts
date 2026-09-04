@@ -3,6 +3,8 @@ import { emailConfigured, emailIsConfigured, filterList, sendEmail, sendEmailBat
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
+import { sendFailureOf, publicSendFailure, operatorFix, type SendFailure } from "@/shared/send-failure";
+import { hasScope } from "@/shared/roles";
 
 // M-34 email engine API.
 // POST { action: "validate", emails: string[] }  → hygiene verdicts
@@ -285,6 +287,19 @@ export async function POST(req: NextRequest) {
     const byEmail = new Map(eligible.map((c) => [(c.email as string).toLowerCase(), c]));
 
     let sent = 0, failed = 0;
+    // WHY THEY FAILED, NOT JUST HOW MANY.
+    //
+    // REPORTED FROM THE LIVE PLATFORM: "0 sent · 104 failed · 104 attempted".
+    // `sendEmail` returns a CATEGORY for every one of those 104 — a refused
+    // password, a suppressed address, a paused account, a crash — and this route
+    // counted them and threw the reason away. 104 identical failures with no
+    // cause is the same boundary defect this codebase keeps producing, in the
+    // one module the business depends on, multiplied by a hundred.
+    //
+    // Counting by category matters more than a sample: 104 `provider` failures
+    // are ONE fault with one fix, while 104 `hygiene` failures are a list
+    // problem and 104 `crashed` are ours. Identical counts, opposite actions.
+    const byFailure = new Map<SendFailure, number>();
     // Addresses nothing was even attempted for, because this deployment has no
     // sending server. Kept apart from `failed` so the two are never added up.
     let notConfigured = 0;
@@ -340,6 +355,8 @@ export async function POST(req: NextRequest) {
         notConfigured++;
       } else {
         failed++; if (failures.length < 10) failures.push(to);
+        const cat = sendFailureOf(r.failure);
+        byFailure.set(cat, (byFailure.get(cat) ?? 0) + 1);
         // Permanent failure (5xx at RCPT/DATA, or hygiene reject) → suppress now
         // so it's never retried. Async bounces arrive via /api/webhooks/email.
         if (/\b5\d\d\b/.test(r.detail || "") || r.failure === "hygiene") {
@@ -356,10 +373,29 @@ export async function POST(req: NextRequest) {
     // or the customer thinks the campaign finished when most of it never went.
     const notReached = batch.length - attempted - notConfigured;
     const live = emailIsConfigured();
+
+    // The dominant category, because that is the one fix that moves the number.
+    const ranked = [...byFailure.entries()].sort((a, b) => b[1] - a[1]);
+    const worst = ranked[0];
+    // The operator's remedy names environment variables and an internal
+    // diagnostic — our infrastructure, not this brand's. A tenant gets the
+    // sentence about their send; the person who can fix the deployment gets the
+    // instruction. Read off the role already verified above rather than
+    // re-verifying the token.
+    const isOperator = Boolean(access.role && hasScope(access.role, "platform_admin"));
+    const failureBreakdown = Object.fromEntries(ranked);
+
     return NextResponse.json({
       mode: live ? "live" : "demo",
       vaultTotal: contacts.length, consented: consented.length, sendable: sendable.length,
       attempted, sent, failed, failures,
+      // WHY, in the same breath as HOW MANY.
+      ...(worst ? {
+        failureReason: worst[0],
+        failureBreakdown,
+        failureNote: `${worst[1]} of ${failed} failed because ${publicSendFailure(worst[0])}.`,
+        ...(isOperator ? { operatorFix: operatorFix(worst[0]) } : {}),
+      } : {}),
       // Reported separately and never folded into `failed` — these addresses are
       // still perfectly sendable the moment a sending server exists.
       notConfigured,
@@ -372,7 +408,7 @@ export async function POST(req: NextRequest) {
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: live
-        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
+        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set MW_SENDING_POOL (or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then run this again and they all still go.`,
     });
   }

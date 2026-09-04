@@ -27711,3 +27711,54 @@ test("the live enrichment probe is gated, and names a route forward when it refu
   assert.match(code, /loadModule\(/, "the engines must load inside the guard");
   assert.match(code, /jsonRoute\(/);
 });
+
+test("a campaign that fails 104 times says WHY, once", async () => {
+  // REPORTED FROM THE LIVE PLATFORM: "0 sent · 104 failed · 104 attempted".
+  // sendEmail returns a CATEGORY for every one of those 104 — a refused password,
+  // a suppressed address, a paused account, a crash — and the route counted them
+  // and threw the reason away. That is this codebase's oldest defect, in the one
+  // module the business depends on, multiplied by a hundred.
+  const src = readFileSync("src/app/api/email/route.ts", "utf8");
+  const code = codeOf(src);
+
+  assert.match(code, /const cat = sendFailureOf\(r\.failure\)/, "the category must be read from what the send actually returned");
+  assert.match(code, /byFailure\.set\(cat/, "failures must be counted BY CATEGORY");
+  // COUNTING BY CATEGORY IS THE POINT, not a sample. 104 `provider` failures are
+  // one fault with one fix; 104 `hygiene` are a list problem; 104 `crashed` are
+  // ours. Identical counts, opposite actions.
+  assert.match(code, /failureReason:/, "the dominant category must reach the response");
+  assert.match(code, /failureBreakdown/, "the split must be reported — one big cause and a long tail need different work");
+  assert.match(code, /publicSendFailure\(worst\[0\]\)/, "the sentence must come from the shared copy, not a second wording");
+
+  // THE OPERATOR'S REMEDY NAMES OUR INFRASTRUCTURE, NOT THE TENANT'S. A brand
+  // sending its own campaign gets the sentence about its send; only somebody who
+  // can change the deployment gets told which environment variable to set.
+  assert.match(code, /isOperator = Boolean\(access\.role && hasScope\(access\.role, "platform_admin"\)\)/,
+    "the operator check must read the role already verified for this brand, not re-verify a token");
+  assert.match(code, /isOperator \? \{ operatorFix/, "the operator remedy must be gated");
+
+  // AND IT MUST BE IN THE SENTENCE A HUMAN READS, not only a field. A field
+  // nobody renders is a field nobody reads — which is how the reason reached the
+  // browser and was dropped one line before it could be seen, twice before.
+  // SCOPED TO THE NOTE ITSELF. The first version of this assertion matched
+  // anywhere in the file — and `failureNote` contains the same words, so deleting
+  // the reason from the human sentence left it green. A check that passes because
+  // some OTHER line matched is the second recurring defect in this codebase, and
+  // it survived a mutation here before being caught by one.
+  const noteStart = code.indexOf("note: live");
+  assert.notEqual(noteStart, -1, "the note has been restructured — re-check by hand");
+  const humanNote = code.slice(noteStart, code.indexOf("Nothing was sent", noteStart));
+  assert.match(humanNote, /publicSendFailure\(worst\[0\]\)/,
+    "the sentence a human reads does not carry the reason — a field nobody renders is a field nobody reads");
+  assert.match(humanNote, /isOperator \?/, "the operator remedy must be gated inside the note too");
+
+  // Drive the real shared copy: every category must give a different instruction.
+  const { publicSendFailure, operatorFix, sendFailureOf } = await import("../src/shared/send-failure.ts");
+  const cats = ["provider", "hygiene", "not_configured", "halted", "crashed"];
+  assert.equal(new Set(cats.map(publicSendFailure)).size, cats.length, "two categories read the same to a customer");
+  assert.equal(new Set(cats.map(operatorFix)).size, cats.length, "two categories give the operator the same instruction");
+  // An unrecognised value must degrade to `unknown`, never to a confident wrong
+  // category — the send path THREW and classified nothing is a real state.
+  assert.equal(sendFailureOf("something-new"), "unknown");
+  assert.equal(sendFailureOf(undefined), "unknown");
+});
