@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
-import { publicSendFailure, operatorFix } from "@/shared/send-failure";
+import { publicSendFailure, operatorFix, smtpStageVerdict } from "@/shared/send-failure";
 // THE DIAGNOSTIC MUST OUTLIVE THE THING IT DIAGNOSES.
 //
 // These three were static imports, and that made this endpoint useless in the
@@ -471,6 +471,12 @@ export async function GET(req: NextRequest) {
     poolNodes: pool.length,
     ...(privileged ? {} : {
       restricted: "Signed out, so the recipients, the mail host, the account username, the environment-variable shapes and the DNS answers are withheld. Sign in as a platform admin, or call this with the scheduler bearer, for the full report.",
+      // THE STAGE, WITHOUT THE NAMES. Which SMTP verb was refused is a protocol
+      // step, not anybody's data — and it is the single fact that turns "the mail
+      // server refused the message" into a fix. Withholding it sent the owner to
+      // a sign-in that was itself broken.
+      probeReachedStage: probe?.stage ?? null,
+      probeSucceeded: probe?.ok ?? null,
     }),
     // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
     // and the login; `recentSends` carries other people's email addresses; the
@@ -516,7 +522,11 @@ export async function GET(req: NextRequest) {
     // The verdict NAMES ADDRESSES — the envelope pair it tested, the relay's own
     // words. Signed out, the answer is the yes/no without the specifics.
     verdict: !privileged
-      ? (emailIsConfigured() ? "A sending provider is configured. Sign in as a platform admin for the live probe and the reason." : "NOT SENDING — no sending provider is configured on this deployment.")
+      ? (!emailIsConfigured()
+          ? "NOT SENDING — no sending provider is configured on this deployment."
+          : probe
+            ? `${smtpStageVerdict(probe.stage, probe.ok)} (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
+            : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")
       : !node
       ? missing.length
         ? `NOT SENDING. Missing or empty: ${missing.join(", ")}. All three are required — host, user AND password.`

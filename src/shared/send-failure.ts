@@ -89,3 +89,39 @@ export function operatorFix(raw: unknown): string {
       return "Open /api/health/email for a live check of the sending path.";
   }
 }
+
+// WHICH SMTP VERB WAS REFUSED — SAYABLE WITHOUT NAMING ANYBODY.
+//
+// THE DEAD END THIS ENDS. The free audit told the owner "the mail server refused
+// the message", which is the right sentence for a stranger and useless to the
+// person who can fix it. `/api/health/email` HAS the answer — it opens a real
+// SMTP connection and records the exact stage — but the whole probe is behind a
+// platform-admin session, so the one line that mattered was reachable only by
+// signing in, on a platform where signing in was itself broken.
+//
+// The STAGE is not a secret. It is which verb the server refused, and every one
+// of them maps to a different fault with a different fix. The server's own words,
+// the mail host, the account username and the recipient stay gated exactly as
+// they were — those name people and machines. This names a protocol step.
+export function smtpStageVerdict(stage: string | null | undefined, ok: boolean): string {
+  if (ok) return "SENDING. The server authenticated and accepted an envelope just now, so configuration is not the problem — if mail still does not arrive the cause is delivery (SPF, DKIM, DMARC or the receiving side).";
+  switch ((stage || "").trim()) {
+    case "connect":
+      return "NOT SENDING — the connection never opened. The host or port is wrong, or the host blocks outbound SMTP. Nothing about the password or the addresses has been tested yet.";
+    case "ehlo":
+    case "starttls":
+      return "NOT SENDING — the connection opened but the TLS handshake failed. This is a port/encryption mismatch: 465 needs implicit TLS, 587 needs STARTTLS.";
+    case "auth":
+    case "auth-user":
+    case "auth-pass":
+      return "NOT SENDING — THE SERVER REFUSED THE PASSWORD. The mailbox in SMTP_USER and the password in SMTP_PASS do not match. Mailbox passwords are per mailbox, not per domain, so if SMTP_USER was changed recently SMTP_PASS has to be that mailbox's own password. Many hosts also require an app-specific password rather than the login one.";
+    case "mail-from":
+      return "NOT SENDING — the password was accepted and the server then refused the SENDER address. EMAIL_FROM must be an address this relay is allowed to send as.";
+    case "rcpt-to":
+      return "NOT SENDING — the password was accepted and the server then refused the RECIPIENT. A relay that authenticates you and rejects RCPT TO is usually restricted to its own domain.";
+    case "mail-from-fallback":
+      return "SENDING, but only as the visible From address — the envelope sender was refused. Set MW_BOUNCE_ADDRESS to a mailbox this relay accepts, or bounces will go nowhere.";
+    default:
+      return "NOT SENDING — the probe did not reach a recognised stage. Sign in as a platform admin for the server's own words.";
+  }
+}

@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,742 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,743 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -23,21 +23,20 @@ file-by-file, never by merge, verified on main's own `npm ci`.
 
 **Customers acquired: 0. Messages sent to prospects: 0.**
 
-Everything below is subordinate to that. `/dashboard/acquisition` holds the count
-and states the cause from the counts alone; with nothing sent, the diagnosis is not
-the product or the price. **See §5.1: mail still sends nothing — the sending path is
-throwing, and the next deploy will name what.**
+Everything below is subordinate to that. `/dashboard/acquisition` holds the count and states the
+cause from the counts alone; with nothing sent, the diagnosis is not the product or the price.
+**See §5.1: the send now RUNS and the mail host refuses it — `/api/health/email` names the stage.**
 
 `GO-TO-MARKET-MarketWar-OS.docx` is the plan; `FACEBOOK-LAUNCH-CAMPAIGN.docx` is the
 paste-ready first campaign. Both parse their prices out of `src/`.
 
 ## 3. What works with NO keys at all — no provider, no card, no configuration
 
-- **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three WORST free,
-  the lead recorded as an inbound prospect. No account, no card; six adverts promise that and
-  `npm run ads:verify` fails if it stops being true. Every failing finding carries what it
-  costs and the fix (`shared/audit-copy.ts`), and the page SHOWS the catalogue. It refuses
-  private and link-local destinations on every hop — it would have read cloud metadata.
+- **The free website audit** (`/audit`) — a real crawl, **29 checks**, the three WORST free, the
+  lead recorded as an inbound prospect. No account, no card; six adverts promise that and
+  `npm run ads:verify` fails if it stops being true. Every failing finding carries what it costs
+  and the fix (`shared/audit-copy.ts`). Refuses private and link-local destinations on every hop.
+  **Confirmed working on the live deployment 2026-09-03** — construxvg.com, 3 pages, 83/100.
 - **The client approval portal** — a signed, expiring link an outside client opens with no account; **the screen recorder puts the presenter IN the file.**
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine** and the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice.
 - **Eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
@@ -80,45 +79,45 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 because it already recurred once and the pin that "fixed" it the first time did not hold.**
 
 **0. FOUND AND FIXED — `require(esm)`, THE SAME PAIR THAT TOOK PRODUCTION DOWN ON 08-29
-(2026-09-03).** `/diagnose` printed it from the owner's browser, verbatim: *"@/backend/capabilities
-failed to load: require() of ES Module /var/task/node_modules/jose/dist/webapi/index.js from
-/var/task/node_modules/jwks-rsa/src/utils.js not supported."*
-`firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM). `require()` of an ESM package
-works only on Node ≥ 22.12, so it ran perfectly on a 22.22 laptop and died at MODULE LOAD on the
-host. Every route importing it answered Next's HTML page; only `/api/health/live` survived,
-because it loads its modules inside a catch.
+(2026-09-03).** `/diagnose` printed it from the owner's browser: *"@/backend/capabilities failed to
+load: require() of ES Module .../jose/dist/webapi/index.js from .../jwks-rsa/src/utils.js not
+supported."* `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM); `require()` of an ESM
+package works only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on the
+host. Every route importing it answered Next's HTML page; only `/api/health/live` survived, because
+it loads its modules inside a catch.
 **The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it stayed green all through this outage and would only have gone red on the repair.
-**The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node and
-the host's choice stops mattering. jwks-rsa uses only `importJWK` and `exportSPKI`, both present
-in 5.x. Proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a real signature
-with the PEM it returns — necessary, because jwks-rsa does `catch { continue }`, so a broken jose
-returns NO KEYS silently and every sign-in fails "kid not found". The regression test itself was
+**The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node. jwks-rsa
+uses only `importJWK` and `exportSPKI`, both present in 5.x. Proved by driving `retrieveSigningKeys`
+on a real RSA JWK and verifying a real signature with the PEM it returns — necessary, because
+jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS silently and every sign-in
+fails "kid not found". The regression test itself was
 proved by reinstalling jose 6 and watching it go red.
 `/api/health/live` now reports `runtime.node` and `canRequireEsm`, because at no point in either
 outage could anyone see which Node was running without opening the host's dashboard.
 **Confirmed fixed on the deployment**: `/diagnose` reads 200 / 200, with the two 403s (no session) and the 400 (no address) the probes are SUPPOSED to get. Those three now show green with their reason — the page had announced them as findings on a healthy platform, and a diagnostic that cries wolf gets ignored, which is worse than none.
 
-**1. MAIL SENDS NOTHING; THE SENDING PATH IS *THROWING* (2026-08-28).** Every `ok:false` path
-in `sendEmail` carries a category, so the audit route reaching its `catch` means the send THREW
-and classified nothing — reported as `unknown`, which implies the mail settings are the cause.
-They are not. A `crashed` category now says so, and `/api/health/email` loads the sending
-modules dynamically so a LOAD failure is the verdict rather than a second 500. Ruled out with
-evidence: the renderer, `getPool()`'s JSON parse, `resolveSender`. **To close:** run one audit
-with an address. Still owed: `EMAIL_FROM` = `MarketWar OS <info@marketwaros.com>`. **Do NOT
-change `SMTP_USER`** — verified 08-27: `appuser@` logs in, `info@` is the From, SPF/DMARC align.
+**1. MAIL: THE SEND NOW RUNS AND THE SERVER REFUSES IT (2026-09-03).** The free audit completed
+end to end on a real site (construxvg.com, 3 pages, 29 checks, 83/100) and closed with *"the mail
+server refused the message"* — the `provider` category. That is PROGRESS: the path used to THROW
+and classify nothing, so a classified refusal means the sending code runs and the mail host said
+no. **The stage was the answer and it sat behind a sign-in that was itself broken**, so
+`/api/health/email` now reports `probeReachedStage` and a name-free verdict to a SIGNED-OUT caller
+(`auth-pass` = wrong password, `rcpt-to` = relay restricted, `connect` = wrong port). The server's
+own line, the mail host, the account and the recipients stay gated — proved by brace-matched
+containment and two leak mutations. **To close:** read `probeReachedStage`. Still owed:
+`EMAIL_FROM` = `MarketWar OS <info@marketwaros.com>`. **Do NOT change `SMTP_USER`** (verified 08-27).
 
-**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the
-wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the
-app serves `www.`. **To close:** `/api/health/stripe`.
+**1b. Why the categories mean what they do (08-28).** Every `ok:false` path in `sendEmail` carries a category, so a route reaching its `catch` meant the send THREW and classified nothing — reported as `unknown`, implying the mail settings were the cause. A `crashed` category now says otherwise, and `/api/health/email` loads its modules dynamically so a LOAD failure is the verdict rather than a second 500.
 
-**3. NEXT 15 IS LANDED — confirm it in production.** `npm audit` went 11 advisories / 5 high →
-6 moderate / 0 high; `/verify-human` re-tested end to end. **To close:** one real signup.
+**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
+
+**3. NEXT 15 IS LANDED — confirm it in production.** `npm audit` went 11 advisories / 5 high → 6 moderate / 0 high. **To close:** one real signup, which was impossible until today.
 
 **CLOSED THIS WEEK — one line each; detail is in `REQUIREMENTS-COVERAGE.md`.**
 
 - **Production ran Node 20** (08-29) — the first half of §5.0; the pin alone did not hold.
 - **A production 500 was the middleware** (08-28) — no error handling before every route, so any throw in the gate was site-wide. Fails OPEN now; `hmacKey` had memoised a REJECTED promise.
-- **A rate limit I added darkened the War Room** (08-28) — the API floor applies only to UNATTRIBUTABLE requests, ceiling 600; three panels separate "could not ask" from "no key".
+- **A rate limit I added darkened the War Room** (08-28) — the floor applies only to UNATTRIBUTABLE requests, ceiling 600.
 - **91 of 133 env variables were invisible** (08-29) — `shared/env-catalogue.ts` is the one registry (110 entries); `/api/health/live` reports all. **14 still missing.**
 - **The free audit is limited to personal use** (08-29) — 10 per site, 3 sites, 15 per 90 days,
   unlimited when paid; keyed on the registrable domain, IP never stored. It also scores SEO across
@@ -154,15 +153,15 @@ and sharp up to the versions used everywhere else.
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWENTY-SIX. Newest (2026-09-03): a route's engine was imported STATICALLY, so its load failure
-happened outside every catch in the process and the reason never crossed into any response —
-`/api/capabilities` knew exactly why it could not start and the browser got a rendered HTML page.
-Loads now happen inside the handler, through `loadModule`. Before it: the browser held, in the
-response headers of every failed call, the name of the machine that answered — `cf-ray`, `cf-mitigated`, `x-vercel-id`,
-`x-vercel-error` — and nothing carried it across to the person reading the screen. They got
-`Unexpected token '<'`, which names no machine, so three redeploys went into fixing the app
-when the evidence for whether the app was even reached was sitting on the response the whole
-time. `shared/response-origin.ts` reads it; `/diagnose` prints it. Before it: the codebase read
+TWENTY-SEVEN. Newest (2026-09-03): the SMTP probe knew which verb the mail host refused and the
+whole probe was gated, so the audit could only say "the mail server refused the message" and the
+reason was reachable solely by signing in — on a platform where signing in was broken. Before it: a
+route's engine was imported STATICALLY, so its load failure happened outside every catch and
+`/api/capabilities` knew why it could not start while the browser got an HTML page; loads now go
+through `loadModule`. Before that: the headers of every failed call named the machine that answered
+— `cf-ray`, `x-vercel-id`, `x-vercel-error` — and nothing carried it to the person reading the
+screen, so three redeploys went into fixing the app when the evidence of whether it was even
+reached sat on the response. `shared/response-origin.ts` reads it; `/diagnose` prints it. Before it: the codebase read
 133 environment variables and the diagnostic knew 35; `sendEmail` knew why a send failed and the
 caller reported `unknown`; the render sent a prompt and a duration and NO aspect ratio, so every
 portrait placement came back landscape; `meterAction` exempted staff while the video queue took a
@@ -200,11 +199,9 @@ department table with STEMS inside `\b(...)\b`, so Chief Financial Officer match
 
 **A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public by the same test: it only reports which machine answered its own requests.
 
-**AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused fetch by asserting a key was missing; "could not ask" and "no key" need different actions.
+**AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** Three answered a refused fetch by asserting a key was missing.
 
-**A test that passes is not evidence until something has broken it.** Drive the real handler and
-assert on a value only the real path can produce. SEVEN tests have failed on their own comments —
-strip comments before scanning. A counter a no-op leaves unchanged proves nothing.
+**A test that passes is not evidence until something has broken it.** Drive the real handler and assert on a value only the real path can produce. SEVEN tests have failed on their own comments, and one on a STRING LITERAL — the prose "the mail host is withheld" read as the field leaking. Strip comments AND literals before scanning.
 
 ## 7. Rules that outrank preference
 
