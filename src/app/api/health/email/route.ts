@@ -297,8 +297,9 @@ export async function GET(req: NextRequest) {
     // total silence while every check passes.
     //
     // Guessing is not the way to settle that. `&from=` sends the same message
-    // with a different From so the two can be compared: if <appuser@…> arrives
-    // and <info@…> does not, the From header is the answer and no further
+    // with a different From so the two can be compared: if the login's own
+    // address arrives and the configured From does not, the From header is the
+    // answer and no further
     // theorising is needed. Restricted to the sending account or an address on
     // its own domain, so this cannot be used to forge a sender.
     const askedFrom = (req.nextUrl.searchParams.get("from") || "").trim().toLowerCase();

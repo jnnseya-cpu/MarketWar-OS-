@@ -37,17 +37,11 @@ paste-ready first campaign. Both parse their prices out of `src/`.
   `npm run ads:verify` fails if it stops being true. Every failing finding carries what it costs
   and the fix (`shared/audit-copy.ts`). Refuses private and link-local destinations on every hop.
   **Confirmed working on the live deployment 2026-09-03** — construxvg.com, 3 pages, 83/100.
-- **The client approval portal** — a signed, expiring link an outside client opens with no account; **the screen recorder puts the presenter IN the file.**
-- **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine** and the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice.
-- **Eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
+- **The client approval portal** — a signed, expiring link a client opens with no account.
+- **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine**, the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice. Plus **eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
 - **Contact Hunter + Contact Finder** — find a business contact, or upload a list and have it filled in. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. **Confirmed / inferred / provider never convert**, and objections are permanent.
-- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong
-  is REFUSED before a penny moves: words in the frame, more actions than the length holds, nothing
-  to render. Shape is a PARAMETER — nothing sent one, so every portrait placement came back wide.
-- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died
-  on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit
-  is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the
-  provider's words and offers NO remedy, because inventing one IS the defect.
+- **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. Shape is a PARAMETER; nothing sent one, so every portrait placement came back wide.
+- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the provider's words and offers NO remedy, because inventing one IS the defect.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked by
   `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A refund
   returns what was TAKEN, so an exempt render cannot mint ACUs. No caller ≠ exempt.
@@ -88,10 +82,9 @@ it loads its modules inside a catch.
 **The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it stayed green all through this outage and would only have gone red on the repair.
 **The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node. jwks-rsa
 uses only `importJWK` and `exportSPKI`, both present in 5.x. Proved by driving `retrieveSigningKeys`
-on a real RSA JWK and verifying a real signature with the PEM it returns — necessary, because
+on a real RSA JWK and verifying a real signature with the PEM it returns — necessary because
 jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS silently and every sign-in
-fails "kid not found". The regression test itself was
-proved by reinstalling jose 6 and watching it go red.
+fails "kid not found". The regression test was proved by reinstalling jose 6 and watching it go red.
 `/api/health/live` now reports `runtime.node` and `canRequireEsm`, because at no point in either
 outage could anyone see which Node was running without opening the host's dashboard.
 **Confirmed fixed on the deployment**: `/diagnose` reads 200 / 200, with the two 403s (no session) and the 400 (no address) the probes are SUPPOSED to get. Those three now show green with their reason — the page had announced them as findings on a healthy platform, and a diagnostic that cries wolf gets ignored, which is worse than none.
@@ -105,9 +98,15 @@ no. **The stage was the answer and it sat behind a sign-in that was itself broke
 (`auth-pass` = wrong password, `rcpt-to` = relay restricted, `connect` = wrong port). The server's
 own line, the mail host, the account and the recipients stay gated — proved by brace-matched
 containment and two leak mutations. **To close:** read `probeReachedStage`. Still owed:
-`EMAIL_FROM` = `MarketWar OS <info@marketwaros.com>`. **Do NOT change `SMTP_USER`** (verified 08-27).
-
-**1b. Why the categories mean what they do (08-28).** Every `ok:false` path in `sendEmail` carries a category, so a route reaching its `catch` meant the send THREW and classified nothing — reported as `unknown`, implying the mail settings were the cause. A `crashed` category now says otherwise, and `/api/health/email` loads its modules dynamically so a LOAD failure is the verdict rather than a second 500.
+`EMAIL_FROM` = `MarketWar OS <info@marketwaros.com>`.
+**CORRECTED 09-03 — THIS REVERSES THE 08-27 INSTRUCTION THAT STOOD HERE.** It read "do NOT change
+`SMTP_USER`", on a note claiming `appuser@marketwaros.com` had been verified to log in. The owner
+confirms **that inbox was never created**; the domain has one mailbox, `info@`. The live probe
+agrees — stage `auth-pass`, a relay refusing a login for a mailbox that does not exist. A note
+saying a mailbox was verified is not a mailbox; only the relay's answer is evidence. **Set
+`SMTP_USER` = `info@marketwaros.com`, `SMTP_PASS` = that mailbox's own password.** Login, envelope
+and From are then all `info@` — the strongest arrangement `sender-identity.ts` supports: `aligned`
+true, no `Sender:` header (no arrangement to declare), bounces to the one inbox that exists.
 
 **2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 
@@ -165,8 +164,10 @@ reached sat on the response. `shared/response-origin.ts` reads it; `/diagnose` p
 133 environment variables and the diagnostic knew 35; `sendEmail` knew why a send failed and the
 caller reported `unknown`; the render sent a prompt and a duration and NO aspect ratio, so every
 portrait placement came back landscape; `meterAction` exempted staff while the video queue took a
-wallet id, not a caller. Worst: a message whose login, envelope sender and From were three
-mailboxes, one invented in source and never created. The rest: `REQUIREMENTS-COVERAGE.md`.
+wallet id, not a caller. Worst — and it got worse on 09-03: a message whose login, envelope sender
+and From were three
+mailboxes, ALL THREE of which turned out to be invented — the login `appuser@` was recorded as
+"the mailbox that actually exists" and never existed either. The rest: `REQUIREMENTS-COVERAGE.md`.
 
 **ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT
 BEFORE THE THIRD GUESS.** Node 20 was diagnosed in one line of `moduleErrors` after a day inferring
