@@ -201,3 +201,58 @@ export function isRecipientRejection(detail: unknown): boolean {
   if (codes.some((c) => NOT_THE_RECIPIENT.includes(c))) return false;
   return codes.some((c) => RECIPIENT_REJECTION.includes(c));
 }
+
+// THE SERVER'S OWN WORDS, WITH THE NAMES TAKEN OUT.
+//
+// WHY THIS EXISTS. `/api/health/email` opens a real SMTP connection and captures
+// the exact line the server refused with — `535 5.7.8 Error: authentication
+// failed`, or `535 Incorrect authentication data`, or `550 SMTP is disabled for
+// this account`. Those three sentences carry the same stage and demand three
+// completely different actions, and the whole of it was gated behind a
+// platform-admin session.
+//
+// The owner spent a day being told to reset a password, twice, because the one
+// fact that would have separated "wrong password" from "SMTP turned off for this
+// mailbox" from "locked out after too many attempts" was unreadable to them. A
+// diagnostic only its author can read is not a diagnostic.
+//
+// WHAT IS WITHHELD, AND IT IS ONLY WHAT NAMES SOMEBODY. The line can carry the
+// mail host and the account. Both are stripped. What is left is a status code
+// and a sentence written by the mail server about the mail server, which is
+// exactly the evidence and none of the identity.
+export function redactSmtpLine(line: unknown): string {
+  let text = typeof line === "string" ? line : "";
+  if (!text.trim()) return "";
+  // Any mailbox — the account we logged in as, or an envelope address.
+  text = text.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "«address»");
+  // Any hostname. Deliberately broad: a mail host is often the giveaway even
+  // when no address appears, and losing a hostname costs the reader nothing.
+  text = text.replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|uk|de|fr|es|it|nl|pl|ru|info|biz|me|dev|app|mail|email)\b/gi, "«host»");
+  // Bare IPv4, for servers that name themselves that way.
+  text = text.replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "«ip»");
+  // A URL a server offers for help is safe and useful, but it may carry a host,
+  // so it has already been reduced above; collapse whitespace and bound it.
+  return text.replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+/**
+ * What the server's refusal actually means, when its words are specific enough
+ * to say. Returns "" when they are not — an invented reading is worse than none.
+ */
+export function readSmtpRefusal(line: unknown): string {
+  const t = (typeof line === "string" ? line : "").toLowerCase();
+  if (!t.trim()) return "";
+  if (/disabled|not enabled|not allowed|forbidden|smtp access/.test(t)) {
+    return "The server says SMTP sending is DISABLED or not permitted for this mailbox — that is a setting at the mail host, not a wrong password. Turn SMTP on for this account, or ask the host to.";
+  }
+  if (/too many|rate|throttl|try again later|temporarily (?:locked|blocked|suspended)|lockout/.test(t)) {
+    return "The server says this account is temporarily blocked, usually after repeated failed logins. The password may already be correct. Wait, then check again before changing anything.";
+  }
+  if (/app[- ]?(?:specific )?password|two[- ]?factor|2fa/.test(t)) {
+    return "The server is asking for an app-specific password rather than the mailbox login. Create one at the mail host and use that.";
+  }
+  if (/incorrect|invalid|failed|not accepted|bad/.test(t) && /auth|credential|password|login/.test(t)) {
+    return "The server says the credential itself is wrong for this mailbox. If it was just reset, make sure the change was saved on the host AND that the deployment was rebuilt after it.";
+  }
+  return "";
+}

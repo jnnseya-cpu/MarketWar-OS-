@@ -24641,7 +24641,23 @@ test("the email health report withholds recipients and the mail host from strang
   // "the mail host" is withheld — prose about a field, not the field. Scanning the
   // raw text flags that as a leak, which is a check failing for a reason unrelated
   // to what it tests, in the middle of a test written to catch exactly that.
-  const signedOut = report.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  let signedOut = report.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+
+  // THE ONE EXCEPTION, WITH ITS NAME ON IT. The server's refusal line IS served
+  // to a signed-out caller — but only through `redactSmtpLine`, which strips
+  // every address, hostname and IP and leaves the status code and the server's
+  // own sentence. That distinction is the whole reason the owner spent a day
+  // resetting a password: `535 authentication failed`, `535 incorrect data` and
+  // `550 SMTP disabled for this account` are three different actions, and all
+  // three were unreadable to the person who had to act on them.
+  //
+  // The RAW detail is still forbidden. Removing the redaction, or serving
+  // `probe.detail` directly, trips the loop below exactly as before.
+  assert.match(signedOut, /serverSaid: redactSmtpLine\(probe\?\.detail\)/,
+    "the refusal must be served, and only ever through the redactor");
+  signedOut = signedOut.split("redactSmtpLine(probe?.detail)").join("«redacted»")
+    .split("readSmtpRefusal(probe?.detail)").join("«reading»");
+
   for (const leak of ["detail", "envelopeTested", "node.user", "node?.user", "host"]) {
     assert.ok(!signedOut.includes(leak), `"${leak}" reaches a signed-out caller — that names a machine or a mailbox`);
   }
@@ -27953,4 +27969,60 @@ test("a batch failure carries its category instead of arriving as 'unknown'", as
   assert.equal(sendFailureOf("provider"), "provider");
   assert.notEqual(publicSendFailure("provider"), publicSendFailure(undefined));
   assert.match(publicSendFailure("provider"), /refused/);
+});
+
+test("the server's refusal is readable without a sign-in, and names nobody", async () => {
+  // THE DAY THIS COST. `535 5.7.8 authentication failed`, `535 Incorrect
+  // authentication data` and `550 SMTP is disabled for this account` are the same
+  // probe stage and three completely different actions. All of it sat behind a
+  // platform-admin session, so the owner reset a mailbox password twice on advice
+  // that could not tell those apart. A diagnostic only its author can read is not
+  // a diagnostic.
+  const { redactSmtpLine, readSmtpRefusal } = await import("../src/shared/send-failure.ts");
+
+  // IDENTITY OUT, EVIDENCE IN.
+  const line = 'Server rejected at "auth-pass": 535 5.7.8 Error: authentication failed for info@marketwaros.com on smtp.hostinger.com (192.0.2.10)';
+  const safe = redactSmtpLine(line);
+  // THE WHOLE MAILBOX, NOT JUST ITS DOMAIN. Mutation found this: deleting the
+  // address rule still passed, because the HOST rule happened to strip
+  // `marketwaros.com` and left `info@` — the account name, in a line that says
+  // its password was refused. Asserting on the full address measured the wrong
+  // rule.
+  assert.doesNotMatch(safe, /info@/, "the account's local part leaked");
+  assert.doesNotMatch(safe, /marketwaros/, "the account domain leaked");
+  assert.doesNotMatch(safe, /hostinger/, "the mail host leaked");
+  assert.doesNotMatch(safe, /192\.0\.2\.10/, "the server address leaked");
+  assert.match(safe, /535/, "the status code is the evidence and must survive");
+  assert.match(safe, /authentication failed/, "the server's own words must survive");
+  assert.equal(redactSmtpLine(""), "");
+  assert.equal(redactSmtpLine(undefined), "");
+
+  // THREE REFUSALS, THREE DIFFERENT ACTIONS — the whole point.
+  const disabled = readSmtpRefusal("550 SMTP access is disabled for this account");
+  const locked = readSmtpRefusal("454 4.7.0 Too many failed attempts, account temporarily locked");
+  const wrong = readSmtpRefusal("535 5.7.8 Incorrect authentication data");
+  const app = readSmtpRefusal("535 Please use an app-specific password");
+  assert.equal(new Set([disabled, locked, wrong, app]).size, 4, "two refusals gave the same instruction");
+  assert.match(disabled, /not a wrong password/, "the setting case must stop somebody resetting a password again");
+  assert.match(locked, /may already be correct/, "a lockout must stop the reset loop, not restart it");
+  assert.match(app, /app-specific/);
+
+  // AND IT MUST NOT INVENT A READING. A line it cannot interpret returns
+  // nothing, rather than a confident sentence pointing somewhere wrong — which
+  // is what sent the owner to the mail host twice.
+  assert.equal(readSmtpRefusal("535 5.7.8 xyzzy"), "", "an uninterpretable line produced a confident reading");
+  assert.equal(readSmtpRefusal(""), "");
+
+  // Reported to a SIGNED-OUT caller, because being locked out of the diagnostic
+  // was the actual failure.
+  const route = codeOf(readFileSync("src/app/api/health/email/route.ts", "utf8"));
+  const openAt = route.indexOf("...(privileged ? {} : {");
+  let depth = 0, end = route.indexOf("{", openAt + "...(privileged ? {}".length);
+  for (; end < route.length; end++) {
+    if (route[end] === "{") depth += 1;
+    else if (route[end] === "}") { depth -= 1; if (depth === 0) break; }
+  }
+  const signedOut = route.slice(openAt, end);
+  assert.match(signedOut, /serverSaid: redactSmtpLine\(probe\?\.detail\)/, "the refusal must reach a signed-out caller");
+  assert.doesNotMatch(signedOut, /serverSaid: probe\?\.detail/, "the raw line must never be served unredacted");
 });
