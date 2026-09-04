@@ -42,6 +42,22 @@ export type WarfareInput = {
   budget: number; // total campaign budget (major currency unit)
   location: string; // where
   offer?: string; // promotion/offer (optional — the engine proposes if blank)
+  /**
+   * A real end date for the offer, in the customer's own words.
+   *
+   * THE FAULT THIS FIELD EXISTS TO END. "Deadline is real" was scored from
+   * whether the OFFER text happened to contain a word like "today" or "ends" —
+   * and no field anywhere asked for a deadline. So the readiness check scored 0
+   * and the verdict said "Fill in: deadline is real", pointing at a box that did
+   * not exist. Being told to supply something with nowhere to supply it is the
+   * platform blaming somebody for its own omission.
+   *
+   * Optional, and it must stay optional: the driver text says "leave it out
+   * rather than inventing one — a fake deadline is noticed", and that advice is
+   * right. A check may report an input as ABSENT; it may not demand one nobody
+   * was offered.
+   */
+  deadline?: string;
   currency?: string; // ISO code for money surfaces (default GBP)
   autonomy?: 1 | 2 | 3; // requested autonomy level (default 1)
 };
@@ -448,7 +464,7 @@ function buildDistribution(input: WarfareInput, obj: Objective, payloads: Payloa
 export type CampaignScore = {
   composite: number;
   verdict: string;
-  dimensions: { name: string; score: number; driver: string }[];
+  dimensions: { name: string; score: number; driver: string; optional?: boolean }[];
   honesty: string;
 };
 
@@ -461,7 +477,9 @@ function scoreCampaign(input: WarfareInput, v: Vertical, offer: ScoredOffer, obj
   // It is now what it always actually was: a READINESS CHECK on the brief. Each
   // line is a fact about what was supplied, phrased as a fact. Nothing here
   // predicts performance, because nothing here can.
-  const hasUrgency = URGENCY_RE.test(input.offer || "");
+  // Read from the field that ASKS for it, and still from the offer text, so a
+  // brief written before the field existed scores exactly as it did.
+  const hasUrgency = (input.deadline || "").trim().length > 2 || URGENCY_RE.test(input.offer || "");
   const specificAudience = SPECIFIC_AUDIENCE_RE.test(input.audience || "") || (input.audience || "").trim().length > 20;
   const specificLocation = (input.location || "").trim().length > 2;
   const hasOffer = (input.offer || "").trim().length > 2;
@@ -493,7 +511,13 @@ function scoreCampaign(input: WarfareInput, v: Vertical, offer: ScoredOffer, obj
     },
     {
       name: "Deadline is real", score: hasUrgency ? 100 : 0,
-      driver: hasUrgency ? "A genuine time-box is present." : "None given. Leave it out rather than inventing one — a fake deadline is noticed.",
+      // OPTIONAL, AND THE WORDING HAS TO SAY SO. The old text told the reader to
+      // leave it out and the verdict above told them to fill it in — two
+      // instructions, opposite directions, about a box that did not exist.
+      optional: true,
+      driver: hasUrgency
+        ? `A genuine time-box is present${(input.deadline || "").trim() ? `: “${(input.deadline || "").trim().slice(0, 60)}”` : "."}`
+        : "Not set, and that is a fine answer — a deadline you will not honour is noticed. Add one in the Deadline box only if it is real.",
     },
     {
       name: "Budget covers a test", score: budget >= 100 ? 100 : 0,
@@ -505,10 +529,17 @@ function scoreCampaign(input: WarfareInput, v: Vertical, offer: ScoredOffer, obj
 
   const ready = dimensions.filter((d) => d.score === 100).length;
   const composite = Math.round((ready / dimensions.length) * 100);
-  const missing = dimensions.filter((d) => d.score === 0);
+  // AN OPTIONAL INPUT IS NEVER SOMETHING TO "FILL IN".
+  //
+  // The verdict used to list every zero, so a brief that had deliberately left
+  // out a deadline — on this engine's own advice — was told to go and supply
+  // one. Optional lines still show their score, because leaving them out IS
+  // information, but they never appear in an instruction.
+  const missing = dimensions.filter((d) => d.score === 0 && !d.optional);
+  const optionalGaps = dimensions.filter((d) => d.score === 0 && d.optional);
 
   const verdict = missing.length === 0
-    ? `Brief complete — all ${dimensions.length} inputs present. What happens next depends on the market, not on this checklist.`
+    ? `Every required input is present${optionalGaps.length ? `. Optional and not set: ${optionalGaps.map((d) => d.name.toLowerCase()).join(", ")} — leaving those out is a valid choice` : ` — all ${dimensions.length}`}. What happens next depends on the market, not on this checklist.`
     : `${ready} of ${dimensions.length} inputs ready. Fill in: ${missing.map((d) => d.name.toLowerCase()).join(", ")}.`;
 
   return {

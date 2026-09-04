@@ -33,6 +33,10 @@ async function POSTImpl(req: NextRequest) {
     budget: typeof body.budget === "number" ? body.budget : Number(body.budget) || 0,
     location: str("location"),
     offer: str("offer") || undefined,
+    // Carried, or the box the form now shows would be typed into and dropped
+    // one layer down — this codebase's oldest defect, in the same feature that
+    // just demonstrated it.
+    deadline: str("deadline") || undefined,
     currency: str("currency") || undefined,
     autonomy: body.autonomy === 2 || body.autonomy === 3 ? (body.autonomy as 2 | 3) : 1,
   };

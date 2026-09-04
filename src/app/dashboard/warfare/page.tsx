@@ -40,6 +40,7 @@ export default function WarfarePage() {
   const [form, setForm] = useState({
     product: "",
     audience: "",
+    deadline: "",
     result: "",
     budget: 600,
     location: "",
@@ -98,11 +99,28 @@ export default function WarfarePage() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">What do you sell?</label><input className="input" value={form.product} onChange={set("product")} /></div>
-          <div><label className="label">Who do you want?</label><input className="input" value={form.audience} onChange={set("audience")} /></div>
+          {/* THE HINT GOES BEFORE THE JUDGEMENT, NOT AFTER IT. The readiness check
+              scores this 0 for being too broad and only then explains what
+              "specific" means — telling somebody they got it wrong using a rule
+              they were never shown. */}
+          <div>
+            <label className="label">Who do you want?</label>
+            <input className="input" value={form.audience} onChange={set("audience")} placeholder="UK construction project managers — not just “businesses”" />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Name a group you could write a sentence to. “Businesses” cannot be written to; “UK construction project managers” can.</p>
+          </div>
           <div><label className="label">What result?</label><input className="input" value={form.result} onChange={set("result")} /></div>
           <div><label className="label">Location</label><input className="input" value={form.location} onChange={set("location")} /></div>
           <div><label className="label">Budget</label><input className="input" type="number" value={form.budget} onChange={set("budget")} /></div>
           <div><label className="label">Promotion / offer (optional)</label><input className="input" value={form.offer} onChange={set("offer")} /></div>
+          {/* THE BOX THE READINESS CHECK WAS ALREADY SCORING.
+              "Deadline is real" was read out of the offer text, and nothing
+              anywhere asked for a deadline — so the verdict said "Fill in:
+              deadline is real" and pointed at nothing. */}
+          <div>
+            <label className="label">Deadline (optional)</label>
+            <input className="input" value={form.deadline} onChange={set("deadline")} placeholder="e.g. Friday 12th, or leave blank" />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Only if it is real. Leaving this blank is a valid answer and is not counted against you — a deadline you do not honour is noticed.</p>
+          </div>
           <div>
             <label className="label">Autonomy level</label>
             <select className="input" value={form.autonomy} onChange={set("autonomy")}>

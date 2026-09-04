@@ -28026,3 +28026,81 @@ test("the server's refusal is readable without a sign-in, and names nobody", asy
   assert.match(signedOut, /serverSaid: redactSmtpLine\(probe\?\.detail\)/, "the refusal must reach a signed-out caller");
   assert.doesNotMatch(signedOut, /serverSaid: probe\?\.detail/, "the raw line must never be served unredacted");
 });
+
+// ---------------------------------------------------------------------------
+// A CHECK MAY NOT SCORE AN INPUT THE FORM NEVER ASKED FOR.
+//
+// Reported from the live platform: "5 of 7 inputs ready. Fill in: audience is
+// specific, deadline is real." There was no deadline box anywhere — urgency was
+// read out of whatever the offer text happened to say — so the platform told
+// somebody to supply a thing it had never offered a place for, and marked them
+// down for not doing it. Worse, the same panel's own advice was "leave it out
+// rather than inventing one": two instructions, opposite directions, about a
+// field that did not exist.
+// ---------------------------------------------------------------------------
+test("every readiness dimension maps to a field the form actually collects", async () => {
+  const { designCampaign } = await import("../src/backend/warfare.ts");
+  const form = readFileSync("src/app/dashboard/warfare/page.tsx", "utf8");
+
+  const res = designCampaign({ product: "Event tickets", audience: "UK event organisers", result: "leads", budget: 600, location: "United Kingdom" });
+  const names = res.campaignScore.dimensions.map((d) => d.name);
+
+  // Each scored dimension has to be answerable. Named explicitly rather than
+  // derived, so adding a dimension without a box fails here rather than in
+  // production, in front of a customer.
+  const FIELD_FOR = {
+    "Product is described": "product",
+    "Audience is specific": "audience",
+    "Location is set": "location",
+    "Offer is stated": "offer",
+    "Deadline is real": "deadline",
+    "Budget covers a test": "budget",
+    // Computed from the offer against the margin floor — nothing for the user
+    // to type, and it never asks them to.
+    "Offer protects margin": null,
+  };
+  for (const name of names) {
+    assert.ok(name in FIELD_FOR, `"${name}" is scored but no field is recorded for it — add one, or add it here deliberately`);
+    const field = FIELD_FOR[name];
+    if (!field) continue;
+    assert.match(form, new RegExp(`set\\("${field}"\\)`),
+      `"${name}" is scored but the form has no ${field} input — the reader is marked down for a box they were never shown`);
+  }
+
+  // THE VERDICT MUST NEVER TELL SOMEBODY TO FILL IN AN OPTIONAL INPUT.
+  const noDeadline = res.campaignScore.dimensions.find((d) => d.name === "Deadline is real");
+  assert.equal(noDeadline.score, 0, "this brief has no deadline, so the check should say so");
+  assert.equal(noDeadline.optional, true, "an input the engine advises leaving out must be marked optional");
+  assert.doesNotMatch(res.campaignScore.verdict, /fill in:[^.]*deadline/i,
+    "the verdict demanded a deadline the engine itself says to leave out unless real");
+  assert.match(noDeadline.driver, /valid|fine answer/i, "leaving it out must read as a choice, not a failure");
+
+  // A REQUIRED gap is still demanded, or the check stops doing its job.
+  const vague = designCampaign({ product: "Tickets", audience: "", result: "leads", budget: 600, location: "United Kingdom" });
+  assert.match(vague.campaignScore.verdict, /fill in:[^.]*audience/i, "a genuinely missing required input must still be named");
+
+  // And a supplied deadline is read from the field, not only from the offer text.
+  const withDeadline = designCampaign({ product: "Tickets", audience: "UK event organisers", result: "leads", budget: 600, location: "United Kingdom", deadline: "Friday 12th" });
+  const set = withDeadline.campaignScore.dimensions.find((d) => d.name === "Deadline is real");
+  assert.equal(set.score, 100, "the deadline box was filled in and ignored");
+  assert.match(set.driver, /Friday 12th/, "the value must be echoed so the reader can see what was read");
+
+  // The old behaviour survives: a deadline inside the offer text still counts.
+  const inOffer = designCampaign({ product: "Tickets", audience: "UK event organisers", result: "leads", budget: 600, location: "United Kingdom", offer: "20% off — ends this week" });
+  assert.equal(inOffer.campaignScore.dimensions.find((d) => d.name === "Deadline is real").score, 100);
+
+  // The route must carry the field, or the box is typed into and dropped one
+  // layer down — this codebase's oldest defect, in the feature that just
+  // demonstrated it.
+  assert.match(readFileSync("src/app/api/warfare/route.ts", "utf8"), /deadline: str\("deadline"\)/);
+});
+
+test("the audience rule is shown before it is used to mark somebody down", () => {
+  // The check scores this 0 for being "too broad" and only THEN explains what
+  // specific means. Telling somebody they got it wrong by a rule they were never
+  // shown is the same discourtesy as demanding a field that does not exist.
+  const form = readFileSync("src/app/dashboard/warfare/page.tsx", "utf8");
+  const audienceBlock = form.slice(form.indexOf('set("audience")') - 400, form.indexOf('set("audience")') + 500);
+  assert.match(audienceBlock, /placeholder=/, "the audience input gives no example of what good looks like");
+  assert.match(audienceBlock, /businesses/i, "the rule that decides the score is not shown beside the box");
+});
