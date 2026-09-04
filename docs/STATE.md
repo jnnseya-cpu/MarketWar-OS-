@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,743 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,748 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM
@@ -41,17 +41,18 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 - **The command bar** (Cmd/Ctrl-K), the **ad canvas**, all **pricing and margin arithmetic**, the **paid-media guardrails**, the **payout engine**, the **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel, never posts twice. Plus **eight pre-publish checks**, **channel health**, **versions and restore**, **creative fatigue**, **the audit log**, **teams**, **Sentinel**, **13 articles**.
 - **Contact Hunter + Contact Finder** — find a business contact, or upload a list and have it filled in. On `lead-harvest`'s 12 checks and UK/EU/US lawful basis, CALLED not copied. **Confirmed / inferred / provider never convert**, and objections are permanent.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. Shape is a PARAMETER; nothing sent one, so every portrait placement came back wide.
-- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the provider's words and offers NO remedy, because inventing one IS the defect.
-- **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked by
-  `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A refund
-  returns what was TAKEN, so an exempt render cannot mint ACUs. No caller ≠ exempt.
+- **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — a render died on `429 insufficient_quota` and we said "confirm your model access"; the account was empty. Credit is read before rate limit (both 429, opposite remedies). An unrecognised refusal keeps the provider's words and offers NO remedy. Hunter's refusals follow the same rule: an empty balance, a rate limit and a bad key give three different sentences, and none of them marks an address invalid.
+- **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — one rule, `wallet.meteringExempt`, asked by `meterAction` AND by the `spendAcus` the video queue, gateway and SEO autopilot use. A refund returns what was TAKEN, so an exempt render cannot mint ACUs.
 - **The provider waterfall** — one name and company through every supplier in COST order inside
   14s. Free first; **only calls that ran AND returned are charged**. Three scores, never one.
-- **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED
-  third party's expense, so publishing needs a register entry or two failing sources.
-- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how
-  much next. Against the brand's own median, never a constant; refuses to promote without
-  conversion tracking; never spends.
+  **Hunter is the first PAID adapter (09-03)** — email finder plus a real mailbox verifier, `order: 2`
+  so a credit is spent only on what the free sources missed, `costAcu` derived from `USD_TO_GBP ×
+  ACU_PER_GBP` and charged at 2×. Every address is `provenance: "provider"` even when Hunter cites a
+  source — `confirmed` means WE read the page. **Its mapping is REASONED, not observed** (no network
+  to api.hunter.io here), so `node scripts/check-hunter.mjs` proves it live; a test fails if that
+  script stops exercising all four endpoints.
+- **Market Exit Capture** — a closed firm's demand sent to one that trades. Wrong at a NAMED third party's expense, so publishing needs a register entry or two failing sources.
+- **§50 the paid-boost ladder** (`shared/boost-ladder.ts`) — which post earns a budget, and how much next. Against the brand's own median, never a constant; refuses to promote without conversion tracking; never spends.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (2026-08-26). Landing stats, plan prices/ACUs, 39 agent cards, answer pages — twelve tests. **What broke was always what somebody TYPED**, worst a 4.0x ROAS rule where the guardrail says 3.
 

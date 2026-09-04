@@ -23157,13 +23157,34 @@ test("the adapters that exist are real, and the ones that do not are stated rath
 
   // A STUB THAT HAS NEVER RUN IS WORSE THAN AN ABSENCE — it looks like coverage
   // in a review, passes a type check, and fails the first time somebody pays.
-  assert.ok(NOT_IMPLEMENTED.length >= 3, "the suppliers we do NOT have are not stated");
+  assert.ok(NOT_IMPLEMENTED.length >= 2, "the suppliers we do NOT have are not stated");
   for (const p of NOT_IMPLEMENTED) {
     assert.ok(p.needs && p.wouldProvide, `${p.id} is listed without saying what it needs or would add`);
   }
+  assert.ok(!NOT_IMPLEMENTED.some((p) => p.id === "hunter"), "hunter is implemented now — listing it as absent is the stale-doc defect");
+
+  // THE GUARD THAT USED TO STAND HERE, AND WHAT REPLACED IT.
+  //
+  // It read: no adapter may reference api.hunter.io, because "an adapter written
+  // against an API that has never been called from here" is worse than an
+  // absence. That was right, and the reasoning still holds — the adapter now
+  // exists and the environment it was written in CANNOT REACH api.hunter.io, so
+  // its field mapping is reasoned from Hunter's documentation, not observed.
+  //
+  // Deleting the guard would quietly convert "unverified" into "verified". So it
+  // becomes a different obligation: an adapter for an unreachable API must ship
+  // with the script that proves it, and that script must say plainly what it
+  // costs to run, because it spends real credits.
   const src = readFileSync(new URL("../src/backend/enrichment-adapters.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(codeOf(src), /api\.hunter\.io|api\.peopledatalabs\.com/,
+  assert.doesNotMatch(codeOf(src), /api\.peopledatalabs\.com/,
     "an adapter was written against an API that has never been called from here");
+  const probe = readFileSync(new URL("../scripts/check-hunter.mjs", import.meta.url), "utf8");
+  assert.match(probe, /api\.hunter\.io\/v2\/\$\{path\}/, "the probe must call the real API, not a fixture");
+  for (const endpoint of ["domain-search", "email-finder", "email-verifier", "account"]) {
+    assert.ok(probe.includes(`"${endpoint}"`), `the probe does not exercise ${endpoint}, so that mapping stays unverified`);
+  }
+  assert.match(probe, /spends real credits|SPENDS REAL CREDITS/i, "a script that costs money must say so before it is run");
+  assert.match(probe, /split\(key\)\.join/, "the probe must be incapable of printing the key");
 });
 
 test("the waterfall is reachable, metered and suppression-checked — not a module nobody can call", () => {
@@ -27398,4 +27419,163 @@ test("a refused login separates the two causes, and names neither mailbox", asyn
   for (const leak of ["fromAddr,", "SMTP_USER,", "process.env.SMTP_USER }", "user:"]) {
     assert.ok(!signedOut.includes(leak), `"${leak}" would put an address in the signed-out answer`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// THE HUNTER ADAPTER — the first paid supplier in the waterfall.
+//
+// These drive the REAL adapter with `fetch` replaced, so the mapping is
+// executed rather than read. What they cannot do is prove Hunter's field NAMES,
+// because this environment cannot reach api.hunter.io — that is what
+// `scripts/check-hunter.mjs` is for, and the test above enforces that it exists.
+// ---------------------------------------------------------------------------
+test("the Hunter adapter maps a domain search into people and emails, honestly", async () => {
+  const { hunter } = await import("../src/backend/enrichment-adapters.ts");
+  const realFetch = globalThis.fetch;
+  process.env.HUNTER_API_KEY = "test-key";
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    data: {
+      domain: "acme.co.uk", organization: "Acme Ltd", pattern: "{first}.{last}",
+      emails: [
+        { value: "jane.doe@acme.co.uk", first_name: "Jane", last_name: "Doe", position: "Operations Director",
+          sources: [{ uri: "https://acme.co.uk/team" }] },
+        // A GENERIC MAILBOX WITH NO HUMAN BEHIND IT. It is a real address and
+        // NOT a person — inventing "Info" from the local part is the exact
+        // fabrication this platform refuses.
+        { value: "info@acme.co.uk", first_name: null, last_name: null, position: null, sources: [] },
+      ],
+    },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const people = await hunter.findPeople({ domain: "acme.co.uk" }, new AbortController().signal);
+    assert.equal(people.length, 1, "the generic mailbox was turned into a person");
+    assert.equal(people[0].fullName, "Jane Doe");
+    assert.equal(people[0].jobTitle, "Operations Director");
+    assert.equal(people[0].company, "Acme Ltd", "the organisation Hunter named was dropped");
+    assert.equal(people[0].sourceUrl, "https://acme.co.uk/team", "the citation must travel so a human can check it");
+
+    const emails = await hunter.findEmails({ domain: "acme.co.uk" }, new AbortController().signal);
+    assert.equal(emails.length, 2, "the generic mailbox IS an email, even though it is not a person");
+    // THE LINE THAT MATTERS MOST IN THIS FILE. Hunter says where it saw the
+    // address, and promoting that to "confirmed" is tempting and wrong:
+    // `confirmed` means WE fetched the page and read it. The three provenances
+    // never convert into one another.
+    for (const e of emails) {
+      assert.equal(e.provenance, "provider", "a supplier's assertion was promoted to a published fact");
+    }
+    assert.equal(emails[0].pattern, "{first}.{last}", "the firm's convention is evidence and should travel");
+
+    // THE NAMED PATH IS A DIFFERENT ENDPOINT AND WAS UNTESTED. Mutation caught
+    // it: flipping the email-finder branch to `confirmed` passed every
+    // assertion above, because those only ever exercised domain-search. A
+    // provenance rule enforced on one of two paths is not enforced.
+    let asked = "";
+    globalThis.fetch = async (url) => {
+      asked = String(url);
+      return new Response(JSON.stringify({
+        data: { email: "jane.doe@acme.co.uk", score: 94, sources: [{ uri: "https://acme.co.uk/about" }] },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const found = await hunter.findEmails(
+      { domain: "acme.co.uk", firstName: "Jane", lastName: "Doe" },
+      new AbortController().signal,
+    );
+    assert.equal(found.length, 1);
+    assert.equal(found[0].value, "jane.doe@acme.co.uk");
+    assert.equal(found[0].provenance, "provider", "the named path promoted a supplier assertion to a published fact");
+    assert.equal(found[0].sourceUrl, "https://acme.co.uk/about");
+    // A name makes this the narrow, cheaper question. Asking domain-search when
+    // email-finder would do spends the same credit for a worse answer.
+    assert.match(asked, /email-finder/, "the adapter asked the broad question when it had a name");
+    assert.doesNotMatch(asked, /domain-search/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.HUNTER_API_KEY;
+  }
+});
+
+test("the Hunter verifier never turns 'could not ask' into 'invalid'", async () => {
+  const { hunter, hunterErrorNote } = await import("../src/backend/enrichment-adapters.ts");
+  const realFetch = globalThis.fetch;
+  process.env.HUNTER_API_KEY = "test-key";
+  const reply = (body, status = 200) => { globalThis.fetch = async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }); };
+  const sig = () => new AbortController().signal;
+
+  try {
+    reply({ data: { status: "valid", score: 97, accept_all: false } });
+    let v = await hunter.verifyEmail("a@b.com", sig());
+    assert.equal(v.deliverable, true); assert.equal(v.invalid, false);
+
+    reply({ data: { status: "invalid", score: 0, accept_all: false } });
+    v = await hunter.verifyEmail("a@b.com", sig());
+    assert.equal(v.deliverable, false); assert.equal(v.invalid, true);
+
+    // A CATCH-ALL DOMAIN IS AN UNKNOWN, NOT A PASS. Reporting it deliverable is
+    // how a bounce rate climbs quietly.
+    reply({ data: { status: "accept_all", score: 50, accept_all: true } });
+    v = await hunter.verifyEmail("a@b.com", sig());
+    assert.equal(v.deliverable, null); assert.equal(v.catchAll, true); assert.equal(v.invalid, false);
+
+    // AND THE ONE THAT WOULD DELETE A REAL CONTACT. An empty balance, a rate
+    // limit or a dropped connection must never read as "this address is fake" —
+    // that is this codebase's "a panel must not blame the owner for its own
+    // failed request", in a place where the cost is a customer's data.
+    for (const [body, status] of [
+      [{ errors: [{ id: "usage_exceeded", details: "You have reached your quota" }] }, 402],
+      [{ errors: [{ id: "too_many_requests", details: "Slow down" }] }, 429],
+      [{ errors: [{ id: "wrong_auth", details: "Invalid API key" }] }, 401],
+    ]) {
+      reply(body, status);
+      v = await hunter.verifyEmail("a@b.com", sig());
+      assert.equal(v.invalid, false, `HTTP ${status} was reported as an invalid address`);
+      assert.equal(v.deliverable, null, `HTTP ${status} produced a verdict it had no evidence for`);
+      assert.ok(v.why.length > 20, `HTTP ${status} gave no reason`);
+    }
+
+    // A network failure is not a refusal either.
+    globalThis.fetch = async () => { throw new Error("ECONNRESET"); };
+    v = await hunter.verifyEmail("a@b.com", sig());
+    assert.equal(v.invalid, false);
+    assert.match(v.why, /Nothing was charged/, "a failed call must say it was not billed");
+
+    // Each refusal names a DIFFERENT remedy — a key, a balance and a rate limit
+    // need three different actions and had one sentence between them.
+    const notes = [401, 402, 429].map((st, i) =>
+      hunterErrorNote(st, { errors: [{ id: ["wrong_auth", "usage_exceeded", "too_many_requests"][i] }] }));
+    assert.equal(new Set(notes).size, 3, "two provider failures produce the same sentence");
+    assert.match(notes[0], /HUNTER_API_KEY/);
+    assert.match(notes[1], /credits/);
+    assert.match(notes[2], /Nothing was charged/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.HUNTER_API_KEY;
+  }
+});
+
+test("Hunter costs money, so it runs last and stays dark without a key", async () => {
+  const { hunter, marketwarWeb, companiesHouse } = await import("../src/backend/enrichment-adapters.ts");
+  delete process.env.HUNTER_API_KEY;
+
+  // FREE SOURCES FIRST is the product decision the whole waterfall is built on.
+  assert.ok(hunter.order > marketwarWeb.order && hunter.order > companiesHouse.order,
+    "a paid credit would be spent before the free evidence had been exhausted");
+  assert.ok(hunter.costAcu > 0, "a paid provider priced at zero is one the wallet cannot govern");
+  // The owner's floor is applied by the route at exactly 2x this number, so an
+  // understated cost silently breaches it.
+  const { USD_TO_GBP, ACU_PER_GBP } = await import("../src/shared/creative.ts");
+  assert.equal(hunter.costAcu, Math.ceil(0.05 * USD_TO_GBP * ACU_PER_GBP),
+    "the cost must be derived from the shared constants, not typed in");
+
+  // WITHOUT A KEY IT IS SILENT, NOT BROKEN. Every capability returns empty and
+  // health() says what to set — a registered provider that throws would take
+  // down the free sources registered beside it.
+  const h = hunter.health();
+  assert.equal(h.configured, false);
+  assert.match(h.note, /HUNTER_API_KEY/);
+  const sig = new AbortController().signal;
+  assert.deepEqual(await hunter.findPeople({ domain: "acme.co.uk" }, sig), []);
+  assert.deepEqual(await hunter.findEmails({ domain: "acme.co.uk" }, sig), []);
+  const v = await hunter.verifyEmail("a@b.com", sig);
+  assert.equal(v.invalid, false, "an unconfigured provider called an address invalid");
 });
