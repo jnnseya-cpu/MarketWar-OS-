@@ -477,6 +477,23 @@ export async function GET(req: NextRequest) {
       // a sign-in that was itself broken.
       probeReachedStage: probe?.stage ?? null,
       probeSucceeded: probe?.ok ?? null,
+      // THE INVISIBLE CAUSE OF A REFUSED PASSWORD, AND THE ONLY ONE NOBODY CAN SEE.
+      //
+      // A password pasted into a hosting dashboard picks up a trailing newline or
+      // a leading space more often than anyone expects, and the value LOOKS right
+      // in every screen that shows it — including this one, which never echoes it.
+      // The mail server then refuses an otherwise-correct password, and the owner
+      // spends the evening resetting a credential that was never wrong.
+      //
+      // Booleans only. Neither says anything about the password except that it has
+      // whitespace around it, which is our misconfiguration rather than a secret,
+      // and both are absent unless the server actually refused the login — so this
+      // is evidence attached to a failure, not a standing description of a
+      // credential.
+      ...(probe && !probe.ok && String(probe.stage).startsWith("auth") ? {
+        smtpPassHasSurroundingWhitespace: (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim(),
+        smtpUserHasSurroundingWhitespace: (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim(),
+      } : {}),
     }),
     // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
     // and the login; `recentSends` carries other people's email addresses; the
@@ -525,7 +542,11 @@ export async function GET(req: NextRequest) {
       ? (!emailIsConfigured()
           ? "NOT SENDING — no sending provider is configured on this deployment."
           : probe
-            ? `${smtpStageVerdict(probe.stage, probe.ok)} (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
+            ? `${smtpStageVerdict(probe.stage, probe.ok)}${
+                (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim() || (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim()
+                  ? " AND ONE OF THEM HAS WHITESPACE AROUND IT — a password or username pasted with a trailing newline or a leading space looks correct everywhere and is refused by the server. Re-paste it with nothing before or after, and redeploy; that alone may be the whole fault."
+                  : " The stored username and password have no stray whitespace, so this is a genuinely wrong or expired credential rather than a paste that picked up a space."
+              } (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
             : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")
       : !node
       ? missing.length
