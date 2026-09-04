@@ -27855,3 +27855,102 @@ test("the AI check is in the audit, free, and counted like every other", async (
   assert.match(codeOf(src), /add\("AI search", "AI crawler access"/, "the check is catalogued but never measured");
   assert.match(codeOf(src), /aiReadability\(\{ robotsBody: robots\.body/, "the verdict must come from the real robots.txt body");
 });
+
+// ---------------------------------------------------------------------------
+// A WRONG PASSWORD MUST NOT DESTROY A CUSTOMER'S LIST.
+//
+// WHAT HAPPENED, TWICE, ON THE LIVE PLATFORM. The campaign route suppressed any
+// failure whose text contained a 5xx code. The SMTP server was refusing OUR
+// password — `535 5.7.8 Authentication failed` — and 535 is a 5xx. 104 good
+// prospects on one brand and 250 on another were recorded as hard bounces and
+// permanently suppressed. The vault went from 104 sendable to 0, and the
+// fabricated 18.77% bounce rate then had the deliverability agent telling the
+// owner to buy a list-cleaning service. A wrong number producing wrong advice
+// producing wrong spending.
+// ---------------------------------------------------------------------------
+test("only the server naming the MAILBOX suppresses an address", async () => {
+  const { isRecipientRejection } = await import("../src/shared/send-failure.ts");
+
+  // THE ONE THAT CAUSED IT. Authentication is never the recipient's doing.
+  assert.equal(isRecipientRejection("535 5.7.8 Authentication failed"), false,
+    "our own refused password suppressed 354 innocent addresses");
+  assert.equal(isRecipientRejection("530 5.7.0 Must issue a STARTTLS command first"), false);
+  assert.equal(isRecipientRejection("Invalid login or password"), false, "words, not codes, can still name our fault");
+
+  // Real bounces still suppress, or the ledger stops doing its job.
+  assert.equal(isRecipientRejection("550 5.1.1 The email account does not exist"), true);
+  assert.equal(isRecipientRejection("550 No such user here"), true);
+  assert.equal(isRecipientRejection("552 5.2.2 Mailbox full"), true);
+
+  // A MAILBOX CODE WEARING A POLICY CODE'S CLOTHES. `550 5.7.1` is a policy
+  // rejection of US — the address is fine and must survive.
+  assert.equal(isRecipientRejection("550 5.7.1 Message rejected due to content policy"), false);
+  assert.equal(isRecipientRejection("554 5.7.1 Service unavailable; client host blocked"), false);
+
+  // Temporary is never permanent.
+  assert.equal(isRecipientRejection("451 4.3.0 Try again later"), false);
+  assert.equal(isRecipientRejection("421 Service not available, closing channel"), false);
+
+  // Ours, not theirs.
+  assert.equal(isRecipientRejection("500 5.5.2 Syntax error"), false);
+  assert.equal(isRecipientRejection("521 Server does not accept mail"), false);
+
+  // FOUR CASES THAT EXIST BECAUSE MUTATION FOUND THEM. Every assertion above was
+  // caught by an EARLIER branch, so four of the five guards could be deleted with
+  // the suite still green. Each of these reaches exactly one of them.
+  //
+  // Some servers answer a bad login with a mailbox code. Only the words save it.
+  assert.equal(isRecipientRejection("550 Authentication required"), false,
+    "a 550 that is really an auth refusal would suppress a good address");
+  // A multiline reply carrying a temporary code alongside a permanent one is not
+  // a settled verdict — permanent must not win by being listed first.
+  assert.equal(isRecipientRejection("550 requested action not taken; 451 local error in processing"), false,
+    "a 4xx anywhere means try later, and a retry is cheaper than a lost customer");
+  // …and one carrying a code that is about US alongside one about the mailbox.
+  assert.equal(isRecipientRejection("550 mailbox unavailable; 554 transaction failed"), false,
+    "a code naming our own fault appeared beside the mailbox code and was ignored");
+  // An unrecognised 5xx is an unknown. The list of codes that suppress is an
+  // ALLOWLIST, so a code nobody has considered can never destroy an address.
+  assert.equal(isRecipientRejection("555 5.5.4 Parameters not recognized"), false,
+    "an unrecognised 5xx suppressed — the rule is an allowlist, not a catch-all");
+
+  // IF IN DOUBT, DO NOT SUPPRESS — the asymmetry that decides the default. A
+  // retry costs a fraction of a penny; a wrongful suppression costs a customer
+  // for ever.
+  assert.equal(isRecipientRejection(""), false);
+  assert.equal(isRecipientRejection(undefined), false);
+  assert.equal(isRecipientRejection("send failed"), false, "an unexplained failure must never be read as a bad address");
+  assert.equal(isRecipientRejection("The connection dropped"), false);
+
+  // And the route must actually use it.
+  const route = codeOf(readFileSync("src/app/api/email/route.ts", "utf8"));
+  assert.match(route, /isRecipientRejection\(r\.detail\)/, "the campaign route still suppresses on a bare 5xx");
+  assert.doesNotMatch(route, /\/\\b5\\d\\d\\b\/\.test/, "the pattern that suppressed 354 good addresses is still here");
+});
+
+test("a batch failure carries its category instead of arriving as 'unknown'", async () => {
+  // The batch path set ok/mode/provider/id/filteredOut/detail and NOT `failure`,
+  // so every batch failure reached the route with the category undefined —
+  // `sendFailureOf` maps that to `unknown`, whose sentence is "the send did not
+  // complete". 250 failures were reported with the one category that names no
+  // problem, while the SMTP server had said exactly what was wrong. The
+  // classification existed two lines above, for the attempt ledger, and was not
+  // carried across.
+  // SCOPED TO THE RESULT MAPPING, not the loop header. There are TWO
+  // `for (const r of batchResults)` loops — the first writes the attempt ledger,
+  // which ALREADY carried the category correctly, and slicing from the header
+  // measured that one and reported a pass about the wrong code.
+  const src = codeOf(readFileSync("src/backend/email.ts", "utf8"));
+  const at = src.indexOf("results.set(r.to, {");
+  assert.notEqual(at, -1, "the batch result mapping has been restructured — re-check by hand");
+  const mapping = src.slice(at, src.indexOf("});", at));
+  assert.match(mapping, /failure: "provider"/, "the batch result still drops the category it just computed");
+  assert.match(mapping, /r\.ok \? \{\} :/, "a SUCCESS must not be given a failure category");
+
+  const { sendFailureOf, publicSendFailure } = await import("../src/shared/send-failure.ts");
+  // The category it now carries must produce an actionable sentence, not the
+  // one that names nothing.
+  assert.equal(sendFailureOf("provider"), "provider");
+  assert.notEqual(publicSendFailure("provider"), publicSendFailure(undefined));
+  assert.match(publicSendFailure("provider"), /refused/);
+});

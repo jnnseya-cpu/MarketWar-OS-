@@ -930,6 +930,13 @@ async function sendEmailBatchInner(
       for (const r of batchResults) {
         results.set(r.to, {
           ok: r.ok, mode: "live", provider, id: r.id ?? null, filteredOut: [],
+          // THE CATEGORY, CARRIED. It was computed two lines above for
+          // `recordAttempt` and dropped here, so every batch failure reached the
+          // campaign route with `failure` undefined — which `sendFailureOf` maps
+          // to `unknown`, whose sentence is "the send did not complete". 250
+          // failures reported with the one category that names no problem, while
+          // the SMTP server had said exactly what was wrong.
+          ...(r.ok ? {} : { failure: "provider" as const }),
           detail: r.ok ? (common.dkim ? "accepted (DKIM-signed)" : "accepted") : (r.error || "send failed"),
         });
       }

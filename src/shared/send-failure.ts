@@ -125,3 +125,79 @@ export function smtpStageVerdict(stage: string | null | undefined, ok: boolean):
       return "NOT SENDING — the probe did not reach a recognised stage. Sign in as a platform admin for the server's own words.";
   }
 }
+
+// IS THIS FAILURE THE RECIPIENT'S FAULT? — the question that decides whether an
+// address is destroyed.
+//
+// WHAT HAPPENED, ON THE LIVE PLATFORM, TWICE. The campaign route suppressed any
+// failure whose text contained a 5xx code:
+//
+//     if (/\b5\d\d\b/.test(r.detail || "") || r.failure === "hygiene") → bounce
+//
+// The SMTP server was refusing our PASSWORD — `535 5.7.8 Authentication
+// failed`. `535` is a 5xx. So 104 perfectly good prospects on one brand, and 250
+// on another, were recorded as hard bounces and permanently suppressed because
+// OUR credential was wrong. The vault went from 104 sendable to 0. Worse, the
+// fabricated bounce rate then drove the deliverability agent to tell the owner
+// their list was dirty and to buy a verification service — a wrong number
+// producing wrong advice producing wrong spending.
+//
+// This is the codebase's own rule — "a panel must not blame the owner for its own
+// failed request" — in the one place where the cost is not a screen but a
+// customer's data, and where the damage is permanent.
+//
+// THE RULE, AND IT IS DELIBERATELY CONSERVATIVE: suppress ONLY on a code that
+// names the recipient's mailbox. Anything else — an authentication refusal, a
+// syntax error, a rate limit, a policy rejection of the SENDER, a dropped
+// connection — is about us or about the moment, and a retry costs a fraction of
+// a penny while a wrongful suppression costs a customer for ever.
+//
+// IF IN DOUBT, DO NOT SUPPRESS.
+
+/** Codes that mean THIS MAILBOX does not exist or cannot receive. */
+const RECIPIENT_REJECTION = [
+  550, // mailbox unavailable / no such user — the overwhelming majority of real bounces
+  551, // user not local, no forwarding
+  552, // mailbox full (over quota)
+  553, // mailbox name not allowed
+];
+
+/**
+ * Codes that look like a bounce and are not. Listed explicitly rather than left
+ * to fall through, because each one has been mistaken for a bad address:
+ *   535/530/534/538  the server refused OUR login
+ *   500–504          a syntax or command error — our code, not their mailbox
+ *   554              usually a policy rejection of the sender or the content
+ *   521/541          the server does not accept mail from us at all
+ */
+const NOT_THE_RECIPIENT = [500, 501, 502, 503, 504, 521, 530, 534, 535, 538, 541, 554];
+
+/** Enhanced status classes that name the sender or the session, never the mailbox. */
+const SENDER_DSN = /\b5\.7\.[0-9]+\b/;
+/** Enhanced status codes that DO name the mailbox. */
+const MAILBOX_DSN = /\b5\.1\.[0-9]+\b|\b5\.2\.[12]\b/;
+
+/**
+ * True only when the server's words identify the RECIPIENT as the problem.
+ *
+ * Reads the enhanced status code first when there is one — `550 5.7.1` is a
+ * policy rejection wearing a mailbox code's clothes, and treating it as a bounce
+ * suppresses somebody whose address is fine.
+ */
+export function isRecipientRejection(detail: unknown): boolean {
+  const text = typeof detail === "string" ? detail : "";
+  if (!text.trim()) return false;
+
+  // Authentication is never the recipient's doing, whatever code carries it.
+  if (/\bauth(entication)?\b|\bpassword\b|\blogin\b|\bcredential/i.test(text)) return false;
+
+  if (MAILBOX_DSN.test(text)) return true;
+  if (SENDER_DSN.test(text)) return false;
+
+  const codes = (text.match(/\b[45]\d\d\b/g) || []).map(Number);
+  if (!codes.length) return false;
+  // A 4xx anywhere means "try later" — never permanent, never a suppression.
+  if (codes.some((c) => c >= 400 && c < 500)) return false;
+  if (codes.some((c) => NOT_THE_RECIPIENT.includes(c))) return false;
+  return codes.some((c) => RECIPIENT_REJECTION.includes(c));
+}
