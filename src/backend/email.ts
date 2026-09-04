@@ -596,9 +596,13 @@ async function sendViaSmtp(
     }
     if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
     // RFC 5322 §3.6.2: when the mailbox in From is not the party that actually
-    // submitted the message, `Sender:` names the party that did. `info@` is the
-    // address the business puts its name to; `appuser@` is the account that logs
-    // in. Declaring that is what tells a receiving server this is an arrangement
+    // submitted the message, `Sender:` names the party that did — for example a
+    // dedicated sending account submitting as the address the business puts its
+    // name to. (On marketwaros.com the two are now the SAME mailbox, `info@`, so
+    // `identity.senderHeader` is empty and no header is emitted: there is no
+    // arrangement to declare. The separate `appuser@` account this once assumed
+    // was never created — see shared/sender-identity.ts.)
+    // Declaring it when they DO differ is what tells a receiving server this is an arrangement
     // rather than a forgery — a mismatch with no Sender header reads as spoofing
     // and is exactly the shape of message a relay accepts and then drops.
     if (identity.senderHeader) headers["Sender"] = identity.senderHeader;

@@ -3,9 +3,26 @@
 // THE BUG THIS EXISTS TO KILL. A single send used THREE different addresses and
 // no two of them agreed:
 //
-//   AUTH LOGIN   appuser@marketwaros.com    the mailbox that actually exists
+//   AUTH LOGIN   appuser@marketwaros.com    believed to be the real mailbox
 //   MAIL FROM    bounce@marketwaros.com     a default invented in code
 //   From:        info@marketwaros.com       what the owner wants people to see
+//
+// CORRECTION, 2026-09-03, and it is the same defect one layer deeper. The first
+// line was wrong too. `appuser@` was recorded as "the mailbox that actually
+// exists" on 2026-08-27 — and the owner has since confirmed that NO SUCH INBOX
+// WAS EVER CREATED. There is one mailbox on this domain: `info@`. So all THREE
+// addresses in that send were invented, not two, and the live SMTP probe agrees:
+// it reaches stage `auth-pass` and the relay refuses the login, which is exactly
+// what a password for a mailbox that does not exist looks like.
+//
+// The lesson is the module's own rule applied to itself: a note saying a mailbox
+// was verified is not a mailbox. Only the relay's answer is evidence, and the
+// relay says no.
+//
+// The correct configuration is therefore the SIMPLEST one this module supports,
+// and the strongest: login, envelope and From are all `info@`. `aligned` is then
+// true, no `Sender:` header is emitted because there is no arrangement to
+// declare, and bounces return to the one inbox that exists.
 //
 // The relay accepted it and returned a queue id, so every check we had said the
 // send worked. Nothing was ever delivered, and — this is the part that made it
