@@ -25725,6 +25725,160 @@ test("jwks-rsa require()s jose, so jose must be requireable", () => {
 // makes that cheap enough to do on every commit: the routes are read off the
 // filesystem, so a link is checked against what Next will actually serve.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// WE FAILED THE CHECKS WE SELL.
+//
+// The audit this platform is sold on measures Open Graph, canonical tags and
+// sitemap coverage. Run against our OWN pages it scored the landing page 78/100
+// and FAILED Open Graph on almost every marketing page — because there was no
+// `openGraph` block anywhere in the app. Every link to marketwaros.com posted in
+// LinkedIn, Slack, WhatsApp or X rendered as a bare grey URL.
+//
+// `public/brand/social/og-card.png` existed the whole time, 1200x630, and
+// nothing referenced it. Same shape as the missing llms.txt: the asset was made
+// and never connected.
+// ---------------------------------------------------------------------------
+test("the site is shareable: Open Graph and a Twitter card, on one origin", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+
+  assert.match(layout, /openGraph:\s*\{/, "no Open Graph — every share renders as a bare link");
+  assert.match(layout, /twitter:\s*\{/);
+  assert.match(layout, /card: "summary_large_image"/, "a small card wastes the 1200x630 image we already have");
+  assert.match(layout, /alternates: \{ canonical: "\.\/" \}/, "without a canonical the apex and www index as duplicates");
+
+  // The image must be one that EXISTS. A card pointing at a missing file is
+  // worse than none: the scraper caches the failure.
+  const og = layout.match(/images: \[\{ url: "([^"]+)"/);
+  assert.ok(og, "the Open Graph image is not declared as a file");
+  assert.ok(existsSync(new URL(`../public${og[1]}`, import.meta.url).pathname),
+    `the Open Graph image ${og[1]} is not in public/`);
+  assert.match(layout, /width: 1200, height: 630/, "the real dimensions, so no scraper has to fetch it to lay it out");
+
+  // ONE ORIGIN. metadataBase said the apex while robots.txt, the sitemap and
+  // every JSON-LD block say www — two canonical hosts in one app.
+  assert.match(layout, /metadataBase: new URL\(ORIGIN\)/,
+    "metadataBase must come from siteOrigin(), not a second hard-coded host");
+  assert.ok(!/metadataBase: new URL\("https/.test(layout),
+    "a hard-coded origin here can drift from the one the sitemap advertises");
+
+  const site = readFileSync(new URL("../src/shared/site.ts", import.meta.url), "utf8");
+  const fallback = site.match(/const FALLBACK = "([^"]+)"/);
+  assert.ok(fallback, "siteOrigin has no fallback origin");
+  assert.match(fallback[1], /^https:\/\/www\./,
+    "the app serves www; an apex fallback reintroduces the split this test exists to close");
+});
+
+test("every marketing description obeys the length rule this platform publishes", async () => {
+  // WE FAILED OUR OWN PUBLISHED RULE. `audit-copy.ts` tells customers to "write
+  // 50-165 characters", the crawler scores them on it, and six of our own
+  // top-of-funnel pages were over — the landing page at 205, /features at 214,
+  // /audit at 210. Google truncates past ~160, so on every one of them the last
+  // third of the pitch was never read. The landing page's cut-off clause was
+  // "tells you exactly what to do next".
+  //
+  // Measured against the SAME bounds the crawler uses, read from the crawler,
+  // so a change to the rule moves this test rather than leaving it asserting a
+  // number nobody maintains.
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const crawler = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
+  const rule = crawler.match(/metaDescription\.length >= (\d+) && metaDescription\.length <= (\d+)/);
+  assert.ok(rule, "the meta-description rule is gone from the crawler");
+  const [min, max] = [Number(rule[1]), Number(rule[2])];
+
+  const appDir = new URL("../src/app/", import.meta.url).pathname.replace(/\/$/, "");
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`;
+      if (statSync(full).isDirectory()) { if (!name.startsWith("(") && name !== "dashboard") walk(full); }
+      else if (/^(page|layout)\.tsx$/.test(name)) files.push(full);
+    }
+  };
+  walk(appDir);
+
+  const over = [];
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    // Static descriptions only. A templated one varies at runtime and is sized
+    // by hand beside its own comment — asserting on the template text would be
+    // measuring the wrong string.
+    for (const m of src.matchAll(/^\s{2}description:\s*"((?:[^"\\]|\\.)*)",\s*$/gm)) {
+      const text = m[1].replace(/\\"/g, '"');
+      if (text.length < min || text.length > max) {
+        over.push(`${file.split("/src/app/")[1]} — ${text.length} chars`);
+      }
+    }
+  }
+  assert.deepEqual(over, [],
+    `these descriptions break the ${min}-${max} rule we sell:\n  ${over.join("\n  ")}`);
+});
+
+test("no page can set a partial Open Graph block and silently lose the image", async () => {
+  // THE NEXT.JS TRAP. Metadata merges field by field across segments, but
+  // `openGraph` is REPLACED wholesale — a page setting `{ title, description }`
+  // does not inherit the root layout's `images`, it loses them, with no error
+  // and source that looks right.
+  //
+  // Six pages did exactly that: /how-it-works, /audit, /choose-plan, /contact,
+  // /partner, every article and every answer page emitted og:title with NO
+  // og:image and shared as a bare link, while the root layout alone was
+  // complete. Measured on a running build before the fix: og:title=1,
+  // og:image=0 on all four pages checked.
+  const { readdirSync, statSync, readFileSync } = await import("node:fs");
+  const appDir = new URL("../src/app/", import.meta.url).pathname.replace(/\/$/, "");
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`;
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(name)) files.push(full);
+    }
+  };
+  walk(appDir);
+
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    if (!/openGraph:/.test(src)) continue;
+    const rel = file.split("/src/app/")[1];
+    // The root layout is the one place a literal block is correct: it is the
+    // source everything else inherits or spreads from.
+    if (rel === "layout.tsx") {
+      assert.match(src, /images: \[\{ url: /, "the root layout must carry the image itself");
+      continue;
+    }
+    // Everywhere else must go through the helper, which cannot omit an image.
+    const block = src.slice(src.indexOf("openGraph:"), src.indexOf("openGraph:") + 400);
+    if (!/openGraphFor\(/.test(block)) offenders.push(rel);
+  }
+  assert.deepEqual(offenders, [],
+    `these set openGraph directly and will lose the card image:\n  ${offenders.join("\n  ")}`);
+});
+
+test("the sitemap offers the marketing pages and nothing that needs a code", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sm = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
+
+  // The last step of the funnel was missing while every earlier step was listed.
+  assert.match(sm, /path: "\/get-started"/, "the page that turns interest into an account is not offered to search");
+
+  // And a credential-gated client-rendered tool was being offered as content.
+  const listed = [...sm.matchAll(/path: "([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(!listed.includes("/partner"),
+    "/partner needs an access code, nothing links to it, and our own audit scores it 70/100 — it is not marketing content");
+  // /share2earn is the public pitch that page's traffic belongs to.
+  assert.ok(listed.includes("/share2earn"));
+
+  // Every listed path must be a real page, or the sitemap advertises 404s.
+  const { existsSync } = await import("node:fs");
+  for (const p of listed) {
+    if (!p) continue;   // "" is the home page
+    assert.ok(existsSync(new URL(`../src/app${p}/page.tsx`, import.meta.url).pathname),
+      `the sitemap offers ${p}, which has no page`);
+  }
+});
+
 test("no hard-coded internal link points at a route that does not exist", async () => {
   const { readdirSync, statSync } = await import("node:fs");
   const appDir = new URL("../src/app/", import.meta.url).pathname;

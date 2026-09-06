@@ -6,7 +6,8 @@ import { COMMISSION_MODEL, PROGRAMME_STEPS, STRATEGY_NOTE, MIN_PAYOUT_FOLLOWERS,
 
 export const metadata: Metadata = {
   title: "Growth & Influencers · MarketWar OS",
-  description: "Earn by growing the MarketWar OS portfolio — a creator, affiliate and partner programme for trusted niche educators, operators and reviewers. Performance-based, fraud-protected, paid on verified revenue.",
+  // 150 chars — inside the 50-165 this platform's own audit publishes. Was 205.
+  description: "Earn by growing the MarketWar OS portfolio — a creator, affiliate and partner programme. Performance-based, fraud-protected, paid on verified revenue.",
 };
 
 export default function GrowthPage() {

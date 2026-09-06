@@ -4,18 +4,21 @@ import { MarketingShell, H2, Prose } from "@/components/marketing";
 import FreeAudit from "@/components/FreeAudit";
 import { checksByArea, auditCheckCount, conditionalChecks } from "@/shared/audit-copy";
 import { siteUrl } from "@/shared/site";
+import { openGraphFor } from "@/shared/site";
 
 const CHECKS = auditCheckCount();
 
 export const metadata: Metadata = {
   title: `Free website audit — ${CHECKS} checks on your actual page · MarketWar OS`,
-  description: `Put your website in and get a real, measured audit in about fifteen seconds: ${CHECKS} checks on the page itself, what each one is costing you in enquiries, and what to change. No account, no card, nothing to install.`,
+  // ~147 chars with the real check count — inside the 50-165 our own audit
+  // publishes, and this is the page that publishes it. Was 210.
+  description: `Put your website in and get a real, measured audit in about fifteen seconds: ${CHECKS} checks on the page itself, what each costs you, and what to change.`,
   alternates: { canonical: "/audit" },
-  openGraph: {
+  openGraph: openGraphFor({
     title: `Free website audit — ${CHECKS} checks, no account`,
     description: "We read your actual page and tell you what is quietly losing you enquiries — with what each fault costs you and how to fix it.",
-    type: "website",
-  },
+    path: "/audit",
+  }),
 };
 
 // THE FRONT DOOR.
@@ -32,7 +35,7 @@ export const metadata: Metadata = {
 // every competitor makes the same ones — but with SPECIFICITY, which is the only
 // persuasion available to a business nobody has heard of:
 //
-//   • the CATALOGUE is on the page. Twenty-nine named checks, each with the
+//   • the CATALOGUE is on the page. Every named check — the count is read from AUDIT_COPY, never typed — each with the
 //     sentence saying what it costs. Anybody can write "we check your SEO";
 //     printing the list is only possible when the list is real, and it is
 //     generated from the same file the report itself reads.
