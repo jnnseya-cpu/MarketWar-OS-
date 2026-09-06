@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,788 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,793 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM package and every route importing firebase-admin dies at module load. Read §5.0 before touching it or `engines`; the Node 22 pin remains but is no longer the only defence.
@@ -70,57 +70,18 @@ cause from the counts alone; with nothing sent, the diagnosis is not the product
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**STILL OPEN — three things. Item 0 is CLOSED and CONFIRMED on the deployment; it is kept here
-because it already recurred once and the pin that "fixed" it the first time did not hold.**
+**STILL OPEN — three things: 1, 2 and 3. Items 0, 4 and 5 are CLOSED and kept here because each
+carries a standing instruction, not because the work is outstanding.**
 
 **0. CLOSED AND CONFIRMED — `require(esm)`, which took production down TWICE (08-29, 09-03).**
 `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM); `require()` of an ESM package works
 only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on the host, answering
-Next's HTML page from every route importing it. Only `/api/health/live` survived, loading its
-modules inside a catch. **The 08-29 fix was `engines: 22.x` and the host did not honour it** — a pin
-somebody else has to agree to is not a fix — and that day's test asserted jose IS ESM-only, so it
-stayed green through the whole second outage and could only have failed on the repair. **Fix:
-`overrides.jose: ^5`** (CommonJS), proved by driving `retrieveSigningKeys` on a real RSA JWK and
-verifying a real signature — jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS
-silently. `/api/health/live` reports `runtime.node` and `canRequireEsm`; `/diagnose` reads 200/200.
-
-**1a. THE PLATFORM SUPPRESSED 354 GOOD ADDRESSES BECAUSE ITS OWN PASSWORD WAS WRONG (09-06).** The
-campaign route suppressed any failure containing a 5xx and the server was refusing our login with
-`535`; 104 prospects on one brand and 250 on another became permanent "hard bounces", one vault went
-104 sendable → 0, and the fabricated 18.77% bounce rate had the deliverability agent advising a
-purchase. `isRecipientRejection` stops it. **`/api/email/suppression-repair` undoes it** on evidence:
-a bounce requires a delivery, so a bounce on a day when ZERO messages were accepted cannot be about
-the recipient. Days with a real delivery are untouched, restoration re-proves every address, the
-bounce EVENTS are kept — only the suppression lifts. Admin-gated, audited, no bulk undo.
-
-**1b. ENGAGEMENT RATES WERE FABRICATED, AND AN AGENT ACTED ON THEM (09-06).** 270% opens, 200%
-clicks. Opens were deduplicated per person and SENDS WERE NOT, and the in-memory ledger evicts
-oldest-first — a send is recorded before the open it causes, so the cap ate the denominator;
-`emailContext` then multiplied an already-percentage by 100 again. Rates are computed per unique
-recipient and **withheld entirely when openers exceed senders**, with the reason stated, and the
-agent is told the measurement is absent rather than left to infer from it.
-
-**1c. SWITCHING BRAND LEFT THE PREVIOUS BRAND'S IDENTITY ON THE SEND SCREEN (09-06).** Sidebar and
-vault sentence read AxionOS while the From name said VeryX on veryxjnn.com — one screen, two
-companies, a Send button under it. "Is the field empty?" was the only test for "is this the
-customer's?", so our own suggestion for the brand they had left counted as their choice.
-`applyDefaults` now takes what it last prefilled: typed text survives a switch, a suggestion does
-not, and a brand with no verified domain correctly goes BLANK. Stats, send report, reply check,
-templates and domains clear on the id change, and a late response is discarded unless the brand on
-screen still matches.
-
-**1d. THE AUDIT ASKED FOR AN ADDRESS ON A PROMISE IT COULD NOT KEEP (09-06).** "One address, used to
-send you this report" — then, after it was handed over, "copy it before you close the tab, because
-the mail server refused the message". The ask now leads with what always happens, and **the whole
-report downloads** from the same renderer the email uses, so the file and the message cannot become
-two reports. The address still reaches the Vault with its permission stated.
-
-**1e. THE WARM-UP GOVERNOR NEVER LOOKED AT REPUTATION (09-06).** `dailyCapForDay(day)` read a
-calendar and nothing else, so 50 messages on day one and six weeks of silence authorised **50,000 on
-day 40**. Today's cap is the lower of the published ramp and what the brand has earned — about twice
-its best single day — with the outcomes governing it on Gmail's published lines: hold at 2% bounces
-or 0.1% complaints, halve at 5% bounces, stop at 0.3%, never on a sample too small to mean anything.
-`shared/warmup-ramp.ts`; the reason prints beside the number.
+Next's HTML page from every route importing it. Only `/api/health/live` survived, loading its modules
+inside a catch. **The 08-29 fix was `engines: 22.x` and the host did not honour it** — a pin somebody
+else has to agree to is not a fix — and that day's test asserted jose IS ESM-only, so it stayed green
+through the whole second outage and could only have failed on the repair. **Fix: `overrides.jose:
+^5`** (CommonJS), proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a real
+signature — jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS silently.
 
 **1. MAIL: THE SEND RUNS AND THE SERVER REFUSES IT (2026-09-03).** A real audit closed with *"the
 mail server refused the message"* — the `provider` category, which is PROGRESS: the path used to
@@ -138,11 +99,40 @@ verified is not a mailbox; only the relay's answer is evidence. **Set `SMTP_USER
 `info@marketwaros.com`, `SMTP_PASS` = that mailbox's own password** — login, envelope and From are
 then all `info@`, the strongest arrangement `sender-identity.ts` supports.
 
+**4. CLOSED, AND THE INSTRUCTION IN IT IS PERMANENT — THE CI GATE HAD A HOLE THAT OPENED BY ITSELF (09-06).** Two HIGH advisories were published
+against `browserslist` — transitive, via autoprefixer — so every run went red on the dependency
+audit; and because steps stop at the first failure, the **secret scan and .env check were SKIPPED on
+every push**, the two controls guarding the one mistake a revert cannot undo. `if: always()` on both,
+override pinned, audit still a gate. **`npm run verify` does NOT run `npm audit` — a green local gate
+is not a green CI. Read the run.**
+
+**5. CLOSED — TWO DEFECTS FOUND BY DRIVING THE ROUTES, NOT READING THEM (09-06).**
+`/api/email/suppression-repair` answered **200 to an anonymous GET**: `requireAuth` returns
+`{ ok: true, enforced: false }` when Admin is unconfigured, and returns ABOVE the scope check, so
+`platform_admin` was never applied — twenty-one call sites read `ok` alone. Bounded honestly: no Admin
+also means no Firestore, so the ledger it would have served is empty and production was gated. It now
+needs `ok && enforced` and refuses 503 otherwise, like `/api/email-events`; the hazard is documented
+on `requireAuth`. And **the "you have used your free audits" button pointed at `/pricing`, which does
+not exist** — the page is `/choose-plan` and every other link said so. A 404 at the moment somebody is
+most likely to pay. A test now walks `src/app` for the routes Next actually serves and fails on any
+hard-coded internal link that goes nowhere.
+
 **2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 
-**3. NEXT 15 IS LANDED — confirm it in production.** `npm audit` went 11 advisories / 5 high → 6 moderate / 0 high. **To close:** one real signup, which was impossible until today.
+**3. NEXT 15 IS LANDED — confirm it in production.** **To close:** one real signup, which was impossible until today.
 
-**CLOSED, one line each; the detail is in `REQUIREMENTS-COVERAGE.md` and belongs there, not here.**
+**CLOSED 09-06 — the sending path, one line each; the full account is `REQUIREMENTS-COVERAGE.md`
+§§103–105.** 354 addresses suppressed because OUR password was refused with 535 — stopped, and
+`/api/email/suppression-repair` gives them back on evidence (a bounce needs a delivery, so a bounce on
+a day with ZERO accepted messages is not one). 270% open rates — sends counted per event, openers per
+person; rates are now per unique recipient and WITHHELD when openers exceed senders. Switching brand
+left the previous brand's From name and domain on the send screen — `applyDefaults` now knows its own
+prefill from typed text, and every brand-scoped panel clears on the id. The audit asked for an address
+to email a report it could not send — the full report downloads now. The warm-up cap read a calendar,
+authorising 50,000/day on day 40 after fifty messages — it is now the lower of the schedule and twice
+the best day actually sent, governed by bounces and complaints on Gmail's published lines.
+
+**CLOSED EARLIER, one line each; the detail is in `REQUIREMENTS-COVERAGE.md` and belongs there.**
 Production ran Node 20 (08-29). A production 500 was the middleware, failing closed (08-28). A rate
 limit darkened the War Room (08-28). 91 of 133 env variables were invisible — `shared/env-catalogue.ts`
 is the one registry, 110 entries, **14 still missing** (08-29). The free audit's personal-use limits
@@ -165,7 +155,10 @@ rows, each naming the one absent part; see `GROWTH-ENGINE-COVERAGE.md`. **Surfac
 §77, §92, §95, §97, §98, §100, §102, §103. **Not built:** §80 agent message bus (considered and
 rejected), §14 calendars, §21 carousels.
 
-**Security debt.** 6 moderate advisories, NO high — the uuid → firebase-admin chain; npm's "fix" is a four-major downgrade. `overrides` also force Next's nested postcss and sharp up, and pin `jose` (§5.0).
+**Security debt.** 6 moderate, NO high — the uuid → firebase-admin chain; npm's "fix" is a
+four-major downgrade. `overrides` force Next's nested postcss and sharp up, pin `jose` (§5.0) and,
+since 09-06, `browserslist ^4.28.7`: two HIGH advisories were published against `<=4.28.6`, which
+arrives transitively through autoprefixer, so there was no direct dependency to bump.
 
 ## 6. The defect class that keeps recurring
 
@@ -186,19 +179,18 @@ whose login, envelope sender and From were three mailboxes, **all three invented
 **ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT BEFORE THE THIRD GUESS.** The HTML fault took three wrong theories and three redeploys before `/diagnose` existed. **And a diagnostic only its author can read is not a diagnostic**: the SMTP stage, the server's refusal line and the enrichment probe were each gated behind a sign-in that was itself broken.
 
 **A second class, about tests rather than code: a check that passes — or FAILS — for a reason
-unrelated to what it tests.** TWENTY-FIVE, six of them found by MUTATION AFTER the suite was green.
-Newest (09-06): the warm-up ramp itself, a cap read off the calendar and passing on days elapsed,
-which is not what builds a sending reputation; and the test written to prove today's own sending
-could not raise today's ceiling asserted it on DAY ONE, where the published schedule is the binding
-limit and clamps the fault out of sight — it passed against the broken code. Before them: a
-pre-ticked consent box passed an assertion that only looked for `useState(false)`, which matched
-every other flag in the file; a leak check flagged a ternary that never emits the address, and a
-pattern that flags safe code teaches people to ignore it; a "the note carries the reason" assertion
-matched anywhere in the file, where a sibling field carried the same words; five guards on the
-suppression rule could each be deleted green, every case caught by an earlier branch. And the worst
-kind: a test written on 08-29 asserted `jose` IS ESM-only — recording the hazard as a fact of life,
-green through the whole second outage, and it could only ever have failed on the repair. **A test
-that passes while production is down, and would fail on the fix, is worse than no test.**
+unrelated to what it tests.** TWENTY-SIX, seven found by MUTATION after the suite was green. Newest
+(09-06): the warm-up ramp read a cap off the calendar, passing on days elapsed, which is not what
+builds a sending reputation; and the test written to prove today's own sending could not raise today's
+ceiling asserted it on DAY ONE, where the schedule is the binding limit and clamps the fault out of
+sight — it passed against the broken code. A link scanner written the same day read `href="/x"` but
+not `href={a || "/x"}`, and the dead link existed in both forms. Before them: a pre-ticked consent box
+passed an assertion that only looked for `useState(false)`; a leak check flagged a ternary that never
+emits the address; a "the note carries the reason" assertion matched anywhere in the file; five
+guards on the suppression rule could each be deleted green. And the worst kind: a test written on
+08-29 asserted `jose` IS ESM-only — the hazard recorded as a fact of life, green through the whole
+second outage, and it could only ever have failed on the repair. **A test that passes while
+production is down, and would fail on the fix, is worse than no test.**
 
 **A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public by the same test: it only reports which machine answered its own requests. **AND A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST** — three answered a refused fetch by asserting a key was missing, and a readiness check scored fields the form never showed.
 

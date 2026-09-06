@@ -210,7 +210,9 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
           <p className="font-display text-base font-bold text-white">{report.quotaHeadline || "You have used your free audits"}</p>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-300">{report.error}</p>
           <a
-            href={report.quotaCtaHref || "/pricing"}
+            // The fallback matters as much as the value: an older cached
+            // response carries no `quotaCtaHref`, and `/pricing` does not exist.
+            href={report.quotaCtaHref || "/choose-plan"}
             className="mt-3 inline-block rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-ink-950 hover:bg-emerald-400"
           >
             {report.quotaCta || "See the plans"}

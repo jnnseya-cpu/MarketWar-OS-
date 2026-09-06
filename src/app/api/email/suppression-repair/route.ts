@@ -23,22 +23,65 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-async function authorise(req: Request) {
+// AN UNENFORCED "YES" IS NOT A YES, AND THIS IS THE ENDPOINT WHERE THAT MATTERS.
+//
+// `requireAuth` returns `{ ok: true, enforced: false }` when Firebase Admin is
+// not configured — a deliberate zero-config affordance that keeps the demo
+// working, and it returns before the scope check is ever reached, so
+// `{ scope: "platform_admin" }` is silently not applied. Every caller that reads
+// only `ok` therefore treats "nobody could be identified" as "an admin asked".
+//
+// Found by driving this route against a running server rather than by reading
+// it: with no Admin credentials, `GET ?brandId=x` answered 200 with the report,
+// which NAMES SUPPRESSED EMAIL ADDRESSES, and the POST would have been accepted
+// on the same terms.
+//
+// THE HONEST BOUND ON WHAT THAT EXPOSED, because overstating it would be its own
+// kind of fabrication: no Admin also means no Firestore, so in exactly the state
+// where the door was open the suppression ledger is the in-memory fallback and
+// holds nothing. Production has Admin credentials and was gated correctly. This
+// was an open door onto an empty room — but it is the door on the room where a
+// brand's contactable list lives, and it should not be open in any state.
+//
+// It closes because the room does not stay empty by design. `adminConfigured` is
+// read from environment presence, so a deployment that loses or has not yet
+// received its FIREBASE_* variables reaches this branch, and this platform has
+// already spent several sessions believing Admin was down in production. A
+// window where isolation cannot be enforced is when this must close, not open.
+//
+// So this endpoint requires authorisation that was actually ENFORCED. The
+// scheduler bearer counts, because `cronAuthorised` verifies a real secret and
+// refuses outright when none is set. `/api/email-events` already takes this
+// posture for the same reason — it answers 503 rather than serving a brand's
+// data without isolation.
+type Authorisation = { ok: true } | { ok: false; status: number; error: string };
+
+async function authorise(req: Request): Promise<Authorisation> {
   const guard = await loadModule("@/backend/guard", () => import("@/backend/guard"));
   const cron = guard.cronAuthorised(req instanceof NextRequest ? req : new NextRequest(req));
-  if (cron.ok) return { ok: true as const };
+  if (cron.ok) return { ok: true };
+
   const auth = await guard.requireAuth(req, { scope: "platform_admin" });
-  return auth.ok ? { ok: true as const } : { ok: false as const };
+  if (auth.ok && auth.enforced) return { ok: true };
+  if (auth.ok && !auth.enforced) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Firebase Admin is not configured on this deployment, so no caller can be proved to be a platform admin. This endpoint reads and changes a brand's suppression list, so it refuses rather than answering an unidentified request. Set the FIREBASE_* admin credentials, or call it with the scheduler bearer.",
+    };
+  }
+  return {
+    ok: false,
+    status: 403,
+    error: "This reads and changes which addresses a brand may contact, so it needs a platform-admin session or the scheduler bearer.",
+  };
 }
 
 export const GET = jsonRoute(async (req: Request) => {
   const brandId = (new URL(req.url).searchParams.get("brandId") || "").trim();
   if (!brandId) return NextResponse.json({ error: "brandId is required." }, { status: 400 });
-  if (!(await authorise(req)).ok) {
-    return NextResponse.json({
-      error: "This reports which of a brand's suppressed addresses were suppressed by our own fault, so it needs a platform-admin session or the scheduler bearer.",
-    }, { status: 403 });
-  }
+  const allowed = await authorise(req);
+  if (!allowed.ok) return NextResponse.json({ error: allowed.error }, { status: allowed.status });
   const mod = await loadModule("@/backend/suppression-repair", () => import("@/backend/suppression-repair"));
   const report = await mod.findImpossibleBounces(brandId);
   return NextResponse.json({
@@ -52,9 +95,8 @@ export const GET = jsonRoute(async (req: Request) => {
 }, { maxSeconds: 60, label: "/api/email/suppression-repair" });
 
 export const POST = jsonRoute(async (req: Request) => {
-  if (!(await authorise(req)).ok) {
-    return NextResponse.json({ error: "Restoring an address changes who this platform may contact, so it needs a platform-admin session or the scheduler bearer." }, { status: 403 });
-  }
+  const allowed = await authorise(req);
+  if (!allowed.ok) return NextResponse.json({ error: allowed.error }, { status: allowed.status });
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 }); }
 

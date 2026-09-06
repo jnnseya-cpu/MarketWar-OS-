@@ -92,6 +92,12 @@ jobs:
         run: npm run build
 
       # HIGH or CRITICAL fails the run. Moderate is printed for the record.
+      #
+      # A NEW ADVISORY LANDS WITHOUT ANYBODY TOUCHING THE CODE, and this step is
+      # the one in the job that can go red on a commit that changed nothing. On
+      # 09-06 two HIGH advisories were published against `browserslist` — a
+      # transitive dependency of autoprefixer — and every run since had failed
+      # here. Pinned forward in `overrides`; see the note there.
       - name: Dependency audit (high+)
         run: |
           npm audit --audit-level=high
@@ -117,7 +123,16 @@ jobs:
       #   • `sk-proj-` named explicitly, since that separator is real.
       # Verified against both a real key shape and the slug that broke it before
       # this was committed.
+      #
+      # `always()`, AND IT IS NOT DEFENSIVENESS. Steps run in order and stop at
+      # the first failure, so this sat BEHIND the dependency audit — and when a
+      # new browserslist advisory turned that red on 09-06, the cheapest control
+      # in the pipeline, guarding the one mistake a revert cannot undo, silently
+      # stopped running on every push. A security check that is skipped whenever
+      # something noisier fails is not a check; it is a check-shaped gap that
+      # opens exactly when the pipeline is already unhappy.
       - name: Secret scan
+        if: always()
         run: |
           set -o pipefail
           if git grep -nEI "((^|[^A-Za-z0-9_-])sk-(proj-)?[A-Za-z0-9]{32,}|AIza[A-Za-z0-9_-]{35}|whsec_[A-Za-z0-9]{24,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{36,})" \
@@ -130,6 +145,7 @@ jobs:
       # An .env that reaches the repository is a credential leak waiting for a
       # public clone. `.env.example` files are the intended, valueless form.
       - name: No .env committed
+        if: always()
         run: |
           if git ls-files | grep -E '^\.env$|^\.env\.(local|production|development)$|/\.env$'; then
             echo "::error::An .env file is tracked. Remove it and rotate anything it held."

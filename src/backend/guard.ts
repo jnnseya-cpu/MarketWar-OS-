@@ -76,8 +76,32 @@ export type AuthResult =
     }
   | { ok: false; status: 401 | 403; error: string };
 
+/**
+ * Who is calling, and may they do this?
+ *
+ * `ok` DOES NOT MEAN THE SCOPE WAS CHECKED. Read `enforced` too.
+ *
+ * With Firebase Admin unconfigured this returns `{ ok: true, enforced: false }`
+ * from the first line — deliberately, because zero-config demo mode must keep
+ * working — and that return is ABOVE the scope check, so `{ scope: … }` is not
+ * applied at all. A caller that reads only `ok` therefore treats "nobody could
+ * be identified" as "an authorised admin asked". Twenty-one call sites pass a
+ * scope, and the shape reads as safe at every one of them.
+ *
+ * That is fine for a surface whose demo state is demo data — which is most of
+ * them, since no Admin also means no Firestore. It is NOT fine for a surface
+ * that reads or changes real customer data the moment credentials do arrive:
+ * `/api/email/suppression-repair` answered 200 to an anonymous GET for exactly
+ * this reason, and now requires `ok && enforced`. `/api/email-events` takes the
+ * same posture by refusing with 503 when isolation cannot be enforced.
+ *
+ * The rule when adding a caller: if being wrong would expose or alter somebody
+ * else's data, require `enforced` as well, and refuse with 503 rather than
+ * answering an unidentified request.
+ */
 export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promise<AuthResult> {
   // Demo / CI: Admin not configured → do not enforce (keeps zero-config working).
+  // NOTE: this returns BEFORE `opts.scope` is looked at — see the doc comment.
   if (!adminConfigured || !adminAuth) {
     return { ok: true, enforced: false, uid: null, role: null, email: null, emailVerified: false };
   }

@@ -205,7 +205,15 @@ async function handleAudit(req: NextRequest) {
       // renders it next.
       quotaHeadline: quota.refusal.headline,
       quotaCta: quota.refusal.cta,
-      quotaCtaHref: "/pricing",
+      // `/choose-plan`, NOT `/pricing` — THERE IS NO `/pricing` PAGE.
+      //
+      // The comment on the panel that renders this says running out "is the
+      // single moment an interested person is most likely to pay", and the
+      // button under it has been pointing at a 404. Found by requesting every
+      // public route against a running build; every other link in the app
+      // already says `/choose-plan`, so this was the only one out of step and
+      // it was the one on the paid-conversion path.
+      quotaCtaHref: "/choose-plan",
       block: null,
     }, { status: 200 });
   }
