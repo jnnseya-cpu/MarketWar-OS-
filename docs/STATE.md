@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,794 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,798 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM package and every route importing firebase-admin dies at module load. Read §5.0 before touching it or `engines`; the Node 22 pin remains but is no longer the only defence.
@@ -74,18 +74,18 @@ cause from the counts alone; with nothing sent, the diagnosis is not the product
 
 ## 5. Outstanding — the whole list, deduplicated
 
-**STILL OPEN — three things: 1, 2 and 3. Items 0, 4 and 5 are CLOSED and kept here because each
-carries a standing instruction, not because the work is outstanding.**
+**STILL OPEN — three things: 1, 2 and 3. Item 0 is CLOSED and kept only because it recurred once and
+the pin that "fixed" it the first time did not hold. Everything else closed this week is one line in
+the CLOSED blocks below; the standing instructions those left behind are in §7.**
 
 **0. CLOSED AND CONFIRMED — `require(esm)`, which took production down TWICE (08-29, 09-03).**
 `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM); `require()` of an ESM package works
-only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on the host, answering
-Next's HTML page from every route importing it. Only `/api/health/live` survived, loading its modules
-inside a catch. **The 08-29 fix was `engines: 22.x` and the host did not honour it** — a pin somebody
-else has to agree to is not a fix — and that day's test asserted jose IS ESM-only, so it stayed green
-through the whole second outage and could only have failed on the repair. **Fix: `overrides.jose:
-^5`** (CommonJS), proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a real
-signature — jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS silently.
+only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on the host. **The 08-29
+fix was `engines: 22.x` and the host did not honour it** — a pin somebody else must agree to is not a
+fix — and that day's test asserted jose IS ESM-only, staying green through the whole second outage and
+able to fail only on the repair. **Fix: `overrides.jose: ^5`** (CommonJS), proved by driving
+`retrieveSigningKeys` on a real RSA JWK: jwks-rsa does `catch { continue }`, so a broken jose returns
+NO KEYS silently.
 
 **1. MAIL: THE SEND RUNS AND THE SERVER REFUSES IT (2026-09-03).** A real audit closed with *"the
 mail server refused the message"* — the `provider` category, which is PROGRESS: the path used to
@@ -103,34 +103,20 @@ verified is not a mailbox; only the relay's answer is evidence. **Set `SMTP_USER
 `info@marketwaros.com`, `SMTP_PASS` = that mailbox's own password** — login, envelope and From are
 then all `info@`, the strongest arrangement `sender-identity.ts` supports.
 
-**4. CLOSED, AND ITS INSTRUCTION IS PERMANENT — THE CI GATE HAD A HOLE THAT OPENED BY ITSELF (09-06).**
-Two HIGH advisories against `browserslist` (transitive, via autoprefixer) turned every run red on the
-dependency audit; and because steps stop at the first failure, the **secret scan and .env check were
-SKIPPED on every push** — the two controls guarding the one mistake a revert cannot undo. `if:
-always()` on both, override pinned, audit still a gate. **`npm run verify` does NOT run `npm audit`;
-a green local gate is not a green CI. Read the run.**
-
-**5. CLOSED — TWO DEFECTS FOUND BY DRIVING THE ROUTES, NOT READING THEM (09-06).**
-`/api/email/suppression-repair` answered **200 to an anonymous GET**: `requireAuth` returns
-`{ ok: true, enforced: false }` when Admin is unconfigured and returns ABOVE the scope check, so
-`platform_admin` was never applied — twenty-one call sites read `ok` alone. Bounded honestly: no Admin
-also means no Firestore, so the ledger it would have served is empty and production was gated. It now
-needs `ok && enforced` and refuses 503, like `/api/email-events`; the hazard is documented on
-`requireAuth`. And **the "used your free audits" button pointed at `/pricing`, which does not exist** —
-the page is `/choose-plan`. A 404 at the moment somebody is most likely to pay. A test now walks
-`src/app` for the routes Next serves and fails on any dead hard-coded internal link.
-
-**6. LONGER VIDEO IS ONE SETTING, NOT A REWRITE (09-06).** No model makes 15s in one call (Veo caps at
-8, Sora does 4/8/12), so long video is short clips joined into one file — what every tool doing this
-actually does, and already built here: `segmentPlan` (15s = 8+7), exact-length per-engine pricing,
-all-clips-or-none starting, and the join. **It needs `FFMPEG_CLOUD_API_KEY`**; without it 12s and 15s
-are WITHHELD rather than sold as 8s, and the panel prints why. The self-hosted worker has no concat
-recipe. Fixed while there: four of the five ways a started multi-clip render could fail took the ACUs
-and gave nothing back — `failRefunded` is now the only way it may fail.
-
 **2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 
 **3. NEXT 15 IS LANDED — confirm it in production. To close:** one real signup.
+
+**CLOSED 09-06 — the CI gate and the public surface.** The dependency audit had been red since a
+`browserslist` advisory, and because steps stop at the first failure the **secret scan and .env check
+were skipped on every push**; `if: always()` on both, override pinned (§106).
+`/api/email/suppression-repair` answered an anonymous GET — `requireAuth` returns `{ok:true,
+enforced:false}` with no Admin, ABOVE the scope check — now needs `ok && enforced` (§107). The "used
+your free audits" button pointed at `/pricing`, which does not exist (§107). Longer video is one
+setting: 15s is 8+7 joined and needs `FFMPEG_CLOUD_API_KEY`; four of five failure paths were charging
+and refunding nothing (§108). **We failed the checks we sell** — no Open Graph anywhere, two canonical
+hosts, our own 50–165 description rule broken on eight pages, `/get-started` missing from the sitemap
+(§109). Landing page 78 → 83 on our own audit.
 
 **CLOSED 09-06 — the sending path, one line each; the full account is `REQUIREMENTS-COVERAGE.md`
 §§103–105.** 354 addresses suppressed because OUR password was refused with 535 — stopped, and
@@ -213,6 +199,16 @@ the additive-only law, the margin floor and the no-fabrication rule. Only here:
 
 - **Verify before shipping:** typecheck, build, layers, lint, tests — then MUTATE the new
   tests, AND READ THE CI RUN. A test that has never failed is not evidence.
+- **`npm run verify` is NOT the CI gate** — it does not run `npm audit`, and an advisory published
+  against a transitive dependency turns CI red on a commit that changed nothing. Read the run.
+- **A security step must never sit behind a step that can fail on its own** — `if: always()`.
+- **`requireAuth` returning `ok` does NOT mean the scope was checked.** With no Firebase Admin it
+  returns `{ok:true, enforced:false}` before the scope check. Any surface touching real customer data
+  must require `enforced` too, and refuse 503 rather than answer an unidentified request.
+- **Drive the routes, do not read them.** A production build on `next start` found an open endpoint
+  and a 404 on the paid-conversion path that no amount of reading had.
+- **Point our own audit at our own pages** before claiming the marketing surface is fine. It found
+  no Open Graph, two canonical hosts and eight broken descriptions in one pass.
 - Push to `claude/marketwar-os-platform-xrgg5r` and mirror to `main` file-by-file, never
   by merge, verified on main against its own `npm ci`. The branches no longer differ on
   anything — a diff between them is now a mistake, not a plan.

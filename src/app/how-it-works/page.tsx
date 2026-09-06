@@ -2,15 +2,21 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import type { Metadata } from "next";
+import { openGraphFor } from "@/shared/site";
 
 // Pages the product tells customers never to ship without a title and
 // description — while shipping several itself. The pricing page is the
 // sharpest: a search result for it had nothing but the site-wide default.
 export const metadata: Metadata = {
   title: "How MarketWar OS works · From URL to running campaigns",
-  description: "Paste your website. The OS audits the real page, builds your Business DNA, maps where you can win, then writes, publishes and measures the campaigns — with nothing published without your approval.",
+  // 155 chars — inside the 50-165 this platform's own audit publishes. Was 198.
+  description: "Paste your website. The OS audits the real page, builds your Business DNA, then writes, publishes and measures the campaigns — nothing goes out unapproved.",
   alternates: { canonical: "/how-it-works" },
-  openGraph: { title: "How MarketWar OS works · From URL to running campaigns", description: "Paste your website. The OS audits the real page, builds your Business DNA, maps where you can win, then writes, publishes and measures the campaigns — with nothing published without your approval.", type: "website" },
+  openGraph: openGraphFor({
+    title: "How MarketWar OS works · From URL to running campaigns",
+    description: "Paste your website. The OS audits the real page, builds your Business DNA, maps where you can win, then writes, publishes and measures the campaigns — with nothing published without your approval.",
+    path: "/how-it-works",
+  }),
 };
 
 const PHASES = [

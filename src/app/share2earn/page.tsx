@@ -10,7 +10,9 @@ import { SIGNUP_WINDOW_DAYS } from "@/shared/signup-attribution";
 
 export const metadata: Metadata = {
   title: "Join SHARE2EARN · MarketWar OS",
-  description: `Post. Move your audience. Earn. SHARE2EARN pays ${ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces — no application, no follower count, no audience test. Join with a name and an email.`,
+  // ~153 chars with the real rate — inside the 50-165 our own audit publishes.
+  // Was 208, so the join instruction was being cut off in the search listing.
+  description: `Post. Move your audience. Earn. SHARE2EARN pays ${ratePct(SHARE2EARN_RATE)} of the eligible net value of every verified sale your link produces. Join with a name and an email.`,
   alternates: { canonical: "/share2earn" },
 };
 

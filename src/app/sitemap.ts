@@ -30,12 +30,33 @@ const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.S
   { path: "/about", priority: 0.6, changeFrequency: "monthly" },
   { path: "/blog", priority: 0.8, changeFrequency: "daily" },
   { path: "/contact", priority: 0.5, changeFrequency: "yearly" },
-  { path: "/partner", priority: 0.5, changeFrequency: "monthly" },
+  // `/get-started` was missing, and it is the page that turns interest into an
+  // account: its own metadata, the marketing shell, the four steps and the
+  // pricing entry. Every other conversion page is listed; this one was simply
+  // never added, so search engines were not offered the last step of the
+  // funnel.
+  { path: "/get-started", priority: 0.9, changeFrequency: "monthly" },
   { path: "/status", priority: 0.3, changeFrequency: "daily" },
   { path: "/terms", priority: 0.3, changeFrequency: "yearly" },
   { path: "/privacy", priority: 0.3, changeFrequency: "yearly" },
   { path: "/policies", priority: 0.3, changeFrequency: "yearly" },
 ];
+
+// `/partner` IS DELIBERATELY NOT LISTED, and it used to be.
+//
+// It is not a marketing page. Its own header says the access code a creator was
+// given when they applied "is the only credential — no platform login", so it is
+// a signed-in tool wearing a public URL, it is `"use client"`, and NOTHING in
+// the app links to it. Our own audit scores it 70/100 — the worst public page we
+// have — failing "Rendered by JavaScript", "Single H1", "Image alt text" and
+// "Content depth" for the obvious reason that a crawler sees 914 words of shell
+// where the landing page has 13,489.
+//
+// Offering that to Google as marketing content spends crawl budget on an empty
+// dashboard and puts a thin page in the index under our name. The public pitch
+// for creators is `/share2earn`, which IS listed and is written for readers.
+// Removing this does not hide the tool — anyone with a code still opens it — it
+// stops us advertising it as something to read.
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();

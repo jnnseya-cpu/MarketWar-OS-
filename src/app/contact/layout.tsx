@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { openGraphFor } from "@/shared/site";
 
 // The page is a client component, and Next forbids exporting metadata from
 // one — so the title and description live in the route layout instead. They
@@ -9,7 +10,11 @@ export const metadata: Metadata = {
   title: "Contact MarketWar OS",
   description: "Questions about the platform, pricing, partnerships or your account. We answer from a real inbox.",
   alternates: { canonical: "/contact" },
-  openGraph: { title: "Contact MarketWar OS", description: "Questions about the platform, pricing, partnerships or your account. We answer from a real inbox.", type: "website" },
+  openGraph: openGraphFor({
+    title: "Contact MarketWar OS",
+    description: "Questions about the platform, pricing, partnerships or your account. We answer from a real inbox.",
+    path: "/contact",
+  }),
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

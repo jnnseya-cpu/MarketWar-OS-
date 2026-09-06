@@ -8,6 +8,7 @@ import { AgentMarkdown } from "@/components/ui";
 import { SiteHeader, SiteFooter } from "@/components/marketing";
 import BlogArticleClient from "@/components/BlogArticleClient";
 import { siteOrigin } from "@/shared/site";
+import { openGraphFor } from "@/shared/site";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +27,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     // copies of itself for the ranking it earned.
     alternates: { canonical: `/blog/${post.slug}` },
     openGraph: {
-      title: post.title,
-      description: post.excerpt,
-      type: "article",
+      // Spread, not replaced: the shared card and site name come from one place,
+      // and only the fields an ARTICLE adds are written here.
+      ...openGraphFor({ title: post.title, description: post.excerpt, path: `/blog/${post.slug}`, type: "article" }),
       url,
       publishedTime: post.publishedAt || post.createdAt,
       authors: [post.author || "MarketWar OS"],

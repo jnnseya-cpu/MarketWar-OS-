@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import { FEATURE_PAGES, featureBySlug } from "@/shared/feature-pages";
 import { siteUrl } from "@/shared/site";
+import { openGraphFor } from "@/shared/site";
 
 export const dynamicParams = false;
 export function generateStaticParams() {
@@ -18,7 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     title: `${p.title} · MarketWar OS`,
     description: p.description,
     alternates: { canonical: `/features/${p.slug}` },
-    openGraph: { title: p.title, description: p.description, type: "article" },
+    openGraph: openGraphFor({ title: p.title, description: p.description, path: `/features/${p.slug}`, type: "article" }),
   };
 }
 

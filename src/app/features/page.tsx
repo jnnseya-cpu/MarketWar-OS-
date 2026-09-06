@@ -5,7 +5,8 @@ import { FEATURE_PAGES, FEATURE_CATEGORIES } from "@/shared/feature-pages";
 
 export const metadata: Metadata = {
   title: "How it works, question by question · MarketWar OS",
-  description: "Straight answers to what small businesses actually ask about marketing: what you can afford to pay an affiliate, why your ad text is unreadable, why AI assistants never mention you, and what an audit really checks.",
+  // 144 chars — inside the 50-165 this platform's own audit publishes. Was 214.
+  description: "Straight answers to what businesses actually ask: what to pay an affiliate, why your ad text is unreadable, why AI assistants never mention you.",
   alternates: { canonical: "/features" },
 };
 
