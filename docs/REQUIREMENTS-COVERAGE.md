@@ -5253,3 +5253,63 @@ internal link that does not resolve.
 existed in *both* forms, so it caught the copy that was easy to find and left the
 one a customer hits when a cached response arrives without the field. It reads
 quoted literals inside JSX href expressions now.
+
+## §108 — Charged for a video nobody received (2026-09-06)
+
+### The question that found it
+"How can Toonbee create longer videos when we struggle to make 15 seconds?"
+
+### The answer, which is that we already can
+The architecture every long-form AI video tool uses is already built here, end
+to end. No model makes 15 seconds in one call — Veo caps at 8, Sora accepts only
+4/8/12 — so a longer video is **short clips generated separately and joined into
+one file**. `segmentPlan` plans clips that sum EXACTLY to the length (15s = 8+7
+on Veo), `videoPlansFor` prices each engine's plan and picks the cheapest that
+can make the length exactly, `startVideoRender` starts every clip or abandons the
+render, `pollSegments` waits for all of them, and the join goes to the hosted
+FFmpeg service. `videoLengthOptions` builds the menu from what can actually be
+produced, and `withheldLengths` names anything it cannot, with the reason.
+
+**The only missing piece is `FFMPEG_CLOUD_API_KEY`.** Without a join service the
+menu withholds 12s and 15s rather than selling eight seconds as fifteen — which
+is correct — and the panel already prints why. The self-hosted worker
+(`VIDEO_WORKER_SECRET`) has no concat recipe, so it is not an alternative.
+
+### The defect the question exposed
+`startVideoRender` refunds everything when a segment will not START, and its own
+comment says why: *"partial delivery of something sold as one video is not a
+lesser success, it is a failure with the customer's money still in our account."*
+
+Everything AFTER the clips started had five ways to reach `status: "failed"`, and
+only one refunded:
+
+| Ending | Before |
+|---|---|
+| A clip finished with no usable video | charged, no refund |
+| No join service configured | charged, no refund |
+| The join could not be submitted | charged, no refund |
+| The join service reported failure | charged, no refund |
+| The joined file was the wrong length | refunded ✓ |
+
+The one that refunds is the newest; its four siblings were never brought up to
+it. So a 15-second render could take the ACUs, produce two clips it could not
+join, and keep the money — the platform charging full price for a video nobody
+received. The register's first defect class again: a rule that holds on one side
+of a boundary and is never carried across.
+
+### The fix
+One helper, `failRefunded`, is now the only way a started multi-clip render may
+fail. It credits and **zeroes `chargedAcu`**, so a second poll of the same job
+cannot refund twice — the credit is bounded by what is recorded as taken. Each of
+the five sentences still names which ending happened and now says the ACUs are
+back, because a silent refund is still a mystery charge. The duration-mismatch
+path was folded into the same helper rather than left as a second implementation.
+
+A test asserts there is no bare `status = "failed"` anywhere in `pollSegments`,
+so a sixth ending cannot be added without the refund. Four mutations killed:
+crediting without zeroing, zeroing without crediting, restoring the charge on the
+no-join path, and dropping the refund sentence.
+
+### Still true and not a defect
+The menu withholding 12s/15s without the join key is deliberate and stays. The
+answer to "we struggle at 15 seconds" is a setting, not a rewrite.

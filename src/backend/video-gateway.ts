@@ -1011,6 +1011,48 @@ async function fileInLibrary(job: VideoJob, urls: string[]): Promise<boolean> {
 }
 
 /**
+ * A multi-clip render that will not be handed over: mark it failed AND give the
+ * money back, in one place, because it was four places and three of them forgot.
+ *
+ * WHAT WAS WRONG. `startVideoRender` refunds the lot when a segment will not
+ * start — its comment says exactly why: "partial delivery of something sold as
+ * one video is not a lesser success, it is a failure with the customer's money
+ * still in our account." Everything after the clips START had four ways to end
+ * in `status: "failed"`, and only ONE of them refunded:
+ *
+ *   • a clip finishing with no usable video          — charged, no refund
+ *   • no join service configured                     — charged, no refund
+ *   • the join failing to submit                     — charged, no refund
+ *   • the join coming back failed                    — charged, no refund
+ *   • the joined file being the wrong length         — refunded ✓
+ *
+ * The one that refunds is the newest, and its siblings were never brought up to
+ * it. So a fifteen-second render could take the ACUs, produce two clips it could
+ * not join, and keep the money — the platform charging full price for a video
+ * nobody received, which is the fault this engine's own comments exist to argue
+ * against.
+ *
+ * `chargedAcu` is zeroed as well as credited, so a second poll of the same job
+ * cannot refund twice: the credit is bounded by what is recorded as taken, and
+ * once that is zero there is nothing left to give back. Staff renders are
+ * `chargedAcu: 0` already and are unaffected.
+ */
+async function failRefunded(job: VideoJob, note: string): Promise<VideoJob> {
+  if (job.chargedAcu) {
+    const walletId = await walletIdForBrand(job.brandId);
+    await creditAcus(walletId, job.chargedAcu);
+    job.chargedAcu = 0;
+  }
+  job.status = "failed";
+  job.note = note;
+  await saveJob(job);
+  return job;
+}
+
+/** The sentence appended to every refunded failure, so the wallet is never a mystery. */
+const REFUNDED = "The ACUs are back in your wallet.";
+
+/**
  * Poll a render made of several clips.
  *
  * Each clip is polled once per call and uploaded the moment it lands, so a slow
@@ -1029,10 +1071,7 @@ async function pollSegments(job: VideoJob): Promise<VideoJob> {
     // A real MP4 is never a few bytes — the same guard the single-clip path
     // uses against an empty blob being hosted as a video.
     if (!(poll.bytes && poll.bytes.length >= 2048)) {
-      job.status = "failed";
-      job.note = `One clip of this ${job.requestedSeconds}s render finished with no usable video, so the finished video would be short — it is reported as failed rather than handed over incomplete. ${(poll as { diag?: string }).diag || ""}`.trim();
-      await saveJob(job);
-      return job;
+      return await failRefunded(job, `One clip of this ${job.requestedSeconds}s render finished with no usable video, so the finished video would be short — it is reported as failed rather than handed over incomplete. ${REFUNDED} ${(poll as { diag?: string }).diag || ""}`.trim());
     }
     if (!storageConfigured()) continue;   // nothing to host it with yet
     const url = await uploadPublicMedia(poll.bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}|${seg.seconds}|${seg.ref}` });
@@ -1065,19 +1104,13 @@ async function pollSegments(job: VideoJob): Promise<VideoJob> {
     // Unreachable from the panel — the menu withholds any length that needs a
     // join it cannot do. Kept because an API caller can still ask directly, and
     // a half-delivered fifteen seconds must never be the answer.
-    job.status = "failed";
-    job.note = `This ${job.requestedSeconds}s video is ${segs.length} clips that have to be joined into one file, and no join service is configured (FFMPEG_CLOUD_API_KEY). The clips rendered: ${job.clips.join(" ")}`;
-    await saveJob(job);
-    return job;
+    return await failRefunded(job, `This ${job.requestedSeconds}s video is ${segs.length} clips that have to be joined into one file, and no join service is configured (FFMPEG_CLOUD_API_KEY). ${REFUNDED} The clips did render and are here: ${job.clips.join(" ")}`);
   }
 
   if (!job.stitchRef) {
     const stitched = await createTranscode({ inputUrls: job.clips, outputFormat: "mp4" });
     if (!stitched.ok) {
-      job.status = "failed";
-      job.note = `Rendered ${job.requestedSeconds}s as ${segs.length} clips but joining them failed — ${stitched.error}. The clips are here: ${job.clips.join(" ")}`;
-      await saveJob(job);
-      return job;
+      return await failRefunded(job, `Rendered ${job.requestedSeconds}s as ${segs.length} clips but joining them failed — ${stitched.error}. ${REFUNDED} The clips are here: ${job.clips.join(" ")}`);
     }
     job.stitchRef = stitched.job.id;
     job.note = `All ${segs.length} clips rendered — joining them into one ${job.requestedSeconds}s file.`;
@@ -1090,10 +1123,7 @@ async function pollSegments(job: VideoJob): Promise<VideoJob> {
   const state = toQueueStatus(status.job.status);
   if (state === "queued" || state === "running") return job;
   if (state === "failed") {
-    job.status = "failed";
-    job.note = `The ${job.requestedSeconds}s clips rendered but the join failed. The clips are here: ${job.clips.join(" ")}`;
-    await saveJob(job);
-    return job;
+    return await failRefunded(job, `The ${job.requestedSeconds}s clips rendered but the join failed. ${REFUNDED} The clips are here: ${job.clips.join(" ")}`);
   }
 
   const dl = await getDownloadUrl(job.stitchRef);
@@ -1120,13 +1150,7 @@ async function pollSegments(job: VideoJob): Promise<VideoJob> {
   const ordered = job.requestedSeconds ?? job.seconds ?? 0;
   const measured = mp4Duration(bytes);
   if (ordered > 0 && !durationMatches(measured, ordered)) {
-    const walletId = await walletIdForBrand(job.brandId);
-    if (job.chargedAcu) await creditAcus(walletId, job.chargedAcu);
-    job.status = "failed";
-    job.chargedAcu = 0;
-    job.note = `The clips rendered but the joined file is ${measured?.toFixed(1)}s, not the ${ordered}s you ordered — so it has not been handed over and the ACUs are back in your wallet. The individual clips are here: ${(job.clips || []).join(" ")}`;
-    await saveJob(job);
-    return job;
+    return await failRefunded(job, `The clips rendered but the joined file is ${measured?.toFixed(1)}s, not the ${ordered}s you ordered — so it has not been handed over. ${REFUNDED} The individual clips are here: ${(job.clips || []).join(" ")}`);
   }
 
   const hosted = await uploadPublicMedia(bytes, { contentType: "video/mp4", ext: "mp4", keyPrefix: "videos", nameSeed: `${job.brandId}|${job.prompt}|joined|${job.stitchRef}` });
