@@ -5016,3 +5016,141 @@ standing assumption and hung diagnoses off it. `/api/health/auth` returns
 projects and a passing Identity Toolkit probe. It was **wrong**. STATE.md now
 records the evidence and the instruction to check the endpoint rather than
 inherit the belief.
+
+## §103 — One screen, two brands, and a Send button under it (2026-09-06)
+
+### What was reported
+The sidebar brand switcher showed **AxionOS**. The sentence beneath the send
+form read *"Sends to the consented contacts in VeryX's Customer Vault"*, the
+From name said **VeryX**, and the From address sat on **veryxjnn.com**. The
+owner's words: *"when a brand is switched, everything must follow."*
+
+### The trace, before any change
+`useActiveBrand()` resolves `activeBrand` as `brands.find(b => b.id === activeId)`,
+and both the switcher and the vault sentence read it, so those two cannot
+disagree. The sender fields are different: they are `useState`, filled by an
+effect through `applyDefaults`, whose whole rule was **fill only what is empty**.
+
+That rule cannot tell two things apart which look identical in a text input:
+
+1. Text the customer typed. Theirs, and a prefill that overwrites it is worse
+   than no prefill.
+2. Text *this platform* put there for a brand that is no longer selected. Not
+   theirs, and not about the company on the screen any more.
+
+So switching brand carried the previous brand's identity across. A campaign sent
+from that screen goes to one company's customers wearing another company's name,
+from a domain those recipients have never heard of, and burns both reputations.
+
+### The fix
+`applyDefaults(current, defaults, previous)` — `previous` is what the effect last
+prefilled. A field still holding exactly that is ours to replace; anything else
+is the customer's and survives. The replacement may be **empty**: a brand with no
+verified domain gets a blank From address on purpose, and blanking a carried-over
+one is the correct outcome, not a lost value.
+
+Omitting `previous` keeps the original behaviour, which is right on a first
+render because nothing has been prefilled yet.
+
+### The same class, everywhere else on that page
+Every panel is filled by its own request at its own speed, so between the click
+and the last response the new brand's name sits over the old brand's numbers — a
+send report reading "250 failed of 5,210 sendable" above a vault holding 40
+contacts. An effect keyed to `activeBrand?.id` alone clears stats, the send
+report, the reply check, templates, the selected template, sending domains, the
+From note, the preview verdict and the draft notes; `brandNow` is compared when a
+response arrives, so a slow answer about one brand can never land in another
+brand's panel — including a batch send that takes minutes and completes after the
+switch.
+
+### Verified
+Five mutations, all killed: reverting `applyDefaults` to fill-only-empties;
+dropping the record of the new prefill; removing the send-report clear; dropping
+the guard on the stats failure path; writing a send result straight to state.
+
+## §104 — An address asked for on a promise the page could not keep (2026-09-06)
+
+### What was reported
+A live audit of construxvg.com ended: *"copy it before you close the tab, because
+the mail server refused the message."* The visitor had handed over their address
+on the words *"One address, used to send you this report"* — and the whole ask
+rested on a send this page cannot guarantee. Our credential problem, handed back
+to them as a wall of text to select by hand.
+
+### The fix
+The ask leads with what always happens: the rest of the findings render from the
+response already in flight, and **the whole report downloads**. The route's own
+note ("the other N come with the written report") is corrected the same way. The
+emailed copy is stated as an extra, and the line at the end still says plainly
+whether it went and why not.
+
+`auditReportDocument()` wraps `auditEmailHtml` verbatim rather than re-rendering,
+so the file and the message cannot become two different reports; it is pure and
+lives in `shared/`, so the browser builds it from what is already on screen with
+no round trip and no second crawl. Everything interpolated is escaped by the same
+function the email uses — the URL and the page title come from a site we do not
+control, and this file is opened from the visitor's own downloads folder.
+
+Hiding the email field when sending is down was considered and rejected: the
+address is what reaches the Customer Vault (§102 of the audit work), and losing
+the lead is a worse answer than making the ask honest.
+
+### Verified
+Eight mutations, all killed, including re-rendering the document instead of
+wrapping the email body, dropping the doctype, letting the print button print
+onto the document, allowing a slash through the download filename, restoring the
+email promise to the gate form, restoring "copy it before you close the tab", and
+making the download button do nothing.
+
+## §105 — A reputation governor that never looked at reputation (2026-09-06)
+
+### What was reported
+The AI Email Deliverability Commander flagged a warm-up cap of **50,000 a day on
+day 40** as dangerous. It was right, and the cause was worse than the number.
+
+### The defect
+`dailyCapForDay(day)` returned a ceiling from a calendar and consulted nothing
+else, where `day` is simply days elapsed since the brand's first send. Send 50
+messages on day one, go quiet for six weeks, and day 40 authorised fifty thousand
+against a reputation built on fifty. Mailbox providers read a step change like
+that as a compromised account, and the block lands on the customer's own domain.
+
+This is the register's second recurring class exactly: **a check that passes for a
+reason unrelated to what it claims to test.** Calendar days do not build sending
+reputation. Delivered volume that nobody complained about does.
+
+### The fix — `src/shared/warmup-ramp.ts`
+Two ceilings, and the lower wins:
+
+- **The published schedule**, unchanged and still absolute.
+- **What has been earned** — about twice the most messages accepted on any one
+  *previous* day. Today is excluded deliberately: a ceiling derived from the
+  running total would rise as the day progressed.
+
+And the outcomes govern it, on the published lines rather than invented ones:
+
+| Ledger | Ramp |
+|---|---|
+| Clean | Grows to about double the best day, capped by the schedule |
+| Bounces ≥ 2% or complaints ≥ 0.1% | **Holds** — nothing blocked, growth stops |
+| Bounces ≥ 5% | **Halves** — the addresses are the problem |
+| Complaints ≥ 0.3% (Gmail's filtering line) | **Stops** |
+
+Rates govern only on at least 20 messages and never on a single complaint: one
+report out of thirty is 3.3% and is also one person having a bad morning, and
+letting noise stop a sender is its own failure.
+
+The reason travels with the number — into the dashboard banner (toned red for a
+stop, amber for a hold or rollback) and into the send route's 429 — because a
+correct cap of 100 on day 40 looks exactly like a bug without it.
+
+### A test that passed against the broken code
+The first version of "today's own sending cannot raise today's ceiling" asserted
+it on **day one**, where the published schedule is the binding limit and clamps
+the fault out of sight. Mutation found it. Re-written on day 10, where the earned
+ceiling is the lower one and the assertion is about something.
+
+Nine mutations, all killed: ignoring either ceiling, softening the stop, removing
+the rollback, letting a hold grow, acting on one complaint, judging on a sample of
+one, letting today's count raise today's cap, and dropping the reason from the
+refusal.

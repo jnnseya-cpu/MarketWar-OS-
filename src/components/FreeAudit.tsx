@@ -12,8 +12,9 @@
 // the thing being asked for is trust and we have not earned any yet.
 
 import { useState } from "react";
-import { ArrowRight, CheckCircle2, Loader2, Search, TriangleAlert } from "lucide-react";
+import { ArrowRight, CheckCircle2, Download, Loader2, Search, TriangleAlert } from "lucide-react";
 import { track } from "@/frontend/analytics";
+import { auditReportDocument, auditReportFilename } from "@/shared/audit-email";
 
 type Finding = {
   area: string; label: string; severity: string; detail: string;
@@ -145,6 +146,38 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
       // places, and the previous message could mean either.
       setError(`Could not reach the audit service — ${e instanceof Error ? e.message : "the request did not complete"}. Check your connection and try again.`);
     } finally { setBusy(false); }
+  }
+
+  /**
+   * Hand them the document, whether or not the email went.
+   *
+   * Built in the browser from the report already on screen — no round trip, no
+   * second crawl, and it is the SAME renderer the email uses, so the file and
+   * the message cannot drift into two different reports.
+   */
+  function downloadReport(r: Report) {
+    const url = r.url || "";
+    const doc = auditReportDocument({
+      url,
+      score: r.score ?? 0,
+      grade: r.grade ?? "",
+      findings: (r.findings ?? []).map((f) => ({
+        area: f.area, label: f.label, detail: f.detail,
+        severity: f.severity === "fail" || f.severity === "warn" ? f.severity : "pass",
+      })),
+      unmeasuredCount: r.unmeasured,
+      title: r.title,
+    });
+    const blob = new Blob([doc], { type: "text/html;charset=utf-8" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = auditReportFilename(url);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+    track("audit_report_downloaded", { score: typeof r.score === "number" ? r.score : undefined, grade: r.grade });
   }
 
   return (
@@ -338,8 +371,21 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
                 />
                 <span>Also send me occasional, practical things about getting found online. One click stops it, any time.</span>
               </label>
+              {/* PROMISE ONLY WHAT THIS PAGE CONTROLS.
+                  This used to open with "used to send you this report", so the
+                  whole ask rested on an email arriving — and when the mail
+                  server refused our password the page had to end by admitting
+                  it, after the address had been handed over. Asking for
+                  something on the strength of a promise we cannot keep from here
+                  costs more trust than the lead is worth.
+
+                  What is guaranteed is what is offered: the rest of the findings
+                  render on this page the moment the address is accepted, and the
+                  whole report downloads from the button below them. The emailed
+                  copy is stated as an extra, and the line at the end of the
+                  report says whether it actually went. */}
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                One address, used to send you this report and nothing else until you say otherwise. No card, no trial to cancel, and the rest of the findings appear on this page immediately.
+                One address. The rest of the findings appear on this page immediately and the full report downloads with one click — no card, no trial to cancel. We will email you a copy as well, and tell you plainly if that does not go through.
               </p>
             </form>
           )}
@@ -376,20 +422,33 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
           )}
 
           {full && (
-            <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 text-xs leading-relaxed text-emerald-100">
-              That is the whole audit — every check we could measure on your page. Nothing above is an estimate or an industry average.
-              {/* SAY WHICH IT WAS. Telling everybody to check their inbox is how
-                  the promise got broken silently in the first place. */}
-              {/* SAY WHICH IT WAS, AND WHY.
-                  The route has always returned the reason and this line always
-                  threw it away, so "never send any emails" could not be told
-                  apart from "no mail server configured", "the server refused the
-                  password" and "that address is suppressed" — three problems
-                  with three different fixes. The reason travels now. */}
-              {report.emailed
-                ? " A copy is on its way to your inbox as well, so you do not have to keep this page open."
-                : ` It is all on this page — copy it before you close the tab${report.emailNote ? `, because ${report.emailNote}` : ", because we could not email you a copy just now"}.`}
-            </p>
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 text-xs leading-relaxed text-emerald-100">
+              <p>
+                That is the whole audit — every check we could measure on your page. Nothing above is an estimate or an industry average.
+                {/* SAY WHICH IT WAS, AND WHY.
+                    The route has always returned the reason and this line always
+                    threw it away, so "never send any emails" could not be told
+                    apart from "no mail server configured", "the server refused the
+                    password" and "that address is suppressed" — three problems
+                    with three different fixes. The reason travels now. */}
+                {report.emailed
+                  ? " A copy is on its way to your inbox as well, so you do not have to keep this page open."
+                  : ` The emailed copy did not go out${report.emailNote ? ` — ${report.emailNote}` : ""}. That is our problem to fix, not yours to work around: take the report with you below.`}
+              </p>
+              {/* THE DOCUMENT, NOT AN INSTRUCTION TO COPY THE PAGE BY HAND.
+                  Offered whether or not the email went — an inbox copy that did
+                  arrive is still an inbox copy, and somebody who wants the file
+                  should not have to have working email to get it. It is built
+                  from the report already on screen, by the same renderer the
+                  email uses. */}
+              <button
+                type="button" onClick={() => downloadReport(report)}
+                className={`mt-3 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold ${report.emailed ? "border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10" : "bg-emerald-500 text-ink-950 hover:bg-emerald-400"}`}
+              >
+                <Download className="h-4 w-4" /> Download the full report
+              </button>
+              <span className="ml-2 text-[11px] text-emerald-100/70">Opens in your browser · print or save as PDF.</span>
+            </div>
           )}
         </div>
       )}

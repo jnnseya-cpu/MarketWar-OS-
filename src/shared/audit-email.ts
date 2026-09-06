@@ -126,3 +126,39 @@ export function auditEmailHtml(input: AuditEmailInput): string {
     `</td></tr></table></div>`,
   ].join("");
 }
+
+/**
+ * The same report as a standalone document the visitor can keep.
+ *
+ * WHY THIS EXISTS. The audit asks for an address and then tries to email the
+ * report. When the send fails — a refused password, no provider wired, a
+ * suppressed address — the page has been ending on "copy it before you close the
+ * tab", which puts our problem on the visitor and hands them a wall of text to
+ * select by hand. They gave an address for a document; they should leave with
+ * the document either way.
+ *
+ * It wraps `auditEmailHtml` rather than re-rendering, so the file and the email
+ * cannot drift into two different reports. Pure, so it runs in the browser with
+ * no round trip: everything it needs is already in the response on screen.
+ */
+export function auditReportDocument(input: AuditEmailInput): string {
+  const host = escapeHtml(hostOf(input.url));
+  return [
+    `<!doctype html><html lang="en"><head><meta charset="utf-8" />`,
+    `<meta name="viewport" content="width=device-width, initial-scale=1" />`,
+    `<title>Website report — ${host} scored ${input.score}/100</title>`,
+    // A light ground, declared: the report is a printed document, not a page
+    // that should follow whatever theme the reader's machine is in.
+    `<style>:root{color-scheme:light}body{margin:0;background:#f8fafc}@media print{.noprint{display:none}body{background:#fff}}</style>`,
+    `</head><body>`,
+    auditEmailHtml(input),
+    `<p class="noprint" style="text-align:center;margin:0 0 32px"><button onclick="window.print()" style="background:#059669;color:#fff;border:0;border-radius:8px;padding:10px 18px;font:700 14px -apple-system,Segoe UI,Arial,sans-serif;cursor:pointer">Print / Save as PDF</button></p>`,
+    `</body></html>`,
+  ].join("");
+}
+
+/** A filename a stranger will recognise in their downloads folder a week later. */
+export function auditReportFilename(url: string): string {
+  const host = hostOf(url).replace(/[^a-z0-9.-]+/gi, "-").replace(/^-+|-+$/g, "") || "website";
+  return `${host}-website-report.html`;
+}

@@ -3500,6 +3500,161 @@ test("next step: the route attaches it to every agent response", () => {
 });
 
 // ---------------------------------------------------------------------------
+// THE WARM-UP GOVERNOR THAT NEVER LOOKED AT REPUTATION.
+//
+// `dailyCapForDay(day)` returned a ceiling from a calendar and nothing else, so
+// a brand that sent 50 messages on day one and then went quiet for six weeks was
+// authorised to send FIFTY THOUSAND on day 40. The AI Email Deliverability
+// Commander flagged it; mailbox providers read a step change like that as a
+// compromised account, and the block lands on the customer's own domain.
+//
+// Defect class two, exactly: a check that passes for a reason unrelated to what
+// it claims to test. Calendar days do not build sending reputation.
+// ---------------------------------------------------------------------------
+const ramp = await import("../src/shared/warmup-ramp.ts");
+
+test("warm-up: forty days of silence does NOT authorise fifty thousand messages", () => {
+  // The reported case, as arithmetic.
+  const out = ramp.warmupCap({ day: 40, signals: { bestDay: 50, sent: 50, bounce: 0, complaint: 0 } });
+  assert.equal(out.scheduleCap, 50000, "the published ramp for day 40 is unchanged — it is a ceiling, not the answer");
+  assert.equal(out.cap, 100, "twice the best day actually sent, which is all this sender has proved");
+  assert.equal(out.governedBy, "reputation");
+  assert.match(out.reason, /not from the calendar/);
+});
+
+test("warm-up: the ramp grows from what was actually sent, and the schedule still caps it", () => {
+  // A sender genuinely ramping: the doubling leads early on…
+  assert.equal(ramp.warmupCap({ day: 3, signals: { bestDay: 60, sent: 110, bounce: 0, complaint: 0 } }).cap, 120);
+  // …and the published schedule takes over when the doubling would outrun it.
+  const fast = ramp.warmupCap({ day: 3, signals: { bestDay: 400, sent: 900, bounce: 0, complaint: 0 } });
+  assert.equal(fast.cap, 250, "day 3 allows 250 however much was sent yesterday");
+  assert.equal(fast.governedBy, "schedule");
+  assert.match(fast.reason, /Day 3 of the published warm-up ramp/);
+});
+
+test("warm-up: a brand that has never sent starts at the day-one trickle", () => {
+  const out = ramp.warmupCap({ day: 1, signals: { bestDay: 0, sent: 0, bounce: 0, complaint: 0 } });
+  assert.equal(out.cap, ramp.FIRST_DAY_CAP);
+  assert.equal(out.verdict, "grow");
+  assert.match(out.reason, /Nothing has been sent from this brand yet/);
+  // And an old brand that has still never sent gets the same trickle, not 50,000.
+  assert.equal(ramp.warmupCap({ day: 90, signals: { bestDay: 0, sent: 0, bounce: 0, complaint: 0 } }).cap, ramp.FIRST_DAY_CAP);
+});
+
+test("warm-up: complaints above Gmail's published line stop the sending", () => {
+  // 0.3% is the rate at which Gmail says a bulk sender is filtered.
+  const out = ramp.earnedCap({ bestDay: 5000, sent: 1000, bounce: 0, complaint: 4 });
+  assert.equal(out.verdict, "stop");
+  assert.equal(out.cap, 0, "a stop must be a stop, not a smaller allowance");
+  assert.equal(out.complaintRatePct, 0.4);
+  assert.match(out.reason, /0\.3%/, "the line being breached has to be named");
+  // And it survives the min(): a stop cannot be undone by a generous schedule.
+  assert.equal(ramp.warmupCap({ day: 60, signals: { bestDay: 5000, sent: 1000, bounce: 0, complaint: 4 } }).cap, 0);
+});
+
+test("warm-up: a bad list rolls the allowance back, a mediocre one holds it", () => {
+  const rollback = ramp.earnedCap({ bestDay: 4000, sent: 1000, bounce: 60, complaint: 0 });
+  assert.equal(rollback.verdict, "rollback");
+  assert.equal(rollback.cap, 2000, "halved from the best day, not zeroed — the addresses are the problem, not the sender");
+  assert.match(rollback.reason, /hygiene filter/, "it must say what to do, not only what happened");
+
+  const hold = ramp.earnedCap({ bestDay: 4000, sent: 1000, bounce: 25, complaint: 0 });
+  assert.equal(hold.verdict, "hold");
+  assert.equal(hold.cap, 4000, "held at the current volume — growth stops, sending does not");
+  assert.match(hold.reason, /Nothing is blocked/);
+
+  // Complaints at the target line hold too, and say so in their own words.
+  const complaintHold = ramp.earnedCap({ bestDay: 4000, sent: 1000, bounce: 0, complaint: 2 });
+  assert.equal(complaintHold.verdict, "hold");
+  assert.match(complaintHold.reason, /reported as spam/);
+});
+
+test("warm-up: a rate computed on noise never governs the ramp", () => {
+  // One complaint out of thirty is 3.3% and is also one person having a bad
+  // morning. Stopping a sender on that is its own failure.
+  assert.equal(ramp.earnedCap({ bestDay: 30, sent: 30, bounce: 0, complaint: 1 }).verdict, "grow");
+  // Below the minimum sample nothing governs at all, however ugly it looks.
+  assert.equal(ramp.earnedCap({ bestDay: 10, sent: 10, bounce: 5, complaint: 3 }).verdict, "grow");
+  // But the same two complaints in a real sample do act — and the sample size
+  // only decides whether to look, never which line was crossed: 2 in 300 is
+  // 0.67%, past the stop line, and it stops.
+  assert.equal(ramp.earnedCap({ bestDay: 300, sent: 1000, bounce: 0, complaint: 2 }).verdict, "hold");
+  assert.equal(ramp.earnedCap({ bestDay: 300, sent: 300, bounce: 0, complaint: 2 }).verdict, "stop");
+});
+
+test("warm-up: the rollback and the hold never fall below the day-one trickle", () => {
+  // Halving a tiny best day must not produce a cap of 3, which would strand a
+  // sender who is trying to recover.
+  assert.equal(ramp.earnedCap({ bestDay: 6, sent: 100, bounce: 10, complaint: 0 }).cap, ramp.FIRST_DAY_CAP);
+  assert.equal(ramp.earnedCap({ bestDay: 6, sent: 100, bounce: 3, complaint: 0 }).cap, ramp.FIRST_DAY_CAP);
+});
+
+test("warm-up: today's own sending cannot raise today's ceiling", async () => {
+  // A cap derived from the running total would rise as the day progressed —
+  // send to the cap, the cap doubles, send again. `bestPreviousDay` excludes
+  // today for exactly that reason, and this drives the real module.
+  //
+  // DAY 10 DELIBERATELY, not day 1. On day 1 the published schedule is the
+  // binding ceiling, so a cap that wrongly grew from today's own count would be
+  // clamped back by the schedule and the fault would be invisible — this test
+  // passed against the broken code until a mutation showed it. The earned
+  // ceiling has to be the LOWER one for the assertion to be about anything.
+  const { getWarmup, recordWarmupSends } = await import("../src/backend/email-warmup.ts");
+  const brand = `warmup_test_${Date.now()}`;
+  await recordWarmupSends(brand, "2026-03-01", 500);
+  const today = "2026-03-10"; // day 10 — the schedule allows 5,000
+
+  const before = await getWarmup(brand, today, { sent: 500, bounce: 0, complaint: 0 });
+  assert.equal(before.day, 10);
+  assert.equal(before.scheduleCap, 5000);
+  assert.equal(before.dailyCap, 1000, "twice the best previous day, and that is the lower ceiling");
+
+  await recordWarmupSends(brand, today, 1000);
+  const after = await getWarmup(brand, today, { sent: 1500, bounce: 0, complaint: 0 });
+  assert.equal(after.dailyCap, 1000, "sending today must not raise today's own ceiling");
+  assert.equal(after.sentToday, 1000);
+  assert.equal(after.remaining, 0, "the allowance is spent — it must not refill itself");
+
+  // Tomorrow, that same day's sending is history and does earn the doubling.
+  const tomorrow = await getWarmup(brand, "2026-03-11", { sent: 1500, bounce: 0, complaint: 0 });
+  assert.equal(tomorrow.dailyCap, 2000);
+});
+
+test("warm-up: a brand's first day is the trickle, and the second earns the double", async () => {
+  const { getWarmup, recordWarmupSends } = await import("../src/backend/email-warmup.ts");
+  const brand = `warmup_first_${Date.now()}`;
+  const first = await getWarmup(brand, "2026-03-10", { sent: 0, bounce: 0, complaint: 0 });
+  assert.equal(first.dailyCap, ramp.FIRST_DAY_CAP);
+  await recordWarmupSends(brand, "2026-03-10", 50);
+  const tomorrow = await getWarmup(brand, "2026-03-11", { sent: 50, bounce: 0, complaint: 0 });
+  assert.equal(tomorrow.day, 2);
+  assert.equal(tomorrow.dailyCap, 100);
+});
+
+test("warm-up: the status carries the reason and both ceilings, so a low cap is not a mystery", async () => {
+  const { getWarmup, recordWarmupSends } = await import("../src/backend/email-warmup.ts");
+  const brand = `warmup_reason_${Date.now()}`;
+  await recordWarmupSends(brand, "2026-01-01", 50);
+  // Forty days later, having sent nothing since.
+  const late = await getWarmup(brand, "2026-02-09", { sent: 50, bounce: 0, complaint: 0 });
+  assert.equal(late.day, 40);
+  assert.equal(late.scheduleCap, 50000, "the published ramp is still reported");
+  assert.equal(late.dailyCap, 100, "and it is not what may be sent");
+  assert.equal(late.governedBy, "reputation");
+  assert.ok(late.reason.length > 40, "a refusal without a reason is the defect in a different coat");
+});
+
+test("warm-up: the send route refuses with the reason attached", () => {
+  const src = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  const refusal = src.match(/Daily warm-up limit reached[\s\S]{0,600}?\}, \{ status: 429 \}\);/);
+  assert.ok(refusal, "the warm-up refusal is gone");
+  assert.match(refusal[0], /\$\{warm\.reason\}/,
+    "a cap of 100 on day 40 is correct and looks like a bug without the sentence that explains it");
+  assert.match(refusal[0], /scheduleCap: warm\.scheduleCap/);
+  assert.match(refusal[0], /governedBy: warm\.governedBy/);
+});
+
+// ---------------------------------------------------------------------------
 // "Request failed" on Send to vault.
 //
 // /api/email sends up to 250 emails in a SERIAL SMTP loop — each send is allowed
@@ -18814,7 +18969,17 @@ test("audit: the page states which happened instead of promising an inbox", () =
   // Both branches must exist — a component that only ever says "sent" is the
   // broken promise again.
   const full = ui.split("{full && (")[1] || "";
-  assert.match(full, /could not email/i, "there is no wording for the case where nothing was sent");
+  // Both branches must exist and must SAY DIFFERENT THINGS. Asserting on one
+  // phrasing froze the wording; what matters is that the not-sent case is
+  // written at all, carries the reason the route worked out, and never tells
+  // somebody to look in an inbox nothing was sent to.
+  const branch = full.match(/\{report\.emailed\s*\n?\s*\?([\s\S]*?)\n\s*<\/p>/);
+  assert.ok(branch, "the emailed/not-emailed branch is gone — the page is promising an inbox again");
+  const [sent, notSent] = branch[1].split(/\n\s*: /);
+  assert.ok(sent && notSent, "there is no wording for the case where nothing was sent");
+  assert.match(sent, /inbox/i, "the sent branch should say where it went");
+  assert.ok(!/inbox/i.test(notSent), "the not-sent branch must not send anybody to an inbox");
+  assert.match(notSent, /report\.emailNote/, "the reason the route worked out must reach the reader");
 });
 
 test("audit email: a hostile page title cannot inject markup into the inbox", async () => {
@@ -18865,6 +19030,96 @@ test("audit email: it reports only what was measured, and says so", async () => 
   assert.match(html, /1 thing is costing you traffic/, "the headline count is not derived from the findings");
   assert.equal(hostOf("https://www.example.com/page"), "example.com");
   assert.match(auditEmailSubject({ url: "https://www.example.com/p", score: 71 }), /example\.com scored 71\/100/);
+});
+
+// ---------------------------------------------------------------------------
+// THEY GAVE AN ADDRESS FOR A DOCUMENT. THEY LEAVE WITH THE DOCUMENT.
+//
+// Reported from a live audit: the visitor handed over their email, read the
+// findings, and the page ended "copy it before you close the tab, because the
+// mail server refused the message." Our credential problem, put on them, with a
+// wall of text to select by hand as the remedy.
+//
+// The report downloads from the page now, built by the SAME renderer the email
+// uses so the file and the message cannot become two different reports.
+// ---------------------------------------------------------------------------
+const AUDIT_DOC_INPUT = {
+  url: "https://www.example.com/page?a=1&b=2",
+  score: 71,
+  grade: "B",
+  findings: [
+    { area: "SEO", label: "No meta description", severity: "fail", detail: "The page has none." },
+    { area: "Mobile", label: "Viewport set", severity: "pass", detail: "Correct." },
+  ],
+  unmeasuredCount: 3,
+  title: '<script>alert(1)</script>',
+};
+
+test("the downloadable report is a real standalone document, not a fragment", async () => {
+  const { auditReportDocument } = await import("../src/shared/audit-email.ts");
+  const doc = auditReportDocument(AUDIT_DOC_INPUT);
+  assert.match(doc, /^<!doctype html>/i, "a fragment saved as .html renders as quirks-mode soup");
+  assert.match(doc, /<meta charset="utf-8"/);
+  assert.match(doc, /<title>Website report — example\.com scored 71\/100<\/title>/,
+    "the browser tab and the downloads folder both show this");
+  assert.match(doc, /color-scheme:light/, "a printed report must not follow the reader's dark mode");
+  assert.match(doc, /window\.print\(\)/, "save-as-PDF is the whole reason somebody downloads this");
+  assert.match(doc, /@media print\{\.noprint\{display:none\}/, "and the button must not print onto the document");
+});
+
+test("the downloaded report IS the emailed report — one renderer, no drift", async () => {
+  const { auditReportDocument, auditEmailHtml } = await import("../src/shared/audit-email.ts");
+  const doc = auditReportDocument(AUDIT_DOC_INPUT);
+  const mail = auditEmailHtml(AUDIT_DOC_INPUT);
+  assert.ok(doc.includes(mail),
+    "the document must WRAP the email body verbatim; re-rendering it is how two versions of the same report start disagreeing");
+});
+
+test("the downloadable report escapes the stranger's page exactly as the email does", async () => {
+  // The URL and the title come from a site we do not control, and this file is
+  // opened in the visitor's own browser from their downloads folder.
+  const { auditReportDocument } = await import("../src/shared/audit-email.ts");
+  const doc = auditReportDocument(AUDIT_DOC_INPUT);
+  assert.ok(!doc.includes("<script>alert(1)</script>"), "the hostile page title reached the document unescaped");
+  assert.ok(doc.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+  assert.ok(!/page\?a=1&b=2/.test(doc), "the raw ampersand from the audited URL was not escaped");
+});
+
+test("the download filename names the site it is about", async () => {
+  const { auditReportFilename } = await import("../src/shared/audit-email.ts");
+  assert.equal(auditReportFilename("https://www.example.com/page"), "example.com-website-report.html");
+  // A stranger's URL must not be able to name a file with a path in it.
+  assert.equal(auditReportFilename("https://a b/c"), "https-a-b-c-website-report.html");
+  assert.ok(!auditReportFilename("https://a b/c").includes("/"), "a slash in a download name is a path traversal attempt");
+  assert.equal(auditReportFilename(""), "website-website-report.html");
+});
+
+test("the audit never promises an email as the reason to hand over an address", async () => {
+  // The whole ask used to rest on a send this platform cannot guarantee from the
+  // page: "One address, used to send you this report". When the mail server
+  // refused our password the visitor found out AFTER giving it. What is offered
+  // now is what always happens — the rest of the findings render from the
+  // response already in flight, and the report downloads.
+  const { readFileSync } = await import("node:fs");
+  const audit = codeOf(readFileSync("src/components/FreeAudit.tsx", "utf8"));
+  const route = codeOf(readFileSync("src/app/api/audit/route.ts", "utf8"));
+
+  const gate = audit.match(/\{report\.gated && !full && \([\s\S]*?\n {10}\)\}/);
+  assert.ok(gate, "the gate form must still exist");
+  assert.ok(!/used to send you this report/.test(gate[0]),
+    "the ask must not lead with a send this page cannot guarantee");
+  assert.match(gate[0], /appear on this page immediately/, "it must lead with what always happens");
+  assert.match(gate[0], /downloads/, "and with the copy they can keep regardless");
+
+  assert.ok(!/come with the written report/.test(route),
+    "the server's own note promised an email too");
+  assert.match(route, /appear here straight away/);
+
+  // The end of the report offers the file rather than telling them to copy it.
+  assert.ok(!/copy it before you close the tab/.test(audit),
+    "our sending problem must not be handed to the visitor as a manual chore");
+  assert.match(audit, /onClick=\{\(\) => downloadReport\(report\)\}/);
+  assert.match(audit, /auditReportDocument\(\{/, "the button must build the real document, not a placeholder");
 });
 
 test("audit: the send actually RUNS — proved by the outcome, not by a grep", async () => {
