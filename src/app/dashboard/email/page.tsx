@@ -5,7 +5,7 @@
 // facade are live in src/backend/email.ts (/api/email); provider pool,
 // webhook feedback loops + warm-up automation activate once connected.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Building2,
   Filter,
@@ -28,7 +28,7 @@ import EmailImprove, { type ImproveReportView } from "@/components/EmailImprove"
 import { authedFetch } from "@/frontend/api-client";
 import { emailContext } from "@/shared/agent-context";
 import { useAuthUser } from "@/frontend/use-auth-user";
-import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike } from "@/shared/email-identity";
+import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike, type SenderFields } from "@/shared/email-identity";
 
 // Headline deliverability posture is COMPUTED per brand by the Email
 // Deliverability Posture Engine (/api/email-metrics) — every figure is a
@@ -111,7 +111,7 @@ export default function EmailPage() {
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
   // openRate/clickRate are NULLABLE on purpose: a rate the ledger cannot support
   // is withheld rather than invented. See backend/email-events.ts.
-  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; sentUnique?: number; openRate: number | null; clickRate: number | null; ratesNote?: string; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number }; improve?: ImproveReportView } | null>(null);
+  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; sentUnique?: number; openRate: number | null; clickRate: number | null; ratesNote?: string; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number; scheduleCap?: number; earnedCap?: number; governedBy?: "schedule" | "reputation"; verdict?: "grow" | "hold" | "rollback" | "stop"; reason?: string }; improve?: ImproveReportView } | null>(null);
   // The preview's verdict, so the Send buttons and the preview cannot disagree
   // about whether this campaign is safe to send.
   const [previewBlockers, setPreviewBlockers] = useState(0);
@@ -131,6 +131,35 @@ export default function EmailPage() {
     return () => { off = true; };
   }, []);
 
+  // NOTHING ABOUT THE PREVIOUS BRAND SURVIVES THE SWITCH.
+  //
+  // Every panel below is filled by its own request, and each one takes a
+  // different amount of time to come back. Between the click and the last
+  // response the screen renders the NEW brand's name over the OLD brand's
+  // numbers — a send report reading "250 failed of 5,210 sendable" under a vault
+  // that has 40 contacts in it, engagement rates belonging to a different
+  // company, a reply check for an address no longer in the box.
+  //
+  // Cleared synchronously on the id change, so the honest empty state is what
+  // shows while the new brand loads. Declared BEFORE the loaders so React runs
+  // it first and a fast response is never wiped by this.
+  useEffect(() => {
+    setStats(null);
+    setSendResult(null);
+    setReplyCheck(null);
+    setTemplates([]);
+    setTemplateId("");
+    setDomains([]);
+    setFromNote("");
+    setPreviewBlockers(0);
+    setDraftNotes([]);
+  }, [activeBrand?.id]);
+
+  // Which brand the screen is on RIGHT NOW, for responses that arrive late. A
+  // request started for one brand must never write into another one's panel.
+  const brandNow = useRef<string | undefined>(activeBrand?.id);
+  brandNow.current = activeBrand?.id;
+
   // Load the brand's saved templates for the picker.
   useEffect(() => {
     if (!activeBrand) { setTemplates([]); return; }
@@ -145,9 +174,12 @@ export default function EmailPage() {
   // ledger. Refreshes after a send.
   const loadStats = useCallback(() => {
     if (!activeBrand) { setStats(null); return; }
-    authedFetch(`/api/email-events?brandId=${encodeURIComponent(activeBrand.id)}`)
-      .then((r) => r.json()).then((d) => setStats(d && typeof d.sent === "number" ? d : null))
-      .catch(() => setStats(null));
+    // Captured, then checked on arrival: this is also called after a send, so a
+    // plain effect-cleanup flag would not cover every path into it.
+    const forBrand = activeBrand.id;
+    authedFetch(`/api/email-events?brandId=${encodeURIComponent(forBrand)}`)
+      .then((r) => r.json()).then((d) => { if (brandNow.current === forBrand) setStats(d && typeof d.sent === "number" ? d : null); })
+      .catch(() => { if (brandNow.current === forBrand) setStats(null); });
   }, [activeBrand]);
   useEffect(() => { loadStats(); }, [loadStats]);
 
@@ -166,10 +198,22 @@ export default function EmailPage() {
     return () => { off = true; clearTimeout(t); };
   }, [activeBrand, replyTo, fromEmail]);
 
+  // What this effect last PREFILLED, so a brand switch can tell its own
+  // suggestion apart from something the customer typed. See applyDefaults.
+  const lastPrefill = useRef<SenderFields | null>(null);
+  // A live mirror of the three sender fields. The effect below reads them AFTER
+  // an await, and a closure would hand it the values from the render that
+  // started the fetch — i.e. the previous brand's, if the switch was quick.
+  const senderFields = useRef<SenderFields>({ fromName: "", fromEmail: "", replyTo: "" });
+  useEffect(() => { senderFields.current = { fromName, fromEmail, replyTo }; }, [fromName, fromEmail, replyTo]);
+
   // Fill in who this is from — the platform already knows all three.
   //
-  // Only empty fields are filled: someone who typed a From name, switched brand
-  // to check something and came back must not find their text replaced.
+  // A field the customer typed is theirs and survives a brand switch. A field
+  // still holding what WE suggested for the brand they just left is replaced,
+  // because it is about a different company: leaving it meant the From name read
+  // "VeryX" and the From address sat on VeryX's verified domain while everything
+  // else on the page — the header, the vault, the recipients — was AxionOS.
   useEffect(() => {
     if (!activeBrand) return;
     let off = false;
@@ -189,7 +233,8 @@ export default function EmailPage() {
         platformFrom: engineInfo.from ?? "",
       });
       setFromNote(defaults.fromNote);
-      const next = applyDefaults({ fromName, fromEmail, replyTo }, defaults);
+      const next = applyDefaults(senderFields.current, defaults, lastPrefill.current);
+      lastPrefill.current = next;
       setFromName(next.fromName);
       setFromEmail(next.fromEmail);
       setReplyTo(next.replyTo);
@@ -264,6 +309,12 @@ export default function EmailPage() {
   async function sendCampaign(test: boolean) {
     if (!activeBrand || !canSend) return;
 
+    // A batch takes minutes. If the customer switches brand while it runs, the
+    // report must not appear under the new brand's name — the send still
+    // completes, and its result is theirs to read when they switch back.
+    const forBrand = activeBrand.id;
+    const report = (r: typeof sendResult) => { if (brandNow.current === forBrand) setSendResult(r); };
+
     setSending(true); setSendResult(null);
     try {
       const payload: Record<string, unknown> = {
@@ -291,10 +342,10 @@ export default function EmailPage() {
       let parsed: Record<string, unknown> | null = null;
       try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
       if (parsed) {
-        setSendResult(parsed as typeof sendResult);
+        report(parsed as typeof sendResult);
       } else {
         const detail = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-        setSendResult({
+        report({
           error:
             res.status === 504 || res.status === 502 || !raw
               ? `The send timed out (HTTP ${res.status}) before it could report back. Some emails may already have gone out — open the stats above before retrying, and re-run rather than starting a new campaign.`
@@ -304,7 +355,7 @@ export default function EmailPage() {
       }
       loadStats();
     } catch (e) {
-      setSendResult({
+      report({
         error: `Couldn't reach the sending service (${(e as Error).message || "network error"}). Nothing was sent — your list and warm-up allowance are untouched.`,
         sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0, mode: "", note: "",
       });
@@ -540,10 +591,30 @@ export default function EmailPage() {
           <Pill tone="info">consented vault only</Pill>
         </div>
         <p className="mb-3 text-xs text-slate-500">Sends to the <span className="text-slate-300">consented</span> contacts in {activeBrand?.name || "this brand"}&rsquo;s Customer Vault, after the hygiene + suppression filter. Send a <span className="text-emerald-300">test to yourself first</span> (1 email), then the batch. Inbox placement needs SPF/DKIM/DMARC on your sending domain.</p>
+        {/* A STOP IS NOT AN INFORMATIONAL NOTICE. When the governor has halted or
+            rolled back the ramp because of complaints or bounces, a calm blue
+            box saying "today's safe limit is 0" is the wrong shape for the
+            message — it reads as routine when it is the one thing on this page
+            that needs acting on. */}
         {stats?.warmup && (
-          <div className="mb-3 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] p-3 text-xs text-sky-200">
+          <div className={`mb-3 rounded-lg border p-3 text-xs ${
+            stats.warmup.verdict === "stop" ? "border-rose-500/30 bg-rose-500/[0.07] text-rose-200"
+              : stats.warmup.verdict === "rollback" || stats.warmup.verdict === "hold" ? "border-amber-500/30 bg-amber-500/[0.07] text-amber-200"
+                : "border-sky-500/25 bg-sky-500/[0.06] text-sky-200"}`}>
             <span className="font-bold">Warm-up day {stats.warmup.day} · today&rsquo;s safe limit {stats.warmup.dailyCap.toLocaleString()} emails.</span>{" "}
-            {stats.warmup.sentToday.toLocaleString()} sent today, <span className="font-semibold">{stats.warmup.remaining.toLocaleString()} left</span>. The limit rises automatically as your reputation builds — sending within it is what keeps you in the inbox. Big lists send across several days.
+            {stats.warmup.sentToday.toLocaleString()} sent today, <span className="font-semibold">{stats.warmup.remaining.toLocaleString()} left</span>. Big lists send across several days.
+            {/* WHY THE NUMBER IS WHAT IT IS.
+                The limit is the lower of the published ramp and what this
+                brand's own sending record has earned, so it does NOT simply
+                rise with the calendar — that is what used to authorise 50,000
+                messages on day 40 from a sender who had sent fifty. Without the
+                reason beside it, a correct cap of 100 on day 40 reads as a bug. */}
+            {stats.warmup.reason && <span className="mt-1.5 block opacity-90">{stats.warmup.reason}</span>}
+            {stats.warmup.governedBy === "reputation" && typeof stats.warmup.scheduleCap === "number" && stats.warmup.scheduleCap > stats.warmup.dailyCap && (
+              <span className="mt-1 block text-[11px] opacity-70">
+                The published ramp for day {stats.warmup.day} would allow {stats.warmup.scheduleCap.toLocaleString()} — your own record is the lower of the two limits today, and the lower one always wins.
+              </span>
+            )}
           </div>
         )}
         {engineMode === "demo" && (

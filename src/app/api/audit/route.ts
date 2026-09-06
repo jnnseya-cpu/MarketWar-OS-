@@ -338,8 +338,17 @@ async function handleAudit(req: NextRequest) {
       notApplicable: notApplicable.map((f) => ({ label: f.label, area: f.area, why: f.notApplicable || "" })),
       heldBack: Math.max(0, measured.length - FREE_FINDINGS),
       unmeasured: ranked.filter((f) => f.measured === false).length,
+      // WHAT THE ADDRESS BUYS, STATED AS WHAT ACTUALLY HAPPENS.
+      //
+      // This used to say the rest "come with the written report", which reads as
+      // a promise to email — the one part of the transaction this route cannot
+      // guarantee, and when the mail server refused our password the visitor had
+      // already given the address before finding out. The rest of the findings
+      // are rendered on the page from THIS response, immediately, with no send
+      // involved. That is the promise worth making, because it is the one that
+      // is always kept.
       note: measured.length > FREE_FINDINGS
-        ? `${measured.length} things were measured on this page. The ${FREE_FINDINGS} that matter most are above; the other ${measured.length - FREE_FINDINGS} come with the written report.`
+        ? `${measured.length} things were measured on this page. The ${FREE_FINDINGS} that matter most are above; give an address and the other ${measured.length - FREE_FINDINGS} appear here straight away, with the whole report available to download.`
         : "That is everything measured on this page — there is nothing else being held back.",
       charged: false,
     });

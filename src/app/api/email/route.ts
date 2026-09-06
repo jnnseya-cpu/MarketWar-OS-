@@ -250,10 +250,16 @@ export async function POST(req: NextRequest) {
     const today = new Date().toISOString().slice(0, 10);
     const warm = await getWarmup(brandId, today);
     if (!isTest && warm.remaining <= 0) {
+      // THE REASON TRAVELS WITH THE REFUSAL. The ceiling is no longer the
+      // calendar's — it is the lower of the published ramp and what this brand's
+      // own delivery record has earned — so "day 40, limit 100" is a correct
+      // answer that looks like a bug without the sentence that explains it.
       return NextResponse.json({
-        error: `Daily warm-up limit reached — ${warm.sentToday}/${warm.dailyCap} sent today (warm-up day ${warm.day}). Sending resumes tomorrow. This protects your new IP's reputation so you keep landing in the inbox.`,
+        error: `Daily warm-up limit reached — ${warm.sentToday}/${warm.dailyCap} sent today (warm-up day ${warm.day}). ${warm.reason} Sending resumes tomorrow.`,
         sent: 0, attempted: 0, failed: 0, sendable: sendable.length, consented: consented.length, remaining: 0,
-        dailyCap: warm.dailyCap, sentToday: warm.sentToday, day: warm.day, mode: emailConfigured ? "live" : "demo", note: "",
+        dailyCap: warm.dailyCap, sentToday: warm.sentToday, day: warm.day,
+        scheduleCap: warm.scheduleCap, earnedCap: warm.earnedCap, governedBy: warm.governedBy, verdict: warm.verdict,
+        mode: emailConfigured ? "live" : "demo", note: "",
       }, { status: 429 });
     }
     const effectiveCap = isTest ? 1 : Math.min(cap, warm.remaining);

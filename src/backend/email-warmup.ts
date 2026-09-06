@@ -15,24 +15,24 @@ if (typeof window !== "undefined") {
 // guidance. Day 1 begins on the brand's FIRST real send.
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { scheduleCapForDay, warmupCap, type WarmupSignals } from "@/shared/warmup-ramp";
 
 type WarmupDoc = { brandId: string; firstSendDate?: string; counts: Record<string, number> };
 
 const mem = new Map<string, WarmupDoc>();
 
-// Ramping ceiling by warm-up day (1-indexed). Beyond day 22 it's steady-state.
-export function dailyCapForDay(day: number): number {
-  if (day <= 1) return 50;
-  if (day === 2) return 100;
-  if (day === 3) return 250;
-  if (day === 4) return 500;
-  if (day === 5) return 1000;
-  if (day <= 7) return 2500;
-  if (day <= 10) return 5000;
-  if (day <= 14) return 10000;
-  if (day <= 21) return 25000;
-  return 50000;
-}
+/**
+ * The published ramp, by warm-up day.
+ *
+ * STILL A CEILING, NO LONGER THE WHOLE ANSWER. On its own this authorised 50,000
+ * messages on day 40 from a brand that had sent fifty, because the only input is
+ * the calendar. `getWarmup` now takes the lower of this and what the brand's own
+ * delivery record has earned — see `shared/warmup-ramp.ts` for why.
+ *
+ * Kept exported and unchanged in behaviour: it is the published schedule, and
+ * callers that want to show "the ramp for day N" are asking a real question.
+ */
+export const dailyCapForDay = scheduleCapForDay;
 
 const dayNumber = (firstDate: string | undefined, today: string): number => {
   if (!firstDate) return 1;
@@ -55,15 +55,91 @@ async function write(doc: WarmupDoc): Promise<void> {
   else mem.set(doc.brandId, doc);
 }
 
-export type WarmupStatus = { day: number; dailyCap: number; sentToday: number; remaining: number };
+export type WarmupStatus = {
+  day: number;
+  /** What may actually be sent today — the lower of the two ceilings. */
+  dailyCap: number;
+  sentToday: number;
+  remaining: number;
+  /** The published ramp for this day, so "why is it not 50,000?" has an answer. */
+  scheduleCap: number;
+  /** What this brand's own delivery record has earned. */
+  earnedCap: number;
+  /** Which ceiling is binding, and what the ramp is doing. */
+  governedBy: "schedule" | "reputation";
+  verdict: "grow" | "hold" | "rollback" | "stop";
+  /** One sentence for the sender, in terms of what to do about it. */
+  reason: string;
+  bounceRatePct: number | null;
+  complaintRatePct: number | null;
+};
 
-// Today's warm-up posture for a brand. `today` is a YYYY-MM-DD date string.
-export async function getWarmup(brandId: string, today: string): Promise<WarmupStatus> {
+/**
+ * The best single day of ACCEPTED sends before today.
+ *
+ * Today is excluded deliberately. A ceiling derived from today's own running
+ * total would rise as the day's sending progressed — send to the cap, the cap
+ * doubles, send again — which is not a ceiling at all.
+ */
+function bestPreviousDay(counts: Record<string, number>, today: string): number {
+  let best = 0;
+  for (const [day, n] of Object.entries(counts || {})) {
+    if (day >= today) continue;
+    if (typeof n === "number" && n > best) best = n;
+  }
+  return best;
+}
+
+/**
+ * Today's warm-up posture for a brand. `today` is a YYYY-MM-DD date string.
+ *
+ * `signals` may be supplied by a caller that has already loaded the delivery
+ * ledger (the stats route has), so the same events are not read twice. Left out,
+ * they are read here — a governor that silently skips its own inputs when they
+ * are inconvenient is the defect it exists to fix.
+ */
+export async function getWarmup(
+  brandId: string,
+  today: string,
+  signals?: Pick<WarmupSignals, "sent" | "bounce" | "complaint">,
+): Promise<WarmupStatus> {
   const doc = await read(brandId);
   const day = dayNumber(doc.firstSendDate, today);
-  const dailyCap = dailyCapForDay(day);
-  const sentToday = doc.counts[today] ?? 0;
-  return { day, dailyCap, sentToday, remaining: Math.max(0, dailyCap - sentToday) };
+  const counts = doc.counts || {};
+
+  let outcomes = signals;
+  if (!outcomes) {
+    try {
+      const { eventStats } = await import("@/backend/email-events");
+      const s = await eventStats(brandId);
+      outcomes = { sent: s.sent, bounce: s.bounce, complaint: s.complaint };
+    } catch {
+      // The ledger is unreadable. That is NOT a reason to fall back to the
+      // calendar ceiling — an unknown reputation is exactly the case the
+      // doubling rule is conservative about. Zero outcomes with a real best day
+      // still holds the cap to twice what has actually been sent.
+      outcomes = { sent: 0, bounce: 0, complaint: 0 };
+    }
+  }
+
+  const governed = warmupCap({
+    day,
+    signals: { bestDay: bestPreviousDay(counts, today), ...outcomes },
+  });
+  const sentToday = counts[today] ?? 0;
+  return {
+    day,
+    dailyCap: governed.cap,
+    sentToday,
+    remaining: Math.max(0, governed.cap - sentToday),
+    scheduleCap: governed.scheduleCap,
+    earnedCap: governed.earned,
+    governedBy: governed.governedBy,
+    verdict: governed.verdict,
+    reason: governed.reason,
+    bounceRatePct: governed.bounceRatePct,
+    complaintRatePct: governed.complaintRatePct,
+  };
 }
 
 // Record `n` sends for today, stamping the first-send date the very first time.

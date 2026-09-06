@@ -19,10 +19,13 @@ export async function GET(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const today = new Date().toISOString().slice(0, 10);
-  const [stats, suppressed, warmup, ledger, domains] = await Promise.all([
-    eventStats(brandId), suppressedEmails(brandId), getWarmup(brandId, today), brandEvents(brandId).catch(() => []),
+  const [stats, suppressed, ledger, domains] = await Promise.all([
+    eventStats(brandId), suppressedEmails(brandId), brandEvents(brandId).catch(() => []),
     listDomains(brandId).catch(() => []),
   ]);
+  // The warm-up ceiling is governed by the delivery outcomes, which this route
+  // has just loaded — handed over rather than read a second time.
+  const warmup = await getWarmup(brandId, today, { sent: stats.sent, bounce: stats.bounce, complaint: stats.complaint });
 
   // Where the mail actually went. An 8.7% open rate across the board is a
   // mystery; "Gmail 22%, Microsoft 0.4%" names the filter that is blocking you

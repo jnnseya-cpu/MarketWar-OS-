@@ -1780,6 +1780,79 @@ test("a prefill never overwrites something the customer typed", () => {
   assert.deepEqual(half, { fromName: "VeryX", fromEmail: "hello@veryx.com", replyTo: "me@work.com" });
 });
 
+// ---------------------------------------------------------------------------
+// SWITCHING BRAND MUST CHANGE WHO THE EMAIL IS FROM.
+//
+// Reported from the running platform: the sidebar said AxionOS, the vault
+// sentence said AxionOS — and the From name still read VeryX with the From
+// address on veryxjnn.com, VeryX's verified domain. One screen, two companies,
+// and a Send button under it. That campaign goes to one company's customers
+// wearing another company's name, from a domain the recipients have never heard
+// of, and burns both reputations at once.
+//
+// The cause was that "empty" was the only test for "is this the customer's?" —
+// so the platform's OWN suggestion for the previous brand was treated as
+// something the customer had chosen. `previous` is what we last prefilled.
+// ---------------------------------------------------------------------------
+test("switching brand replaces the sender identity we prefilled for the old one", () => {
+  const veryx = ident.emailIdentityDefaults({
+    brandName: "VeryX", userEmail: "justin@gmail.com",
+    domains: [{ domain: "veryxjnn.com", status: "verified" }],
+  });
+  const onScreen = ident.applyDefaults({ fromName: "", fromEmail: "", replyTo: "" }, veryx, null);
+  assert.deepEqual(onScreen, { fromName: "VeryX", fromEmail: "hello@veryxjnn.com", replyTo: "justin@gmail.com" });
+
+  // Now switch to AxionOS, which has NO verified domain of its own.
+  const axion = ident.emailIdentityDefaults({
+    brandName: "AxionOS", userEmail: "justin@gmail.com", domains: [],
+    platformFrom: "info@marketwaros.com",
+  });
+  const after = ident.applyDefaults(onScreen, axion, onScreen);
+
+  assert.equal(after.fromName, "AxionOS", "the recipient must see the brand that is actually selected");
+  assert.equal(after.fromEmail, "",
+    "AxionOS has not authenticated a domain, so the field must go BLANK — carrying VeryX's domain over is the defect");
+  assert.ok(!/veryx/i.test(JSON.stringify(after)), "nothing from the previous brand may survive the switch");
+});
+
+test("switching brand still does not touch what the customer typed", () => {
+  const veryx = ident.emailIdentityDefaults({
+    brandName: "VeryX", userEmail: "justin@gmail.com",
+    domains: [{ domain: "veryxjnn.com", status: "verified" }],
+  });
+  const prefilled = ident.applyDefaults({ fromName: "", fromEmail: "", replyTo: "" }, veryx, null);
+
+  // The customer edits both fields by hand.
+  const edited = { ...prefilled, fromName: "Justin at VeryX", fromEmail: "justin@veryxjnn.com" };
+
+  const axion = ident.emailIdentityDefaults({ brandName: "AxionOS", userEmail: "justin@gmail.com", domains: [] });
+  const after = ident.applyDefaults(edited, axion, prefilled);
+
+  assert.equal(after.fromName, "Justin at VeryX", "their words are theirs, on any brand");
+  assert.equal(after.fromEmail, "justin@veryxjnn.com", "a hand-typed address survives — fromAddressWarning flags it instead");
+});
+
+test("switching between two brands that both have a verified domain swaps the domain", () => {
+  const a = ident.emailIdentityDefaults({ brandName: "A", userEmail: "u@x.com", domains: [{ domain: "a-brand.com", status: "verified" }] });
+  const b = ident.emailIdentityDefaults({ brandName: "B", userEmail: "u@x.com", domains: [{ domain: "b-brand.com", status: "verified" }] });
+  const onA = ident.applyDefaults({ fromName: "", fromEmail: "", replyTo: "" }, a, null);
+  const onB = ident.applyDefaults(onA, b, onA);
+  assert.equal(onB.fromEmail, "hello@b-brand.com");
+  assert.equal(onB.fromName, "B");
+  // And back again — the swap is not one-way.
+  assert.equal(ident.applyDefaults(onB, a, onB).fromEmail, "hello@a-brand.com");
+});
+
+test("omitting `previous` keeps the original fill-the-empties behaviour", () => {
+  // A first render has prefilled nothing, so there is no suggestion to replace
+  // and a restored draft must not be wiped.
+  const kept = { fromName: "Typed", fromEmail: "typed@x.com", replyTo: "typed@y.com" };
+  assert.deepEqual(
+    ident.applyDefaults(kept, { fromName: "B", fromEmail: "hello@b.com", replyTo: "u@x.com", fromNote: "" }),
+    kept,
+  );
+});
+
 test("a hand-typed address gets the check the prefilled one never needed", () => {
   const domains = [{ domain: "veryx.com", status: "verified" }, { domain: "half.com", status: "pending" }];
   assert.equal(ident.fromAddressWarning("hello@veryx.com", domains), "", "a verified domain is fine");
@@ -1793,12 +1866,59 @@ test("the Email Centre actually applies the defaults, and shows the reason", asy
   const { readFileSync } = await import("node:fs");
   const page = readFileSync("src/app/dashboard/email/page.tsx", "utf8");
   assert.match(page, /emailIdentityDefaults\(\{/);
-  assert.match(page, /applyDefaults\(\{ fromName, fromEmail, replyTo \}, defaults\)/,
-    "it must merge rather than overwrite");
+  assert.match(page, /applyDefaults\(senderFields\.current, defaults, lastPrefill\.current\)/,
+    "it must merge rather than overwrite, AND pass what it last prefilled so a brand switch replaces it");
+  assert.match(page, /lastPrefill\.current = next/,
+    "without recording the new suggestion, the NEXT switch has nothing to compare against");
   assert.match(page, /userEmail: user\?\.email/, "the reply-to comes from the signed-in account");
   assert.match(page, /brandName: activeBrand\.name/);
   assert.match(page, /\{fromNote &&/, "a blank field must say it was left blank on purpose");
   assert.match(page, /fromAddressWarning\(fromEmail, domains\)/);
+});
+
+test("switching brand clears every panel that belonged to the previous one", async () => {
+  // The identity fields are handled by applyDefaults above. Everything ELSE on
+  // this page arrives from its own request at its own speed, so between the
+  // click and the last response the new brand's name sits over the old brand's
+  // numbers: a send report reading "250 failed of 5,210 sendable" above a vault
+  // holding 40 contacts. Cleared on the id change, so the honest empty state is
+  // what shows while the new brand loads.
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync("src/app/dashboard/email/page.tsx", "utf8");
+
+  const reset = page.match(/useEffect\(\(\) => \{([\s\S]*?)\}, \[activeBrand\?\.id\]\);/);
+  assert.ok(reset, "there must be an effect keyed to the brand id alone that resets the screen");
+  for (const [setter, why] of [
+    ["setStats(null)", "engagement counted for another company"],
+    ["setSendResult(null)", "a send report about another company's vault"],
+    ["setReplyCheck(null)", "an MX verdict on an address no longer in the box"],
+    ["setTemplates([])", "templates that belong to another brand"],
+    ["setTemplateId(\"\")", "a selected template that no longer exists here"],
+    ["setDomains([])", "the old brand's sending domains, which drive the From warning"],
+  ]) {
+    assert.ok(reset[1].includes(setter), `the brand switch must clear ${why} — ${setter} is missing`);
+  }
+});
+
+test("a response about one brand can never land in another brand's panel", async () => {
+  // A send takes minutes and the stats reload is called from several paths, so
+  // an effect-cleanup flag does not cover it: the brand on screen is compared at
+  // the moment the answer arrives.
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync("src/app/dashboard/email/page.tsx", "utf8");
+  assert.match(page, /brandNow\.current = activeBrand\?\.id/, "the ref must track the brand every render");
+
+  const stats = page.match(/const loadStats = useCallback\(\(\) => \{[\s\S]*?\}, \[activeBrand\]\);/);
+  assert.ok(stats, "loadStats must still exist");
+  assert.match(stats[0], /const forBrand = activeBrand\.id/);
+  assert.equal((stats[0].match(/brandNow\.current === forBrand/g) || []).length, 2,
+    "both the success and the failure path must check, or a failed reload blanks the new brand's stats");
+
+  const send = page.match(/async function sendCampaign\([\s\S]*?\n  \}\n/);
+  assert.ok(send, "sendCampaign must still exist");
+  assert.match(send[0], /const report = \(r: typeof sendResult\) => \{ if \(brandNow\.current === forBrand\) setSendResult\(r\); \};/);
+  assert.ok(!/\n\s+setSendResult\((?!null\))/.test(send[0]),
+    "every send outcome must go through report() — a direct setSendResult writes the old brand's result onto the new brand");
 });
 
 // ---------------------------------------------------------------------------

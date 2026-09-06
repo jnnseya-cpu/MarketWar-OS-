@@ -79,21 +79,49 @@ export function emailIdentityDefaults(input: {
   };
 }
 
+export type SenderFields = { fromName: string; fromEmail: string; replyTo: string };
+
 /**
- * Fill only what is still empty.
+ * Fill what the customer has not chosen for themselves.
  *
- * A prefill that overwrites is worse than no prefill: someone types a From name
- * for one campaign, switches brand to check something, and comes back to find
- * their text replaced. Anything the customer has touched is theirs.
+ * TWO THINGS LOOK IDENTICAL IN A TEXT INPUT AND MUST NOT BE TREATED THE SAME.
+ *
+ *   1. Text the customer typed. Theirs. A prefill that overwrites it is worse
+ *      than no prefill at all — someone types a From name, switches brand to
+ *      check something, comes back and finds their words replaced.
+ *   2. Text THIS FUNCTION put there for a brand that is no longer selected.
+ *      Not theirs, and not about the brand on the screen any more.
+ *
+ * "Is it empty?" cannot tell them apart, and that was the defect: switching from
+ * VeryX to AxionOS left the From name reading "VeryX" and the From address on
+ * `hello@veryxjnn.com` — VeryX's verified domain — while the header, the vault
+ * sentence and the recipient list were all AxionOS. One screen, two brands, and
+ * the send button underneath it. A campaign sent from there goes to one
+ * company's customers wearing another company's name.
+ *
+ * So `previous` is what we last prefilled. A field still holding exactly that is
+ * ours to replace; anything else is the customer's and survives. Omit `previous`
+ * and the behaviour is the original fill-the-empties, which is right on a first
+ * render because nothing has been prefilled yet.
+ *
+ * The replacement may well be EMPTY — a brand with no verified domain gets a
+ * blank From address on purpose (see `emailIdentityDefaults`). Blanking a
+ * carried-over address is the correct outcome, not a lost value: the alternative
+ * is sending the new brand's mail from a domain it does not own.
  */
 export function applyDefaults(
-  current: { fromName: string; fromEmail: string; replyTo: string },
+  current: SenderFields,
   defaults: EmailIdentity,
-): { fromName: string; fromEmail: string; replyTo: string } {
+  previous?: Partial<SenderFields> | null,
+): SenderFields {
+  // Ours if the field is empty, or still carries exactly what we last put there.
+  const oursToReplace = (value: string, lastPrefilled: string | undefined): boolean =>
+    !value.trim() || (lastPrefilled !== undefined && value.trim() === String(lastPrefilled).trim());
+
   return {
-    fromName: current.fromName.trim() ? current.fromName : defaults.fromName,
-    fromEmail: current.fromEmail.trim() ? current.fromEmail : defaults.fromEmail,
-    replyTo: current.replyTo.trim() ? current.replyTo : defaults.replyTo,
+    fromName: oursToReplace(current.fromName, previous?.fromName) ? defaults.fromName : current.fromName,
+    fromEmail: oursToReplace(current.fromEmail, previous?.fromEmail) ? defaults.fromEmail : current.fromEmail,
+    replyTo: oursToReplace(current.replyTo, previous?.replyTo) ? defaults.replyTo : current.replyTo,
   };
 }
 

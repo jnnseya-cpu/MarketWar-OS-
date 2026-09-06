@@ -62,6 +62,34 @@ own** as you keep sending:
 - These numbers are safe defaults; a single well-warmed IP comfortably does
   ~50k/day. To go higher, add more sending IPs (extra nodes) later.
 
+### The table above is a ceiling, not a promise
+
+**The day number alone never authorises a send.** Today's limit is the *lower* of
+the table above and what your own sending record has earned, which is roughly
+**twice your best single day so far**.
+
+That matters because calendar days do not build a reputation — delivered mail
+that nobody complained about does. Send 50 on day one, go quiet for six weeks,
+and day 40 allows **100**, not 50,000. A jump like that is exactly what mailbox
+providers read as a compromised account, and the block would land on your domain.
+
+The limit also responds to how the sending is going, on the published Gmail
+lines:
+
+| What the ledger shows | What the ramp does |
+|---|---|
+| Clean sending | Grows — about double your best day, up to the table |
+| Bounces ≥ 2%, or spam reports ≥ 0.1% | **Holds** at your current volume. Nothing is blocked; it just stops rising |
+| Bounces ≥ 5% | **Halves** the allowance — the addresses are the problem, so clean the list |
+| Spam reports ≥ 0.3% | **Stops**. That is the rate at which Gmail filters a bulk sender |
+
+Rates are only acted on once there is enough history to mean something (at least
+20 messages, and never on a single complaint) — one report out of thirty is 3.3%
+and is also one person having a bad morning.
+
+The Email Center prints the reason beside the number, so a limit of 100 on day 40
+is never a mystery. See `src/shared/warmup-ramp.ts`.
+
 ## 3b. Receiving replies & incoming mail (like Brevo)
 
 **Replies land where you read mail.** In the send form there's a **Reply-to**
