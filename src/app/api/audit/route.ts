@@ -383,6 +383,47 @@ async function handleAudit(req: NextRequest) {
     }
   } catch { /* a failed record must never cost the visitor their report */ }
 
+  // AND INTO THE CUSTOMER VAULT, WHICH IS THE ONLY LIST THAT CAN BE WRITTEN TO.
+  //
+  // THE GAP THIS CLOSES. Every audit address was recorded as an acquisition
+  // PROSPECT and nowhere else. The campaign engine sends to the Customer Vault
+  // — "sends to the consented contacts in this brand's Customer Vault" — so the
+  // warmest inbound signal the business gets landed in a store the sending path
+  // never reads. Addresses were captured and could never be used.
+  //
+  // CONSENT IS AN EXPLICIT BOOLEAN, AND THAT IS THE WHOLE CARE OF THIS BLOCK.
+  // `vaultCountsFor` treats `consent !== false` as consented, so leaving it
+  // undefined would quietly make every audit visitor mailable — including the
+  // ones who ticked nothing. The form under the address promises the report
+  // "and nothing else until you say otherwise", and that promise is tested
+  // against this code. So: ticked → true, not ticked → FALSE, never absent.
+  //
+  // Either way they are in the vault: visible, countable, and there to be
+  // written to the moment they do say otherwise. Capturing the address and
+  // recording that permission was not given are two different facts and both
+  // are kept.
+  let vaulted = false;
+  try {
+    const { saveContacts } = await import("@/backend/contacts");
+    const host = new URL(report.finalUrl || report.url).hostname.replace(/^www\./, "");
+    const optIn = body.optIn === true;
+    await saveContacts(PLATFORM_BRAND, [{
+      email,
+      name: str("name") || undefined,
+      company: host,
+      website: report.finalUrl || report.url,
+      consent: optIn,
+      // The lawful basis in the row itself, so a list export carries WHY this
+      // address is here rather than needing the story told separately.
+      source: optIn
+        ? `Free audit of ${host} — asked for the report AND opted in to marketing`
+        : `Free audit of ${host} — asked for the report only, no marketing consent`,
+      status: optIn ? "audit-lead-opted-in" : "audit-lead",
+      score: report.score,
+    }], new Date().toISOString());
+    vaulted = true;
+  } catch { /* the vault is a record, not a gate — never cost the visitor their report */ }
+
   // AND ACTUALLY SEND IT.
   //
   // The form says "One address, used to send you this report". Recording the
@@ -449,6 +490,9 @@ async function handleAudit(req: NextRequest) {
     emailed,
     emailFailure,
     emailNote,
+    // Reported rather than assumed, so "the address was captured" is a fact the
+    // caller can see instead of a thing the code believes about itself.
+    vaulted,
     url: report.finalUrl || report.url,
     score: report.score,
     grade: report.grade,

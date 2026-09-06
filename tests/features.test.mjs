@@ -28104,3 +28104,91 @@ test("the audience rule is shown before it is used to mark somebody down", () =>
   assert.match(audienceBlock, /placeholder=/, "the audience input gives no example of what good looks like");
   assert.match(audienceBlock, /businesses/i, "the rule that decides the score is not shown beside the box");
 });
+
+// ---------------------------------------------------------------------------
+// EVERY AUDIT ADDRESS REACHES THE CUSTOMER VAULT — the only list that can be
+// written to — AND ARRIVES WITH ITS PERMISSION STATED.
+//
+// THE GAP: every address typed into the free audit was recorded as an
+// acquisition PROSPECT and nowhere else. The campaign engine sends to the
+// Customer Vault, so the warmest inbound signal the business gets landed in a
+// store the sending path never reads. Captured, and unusable.
+// ---------------------------------------------------------------------------
+test("an audit address lands in the vault, with consent as an explicit boolean", async () => {
+  const { saveContacts, listContacts, clearContacts, vaultCountsFor } = await import("../src/backend/contacts.ts");
+  const BRAND = "test_audit_vault";
+  await clearContacts(BRAND);
+
+  // What the route writes when the box is NOT ticked.
+  await saveContacts(BRAND, [{
+    email: "owner@example.co.uk", company: "example.co.uk", website: "https://example.co.uk",
+    consent: false, source: "Free audit of example.co.uk — asked for the report only, no marketing consent",
+    status: "audit-lead", score: 83,
+  }], new Date().toISOString());
+
+  const [row] = await listContacts(BRAND);
+  assert.equal(row.email, "owner@example.co.uk", "the address never reached the vault");
+  assert.equal(row.company, "example.co.uk", "the site they audited is the company — it must travel with them");
+  assert.match(row.source, /no marketing consent/, "the lawful basis must be on the row, not in a story told elsewhere");
+
+  // THE ASSERTION THAT MATTERS MOST. `vaultCountsFor` counts `consent !== false`
+  // as consented — so leaving consent UNDEFINED would silently make every audit
+  // visitor mailable, including everyone who ticked nothing. It has to be an
+  // explicit `false`, not an absence.
+  assert.equal(row.consent, false, "consent was not recorded as an explicit false");
+  assert.notEqual(row.consent, undefined, "undefined consent reads as consented in vaultCountsFor — it would mail people who never agreed");
+  let counts = await vaultCountsFor(BRAND);
+  assert.equal(counts.total, 1, "the address must be IN the vault — capturing it is the point");
+  assert.equal(counts.consented, 0, "somebody who ticked nothing was counted as sendable");
+
+  // And when they DO say otherwise, the same row becomes sendable.
+  await saveContacts(BRAND, [{
+    email: "owner@example.co.uk", company: "example.co.uk", consent: true,
+    source: "Free audit of example.co.uk — asked for the report AND opted in to marketing",
+    status: "audit-lead-opted-in",
+  }], new Date().toISOString());
+  counts = await vaultCountsFor(BRAND);
+  assert.equal(counts.total, 1, "opting in created a second row instead of updating the first");
+  assert.equal(counts.consented, 1, "an explicit opt-in did not make the contact sendable");
+  await clearContacts(BRAND);
+});
+
+test("the audit route vaults every address, and never lets that cost the report", () => {
+  const route = codeOf(readFileSync("src/app/api/audit/route.ts", "utf8"));
+
+  assert.match(route, /saveContacts\(PLATFORM_BRAND/, "audit addresses still go only to the prospect store, which the sender never reads");
+  // EXPLICIT BOTH WAYS. `consent: optIn || undefined` would look right and would
+  // leave the un-ticked as undefined — which counts as consented.
+  assert.match(route, /consent: optIn,/, "consent must be the boolean itself, so a non-tick is a recorded FALSE");
+  assert.match(route, /const optIn = body\.optIn === true;/, "anything but a literal true must read as no consent");
+
+  // The vault write is wrapped, like the prospect write beside it: a record is
+  // not a gate, and a visitor must never lose their report because a store was
+  // unavailable.
+  const block = route.slice(route.indexOf("saveContacts"));
+  assert.match(block.slice(0, 900), /catch \{/, "a failing vault write would cost the visitor the report they were promised");
+  assert.match(route, /vaulted,/, "whether it was captured must be reported, not assumed");
+});
+
+test("the opt-in exists because the page has always promised it, and is never pre-ticked", () => {
+  const form = readFileSync("src/components/FreeAudit.tsx", "utf8");
+
+  // The promise printed under the address has always said "and nothing else
+  // UNTIL YOU SAY OTHERWISE" — and there was nowhere to say otherwise. Every
+  // claim on this platform is bound to the code that keeps it.
+  assert.match(form, /nothing else until you say otherwise/, "the promise this control implements has been reworded — re-check they still agree");
+  assert.match(form, /type="checkbox"/, "there is no way to say otherwise, so the promise offers something that does not exist");
+  // SCOPED TO THE OPT-IN. `useState(false)` matches `busy`, `full` and every
+  // other flag in this file, so a pre-ticked consent box passed this assertion
+  // untouched. Mutation caught it — the exact "check that passes for a reason
+  // unrelated to what it tests" this repository keeps producing.
+  assert.match(form, /const \[optIn, setOptIn\] = useState\(false\)/,
+    "the opt-in must start UNTICKED — a pre-ticked box is not consent");
+  assert.match(form, /checked=\{optIn\}/, "the box must reflect and control the value actually sent");
+  assert.match(form, /\{ url, email, optIn \}/, "the tick is collected and then not sent — the boundary defect, again");
+
+  // A pre-ticked box is not consent, and the wording must offer the exit in the
+  // same breath as the ask.
+  assert.doesNotMatch(form, /checked\s*$|defaultChecked/m, "the consent box is pre-ticked");
+  assert.match(form, /One click stops it/, "an opt-in without a stated way out is not a fair one");
+});
