@@ -70,6 +70,11 @@ const pathOf = (u: string) => { try { return new URL(u).pathname.replace(/\/$/, 
 export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } = {}) {
   const [url, setUrl] = useState(initialUrl);
   const [email, setEmail] = useState("");
+  // "…and nothing else UNTIL YOU SAY OTHERWISE" is the promise printed under
+  // this form. This is where they say otherwise, and it is off by default —
+  // a pre-ticked box is not consent under UK GDPR, and a platform whose whole
+  // argument is that it does not fake things cannot fake an opt-in.
+  const [optIn, setOptIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +85,7 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
     try {
       const res = await fetch("/api/audit", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(withEmail ? { url, email } : { url }),
+        body: JSON.stringify(withEmail ? { url, email, optIn } : { url }),
       });
 
       // READ THE BODY AS TEXT FIRST, then try to parse it.
@@ -319,6 +324,20 @@ export default function FreeAudit({ initialUrl = "" }: { initialUrl?: string } =
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Show the rest
                 </button>
               </div>
+              {/* THE "UNLESS YOU SAY OTHERWISE" HALF, MADE REAL.
+                  The line below has always promised the address would be used
+                  for this report "and nothing else until you say otherwise" —
+                  and there was nowhere to say otherwise. Every address was kept
+                  and none of them could ever be written to, which is the worst
+                  of both: the record exists and the permission does not.
+                  Unticked by default, because a pre-ticked box is not consent. */}
+              <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-[12px] leading-relaxed text-slate-400">
+                <input
+                  type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500"
+                />
+                <span>Also send me occasional, practical things about getting found online. One click stops it, any time.</span>
+              </label>
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                 One address, used to send you this report and nothing else until you say otherwise. No card, no trial to cancel, and the rest of the findings appear on this page immediately.
               </p>
