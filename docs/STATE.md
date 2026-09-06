@@ -16,6 +16,11 @@ end-to-end run of the growth loop.
 
 **Both branches are IDENTICAL, on Next 15 / React 19** (landed 08-28). Mirror file-by-file, never by merge, verified on main's own `npm ci`.
 
+**LIVE AND CONFIRMED BY THE OWNER ON 2026-09-06: `build.commit` = `94e4749`, `/diagnose` all green.**
+That is the whole sending-path repair — brand identity, the downloadable audit report, the reputation
+governor — plus the CI gate fix, actually serving. CI is green on both branches for the first time
+since the browserslist advisory. Owner testing the sending path 09-07.
+
 ## 2. The one number that matters
 
 **Customers acquired: 0. Messages sent to prospects: 0.**
