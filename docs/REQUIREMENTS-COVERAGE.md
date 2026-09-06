@@ -5154,3 +5154,102 @@ Nine mutations, all killed: ignoring either ceiling, softening the stop, removin
 the rollback, letting a hold grow, acting on one complaint, judging on a sample of
 one, letting today's count raise today's cap, and dropping the reason from the
 refusal.
+
+## §106 — The gate had a hole, and the hole opened by itself (2026-09-06)
+
+### What was found
+Asked for "a full check on everything" after a redeploy, the first thing to read
+was the CI run — and it was red. So was every run back through #100, including
+every commit of this session's work, while `npm run verify` had been green
+locally each time.
+
+### Why local green and CI red were both true
+`npm run verify` is layers, casts, lint, typecheck, tests and build. The CI job
+runs all of those **and `npm audit --audit-level=high`**, which `verify` does
+not. On 2026-09-06 two HIGH advisories were published against `browserslist`
+(GHSA-c83g-rgw3-j3cx, unbounded memory growth; GHSA-73wf-gq98-2v4g, a prototype
+write via untrusted `browserslist-stats.json`). It arrives transitively through
+autoprefixer, so nothing in this repository had to change for the gate to break.
+
+Fixed with `overrides.browserslist: ^4.28.7`, the same lever already used for
+`postcss`, `sharp` and `jose`. The resolved tree moves 4.28.5 → 4.28.9 and the
+audit reports 6 moderate, 0 high.
+
+### The worse half
+GitHub Actions steps run in order and stop at the first failure. The dependency
+audit sat **ahead of** the secret scan and the "no .env committed" check — so
+from the moment that advisory was published, the two cheapest controls in the
+pipeline, guarding the one class of mistake a revert cannot undo, were SKIPPED on
+every push. The runs were red for a reason that had nothing to do with them, and
+nobody reads past the first red step.
+
+A dependency audit is the one step in the job that can go red on a commit that
+changed nothing, because advisories are published on somebody else's schedule.
+Putting an unskippable security control behind it is a check-shaped gap that
+opens exactly when the pipeline is already unhappy.
+
+Both now carry `if: always()`. The audit deliberately does not — it is a gate,
+not a notice — and a test asserts all three of those facts, so a tidy-up cannot
+quietly reopen it. Both checks were also run by hand over the current tree: no
+credential-shaped strings outside tests and docs, no tracked `.env`.
+
+### The standing instruction
+**`npm run verify` passing is not CI passing.** STATE.md §7 already said to read
+the CI run; this is what happens when that is skipped.
+
+## §107 — Two defects found by driving the routes, not reading them (2026-09-06)
+
+The working rules require exercising changed routes against a running server.
+Doing that — a production build, `next start`, and a request to every public
+route — found two things no amount of reading had.
+
+### `/api/email/suppression-repair` answered 200 to an anonymous GET
+
+`requireAuth` returns `{ ok: true, enforced: false }` when Firebase Admin is not
+configured. That is deliberate, and it keeps zero-config demo mode working. But
+the return is **above** the scope check, so `{ scope: "platform_admin" }` is
+never applied, and a caller reading only `ok` reads "nobody could be identified"
+as "an authorised admin asked". Twenty-one call sites pass a scope and every one
+of them reads as safe.
+
+**The honest bound, because overstating this would be its own fabrication:** no
+Admin also means no Firestore, so in exactly the state where the door was open,
+the suppression ledger is the in-memory fallback and holds nothing. Production
+has Admin credentials and was gated correctly. This was an open door onto an
+empty room.
+
+It closes anyway, because the room does not stay empty by design.
+`adminConfigured` is read from environment presence, so a deployment that loses
+or has not yet received its `FIREBASE_*` variables lands in this branch — and
+this register already records several sessions spent believing Admin was down in
+production. A window where isolation cannot be enforced is when a surface holding
+a brand's contactable list must close, not open.
+
+The route now requires `ok && enforced` and answers **503** otherwise, matching
+`/api/email-events`, which already refuses rather than serving brand data without
+isolation. The scheduler bearer still works, because `cronAuthorised` verifies a
+real secret and refuses outright when none is set. The other twenty call sites
+were left alone — demo-mode surfaces reading demo data — and the hazard is
+documented on `requireAuth` itself so the next scoped caller sees it.
+
+Verified against the running server before and after: 200 → 503 on both verbs.
+
+### The "you have used your free audits" button was a 404
+
+`quotaCtaHref: "/pricing"` in the audit route, and the same string as the
+component's fallback. **There is no `/pricing` page** — the app's pricing is
+`/choose-plan`, which every other link in the codebase already says.
+
+The comment on the panel that renders it reads: *"RUNNING OUT IS NOT AN ERROR —
+it is the free tier ending, and it is the single moment an interested person is
+most likely to pay."* That button went nowhere.
+
+Both corrected, and a test now walks `src/app` for the paths Next will actually
+serve — handling route groups and dynamic segments — and fails on any hard-coded
+internal link that does not resolve.
+
+**A mutation caught the test being half a test.** Its first version matched
+`href="/x"` and `Href: "/x"` but not `href={a || "/x"}` — and the dead link
+existed in *both* forms, so it caught the copy that was easy to find and left the
+one a customer hits when a cached response arrives without the field. It reads
+quoted literals inside JSX href expressions now.

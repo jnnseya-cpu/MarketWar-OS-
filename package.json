@@ -8,7 +8,8 @@
   "overrides": {
     "postcss": "^8.5.26",
     "sharp": "^0.35.3",
-    "jose": "^5.10.0"
+    "jose": "^5.10.0",
+    "browserslist": "^4.28.7"
   },
   "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {

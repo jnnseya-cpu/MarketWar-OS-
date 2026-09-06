@@ -25696,6 +25696,135 @@ test("jwks-rsa require()s jose, so jose must be requireable", () => {
     "jwks-rsa no longer require()s jose — the jose override in package.json can then be revisited");
 });
 
+// ---------------------------------------------------------------------------
+// THE GATE HAD A HOLE IN IT, AND THE HOLE OPENED BY ITSELF.
+//
+// CI steps run in order and stop at the first failure. The dependency audit sat
+// AHEAD of the secret scan and the .env check — and a dependency audit is the
+// one step in the job that can go red on a commit that changed nothing, because
+// advisories are published on somebody else's schedule. Two HIGH advisories
+// landed against `browserslist` on 2026-09-06, a transitive dependency of
+// autoprefixer that nobody in this repository had touched.
+//
+// From that moment the cheapest control in the pipeline — the one guarding the
+// single mistake a revert cannot undo — was SKIPPED on every push, and the runs
+// were red for a reason that had nothing to do with it. Nobody looks past the
+// first red step. `if: always()` is the fix, and this is what stops it being
+// quietly removed the next time somebody tidies the file.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// EVERY INTERNAL LINK MUST GO SOMEWHERE.
+//
+// `quotaCtaHref: "/pricing"` sat in the audit route, and there is no `/pricing`
+// page — the app's pricing lives at `/choose-plan`, which every other link in
+// the codebase already says. The one link that was wrong was the button shown
+// when somebody runs out of free audits, under a comment calling that "the
+// single moment an interested person is most likely to pay". It went to a 404.
+//
+// Found by requesting every public route against a running build. This is what
+// makes that cheap enough to do on every commit: the routes are read off the
+// filesystem, so a link is checked against what Next will actually serve.
+// ---------------------------------------------------------------------------
+test("no hard-coded internal link points at a route that does not exist", async () => {
+  const { readdirSync, statSync } = await import("node:fs");
+  const appDir = new URL("../src/app/", import.meta.url).pathname;
+
+  // Every routable path Next will serve, from the filesystem.
+  const routes = new Set(["/"]);
+  const walk = (dir, prefix) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`;
+      if (!statSync(full).isDirectory()) {
+        // A page.tsx (or route.ts) makes the directory it sits in routable.
+        if (/^(page|route)\.(tsx|ts)$/.test(name) && prefix) routes.add(prefix);
+        continue;
+      }
+      // Route groups `(x)` do not appear in the URL; private `_x` are not routes.
+      if (name.startsWith("_") || name === "api") continue;
+      walk(full, name.startsWith("(") ? prefix : `${prefix}/${name}`);
+    }
+  };
+  walk(appDir.replace(/\/$/, ""), "");
+
+  // A dynamic segment matches anything at that position, so a route containing
+  // one is recorded as a prefix rather than an exact path.
+  const dynamicPrefixes = [...routes].filter((r) => r.includes("[")).map((r) => r.slice(0, r.indexOf("[")));
+  const servable = (path) =>
+    routes.has(path) || dynamicPrefixes.some((p) => p.length > 1 && path.startsWith(p));
+
+  const files = [];
+  const collect = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`;
+      if (statSync(full).isDirectory()) { if (name !== "node_modules") collect(full); }
+      else if (/\.(ts|tsx)$/.test(name)) files.push(full);
+    }
+  };
+  collect(new URL("../src/", import.meta.url).pathname.replace(/\/$/, ""));
+
+  const broken = [];
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    // Three shapes, all of them unambiguous literals:
+    //   href="/x"          a plain attribute
+    //   Href: "/x"         a field carrying a path (quotaCtaHref, ctaHref, …)
+    //   href={a || "/x"}   a JSX expression with a literal fallback
+    //
+    // THE THIRD ONE IS NOT OPTIONAL, and a mutation proved it: the audit's dead
+    // `/pricing` link existed in BOTH the route (shape two) and the component's
+    // fallback (shape three). A scanner that reads only the first two catches
+    // the copy that is easy to find and leaves the one the customer actually
+    // hits when a cached response arrives without the field.
+    //
+    // A path built from a variable is still not something a regex can resolve,
+    // and guessing would produce the kind of false alarm that teaches people to
+    // ignore a check — so only quoted literals are read, wherever they sit.
+    const literals = [
+      ...src.matchAll(/(?:href=|Href:\s*)"(\/[A-Za-z0-9\-_/]*)"/g),
+      ...[...src.matchAll(/href=\{[^}]*\}/g)].flatMap((h) => [...h[0].matchAll(/"(\/[A-Za-z0-9\-_/]*)"/g)]),
+    ];
+    for (const m of literals) {
+      const path = m[1].replace(/\/$/, "") || "/";
+      if (path.startsWith("/api/")) continue;      // not pages
+      if (/\.[a-z]{2,4}$/.test(path)) continue;     // /robots.txt and friends
+      if (!servable(path)) broken.push(`${file.split("/src/")[1]} → ${path}`);
+    }
+  }
+  assert.deepEqual(broken, [], `these links go nowhere:\n  ${broken.join("\n  ")}`);
+});
+
+test("the security steps in CI cannot be skipped by an earlier failure", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  for (const step of ["Secret scan", "No .env committed"]) {
+    const block = ci.slice(ci.indexOf(`- name: ${step}`));
+    assert.ok(block.startsWith(`- name: ${step}`), `the "${step}" step is gone from CI`);
+    const head = block.slice(0, block.indexOf("run: |"));
+    assert.match(head, /if: always\(\)/,
+      `"${step}" runs only while every earlier step passes — a new advisory in the dependency audit silently switches it off, which is exactly what happened on 09-06`);
+  }
+  // And the audit must still FAIL the run on high — an always() everywhere would
+  // turn the gate into a report.
+  assert.match(ci, /npm audit --audit-level=high/);
+  const auditBlock = ci.slice(ci.indexOf("- name: Dependency audit"), ci.indexOf("- name: Secret scan"));
+  assert.ok(!/if: always\(\)/.test(auditBlock), "the audit is a gate, not a notice");
+});
+
+test("no dependency with a HIGH advisory is pinned below its fix", () => {
+  // The lockfile is the contract, so the assertion is against the resolved tree
+  // rather than the range. browserslist <= 4.28.6 carries GHSA-c83g-rgw3-j3cx
+  // and GHSA-73wf-gq98-2v4g; it arrives through autoprefixer, so there is no
+  // direct dependency to bump and `overrides` is the only lever.
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.ok(pkg.overrides?.browserslist, "the browserslist override is gone — npm audit will go red on high again");
+
+  const entry = lock.packages?.["node_modules/browserslist"];
+  assert.ok(entry, "browserslist is not in the lockfile — check what replaced it before deleting the override");
+  const [maj, min, patch] = String(entry.version).split(".").map(Number);
+  const fixed = maj > 4 || (maj === 4 && (min > 28 || (min === 28 && patch >= 7)));
+  assert.ok(fixed, `browserslist resolves to ${entry.version}; 4.28.7 is the first version without the two HIGH advisories`);
+});
+
 // The value has to CROSS THE BOUNDARY. This repository's oldest and most
 // repeated defect is a value that exists on one side and is never carried to the
 // other — twenty-three of them so far, most recently a send failure whose reason
@@ -28614,4 +28743,71 @@ test("the repair endpoint is gated, and never restores in bulk without naming ad
   // The audit entry must not become a second copy of the list.
   const auditBlock = code.slice(code.indexOf("audit.record("), code.indexOf("nowISO", code.indexOf("audit.record(")));
   assert.doesNotMatch(auditBlock, /result\.restored\b(?!\.length)/, "the addresses themselves leaked into the audit log");
+});
+
+// ---------------------------------------------------------------------------
+// AN UNENFORCED "YES" IS NOT A YES.
+//
+// Found by driving this route against a RUNNING SERVER, not by reading it. With
+// no Firebase Admin credentials, `GET ?brandId=x` answered 200 with the report —
+// and that report names suppressed email addresses, while the POST changes who
+// the platform may contact.
+//
+// The cause is a shape every route in this codebase can get wrong the same way:
+// `requireAuth` returns `{ ok: true, enforced: false }` when Admin is not
+// configured, and it returns BEFORE the scope check, so `{ scope:
+// "platform_admin" }` is never applied. A caller reading only `ok` reads
+// "nobody could be identified" as "an admin asked".
+//
+// `/api/email-events` already refuses with 503 in that state. This must match.
+// ---------------------------------------------------------------------------
+test("the repair endpoint refuses when authorisation cannot be ENFORCED", async () => {
+  // Driven through the real exported handlers, in the state this test process is
+  // actually in — no Firebase Admin, which is precisely the unenforced case.
+  const route = await import("../src/app/api/email/suppression-repair/route.ts");
+  const { adminConfigured } = await import("../src/backend/firebase-admin.ts");
+  const { NextRequest } = await import("next/server");
+
+  const get = await route.GET(new NextRequest("https://mw.test/api/email/suppression-repair?brandId=veryx"));
+  const body = await get.json();
+
+  if (!adminConfigured) {
+    assert.equal(get.status, 503,
+      "with no way to prove the caller is an admin, a report naming suppressed addresses must not be served");
+    assert.match(body.error, /Firebase Admin is not configured/);
+    assert.ok(!("impossible" in body), "the report itself was returned to an unidentified caller");
+
+    const post = await route.POST(new NextRequest("https://mw.test/api/email/suppression-repair", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brandId: "veryx", emails: ["a@b.com"] }),
+    }));
+    assert.equal(post.status, 503, "restoring must be refused in the same state as reporting");
+  } else {
+    // Admin IS configured here: an anonymous request must be a plain refusal.
+    assert.equal(get.status, 403);
+  }
+});
+
+test("the scheduler bearer still works, and only with the real secret", async () => {
+  // The 503 above must not have closed the door on the scheduler, which is the
+  // one caller that can be proved without Admin — `cronAuthorised` verifies a
+  // real secret and refuses outright when none is set.
+  const route = await import("../src/app/api/email/suppression-repair/route.ts");
+  const { NextRequest } = await import("next/server");
+  const had = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "test-scheduler-secret";
+  try {
+    const good = await route.GET(new NextRequest("https://mw.test/api/email/suppression-repair?brandId=veryx", {
+      headers: { authorization: "Bearer test-scheduler-secret" },
+    }));
+    assert.equal(good.status, 200, "the scheduler must still be able to run the report");
+    assert.ok("impossible" in (await good.json()));
+
+    const wrong = await route.GET(new NextRequest("https://mw.test/api/email/suppression-repair?brandId=veryx", {
+      headers: { authorization: "Bearer not-the-secret" },
+    }));
+    assert.notEqual(wrong.status, 200, "a wrong bearer must not pass");
+  } finally {
+    if (had === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = had;
+  }
 });
