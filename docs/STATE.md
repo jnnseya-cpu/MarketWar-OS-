@@ -75,22 +75,36 @@ paste-ready first campaign. Both parse their prices out of `src/`.
 **STILL OPEN — three things. Item 0 is CLOSED and CONFIRMED on the deployment; it is kept here
 because it already recurred once and the pin that "fixed" it the first time did not hold.**
 
-**0. FOUND AND FIXED — `require(esm)`, THE SAME PAIR THAT TOOK PRODUCTION DOWN ON 08-29
-(2026-09-03).** `/diagnose` printed it from the owner's browser: *"@/backend/capabilities failed to
-load: require() of ES Module .../jose/dist/webapi/index.js from .../jwks-rsa/src/utils.js not
-supported."* `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM); `require()` of an ESM
-package works only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on the
-host. Every route importing it answered Next's HTML page; only `/api/health/live` survived, because
-it loads its modules inside a catch.
-**The 08-29 "fix" was `engines: 22.x`, and the host did not honour it** — a pin somebody else has to agree to is not a fix. Worse, the test written that day asserted that jose IS ESM-only, so it stayed green all through this outage and would only have gone red on the repair.
-**The fix:** `overrides.jose: ^5`, which ships CommonJS, so `require()` works on every Node. jwks-rsa
-uses only `importJWK` and `exportSPKI`, both present in 5.x. Proved by driving `retrieveSigningKeys`
-on a real RSA JWK and verifying a real signature with the PEM it returns — necessary because
-jwks-rsa does `catch { continue }`, so a broken jose returns NO KEYS silently and every sign-in
-fails "kid not found". The regression test was proved by reinstalling jose 6 and watching it go red.
-`/api/health/live` now reports `runtime.node` and `canRequireEsm`, because at no point in either
-outage could anyone see which Node was running without opening the host's dashboard.
-**Confirmed fixed on the deployment**: `/diagnose` reads 200 / 200, with the two 403s (no session) and the 400 (no address) the probes are SUPPOSED to get. Those three now show green with their reason — the page had announced them as findings on a healthy platform, and a diagnostic that cries wolf gets ignored, which is worse than none.
+**0. CLOSED AND CONFIRMED — `require(esm)`, the pair that took production down TWICE
+(08-29 and 09-03).** `firebase-admin` → `jwks-rsa` (CommonJS) → `jose@6` (pure ESM); `require()` of
+an ESM package works only on Node ≥ 22.12, so it ran on a 22.22 laptop and died at MODULE LOAD on
+the host, answering Next's HTML page from every route that imported it. Only `/api/health/live`
+survived, because it loads its modules inside a catch. **The 08-29 fix was `engines: 22.x` and the
+host did not honour it** — a pin somebody else has to agree to is not a fix — and the test written
+that day asserted jose IS ESM-only, so it stayed green through the whole second outage and would
+only have gone red on the repair. **Fix: `overrides.jose: ^5`**, which ships CommonJS, so the host's
+choice stops mattering; proved by driving `retrieveSigningKeys` on a real RSA JWK and verifying a
+real signature, because jwks-rsa does `catch { continue }` and a broken jose returns NO KEYS
+silently. `/api/health/live` reports `runtime.node` and `canRequireEsm` — in neither outage could
+anyone see which Node was running. `/diagnose` reads 200/200 with the expected refusals green.
+
+**1a. THE PLATFORM SUPPRESSED 354 GOOD ADDRESSES BECAUSE ITS OWN PASSWORD WAS WRONG
+(2026-09-06).** The campaign route suppressed any failure containing a 5xx, and the server was
+refusing our login with `535`. 104 prospects on one brand and 250 on another became permanent
+"hard bounces"; one vault went 104 sendable → 0, and the fabricated 18.77% bounce rate then had
+the deliverability agent advising a list-cleaning purchase. `isRecipientRejection` stops it.
+**`/api/email/suppression-repair` undoes it**, on evidence rather than a guess: a bounce requires
+a delivery, so a bounce recorded on a day when ZERO messages were accepted cannot be about the
+recipient. Days with even one real delivery are left untouched, restoration re-proves every
+address rather than trusting the request, and the bounce EVENTS are kept — only the suppression
+is lifted. Admin-gated, audited, no bulk undo.
+
+**1b. ENGAGEMENT RATES WERE FABRICATED, AND AN AGENT ACTED ON THEM (2026-09-06).** 270% opens,
+200% clicks. Opens were deduplicated per person and SENDS WERE NOT, and the in-memory ledger
+evicts oldest-first — a send is recorded before the open it causes, so the cap ate the
+denominator. `emailContext` then multiplied an already-percentage by 100 again. Rates are now
+computed per unique recipient and **withheld entirely when openers exceed senders**, with the
+reason stated; the agent is told the measurement is absent and instructed not to infer from it.
 
 **1. MAIL: THE SEND NOW RUNS AND THE SERVER REFUSES IT (2026-09-03).** The free audit completed
 end to end on a real site (construxvg.com, 3 pages, 29 checks, 83/100) and closed with *"the mail
@@ -143,62 +157,43 @@ true, no `Sender:` header (no arrangement to declare), bounces to the one inbox 
 the last three; §80 (an agent message bus) is recorded as considered and rejected. What remains
 is partial rows, each naming the one absent part. See `GROWTH-ENGINE-COVERAGE.md`.
 
-**Surfaces built:** §50, §70, §77, §92, §95, §97, §98, §100, §102, §103. **Not built:** §80
-agent message bus (considered, rejected), §14 calendars, §21 carousels. (This line previously
-listed §50/§77/§100 as missing while the closed list four lines above said they had landed.)
+**Surfaces built:** §50, §70, §77, §92, §95, §97, §98, §100, §102, §103. **Not built:** §80 agent message bus (considered, rejected), §14 calendars, §21 carousels.
 
-**Security debt.** 6 moderate advisories, NO high — all the uuid → firebase-admin chain, left
-deliberately: npm's "fix" is a four-major downgrade. Two `overrides` force Next's nested postcss
-and sharp up to the versions used everywhere else.
+**Security debt.** 6 moderate advisories, NO high — all the uuid → firebase-admin chain; npm's "fix" is a four-major downgrade. `overrides` also force Next's nested postcss and sharp up, and pin `jose` (§5.0).
 
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.**
-TWENTY-SEVEN. Newest (2026-09-03): the SMTP probe knew which verb the mail host refused and the
-whole probe was gated, so the audit could only say "the mail server refused the message" and the
-reason was reachable solely by signing in — on a platform where signing in was broken. Before it: a
-route's engine was imported STATICALLY, so its load failure happened outside every catch and
-`/api/capabilities` knew why it could not start while the browser got an HTML page; loads now go
-through `loadModule`. Before that: the headers of every failed call named the machine that answered
-— `cf-ray`, `x-vercel-id`, `x-vercel-error` — and nothing carried it to the person reading the
-screen, so three redeploys went into fixing the app when the evidence of whether it was even
-reached sat on the response. `shared/response-origin.ts` reads it; `/diagnose` prints it. Before it: the codebase read
-133 environment variables and the diagnostic knew 35; `sendEmail` knew why a send failed and the
-caller reported `unknown`; the render sent a prompt and a duration and NO aspect ratio, so every
-portrait placement came back landscape; `meterAction` exempted staff while the video queue took a
-wallet id, not a caller. Worst — and it got worse on 09-03: a message whose login, envelope sender
-and From were three
-mailboxes, ALL THREE of which turned out to be invented — the login `appuser@` was recorded as
-"the mailbox that actually exists" and never existed either. The rest: `REQUIREMENTS-COVERAGE.md`.
+TWENTY-EIGHT. Newest (09-06): the batch send path set every result field EXCEPT `failure`, so 250
+failures reached the campaign screen as `unknown` — "the send did not complete" — while the
+classification sat two lines above in the attempt ledger. Before it, in order: the SMTP probe knew
+which verb the host refused and the whole probe was gated, so the reason was reachable only by
+signing in on a platform where signing in was broken; a route's engine was imported STATICALLY, so
+its load failure happened outside every catch and `/api/capabilities` knew why it could not start
+while the browser got an HTML page (`loadModule` now); the response headers named the machine that
+answered and nothing carried it to the reader, so three redeploys went into fixing the app when the
+evidence sat on the response (`shared/response-origin.ts`, `/diagnose`); the codebase read 133
+environment variables and the diagnostic knew 35; the render sent no aspect ratio, so every portrait
+came back landscape. Worst: a message whose login, envelope sender and From were three mailboxes,
+**all three invented** — `appuser@` was recorded as "the mailbox that actually exists" and never
+existed. The rest: `REQUIREMENTS-COVERAGE.md`.
 
-**ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT
-BEFORE THE THIRD GUESS.** Node 20 was diagnosed in one line of `moduleErrors` after a day inferring
-from a screenshot. The HTML fault took three wrong theories and three redeploys before `/diagnose`
-existed; writing it first would have cost one of them.
+**ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT BEFORE THE THIRD GUESS.** The HTML fault took three wrong theories and three redeploys before `/diagnose` existed. **And a diagnostic only its author can read is not a diagnostic**: the SMTP stage, the server's refusal line and the enrichment probe were each gated behind a sign-in that was itself broken.
 
 **A second class, about tests rather than code: a check that passes — or FAILS — for a reason
-unrelated to what it tests.** TWENTY. Newest (2026-09-03): a test written on 08-29 asserted that
-`jose` IS ESM-only — recording the hazard as a fact of life and leaving the entire defence to a
-Node pin the host had to honour. It was green through the whole second outage, because it was
-pinned to the broken arrangement and could only have failed on the repair. **A test that passes
-while production is down, and would fail on the fix, is worse than no test.** Before it: `/diagnose` asked one question of
-every response — did it parse as JSON? — and `/api/capabilities` answered HTTP 500 with a
-perfectly good JSON body naming the module that failed to load. The row read "DATA", printed
-none of it, and the diagnosis was thrown away by the page built to obtain it: "the transport
-worked" and "the request worked" are different questions. Three outcomes now, and the error body
-is always shown. Before it: the test guarding the
-"Unexpected token '<'" message asserted the literal phrase *"not something you typed"*. That
-is wording, not behaviour — it would have passed a message that blamed the wrong machine, and
-it FAILED the moment the message started naming the right one. It now asserts that the
-machine is named and that the status survives. The CI secret scan is the worst: `sk-[…]{20,}`
-matched the slug `ask-customers-for-reviews-properly`, red for twelve runs, never once on a
-credential — a gate added to stop work being called done without proof, then called done
-without one run being read. Patterns now match keys as providers issue them, proved BOTH
-ways, because a pattern catching nothing passes a false-positive test perfectly. Caught by
-mutation, never by reading: a key-import test whose patch never ran because an earlier test warmed
-the memoised key; a containment check accepting an ungated field because an earlier one was gated;
-an "exempt spend left the ledger alone" assertion reading `=== 0` when adding zero leaves zero; a
-department table with STEMS inside `\b(...)\b`, so Chief Financial Officer matched nothing.
+unrelated to what it tests.** TWENTY-THREE, and four of the newest were found by MUTATION AFTER the
+suite was green. Newest (09-06): a pre-ticked consent box passed an assertion that only looked for
+`useState(false)` — which matched every other flag in the file. Before it: a leak check flagged
+`str(f.email) ? "an address" : "null"`, a ternary that never emits the address, so a pattern that
+flags safe code teaches people to ignore it; a "the human note carries the reason" assertion matched
+anywhere in the file, and a sibling field carried the same words, so deleting the reason from the
+sentence left it green; five guards on the suppression rule could each be deleted with the suite
+green, because every case was caught by an earlier branch. And the worst kind: a test written on
+08-29 asserted that `jose` IS ESM-only — recording the hazard as a fact of life, green through the
+whole second outage, and it could only ever have failed on the repair. **A test that passes while
+production is down, and would fail on the fix, is worse than no test.** The CI secret scan is the
+oldest: `sk-[…]{20,}` matched the slug `ask-customers-for-reviews-properly`, red for twelve runs and
+never once on a credential.
 
 **A DIAGNOSTIC IS AN ENDPOINT TOO.** `/api/health/email` authorised `?send=` but left the REPORT open — twenty recipient addresses beside the SMTP host and username. Gated. `/diagnose` is public by the same test: it only reports which machine answered its own requests.
 

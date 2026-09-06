@@ -117,7 +117,30 @@ export async function brandEvents(brandId: string, limit = 10000): Promise<Email
   return mem.filter((e) => e.brandId === brandId);
 }
 
-export async function eventStats(brandId: string): Promise<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; machineOpen: number; machineClick: number; openRate: number; clickRate: number }> {
+/**
+ * A RATE OVER 100% IS PROOF THE LEDGER IS INCOMPLETE, NOT PROOF OF ENGAGEMENT.
+ *
+ * Reported from the live platform: "Open and click rates (270%, 200%) are
+ * suspicious and indicate a tracking anomaly". They did, and the deliverability
+ * agent was right to distrust them — but the platform printed them anyway, as
+ * percentages, on a product whose entire argument is that it does not publish
+ * numbers it has not earned.
+ *
+ * TWO CAUSES, BOTH REAL:
+ *
+ *   1. Opens were deduplicated per address and SENDS WERE NOT. One recipient
+ *      counted once in the numerator; one send counted once per event. Different
+ *      populations, divided by each other.
+ *   2. The in-memory event ledger is capped and evicts OLDEST-FIRST. A send is
+ *      recorded before the open it produces, so the cap eats the denominator and
+ *      keeps the numerator. While Firebase Admin was down — all last week — that
+ *      memory path was the only store there was.
+ *
+ * So the honest answer when openers exceed senders is not a bigger number. It is
+ * `null`, and a sentence saying the ledger cannot support a rate. A percentage
+ * nobody can defend discredits every true number beside it.
+ */
+export async function eventStats(brandId: string): Promise<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; machineOpen: number; machineClick: number; sentUnique: number; openRate: number | null; clickRate: number | null; ratesNote: string }> {
   let events: EmailEvent[];
   if (adminConfigured && adminDb) {
     const snap = await adminDb.collection("email_events").where("brandId", "==", brandId).limit(10000).get();
@@ -129,7 +152,11 @@ export async function eventStats(brandId: string): Promise<{ sent: number; open:
   const machine = { open: 0, click: 0 };
   // Unique-per-address for opens/clicks (a contact opening twice is one opener).
   const seen = new Set<string>();
+  // …AND FOR SENDS, which is the half that was missing. A rate is only a rate
+  // when both sides count the same kind of thing: people.
+  const sentTo = new Set<string>();
   for (const e of events) {
+    if (e.type === "sent") sentTo.add(e.email);
     if (e.type === "open" || e.type === "click") {
       const k = `${e.type}:${e.email}`;
       if (seen.has(k)) continue;
@@ -140,9 +167,20 @@ export async function eventStats(brandId: string): Promise<{ sent: number; open:
     }
     if (e.type in c) c[e.type as keyof typeof c]++;
   }
-  const openRate = c.sent ? Math.round((c.open / c.sent) * 1000) / 10 : 0;
-  const clickRate = c.sent ? Math.round((c.click / c.sent) * 1000) / 10 : 0;
-  return { ...c, machineOpen: machine.open, machineClick: machine.click, openRate, clickRate };
+  const sentUnique = sentTo.size;
+
+  // MORE OPENERS THAN RECIPIENTS IS IMPOSSIBLE. When it happens, events have
+  // been lost — evicted by the memory cap, or dropped while persistence was
+  // down — and the only honest rate is no rate at all.
+  const impossible = c.open > sentUnique || c.click > sentUnique;
+  const rate = (n: number) => (sentUnique && !impossible ? Math.round((n / sentUnique) * 1000) / 10 : null);
+  const ratesNote = !sentUnique
+    ? "No delivered sends are recorded for this brand yet, so there is nothing to compute a rate against."
+    : impossible
+      ? `Rates withheld: ${Math.max(c.open, c.click)} people opened or clicked but only ${sentUnique} recorded sends exist, which cannot happen. Delivery events have been lost — most often while persistence was unavailable — so any percentage here would be invented. The COUNTS below are still real.`
+      : `${c.open} of ${sentUnique} recipients opened. Counted once per person, not once per pixel load.`;
+
+  return { ...c, machineOpen: machine.open, machineClick: machine.click, sentUnique, openRate: rate(c.open), clickRate: rate(c.click), ratesNote };
 }
 
 function nowISO(): string {

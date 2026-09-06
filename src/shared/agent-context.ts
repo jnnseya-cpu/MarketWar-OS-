@@ -72,7 +72,16 @@ export function segmentContext(report: SegmentReportView | null): Record<string,
 
 export type EmailStatsView = {
   sent: number; open: number; click: number; bounce: number; complaint: number;
-  unsubscribe: number; openRate: number; clickRate: number; suppressed: number;
+  // NULLABLE ON PURPOSE. A rate the event ledger cannot support is withheld
+  // rather than invented — see backend/email-events.ts. An agent handed a
+  // fabricated percentage writes a confident plan about a problem that is not
+  // there, which is exactly what happened: 270% opens produced "your list is
+  // dirty, buy a verification service".
+  unsubscribe: number; openRate: number | null; clickRate: number | null; suppressed: number;
+  /** Unique recipients with a recorded send — the denominator of any real rate. */
+  sentUnique?: number;
+  /** Why a rate is absent, when it is. Written for the agent, not for a screen. */
+  ratesNote?: string;
   warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number };
 };
 
@@ -95,11 +104,19 @@ export function emailContext(stats: EmailStatsView | null): Record<string, strin
       }The task is a first-send plan and a warm-up.`,
     };
   }
-  const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
+  // `openRate` ALREADY IS A PERCENTAGE. The old helper multiplied it by 100 a
+  // second time, so a 27% open rate reached the agent as "2700%". Two separate
+  // faults were making the same number absurd; this was the quieter one.
+  const pct = (n: number | null) => (n === null ? "not computable" : `${n}%`);
   return {
     sendingRecord: [
       "THE REAL SENDING RECORD — these are counted, do not ask for them:",
-      `${stats.sent} sent, ${stats.open} opens (${pct(stats.openRate)}), ${stats.click} clicks (${pct(stats.clickRate)}).`,
+      `${stats.sent} sends recorded to ${stats.sentUnique ?? "an unknown number of"} distinct recipients, ${stats.open} opened (${pct(stats.openRate)}), ${stats.click} clicked (${pct(stats.clickRate)}).`,
+      // THE AGENT MUST BE TOLD WHEN A NUMBER IS ABSENT AND WHY, or it fills the
+      // gap with an assumption and advises on it.
+      stats.openRate === null
+        ? `RATES ARE WITHHELD, AND THIS IS IMPORTANT: ${stats.ratesNote || "the event ledger cannot support a percentage."} Do NOT infer engagement, list quality or deliverability from the absence. Say the measurement is unavailable and what would restore it.`
+        : "",
       `${stats.bounce} bounces, ${stats.complaint} complaints, ${stats.unsubscribe} unsubscribes, ${stats.suppressed} on the suppression list.`,
       stats.warmup
         ? `Warm-up is on day ${stats.warmup.day}: cap ${stats.warmup.dailyCap} a day, ${stats.warmup.sentToday} sent today, ${stats.warmup.remaining} remaining. Any plan must fit inside that cap.`

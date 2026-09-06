@@ -28192,3 +28192,171 @@ test("the opt-in exists because the page has always promised it, and is never pr
   assert.doesNotMatch(form, /checked\s*$|defaultChecked/m, "the consent box is pre-ticked");
   assert.match(form, /One click stops it/, "an opt-in without a stated way out is not a fair one");
 });
+
+// ---------------------------------------------------------------------------
+// A RATE OVER 100% IS PROOF THE LEDGER IS INCOMPLETE, NOT PROOF OF ENGAGEMENT.
+//
+// Reported from the live platform: "Open and click rates (270%, 200%) are
+// suspicious and indicate a tracking anomaly." They were, the deliverability
+// agent was right to distrust them — and the platform printed them anyway, as
+// percentages, on a product whose whole argument is that it publishes no number
+// it has not earned. Worse, the agent READ them and produced a confident rescue
+// plan for a list-quality problem that did not exist.
+// ---------------------------------------------------------------------------
+test("an impossible engagement rate is withheld, not printed", async () => {
+  const { recordEvent, eventStats, __resetEvents } = await import("../src/backend/email-events.ts");
+  const BRAND = `test_rates_${Date.now()}`;
+  const at = (n) => new Date(Date.UTC(2026, 0, n)).toISOString();
+
+  // Two recipients, three opens between them — one person opened twice.
+  await recordEvent({ brandId: BRAND, email: "a@x.com", type: "sent", at: at(1) });
+  await recordEvent({ brandId: BRAND, email: "b@x.com", type: "sent", at: at(1) });
+  await recordEvent({ brandId: BRAND, email: "a@x.com", type: "open", at: at(2) });
+  await recordEvent({ brandId: BRAND, email: "a@x.com", type: "open", at: at(3) });
+  await recordEvent({ brandId: BRAND, email: "b@x.com", type: "open", at: at(2) });
+
+  let s = await eventStats(BRAND);
+  assert.equal(s.sentUnique, 2, "sends must be counted by PERSON, or the two sides of the rate count different things");
+  assert.equal(s.open, 2, "one person opening twice is one opener");
+  assert.equal(s.openRate, 100, "2 of 2 recipients opened");
+  assert.match(s.ratesNote, /Counted once per person/);
+
+  // NOW THE PRODUCTION CASE: more openers than recorded recipients. Impossible —
+  // events have been lost (the memory cap evicts oldest-first, and a send is
+  // recorded before the open it produces, so the DENOMINATOR goes first).
+  const B2 = `${BRAND}_lost`;
+  await recordEvent({ brandId: B2, email: "a@x.com", type: "sent", at: at(1) });
+  for (const who of ["a", "b", "c"]) await recordEvent({ brandId: B2, email: `${who}@x.com`, type: "open", at: at(2) });
+  s = await eventStats(B2);
+  assert.equal(s.open, 3);
+  assert.equal(s.sentUnique, 1);
+  assert.equal(s.openRate, null, "300% was printed as a percentage instead of being refused");
+  assert.equal(s.clickRate, null, "if opens are unreliable the clicks from the same ledger are too");
+  assert.match(s.ratesNote, /cannot happen/, "the reader must be told WHY the number is missing");
+  assert.match(s.ratesNote, /COUNTS below are still real/, "withholding a rate must not discredit the counts");
+
+  // Nothing sent at all is a different state again, and must not read as 0%.
+  const B3 = `${BRAND}_empty`;
+  s = await eventStats(B3);
+  assert.equal(s.openRate, null, "no sends must not present as a 0% open rate — that reads as failure");
+  assert.match(s.ratesNote, /nothing to compute a rate against/);
+});
+
+test("the agent is never handed a percentage the ledger cannot support", async () => {
+  const { emailContext } = await import("../src/shared/agent-context.ts");
+
+  // THE LOOP THIS CLOSES. The deliverability agent read 270% and wrote "your
+  // list is dirty, implement a pre-send verification service". A fabricated
+  // number producing confident advice producing real spending.
+  const withheld = emailContext({
+    sent: 4879, open: 3, click: 2, bounce: 250, complaint: 0, unsubscribe: 39,
+    openRate: null, clickRate: null, sentUnique: 1, suppressed: 105,
+    ratesNote: "Rates withheld: 3 people opened but only 1 recorded send exists, which cannot happen.",
+  });
+  assert.match(withheld.sendingRecord, /not computable/, "a missing rate must be stated, not shown as a number");
+  assert.match(withheld.sendingRecord, /RATES ARE WITHHELD/, "the agent must be told the measurement is absent");
+  assert.match(withheld.sendingRecord, /Do NOT infer engagement/, "an unexplained gap gets filled with an assumption and advised on");
+  assert.doesNotMatch(withheld.sendingRecord, /\bnull\b/, "a null leaked into the prompt as a word");
+
+  // AND THE SECOND, QUIETER FAULT: openRate is ALREADY a percentage, and the old
+  // helper multiplied it by 100 again — a real 27% reached the agent as 2700%.
+  const real = emailContext({
+    sent: 100, open: 27, click: 4, bounce: 1, complaint: 0, unsubscribe: 0,
+    openRate: 27, clickRate: 4, sentUnique: 100, suppressed: 1,
+  });
+  assert.match(real.sendingRecord, /\(27%\)/, "the percentage was multiplied by 100 a second time");
+  assert.doesNotMatch(real.sendingRecord, /2700/, "the double conversion is back");
+
+  // A brand that has sent nothing is its own state and must not be rescued.
+  const nothing = emailContext({ sent: 0, open: 0, click: 0, bounce: 0, complaint: 0, unsubscribe: 0, openRate: null, clickRate: null, suppressed: 0 });
+  assert.match(nothing.sendingRecord, /NOTHING HAS BEEN SENT YET/);
+  assert.match(nothing.sendingRecord, /nothing to rescue/);
+});
+
+// ---------------------------------------------------------------------------
+// GIVING BACK THE ADDRESSES THIS PLATFORM DESTROYED — and only those.
+//
+// The campaign route suppressed any failure containing a 5xx code while the mail
+// server was refusing our own password with `535`. 104 prospects on one brand and
+// 250 on another were recorded as hard bounces and permanently suppressed. Not
+// doing it again is not the same as undoing it.
+//
+// A wrongful suppression looks EXACTLY like a real one — both are stored as
+// `{ brandId, email, reason: "bounce", at }`. The evidence that separates them is
+// arithmetic on the platform's own ledger: a bounce requires a delivery, so a
+// bounce on a day when ZERO messages were accepted cannot be about the recipient.
+// ---------------------------------------------------------------------------
+test("a bounce on a day with no deliveries is proved wrongful; one with deliveries is left alone", async () => {
+  const { recordEvent } = await import("../src/backend/email-events.ts");
+  const { findImpossibleBounces } = await import("../src/backend/suppression-repair.ts");
+  const BRAND = `test_repair_${Date.now()}`;
+  const on = (d, h = 9) => `2026-09-0${d}T0${h}:00:00.000Z`;
+
+  // Day 1 — the platform could not log in. Nothing delivered, four "bounces".
+  for (const who of ["a", "b", "c", "d"]) await recordEvent({ brandId: BRAND, email: `${who}@x.com`, type: "bounce", at: on(1) });
+  // Day 2 — mail worked. One delivery, one real bounce.
+  await recordEvent({ brandId: BRAND, email: "ok@x.com", type: "sent", at: on(2) });
+  await recordEvent({ brandId: BRAND, email: "dead@x.com", type: "bounce", at: on(2) });
+
+  const r = await findImpossibleBounces(BRAND);
+  const names = r.impossible.map((i) => i.email).sort();
+  assert.deepEqual(names, ["a@x.com", "b@x.com", "c@x.com", "d@x.com"],
+    "the addresses suppressed on a day with zero deliveries were not identified");
+  assert.ok(!names.includes("dead@x.com"),
+    "a bounce from a day when mail actually went out was offered for restoration — that would resurrect a real hard bounce and burn the sending reputation");
+  assert.equal(r.keptCount, 1, "the untouched suppressions must be counted, or 'we found four' reads as 'there were only four'");
+  assert.equal(r.daysWithSends, 1);
+  assert.match(r.impossible[0].why, /A bounce requires a delivery/, "the reasoning must be checkable by a person, not asserted");
+
+  // NOTHING TO DO IS ITS OWN ANSWER, and must not read as "nothing was examined".
+  const CLEAN = `${BRAND}_clean`;
+  await recordEvent({ brandId: CLEAN, email: "ok@x.com", type: "sent", at: on(2) });
+  await recordEvent({ brandId: CLEAN, email: "dead@x.com", type: "bounce", at: on(2) });
+  const c = await findImpossibleBounces(CLEAN);
+  assert.equal(c.impossible.length, 0);
+  assert.match(c.verdict, /Nothing to restore/);
+
+  const EMPTY = `${BRAND}_empty`;
+  const e = await findImpossibleBounces(EMPTY);
+  assert.equal(e.daysExamined, 0);
+  assert.match(e.verdict, /not the same as nothing being wrong/,
+    "an empty ledger must not be reported as a clean bill of health");
+});
+
+test("restoring re-proves every address instead of trusting the request", async () => {
+  const { recordEvent } = await import("../src/backend/email-events.ts");
+  const { restoreSuppressions } = await import("../src/backend/suppression-repair.ts");
+  const BRAND = `test_restore_${Date.now()}`;
+  const on = (d) => `2026-09-0${d}T09:00:00.000Z`;
+
+  await recordEvent({ brandId: BRAND, email: "wrongly@x.com", type: "bounce", at: on(1) });
+  await recordEvent({ brandId: BRAND, email: "ok@x.com", type: "sent", at: on(2) });
+  await recordEvent({ brandId: BRAND, email: "genuinely@x.com", type: "bounce", at: on(2) });
+
+  // THE ATTACK THIS BLOCKS. A caller can ask for anything, including a real hard
+  // bounce. An endpoint that un-suppresses whatever it is handed is a way to
+  // wreck a sending domain on purpose, so the proof is recomputed here rather
+  // than trusted from the request.
+  const res = await restoreSuppressions(BRAND, ["wrongly@x.com", "genuinely@x.com", "never-heard-of@x.com"]);
+  assert.deepEqual(res.restored, ["wrongly@x.com"], "only the provably wrongful address may come back");
+  assert.deepEqual(res.skipped.sort(), ["genuinely@x.com", "never-heard-of@x.com"],
+    "a genuine bounce, or an address with no evidence at all, was restored on request");
+  assert.match(res.note, /NOT deleted/, "the bounce events must be kept — rewriting history to improve a statistic is the habit this platform argues against");
+
+  const none = await restoreSuppressions(BRAND, []);
+  assert.deepEqual(none.restored, []);
+  assert.match(none.note, /No addresses were supplied/);
+});
+
+test("the repair endpoint is gated, and never restores in bulk without naming addresses", () => {
+  const code = codeOf(readFileSync("src/app/api/email/suppression-repair/route.ts", "utf8"));
+  assert.match(code, /platform_admin/, "changing who the platform may contact must be authorised");
+  assert.match(code, /cronAuthorised/, "the scheduler must be able to run it too");
+  assert.match(code, /status: 403/);
+  // NO BULK UNDO. "Restore everything" would resurrect genuine hard bounces.
+  assert.match(code, /Nothing is restored in bulk without naming it/, "a bodyless POST must not restore everything");
+  assert.match(code, /audit\.record\(/, "a platform that silently un-deletes customer data is as untrustworthy as one that silently deletes it");
+  // The audit entry must not become a second copy of the list.
+  const auditBlock = code.slice(code.indexOf("audit.record("), code.indexOf("nowISO", code.indexOf("audit.record(")));
+  assert.doesNotMatch(auditBlock, /result\.restored\b(?!\.length)/, "the addresses themselves leaked into the audit log");
+});
