@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one
 subscription, priced in credits, deployed at marketwaros.com. Live-tested on
 **AxionOS** (evandeli.com, UK trades) and **VeryX** (veryxjnn.com). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 237
-backend modules, 178 API routes, 68 dashboard pages, **1,793 tests** including one
+backend modules, 178 API routes, 68 dashboard pages, **1,794 tests** including one
 end-to-end run of the growth loop.
 
 **`overrides.jose` IS LOAD-BEARING** — without it a CommonJS dependency require()s an ESM package and every route importing firebase-admin dies at module load. Read §5.0 before touching it or `engines`; the Node 22 pin remains but is no longer the only defence.
@@ -17,9 +17,8 @@ end-to-end run of the growth loop.
 **Both branches are IDENTICAL, on Next 15 / React 19** (landed 08-28). Mirror file-by-file, never by merge, verified on main's own `npm ci`.
 
 **LIVE AND CONFIRMED BY THE OWNER ON 2026-09-06: `build.commit` = `94e4749`, `/diagnose` all green.**
-That is the whole sending-path repair — brand identity, the downloadable audit report, the reputation
-governor — plus the CI gate fix, actually serving. CI is green on both branches for the first time
-since the browserslist advisory. Owner testing the sending path 09-07.
+The whole sending-path repair plus the CI gate fix, actually serving; CI green on both branches for the
+first time since the browserslist advisory. Owner testing the sending path 09-07.
 
 ## 2. The one number that matters
 
@@ -104,27 +103,34 @@ verified is not a mailbox; only the relay's answer is evidence. **Set `SMTP_USER
 `info@marketwaros.com`, `SMTP_PASS` = that mailbox's own password** — login, envelope and From are
 then all `info@`, the strongest arrangement `sender-identity.ts` supports.
 
-**4. CLOSED, AND THE INSTRUCTION IN IT IS PERMANENT — THE CI GATE HAD A HOLE THAT OPENED BY ITSELF (09-06).** Two HIGH advisories were published
-against `browserslist` — transitive, via autoprefixer — so every run went red on the dependency
-audit; and because steps stop at the first failure, the **secret scan and .env check were SKIPPED on
-every push**, the two controls guarding the one mistake a revert cannot undo. `if: always()` on both,
-override pinned, audit still a gate. **`npm run verify` does NOT run `npm audit` — a green local gate
-is not a green CI. Read the run.**
+**4. CLOSED, AND ITS INSTRUCTION IS PERMANENT — THE CI GATE HAD A HOLE THAT OPENED BY ITSELF (09-06).**
+Two HIGH advisories against `browserslist` (transitive, via autoprefixer) turned every run red on the
+dependency audit; and because steps stop at the first failure, the **secret scan and .env check were
+SKIPPED on every push** — the two controls guarding the one mistake a revert cannot undo. `if:
+always()` on both, override pinned, audit still a gate. **`npm run verify` does NOT run `npm audit`;
+a green local gate is not a green CI. Read the run.**
 
 **5. CLOSED — TWO DEFECTS FOUND BY DRIVING THE ROUTES, NOT READING THEM (09-06).**
 `/api/email/suppression-repair` answered **200 to an anonymous GET**: `requireAuth` returns
-`{ ok: true, enforced: false }` when Admin is unconfigured, and returns ABOVE the scope check, so
+`{ ok: true, enforced: false }` when Admin is unconfigured and returns ABOVE the scope check, so
 `platform_admin` was never applied — twenty-one call sites read `ok` alone. Bounded honestly: no Admin
 also means no Firestore, so the ledger it would have served is empty and production was gated. It now
-needs `ok && enforced` and refuses 503 otherwise, like `/api/email-events`; the hazard is documented
-on `requireAuth`. And **the "you have used your free audits" button pointed at `/pricing`, which does
-not exist** — the page is `/choose-plan` and every other link said so. A 404 at the moment somebody is
-most likely to pay. A test now walks `src/app` for the routes Next actually serves and fails on any
-hard-coded internal link that goes nowhere.
+needs `ok && enforced` and refuses 503, like `/api/email-events`; the hazard is documented on
+`requireAuth`. And **the "used your free audits" button pointed at `/pricing`, which does not exist** —
+the page is `/choose-plan`. A 404 at the moment somebody is most likely to pay. A test now walks
+`src/app` for the routes Next serves and fails on any dead hard-coded internal link.
+
+**6. LONGER VIDEO IS ONE SETTING, NOT A REWRITE (09-06).** No model makes 15s in one call (Veo caps at
+8, Sora does 4/8/12), so long video is short clips joined into one file — what every tool doing this
+actually does, and already built here: `segmentPlan` (15s = 8+7), exact-length per-engine pricing,
+all-clips-or-none starting, and the join. **It needs `FFMPEG_CLOUD_API_KEY`**; without it 12s and 15s
+are WITHHELD rather than sold as 8s, and the panel prints why. The self-hosted worker has no concat
+recipe. Fixed while there: four of the five ways a started multi-clip render could fail took the ACUs
+and gave nothing back — `failRefunded` is now the only way it may fail.
 
 **2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: (a) the wrong `whsec_` of that account's SEVEN endpoints; (b) the URL — `MAIN_DOMAIN` is the APEX, the app serves `www.`. **To close:** `/api/health/stripe`.
 
-**3. NEXT 15 IS LANDED — confirm it in production.** **To close:** one real signup, which was impossible until today.
+**3. NEXT 15 IS LANDED — confirm it in production. To close:** one real signup.
 
 **CLOSED 09-06 — the sending path, one line each; the full account is `REQUIREMENTS-COVERAGE.md`
 §§103–105.** 354 addresses suppressed because OUR password was refused with 535 — stopped, and
@@ -160,10 +166,9 @@ rows, each naming the one absent part; see `GROWTH-ENGINE-COVERAGE.md`. **Surfac
 §77, §92, §95, §97, §98, §100, §102, §103. **Not built:** §80 agent message bus (considered and
 rejected), §14 calendars, §21 carousels.
 
-**Security debt.** 6 moderate, NO high — the uuid → firebase-admin chain; npm's "fix" is a
-four-major downgrade. `overrides` force Next's nested postcss and sharp up, pin `jose` (§5.0) and,
-since 09-06, `browserslist ^4.28.7`: two HIGH advisories were published against `<=4.28.6`, which
-arrives transitively through autoprefixer, so there was no direct dependency to bump.
+**Security debt.** 6 moderate, NO high — the uuid → firebase-admin chain; npm's "fix" is a four-major
+downgrade. `overrides` force Next's nested postcss and sharp up, pin `jose` (§5.0) and, since 09-06,
+`browserslist ^4.28.7` — two HIGH advisories against `<=4.28.6`, transitive via autoprefixer.
 
 ## 6. The defect class that keeps recurring
 

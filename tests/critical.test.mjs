@@ -3571,8 +3571,16 @@ test("the joined file is measured, and a short one is refunded not handed over",
   // And the gateway acts on it: refund, keep the clips, do not hand it over.
   const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
   assert.match(src, /!durationMatches\(measured, ordered\)/);
-  assert.match(src, /if \(job\.chargedAcu\) await creditAcus\(walletId, job\.chargedAcu\)/,
+  // The refund used to be written out here. It now goes through `failRefunded`,
+  // which is the ONLY way a started multi-clip render may fail — because four
+  // sibling paths beside this one were ending in `status: "failed"` with the
+  // customer's money still taken. Asserted on the behaviour, not the old shape:
+  // what matters is that this ending refunds, wherever the credit is written.
+  const mismatch = src.slice(src.indexOf("!durationMatches(measured, ordered)"));
+  assert.match(mismatch.slice(0, 400), /return await failRefunded\(job,/,
     "a video that is not the length ordered must be refunded, not delivered");
+  assert.match(src, /await creditAcus\(walletId, job\.chargedAcu\)/,
+    "the refund itself must still exist somewhere on this path");
 
   // THE JOIN SERVICE'S URL EXPIRES IN TEN MINUTES. Handing it over would be the
   // owner's original report — "a firebase link then all GONE" — with a shorter
@@ -3710,6 +3718,58 @@ test("a paid render is filed in the library, and a multi-clip job needs every cl
   // Ready ONLY when every clip has a hosted URL.
   assert.match(src, /const done = segs\.every\(\(x\) => Boolean\(x\.url\)\)/);
   assert.match(src, /if \(!done\)/, "a partial set of clips must stay 'rendering'");
+});
+
+// ---------------------------------------------------------------------------
+// CHARGED FOR A VIDEO NOBODY RECEIVED.
+//
+// `startVideoRender` refunds the lot when a segment will not START, and its
+// comment says exactly why: "partial delivery of something sold as one video is
+// not a lesser success, it is a failure with the customer's money still in our
+// account."
+//
+// Everything AFTER the clips start had five ways to end in `status: "failed"`,
+// and only one of them — the newest, the joined-file-is-the-wrong-length check —
+// refunded. So a fifteen-second render could take the ACUs, produce two clips it
+// could not join, and keep the money.
+//
+// The defect class this repository names first: a rule that exists on one side
+// of a boundary and is never carried across. `failRefunded` is now the only way
+// a started multi-clip render is allowed to fail.
+// ---------------------------------------------------------------------------
+test("a multi-clip render that is not handed over gives the money back", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/video-gateway.ts", import.meta.url), "utf8");
+
+  // The helper exists and does BOTH halves. Crediting without zeroing lets a
+  // second poll of the same job refund twice, which mints ACUs.
+  const helper = src.slice(src.indexOf("async function failRefunded"), src.indexOf("/** The sentence appended"));
+  assert.ok(helper, "failRefunded is gone");
+  assert.match(helper, /await creditAcus\(walletId, job\.chargedAcu\)/, "the money must actually go back");
+  assert.match(helper, /job\.chargedAcu = 0/, "a second poll must not be able to refund the same render twice");
+  assert.match(helper, /job\.status = "failed"/);
+
+  // And EVERY failure inside the segmented poll goes through it. A bare
+  // `status = "failed"` in there is a charge with nothing delivered.
+  const poll = src.slice(src.indexOf("async function pollSegments"), src.indexOf("export function withheldLengths"));
+  assert.ok(poll.length > 500, "pollSegments is gone");
+  const bare = poll.match(/job\.status = "failed"/g) || [];
+  assert.deepEqual(bare, [],
+    `pollSegments still fails a paid render without refunding it (${bare.length} place(s)) — every exit must be failRefunded`);
+
+  // The five real endings, each still named so the customer knows which happened.
+  for (const [needle, why] of [
+    ["no usable video", "a clip that came back empty"],
+    ["no join service is configured", "no FFMPEG_CLOUD_API_KEY"],
+    ["joining them failed", "the join could not be submitted"],
+    ["the join failed", "the join service reported failure"],
+    ["not the ${ordered}s you ordered", "the joined file was the wrong length"],
+  ]) {
+    assert.ok(poll.includes(needle), `the failure for ${why} no longer says what happened`);
+  }
+  // Every one of them tells the customer the wallet is whole again.
+  assert.equal((poll.match(/\$\{REFUNDED\}/g) || []).length, 5,
+    "each of the five failure sentences must say the ACUs are back — a silent refund is still a mystery charge");
 });
 
 test("the video panel points at where the file was kept", async () => {
