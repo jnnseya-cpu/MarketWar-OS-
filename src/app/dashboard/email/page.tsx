@@ -109,7 +109,9 @@ export default function EmailPage() {
   const [replyCheck, setReplyCheck] = useState<{ reachable: "yes" | "no" | "unknown"; intoInbox: boolean; note: string; brandReplyAddress?: string } | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
   const [templateId, setTemplateId] = useState(""); // when set, send this saved template (personalised per contact)
-  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; openRate: number; clickRate: number; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number }; improve?: ImproveReportView } | null>(null);
+  // openRate/clickRate are NULLABLE on purpose: a rate the ledger cannot support
+  // is withheld rather than invented. See backend/email-events.ts.
+  const [stats, setStats] = useState<{ sent: number; open: number; click: number; bounce: number; complaint: number; unsubscribe: number; sentUnique?: number; openRate: number | null; clickRate: number | null; ratesNote?: string; suppressed: number; warmup?: { day: number; dailyCap: number; sentToday: number; remaining: number }; improve?: ImproveReportView } | null>(null);
   // The preview's verdict, so the Send buttons and the preview cannot disagree
   // about whether this campaign is safe to send.
   const [previewBlockers, setPreviewBlockers] = useState(0);
@@ -509,7 +511,7 @@ export default function EmailPage() {
               the customer about their own result. */}
           <StatCard
             label="Open rate (floor)"
-            value={`${stats.improve ? stats.improve.reach.openFloorPct : stats.openRate}%`}
+            value={stats.improve ? `${stats.improve.reach.openFloorPct}%` : stats.openRate === null ? "—" : `${stats.openRate}%`}
             tone={GRADE_TONE[stats.improve?.openGrade ?? "unknown"]}
             sub={stats.improve
               ? `${stats.improve.reach.knownOpeners.toLocaleString()} known to have opened${stats.improve.reach.silentOpeners ? ` (${stats.improve.reach.silentOpeners.toLocaleString()} clicked without loading images)` : ""}`
@@ -517,7 +519,7 @@ export default function EmailPage() {
           />
           <StatCard
             label="Click rate"
-            value={`${stats.clickRate}%`}
+            value={stats.clickRate === null ? "—" : `${stats.clickRate}%`}
             tone={GRADE_TONE[stats.improve?.clickGrade ?? "unknown"]}
             sub={`${stats.click.toLocaleString()} clicked${stats.improve?.reach.clickToOpenPct ? ` · ${stats.improve.reach.clickToOpenPct}% of openers` : ""}`}
           />
