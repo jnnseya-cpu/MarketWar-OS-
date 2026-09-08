@@ -14,6 +14,7 @@ import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
+import { type GroupSummary } from "@/shared/contact-groups";
 
 type Row = {
   id: string; name: string; segment: string; segmentLabel: string; spendGbp: number;
@@ -154,6 +155,10 @@ export default function CustomerVaultPage() {
   const [report, setReport] = useState<VaultReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  // The list these rows belong to. Blank = ungrouped, which is a real, selectable
+  // bucket on the send screen rather than a hole.
+  const [importGroup, setImportGroup] = useState("");
+  const [vaultGroups, setVaultGroups] = useState<GroupSummary[]>([]);
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
@@ -177,6 +182,12 @@ export default function CustomerVaultPage() {
   const load = useCallback(async (brandId: string, business: string) => {
     setBusy(true);
     try {
+      // The brand's named lists, with counts — shown beside the import so the
+      // person can see what already exists before inventing a near-duplicate.
+      void authedFetch("/api/contacts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "groups", brandId }),
+      }).then((r) => r.json()).then((d) => setVaultGroups(Array.isArray(d.groups) ? d.groups : [])).catch(() => setVaultGroups([]));
       const res = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(brandId)}&business=${encodeURIComponent(business)}`);
       const server = res.ok ? (await res.json()) as VaultReport : null;
       if (server && server.contactCount > 0) { setReport(server); writeCache(brandId, server); return; }
@@ -200,6 +211,13 @@ export default function CustomerVaultPage() {
   // vault each time, so the LAST response holds the complete, scored vault.
   const CHUNK = 2000;
 
+  // NAME THE LIST AS IT ARRIVES.
+  //
+  // This is how lists actually get built: "import this CSV into Newsletter",
+  // not "import 900 rows and then file them one at a time". A vault screen with
+  // no per-contact table has nowhere to hang a bulk assign, and naming at the
+  // door means every row lands where it belongs the first time. Left blank, the
+  // rows are ungrouped — which is itself a selectable bucket on the send screen.
   async function importContacts(contacts: ParsedContact[]) {
     if (!activeBrand) { setMsg({ text: "No active brand — pick or add a brand first.", error: true }); return; }
     if (!contacts.length) { setMsg({ text: "No valid rows found — need at least an email, phone, name or company column.", error: true }); return; }
@@ -214,7 +232,12 @@ export default function CustomerVaultPage() {
         const res = await authedFetch("/api/contacts", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-now": new Date().toISOString() },
-          body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, contacts: batches[b] }),
+          body: JSON.stringify({
+            brandId: activeBrand.id, business: activeBrand.name,
+            contacts: importGroup.trim()
+              ? batches[b].map((c) => ({ ...c, groups: [importGroup.trim()] }))
+              : batches[b],
+          }),
         });
         // Defensive parse: an auth redirect / 500 / proxy page may not be JSON.
         const raw = await res.text();
@@ -364,6 +387,46 @@ export default function CustomerVaultPage() {
 
       {activeBrand && (
         <>
+          {/* NAME THE LIST THESE ROWS BELONG TO.
+              Sits above the import controls because it applies to whatever comes
+              next — a file or a paste — and because naming at the door is the
+              only bulk assignment a vault with no contact table can offer. */}
+          <div className="mb-6 card border-white/10 p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Users className="h-4 w-4 text-emerald-400" />
+              <h2 className="font-display text-sm font-bold text-white">Which list are these going into?</h2>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-slate-400">
+              Name it and every row below lands in that list, so a campaign can go to just those people
+              instead of the whole vault. Leave it blank and they arrive <span className="text-slate-300">ungrouped</span> —
+              which is still selectable when you send, and is where newsletter signups and audit leads land.
+            </p>
+            <input
+              value={importGroup} onChange={(e) => setImportGroup(e.target.value)} maxLength={48}
+              placeholder="e.g. Newsletter, Past customers, Trade show — or leave blank"
+              className="input w-full max-w-md"
+            />
+            {vaultGroups.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Lists already in this vault</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {vaultGroups.map((g) => (
+                    <button
+                      key={g.name} type="button"
+                      onClick={() => !g.isUngrouped && setImportGroup(g.name)}
+                      disabled={g.isUngrouped}
+                      title={g.isUngrouped ? "Contacts nobody has filed yet" : `Add to “${g.name}”`}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] ${g.isUngrouped ? "border-white/5 text-slate-500" : "border-white/10 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300"}`}
+                    >
+                      {g.isUngrouped ? "Not in any list" : g.name}
+                      <span className="ml-1.5 font-mono text-slate-500">{g.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Import panel */}
           <div className="mb-6 card border-emerald-500/25 p-5">
             <div className="mb-3 flex items-center gap-2">
