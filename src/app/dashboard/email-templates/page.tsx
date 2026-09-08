@@ -12,6 +12,7 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import { MERGE_VARS, mergeTokens, tokenWarnings } from "@/shared/merge-tokens";
+import { WRITER_LANGUAGES } from "@/shared/writer-language";
 import EmailPreview from "@/components/EmailPreview";
 import CopyOut from "@/components/CopyOut";
 
@@ -95,6 +96,13 @@ export default function EmailTemplatesPage() {
   const [design, setDesign] = useState<Design>({ ...DESIGN_DEFAULT });
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [purpose, setPurpose] = useState<string>(PURPOSES[0].id);
+  // THE LANGUAGE THE EMAIL IS WRITTEN IN — a choice, because it was never one.
+  // Both writers hard-coded British English and took their only language signal
+  // from the browser header, so a brand selling to francophone customers got an
+  // English email however francophone its list. "" means "use the brand's own
+  // market language", which is where the answer belongs for a brand that always
+  // writes in one language.
+  const [aiLang, setAiLang] = useState<string>("");
   const [aiNotes, setAiNotes] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [ai, setAi] = useState<AiReport | null>(null);
@@ -232,6 +240,7 @@ export default function EmailTemplatesPage() {
           offer: activeBrand.offer,
           website: activeBrand.website,
           purpose,
+          lang: aiLang || undefined,
           notes: aiNotes.trim() || undefined,
         }),
       });
@@ -345,6 +354,12 @@ export default function EmailTemplatesPage() {
                   <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-violet-200"><Cpu className="h-3.5 w-3.5" /> Write this email with AI</span>
                   <select className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
                     {PURPOSES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-[150px]">
+                  <span className="mb-1 block text-xs font-semibold text-slate-400">Language</span>
+                  <select className="input" value={aiLang} onChange={(e) => setAiLang(e.target.value)}>
+                    {WRITER_LANGUAGES.map((l) => <option key={l.code || "brand"} value={l.code}>{l.code ? l.label : "Brand default"}</option>)}
                   </select>
                 </label>
                 <label className="min-w-[220px] flex-[2]">
