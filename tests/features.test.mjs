@@ -25779,6 +25779,59 @@ test("the site is shareable: Open Graph and a Twitter card, on one origin", asyn
 // ---------------------------------------------------------------------------
 const cg = await import("../src/shared/contact-groups.ts");
 
+// ---------------------------------------------------------------------------
+// CAMPAIGNS DID NOT FAIL OVER. SINGLE SENDS DID.
+//
+// Reported as "the email works from my side but not in the OS". The platform
+// advertises a multi-provider pool with automatic failover, and it had one:
+// `sendEmail` tries SMTP, and on any failure falls through to Resend then
+// SendGrid. Proven by driving it — a dead SMTP port with a Resend key set came
+// back `provider: resend, ok: true`.
+//
+// The BATCH path — which every campaign uses — did not. `smtpSendMany` returns a
+// per-recipient failure even when the session never opened, `sendEmailBatchInner`
+// recorded each one as an attempt, and the fall-through loop skips anything with
+// a recorded result. So a refused LOGIN marked all 250 recipients
+// attempted-and-failed and the HTTP provider was never reached. Measured before
+// the fix: the batch made ZERO calls to api.resend.com.
+//
+// The distinction that fixes it without creating a double-send: did any message
+// reach the wire? Before the first MAIL FROM, nothing was delivered to anybody.
+// ---------------------------------------------------------------------------
+test("a batch that never reached the wire is retried on the HTTP provider", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+
+  // The flag exists, is set only once a message is actually on the wire, and is
+  // what `abort` reads.
+  assert.match(src, /let anyMessageStarted = false;/);
+  const startNext = src.slice(src.indexOf("const startNext = () =>"), src.indexOf("const failCurrent"));
+  assert.match(startNext, /anyMessageStarted = true;[\s\S]{0,80}write\(`MAIL FROM/,
+    "the flag must be set as the first message goes on the wire, not before");
+  assert.match(src, /const retryable = !anyMessageStarted;/,
+    "a pre-delivery failure is the only kind safe to retry elsewhere");
+
+  // And the batch must LEAVE those absent so the one-at-a-time loop — which
+  // does fail over — picks them up.
+  assert.match(src, /if \(!r\.ok && r\.retryable\) continue;/);
+  assert.equal((src.match(/if \(!r\.ok && r\.retryable\) continue;/g) || []).length, 2,
+    "both the result map AND the attempt ledger must skip it — a ledger row for a message that was never sent is a false record");
+});
+
+test("a session that died MID-MESSAGE is never retried", async () => {
+  // The safety half. Once DATA is in flight the server may have accepted the
+  // message just before the socket died, so retrying mails that person twice.
+  // Proven against a real SMTP server that authenticates and then drops the
+  // connection during DATA: zero calls to the HTTP provider.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  const abort = src.slice(src.indexOf("const abort = (err: Error) =>"), src.indexOf("const write = (line: string)"));
+  assert.match(abort, /\.\.\.\(retryable \? \{ retryable: true \} : \{\}\)/,
+    "the flag must be attached only when it is true — an unconditional flag would retry a mid-flight death");
+  // The type documents it as opt-in, so a caller that forgets it does not retry.
+  assert.match(src, /Absent or false means "do not retry this elsewhere"/);
+});
+
 test("the email health endpoint says when the build was made", async () => {
   // "I set the variable and it still does not work" has one common cause and no
   // way to check it: Vercel applies an environment change only to deployments

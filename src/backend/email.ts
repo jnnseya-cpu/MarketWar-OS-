@@ -351,7 +351,22 @@ function buildWireMessage(from: string, to: string, subject: string, html: strin
 const SESSION_IDLE_MS = 20_000;
 
 export type SmtpBatchItem = { to: string; subject: string; html: string; extra?: SmtpExtra };
-export type SmtpBatchResult = { to: string; ok: boolean; id?: string; error?: string };
+export type SmtpBatchResult = {
+  to: string; ok: boolean; id?: string; error?: string;
+  /**
+   * TRUE when this address was never put on the wire at all, so it is safe to
+   * retry through another provider.
+   *
+   * A failure BEFORE the first `MAIL FROM` — the connection refused, TLS
+   * rejected, the password refused — delivered nothing to anybody, and every
+   * recipient in the batch is untouched. A failure once a message is in flight
+   * is a different thing entirely: the server may have accepted it just before
+   * the socket died, and retrying would mail that person twice.
+   *
+   * Absent or false means "do not retry this elsewhere".
+   */
+  retryable?: boolean;
+};
 
 /**
  * Send MANY messages over ONE authenticated SMTP session.
@@ -392,6 +407,10 @@ export async function smtpSendMany(
     let settled = false;
     let i = 0;                       // index of the message in flight
     let message = "";                // its wire bytes
+    // Has ANY message been put on the wire yet? Until the first MAIL FROM, a
+    // failure is a session failure: nothing was delivered, so every recipient
+    // can safely be retried on another provider. See SmtpBatchResult.retryable.
+    let anyMessageStarted = false;
     const results: SmtpBatchResult[] = [];
 
     // Always RESOLVE, never reject: a half-finished batch still has to tell the
@@ -404,8 +423,17 @@ export async function smtpSendMany(
     };
     const abort = (err: Error) => {
       // Whatever was in flight never completed; everything after it is untried.
+      //
+      // AND SAY WHICH KIND OF FAILURE THIS WAS. If not one message ever reached
+      // the wire — the connection refused, TLS rejected, the password refused —
+      // then nothing was delivered to anybody and every one of these addresses
+      // can safely be tried on another provider. Without that distinction a
+      // refused LOGIN marked the whole campaign as attempted-and-failed, so the
+      // HTTP provider was never reached and a customer with a working Resend key
+      // still sent nothing. Single sends failed over; campaigns did not.
+      const retryable = !anyMessageStarted;
       for (let k = results.length; k < items.length; k++) {
-        results.push({ to: items[k].to, ok: false, error: err.message });
+        results.push({ to: items[k].to, ok: false, error: err.message, ...(retryable ? { retryable: true } : {}) });
       }
       done();
     };
@@ -426,6 +454,7 @@ export async function smtpSendMany(
       const identity = resolveSender({ from, authUser: SMTP_USER, bounce: item.extra?.bounceReturnPath });
       message = buildWireMessage(from, item.to, item.subject, item.html, { ...item.extra, senderHeader: identity.senderHeader }, SMTP_HOST);
       stage = 6;
+      anyMessageStarted = true;
       write(`MAIL FROM:<${identity.envelopeFrom}>`);
     };
 
@@ -919,6 +948,10 @@ async function sendEmailBatchInner(
       // afterwards instead of being a single number nobody can act on.
       const subjectOf = new Map(prepared.map((p) => [p.to, p.subject]));
       for (const r of batchResults) {
+        // A session that never opened attempted nothing; recording it as an
+        // attempt would put a failure in the ledger for a message that was
+        // never sent, and the one-at-a-time retry records the real outcome.
+        if (!r.ok && r.retryable) continue;
         void recordAttempt({
           to: r.to, subject: subjectOf.get(r.to) || "", providerId: r.ok ? String(r.id ?? "") : "",
           node: node.label, ok: r.ok, failure: r.ok ? "" : "provider", detail: r.ok ? "" : String(r.error ?? ""),
@@ -928,6 +961,10 @@ async function sendEmailBatchInner(
       const provider = getPool().length > 1 ? `smtp:${node.label}` : "smtp";
       lastBatchMode = "session";
       for (const r of batchResults) {
+        // NOTHING WENT ON THE WIRE FOR THIS ONE — leave it ABSENT so the
+        // one-at-a-time loop below picks it up and the HTTP provider gets its
+        // turn. Recording it here is what stopped campaigns failing over.
+        if (!r.ok && r.retryable) continue;
         results.set(r.to, {
           ok: r.ok, mode: "live", provider, id: r.id ?? null, filteredOut: [],
           // THE CATEGORY, CARRIED. It was computed two lines above for
