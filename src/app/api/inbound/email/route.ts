@@ -61,7 +61,12 @@ export async function POST(req: NextRequest) {
     verp?.brandId
     || brandFromReplyAddress(to)
     || (await brandForDomain(toDomain))
-    || (await brandForDomain(toDomain.replace(/^[a-z0-9]*bounce\./i, "")));
+    // HYPHENS TOO. The bounce host is `<selector>bounce.<domain>` and the DKIM
+    // selector is now brand-scoped — `mwos-koda`, so `mwos-kodabounce.…` — which
+    // the old `[a-z0-9]*` class could not match. A bounce arriving on a
+    // multi-brand domain would then have failed to resolve its brand and been
+    // dropped, which is the silent half of a delivery problem.
+    || (await brandForDomain(toDomain.replace(/^[a-z0-9-]*bounce\./i, "")));
 
   // ONLY A REAL DELIVERY FAILURE MAY SUPPRESS AN ADDRESS. This used to treat
   // an out-of-office as a bounce and then scrape the first address out of the

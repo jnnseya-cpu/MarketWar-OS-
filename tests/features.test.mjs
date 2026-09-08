@@ -25816,6 +25816,76 @@ const cg = await import("../src/shared/contact-groups.ts");
 // It cannot be fixed by sharing a key either: the selector is fixed, so two
 // brands would both need mwos._domainkey.<domain>, which holds one value.
 // ---------------------------------------------------------------------------
+test("every brand can authenticate the SAME domain, each with its own key", async () => {
+  // THE OBSTRUCTION, AND IT WAS ONE CONSTANT. `SELECTOR` was a fixed "mwos" for
+  // every record, so two brands on one domain would both need their key at
+  // `mwos._domainkey.<domain>` — and DNS holds exactly one value there. The
+  // second brand could never validate, which is why a company with several
+  // brands on one domain could authenticate only the first.
+  //
+  // DNS has no such limit: a domain carries as many selectors as you like. This
+  // is how every multi-tenant sender does it.
+  const sd = await import("../src/backend/sending-domains.ts");
+  const A = `axion_${Date.now()}`, K = `koda_${Date.now()}`;
+  await sd.addDomain(A, "shared.example", "owner-1");
+  await sd.addDomain(K, "shared.example", "owner-1");
+
+  const recA = await sd.getDomain(A, "shared.example");
+  const recK = await sd.getDomain(K, "shared.example");
+  assert.ok(recA && recK, "both brands must get a record for the same domain");
+
+  const dkim = (r) => sd.recordsFor(r).find((x) => x.purpose === "DKIM").host;
+  const bounce = (r) => sd.recordsFor(r).find((x) => x.purpose.startsWith("Return-Path")).host;
+
+  assert.notEqual(dkim(recA), dkim(recK), "two brands must not fight over one DKIM host");
+  assert.notEqual(bounce(recA), bounce(recK), "…or over one bounce CNAME");
+  assert.notEqual(recA.privateKeyPem, recK.privateKeyPem, "each brand signs with its OWN key");
+  assert.match(dkim(recK), /^mwos-koda[a-z0-9-]*\._domainkey\.shared\.example$/);
+
+  // A PENDING domain signs for nobody — publishing the record is what proves
+  // control of it, and signing before that would claim a domain we have no
+  // evidence the customer owns.
+  assert.equal(await sd.signingFor(A, "shared.example"), null, "an unverified domain must not sign");
+
+  // Once verified, EACH brand signs for the same domain with its own key —
+  // the thing the fixed selector made impossible.
+  recA.status = "verified"; recK.status = "verified";
+  const signA = await sd.signingFor(A, "shared.example");
+  const signK = await sd.signingFor(K, "shared.example");
+  assert.ok(signA && signK, "both brands must be able to sign for the shared domain");
+  assert.notEqual(signA.selector, signK.selector, "each signs under its own selector");
+  assert.notEqual(signA.privateKeyPem, signK.privateKeyPem, "with its own key");
+});
+
+test("an existing domain keeps the selector its DNS was published for", async () => {
+  // The additive half. A domain verified before this change has `mwos` in its
+  // record and that exact host published at the registrar. Every reader takes
+  // the selector FROM the record, so changing how new ones are generated must
+  // not move an existing one's DNS out from under it.
+  const sd = await import("../src/backend/sending-domains.ts");
+  const legacy = {
+    domain: "legacy.example", selector: "mwos", publicKey: "AAAA",
+  };
+  const recs = sd.recordsFor(legacy);
+  assert.equal(recs.find((r) => r.purpose === "DKIM").host, "mwos._domainkey.legacy.example",
+    "an old record must keep the host its DNS already carries");
+  assert.equal(recs.find((r) => r.purpose.startsWith("Return-Path")).host, "mwosbounce.legacy.example");
+  assert.equal(sd.selectorFor(""), "mwos", "and the bare fallback stays what it always was");
+});
+
+test("a bounce on a hyphenated selector still resolves its brand", async () => {
+  // The bounce host is `<selector>bounce.<domain>`, and a brand-scoped selector
+  // contains a hyphen. The inbound route strips that prefix to find the brand,
+  // and its old `[a-z0-9]*` class could not match one — so a bounce arriving on
+  // a multi-brand domain would have been dropped, which is the silent half of a
+  // delivery problem.
+  const { readFileSync } = await import("node:fs");
+  const inbound = readFileSync(new URL("../src/app/api/inbound/email/route.ts", import.meta.url), "utf8");
+  assert.match(inbound, /\^\[a-z0-9-\]\*bounce\\\./,
+    "the bounce-host stripper must accept the hyphen a brand-scoped selector introduces");
+  assert.equal("mwos-kodabounce.shared.example".replace(/^[a-z0-9-]*bounce\./i, ""), "shared.example");
+});
+
 test("a domain verified under one brand is never offered to another", async () => {
   const sd = await import("../src/backend/sending-domains.ts");
   const { emailIdentityDefaults, fromAddressWarning } = await import("../src/shared/email-identity.ts");
