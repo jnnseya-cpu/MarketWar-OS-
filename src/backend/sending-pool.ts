@@ -116,13 +116,43 @@ export function pickNode(domain: string, day: string): SendingNode | null {
   const pool = getPool();
   if (pool.length === 0) return null;
   if (pool.length === 1) return pool[0];
-  const base = fnv(domain || "default") % pool.length;
-  for (let i = 0; i < pool.length; i++) {
-    const node = pool[(base + i) % pool.length];
+
+  // A NODE THAT CAN AUTHENTICATE AS THIS DOMAIN WINS, ALWAYS.
+  //
+  // The hash below spreads load across warmed IPs, which is a reputation
+  // concern. It is NOT a routing rule, and using it alone meant a message From
+  // koda@kodajnn.com could be submitted by an account on another domain — so the
+  // envelope sender is that other domain, SPF authenticates that other domain,
+  // and under `aspf=s` the SPF half of DMARC cannot align no matter how correct
+  // the DNS is. The whole pass then rests on the DKIM signature surviving every
+  // relay in between, which is not a thing to rely on.
+  //
+  // Adding a node whose account is ON the sending domain now fixes alignment
+  // with no code change — which is how this module was meant to work.
+  const want = domainOf(domain);
+  const matching = want ? pool.filter((n) => domainOf(n.user) === want) : [];
+  const lane = matching.length ? matching : pool;
+
+  const base = fnv(domain || "default") % lane.length;
+  for (let i = 0; i < lane.length; i++) {
+    const node = lane[(base + i) % lane.length];
     if (nodeCount(node.label, day) < NODE_DAILY_CAP) return node;
   }
-  return pool[base]; // all full → best effort (per-brand warm-up already caps volume)
+  return lane[base]; // all full → best effort (per-brand warm-up already caps volume)
 }
+
+/**
+ * The domain part of an address, or of a bare domain. Lower-cased, `www.` stripped.
+ *
+ * Exported so a test can assert the normalisation directly. Asserting it only
+ * through `pickNode` was too weak: with a small pool the hash fallback can land
+ * on the right node anyway, so removing the normalisation stayed green.
+ */
+export const domainOf = (v: string): string => {
+  const t = String(v ?? "").trim().toLowerCase();
+  const at = t.lastIndexOf("@");
+  return (at >= 0 ? t.slice(at + 1) : t).replace(/^www\./, "");
+};
 
 // Diagnostics for the health surface (never exposes credentials).
 export function poolInfo(day: string): { size: number; nodeCap: number; nodes: { label: string; host: string; ip?: string; sentToday: number }[] } {

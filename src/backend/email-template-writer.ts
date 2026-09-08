@@ -293,7 +293,22 @@ export async function writeEmailTemplate(
 
   let raw = "";
   let provider: string | undefined;
-  try {
+  let truncated = false;
+  // ONE RETRY, AND ONLY FOR A REPLY THE PROVIDER ITSELF SAID WAS CUT OFF.
+  //
+  // The gateway has always returned `truncated`, read straight from the
+  // provider's own stop reason — and this writer never looked at it. So a reply
+  // cut off by the token budget surfaced as "the model did not return usable
+  // JSON", and the only remedy offered was to press the button again, which
+  // reproduces it exactly. Reported twice from the live platform, the second
+  // time AFTER the ceiling had been raised — which is what proved the ceiling
+  // was never the whole answer. The value existed on one side of the boundary
+  // and was never carried across: this codebase's first recurring class, in the
+  // module that writes the customer's copy.
+  //
+  // The second attempt raises the budget AND asks for a shorter body, because
+  // doubling a budget the model will simply refill is not a fix.
+  const attempt = async (budget: number, shorter: boolean) => {
     const res = await complete({
       // The brand's stored identity, when it has one. This is what makes the
       // Launch Kit infrastructure rather than a document dump: the tone, the
@@ -303,15 +318,26 @@ export async function writeEmailTemplate(
       system: brief.identityBrief?.trim()
         ? `${systemPrompt(purpose, language)}\n\nBRAND IDENTITY — write in this voice and respect it exactly:\n${brief.identityBrief.trim()}`
         : systemPrompt(purpose, language),
-      prompt: briefText(brief, purpose),
-      // 900 was tight for six JSON fields around a 160-word body, and a reply cut
-      // off mid-object fails identically every retry — which is what "try again"
-      // was asking somebody to do.
-      maxTokens: 1600,
+      prompt: shorter
+        ? `${briefText(brief, purpose)}\n\nKEEP THE BODY UNDER 110 WORDS. A previous attempt was cut off before it finished.`
+        : briefText(brief, purpose),
+      // 900 was tight for six JSON fields around a 160-word body. It was raised
+      // to 1600 and the reply was STILL cut off, which is why the retry above
+      // exists rather than another guess at a number.
+      maxTokens: budget,
       lang: language,
     });
     raw = res.text;
     provider = res.provider;
+    truncated = Boolean((res as { truncated?: boolean }).truncated);
+  };
+  try {
+    await attempt(1600, false);
+    // The PROVIDER'S verdict first; the bracket test only covers an adapter that
+    // does not report one.
+    if (truncated || (raw.includes("{") && raw.lastIndexOf("}") <= raw.indexOf("{"))) {
+      await attempt(3200, true);
+    }
   } catch (e) {
     const unconfigured = e instanceof GatewayUnconfiguredError;
     return {
