@@ -25769,6 +25769,44 @@ test("the site is shareable: Open Graph and a Twitter card, on one origin", asyn
     "the app serves www; an apex fallback reintroduces the split this test exists to close");
 });
 
+test("tracking links resolve to the host that actually serves the app", async () => {
+  // THE THIRD SYMPTOM OF ONE ROOT CAUSE. `trackingBase()` fell back to the APEX
+  // while `siteOrigin()` — robots.txt, the sitemap, every JSON-LD block and the
+  // page metadata — says `www`. The same split was already found behind the
+  // Stripe webhook and behind the Open Graph tags.
+  //
+  // It matters most here, because these are not links a person retypes:
+  //   • the open pixel is fetched by a mail client, and several silently drop a
+  //     redirect on an image — so opens never arrive;
+  //   • the unsubscribe link AND the RFC 8058 List-Unsubscribe header point here.
+  //     An unsubscribe that does not resolve is a PECR and Gmail bulk-sender
+  //     compliance failure, and the complaints it produces close a domain.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/email-events.ts", import.meta.url), "utf8");
+  assert.match(src, /process\.env\.MW_TRACK_URL \|\| siteOrigin\(\)/,
+    "the fallback must be siteOrigin(), not a second hard-coded host that can drift from it");
+  assert.ok(!/["']https:\/\/marketwaros\.com["']/.test(src),
+    "an apex literal is back in the tracking base");
+
+  // Driven, not just read: the real builder must emit the real host.
+  const ev = await import("../src/backend/email-events.ts");
+  const had = process.env.MW_TRACK_URL;
+  delete process.env.MW_TRACK_URL;
+  try {
+    const base = ev.trackingBase();
+    assert.match(base, /^https:\/\/www\./, `tracking base is ${base} — the app serves www`);
+    const html = ev.injectTracking('<p><a href="https://example.com/x">go</a></p>', "b", "a@b.com", "c", base);
+    for (const path of ["/api/track/open", "/api/track/click", "/api/track/unsubscribe"]) {
+      assert.ok(html.includes(base + path), `${path} does not point at ${base}`);
+    }
+    // The pixel, the click wrapper and the unsubscribe must all be present at all.
+    assert.match(html, /<img[^>]+width="1"[^>]+height="1"/, "no open pixel");
+    assert.match(html, /unsubscribe/i, "no unsubscribe link");
+  } finally {
+    if (had === undefined) delete process.env.MW_TRACK_URL; else process.env.MW_TRACK_URL = had;
+  }
+});
+
 test("every marketing description obeys the length rule this platform publishes", async () => {
   // WE FAILED OUR OWN PUBLISHED RULE. `audit-copy.ts` tells customers to "write
   // 50-165 characters", the crawler scores them on it, and six of our own
