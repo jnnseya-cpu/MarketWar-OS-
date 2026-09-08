@@ -652,7 +652,14 @@ export async function GET(req: NextRequest) {
         // The mail host, the account and any IP are stripped; a status code and
         // the server's sentence about itself are evidence, not identity.
         serverSaid: redactSmtpLine(probe?.detail),
-        ...(readSmtpRefusal(probe?.detail) ? { whatThatMeans: readSmtpRefusal(probe?.detail) } : {}),
+        // NOT WHEN WE ASKED THE WRONG SERVER. `readSmtpRefusal` reads the
+        // server's words, and "authentication failed" honestly reads as a bad
+        // credential — which is the wrong conclusion when the machine does not
+        // hold the mailbox. Two fields disagreeing is how a report sends
+        // somebody to reset a password for the fifth time.
+        ...(providerCheck.matches === false
+          ? { whatThatMeans: "The server refused the login — but it is not the server that holds this mailbox, so that is what a machine says about an account it has never heard of. Change SMTP_HOST before touching the password." }
+          : readSmtpRefusal(probe?.detail) ? { whatThatMeans: readSmtpRefusal(probe?.detail) } : {}),
       } : {}),
     }),
     // EVERYTHING BELOW NEEDS THE CREDENTIAL. `activeNode` carries the mail host
@@ -719,7 +726,7 @@ export async function GET(req: NextRequest) {
       ? (!emailIsConfigured()
           ? "NOT SENDING — no sending provider is configured on this deployment."
           : probe
-            ? `${smtpStageVerdict(probe.stage, probe.ok)}${
+            ? `${smtpStageVerdict(probe.stage, probe.ok, { providerMismatch: providerCheck.matches === false })}${
                 cred?.fromPool
                   // FIRST, BECAUSE IT MAKES EVERY OTHER REMEDY POINTLESS. With
                   // MW_SENDING_POOL set, the send never reads SMTP_USER or
@@ -728,12 +735,18 @@ export async function GET(req: NextRequest) {
                   ? " AND THE CREDENTIALS IN USE COME FROM MW_SENDING_POOL, NOT FROM SMTP_USER/SMTP_PASS. The pool JSON wins, so editing SMTP_PASS — or resetting the mailbox password and saving it there — cannot change this login and never could. Fix the user and pass INSIDE MW_SENDING_POOL, or remove that variable entirely so the SMTP_* pair is used."
                   : cred && (cred.passPadded || cred.userPadded)
                   ? " AND ONE OF THEM HAS WHITESPACE AROUND IT — a password or username pasted with a trailing newline or a leading space looks correct everywhere and is refused by the server. Re-paste it with nothing before or after, and redeploy; that alone may be the whole fault."
+                  // OUTRANKS THE SEND-AS COMPARISON. Both describe the login,
+                  // but a mailbox on the wrong server is refused whatever its
+                  // name is, so this is the fault to state.
+                  //
+                  // EMPTY, because the opening sentence already says it: the
+                  // stage verdict switches to the wrong-server reading when this
+                  // is false. Repeating it here printed the diagnosis twice and,
+                  // worse, printed the CONTRADICTORY one first.
+                  : providerCheck.matches === false
+                  ? ""
                   : cred && !cred.userIsFromAddress
                     ? " AND THE LOGIN MAILBOX IS A DIFFERENT MAILBOX FROM THE ONE THIS DEPLOYMENT SENDS AS. That is the more likely fault: check that mailbox exists at all before touching the password, because a login for a mailbox nobody created is refused at exactly this stage. Setting SMTP_USER to the send-as address, with THAT mailbox's own password, makes the login, the envelope and the From one address — which is the arrangement with the fewest ways to be wrong."
-                    : providerCheck.matches === false
-                      // BEFORE ANY ADVICE ABOUT THE PASSWORD, because if this is the
-                      // wrong server the password is irrelevant and always was.
-                      ? " AND THE SERVER BEING LOGGED IN TO IS NOT THE PROVIDER THAT RECEIVES MAIL FOR THIS MAILBOX. Check SMTP_HOST first: a mailbox that does not exist on the machine being asked is refused with exactly this error whatever its password is, which is why resetting the password has changed nothing. Point SMTP_HOST at the provider that holds the mailbox."
                       : " The login mailbox is the same one this deployment sends as, neither value has stray whitespace, and the server being logged in to IS this mailbox's own provider — so the account should exist there and the stored password is simply not its password. Before resetting it again, sign in as a platform admin and compare `credential.passLength` with the password you set at the host: a different count means the value stored here was never that password (pasted with quotes, or truncated). If the counts match, the value is right and the MAILBOX is refusing it — check SMTP authentication is enabled for it, use an app-specific password if the host offers one, and allow for a lockout from the failed attempts."
               } (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
             : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")

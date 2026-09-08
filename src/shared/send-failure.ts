@@ -103,8 +103,23 @@ export function operatorFix(raw: unknown): string {
 // of them maps to a different fault with a different fix. The server's own words,
 // the mail host, the account username and the recipient stay gated exactly as
 // they were — those name people and machines. This names a protocol step.
-export function smtpStageVerdict(stage: string | null | undefined, ok: boolean): string {
+export function smtpStageVerdict(
+  stage: string | null | undefined,
+  ok: boolean,
+  opts: { providerMismatch?: boolean } = {},
+): string {
   if (ok) return "SENDING. The server authenticated and accepted an envelope just now, so configuration is not the problem — if mail still does not arrive the cause is delivery (SPF, DKIM, DMARC or the receiving side).";
+  // A STRONGER SIGNAL OVERRIDES THE STAGE'S DEFAULT READING.
+  //
+  // The auth text below asserts a cause — "the mailbox and the password do not
+  // match" — which is the usual reading of a 535 and is WRONG when the login is
+  // being presented to a server that does not hold the mailbox. It was printed
+  // as the opening sentence of a verdict whose next sentence said the server was
+  // the wrong one, so the report contradicted itself and the confident half came
+  // first. Somebody acting on the first line resets a password for the fifth time.
+  if (opts.providerMismatch && (stage || "").trim().startsWith("auth")) {
+    return "NOT SENDING — AND THE SERVER BEING LOGGED IN TO IS NOT THE ONE THAT HOLDS THIS MAILBOX. It refused the login, which is what a server does with an account it has never heard of, so the password is not the thing to change: a mailbox that does not exist on the machine being asked is refused with this exact error whatever its password is. Point SMTP_HOST at the provider named by the login domain's MX record, then try again.";
+  }
   switch ((stage || "").trim()) {
     case "connect":
       return "NOT SENDING — the connection never opened. The host or port is wrong, or the host blocks outbound SMTP. Nothing about the password or the addresses has been tested yet.";
