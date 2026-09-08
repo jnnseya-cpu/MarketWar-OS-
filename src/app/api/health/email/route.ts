@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuth, cronAuthorised, rateLimit, clientKey } from "@/backend/guard";
 import { publicSendFailure, operatorFix, smtpStageVerdict, redactSmtpLine, readSmtpRefusal } from "@/shared/send-failure";
+import { mailProviderMatches } from "@/shared/mail-host";
 // THE DIAGNOSTIC MUST OUTLIVE THE THING IT DIAGNOSES.
 //
 // These three were static imports, and that made this endpoint useless in the
@@ -452,6 +453,42 @@ export async function GET(req: NextRequest) {
   // exactly the report. This resolves it from the server rather than asking
   // somebody to go and check DNS by hand.
   const fromDomain = fromAddr.split("@")[1] || "";
+  // ARE WE EVEN LOGGING IN TO THIS MAILBOX'S OWN MAIL PROVIDER?
+  //
+  // THE QUESTION NOBODY ASKED FOR FIVE WEEKS. `auth-pass` says the server
+  // refused the credential; it does NOT say the credential is wrong. A mailbox
+  // that does not exist on the machine being asked is refused at exactly the
+  // same stage, with the same 535, no matter how many times its password is
+  // reset somewhere else — and every remedy the report offered was about the
+  // password.
+  //
+  // The mailbox's own provider is a published fact: the MX of the domain in
+  // SMTP_USER. If SMTP_HOST is not that provider, the login is being presented
+  // to a machine that has probably never heard of the account. Both values are
+  // ours, so this ships as a BOOLEAN and names neither.
+  //
+  let providerCheck: { ran: boolean; matches: boolean | null; note: string } = { ran: false, matches: null, note: "" };
+  if (node?.user?.includes("@") && node?.host) {
+    const loginDomain = node.user.split("@")[1].trim().toLowerCase();
+    try {
+      const dns = await import("node:dns/promises");
+      const mx = (await dns.resolveMx(loginDomain)).map((m) => m.exchange);
+      if (!mx.length) {
+        providerCheck = { ran: true, matches: null, note: "The domain of the login mailbox publishes no MX, so this deployment cannot tell which server owns that account." };
+      } else {
+        const matches = mailProviderMatches(mx, node.host);
+        providerCheck = {
+          ran: true, matches,
+          note: matches
+            ? "The server being logged in to is the same provider that receives mail for this mailbox, so the account should exist there."
+            : "THE SERVER BEING LOGGED IN TO IS NOT THE PROVIDER THAT RECEIVES MAIL FOR THIS MAILBOX. A mailbox that does not exist on the machine being asked is refused with exactly this error, whatever its password is — so check SMTP_HOST before touching the password again.",
+        };
+      }
+    } catch {
+      providerCheck = { ran: false, matches: null, note: "The login mailbox's domain could not be resolved from this server." };
+    }
+  }
+
   let dnsCheck: Record<string, unknown> = { ran: false, note: "No From domain to check." };
   if (fromDomain) {
     try {
@@ -600,6 +637,9 @@ export async function GET(req: NextRequest) {
         //
         // A boolean, not the address. Both values are ours and neither is printed.
         smtpUserIsTheFromAddress: Boolean(cred?.userIsFromAddress),
+        // Names neither the host nor the mailbox — only whether they belong
+        // together. See the note where this is computed.
+        loginMailboxProviderMatches: providerCheck.matches,
         // THE SERVER'S OWN WORDS, WITH THE NAMES TAKEN OUT.
         //
         // `535 5.7.8 authentication failed`, `535 Incorrect authentication
@@ -690,7 +730,11 @@ export async function GET(req: NextRequest) {
                   ? " AND ONE OF THEM HAS WHITESPACE AROUND IT — a password or username pasted with a trailing newline or a leading space looks correct everywhere and is refused by the server. Re-paste it with nothing before or after, and redeploy; that alone may be the whole fault."
                   : cred && !cred.userIsFromAddress
                     ? " AND THE LOGIN MAILBOX IS A DIFFERENT MAILBOX FROM THE ONE THIS DEPLOYMENT SENDS AS. That is the more likely fault: check that mailbox exists at all before touching the password, because a login for a mailbox nobody created is refused at exactly this stage. Setting SMTP_USER to the send-as address, with THAT mailbox's own password, makes the login, the envelope and the From one address — which is the arrangement with the fewest ways to be wrong."
-                    : " The login mailbox is the same one this deployment sends as, and neither value has stray whitespace. COMPARE `smtpPassLength` WITH THE PASSWORD YOU SET AT THE MAIL HOST BEFORE CHANGING ANYTHING: a different count means the value stored here is not that password (quotes pasted with it, truncated at a special character), and resetting the mailbox again will not help. The same count means the value is right and the MAILBOX is refusing it — so check SMTP authentication is enabled for that mailbox, use an app-specific password if the host offers one, and allow for a lockout from the failed attempts."
+                    : providerCheck.matches === false
+                      // BEFORE ANY ADVICE ABOUT THE PASSWORD, because if this is the
+                      // wrong server the password is irrelevant and always was.
+                      ? " AND THE SERVER BEING LOGGED IN TO IS NOT THE PROVIDER THAT RECEIVES MAIL FOR THIS MAILBOX. Check SMTP_HOST first: a mailbox that does not exist on the machine being asked is refused with exactly this error whatever its password is, which is why resetting the password has changed nothing. Point SMTP_HOST at the provider that holds the mailbox."
+                      : " The login mailbox is the same one this deployment sends as, neither value has stray whitespace, and the server being logged in to IS this mailbox's own provider — so the account should exist there and the stored password is simply not its password. Before resetting it again, sign in as a platform admin and compare `credential.passLength` with the password you set at the host: a different count means the value stored here was never that password (pasted with quotes, or truncated). If the counts match, the value is right and the MAILBOX is refusing it — check SMTP authentication is enabled for it, use an app-specific password if the host offers one, and allow for a lockout from the failed attempts."
               } (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
             : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")
       : !node

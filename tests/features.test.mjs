@@ -28549,6 +28549,59 @@ test("a refused password says whether whitespace is the cause, without echoing i
     "the MW_SENDING_POOL branch must be tested BEFORE the others — with a pool set, no advice about SMTP_PASS is true");
 });
 
+test("a refused login checks whether we are even asking the mailbox's own provider", async () => {
+  // THE QUESTION NOBODY ASKED FOR FIVE WEEKS. `auth-pass` says the server refused
+  // the credential; it does not say the credential is WRONG. A mailbox that does
+  // not exist on the machine being asked is refused at the same stage with the
+  // same 535, however many times its password is reset somewhere else — and
+  // every remedy this report offered was about the password.
+  const src = readFileSync("src/app/api/health/email/route.ts", "utf8");
+  const code = codeOf(src);
+
+  assert.match(code, /const mx = \(await dns\.resolveMx\(loginDomain\)\)/,
+    "the mailbox's own provider must be READ from DNS, not assumed");
+  assert.match(code, /loginMailboxProviderMatches: providerCheck\.matches/,
+    "and reported — it names neither the host nor the mailbox, only whether they belong together");
+
+  // IT MUST BE TESTED BEFORE THE PASSWORD ADVICE. If this is the wrong server the
+  // password is irrelevant and always was, so a verdict that mentions resetting
+  // it first sends somebody back to the thing that has already failed.
+  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  const region = code.slice(verdictAt, verdictAt + 4000);
+  const hostIdx = region.indexOf("providerCheck.matches === false");
+  const passIdx = region.indexOf("credential.passLength");
+  assert.notEqual(hostIdx, -1, "the verdict must branch on the provider check");
+  assert.notEqual(passIdx, -1, "the password branch must still exist");
+  assert.ok(hostIdx < passIdx, "the wrong-server case must be raised before any advice about the password");
+
+  // AND THE SIGNED-OUT READER IS NEVER SENT TO A FIELD THEY CANNOT SEE. The
+  // previous version told them to compare `smtpPassLength`, which is behind the
+  // admin gate — a diagnostic only its author can read, which is the rule this
+  // file exists to enforce. It now says to sign in first.
+  assert.ok(!/COMPARE `smtpPassLength`/.test(code),
+    "the signed-out verdict must not point at an admin-only field without saying so");
+  assert.match(code, /sign in as a platform admin and compare `credential\.passLength`/,
+    "it must name the gate as part of the instruction");
+
+  // THE REAL FUNCTION, NOT A COPY OF IT. The first version of this test defined
+  // its own `registrable` here — so switching the route to an exact-hostname
+  // comparison changed the behaviour and the test stayed green, because it was
+  // only ever checking that the copy agreed with itself. Mutation testing found
+  // it. There is now one implementation, in shared/, and this drives it.
+  const mh = await import("../src/shared/mail-host.ts");
+  assert.equal(mh.mailProviderMatches(["mx1.hostinger.com", "mx2.hostinger.com"], "smtp.hostinger.com"), true,
+    "same provider, different host — not a mismatch");
+  assert.equal(mh.mailProviderMatches(["mx1.hostinger.com"], "smtp.marketwaros.com"), false,
+    "a different provider is the case worth shouting about");
+  assert.equal(mh.mailProviderMatches([], "smtp.hostinger.com"), null,
+    "no MX to compare is 'cannot tell', never 'does not match' — the two need different sentences");
+  assert.equal(mh.mailProviderMatches(["mx1.hostinger.com"], ""), null, "and no host is the same");
+  assert.equal(mh.registrableDomain("hostinger.com"), "hostinger.com", "a bare two-label host is already registrable");
+  assert.equal(mh.registrableDomain("MX1.Hostinger.Com."), "hostinger.com", "case and a trailing dot are normalised");
+  assert.match(code, /mailProviderMatches\(mx, node\.host\)/,
+    "and the route must use that shared function rather than growing its own copy");
+});
+
 test("MW_SENDING_POOL overrides SMTP_USER/SMTP_PASS, and the node says so", async () => {
   // THE FAULT THAT SURVIVES THREE PASSWORD RESETS. The pool JSON wins over the
   // SMTP_* pair, and nothing said so anywhere. An owner whose pool carried an
