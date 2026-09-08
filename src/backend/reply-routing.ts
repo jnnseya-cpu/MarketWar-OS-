@@ -39,6 +39,33 @@ export const replyHost = (): string =>
   (process.env.MW_REPLY_HOST || "reply.marketwaros.com").trim().toLowerCase().replace(/^@/, "");
 
 /**
+ * Whether the reply host was STATED, rather than defaulted into by this file.
+ *
+ * THE DEFECT THIS CLOSES, and it is the one this module was written to prevent.
+ * The default above is a subdomain nobody has created. `marketwaros.com` is on
+ * Vercel DNS with a WILDCARD A record, so `reply.marketwaros.com` resolves — to
+ * the HTTP edge, which answers on 443 and has no MX and no SMTP listener.
+ * "Resolves" is not "receives", and the difference is the whole bug: the address
+ * looked live to every check that asked DNS whether the name existed.
+ *
+ * That address was going out as Reply-To on EVERY message. A prospect who hit
+ * Reply addressed it to a host with no MX, so their own mail server returned a
+ * failure notice to them — the campaign did not merely lose the reply, it made
+ * the sender look broken to the person who was interested enough to answer.
+ *
+ * So the ISSUING side is gated and the PARSER is not: `brandFromReplyAddress`
+ * keeps the default host, because any address already issued must still route
+ * home if mail for it ever arrives. Exactly the arrangement `bounceHost` has
+ * had since it shipped — this file had the right answer written down and
+ * applied it to one of its three hosts.
+ *
+ * Set MW_REPLY_HOST to a subdomain whose MX points at the inbound intake and
+ * platform replies switch on with no code change.
+ */
+export const replyHostConfigured = (): boolean =>
+  Boolean((process.env.MW_REPLY_HOST || "").trim());
+
+/**
  * A per-brand reply address on our own reply host.
  *
  * The local part carries the brand so an arriving message can be routed with no
@@ -46,10 +73,16 @@ export const replyHost = (): string =>
  * guessed from the brand id alone — an address that is trivially enumerable is
  * an invitation to inject fake replies into somebody else's inbox.
  */
-export function replyAddressFor(brandId: string, host = replyHost()): string {
+export function replyAddressFor(brandId: string, host?: string): string {
   const id = slugId(brandId);
   if (!id) return "";
-  return `r.${id}.${tag(id)}@${host}`;
+  // AN ADDRESS ON A HOST THAT CANNOT RECEIVE IS WORSE THAN NO ADDRESS, because
+  // it is the one this platform puts on every outgoing message. So the default
+  // host is only used when it was actually STATED (`replyHostConfigured`); an
+  // explicit host is the caller's own assertion and is honoured, which is what
+  // lets the parser's tests build an address to route back.
+  if (host === undefined && !replyHostConfigured()) return "";
+  return `r.${id}.${tag(id)}@${host ?? replyHost()}`;
 }
 
 /** The brand a reply address belongs to, or "" if it is not one of ours. */
@@ -97,6 +130,25 @@ export async function hasMx(domain: string): Promise<{ ok: boolean; hosts: strin
   }
 }
 
+/**
+ * Can the PLATFORM'S own reply address receive mail today?
+ *
+ * Two conditions, and the second is the one that was never asked. The host must
+ * have been stated rather than defaulted into — and something must actually
+ * accept mail for it. A wildcard A record makes any name under a domain
+ * "resolve", so existence proves nothing; only an MX does.
+ */
+export async function platformReplyPath(): Promise<{ ok: boolean; host: string; note: string }> {
+  const host = replyHost();
+  if (!replyHostConfigured()) {
+    return { ok: false, host, note: "this platform has no reply mailbox configured yet (MW_REPLY_HOST is unset), so replies cannot come back here." };
+  }
+  const mx = await hasMx(host);
+  return mx.ok
+    ? { ok: true, host, note: `replies to ${host} are delivered to ${mx.hosts[0]}.` }
+    : { ok: false, host, note: `${host} publishes no MX record, so nothing accepts mail addressed to it.` };
+}
+
 export type ReplyVerdict = {
   /** Will a reply to this address reach somebody? */
   reachable: "yes" | "no" | "unknown";
@@ -121,18 +173,30 @@ export async function replyVerdict(input: {
   const host = replyHost();
   const address = String(input.replyTo || input.fromEmail || "").trim().toLowerCase();
 
+  // OUR OWN HOST IS CHECKED LIKE ANY OTHER, and not checking it is what this
+  // whole module got wrong. The function's stated purpose is that reachability
+  // is "answered with a real DNS lookup rather than a guess, because the whole
+  // point of the original defect is that everybody — us included — assumed a
+  // reply had somewhere to land" — and it then returned `yes` for the one
+  // domain it never looked up. A check that passes for a reason unrelated to
+  // what it tests, on the single address every campaign was replying to.
+  const ourPath = await platformReplyPath();
+
   if (!address) {
-    const ours = input.brandId ? replyAddressFor(input.brandId, host) : "";
+    const ours = input.brandId && ourPath.ok ? replyAddressFor(input.brandId) : "";
     return ours
       ? { reachable: "yes", intoInbox: true, address: ours,
           note: `No reply address was set, so replies go to your MarketWar reply address (${ours}) and appear in your Inbox here. Set a Reply-to to have them land in a mailbox you already read as well.` }
-      : { reachable: "unknown", intoInbox: false, address: "",
-          note: "No reply address is set and no brand reply address could be built, so there is nowhere for a reply to go." };
+      : { reachable: "no", intoInbox: false, address: "",
+          note: `No reply address is set, and ${ourPath.note} Put the mailbox you actually read in Reply-to — otherwise anyone who answers this campaign gets a failure notice instead of reaching you.` };
   }
 
   if (brandFromReplyAddress(address, host)) {
-    return { reachable: "yes", intoInbox: true, address,
-      note: "Replies come to your MarketWar reply address and appear in your Inbox here." };
+    return ourPath.ok
+      ? { reachable: "yes", intoInbox: true, address,
+          note: "Replies come to your MarketWar reply address and appear in your Inbox here." }
+      : { reachable: "no", intoInbox: false, address,
+          note: `This is a MarketWar reply address, but ${ourPath.note} Anyone who replies gets a failure notice. Put the mailbox you actually read in Reply-to.` };
   }
 
   const domain = address.split("@")[1] || "";

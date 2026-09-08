@@ -3,7 +3,7 @@ import { emailConfigured, emailIsConfigured, filterList, sendEmail, sendEmailBat
 import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
-import { sendFailureOf, publicSendFailure, operatorFix, isRecipientRejection, type SendFailure } from "@/shared/send-failure";
+import { sendFailureOf, publicSendFailure, operatorFix, isRecipientRejection, redactSmtpLine, readSmtpRefusal, type SendFailure } from "@/shared/send-failure";
 import { hasScope } from "@/shared/roles";
 
 // M-34 email engine API.
@@ -305,13 +305,19 @@ export async function POST(req: NextRequest) {
     // Replies go here. Default to the From address, but let the sender point them
     // at their REAL inbox (e.g. their Gmail) so replies land where they read mail.
     const replyToRaw = typeof body.replyTo === "string" && body.replyTo.includes("@") ? body.replyTo.trim() : "";
-    // FALLING BACK TO THE FROM ADDRESS IS WHAT LOST EVERY REPLY. Nothing in the
-    // DNS this platform asks for tells a mail server where to deliver anything
-    // addressed to the customer's domain — every record proves we may SEND as
-    // it. So a reply to hello@theircompany.com went wherever their MX pointed,
-    // which was usually nowhere or somebody else. The brand's own reply address
-    // on our reply host needs no DNS from them at all, so it works on day one
-    // and the reply appears in their Inbox here.
+    // THE ORDER IS UNCHANGED; WHAT CHANGED IS THAT THE MIDDLE TERM NOW TELLS THE
+    // TRUTH. The reasoning that put it there was sound — nothing in the DNS this
+    // platform asks for says where to deliver mail TO the customer's domain, so
+    // a reply to hello@theircompany.com goes wherever their MX points, which may
+    // be nowhere. The mistake was the remedy: the brand's address on our own
+    // reply host was described as needing no DNS from them, when it needed DNS
+    // from US that had never been published. `reply.marketwaros.com` has no MX,
+    // so every prospect who hit Reply got a failure notice.
+    //
+    // `replyAddressFor` now returns "" until MW_REPLY_HOST is actually set, so
+    // this falls through to the customer's own From address — which at least
+    // reaches them whenever their domain accepts mail, and `reply-check` runs
+    // the real MX lookup and says so before the send when it does not.
     const replyTo = replyToRaw || replyAddressFor(brandId) || fromEmail || undefined;
 
     // Per-recipient personalisation: look up each address's contact row and merge
@@ -332,6 +338,8 @@ export async function POST(req: NextRequest) {
     // are ONE fault with one fix, while 104 `hygiene` failures are a list
     // problem and 104 `crashed` are ours. Identical counts, opposite actions.
     const byFailure = new Map<SendFailure, number>();
+    // One representative server line per category — see the capture below.
+    const firstDetail = new Map<SendFailure, string>();
     // Addresses nothing was even attempted for, because this deployment has no
     // sending server. Kept apart from `failed` so the two are never added up.
     let notConfigured = 0;
@@ -389,6 +397,19 @@ export async function POST(req: NextRequest) {
         failed++; if (failures.length < 10) failures.push(to);
         const cat = sendFailureOf(r.failure);
         byFailure.set(cat, (byFailure.get(cat) ?? 0) + 1);
+        // KEEP THE SERVER'S OWN WORDS. `r.detail` holds the exact line the mail
+        // server refused with, and until now it was read once by
+        // `isRecipientRejection` on the line below and then dropped — so the
+        // person waiting got our four-word paraphrase, "the mail server refused
+        // the message", and never the sentence that says WHICH refusal it was.
+        // "535 authentication failed", "550 SMTP is disabled for this account"
+        // and "temporarily blocked after too many attempts" all wear that same
+        // paraphrase and have three different fixes, none of them guessable from
+        // it. One line per category is enough: the first is representative and a
+        // hundred copies of it are not more informative.
+        if (typeof r.detail === "string" && r.detail.trim() && !firstDetail.has(cat)) {
+          firstDetail.set(cat, r.detail);
+        }
         // SUPPRESS ONLY WHEN THE SERVER NAMED THE RECIPIENT.
         //
         // This used to be `/\b5\d\d\b/.test(r.detail)` — any 5xx anywhere in the
@@ -420,6 +441,15 @@ export async function POST(req: NextRequest) {
     // The dominant category, because that is the one fix that moves the number.
     const ranked = [...byFailure.entries()].sort((a, b) => b[1] - a[1]);
     const worst = ranked[0];
+    // The refusal that goes on the screen, with the names taken out.
+    // `redactSmtpLine` removes any mailbox, hostname and IP, so what is left is a
+    // status code and a sentence the mail server wrote about itself — the
+    // evidence with none of the identity, which is safe for the brand's own
+    // owner to read about their own send. `readSmtpRefusal` adds what it means
+    // ONLY when the words are specific enough to say; it returns "" otherwise,
+    // because an invented reading is worse than none.
+    const worstLine = worst ? redactSmtpLine(firstDetail.get(worst[0])) : "";
+    const worstMeaning = worstLine ? readSmtpRefusal(firstDetail.get(worst[0])) : "";
     // The operator's remedy names environment variables and an internal
     // diagnostic — our infrastructure, not this brand's. A tenant gets the
     // sentence about their send; the person who can fix the deployment gets the
@@ -437,6 +467,8 @@ export async function POST(req: NextRequest) {
         failureReason: worst[0],
         failureBreakdown,
         failureNote: `${worst[1]} of ${failed} failed because ${publicSendFailure(worst[0])}.`,
+        ...(worstLine ? { serverSaid: worstLine } : {}),
+        ...(worstMeaning ? { serverMeaning: worstMeaning } : {}),
         ...(isOperator ? { operatorFix: operatorFix(worst[0]) } : {}),
       } : {}),
       // Reported separately and never folded into `failed` — these addresses are
@@ -451,7 +483,7 @@ export async function POST(req: NextRequest) {
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
       note: live
-        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
+        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}.${worstLine ? ` The server said: “${worstLine}”.` : ""}${worstMeaning ? ` ${worstMeaning}` : ""}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set MW_SENDING_POOL (or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then run this again and they all still go.`,
     });
   }

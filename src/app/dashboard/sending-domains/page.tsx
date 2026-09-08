@@ -13,7 +13,9 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 
-type DnsRecord = { purpose: string; type: "TXT" | "CNAME"; host: string; value: string; required: boolean; verified?: boolean; detail?: string };
+// `type` includes MX because the server has always sent one and this union did
+// not — a boundary the compiler could not police, since the value crosses as JSON.
+type DnsRecord = { purpose: string; type: "TXT" | "CNAME" | "MX"; host: string; value: string; priority?: number; required: boolean; verified?: boolean; detail?: string };
 type DomainView = { brandId: string; domain: string; selector: string; publicKey: string; status: "pending" | "verified"; createdAt: string; verifiedAt?: string; records: DnsRecord[] };
 
 function CopyBtn({ text }: { text: string }) {
@@ -38,6 +40,7 @@ export default function SendingDomainsPage() {
   // one brand, because its DKIM key lives at one DNS record.
   const [otherBrandDomains, setOtherBrandDomains] = useState<{ domain: string; status: string }[]>([]);
   const [otherBrandNote, setOtherBrandNote] = useState("");
+  const [repliesNote, setRepliesNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -55,6 +58,7 @@ export default function SendingDomainsPage() {
       setDomains(Array.isArray(d.domains) ? d.domains : []);
       setOtherBrandDomains(Array.isArray(d.otherBrandDomains) ? d.otherBrandDomains : []);
       setOtherBrandNote(typeof d.otherBrandNote === "string" ? d.otherBrandNote : "");
+      setRepliesNote(typeof d.repliesNote === "string" ? d.repliesNote : "");
       setSendingConfigured(typeof d.sendingConfigured === "boolean" ? d.sendingConfigured : null);
     } catch { setDomains([]); } finally { setBusy(false); }
   }, []);
@@ -199,6 +203,10 @@ export default function SendingDomainsPage() {
               </div>
 
               <p className="mb-3 text-xs text-slate-400">Add these records in your domain&apos;s DNS (at your registrar / DNS host). Required records must all pass before the domain authenticates. DNS changes can take up to 24–48h to propagate.</p>
+              {/* An ABSENT record with a reason, rather than one a registrar
+                  refuses. The MX row used to be printed against a host that
+                  cannot receive mail. */}
+              {repliesNote && <p className="mb-3 rounded-lg border border-ink-700 bg-ink-850/60 p-2.5 text-[11px] leading-relaxed text-slate-400">{repliesNote}</p>}
 
               <div className="space-y-2">
                 {d.records.map((r) => (
@@ -219,8 +227,19 @@ export default function SendingDomainsPage() {
                         <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.host}</code>
                         <CopyBtn text={r.host} />
                       </div>
+                      {/* PRIORITY IS ITS OWN FIELD, because it is its own field in
+                          every DNS panel. This used to print "10 mx.example.com"
+                          as one value; pasted into "Points to" it is not a
+                          hostname, and registrars reject it as invalid. */}
+                      {typeof r.priority === "number" && (
+                        <div className="flex items-center gap-2">
+                          <span className="w-12 shrink-0 text-slate-500">Priority</span>
+                          <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.priority}</code>
+                          <CopyBtn text={String(r.priority)} />
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
-                        <span className="w-12 shrink-0 text-slate-500">Value</span>
+                        <span className="w-12 shrink-0 text-slate-500">{r.type === "MX" ? "Points to" : "Value"}</span>
                         <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.value}</code>
                         <CopyBtn text={r.value} />
                       </div>

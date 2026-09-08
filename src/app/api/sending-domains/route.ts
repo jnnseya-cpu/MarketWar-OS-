@@ -97,13 +97,26 @@ export async function GET(req: NextRequest) {
   // platform's half, set once for the whole deployment. Both are required, so
   // both are reported here.
   const { emailIsConfigured } = await import("@/backend/email");
+  const { mxHostConfigured } = await import("@/backend/sending-domains");
+  const { platformReplyPath } = await import("@/backend/reply-routing");
+  const replyPath = await platformReplyPath();
   return NextResponse.json({
     domains,
     sendingConfigured: emailIsConfigured(),
+    // WHY THERE MAY BE NO MX ROW. The panel used to print one unconditionally,
+    // naming a host that cannot receive mail; an absent row with a reason beats
+    // a record a registrar refuses.
+    repliesConfigured: mxHostConfigured() && replyPath.ok,
+    repliesNote: mxHostConfigured() && replyPath.ok
+      ? ""
+      : "Replies into this Inbox are not switched on for this deployment yet, so no reply MX record is offered. Campaigns still send, and replies go to whatever Reply-to address you set — put a mailbox you actually read there.",
     // Display only. Never merged into `domains`, never prefilled, never signed.
     otherBrandDomains,
     otherBrandNote: otherBrandDomains.length
-      ? `${otherBrandDomains.length} other domain(s) on this account are authenticated under a DIFFERENT brand and are not available here. A domain belongs to one brand: its DKIM key lives at one DNS record, so a second brand cannot sign for it. To send this brand's mail from one of them, move the domain to this brand.`
+      // NOT "a second brand cannot sign for it" — that stopped being true when
+      // the DKIM selector became brand-scoped. Each brand publishes its own key
+      // at its own selector, so a shared domain is added once per brand.
+      ? `${otherBrandDomains.length} other domain(s) on this account are authenticated under a DIFFERENT brand and are not listed here, because a brand only ever sends with a key it published itself. To send this brand's mail from one of them, add the domain here too and publish this brand's own DKIM record — the two keys sit at different selectors and do not collide.`
       : "",
   });
 }

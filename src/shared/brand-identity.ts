@@ -45,6 +45,18 @@ export type BrandIdentity = {
   pitch?: IdentityValue<{ short?: string; long?: string }>;
   moodboardKeywords?: IdentityValue<string[]>;
   emailSignatureHtml?: IdentityValue<string>;
+  /**
+   * The language this brand writes to its CUSTOMERS in — a code ("fr") or an
+   * English name ("French").
+   *
+   * Stated, never inferred. A brand selling in Kinshasa got English campaign
+   * copy because the only language signal any writer had was the `x-mw-lang`
+   * header — the UI language of whoever pressed the button. Guessing it from
+   * the country instead would be a different wrong answer: countries hold
+   * several languages and a business may deliberately write in a second one.
+   * So it lives here, set once, and every writer reads it.
+   */
+  marketLanguage?: string;
 
   /** Which kit assets this was distilled from, so a value can be traced back. */
   sourceAssets?: string[];
@@ -84,5 +96,9 @@ export function identityBrief(id: BrandIdentity | null | undefined): string {
     out.push(`Typefaces: heading ${id.fonts.value.heading || "unset"}, body ${id.fonts.value.body || "unset"}`);
   }
   if (id.moodboardKeywords?.value.length) out.push(`Visual keywords: ${id.moodboardKeywords.value.join(", ")}`);
+  // In the brief as well as in the `lang` parameter, because a model that is
+  // told the brand's market language alongside its tone writes to that reader
+  // rather than translating an email it drafted for somebody else.
+  if (id.marketLanguage) out.push(`Writes to customers in: ${id.marketLanguage}`);
   return out.join("\n");
 }
