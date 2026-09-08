@@ -64,13 +64,37 @@ export function selectorFor(brandId: string): string {
   return slug ? `${SELECTOR}-${slug}` : SELECTOR;
 }
 // The receiving node. Only ever used on a subdomain the customer creates.
-const MX_HOST = (process.env.MW_MX_HOST || "mx.marketwaros.com").trim();
+//
+// NO DEFAULT, AND THAT IS THE FIX. It used to fall back to `mx.marketwaros.com`,
+// which is not a mail exchanger and never was: marketwaros.com is on Vercel DNS
+// with a WILDCARD A record, so that name resolves to the HTTP edge — port 443
+// answers, port 25 has no listener, and there is no SMTP receiver in this
+// codebase at all (`/api/inbound/email` is an HTTP webhook a mail node POSTs
+// to). We were printing a record that named a host which cannot receive mail,
+// and a customer's DNS provider was right to refuse it.
+//
+// So an MX row is offered only when a real MX host has been stated. Until then
+// the row is absent and the panel says why, because a record that cannot work
+// is worse than an absent one: it costs the customer a support ticket and buys
+// them a promise this platform cannot keep.
+// Read at CALL time, not at import. A module-level const captures whatever the
+// environment held when the file was first loaded, which is the same
+// constant-where-a-lookup-belongs shape that produced the fixed DKIM selector.
+const mxHost = (): string => (process.env.MW_MX_HOST || "").trim();
+export const mxHostConfigured = (): boolean => Boolean(mxHost());
+// A mail exchanger is a HOST plus a PRIORITY, and every DNS panel worth using
+// takes them in two separate fields. Emitting "10 mx.example.com" as the value
+// is unenterable in all of them — paste it into "Points to" and it is rejected
+// as an invalid hostname, which is exactly what happened.
+const MX_PRIORITY = 10;
 
 export type DnsRecord = {
   purpose: "DKIM" | "SPF" | "DMARC" | "Return-Path (bounce)" | "Tracking" | "Replies (MX)";
   type: "TXT" | "CNAME" | "MX";
   host: string;   // the name to create (fully qualified)
-  value: string;  // the value to publish
+  value: string;  // the value to publish — for MX, the exchanger HOST alone
+  /** MX only: the preference number, which every DNS panel takes in its own field. */
+  priority?: number;
   required: boolean;
   verified?: boolean;
   detail?: string;
@@ -143,12 +167,15 @@ export function recordsFor(d: Pick<SendingDomain, "domain" | "selector" | "publi
     // publishing it cannot change where any existing mail goes. Without it,
     // replies still work — they arrive at the brand's address on our own reply
     // host instead of one that reads as theirs.
-    {
-      purpose: "Replies (MX)", type: "MX", required: false,
+    // …and it appears ONLY when there is a mail exchanger to name. See MX_HOST:
+    // the row used to be printed unconditionally against an invented host.
+    ...(mxHost() ? [{
+      purpose: "Replies (MX)" as const, type: "MX" as const, required: false,
       host: replySubdomain(domain),
-      value: `10 ${MX_HOST}`,
-      detail: "Optional. Lets replies come back to an address on your own domain and appear in your Inbox here. It is a subdomain, so it cannot affect the email your company already receives.",
-    },
+      value: mxHost(),
+      priority: MX_PRIORITY,
+      detail: "Optional. Lets replies come back to an address on your own domain and appear in your Inbox here. It is a subdomain, so it cannot affect the email your company already receives. Your DNS panel will ask for the priority and the host separately.",
+    }] : []),
   ];
 }
 
@@ -279,12 +306,19 @@ export async function verifyDomain(brandId: string, domainRaw: string): Promise<
         }
       } else if (r.type === "MX") {
         const { resolveMx } = await import("dns/promises");
+        // The leading-digits strip stays: a record issued before the priority
+        // moved into its own field carries "10 host" in `value`, and it must
+        // still verify against the DNS its owner already published.
         const want = r.value.replace(/^\d+\s+/, "").toLowerCase();
         const mx = (await resolveMx(r.host)).map((m) => m.exchange.replace(/\.$/, "").toLowerCase());
         r.verified = mx.includes(want);
         r.detail = r.verified
           ? "Replies to this subdomain will reach your Inbox here."
-          : mx.length ? `points to ${mx[0]} (expected ${want})` : "no MX yet — optional, and replies still work at your MarketWar reply address without it";
+          // NOT "replies still work without it". They did not: the platform's own
+          // reply host had no MX either, so that sentence reassured a customer
+          // about a path that was dark. What is true without this record is that
+          // replies go wherever the Reply-to address goes.
+          : mx.length ? `points to ${mx[0]} (expected ${want})` : "no MX yet — optional. Without it, replies go to whatever Reply-to address the campaign sets, not to your Inbox here.";
       } else {
         // CNAME
         const cn = (await resolveCname(r.host)).map((c) => c.replace(/\.$/, "").toLowerCase());

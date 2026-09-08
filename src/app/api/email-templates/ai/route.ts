@@ -3,6 +3,7 @@ import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { meterAction } from "@/backend/wallet";
 import { gatewayLangFrom } from "@/backend/gateway";
+import { writerLanguage } from "@/shared/writer-language";
 import { writeEmailTemplate, EMAIL_PURPOSES, type EmailPurposeId } from "@/backend/email-template-writer";
 import { getIdentity, identityBrief } from "@/backend/brand-identity";
 
@@ -73,7 +74,15 @@ async function POSTImpl(req: NextRequest) {
     purpose,
     notes: s(body.notes) || undefined,
     tone: s(body.tone) || undefined,
-    lang: gatewayLangFrom(req),
+    // THE BRAND'S MARKET LANGUAGE, not the operator's browser. `writerLanguage`
+    // takes the customer's explicit choice first, then the brand's stated
+    // language, and only then the header — which is a hint about who is
+    // pressing the button, not about who receives the email.
+    lang: writerLanguage({
+      explicit: s(body.lang),
+      brand: identity?.marketLanguage,
+      request: gatewayLangFrom(req),
+    }),
   });
 
   // A refused draft (no provider, unusable reply, fabricated claim) is a 200

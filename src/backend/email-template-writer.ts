@@ -36,6 +36,7 @@ import { claimReport } from "@/backend/claim-guard";
 // Token grammar lives in shared/ so the browser editor and the send path apply
 // the same rules — see the note at the top of that file.
 import { MERGE_VARS, fixTokens, tokenWarnings, TOKEN_ALIASES } from "@/shared/merge-tokens";
+import { languageInstruction, languageName } from "@/shared/writer-language";
 export { fixTokens, tokenWarnings, TOKEN_ALIASES };
 
 export type EmailPurposeId =
@@ -83,6 +84,14 @@ export type TemplateBrief = {
   /** The customer's own instruction — the single most useful input on the page. */
   notes?: string;
   tone?: string;
+  /**
+   * The language this email is written in — a code or an English name.
+   *
+   * It is the BRAND's market language, resolved by `writerLanguage()` before it
+   * reaches here. It used to be the browser's `x-mw-lang` header, which meant
+   * the language of the email was decided by the UI language of whoever pressed
+   * the button rather than by the people receiving it.
+   */
   lang?: string;
   /**
    * The brand's stored identity, rendered by identityBrief().
@@ -125,9 +134,15 @@ export type TemplateWriteResult = {
 // The writer
 // ---------------------------------------------------------------------------
 
-function systemPrompt(purpose: EmailPurpose): string {
+function systemPrompt(purpose: EmailPurpose, language = ""): string {
+  const lang = languageInstruction(language);
   return [
-    "You write short commercial emails for small businesses. British English. Plain, specific, no hype.",
+    // NOT "British English". That was hard-coded here, so a brand selling to
+    // francophone customers got an English email however francophone its list —
+    // the instruction overrode everything downstream, including the gateway's
+    // own localisation. The language is now an input like any other fact.
+    "You write short commercial emails for small businesses. Plain, specific, no hype.",
+    ...(lang ? ["", lang] : []),
     "",
     `THE JOB: ${purpose.label}. ${purpose.brief}`,
     "",
@@ -234,6 +249,9 @@ export async function writeEmailTemplate(
   const complete = deps.complete ?? gatewayComplete;
   const purpose = EMAIL_PURPOSES.find((p) => p.id === brief.purpose) || EMAIL_PURPOSES[0];
   const fallback = templateFallback(brief, purpose);
+  // Resolved ONCE, so the system prompt and the gateway's own localisation hook
+  // can never disagree about which language this email is in.
+  const language = languageName(brief.lang);
 
   if (!brief.business?.trim()) {
     return {
@@ -252,11 +270,11 @@ export async function writeEmailTemplate(
       // every writer in the OS reads the same answer instead of inventing its
       // own voice per module.
       system: brief.identityBrief?.trim()
-        ? `${systemPrompt(purpose)}\n\nBRAND IDENTITY — write in this voice and respect it exactly:\n${brief.identityBrief.trim()}`
-        : systemPrompt(purpose),
+        ? `${systemPrompt(purpose, language)}\n\nBRAND IDENTITY — write in this voice and respect it exactly:\n${brief.identityBrief.trim()}`
+        : systemPrompt(purpose, language),
       prompt: briefText(brief, purpose),
       maxTokens: 900,
-      lang: brief.lang,
+      lang: language,
     });
     raw = res.text;
     provider = res.provider;

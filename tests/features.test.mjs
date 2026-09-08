@@ -9483,10 +9483,32 @@ test("one view is not 1 views", () => {
 const reply = await import("../src/backend/reply-routing.ts");
 const inbound = await import("../src/backend/inbound.ts");
 
-test("a brand has a reply address that needs no DNS from the customer", () => {
-  const addr = reply.replyAddressFor("veryx");
-  assert.ok(addr.endsWith(`@${reply.replyHost()}`), "it must be on a host whose MX we control");
-  assert.equal(reply.brandFromReplyAddress(addr), "veryx", "and it must route back to the brand");
+test("no reply address is issued on a host that cannot receive", async () => {
+  // THE ASSERTION THIS REPLACES WAS THE DANGEROUS KIND. It read "it must be on a
+  // host whose MX we control" and then checked only that the string ended with
+  // the host name — a fact about concatenation, asserting a fact about
+  // infrastructure. It was green the whole time `reply.marketwaros.com` had no
+  // MX and could only ever have failed on the repair.
+  const had = process.env.MW_REPLY_HOST;
+  try {
+    delete process.env.MW_REPLY_HOST;
+    assert.equal(reply.replyAddressFor("veryx"), "", "an unstated reply host issues no address");
+    assert.equal(reply.replyHostConfigured(), false);
+
+    process.env.MW_REPLY_HOST = "reply.example.test";
+    const addr = reply.replyAddressFor("veryx");
+    assert.ok(addr.endsWith("@reply.example.test"), "a stated host issues one");
+    assert.equal(reply.brandFromReplyAddress(addr), "veryx", "and it routes back to the brand");
+  } finally {
+    if (had === undefined) delete process.env.MW_REPLY_HOST; else process.env.MW_REPLY_HOST = had;
+  }
+});
+
+test("the parser still routes an address issued before the host was gated", () => {
+  // The ISSUING side is gated; the parser is not. Anything already in the wild
+  // must still find its way home — the same split `bounceHost` has always had.
+  const addr = reply.replyAddressFor("veryx", reply.replyHost());
+  assert.equal(reply.brandFromReplyAddress(addr), "veryx");
 });
 
 test("a reply address cannot be guessed from the brand id", () => {
@@ -9501,20 +9523,145 @@ test("the reply MX is offered on a SUBDOMAIN and never the root", async () => {
   // would not add replies to this platform, it would delete the company's email.
   assert.equal(reply.replySubdomain("veryxjnn.com"), "reply.veryxjnn.com");
   const sd = await import("../src/backend/sending-domains.ts");
-  const records = sd.recordsFor({ domain: "veryxjnn.com", selector: "mwos", publicKey: "AAAA" });
-  const mx = records.find((r) => r.type === "MX");
-  assert.ok(mx, "there must be a record that says where replies go — its absence is the whole bug");
-  assert.equal(mx.host, "reply.veryxjnn.com");
-  assert.equal(mx.required, false, "it is optional; replies work without it at the platform address");
-  assert.match(mx.detail || "", /cannot affect the email your company already receives/);
+  const had = process.env.MW_MX_HOST;
+  try {
+    process.env.MW_MX_HOST = "mx.example.test";
+    const records = sd.recordsFor({ domain: "veryxjnn.com", selector: "mwos", publicKey: "AAAA" });
+    const mx = records.find((r) => r.type === "MX");
+    assert.ok(mx, "with a mail exchanger stated, the record that says where replies go is offered");
+    assert.equal(mx.host, "reply.veryxjnn.com");
+    assert.equal(mx.required, false, "it is optional");
+    assert.match(mx.detail || "", /cannot affect the email your company already receives/);
+    // THE PRIORITY IS ITS OWN FIELD. It used to be glued onto the front of the
+    // value — "10 mx.example.test" — which is not a hostname, so a DNS panel
+    // with separate Priority and Points-to fields rejects it as invalid. That
+    // is precisely what a customer hit.
+    assert.equal(mx.value, "mx.example.test", "the value is the exchanger host ALONE");
+    assert.equal(mx.priority, 10, "and the preference number travels in its own field");
+    assert.ok(!/^\d/.test(mx.value), "a value beginning with a digit is unenterable as a host");
+  } finally {
+    if (had === undefined) delete process.env.MW_MX_HOST; else process.env.MW_MX_HOST = had;
+  }
   // SPF legitimately lives on the root — it is a TXT and displaces nothing.
   // What must never appear there is an MX, which would take over the company's
   // mail delivery.
-  for (const r of records) {
+  const always = sd.recordsFor({ domain: "veryxjnn.com", selector: "mwos", publicKey: "AAAA" });
+  for (const r of always) {
     assert.ok(!(r.type === "MX" && r.host === "veryxjnn.com"),
       `${r.purpose} asks for an MX on the root domain — that does not add replies, it deletes the company's email`);
   }
-  assert.ok(records.some((r) => r.purpose === "SPF" && r.host === "veryxjnn.com"), "SPF belongs on the root and still does");
+  assert.ok(always.some((r) => r.purpose === "SPF" && r.host === "veryxjnn.com"), "SPF belongs on the root and still does");
+});
+
+test("no MX record is printed while there is no mail exchanger to name", async () => {
+  // IT USED TO DEFAULT TO `mx.marketwaros.com`, which is not a mail exchanger:
+  // the domain runs on Vercel DNS with a wildcard A record, so the name resolves
+  // to an HTTP edge with no MX and no SMTP listener, and there is no SMTP
+  // receiver in this codebase at all. The customer's registrar was right to
+  // refuse it. A record that cannot work is worse than an absent one.
+  const sd = await import("../src/backend/sending-domains.ts");
+  const had = process.env.MW_MX_HOST;
+  try {
+    delete process.env.MW_MX_HOST;
+    // NO `if` AROUND THIS. The first version guarded the body with
+    // `if (!mxHostConfigured())`, which meant a mutation restoring the invented
+    // default made the whole assertion vacuous — the test passed by not running.
+    // The host is read at call time, so the guard bought nothing and hid the
+    // one regression the test exists to catch.
+    assert.equal(sd.mxHostConfigured(), false, "with the variable unset, no exchanger is configured");
+    const records = sd.recordsFor({ domain: "veryxjnn.com", selector: "mwos", publicKey: "AAAA" });
+    assert.equal(records.find((r) => r.type === "MX"), undefined,
+      "no exchanger stated, so no MX row — and nothing invented to fill it");
+    // Everything that proves we may SEND is unaffected.
+    for (const purpose of ["DKIM", "SPF", "DMARC"]) {
+      assert.ok(records.some((r) => r.purpose === purpose), `${purpose} must still be offered`);
+    }
+  } finally {
+    if (had === undefined) delete process.env.MW_MX_HOST; else process.env.MW_MX_HOST = had;
+  }
+});
+
+test("the email a brand sends is written in the brand's language, not the operator's browser", async () => {
+  // REPORTED FROM THE LIVE PLATFORM. A brand selling to francophone merchants
+  // asked for a campaign email and got English, while the owner's own French
+  // version was incomparably better. Two causes: both writers opened with the
+  // hard-coded words "British English", and the ONLY language input either had
+  // was the `x-mw-lang` header — the UI language of whoever pressed the button.
+  // So the language of the email was decided by the sender's laptop.
+  const wl = await import("../src/shared/writer-language.ts");
+  assert.equal(wl.writerLanguage({ brand: "fr", request: "English" }), "French",
+    "the brand's market language must beat the operator's browser");
+  assert.equal(wl.writerLanguage({ explicit: "es", brand: "fr" }), "Spanish",
+    "and the customer's choice for this email beats them both");
+  assert.equal(wl.writerLanguage({}), "", "nothing stated forces no language at all");
+  assert.equal(wl.languageName("fr-CD"), "French", "a regional tag still resolves");
+  assert.equal(wl.languageName("¬¬¬"), "", "and junk resolves to nothing rather than an instruction");
+
+  const w = await import("../src/backend/email-template-writer.ts");
+  let captured = null;
+  const complete = async (req) => {
+    captured = req;
+    return { text: JSON.stringify({ name: "n", subject: "s", heading: "", body: "b", ctaLabel: "c", ctaUrl: "" }), provider: "test" };
+  };
+
+  await w.writeEmailTemplate({ business: "KODA", lang: "fr" }, { complete });
+  assert.equal(captured.lang, "French", "the gateway is told the resolved language");
+  assert.ok(!/British English/.test(captured.system), "no hard-coded language may remain in the prompt");
+  assert.match(captured.system, /in French/, "and the model is told which language to write");
+
+  await w.writeEmailTemplate({ business: "KODA", lang: "" }, { complete });
+  assert.ok(!/British English/.test(captured.system));
+  assert.ok(!/Write EVERYTHING/.test(captured.system),
+    "with no language stated the writer must not force one — it writes in English and the gateway stays a no-op");
+
+  // Both writers, not just the one. The draft route had the same literal.
+  //
+  // The strip is INLINE rather than the shared `codeOf`, which is declared later
+  // in this file as a const: the runner begins executing tests while the module
+  // body is still evaluating, so a test above that declaration reads it in the
+  // temporal dead zone and fails intermittently. Caught by running the suite
+  // four times rather than once.
+  const stripped = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
+    .replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""');
+  for (const f of ["../src/app/api/email/draft/route.ts", "../src/backend/email-template-writer.ts"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    // The phrase now appears in the COMMENTS that explain its removal, so a raw
+    // scan would fail on the fix — the eighth time a test in this suite has been
+    // tripped by its own prose.
+    assert.ok(/British English/.test(src), `${f} should still explain the removal`);
+    assert.ok(!/British English/.test(stripped(src)), `${f} still hard-codes a language in code`);
+  }
+});
+
+test("a failed send shows the server's own words, not only our paraphrase", () => {
+  // FIVE WEEKS OF "the mail server refused the message". That sentence is right
+  // for a stranger and useless to the person who can fix it: "535 authentication
+  // failed", "550 SMTP is disabled for this account" and "temporarily blocked
+  // after too many attempts" all wear it, and they have three different fixes.
+  // `r.detail` held the server's line the whole time — it was read once by
+  // isRecipientRejection and then dropped, one line before it could be read.
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /firstDetail\.set\(cat, r\.detail\)/, "the server's line must be kept");
+  assert.match(route, /serverSaid: worstLine/, "and carried into the response");
+  assert.match(route, /redactSmtpLine\(firstDetail\.get\(worst\[0\]\)\)/,
+    "redacted, so it names a status code and not a mailbox or a host");
+  assert.match(route, /The server said/, "and it appears in the sentence the customer reads");
+});
+
+test("the server's line is safe to show — it names no mailbox, host or IP", async () => {
+  const { redactSmtpLine, readSmtpRefusal } = await import("../src/shared/send-failure.ts");
+  const raw = "535 5.7.8 Error: authentication failed for koda@kodajnn.com on smtp.hostinger.com (198.51.100.7)";
+  const out = redactSmtpLine(raw);
+  assert.ok(!/koda@kodajnn\.com/.test(out), "no mailbox");
+  assert.ok(!/hostinger/.test(out), "no mail host");
+  assert.ok(!/198\.51\.100\.7/.test(out), "no IP");
+  assert.match(out, /535/, "but the status code survives — it is the whole point");
+  // And where the words are specific, the reading is too.
+  assert.match(readSmtpRefusal("550 SMTP is disabled for this account"), /DISABLED|not permitted/i);
+  assert.match(readSmtpRefusal("454 too many failed attempts, temporarily locked"), /temporarily blocked/i);
+  assert.equal(readSmtpRefusal("535 nope"), "", "and an unspecific line gets no invented reading");
 });
 
 test("an out-of-office is not a bounce and never suppresses anybody", () => {
@@ -9541,20 +9688,57 @@ test("only a delivery failure may suppress an address", () => {
   assert.match(route, /auto: kind === "auto-reply"/, "an auto-reply is shown, flagged");
 });
 
-test("the send falls back to an address that can receive", () => {
+test("the send never sets Reply-To to a host that cannot receive", () => {
   const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
-  // It used to fall back to the From address, which is exactly what lost every
-  // reply: nothing in our DNS tells anyone where to deliver mail to that domain.
   assert.match(route, /const replyTo = replyToRaw \|\| replyAddressFor\(brandId\) \|\| fromEmail/);
+  // The line above is only safe because the middle term is itself gated. That is
+  // the property worth asserting — the source text alone was equally true while
+  // every reply was bouncing.
+  const had = process.env.MW_REPLY_HOST;
+  try {
+    delete process.env.MW_REPLY_HOST;
+    assert.equal(reply.replyAddressFor("veryx"), "",
+      "with no reply host stated the middle term must vanish, leaving the customer's own From address");
+  } finally {
+    if (had === undefined) delete process.env.MW_REPLY_HOST; else process.env.MW_REPLY_HOST = had;
+  }
 });
 
 test("the platform says where a reply will go, before the send", async () => {
   const noWhere = await reply.replyVerdict({ replyTo: "hello@a-domain-that-cannot-exist-9z8x.invalid" });
   assert.equal(noWhere.reachable, "no");
   assert.match(noWhere.note, /never see the reply/);
-  const ours = await reply.replyVerdict({ brandId: "veryx" });
-  assert.equal(ours.reachable, "yes");
-  assert.equal(ours.intoInbox, true);
+  // OUR OWN HOST GETS THE SAME LOOKUP AS ANYBODY'S. This used to assert
+  // `reachable: "yes"` unconditionally, which was false in production for the
+  // entire life of the feature: the verdict exempted the one domain it should
+  // have checked, and the test then certified the exemption.
+  const had = process.env.MW_REPLY_HOST;
+  try {
+    delete process.env.MW_REPLY_HOST;
+    const dark = await reply.replyVerdict({ brandId: "veryx" });
+    assert.equal(dark.reachable, "no", "an unconfigured reply host is not reachable");
+    assert.equal(dark.intoInbox, false);
+    assert.match(dark.note, /failure notice|cannot come back here/);
+
+    process.env.MW_REPLY_HOST = "a-host-that-cannot-exist-9z8x.invalid";
+    const noMx = await reply.replyVerdict({ brandId: "veryx" });
+    assert.equal(noMx.reachable, "no", "a stated host with no MX is not reachable either");
+    assert.equal(noMx.intoInbox, false);
+
+    // AND THE OTHER BRANCH. Passing one of our OWN reply addresses explicitly
+    // takes a different path through the verdict, and that is the path a send
+    // screen actually uses once a Reply-to is filled in. A mutation that
+    // restored the old unconditional `yes` there survived until this existed.
+    const mine = reply.replyAddressFor("veryx");
+    assert.ok(mine, "a stated host issues an address to test with");
+    const explicitly = await reply.replyVerdict({ replyTo: mine });
+    assert.equal(explicitly.reachable, "no",
+      "a MarketWar reply address on a host with no MX must not report itself reachable");
+    assert.equal(explicitly.intoInbox, false);
+    assert.match(explicitly.note, /failure notice/);
+  } finally {
+    if (had === undefined) delete process.env.MW_REPLY_HOST; else process.env.MW_REPLY_HOST = had;
+  }
   // And the Email Centre asks the question rather than leaving it to be found out.
   const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
   assert.match(page, /action: "reply-check"/);

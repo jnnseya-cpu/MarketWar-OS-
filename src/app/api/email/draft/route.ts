@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 import { gatewayComplete, GatewayUnconfiguredError, gatewayLangFrom } from "@/backend/gateway";
+import { writerLanguage, languageInstruction } from "@/shared/writer-language";
 import { MERGE_VARS } from "@/backend/email-templates";
 import { fixTokens, tokenWarnings } from "@/backend/email-template-writer";
+import { getIdentity } from "@/backend/brand-identity";
 
 // AI email drafting — writes the campaign copy, or a reusable template.
 //
@@ -57,6 +59,12 @@ export async function POST(req: NextRequest) {
   const goal = s(body.goal) || "get replies and bookings";
   if (!business) return NextResponse.json({ error: "Add a brand first — the draft is written from your brand details." }, { status: 400 });
 
+  // THE BRAND, not just its name. This route received `business` as a bare
+  // string and nothing else, so it could not read the identity that decides how
+  // the brand sounds — or, since this change, what language it sells in.
+  // Optional: a caller that passes no brandId still gets a draft.
+  const identity = s(body.brandId) ? await getIdentity(s(body.brandId)).catch(() => null) : null;
+
   // Only real, supplied facts go in. Nothing is invented about the business.
   const facts = [
     `Business: ${business}`,
@@ -69,7 +77,16 @@ export async function POST(req: NextRequest) {
     `Tone: ${s(body.tone) || "direct, warm, no hype"}`,
   ].filter(Boolean).join("\n");
 
-  const system = `You write short commercial emails that get replies for small businesses. British English.
+  // The BRAND's market language, not the operator's browser — see
+  // shared/writer-language.ts. "British English" used to be hard-coded on this
+  // line and overrode everything downstream.
+  const language = writerLanguage({
+    explicit: s(body.lang),
+    brand: identity?.marketLanguage,
+    request: gatewayLangFrom(req),
+  });
+  const langLine = languageInstruction(language);
+  const system = `You write short commercial emails that get replies for small businesses.${langLine ? `\n\n${langLine}` : ""}
 
 RULES:
 - Use ONLY the facts supplied. Never invent products, prices, statistics, awards, testimonials or claims. If a detail is missing, write around it — do not guess.
@@ -89,7 +106,7 @@ Subject: <subject line>
 <email body>`;
 
   try {
-    const res = await gatewayComplete({ system, prompt: facts, maxTokens: 800, lang: gatewayLangFrom(req) });
+    const res = await gatewayComplete({ system, prompt: facts, maxTokens: 800, lang: language });
     let { subject, body: text } = splitDraft(res.text);
     const warnings: string[] = [];
 
