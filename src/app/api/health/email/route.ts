@@ -478,6 +478,25 @@ export async function GET(req: NextRequest) {
       // a sign-in that was itself broken.
       probeReachedStage: probe?.stage ?? null,
       probeSucceeded: probe?.ok ?? null,
+      // WHEN THE RUNNING CODE WAS BUILT — and why it is here rather than in a
+      // note somewhere.
+      //
+      // `whyThisExists` below has always said that Vercel applies an environment
+      // change only to deployments created AFTER it, so a variable saved without
+      // a redeploy leaves the OLD password running and this endpoint truthfully
+      // reports a refusal caused by a credential nobody is using any more. It
+      // said that in prose and gave NO WAY TO CHECK IT — the platform knew when
+      // it was built and never carried the fact to the person who needed it,
+      // which is this repository's oldest defect wearing a different coat.
+      //
+      // Compare this with the "Updated" timestamp beside the variable in the
+      // dashboard. Build older than the variable = the running code has never
+      // seen the new value, and no amount of resetting the password will help.
+      // It is a build timestamp, not anybody's data, so it is safe signed out.
+      buildBuiltAt: process.env.MW_BUILD_TIME || null,
+      buildAgeHint: process.env.MW_BUILD_TIME
+        ? `This deployment was built ${Math.max(0, Math.round((Date.now() - Date.parse(process.env.MW_BUILD_TIME)) / 60000))} minute(s) ago. If you saved SMTP_PASS AFTER that, the running code is still using the old one — redeploy before touching the password again.`
+        : "This build predates the build-time stamp, so its age cannot be checked here. Redeploy once and it will report.",
       // THE INVISIBLE CAUSE OF A REFUSED PASSWORD, AND THE ONLY ONE NOBODY CAN SEE.
       //
       // A password pasted into a hosting dashboard picks up a trailing newline or

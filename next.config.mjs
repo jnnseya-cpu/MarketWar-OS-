@@ -72,6 +72,20 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // WHEN THIS BUILD WAS MADE — the fact that settles "I set the variable and it
+  // still does not work".
+  //
+  // Vercel applies an environment change only to deployments created AFTER it,
+  // so a variable saved without a redeploy leaves the OLD value running and every
+  // health endpoint truthfully reports a failure caused by a password nobody is
+  // using any more. `/api/health/email` said exactly that in prose and gave no
+  // way to check it — the platform knew when it was built and never told anybody.
+  //
+  // Evaluated at BUILD time (this file runs once, during the build), so it is the
+  // deployment's own age rather than the cold start's. Compare it with the
+  // "Updated" timestamp beside the variable in the dashboard: if the build is
+  // older, the running code has never seen the new value.
+  env: { MW_BUILD_TIME: new Date().toISOString() },
   // firebase-admin (and its native/gRPC deps: gRPC, protobufjs, farmhash) must
   // NOT be bundled by Next's server compiler. Bundling builds green but then
   // fails to load at runtime cold-start on Vercel's serverless runtime — every

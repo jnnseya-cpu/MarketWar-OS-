@@ -25779,6 +25779,34 @@ test("the site is shareable: Open Graph and a Twitter card, on one origin", asyn
 // ---------------------------------------------------------------------------
 const cg = await import("../src/shared/contact-groups.ts");
 
+test("the email health endpoint says when the build was made", async () => {
+  // "I set the variable and it still does not work" has one common cause and no
+  // way to check it: Vercel applies an environment change only to deployments
+  // created AFTER it, so a variable saved without a redeploy leaves the OLD value
+  // running. The endpoint said that in prose and gave nothing to compare against
+  // — it knew when it was built and never carried the fact to the reader.
+  const { readFileSync } = await import("node:fs");
+  const route = readFileSync(new URL("../src/app/api/health/email/route.ts", import.meta.url), "utf8");
+  const cfg = readFileSync(new URL("../next.config.mjs", import.meta.url), "utf8");
+
+  assert.match(cfg, /env: \{ MW_BUILD_TIME: new Date\(\)\.toISOString\(\) \}/,
+    "the stamp must be baked at BUILD time — a value read at runtime is the cold start, not the deployment");
+  assert.match(route, /buildBuiltAt: process\.env\.MW_BUILD_TIME/);
+  assert.match(route, /buildAgeHint/);
+
+  // SIGNED OUT. A build timestamp is not anybody's data, and gating it behind a
+  // sign-in is how the SMTP stage stayed unreadable for a week.
+  //
+  // COMMENTS STRIPPED FIRST. The first version of this sliced the raw source and
+  // failed on MY OWN COMMENT, which mentions `whyThisExists` and truncated the
+  // block before the field it was looking for. That is the eighth time a test in
+  // this suite has failed on its own prose.
+  const code = codeOf(route);
+  const openBlock = code.slice(code.indexOf("restricted:"), code.indexOf("whyThisExists"));
+  assert.ok(openBlock.includes("buildBuiltAt"),
+    "the build age must be in the signed-out block — it is the one fact that unblocks somebody who cannot sign in");
+});
+
 test("groups: an empty selection is everyone, which is what every old campaign did", () => {
   const people = [{ email: "a@x.com" }, { email: "b@x.com", groups: ["Buyers"] }];
   assert.equal(cg.selectByGroups(people, []).length, 2);
