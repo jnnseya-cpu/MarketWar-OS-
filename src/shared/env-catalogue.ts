@@ -172,6 +172,9 @@ export const ENV_TUNING: string[] = [
 
 /** Set by the host, not by the owner. Nothing to obtain and nothing to fix. */
 export const ENV_PLATFORM: string[] = [
+  // Baked at build time by next.config.mjs, not set by anybody. It is how
+  // /api/health/email answers "is my build older than my env change?".
+  "MW_BUILD_TIME",
   "NODE_ENV",
   "VERCEL",
   "VERCEL_ENV",
