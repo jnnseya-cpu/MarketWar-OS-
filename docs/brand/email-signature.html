@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MarketWar OS — email signature</title>
+<style>
+  body { margin:0; background:#f4f4f2; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#101011; }
+  .page { max-width: 760px; margin: 0 auto; padding: 40px 24px 72px; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color:#7a7a75; margin: 40px 0 10px; font-weight: 700; }
+  p  { font-size: 14px; line-height: 1.65; color:#3a3a3d; margin: 0 0 14px; }
+  code { background:#e8e8e4; padding:1px 5px; border-radius:3px; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size: 12.5px; }
+  .stage { background:#fff; border:1px solid #dedede; border-radius:10px; padding:26px; }
+  .note { border-left:3px solid #BE9247; background:#fdfaf4; padding:12px 16px; font-size:13px; line-height:1.6; color:#3a3a3d; border-radius:0 6px 6px 0; }
+  .fill { background:#fff4d6; padding:1px 5px; border-radius:3px; font-weight:700; }
+  pre { background:#101011; color:#e8e8e4; padding:16px; border-radius:8px; overflow-x:auto; font-size:12px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>MarketWar OS — email signature</h1>
+  <p>Paste the block below into Gmail (Settings → Signature) or Outlook (File → Options → Mail → Signatures).
+     Copy it from the rendered page, not from the source — clients keep the formatting that way.</p>
+
+  <div class="note">
+    <strong>Two things to replace before you use it.</strong> Every <span class="fill">highlighted</span> value
+    is a placeholder. The registered-company line is a UK legal requirement for a site selling to the public and
+    <code>NEXT_PUBLIC_LEGAL_ENTITY_NAME</code> is still unset on the deployment — I have not invented one.
+  </div>
+
+  <h2>The signature</h2>
+  <div class="stage">
+
+<!-- ===================== COPY FROM HERE ===================== -->
+<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#101011;">
+  <tr>
+    <!-- Mark. Hosted on the site so it renders without an attachment. -->
+    <td style="vertical-align:top;padding:0 18px 0 0;">
+      <img src="https://www.marketwaros.com/brand/marketwar-os-mark.png"
+           width="52" height="52" alt="MarketWar OS"
+           style="display:block;width:52px;height:52px;border:0;outline:none;text-decoration:none;" />
+    </td>
+
+    <!-- The brass rule. A 2px column reads as a deliberate edge in every client
+         that strips borders, which most of them do. -->
+    <td style="width:2px;background:#BE9247;font-size:0;line-height:0;">&nbsp;</td>
+
+    <td style="vertical-align:top;padding:0 0 0 18px;">
+      <div style="font-size:16px;font-weight:700;letter-spacing:-0.01em;color:#101011;line-height:1.25;">
+        <span class="fill">Justin Nkwenti</span>
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#BE9247;line-height:1.5;padding-top:2px;">
+        <span class="fill">Founder</span> · MarketWar OS
+      </div>
+
+      <div style="font-size:12.5px;color:#5e5e5a;line-height:1.7;padding-top:9px;">
+        <a href="mailto:info@marketwaros.com" style="color:#101011;text-decoration:none;font-weight:600;">info@marketwaros.com</a><br />
+        <a href="https://www.marketwaros.com" style="color:#101011;text-decoration:none;font-weight:600;">www.marketwaros.com</a>
+      </div>
+
+      <!-- ONE LINE THAT SELLS, and it is a real offer rather than a slogan:
+           the audit runs with no account and no card, so the reader can test
+           the claim in the time it takes to read the signature. -->
+      <div style="font-size:12px;color:#7a7a75;line-height:1.6;padding-top:11px;border-top:1px solid #e4e4e0;margin-top:11px;">
+        <a href="https://www.marketwaros.com/audit" style="color:#BE9247;text-decoration:none;font-weight:700;">Free 30-check website audit</a>
+        — your real page, about 15 seconds, no account, no card.
+      </div>
+    </td>
+  </tr>
+</table>
+<!-- ====================== TO HERE ========================== -->
+
+  </div>
+
+  <h2>With the legal line (use once the entity name is set)</h2>
+  <p>UK consumer law requires the trading name and registered address on business communications.
+     Add this row inside the same table, directly under the audit line.</p>
+  <div class="stage">
+    <div style="font-size:11px;color:#9c9c97;line-height:1.55;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding-top:9px;">
+      <span class="fill">[Registered company name]</span>, registered in England &amp; Wales no.
+      <span class="fill">[number]</span>. <span class="fill">[Registered address]</span>.<br />
+      This email and any attachments are confidential and intended for the named recipient only.
+    </div>
+  </div>
+
+  <h2>Plain-text version</h2>
+  <p>For clients that strip HTML, and for anyone who prefers it.</p>
+<pre>Justin Nkwenti
+Founder · MarketWar OS
+info@marketwaros.com | www.marketwaros.com
+
+Free 30-check website audit — your real page, about 15 seconds,
+no account, no card: www.marketwaros.com/audit</pre>
+
+  <h2>Why it is built this way</h2>
+  <p><strong>Brass on near-black is the actual brand.</strong> The accent is <code>#BE9247</code> —
+     a struck, desaturated metal, chosen precisely because it is not the emerald-and-purple every
+     generated interface arrives in. The signature uses it once, on the rule and the call to action,
+     and nowhere else.</p>
+  <p><strong>System fonts, not the site's.</strong> Archivo and Instrument Sans are the site's faces
+     and no email client will load them. A web font in a signature falls back silently and unevenly,
+     so this uses the system stack deliberately and keeps the identity in the colour and the layout.</p>
+  <p><strong>A table, not a flexbox.</strong> Outlook renders through Word. Divs and modern CSS
+     collapse; a table with inline styles is the only layout that survives Gmail, Outlook, Apple Mail
+     and every mobile client at once.</p>
+  <p><strong>The image is hosted, not attached.</strong> An attached logo shows up as a paperclip on
+     every message you send and gets stripped by some filters. This one loads from the site.</p>
+  <p><strong>No social icons.</strong> The audit finding on our own pages was "no links to your social
+     profiles", and the honest answer is that I do not know which accounts are active. Adding icons
+     that point at empty profiles is worse than none — tell me the live ones and I will add them.</p>
+
+</div>
+</body>
+</html>
