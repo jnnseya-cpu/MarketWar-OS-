@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 import { createHmac, timingSafeEqual } from "crypto";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { suppress } from "@/backend/email";
+import { siteOrigin } from "@/shared/site";
 
 export type EmailEventType = "sent" | "open" | "click" | "bounce" | "complaint" | "unsubscribe";
 
@@ -190,8 +191,31 @@ function nowISO(): string {
 // The public base the pixel/link endpoints resolve to. Point MW_TRACK_URL at the
 // branded tracking domain (the `email.<domain>` CNAME → the app) or leave it to
 // the production URL.
+//
+// THE FALLBACK WAS THE APEX, AND THE APP SERVES `www`.
+//
+// With `NEXT_PUBLIC_PRODUCTION_URL` unset this returned `https://marketwaros.com`
+// while `siteOrigin()` — robots.txt, the sitemap, every JSON-LD block and now the
+// page metadata — returns `https://www.marketwaros.com`. Two canonical hosts in
+// one app, for the third time: it was already found behind the Stripe webhook and
+// behind the Open Graph tags.
+//
+// Here it is worse than untidy, because these are not links a person retypes:
+//
+//   • the OPEN PIXEL is fetched by a mail client, and a redirect on an image is
+//     silently dropped by several of them — so opens simply never arrive;
+//   • the CLICK links carry the recipient to their destination through us;
+//   • the UNSUBSCRIBE link and the RFC 8058 `List-Unsubscribe` header point here
+//     too. An unsubscribe that does not resolve is not an inconvenience, it is a
+//     compliance failure under PECR and the Gmail bulk-sender rules, and the
+//     complaint rate it produces is what closes a sending domain.
+//
+// So the fallback is now `siteOrigin()` — the one place this app decides what
+// host it is — instead of a second literal that can drift from it. `MW_TRACK_URL`
+// still wins, because a branded tracking domain per brand is the better answer
+// and `trackingHostFor` supplies it.
 export function trackingBase(): string {
-  return (process.env.MW_TRACK_URL || process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://marketwaros.com").replace(/\/$/, "");
+  return (process.env.MW_TRACK_URL || siteOrigin()).replace(/\/$/, "");
 }
 
 // The one-click unsubscribe URL for a recipient (used both as an in-body link and
