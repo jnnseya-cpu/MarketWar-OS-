@@ -230,7 +230,27 @@ export async function GET(req: NextRequest) {
   // load its own mail code should say so to whoever looks: the VERDICT and the
   // reason are not secrets. Everything that identifies a person, a mailbox or a
   // server needs the same credential `?send=` already needed.
-  const privileged = cronAuthorised(req).ok || (await requireAuth(req, { scope: "platform_admin" })).ok;
+  //
+  // `ok` IS NOT ENOUGH, AND THIS ROUTE OF ALL ROUTES SHOULD HAVE KNOWN IT.
+  // `requireAuth` returns `{ ok: true, enforced: false }` when Firebase Admin is
+  // unconfigured — the documented behaviour that keeps the zero-config demo
+  // working, written down in `guard.ts` and in this repository's own rules after
+  // `/api/email/suppression-repair` was found open for exactly this reason.
+  //
+  // This endpoint took `ok` alone. So on any deployment with SMTP configured and
+  // Firebase Admin not yet set up — an ordinary order of work — an anonymous
+  // caller received the mail host, the account username, up to twenty real
+  // recipient addresses, the environment-variable shapes and, since today, the
+  // length of the password. Found by driving the production build signed out;
+  // the structural test that guards this file checks that each field sits behind
+  // the flag and never that the flag means anything.
+  //
+  // THE SCHEDULER BEARER IS THE ESCAPE HATCH, and it matters: `cronAuthorised`
+  // works without Firebase Admin, so an operator on such a deployment can still
+  // read the full report with CRON_SECRET rather than being locked out of their
+  // own diagnostic.
+  const auth = await requireAuth(req, { scope: "platform_admin" });
+  const privileged = cronAuthorised(req).ok || (auth.ok && auth.enforced);
 
   // -------------------------------------------------------------------------
   // ?send=<address> — THE REAL SEND, not another probe.
@@ -545,7 +565,7 @@ export async function GET(req: NextRequest) {
     configured: emailIsConfigured(),
     poolNodes: pool.length,
     ...(privileged ? {} : {
-      restricted: "Signed out, so the recipients, the mail host, the account username, the environment-variable shapes and the DNS answers are withheld. Sign in as a platform admin, or call this with the scheduler bearer, for the full report.",
+      restricted: "Signed out, so the recipients, the mail host, the account username, the environment-variable shapes and the DNS answers are withheld. Sign in as a platform admin, or call this with the scheduler bearer (CRON_SECRET), for the full report. On a deployment with no Firebase Admin nobody can be recognised as an admin at all, so the bearer is the only way in — and that is deliberate: an unidentifiable caller is not an operator.",
       // THE STAGE, WITHOUT THE NAMES. Which SMTP verb was refused is a protocol
       // step, not anybody's data — and it is the single fact that turns "the mail
       // server refused the message" into a fix. Withholding it sent the owner to
