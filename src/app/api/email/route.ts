@@ -307,6 +307,20 @@ export async function POST(req: NextRequest) {
     const fromName = typeof body.fromName === "string" ? body.fromName.trim() : "";
     const fromDomain = fromEmail.split("@")[1] || "";
     const dkim = fromDomain ? (await signingFor(brandId, fromDomain)) ?? undefined : undefined;
+    // WHO ACTUALLY SUBMITS THIS, versus who it claims to be from. Computed from
+    // the node that will really log in, not from the environment variables —
+    // MW_SENDING_POOL overrides those, and a report about the wrong credential
+    // is how five weeks went by.
+    let senderIdentity: { aligned: boolean; why: string } | null = null;
+    try {
+      const { pickNode, poolConfigured } = await import("@/backend/sending-pool");
+      const { resolveSender } = await import("@/shared/sender-identity");
+      const { bounceReturnPath } = await import("@/backend/email");
+      const node = poolConfigured() ? pickNode(fromDomain, today) : null;
+      if (fromEmail) {
+        senderIdentity = resolveSender({ from: fromEmail, authUser: node?.user || "", bounce: bounceReturnPath() });
+      }
+    } catch { /* diagnostics must never take a send down */ }
     const fromHeader = fromEmail ? (fromName ? `${fromName} <${fromEmail}>` : fromEmail) : undefined;
     // Replies go here. Default to the From address, but let the sender point them
     // at their REAL inbox (e.g. their Gmail) so replies land where they read mail.
@@ -488,6 +502,16 @@ export async function POST(req: NextRequest) {
       remaining: Math.max(0, sendable.length - attempted),
       dailyCap: warm.dailyCap, sentToday: warm.sentToday + sent, dailyRemaining, day: warm.day,
       authenticatedAs: dkim ? `${fromEmail} (DKIM-signed as ${dkim.domain})` : fromEmail ? `${fromEmail} (domain not yet authenticated — sign it in Sending Domains for inbox placement)` : "platform default sender",
+      // ACCEPTED IS NOT DELIVERED, AND THE DIFFERENCE IS USUALLY ALIGNMENT.
+      //
+      // Reported live: "1 sent · 0 failed" and the message never arrived. The
+      // screen said "DKIM-signed as kodajnn.com", which reads as fully
+      // authenticated — while the account that submitted it was a mailbox on
+      // ANOTHER domain, so the envelope sender is that other domain and, under
+      // `aspf=s`, the SPF half of DMARC cannot align however correct the DNS is.
+      // The whole pass then rests on the DKIM signature surviving every relay in
+      // between. That is worth knowing BEFORE a campaign, not after it vanishes.
+      ...(senderIdentity ? { senderAlignment: { aligned: senderIdentity.aligned, why: senderIdentity.why } } : {}),
       note: live
         ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}.${worstLine ? ` The server said: “${worstLine}”.` : ""}${worstMeaning ? ` ${worstMeaning}` : ""}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set MW_SENDING_POOL (or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then run this again and they all still go.`,

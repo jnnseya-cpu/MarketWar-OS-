@@ -28792,6 +28792,129 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("a reply the provider says was CUT OFF is retried, not handed back as advice", async () => {
+  // The gateway has always returned `truncated`, read from the provider's own
+  // stop reason, and the writer never looked at it — so a cut-off reply surfaced
+  // as "the model did not return usable JSON" and the only remedy offered was to
+  // press the button again, which reproduces it exactly. Reported TWICE from the
+  // live platform, the second time after the ceiling had already been raised,
+  // which is what proved the ceiling was never the whole answer.
+  const w = await import("../src/backend/email-template-writer.ts");
+  const good = JSON.stringify({ name: "n", subject: "s", heading: "", body: "written copy here", ctaLabel: "Go", ctaUrl: "" });
+
+  const calls = [];
+  const recovered = await w.writeEmailTemplate({ business: "KODA" }, {
+    complete: async (req) => {
+      calls.push({ budget: req.maxTokens, shorter: /UNDER 110 WORDS/.test(req.prompt) });
+      return calls.length === 1
+        ? { text: '{"name":"x","body":"never fin', provider: "t", truncated: true }
+        : { text: good, provider: "t" };
+    },
+  });
+  assert.equal(calls.length, 2, "a truncated reply must be retried");
+  assert.ok(calls[1].budget > calls[0].budget, "…with a larger budget");
+  assert.ok(calls[1].shorter, "…and a shorter body asked for, since refilling a bigger budget is not a fix");
+  assert.equal(recovered.ok, true, "and the recovered attempt is what the customer gets");
+  assert.equal(recovered.written, "ai");
+
+  // THE CASE THE BRACKET TEST CANNOT SEE, and the commonest one in practice.
+  // Every body this writer produces carries merge tokens — `{{ firstName }}` —
+  // so a reply cut off mid-sentence still contains a closing brace, and counting
+  // brackets concludes it is complete. Only the PROVIDER's stop reason knows.
+  const braced = [];
+  const withTokens = await w.writeEmailTemplate({ business: "KODA" }, {
+    complete: async (req) => {
+      braced.push(req.maxTokens);
+      return braced.length === 1
+        ? { text: '{"name":"x","subject":"s","body":"Hi {{ firstName | there }}, we noticed you', provider: "t", truncated: true }
+        : { text: good, provider: "t" };
+    },
+  });
+  assert.equal(braced.length, 2,
+    "a truncated reply containing merge tokens must still be retried — the brackets look closed");
+  assert.equal(withTokens.ok, true);
+
+  // Not retried when nothing is wrong — a second call is a second charge.
+  const clean = [];
+  await w.writeEmailTemplate({ business: "KODA" }, {
+    complete: async (req) => { clean.push(req.maxTokens); return { text: good, provider: "t" }; },
+  });
+  assert.equal(clean.length, 1, "a usable reply must not be paid for twice");
+
+  // Twice truncated is an honest failure, and the outline it falls back to is the
+  // one the preview refuses.
+  const both = [];
+  const failed = await w.writeEmailTemplate({ business: "KODA" }, {
+    complete: async (req) => { both.push(req.maxTokens); return { text: '{"name":"x","body":"never fin', provider: "t", truncated: true }; },
+  });
+  assert.equal(both.length, 2, "it retries once, not forever");
+  assert.equal(failed.ok, false);
+  assert.match(failed.warnings[0], /CUT OFF/);
+  assert.equal(w.looksUnwritten(failed.draft.body), true, "and the fallback is refused by the preview");
+});
+
+test("the pool prefers a node that can AUTHENTICATE as the sending domain", async () => {
+  // REPORTED LIVE: "1 sent · 0 failed" and the message never arrived. The relay
+  // accepted it — accepted is not delivered. The account that submitted it was a
+  // mailbox on another domain, so the envelope sender was that other domain and,
+  // under `aspf=s`, the SPF half of DMARC cannot align however correct the DNS
+  // is; the whole pass then rests on the DKIM signature surviving every relay in
+  // between.
+  //
+  // `pickNode` hashed the domain across nodes, which spreads load across warmed
+  // IPs — a reputation concern, not a routing rule. It never asked whether a node
+  // could authenticate AS the domain being sent from.
+  const pool = await import("../src/backend/sending-pool.ts");
+  const had = process.env.MW_SENDING_POOL;
+  try {
+    process.env.MW_SENDING_POOL = JSON.stringify([
+      { label: "mw", host: "h", user: "info@marketwaros.test", pass: "x", port: 587 },
+      { label: "koda", host: "h", user: "koda@kodajnn.test", pass: "y", port: 587 },
+    ]);
+    assert.equal(pool.pickNode("kodajnn.test", "2026-09-08").user, "koda@kodajnn.test",
+      "a domain with a matching account must use it");
+    assert.equal(pool.pickNode("marketwaros.test", "2026-09-08").user, "info@marketwaros.test",
+      "and so must the other one — not whichever the hash lands on");
+    // A domain with no matching account still sends, by the old rule.
+    assert.ok(pool.pickNode("nobody.test", "2026-09-08"), "an unmatched domain still gets a node");
+    // Case and a www. prefix must not defeat the match. ASSERTED ON THE
+    // NORMALISER DIRECTLY, not only through pickNode: with a two-node pool the
+    // hash fallback lands on the right node often enough that deleting the
+    // normalisation stayed green.
+    assert.equal(pool.pickNode("WWW.KodaJNN.test", "2026-09-08").user, "koda@kodajnn.test",
+      "matching is case-insensitive and ignores www.");
+    assert.equal(pool.domainOf("WWW.KodaJNN.test"), "kodajnn.test");
+    assert.equal(pool.domainOf("Koda@KodaJNN.test"), "kodajnn.test", "an address reduces to its domain");
+    assert.equal(pool.domainOf("  kodajnn.test  "), "kodajnn.test");
+    assert.equal(pool.domainOf(""), "", "and nothing normalises to nothing, never to a match");
+  } finally {
+    if (had === undefined) delete process.env.MW_SENDING_POOL; else process.env.MW_SENDING_POOL = had;
+  }
+});
+
+test("a send reports whether the sender actually aligns, not just that it signed", async () => {
+  // The screen said "Sent as: koda@kodajnn.com (DKIM-signed as kodajnn.com)",
+  // which reads as fully authenticated, while SPF could not align at all. That
+  // silence is why a vanished message was a surprise rather than a warning.
+  const { resolveSender } = await import("../src/shared/sender-identity.ts");
+
+  const crossDomain = resolveSender({ from: "koda@kodajnn.test", authUser: "info@marketwaros.test", bounce: "" });
+  assert.equal(crossDomain.aligned, false, "different domains cannot align");
+  assert.match(crossDomain.why, /DMARC will not align/, "and the reason must say so in words");
+  assert.equal(crossDomain.envelopeFrom, "info@marketwaros.test",
+    "the envelope falls back to the account, which at least exists so bounces arrive");
+
+  const same = resolveSender({ from: "koda@kodajnn.test", authUser: "koda@kodajnn.test", bounce: "" });
+  assert.equal(same.aligned, true);
+  assert.equal(same.senderHeader, "", "and no Sender: header, which beside an identical From is a spam signal");
+
+  const route = codeOf(readFileSync("src/app/api/email/route.ts", "utf8"));
+  assert.match(route, /senderAlignment: \{ aligned: senderIdentity\.aligned, why: senderIdentity\.why \}/,
+    "the campaign result must carry the alignment verdict");
+  assert.match(route, /pickNode\(fromDomain, today\)/,
+    "…computed from the node that will really log in, not from the environment variables");
+});
+
 test("MW_SENDING_POOL overrides SMTP_USER/SMTP_PASS, and the node says so", async () => {
   // THE FAULT THAT SURVIVES THREE PASSWORD RESETS. The pool JSON wins over the
   // SMTP_* pair, and nothing said so anywhere. An owner whose pool carried an
