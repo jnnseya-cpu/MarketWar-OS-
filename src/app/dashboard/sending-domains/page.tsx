@@ -33,6 +33,11 @@ function CopyBtn({ text }: { text: string }) {
 export default function SendingDomainsPage() {
   const { activeBrand, ready } = useActiveBrand();
   const [domains, setDomains] = useState<DomainView[]>([]);
+  // Domains this ACCOUNT verified under a DIFFERENT brand. Shown so one never
+  // silently disappears, never merged into the list above: a domain belongs to
+  // one brand, because its DKIM key lives at one DNS record.
+  const [otherBrandDomains, setOtherBrandDomains] = useState<{ domain: string; status: string }[]>([]);
+  const [otherBrandNote, setOtherBrandNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -48,6 +53,8 @@ export default function SendingDomainsPage() {
       const res = await authedFetch(`/api/sending-domains?brandId=${encodeURIComponent(brandId)}`);
       const d = await res.json().catch(() => ({}));
       setDomains(Array.isArray(d.domains) ? d.domains : []);
+      setOtherBrandDomains(Array.isArray(d.otherBrandDomains) ? d.otherBrandDomains : []);
+      setOtherBrandNote(typeof d.otherBrandNote === "string" ? d.otherBrandNote : "");
       setSendingConfigured(typeof d.sendingConfigured === "boolean" ? d.sendingConfigured : null);
     } catch { setDomains([]); } finally { setBusy(false); }
   }, []);
@@ -135,6 +142,31 @@ export default function SendingDomainsPage() {
               </p>
             )}
           </div>
+
+          {/* DOMAINS THIS ACCOUNT VERIFIED UNDER ANOTHER BRAND.
+              Named rather than hidden — a domain vanishing with no explanation
+              was the original complaint and is its own defect — but kept OUT of
+              the list above and off every send path. Opening Koda used to show
+              AxionOS's evandeli.com as authenticated, which prefilled Koda's From
+              to that domain and then sent unsigned, because the DKIM key is
+              stored per brand. Strict DMARC on that domain fails such a message
+              outright. */}
+          {otherBrandDomains.length > 0 && (
+            <div className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/[0.05] p-4">
+              <p className="text-sm font-semibold text-amber-100">
+                {otherBrandDomains.length} domain{otherBrandDomains.length === 1 ? "" : "s"} on this account belong{otherBrandDomains.length === 1 ? "s" : ""} to another brand
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {otherBrandDomains.map((d) => (
+                  <span key={d.domain} className="rounded-full border border-amber-500/25 px-2.5 py-1 font-mono text-[11px] text-amber-200/90">
+                    {d.domain}
+                    <span className="ml-1.5 text-amber-200/60">{d.status}</span>
+                  </span>
+                ))}
+              </div>
+              {otherBrandNote && <p className="mt-2.5 text-xs leading-relaxed text-amber-100/70">{otherBrandNote}</p>}
+            </div>
+          )}
 
           {busy && !domains.length && (
             <div className="card p-10 text-center text-sm text-slate-400"><Loader2 className="mx-auto h-5 w-5 animate-spin text-emerald-400" /><p className="mt-3">Loading domains…</p></div>

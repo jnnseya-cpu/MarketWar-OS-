@@ -25798,6 +25798,78 @@ const cg = await import("../src/shared/contact-groups.ts");
 // The distinction that fixes it without creating a double-send: did any message
 // reach the wire? Before the first MAIL FROM, nothing was delivered to anybody.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ONE BRAND'S DOMAIN IS NOT ANOTHER BRAND'S DOMAIN.
+//
+// Reported: opening the Koda brand showed evandeli.com — AxionOS's domain —
+// as "Authenticated". The route MERGED every domain the account had verified
+// under any brand id into this brand's list, to stop one disappearing after a
+// brand-id change. The consequence was not cosmetic:
+//
+//   emailIdentityDefaults prefills the From from the first verified domain, so
+//   Koda was prefilled to send as evandeli.com; fromAddressWarning checked the
+//   same list and warned about nothing; and on send, signingFor looks the key up
+//   by `brandId::domain` and finds NOTHING — so the message goes out claiming
+//   evandeli.com with NO DKIM. That domain publishes adkim=s aspf=s, so strict
+//   alignment fails it at the receiver and burns a domain the customer owns.
+//
+// It cannot be fixed by sharing a key either: the selector is fixed, so two
+// brands would both need mwos._domainkey.<domain>, which holds one value.
+// ---------------------------------------------------------------------------
+test("a domain verified under one brand is never offered to another", async () => {
+  const sd = await import("../src/backend/sending-domains.ts");
+  const { emailIdentityDefaults, fromAddressWarning } = await import("../src/shared/email-identity.ts");
+
+  const AXION = `axion_${Date.now()}`;
+  const KODA = `koda_${Date.now()}`;
+  await sd.addDomain(AXION, "evandeli.example", "owner-1");
+
+  assert.equal((await sd.listDomains(AXION)).length, 1, "the owning brand keeps its domain");
+  assert.deepEqual(await sd.listDomains(KODA), [], "another brand must not see it");
+
+  // The three consequences, each asserted where it actually bites.
+  const kodaList = await sd.listDomains(KODA);
+  assert.equal(emailIdentityDefaults({ brandName: "Koda", userEmail: "j@x.com", domains: kodaList }).fromEmail, "",
+    "Koda's From must be BLANK, not prefilled with another brand's domain");
+  assert.match(fromAddressWarning("hello@evandeli.example", kodaList), /not authenticated for sending here/,
+    "typing it by hand must be warned about, not accepted");
+  assert.equal(await sd.signingFor(KODA, "evandeli.example"), null,
+    "and nothing could sign it — which is why offering it produced unsigned mail");
+});
+
+test("the sending-domains route keeps the two lists apart", async () => {
+  const { readFileSync } = await import("node:fs");
+  const route = readFileSync(new URL("../src/app/api/sending-domains/route.ts", import.meta.url), "utf8");
+
+  // `domains` is what prefills, what the warning checks and what may be signed.
+  // It must come from the brand-scoped lister and nothing else.
+  assert.match(route, /const domains = await listDomains\(brandId\);/);
+  assert.ok(!/const domains = \[\.\.\.brandDomains/.test(route),
+    "the merge is back — another brand's domain would prefill this brand's From again");
+
+  // The account's other domains are still reported, so none silently vanishes,
+  // but under a separate key nothing on the send path reads.
+  // Derived from the owner's real domains, and handed back as that value.
+  // Returning an empty literal would silently restore the ORIGINAL complaint —
+  // a verified domain vanishing with no explanation — while every other
+  // assertion here still passed.
+  assert.match(route, /const otherBrandDomains = ownerDomains\s*\n?\s*\.filter\(\(d\) => !here\.has\(d\.domain\)\)/,
+    "the other-brand list must be computed from the owner's domains");
+  const response = route.slice(route.indexOf("return NextResponse.json({"));
+  assert.match(response, /^\s*otherBrandDomains,\s*$/m,
+    "the response must hand back the computed value, not a literal that can be emptied");
+  assert.match(response, /otherBrandNote: otherBrandDomains\.length/,
+    "and the explanation must be driven by the real count");
+  const openBlock = route.slice(route.indexOf("const otherBrandDomains"), route.indexOf("return NextResponse"));
+  assert.ok(!/domains\.push|domains =/.test(openBlock), "they must never be folded back into `domains`");
+
+  // And the screen says why, because a domain that disappears with no
+  // explanation was the original complaint.
+  const page = readFileSync(new URL("../src/app/dashboard/sending-domains/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /otherBrandDomains\.length > 0 &&/, "the other-brand domains must be shown, not hidden");
+  assert.match(page, /belong\{otherBrandDomains\.length === 1 \? "s" : ""\} to another brand/);
+});
+
 test("a batch that never reached the wire is retried on the HTTP provider", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
