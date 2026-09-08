@@ -32,6 +32,37 @@ const DMARC_RUA = (process.env.MW_DMARC_RUA || "dmarc@marketwaros.com").trim();
 const BOUNCE_HOST = (process.env.MW_BOUNCE_HOST || "bounces.marketwaros.com").trim();
 const TRACK_HOST = (process.env.MW_TRACK_HOST || "track.marketwaros.com").trim();
 const SELECTOR = "mwos";
+
+/**
+ * THE DKIM SELECTOR, PER BRAND — which is what lets several brands authenticate
+ * the SAME domain.
+ *
+ * It used to be the bare constant above for every record, and that single
+ * decision was the only thing making a domain belong to one brand: two brands on
+ * one domain would both need their key at `mwos._domainkey.<domain>`, and DNS
+ * holds exactly one value there, so the second could never validate. The Koda
+ * brand could not authenticate a domain another brand had already taken.
+ *
+ * DNS has no such limit. A domain may carry as many selectors as you like —
+ * `mwos-koda._domainkey.example.com` and `mwos-axionos._domainkey.example.com`
+ * are two independent keys, which is exactly how every multi-tenant sender does
+ * this. So each brand gets its own selector, its own key and its own record, and
+ * a company can run every brand it owns off one domain or off five.
+ *
+ * EXISTING RECORDS ARE UNTOUCHED. `selector` is stored ON the record and every
+ * reader — `recordsFor`, `signingFor` — uses the stored value, so a domain
+ * verified before this keeps `mwos` and the DNS already published for it stays
+ * correct. Only new records get a brand-scoped selector.
+ */
+export function selectorFor(brandId: string): string {
+  const slug = String(brandId || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30)
+    .replace(/-+$/g, "");
+  return slug ? `${SELECTOR}-${slug}` : SELECTOR;
+}
 // The receiving node. Only ever used on a subdomain the customer creates.
 const MX_HOST = (process.env.MW_MX_HOST || "mx.marketwaros.com").trim();
 
@@ -92,7 +123,9 @@ export function recordsFor(d: Pick<SendingDomain, "domain" | "selector" | "publi
     },
     {
       purpose: "Return-Path (bounce)", type: "CNAME", required: false,
-      host: `${SELECTOR}bounce.${domain}`,
+      // The RECORD's selector, not the constant — otherwise two brands sharing a
+      // domain would both want `mwosbounce.<domain>`, which is one CNAME.
+      host: `${d.selector}bounce.${domain}`,
       value: BOUNCE_HOST,
     },
     {
@@ -137,7 +170,7 @@ export async function addDomain(brandId: string, domainRaw: string, ownerId?: st
   });
 
   const rec: SendingDomain = {
-    brandId, ...(ownerId ? { ownerId } : {}), domain, selector: SELECTOR,
+    brandId, ...(ownerId ? { ownerId } : {}), domain, selector: selectorFor(brandId),
     publicKey: pemToTxtPublicKey(publicKey),
     privateKeyPem: privateKey,
     status: "pending",
