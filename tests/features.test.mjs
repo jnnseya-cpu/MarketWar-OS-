@@ -28489,8 +28489,20 @@ test("a refused password says whether whitespace is the cause, without echoing i
 
   // Booleans, computed by comparing the value with its own trim. Never the value,
   // never its length — the whole point is that this can be public.
-  assert.match(code, /smtpPassHasSurroundingWhitespace: \(process\.env\.SMTP_PASS \|\| ""\) !== \(process\.env\.SMTP_PASS \|\| ""\)\.trim\(\)/,
-    "the padding check must compare the value with its own trim");
+  // AGAINST THE NODE THAT ACTUALLY LOGS IN, NOT THE ENVIRONMENT VARIABLE. These
+  // used to read process.env.SMTP_PASS. MW_SENDING_POOL overrides SMTP_USER and
+  // SMTP_PASS, so with a pool configured the send never reads those variables —
+  // and the diagnostic was describing a password the mail server had never seen.
+  // The owner reset SMTP_PASS three times while this reported it present and
+  // clean, because the login was using the pool's own copy.
+  assert.match(code, /passPadded: node\.pass !== node\.pass\.trim\(\)/,
+    "the padding check must compare the LOGIN value with its own trim");
+  assert.match(code, /smtpPassHasSurroundingWhitespace: Boolean\(cred\?\.passPadded\)/,
+    "and the reported field must come from that comparison");
+  assert.match(code, /credentialsComeFrom/,
+    "the report must say WHICH source the credentials came from — it decides whether editing SMTP_PASS can change anything");
+  assert.match(code, /editingSmtpPassWouldChangeNothing/,
+    "and must say so in one field, because that is the fault that survives three password resets");
   assert.match(code, /smtpUserHasSurroundingWhitespace/, "the username can be padded too, and is just as invisible");
 
   // ATTACHED TO A FAILURE, NOT A STANDING DESCRIPTION OF A CREDENTIAL. It appears
@@ -28507,15 +28519,16 @@ test("a refused password says whether whitespace is the cause, without echoing i
     else if (code[end] === "}") { depth -= 1; if (depth === 0) break; }
   }
   const signedOut = code.slice(openAt, end).replace(/"(?:[^"\\]|\\.)*"/g, '""');
-  for (const leak of ["SMTP_PASS.length", "SMTP_PASS)", "process.env.SMTP_PASS ||"]) {
-    const uses = signedOut.split(leak).length - 1;
-    if (leak === "process.env.SMTP_PASS ||") {
-      // Used exactly twice — the value and its trim, in one comparison.
-      assert.equal(uses, 2, "SMTP_PASS is read somewhere other than the trim comparison");
-    } else {
-      assert.equal(uses, 0, `${leak} reaches a signed-out caller`);
-    }
+  // The credential itself, its length and its character content stay out of the
+  // public group. A length is not a password, but beside "the password was
+  // refused" it is a head start; it lives in the privileged `credential` object,
+  // which is where the operator reads it.
+  for (const leak of ["passLength", "userLength", "LooksQuoted", "HasNonAscii", "node.pass", "node.user", "process.env.SMTP_PASS"]) {
+    assert.equal(signedOut.split(leak).length - 1, 0, `${leak} reaches a signed-out caller`);
   }
+  assert.match(code, /credential: cred \? \{/, "the operator still gets the length — that is what ends the guessing");
+  assert.equal(signedOut.split("credential: cred").length - 1, 0,
+    "…and gets it OUTSIDE the signed-out group");
 
   // Both verdict branches must be actionable: one names the paste, the other
   // rules it out — "no whitespace" is what stops the owner re-pasting all night.
@@ -28526,8 +28539,86 @@ test("a refused password says whether whitespace is the cause, without echoing i
   // must still say the whitespace has been excluded.
   assert.match(code, /neither value has stray whitespace/,
     "the wrong-password branch must say the paste has been ruled out");
-  assert.match(code, /SMTP_USER IS A DIFFERENT MAILBOX/,
+  assert.match(code, /THE LOGIN MAILBOX IS A DIFFERENT MAILBOX/,
     "the other branch must name the mailbox mismatch rather than falling back to the paste");
+  // AND THE POOL BRANCH COMES FIRST, because it makes every other remedy futile.
+  const verdictIdx = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  const poolIdx = code.indexOf("CREDENTIALS IN USE COME FROM MW_SENDING_POOL");
+  const padIdx = code.indexOf("WHITESPACE AROUND IT");
+  assert.ok(poolIdx > verdictIdx && poolIdx < padIdx,
+    "the MW_SENDING_POOL branch must be tested BEFORE the others — with a pool set, no advice about SMTP_PASS is true");
+});
+
+test("MW_SENDING_POOL overrides SMTP_USER/SMTP_PASS, and the node says so", async () => {
+  // THE FAULT THAT SURVIVES THREE PASSWORD RESETS. The pool JSON wins over the
+  // SMTP_* pair, and nothing said so anywhere. An owner whose pool carried an
+  // old password reset SMTP_PASS three times, watched the diagnostic report it
+  // present and free of whitespace, and got the same 535 every time — because
+  // the login never read SMTP_PASS at all.
+  const pool = await import("../src/backend/sending-pool.ts");
+  const had = {
+    p: process.env.MW_SENDING_POOL, h: process.env.SMTP_HOST,
+    u: process.env.SMTP_USER, s: process.env.SMTP_PASS,
+  };
+  try {
+    process.env.SMTP_HOST = "smtp.env.test";
+    process.env.SMTP_USER = "env@example.test";
+    process.env.SMTP_PASS = "env-password";
+
+    delete process.env.MW_SENDING_POOL;
+    const fromEnv = pool.getPool();
+    assert.equal(fromEnv.length, 1);
+    assert.equal(fromEnv[0].user, "env@example.test");
+    assert.equal(fromEnv[0].source, "env", "with no pool, the credentials come from the SMTP_* pair");
+
+    process.env.MW_SENDING_POOL = JSON.stringify([
+      { label: "n1", host: "smtp.pool.test", user: "pool@example.test", pass: "pool-password", port: 587 },
+    ]);
+    const fromPool = pool.getPool();
+    assert.equal(fromPool.length, 1);
+    assert.equal(fromPool[0].user, "pool@example.test",
+      "the pool WINS — this is the whole defect, stated as a test");
+    assert.equal(fromPool[0].pass, "pool-password",
+      "so editing SMTP_PASS cannot change the password that is sent");
+    assert.equal(fromPool[0].source, "pool",
+      "and the node must carry where it came from, or no diagnostic can say why the reset did nothing");
+
+    // Malformed JSON must still fall back rather than take sending down — and
+    // the fallback must be honestly labelled.
+    process.env.MW_SENDING_POOL = "[not json";
+    const broken = pool.getPool();
+    assert.equal(broken[0].user, "env@example.test", "bad pool JSON degrades to the single node");
+    assert.equal(broken[0].source, "env", "and says so, rather than claiming to be the pool");
+  } finally {
+    for (const [k, v] of [["MW_SENDING_POOL", had.p], ["SMTP_HOST", had.h], ["SMTP_USER", had.u], ["SMTP_PASS", had.s]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test("the refused-login verdict warns about the pool BEFORE any advice about SMTP_PASS", async () => {
+  // Order is the whole value here. With a pool configured, every sentence about
+  // re-pasting SMTP_PASS or resetting the mailbox password is false, so the pool
+  // branch has to be the one that fires — not a footnote after three remedies
+  // that cannot work.
+  const src = readFileSync("src/app/api/health/email/route.ts", "utf8");
+  const code = codeOf(src);
+  // SCOPED TO THE VERDICT EXPRESSION. `cred?.fromPool` also appears earlier, in
+  // the signed-out report field, and searching the whole file found THAT one —
+  // so disabling the verdict's own condition left this test green. The leak test
+  // two hundred lines up records the identical trap; this is the second time an
+  // index in this file has matched the wrong occurrence.
+  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  assert.notEqual(verdictAt, -1, "the signed-out verdict has been restructured — re-check by hand");
+  const region = code.slice(verdictAt, verdictAt + 3000);
+  const cond = region.indexOf("cred?.fromPool");
+  const padding = region.indexOf("cred && (cred.passPadded || cred.userPadded)");
+  const mailbox = region.indexOf("cred && !cred.userIsFromAddress");
+  assert.notEqual(cond, -1, "the verdict itself must test where the credentials came from");
+  assert.notEqual(padding, -1);
+  assert.notEqual(mailbox, -1);
+  assert.ok(cond < padding && cond < mailbox,
+    "the pool check must be evaluated first — otherwise the owner is told to fix a variable the send never reads");
 });
 
 test("a refused login separates the two causes, and names neither mailbox", async () => {
@@ -28545,13 +28636,13 @@ test("a refused login separates the two causes, and names neither mailbox", asyn
   const src = readFileSync("src/app/api/health/email/route.ts", "utf8");
   const code = codeOf(src);
 
-  assert.match(code, /smtpUserIsTheFromAddress: \(process\.env\.SMTP_USER \|\| ""\)\.trim\(\)\.toLowerCase\(\) === fromAddr\.toLowerCase\(\)/,
-    "the comparison must be the login against the send-as address, normalised both sides");
+  assert.match(code, /userIsFromAddress: node\.user\.trim\(\)\.toLowerCase\(\) === fromAddr\.toLowerCase\(\)/,
+    "the comparison must be the LOGIN NODE against the send-as address, normalised both sides");
 
   // Both branches must exist and must point at DIFFERENT variables, or the
   // separation buys nothing.
-  const mismatch = /SMTP_USER IS A DIFFERENT MAILBOX[\s\S]{0,600}?"/.exec(code)?.[0] ?? "";
-  const samebox = /SMTP_USER is the same mailbox[\s\S]{0,600}?"/.exec(code)?.[0] ?? "";
+  const mismatch = /THE LOGIN MAILBOX IS A DIFFERENT MAILBOX[\s\S]{0,600}?"/.exec(code)?.[0] ?? "";
+  const samebox = /The login mailbox is the same[\s\S]{0,700}?"/.exec(code)?.[0] ?? "";
   assert.ok(mismatch, "the mismatch branch is missing");
   assert.ok(samebox, "the wrong-password branch is missing");
   assert.match(mismatch, /exists at all before touching the password/,

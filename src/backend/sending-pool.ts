@@ -30,6 +30,19 @@ export type SendingNode = {
   pass: string;
   secure: boolean;
   ip?: string; // informational (for SPF / diagnostics); never required
+  /**
+   * WHERE THESE CREDENTIALS CAME FROM — carried on the node, never re-derived.
+   *
+   * MW_SENDING_POOL WINS OVER SMTP_USER/SMTP_PASS, and nothing said so. An owner
+   * whose pool JSON carried an old password reset SMTP_PASS three times, watched
+   * the diagnostic report SMTP_PASS as present and free of whitespace, and got
+   * the same 535 every time — because the send never read SMTP_PASS at all. The
+   * value being described was not the value being used.
+   *
+   * So the source travels WITH the credentials, and every diagnostic reports the
+   * node rather than the environment.
+   */
+  source: "pool" | "env";
 };
 
 // Each warmed IP sustains this many sends/day by default (override per env).
@@ -42,7 +55,7 @@ function singleNodeFromEnv(): SendingNode | null {
   if (!host || !user || !pass) return null;
   const port = Number((process.env.SMTP_PORT || "587").trim());
   const secure = (process.env.SMTP_SECURE || "").trim() === "true" || port === 465;
-  return { label: "primary", host, port, user, pass, secure, ip: (process.env.MW_SENDING_IP || "").trim() || undefined };
+  return { label: "primary", host, port, user, pass, secure, source: "env", ip: (process.env.MW_SENDING_IP || "").trim() || undefined };
 }
 
 // The active pool. MW_SENDING_POOL (JSON array) wins; otherwise the single SMTP_*
@@ -62,6 +75,7 @@ export function getPool(): SendingNode[] {
           user: String(n.user),
           pass: String(n.pass),
           secure: n.secure === true || Number(n.port) === 465,
+          source: "pool" as const,
           ip: n.ip ? String(n.ip) : undefined,
         }));
       if (nodes.length) return nodes;

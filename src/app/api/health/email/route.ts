@@ -358,6 +358,7 @@ export async function GET(req: NextRequest) {
   const pool = getPool();
   const node = pool[0];
 
+
   // THE ENVELOPE THE PROBE WILL TEST.
   //
   // FROM is the address messages are actually sent as — parsed out of
@@ -369,6 +370,42 @@ export async function GET(req: NextRequest) {
   // anyway. Pass ?to= to test whether the relay will accept an EXTERNAL
   // recipient, which is the failure this could not previously see.
   const fromAddr = (String(process.env.EMAIL_FROM || "").match(/<([^>]+)>/)?.[1] || String(process.env.EMAIL_FROM || "") || node?.user || "").trim();
+  // THE CREDENTIAL FACTS, COMPUTED ONCE FROM THE NODE THAT ACTUALLY LOGS IN.
+  //
+  // Two reasons this is a variable rather than expressions in the response.
+  //
+  // CORRECTNESS: these used to read `process.env.SMTP_PASS` and `SMTP_USER`
+  // directly. When MW_SENDING_POOL is set the send never reads those variables,
+  // so every field described a value the mail server had never seen — the owner
+  // reset SMTP_PASS three times while the diagnostic reported it present and
+  // clean, because the login was using the pool's copy.
+  //
+  // SAFETY: the signed-out group must not so much as MENTION `node.user` or
+  // `node.pass`. The leak test forbids those substrings there, bluntly and on
+  // purpose, and a blunt guard is the right kind — computing the booleans up
+  // here keeps the credential out of that block entirely instead of relying on
+  // a reviewer noticing that one particular expression happens to be a
+  // comparison rather than a value.
+  const cred = node ? {
+    source: node.source,
+    fromPool: node.source === "pool",
+    userPadded: node.user !== node.user.trim(),
+    passPadded: node.pass !== node.pass.trim(),
+    userIsFromAddress: node.user.trim().toLowerCase() === fromAddr.toLowerCase(),
+    // A LENGTH IS NOT A PASSWORD, and after a redeploy it is the only thing that
+    // separates "the stored value is not the password you set" from "the value
+    // is right and the mailbox refuses it". Count the characters of what was set
+    // at the mail host: a different number means the stored value was pasted
+    // with quotes, truncated, or is simply a different string.
+    passLength: node.pass.trim().length,
+    userLength: node.user.trim().length,
+    // Paste "hunter2" WITH the quotation marks and it becomes nine characters,
+    // two of them wrong, and every screen still shows something plausible.
+    passLooksQuoted: /^(["']).*\1$/.test(node.pass.trim()),
+    // A smart quote or an accent survives a copy from a document and is not what
+    // was typed into the mail host's own form.
+    passHasNonAscii: /[^\x20-\x7E]/.test(node.pass.trim()),
+  } : null;
 
   // THE ENVELOPE SENDER A REAL SEND ACTUALLY USES, which is NOT the From.
   //
@@ -511,8 +548,42 @@ export async function GET(req: NextRequest) {
       // is evidence attached to a failure, not a standing description of a
       // credential.
       ...(probe && !probe.ok && String(probe.stage).startsWith("auth") ? {
-        smtpPassHasSurroundingWhitespace: (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim(),
-        smtpUserHasSurroundingWhitespace: (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim(),
+        // EVERY FIELD BELOW DESCRIBES THE NODE THAT ACTUALLY AUTHENTICATED, not
+        // the SMTP_* variables. They used to read process.env directly, and when
+        // MW_SENDING_POOL is set the send does not read those variables at all —
+        // so the diagnostic was describing a password the server never saw. An
+        // owner reset SMTP_PASS three times against a diagnostic that kept
+        // reporting it as present and clean.
+        //
+        // THE SOURCE IS THE FIRST THING REPORTED, because it decides whether
+        // editing SMTP_PASS can possibly change anything.
+        credentialsComeFrom: cred ? (cred.fromPool ? "MW_SENDING_POOL" : "SMTP_USER/SMTP_PASS") : "nothing configured",
+        editingSmtpPassWouldChangeNothing: Boolean(cred?.fromPool),
+        smtpPassHasSurroundingWhitespace: Boolean(cred?.passPadded),
+        smtpUserHasSurroundingWhitespace: Boolean(cred?.userPadded),
+        // IS THE STORED VALUE THE PASSWORD THAT WAS ACTUALLY SET?
+        //
+        // AFTER A REDEPLOY THIS IS THE ONLY QUESTION LEFT. A fresh build has
+        // whatever is in the environment, so "the build predates the change" is
+        // eliminated and exactly two causes remain: the value here is not the
+        // password the mailbox has, or it is and the mailbox refuses it anyway
+        // (SMTP disabled, an app-specific password required, a lockout). Nothing
+        // observable from outside separated them, so five weeks were spent
+        // alternating between the two.
+        //
+        // The LENGTH separates them, and it is not the password. Count the
+        // characters of what you set at the mail host: a different number means
+        // the value stored here is not that password — pasted with quotes around
+        // it, truncated at a `$`, or carrying a newline the trim removed. The
+        // same number means the value is right and the MAILBOX is refusing it,
+        // so the next move is at the mail host and not in the environment.
+        //
+        // The shape flags catch the two ways a paste goes wrong silently.
+        // Quotes are not stripped by any platform: paste "hunter2" with the
+        // quotation marks and the password becomes nine characters, two of them
+        // wrong, and every screen still shows a password that looks correct.
+        // A smart quote or an accented character survives a copy from a document
+        // and is not what was typed into the mail host's own form.
         // WHICH ACCOUNT WAS REFUSED — WITHOUT NAMING IT, AND IT IS TWO DIFFERENT FAULTS.
         //
         // A refused login has two completely separate causes on this deployment
@@ -528,7 +599,7 @@ export async function GET(req: NextRequest) {
         // reset a password on an account that does not exist. It happened.
         //
         // A boolean, not the address. Both values are ours and neither is printed.
-        smtpUserIsTheFromAddress: (process.env.SMTP_USER || "").trim().toLowerCase() === fromAddr.toLowerCase(),
+        smtpUserIsTheFromAddress: Boolean(cred?.userIsFromAddress),
         // THE SERVER'S OWN WORDS, WITH THE NAMES TAKEN OUT.
         //
         // `535 5.7.8 authentication failed`, `535 Incorrect authentication
@@ -553,6 +624,23 @@ export async function GET(req: NextRequest) {
       // Host and user are operational config, not secrets. The password is never
       // echoed in any form beyond its length.
       activeNode: node ? { label: node.label, host: node.host, port: node.port, secure: node.secure, user: node.user } : null,
+      // PRIVILEGED, DELIBERATELY. A length is not a password, but beside "the
+      // password was refused" it is a head start on a public endpoint — the
+      // signed-out group is booleans only, and a test enforces that.
+      //
+      // For the operator it is the fact that ends the guessing after a redeploy:
+      // count the characters of the password set at the mail host. A different
+      // number means the stored value is not that password (pasted with quotes,
+      // truncated at a special character, or simply a different string) and
+      // resetting the mailbox again cannot help. The same number means the value
+      // is right and the MAILBOX is refusing it, so the next move is at the host.
+      credential: cred ? {
+        comesFrom: cred.fromPool ? "MW_SENDING_POOL" : "SMTP_USER/SMTP_PASS",
+        passLength: cred.passLength,
+        userLength: cred.userLength,
+        passLooksQuoted: cred.passLooksQuoted,
+        passHasNonAscii: cred.passHasNonAscii,
+      } : null,
       vars,
       // WHAT WAS ACTUALLY SENT. The only record of a send used to be an in-memory
       // per-instance counter, so "did Tuesday's audit email go out?" had no answer
@@ -592,11 +680,17 @@ export async function GET(req: NextRequest) {
           ? "NOT SENDING — no sending provider is configured on this deployment."
           : probe
             ? `${smtpStageVerdict(probe.stage, probe.ok)}${
-                (process.env.SMTP_PASS || "") !== (process.env.SMTP_PASS || "").trim() || (process.env.SMTP_USER || "") !== (process.env.SMTP_USER || "").trim()
+                cred?.fromPool
+                  // FIRST, BECAUSE IT MAKES EVERY OTHER REMEDY POINTLESS. With
+                  // MW_SENDING_POOL set, the send never reads SMTP_USER or
+                  // SMTP_PASS, so resetting the mailbox password and saving it
+                  // there changes nothing — however many times it is done.
+                  ? " AND THE CREDENTIALS IN USE COME FROM MW_SENDING_POOL, NOT FROM SMTP_USER/SMTP_PASS. The pool JSON wins, so editing SMTP_PASS — or resetting the mailbox password and saving it there — cannot change this login and never could. Fix the user and pass INSIDE MW_SENDING_POOL, or remove that variable entirely so the SMTP_* pair is used."
+                  : cred && (cred.passPadded || cred.userPadded)
                   ? " AND ONE OF THEM HAS WHITESPACE AROUND IT — a password or username pasted with a trailing newline or a leading space looks correct everywhere and is refused by the server. Re-paste it with nothing before or after, and redeploy; that alone may be the whole fault."
-                  : (process.env.SMTP_USER || "").trim().toLowerCase() !== fromAddr.toLowerCase()
-                    ? " AND SMTP_USER IS A DIFFERENT MAILBOX FROM THE ONE THIS DEPLOYMENT SENDS AS. That is the more likely fault: check that mailbox exists at all before touching the password, because a login for a mailbox nobody created is refused at exactly this stage. Setting SMTP_USER to the send-as address, with THAT mailbox's own password, makes the login, the envelope and the From one address — which is the arrangement with the fewest ways to be wrong."
-                    : " SMTP_USER is the same mailbox this deployment sends as, and neither value has stray whitespace — so this is a genuinely wrong or expired password for a real mailbox. Reset it at the mail host; if the host offers app-specific passwords, use one, and check SMTP authentication is enabled for that mailbox and that repeated failures have not locked it."
+                  : cred && !cred.userIsFromAddress
+                    ? " AND THE LOGIN MAILBOX IS A DIFFERENT MAILBOX FROM THE ONE THIS DEPLOYMENT SENDS AS. That is the more likely fault: check that mailbox exists at all before touching the password, because a login for a mailbox nobody created is refused at exactly this stage. Setting SMTP_USER to the send-as address, with THAT mailbox's own password, makes the login, the envelope and the From one address — which is the arrangement with the fewest ways to be wrong."
+                    : " The login mailbox is the same one this deployment sends as, and neither value has stray whitespace. COMPARE `smtpPassLength` WITH THE PASSWORD YOU SET AT THE MAIL HOST BEFORE CHANGING ANYTHING: a different count means the value stored here is not that password (quotes pasted with it, truncated at a special character), and resetting the mailbox again will not help. The same count means the value is right and the MAILBOX is refusing it — so check SMTP authentication is enabled for that mailbox, use an app-specific password if the host offers one, and allow for a lockout from the failed attempts."
               } (Signed out: the server's own words, the mail host and the account are withheld. Sign in as a platform admin for those.)`
             : "A sending provider is configured, but no live probe could be run. Sign in as a platform admin for the reason.")
       : !node
