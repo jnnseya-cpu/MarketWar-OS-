@@ -218,6 +218,37 @@ function normaliseUrl(raw: string, website?: string): string {
   return "";
 }
 
+/**
+ * THE SENTENCE THAT MARKS AN OUTLINE AS UNWRITTEN.
+ *
+ * `templateFallback` is honest — it says in the body that it is a structural
+ * outline. But honesty in the text is not a guard: the writer failed to return
+ * usable JSON, the outline went into the editor, and the preview reported
+ * "Nothing found that would go wrong. 836 recipients." beside a message whose
+ * body was this platform's own internal brief ("Acknowledge the gap without
+ * guilt-tripping…"). It was one click from being sent to 836 people.
+ *
+ * Exported so the preview can refuse it, and defined HERE beside the text it
+ * describes — a second copy of the marker in another file is a copy that goes
+ * stale the first time this wording changes.
+ */
+export const OUTLINE_MARKER = "this is a structural outline, not written copy";
+
+/**
+ * Is this still the unwritten outline rather than an email?
+ *
+ * Two signals, both of text THIS PLATFORM generated, so neither can misfire on a
+ * customer's own words: the marker sentence above, and any purpose brief
+ * appearing verbatim — the briefs are instructions to a model ("Thank them, set
+ * expectations…") and nobody types one into their own campaign.
+ */
+export function looksUnwritten(text: unknown): boolean {
+  const t = String(text ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!t) return false;
+  if (t.includes(OUTLINE_MARKER)) return true;
+  return EMAIL_PURPOSES.some((p) => t.includes(p.brief.toLowerCase().slice(0, 60)));
+}
+
 /** The honest zero-config draft: structural, obviously a starting point, never pretending to be written. */
 export function templateFallback(b: TemplateBrief, purpose: EmailPurpose): TemplateDraft {
   const what = b.product?.trim() || "what we do";
@@ -273,7 +304,10 @@ export async function writeEmailTemplate(
         ? `${systemPrompt(purpose, language)}\n\nBRAND IDENTITY — write in this voice and respect it exactly:\n${brief.identityBrief.trim()}`
         : systemPrompt(purpose, language),
       prompt: briefText(brief, purpose),
-      maxTokens: 900,
+      // 900 was tight for six JSON fields around a 160-word body, and a reply cut
+      // off mid-object fails identically every retry — which is what "try again"
+      // was asking somebody to do.
+      maxTokens: 1600,
       lang: language,
     });
     raw = res.text;
@@ -295,10 +329,27 @@ export async function writeEmailTemplate(
 
   const parsed = extractJson(raw);
   if (!parsed) {
+    // WHY IT COULD NOT BE READ, NOT JUST THAT IT COULD NOT.
+    //
+    // "The model did not return usable JSON" names no cause and suggests no
+    // action, so the only thing left is to press the button again — and the
+    // commonest cause, a reply cut off by the token ceiling, produces the same
+    // failure every time however often it is pressed. These three cases have
+    // three different answers and are distinguishable from the reply itself.
+    const text = (raw || "").trim();
+    const opened = text.indexOf("{") !== -1;
+    const closed = text.lastIndexOf("}") > text.indexOf("{");
+    const why = !text
+      ? "The writer returned nothing at all — the provider accepted the request and sent back an empty reply."
+      : opened && !closed
+        ? "The writer's reply was CUT OFF part-way through — it began the JSON and never finished it, which is a length limit rather than a bad answer. Shorten the brief, or ask for a shorter email."
+        : !opened
+          ? "The writer replied in prose instead of the JSON this screen needs."
+          : "The writer's reply looked like JSON but would not parse — usually an unescaped quotation mark inside the text.";
     return {
       ok: false, draft: fallback, written: "template", tokensUsed: [], blocked: [],
-      warnings: ["The model did not return usable JSON."],
-      note: "Fell back to an outline because the reply could not be read. Try again.",
+      warnings: [why],
+      note: `Fell back to an outline: ${why} Nothing was charged for copy that was not produced. The outline below is a starting point — it is NOT sendable, and the preview will refuse it until you replace the body.`,
     };
   }
 

@@ -43,6 +43,7 @@ export default function EmailPreview({
   templateId,
   business,
   statusFilter,
+  groups,
   source = "written",
   onSendable,
 }: {
@@ -52,11 +53,19 @@ export default function EmailPreview({
   templateId?: string;
   business?: string;
   statusFilter?: string;
+  /** The named groups the campaign targets — the same selection the send uses. */
+  groups?: string[];
   source?: EmailPreviewData["source"];
   /** Lets the parent gate its Send button on the same answer. */
   onSendable?: (sendable: boolean, blockers: number) => void;
 }) {
   const [data, setData] = useState<EmailPreviewData | null>(null);
+
+  // A STABLE KEY, not the array. A fresh array identity on every render would
+  // refetch the preview forever; leaving it out of the dependency list would
+  // leave the panel showing the PREVIOUS selection's audience, which is the
+  // same defect this change exists to fix, moved into the client.
+  const groupKey = (groups ?? []).join("\u0000");
   const [busy, setBusy] = useState(false);
   const [i, setI] = useState(0);
   const [view, setView] = useState<"desktop" | "phone" | "text">("desktop");
@@ -67,7 +76,7 @@ export default function EmailPreview({
     try {
       const res = await authedFetch("/api/email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "preview", brandId, subject, html, templateId, business, statusFilter, source }),
+        body: JSON.stringify({ action: "preview", brandId, subject, html, templateId, business, statusFilter, groups, source }),
       });
       const d = (await res.json()) as EmailPreviewData;
       setData(d);
@@ -79,7 +88,7 @@ export default function EmailPreview({
     } finally {
       setBusy(false);
     }
-  }, [brandId, subject, html, templateId, business, statusFilter, source, onSendable]);
+  }, [brandId, subject, html, templateId, business, statusFilter, groupKey, source, onSendable]);
 
   // Re-preview when the content settles. Debounced, because every keystroke in
   // the editor would otherwise be a request.
@@ -128,6 +137,14 @@ export default function EmailPreview({
 
       {warnings.length > 0 && (
         <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.05] p-3">
+          {/* IT HAD NO HEADING. The blockers box is titled "N things that would go
+              wrong for everyone" and this one followed it with a bare list, so
+              warnings read as part of that count — a reader sees "1 thing" above
+              two bullets and cannot tell which is which. Reported exactly that
+              way. */}
+          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-amber-200">
+            <AlertTriangle className="h-3.5 w-3.5" /> {warnings.length} thing{warnings.length === 1 ? "" : "s"} worth fixing before you send
+          </p>
           <ul className="space-y-1">
             {warnings.map((c, n) => (
               <li key={n} className="text-[11px] leading-relaxed text-amber-100/90">

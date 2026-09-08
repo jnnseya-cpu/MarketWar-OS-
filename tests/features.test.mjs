@@ -28549,6 +28549,154 @@ test("a refused password says whether whitespace is the cause, without echoing i
     "the MW_SENDING_POOL branch must be tested BEFORE the others — with a pool set, no advice about SMTP_PASS is true");
 });
 
+test("an outline is never previewed as a finished email", async () => {
+  // REPORTED FROM THE LIVE PLATFORM, AND IT WAS ONE CLICK FROM 836 PEOPLE. The
+  // AI writer failed ("the model did not return usable JSON"), the honest
+  // structural outline was returned instead and landed in the editor, and the
+  // preview reported "Nothing found that would go wrong. 836 recipients."
+  // beside a body reading "They bought before and have gone quiet. Acknowledge
+  // the gap without guilt-tripping…" — the internal brief handed to the model.
+  //
+  // "No placeholder or faked data inside anything represented as finished" is a
+  // rule of this platform, and the preview is the last thing between an outline
+  // and a customer's list.
+  const w = await import("../src/backend/email-template-writer.ts");
+  const { previewChecks } = await import("../src/backend/email-preview.ts");
+  const purpose = w.EMAIL_PURPOSES.find((p) => p.id === "win_back");
+  const fb = w.templateFallback({ business: "KODA", product: "verification", audience: "operators" }, purpose);
+  const asHtml = `<p>${fb.body.replace(/\n\n/g, "</p><p>")}</p><p><a href="https://example.test">Go</a></p>`;
+
+  const blocked = previewChecks({ subject: fb.subject, html: asHtml, rendered: [], recipients: 836, matched: 836 })
+    .filter((c) => c.level === "blocker");
+  assert.ok(blocked.some((c) => /still the outline/.test(c.message)),
+    "the untouched outline must be a BLOCKER — a warning is something a person scrolls past");
+
+  // EVERY purpose, not just the one that was reported. Each brief is a different
+  // sentence and a check that only knows one of them is a check that fails eight
+  // times out of nine.
+  for (const p of w.EMAIL_PURPOSES) {
+    const body = w.templateFallback({ business: "B" }, p).body;
+    assert.equal(w.looksUnwritten(body), true, `the outline for "${p.id}" is not recognised as unwritten`);
+  }
+
+  // AND REAL COPY MUST STILL PASS, or the check is just a wall.
+  const real = '<p>Bonjour, KODA vérifie chaque paiement mobile money en 3 secondes.</p><p><a href="https://example.test/app">Créer un compte</a></p>';
+  assert.equal(w.looksUnwritten(real), false, "written copy must not be mistaken for an outline");
+  assert.equal(previewChecks({ subject: "Vérifiez vos paiements", html: real, rendered: [], recipients: 836, matched: 836 })
+    .filter((c) => c.level === "blocker").length, 0, "and must reach the send with no blocker");
+  assert.equal(w.looksUnwritten(""), false, "empty is not an outline — that is the subject/body check's job");
+
+  // EACH SIGNAL ALONE. The fallback body carries BOTH the marker sentence and the
+  // purpose brief, so a test that only ever sees the two together passes with
+  // either one deleted — each covers for the other. Both mutations survived until
+  // these two lines existed.
+  assert.equal(w.looksUnwritten(`Some text. ${w.OUTLINE_MARKER}. More text.`), true,
+    "the marker sentence alone must be enough");
+  const briefOnly = w.EMAIL_PURPOSES.find((p) => p.id === "welcome").brief;
+  assert.ok(!briefOnly.toLowerCase().includes(w.OUTLINE_MARKER), "…and this brief carries no marker");
+  assert.equal(w.looksUnwritten(`<p>${briefOnly}</p>`), true,
+    "a purpose brief alone must be enough — that is the text the owner was shown");
+});
+
+test("an unusable reply from the writer says WHY, so 'try again' is not the only move", async () => {
+  // It said "The model did not return usable JSON." — no cause, no action. And
+  // the commonest cause, a reply cut off by the token ceiling, fails identically
+  // however many times the button is pressed.
+  const w = await import("../src/backend/email-template-writer.ts");
+  const say = async (text) => (await w.writeEmailTemplate({ business: "KODA" }, { complete: async () => ({ text, provider: "t" }) })).warnings[0];
+
+  assert.match(await say(""), /nothing at all/, "an empty reply is its own case");
+  assert.match(await say('{"name":"x","body":"a body that never'), /CUT OFF/,
+    "a truncated reply must be named as a length limit, not as a bad answer");
+  assert.match(await say("Here is your email: Dear customer"), /prose/, "prose is a third case");
+  assert.match(await say('{"name":"x","body":"he said "hi""}'), /would not parse/, "and malformed JSON a fourth");
+
+  // The outline it falls back to must be labelled as unsendable in the same
+  // breath, since that is exactly what got sent to the preview and blessed.
+  const r = await w.writeEmailTemplate({ business: "KODA" }, { complete: async () => ({ text: "", provider: "t" }) });
+  assert.equal(r.ok, false);
+  assert.match(r.note, /NOT sendable/, "the note must say the outline cannot be sent as it stands");
+
+  // AND THE SCREEN MUST OFFER THE LANGUAGE, or the writer's new parameter is
+  // unreachable and every email stays in whatever the browser speaks.
+  const page = codeOf(readFileSync("src/app/dashboard/email-templates/page.tsx", "utf8"));
+  assert.match(page, /WRITER_LANGUAGES\.map/, "the template screen must offer the language list");
+  assert.match(page, /lang: aiLang \|\| undefined,/, "…and send the choice with the request");
+  assert.match(page, /setAiLang/, "…from a control the customer can actually change");
+});
+
+test("the preview counts the SAME audience the send will use", async () => {
+  // REPORTED FROM THE LIVE PLATFORM: the panel headed "what actually arrives"
+  // said "There is nobody to send to" while the send screen beside it offered
+  // 657 sendable. Groups were added to the send path and never to the preview,
+  // so the two screens were computing different audiences — which is the one
+  // thing a preview must never do. My defect, from the groups change.
+  const { buildEmailPreview } = await import("../src/backend/email-preview.ts");
+  const { selectByGroups } = await import("../src/shared/contact-groups.ts");
+
+  const contacts = [
+    { id: "1", email: "a@x.com", firstName: "Ann", consent: true, groups: ["Buyers"] },
+    { id: "2", email: "b@x.com", firstName: "Ben", consent: true, groups: ["Buyers"] },
+    { id: "3", email: "c@x.com", firstName: "Cara", consent: true, groups: ["Newsletter"] },
+    { id: "4", email: "", firstName: "Dan", consent: true, groups: ["Buyers"] },
+    { id: "5", email: "e@x.com", firstName: "Eve", consent: false, groups: ["Buyers"] },
+    { id: "6", email: "f@x.com", firstName: "Fay", consent: true },
+  ];
+  const html = '<p>Hi {{ firstName | there }}</p><p><a href="https://example.test/go">Open</a></p>';
+
+  for (const groups of [[], ["Buyers"], ["Newsletter"], ["Nonexistent"]]) {
+    const p = await buildEmailPreview({ brandId: "b", subject: "S", html, source: "written", contacts, groups });
+    // What the SEND would attempt, derived by the same shared rule.
+    const pool = groups.length ? selectByGroups(contacts, groups) : contacts;
+    const sendWould = pool.filter((c) => c.email && c.consent !== false).length;
+    assert.equal(p.recipients, sendWould,
+      `preview and send disagree for groups ${JSON.stringify(groups)} — ${p.recipients} vs ${sendWould}`);
+  }
+
+  // And narrowing must actually narrow, or the loop above passes on a preview
+  // that ignores the selection entirely and happens to match a send that does too.
+  const all = await buildEmailPreview({ brandId: "b", subject: "S", html, source: "written", contacts, groups: [] });
+  const buyers = await buildEmailPreview({ brandId: "b", subject: "S", html, source: "written", contacts, groups: ["Buyers"] });
+  assert.equal(all.recipients, 4, "an empty selection is still everyone sendable");
+  assert.equal(buyers.recipients, 2, "and a chosen group is fewer — the preview must honour it");
+
+  // AND THE ROUTE MUST FORWARD IT. The module honouring `groups` buys nothing if
+  // the endpoint drops the selection on the way in — a mutation that hard-coded
+  // `groups: []` there survived everything above, because every assertion called
+  // the module directly.
+  const route = codeOf(readFileSync("src/app/api/email/route.ts", "utf8"));
+  const previewAt = route.indexOf('action === "preview"');
+  assert.notEqual(previewAt, -1, "the preview branch has been renamed — re-check by hand");
+  const previewBranch = route.slice(previewAt, route.indexOf('action === "send"', previewAt));
+  assert.match(previewBranch, /groups: Array\.isArray\(body\.groups\)/,
+    "the preview branch must read the selection off the request, not hard-code it");
+  assert.match(previewBranch, /buildEmailPreview\(\{[\s\S]*?groups:/,
+    "…and pass it into the preview");
+  // The send branch reads it the same way, and that symmetry is the point.
+  const sendAt = route.indexOf('action === "send_campaign"');
+  assert.match(route.slice(sendAt), /Array\.isArray\(body\.groups\)/,
+    "the send must read the selection from the same field, or the two can diverge again");
+});
+
+test("an empty audience names the cause that applies, not one it never checked", async () => {
+  // It said "no contact on this list has an email address and consent" whatever
+  // the reason — including when the list was full of good addresses and the
+  // selection had simply matched nobody. Being told your contacts have no email,
+  // about contacts that do, sends somebody to fix the vault instead of the filter.
+  const { previewChecks } = await import("../src/backend/email-preview.ts");
+  const base = { subject: "s", html: "<p>x</p>", rendered: [] };
+  const listMsg = (o) => previewChecks({ ...base, ...o }).find((c) => c.where === "list" && c.level === "blocker")?.message ?? "";
+
+  assert.match(listMsg({ recipients: 0, matched: 0, narrowed: true }), /the selection is what is empty/,
+    "a selection that matches nobody must blame the selection");
+  assert.match(listMsg({ recipients: 0, matched: 7, narrowed: true }), /7 contact\(s\) match, but none of them/,
+    "contacts that matched but cannot be emailed is a different fault, and says so with the number");
+  assert.match(listMsg({ recipients: 0, matched: 0, narrowed: false }), /no contacts in it yet/,
+    "and an empty vault is neither of those");
+  assert.equal(listMsg({ recipients: 3, matched: 5, narrowed: true }), "",
+    "with recipients there is no blocker at all");
+});
+
 test("the verdict never opens with a cause a later sentence contradicts", async () => {
   // WHAT THE OWNER WAS HANDED. The report opened with "NOT SENDING — THE SERVER
   // REFUSED THE PASSWORD. The mailbox in SMTP_USER and the password in SMTP_PASS

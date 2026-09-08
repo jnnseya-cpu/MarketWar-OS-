@@ -111,6 +111,12 @@ export async function POST(req: NextRequest) {
       contacts: await listContacts(brandId),
       campaign: typeof body.campaign === "string" ? body.campaign : "",
       statusFilter: typeof body.statusFilter === "string" ? body.statusFilter : "",
+      // THE SAME SELECTION THE SEND WILL APPLY. Without it this panel previewed
+      // a different audience from the one that would receive the campaign —
+      // which is the one thing a preview must never do.
+      groups: Array.isArray(body.groups)
+        ? body.groups.filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+        : [],
       samples: Number(body.samples) || 3,
     });
     return NextResponse.json(preview);

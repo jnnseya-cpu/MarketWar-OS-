@@ -28,6 +28,8 @@ import { mergeTemplate } from "@/backend/email-templates";
 import { injectTracking, unsubscribeUrl, trackingBaseFor } from "@/backend/email-events";
 import { fixTokens, tokenWarnings, usedTokens } from "@/shared/merge-tokens";
 import type { Contact } from "@/backend/contacts";
+import { selectByGroups } from "@/shared/contact-groups";
+import { looksUnwritten } from "@/backend/email-template-writer";
 
 export type PreviewSource = "written" | "ai" | "template";
 
@@ -113,6 +115,15 @@ export function previewChecks(input: {
   html: string;
   rendered: { subject: string; html: string }[];
   recipients: number;
+  /**
+   * How many contacts the status/group selection matched, BEFORE email and
+   * consent were applied. It separates "the selection is empty" from "the
+   * selection is fine and those people have no usable address" — two different
+   * faults with two different fixes, which used to share one sentence.
+   */
+  matched?: number;
+  /** True when a status or group selection was actually applied. */
+  narrowed?: boolean;
   /** Per token: how many eligible contacts have no value for it. */
   blankByToken?: Record<string, number>;
 }): PreviewCheck[] {
@@ -210,8 +221,34 @@ export function previewChecks(input: {
     add("warning", "body", `${missingAlt.length} image(s) have no alt text. With images off — which is the default in a lot of clients — that part of the message is simply blank.`);
   }
 
+  // AN OUTLINE IS NOT AN EMAIL, AND THIS PANEL SAID IT WAS.
+  //
+  // WHAT HAPPENED. The AI writer failed ("the model did not return usable
+  // JSON"), the honest structural outline was returned instead and landed in the
+  // editor — and this preview then reported "Nothing found that would go wrong.
+  // 836 recipients." beside a body reading "They bought before and have gone
+  // quiet. Acknowledge the gap without guilt-tripping…", which is the internal
+  // brief handed to the model. One click from 836 people receiving it.
+  //
+  // A BLOCKER, not a warning: "no placeholder or faked data inside anything
+  // represented as finished" is a rule of this platform, and the preview is the
+  // last thing standing between an outline and a customer's list.
+  if (looksUnwritten(`${input.subject} ${input.html}`)) {
+    add("blocker", "body", "This is still the outline, not written copy — it contains the instructions the writer was given rather than a message to your customers. Replace the body before sending.");
+  }
+
   if (!input.recipients) {
-    add("blocker", "list", "There is nobody to send to: no contact on this list has an email address and consent.");
+    // NAME THE CAUSE THAT ACTUALLY APPLIES. This said "no contact on this list
+    // has an email address and consent" whatever the reason — including when the
+    // list was full of perfectly good addresses and a status or group selection
+    // had simply matched nobody. Being told your contacts have no email, about
+    // contacts that do, sends somebody to fix the vault instead of the filter.
+    add("blocker", "list",
+      input.matched === 0
+        ? (input.narrowed
+            ? "There is nobody to send to: the status or group you selected matches no contact at all. The addresses are fine — the selection is what is empty."
+            : "There is nobody to send to: this list has no contacts in it yet.")
+        : `There is nobody to send to: ${input.matched} contact(s) match, but none of them has both an email address and consent. Add addresses, or send to a selection that has them.`);
   }
 
   // The grammar problems that are legal but read badly on a real list.
@@ -235,6 +272,16 @@ export async function buildEmailPreview(input: {
   source: PreviewSource;
   /** Ignore consent when previewing a status-targeted prospect segment. */
   statusFilter?: string;
+  /**
+   * The named vault groups the campaign is aimed at — the SAME selection the
+   * send applies.
+   *
+   * IT WAS MISSING, AND THAT IS THE WHOLE POINT OF A PREVIEW. Groups were added
+   * to the send path and not to this one, so the panel headed "what actually
+   * arrives" was computed against a different audience from the one that would
+   * receive it. An empty selection is everyone, exactly as on the send.
+   */
+  groups?: string[];
   samples?: number;
 }): Promise<EmailPreview> {
   const brandName = input.brandName ?? "";
@@ -247,9 +294,14 @@ export async function buildEmailPreview(input: {
   // Eligibility mirrors the campaign route exactly. A preview against a
   // different population than the send would report a recipient count nobody
   // is going to receive.
-  const pool = input.statusFilter
+  const byStatus = input.statusFilter
     ? input.contacts.filter((c) => (c.status || "").toLowerCase() === input.statusFilter!.toLowerCase())
     : input.contacts;
+  // The same module the send calls, not a second copy of the rule — two
+  // implementations of "who is in this group" is how a preview and a send come
+  // to disagree in the first place.
+  const groupFilter = (input.groups ?? []).filter((g) => typeof g === "string" && g.trim().length > 0);
+  const pool = groupFilter.length ? selectByGroups(byStatus, groupFilter) : byStatus;
   const eligible = input.statusFilter
     ? pool.filter((c) => c.email)
     : pool.filter((c) => c.email && c.consent !== false);
@@ -289,6 +341,8 @@ export async function buildEmailPreview(input: {
     subject: input.subject, html: input.html,
     rendered: samples.map((s) => ({ subject: s.subject, html: s.html })),
     recipients: eligible.length,
+    matched: pool.length,
+    narrowed: Boolean(input.statusFilter) || groupFilter.length > 0,
     blankByToken,
   });
   const blockers = checks.filter((c) => c.level === "blocker").length;

@@ -781,6 +781,9 @@ export default function EmailPage() {
               writer, or a saved template. Above the buttons, because a preview
               underneath them is one you read after deciding. */}
           {activeBrand && canSend && (
+            /* `groups` is the SAME selection the send applies. Without it this
+               panel — headed "what actually arrives" — was computed against the
+               whole vault while the send went only to the chosen groups. */
             <EmailPreview
               brandId={activeBrand.id}
               business={activeBrand.name}
@@ -788,6 +791,7 @@ export default function EmailPage() {
               html={templateId ? undefined : composedHtml}
               templateId={templateId || undefined}
               statusFilter={campaignStatus || undefined}
+              groups={pickedGroups}
               source={templateId ? "template" : draftNotes.length ? "ai" : "written"}
               onSendable={(_ok, blockers) => setPreviewBlockers(blockers)}
             />
