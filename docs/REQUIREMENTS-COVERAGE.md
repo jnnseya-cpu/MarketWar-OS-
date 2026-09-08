@@ -5541,3 +5541,170 @@ Proved by driving: two brands on one domain get distinct DKIM hosts, distinct
 bounce hosts and distinct keys; both sign once verified; neither signs while
 pending, because publishing the record is what proves control. Five mutations
 killed.
+
+## §114 — The reply path pointed at hosts that cannot receive mail (2026-09-08)
+
+`reply.marketwaros.com` and `mx.marketwaros.com` are not mail exchangers.
+marketwaros.com runs on Vercel DNS with a WILDCARD A record, so every name under
+it resolves to the HTTP edge — `zzz-does-not-exist.marketwaros.com` resolves too —
+and there is no SMTP receiver in this repository (`/api/inbound/email` is an HTTP
+webhook a mail node POSTs to).
+
+The MX row printed for customers therefore named a host that cannot accept mail,
+and a registrar refused it. Worse, the reply address on the same infrastructure
+was set as **Reply-To on every outgoing message**, so a prospect who hit Reply
+received a failure notice from their own mail server.
+
+**The root cause was a check that exempted itself.** `replyVerdict` exists so
+reachability is "answered with a real DNS lookup rather than a guess, because the
+whole point of the original defect is that everybody — us included — assumed a
+reply had somewhere to land". It performed that lookup for every customer domain
+and returned `yes` for ours without looking, and the test asserted that answer —
+green throughout, able to fail only on the repair.
+
+The remedy was already in the file, applied to one of its three hosts:
+`bounceHostConfigured` gates issuing on the variable being set and keeps the
+default in the parser so addresses in the wild still route. `replyHostConfigured`
+is that, applied. Also: a mail exchanger is a host plus a priority in two separate
+DNS fields, and `"10 mx.example.com"` pasted into "Points to" is not a hostname.
+
+## §115 — 535 does not mean the password is wrong (2026-09-08)
+
+Five weeks, three password resets, the same `535 5.7.8` every time.
+
+**`MW_SENDING_POOL` overrides `SMTP_USER`/`SMTP_PASS`**, documented only in a
+comment on `getPool()`. With a pool configured the send never reads `SMTP_PASS`.
+And every credential field in `/api/health/email` read `process.env` directly, so
+it reported `SMTP_PASS` present and clean while the server authenticated with
+another string. They read the login NODE now, and the source travels on the node.
+
+That was not the cause here — the live report said `SMTP_USER/SMTP_PASS` — but it
+cleared the way to the question never asked: **a 535 at the auth stage says a
+server refused the credential, not that the credential is wrong.** A mailbox that
+does not exist on the machine being asked is refused identically.
+
+The mailbox's provider is a published fact: the MX of the login address's domain.
+`loginMailboxProviderMatches` compares it with `SMTP_HOST` by registrable domain
+and read **false** — `MW_SENDING_HOST` defaults to `smtp.marketwaros.com`, which
+resolves only because of the wildcard and answers on a web host, while mail for
+both domains goes to `mx1/mx2.hostinger.com`. `SMTP_HOST` was corrected and the
+first message sent: **1 sent · 0 failed**, after five weeks.
+
+**And the report contradicted itself, wrong half first:** it opened "THE SERVER
+REFUSED THE PASSWORD… do not match" and closed with the wrong-server finding. The
+opening sentence is the one a reader acts on. `smtpStageVerdict` now takes the
+stronger signal and replaces its default reading at the auth stages only.
+
+## §116 — An outline was previewed as a finished email, for 836 people (2026-09-08)
+
+The AI writer failed ("the model did not return usable JSON"), the honest
+structural outline was returned instead and landed in the editor, and the panel
+headed "what actually arrives" reported **"Nothing found that would go wrong. 836
+recipients."** beside a body reading "They bought before and have gone quiet.
+Acknowledge the gap without guilt-tripping…" — the internal brief this platform
+hands the model, addressed to 836 customers.
+
+The outline says in its own text that it is an outline. Honesty in the copy is not
+a guard. `looksUnwritten` matches the marker sentence and any purpose brief
+verbatim — both text WE generate, so neither misfires on a customer's own words —
+and it is a BLOCKER, because a warning is something a person scrolls past. "No
+placeholder or faked data inside anything represented as finished" is a rule of
+this repository and this was a live breach of it.
+
+Two more from the same screen. **The preview counted a different audience from the
+send:** groups were added to the send path and never here, so one panel said
+"nobody to send to" while the other offered 657 sendable. And **the empty-audience
+message named a cause it had never checked** — "no contact has an email address
+and consent", said equally to a list full of good addresses whose selection had
+simply matched nobody.
+
+The unusable reply also named no cause, so the only move was to press the button
+again — and the commonest cause, a reply cut off by the token ceiling, fails
+identically every retry. Empty, truncated, prose and malformed are four sentences
+now. The ceiling went 900 → 1600, the reply was STILL cut off, and that is what
+proved a number was never the answer: **the gateway has always returned
+`truncated` from the provider's own stop reason and the writer never read it.** It
+retries once with a larger budget AND a shorter body. The bracket heuristic
+remains only as a fallback for an adapter that reports nothing, and was never
+sufficient alone — every body carries `{{ firstName }}`, so a reply cut off
+mid-sentence still contains a closing brace.
+
+## §117 — The language of an email was decided by the sender's laptop (2026-09-08)
+
+A brand selling to francophone merchants asked for a campaign email and got
+English, while the owner's own French version was incomparably better.
+
+Both writers opened their system prompt with the hard-coded words "British
+English", and the only language input either had was `gatewayLangFrom(req)` — the
+`x-mw-lang` HEADER, which is the UI language of whoever pressed the button. So an
+operator on an English laptop could never produce a French campaign, however
+francophone the list.
+
+`shared/writer-language.ts` resolves it once: the customer's choice for this
+email, then the brand's stated `marketLanguage`, then the header, then nothing. It
+is **stated, never inferred from the country** — countries hold several languages
+and a business may deliberately write in a second one. A chooser sits on the
+template writer; "Brand default" is the setting a brand picks once.
+
+What the writer still cannot do is invent the owner's material. Their French email
+is strong because it is dense with specifics — 200 operators, three seconds, ten
+free checks a month, five doors. Claim-guard blocks the model from inventing any
+of that, correctly, so it can only match that email when those facts are in the
+brand brief.
+
+## §118 — Accepted is not delivered, and the platform reads its own bounces (2026-09-08)
+
+Two findings from the first message that actually left the server.
+
+### Nothing could authenticate as the domain it sent from
+A relay returning 250 has accepted, not delivered. The From was
+`koda@kodajnn.com` while the only account available was a mailbox on
+marketwaros.com, so the envelope sender was marketwaros.com, SPF authenticated
+that domain, and `aspf=s` meant the SPF half of DMARC could not align however
+correct the DNS. The whole pass rested on the DKIM signature surviving every relay
+in between.
+
+`pickNode` hashed the sending domain across the pool. That spreads load across
+warmed IPs — a reputation concern, not a routing rule — and never asked whether a
+node could authenticate AS the domain. A node whose account is on the sending
+domain now wins, so adding one node per domain fixes alignment with no code
+change. The campaign result carries `senderAlignment`, computed from the node that
+will really log in; the screen previously said "DKIM-signed as kodajnn.com" and
+nothing about SPF being unable to align.
+
+### The platform reads its own bounces
+"So if I have 1000000 users sending from their domain in MarketWar, I will have to
+look at our private email? Is this how Brevo works?" No — and the advice to open a
+mailbox was indefensible as anything but a one-off debugging step.
+
+Every part of receiving was already built — classification, VERP brand
+attribution, the suppression ledger, the Inbox — and all of it hung off
+`/api/inbound/email`, a webhook that a mail node has to POST to, and no such node
+exists here. Meanwhile every failure notice was already arriving at the envelope
+sender, a mailbox this deployment holds credentials for. The missing piece was a
+reader, not infrastructure.
+
+`backend/imap.ts` is a minimal IMAP client in the same hand-rolled style as the
+SMTP one — login, SELECT, UID SEARCH UNSEEN, a literal-framed FETCH, and
+`STORE \Seen` applied as a BATCH once every message is in hand, because marking as
+it goes loses a notice for good if the connection dies half way. The routing moved
+to `backend/inbound-routing.ts` so the webhook and the collector cannot drift into
+two answers about what a bounce means.
+
+**Two real defects fell out of driving it, both of which would have left dead
+addresses on customers' lists for ever.** "Undelivered Mail Returned to Sender" is
+Postfix's standard bounce subject and the commonest on the internet; the pattern
+matched "undeliverable" but not "undelivered", "returned mail" but not "mail
+returned". And the `Auto-Submitted` branch was tested BEFORE the sender — every
+delivery-status notification is auto-submitted, RFC 3464 requires it — so a
+textbook DSN from MAILER-DAEMON was classified by subject alone and came out as an
+auto-reply: filed to the Inbox, no suppression. Who sent it is read first now; an
+out-of-office is still never a bounce, which is the half that matters, because
+misreading one destroys live addresses at scale.
+
+Proved by driving a real IMAP server in-container with a real Postfix DSN
+addressed to a VERP envelope this code issued: collected 1, suppressed 1,
+`["gone@example.com"]`, written to the ledger, marked read.
+
+To switch it on: `MW_BOUNCE_IMAP_HOST`; user and password default to
+`SMTP_USER`/`SMTP_PASS`, the mailbox the failures already arrive at.
