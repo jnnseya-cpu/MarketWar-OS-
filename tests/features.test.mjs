@@ -25016,8 +25016,27 @@ test("the email health report withholds recipients and the mail host from strang
   // it appeared to. That is this repository's second recurring defect, and the
   // honest answer is to say what is being checked: that each field carrying a
   // person, a mailbox or a server sits behind the flag.
-  const gate = /const privileged = cronAuthorised\(req\)\.ok \|\| \(await requireAuth\(req, \{ scope: "platform_admin" \}\)\)\.ok;/;
-  assert.match(src, gate, "the report no longer establishes who is asking");
+
+  // `ok` IS NOT ENOUGH, AND THE OLD VERSION OF THIS TEST ACCEPTED IT.
+  //
+  // `requireAuth` returns `{ ok: true, enforced: false }` with Firebase Admin
+  // unconfigured — the documented behaviour that keeps the zero-config demo
+  // working. This route took `ok` alone, so on a deployment with SMTP configured
+  // and Firebase Admin not yet set up, an anonymous caller received the mail
+  // host, the username, up to twenty real recipient addresses and the password
+  // length. Found by driving the production build signed out; every structural
+  // assertion below passed throughout, because they check that the fields sit
+  // behind the flag and never that the flag means anything.
+  assert.match(src, /const privileged = cronAuthorised\(req\)\.ok \|\| \(auth\.ok && auth\.enforced\);/,
+    "the report must require ENFORCED authentication, not merely a non-refusal");
+  assert.match(src, /const auth = await requireAuth\(req, \{ scope: "platform_admin" \}\)/,
+    "…from a real scope check");
+  // The scheduler bearer must remain, or a deployment without Firebase Admin has
+  // no way to read its own diagnostic and this becomes the other defect: a
+  // control only its author can pass.
+  assert.match(src, /cronAuthorised\(req\)\.ok \|\|/,
+    "the scheduler bearer is the escape hatch for a deployment with no admin identity");
+
 
   // Every one of these was readable by anybody on the internet: `/api/health` is
   // in the gate's always_open lane, and only `?send=` was ever authorised.
