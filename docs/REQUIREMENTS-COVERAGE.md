@@ -5401,3 +5401,143 @@ decide:
   under a real profiler, not a guess.
 
 `HTTPS` fails only because the crawl was against `127.0.0.1`; it is not real.
+
+## §110 — Named groups in the customer vault (2026-09-07)
+
+### The gap
+"Customers vault must have different emails group, so customers can send to a
+selected group not to everything in the vault." Before this, a campaign went to
+the whole vault or to nothing. The only narrowing available was `statusFilter`, a
+free-text box matched against the prospect `status` column — which is an import
+artefact ("new", "contacted"), not something a person chose, and typing it wrong
+selected nobody in silence. A customer with one list of buyers, one of newsletter
+subscribers and one of cold prospects had to mail all three or none.
+
+### Why "group" and not "segment"
+`/dashboard/segments` already exists and means something else: segments are
+COMPUTED — RFM, LTV, churn risk, intent — and nobody types them. A group is the
+opposite: a label a person applies on purpose. Two concepts, two words, and
+`shared/contact-groups.ts` never touches the other one. This is the "one source of
+truth per concept" rule applied in the direction that is easy to get wrong: not
+reusing a module because the words sound similar.
+
+### The decisions that are not conveniences
+- **A contact can be in several groups.** Somebody who subscribed and then bought
+  is in both, and forcing a choice makes one of the two lists wrong.
+- **Ungrouped is itself selectable.** Every newsletter signup and every audit lead
+  arrives with no group, and they are the people worth mailing first. A bucket you
+  can see but not target would be worse than no buckets. The token is
+  `__ungrouped__` and `normaliseGroupName` refuses that shape, so no name a person
+  can type ever collides with it.
+- **An empty selection is everyone.** Every campaign sent before groups existed
+  passed no selection; choosing a group is opting IN to narrowing, so nothing that
+  worked before changed behaviour.
+- **Selections are OR-ed.** "Buyers" and "Newsletter" means everybody in either,
+  each counted once. The intersection of two hand-built lists is not a thing
+  anybody wants from a send screen.
+- **The count on the button is the SENDABLE count**, computed by the same rule the
+  send path uses (`Boolean(email) && consent !== false`), so "412 contacts" beside
+  a send that reaches 180 cannot be printed.
+
+### Proved by driving
+A real send driven against a live SMTP server in-container attempted exactly
+2/2/3/5 for four selections, and the ledger agreed with the button.
+
+### The mutation that proved nothing
+One mutation "survived" and nearly got the test recorded as weak. The mutation was
+`some()` → `filter().length >= 1` — the same program. Rewritten to actually
+duplicate a contact via `flatMap`, it was killed at once. **Check the mutant is a
+different program before believing its survival.**
+
+## §111 — Campaigns did not fail over; single sends already did (2026-09-07)
+
+### The defect
+`sendEmailBatchInner` walked the provider list, but an SMTP batch that died before
+sending anything returned the same shape as one that died halfway. Both were
+recorded as attempted-and-failed, so the loop stopped and the HTTP provider was
+never reached. A single send had failed over correctly since the sending-path
+repair; the batch path — the one a campaign uses — had not.
+
+### Why it cannot simply always retry
+Halfway through a batch, some recipients are already delivered. Retrying the batch
+on the next provider would send those people the message twice. So the answer is
+not "retry on failure", it is "retry only when nothing has left".
+
+`SmtpBatchResult` gained `retryable`, set from `anyMessageStarted`, which flips at
+the first `MAIL FROM`. Abort before that: retryable. Abort after: not.
+
+### The half that would have lied
+The flag had to be honoured in TWO places — the result map and the attempt ledger.
+Honouring it only in the map would have failed over correctly while recording that
+the first provider had accepted the batch, which is the boundary defect this
+codebase keeps producing: the value existed and was not carried across.
+
+Proved by driving: a batch aborted at connect reaches the second provider; one
+aborted mid-flight does not, and the ledger says why.
+
+## §112 — One brand's domain is not another brand's domain (2026-09-07)
+
+The Authenticated Sending screen showed `evandeli.com` as **Authenticated** while
+the Koda brand was selected. `/api/sending-domains` listed every domain the OWNER
+had, across all brands, because domains had been treated as an account-level
+resource.
+
+That is worse than cosmetic. A customer reading "Authenticated" sends under that
+domain from the wrong brand — and the domain was signed for AxionOS, not Koda, so
+on a domain with `adkim=s` the mail fails DMARC outright and is discarded. The
+screen was telling somebody their mail was authenticated at the exact moment it
+would not be.
+
+Domains are now listed for the ACTIVE brand. Other brands' domains are returned in
+a separate field and shown as belonging to another brand — visible, because hiding
+them entirely would make "why can't I add this domain?" unanswerable, but never
+countable as this brand's authentication.
+
+## §113 — Every brand authenticates its own sending, shared domains included (2026-09-08)
+
+### The obstruction was one line
+"We need each brand to send and authenticate without obstruction."
+
+```ts
+const SELECTOR = "mwos";
+```
+
+A fixed DKIM selector for every record. Two brands on one domain would both need
+their key at `mwos._domainkey.<domain>`, and DNS holds exactly one value there, so
+the second could never validate. §112 had scoped domains to a brand without
+removing the reason they had to be scoped — which made the obstruction sharper,
+not softer.
+
+DNS has no such limit: a domain carries as many selectors as you like, which is
+how every multi-tenant sender does this. `selectorFor(brandId)` derives one per
+brand — `mwos-koda._domainkey.example.com` beside `mwos-axionos._domainkey.…` —
+each with its own key, its own DKIM record and its own bounce CNAME.
+
+### Existing records are untouched, and that is not incidental
+`selector` is stored ON the record and every reader (`recordsFor`, `signingFor`)
+takes it from there. A domain verified before this keeps `mwos`, and the DNS
+already published at the registrar stays correct. Only new records get a
+brand-scoped selector. A test asserts an old record still resolves to the host its
+DNS carries.
+
+### Two things the change would have broken, found by following it through
+- **The bounce CNAME was built from the constant**, not from the record
+  (`${SELECTOR}bounce` → `${d.selector}bounce`). Two brands on one domain would
+  have collided on one host.
+- **The inbound route's `^[a-z0-9]*bounce\.` cannot match a hyphen**, so every
+  bounce arriving at a brand-scoped host would have been dropped — the silent half
+  of a delivery problem, and the half nobody notices until a list is full of dead
+  addresses. The class takes a hyphen now.
+
+### The rule this leaves behind
+Three defects in two days had the same shape: a value hard-coded as a module
+constant where it should have come from the record — the selector, the bounce host
+built from it, and the tracking base falling back to the apex while the app serves
+`www`. Each read correctly in isolation. Each was wrong the moment a second brand
+or host existed. **Anything that identifies WHOSE something is cannot be a
+module-level constant.**
+
+Proved by driving: two brands on one domain get distinct DKIM hosts, distinct
+bounce hosts and distinct keys; both sign once verified; neither signs while
+pending, because publishing the record is what proves control. Five mutations
+killed.
