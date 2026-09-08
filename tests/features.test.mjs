@@ -25105,7 +25105,7 @@ test("the email health report withholds recipients and the mail host from strang
   // copy function. Interpolating probe.detail there would leak the server's line
   // just as surely as putting it in the object.
   const signedOutVerdict = report.slice(report.indexOf("verdict: !privileged"), report.indexOf(": !node"));
-  assert.match(signedOutVerdict, /smtpStageVerdict\(probe\.stage, probe\.ok\)/, "the signed-out verdict must go through the shared, name-free copy");
+  assert.match(signedOutVerdict, /smtpStageVerdict\(probe\.stage, probe\.ok/, "the signed-out verdict must go through the shared, name-free copy");
   assert.ok(!signedOutVerdict.includes("detail"), "the signed-out verdict must not interpolate the server's own line");
 
   // THE DIAGNOSTIC HALF MUST SURVIVE, or closing the leak has broken the reason
@@ -28472,7 +28472,7 @@ test("the SMTP stage is sayable signed out, and names a different fix each time"
   // The route must actually use it signed out, and must still withhold the rest.
   const route = readFileSync("src/app/api/health/email/route.ts", "utf8");
   assert.match(route, /probeReachedStage: probe\?\.stage/, "the stage must be reported to a signed-out caller");
-  assert.match(route, /smtpStageVerdict\(probe\.stage, probe\.ok\)/, "the signed-out verdict must be derived from the stage");
+  assert.match(route, /smtpStageVerdict\(probe\.stage, probe\.ok/, "the signed-out verdict must be derived from the stage");
   // The things that DO name people stay gated — asserted in full by
   // "the email health report withholds recipients and the mail host from strangers".
   assert.match(route, /\.\.\.\(privileged \? \{/, "the privileged-only groups must still exist");
@@ -28542,11 +28542,53 @@ test("a refused password says whether whitespace is the cause, without echoing i
   assert.match(code, /THE LOGIN MAILBOX IS A DIFFERENT MAILBOX/,
     "the other branch must name the mailbox mismatch rather than falling back to the paste");
   // AND THE POOL BRANCH COMES FIRST, because it makes every other remedy futile.
-  const verdictIdx = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  const verdictIdx = code.indexOf("smtpStageVerdict(probe.stage, probe.ok");
   const poolIdx = code.indexOf("CREDENTIALS IN USE COME FROM MW_SENDING_POOL");
   const padIdx = code.indexOf("WHITESPACE AROUND IT");
   assert.ok(poolIdx > verdictIdx && poolIdx < padIdx,
     "the MW_SENDING_POOL branch must be tested BEFORE the others — with a pool set, no advice about SMTP_PASS is true");
+});
+
+test("the verdict never opens with a cause a later sentence contradicts", async () => {
+  // WHAT THE OWNER WAS HANDED. The report opened with "NOT SENDING — THE SERVER
+  // REFUSED THE PASSWORD. The mailbox in SMTP_USER and the password in SMTP_PASS
+  // do not match." and then, several lines later, said the server was not the one
+  // holding the mailbox. Both sentences in one verdict, the confident and wrong
+  // one first. Somebody acting on the opening line resets the password again —
+  // which is exactly what had already been done three times.
+  const { smtpStageVerdict } = await import("../src/shared/send-failure.ts");
+
+  const wrongServer = smtpStageVerdict("auth-pass", false, { providerMismatch: true });
+  assert.ok(!/do not match/.test(wrongServer),
+    "with the wrong server, the verdict must not assert that the password is wrong");
+  assert.match(wrongServer, /SMTP_HOST/, "it must name the thing to change");
+  assert.match(wrongServer, /whatever its password is/,
+    "and say plainly why resetting the password has not helped");
+
+  // The ordinary reading survives when there is no stronger signal.
+  const rightServer = smtpStageVerdict("auth-pass", false, { providerMismatch: false });
+  assert.match(rightServer, /REFUSED THE PASSWORD/,
+    "on the right server a refused login IS a credential problem, and must still say so");
+  assert.equal(smtpStageVerdict("auth-pass", false), rightServer,
+    "and the default with no options is unchanged — every existing caller keeps its wording");
+
+  // A mismatch must not rewrite a stage it says nothing about.
+  const rcpt = smtpStageVerdict("rcpt-to", false, { providerMismatch: true });
+  assert.match(rcpt, /refused the RECIPIENT/,
+    "the override applies to the auth stages only — past auth, the server clearly did know the account");
+  assert.match(smtpStageVerdict("auth-pass", true, { providerMismatch: true }), /^SENDING\./,
+    "and a success is never overridden");
+
+  // The report must not print the diagnosis twice either.
+  const code = codeOf(readFileSync("src/app/api/health/email/route.ts", "utf8"));
+  assert.match(code, /smtpStageVerdict\(probe\.stage, probe\.ok, \{ providerMismatch: providerCheck\.matches === false \}\)/,
+    "the report must pass the stronger signal into the stage verdict");
+  assert.match(code, /providerCheck\.matches === false\s*\?\s*""/,
+    "and drop the trailing copy, since the opening sentence now carries it");
+
+  // whatThatMeans must agree with the verdict rather than contradicting it.
+  assert.match(code, /providerCheck\.matches === false\s*\?\s*\{ whatThatMeans:/,
+    "the plain-words field must not read a 535 as a bad credential when the server is the wrong one");
 });
 
 test("a refused login checks whether we are even asking the mailbox's own provider", async () => {
@@ -28566,7 +28608,7 @@ test("a refused login checks whether we are even asking the mailbox's own provid
   // IT MUST BE TESTED BEFORE THE PASSWORD ADVICE. If this is the wrong server the
   // password is irrelevant and always was, so a verdict that mentions resetting
   // it first sends somebody back to the thing that has already failed.
-  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok");
   const region = code.slice(verdictAt, verdictAt + 4000);
   const hostIdx = region.indexOf("providerCheck.matches === false");
   const passIdx = region.indexOf("credential.passLength");
@@ -28661,7 +28703,7 @@ test("the refused-login verdict warns about the pool BEFORE any advice about SMT
   // so disabling the verdict's own condition left this test green. The leak test
   // two hundred lines up records the identical trap; this is the second time an
   // index in this file has matched the wrong occurrence.
-  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok)");
+  const verdictAt = code.indexOf("smtpStageVerdict(probe.stage, probe.ok");
   assert.notEqual(verdictAt, -1, "the signed-out verdict has been restructured — re-check by hand");
   const region = code.slice(verdictAt, verdictAt + 3000);
   const cond = region.indexOf("cred?.fromPool");
