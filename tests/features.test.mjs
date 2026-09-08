@@ -9679,13 +9679,25 @@ test("an out-of-office is not a bounce and never suppresses anybody", () => {
 });
 
 test("only a delivery failure may suppress an address", () => {
-  const route = readFileSync(new URL("../src/app/api/inbound/email/route.ts", import.meta.url), "utf8");
-  const suppressBlock = route.slice(route.indexOf('if (kind === "bounce")'), route.indexOf('routed: "suppression"'));
+  // READ FROM `backend/inbound-routing.ts`, NOT THE ROUTE. The routing moved
+  // there when the mailbox collector became a second front door — two callers,
+  // one implementation, so a bounce cannot come to mean different things
+  // depending on how it arrived. The property asserted here is unchanged.
+  const routing = readFileSync(new URL("../src/backend/inbound-routing.ts", import.meta.url), "utf8");
+  // SEARCHED FROM THE BRANCH ONWARDS. `routed: "suppression"` also appears in the
+  // exported type above the function, so indexOf found THAT first and the slice
+  // ran backwards to an empty string — the third time today an index in this
+  // suite has matched the wrong occurrence.
+  const branchAt = routing.indexOf('if (kind === "bounce")');
+  assert.notEqual(branchAt, -1, "the bounce branch has been renamed — re-check by hand");
+  const returnAt = routing.indexOf('routed: "suppression"', branchAt);
+  assert.ok(returnAt > branchAt, "the suppression return must follow the branch");
+  const suppressBlock = routing.slice(branchAt, returnAt);
   assert.match(suppressBlock, /recordEvent/, "a bounce still suppresses");
   // The auto-reply path must not be able to reach recordEvent.
-  const afterBounce = route.slice(route.indexOf('routed: "suppression"'));
+  const afterBounce = routing.slice(returnAt);
   assert.ok(!/recordEvent/.test(afterBounce), "nothing after the bounce branch may suppress an address");
-  assert.match(route, /auto: kind === "auto-reply"/, "an auto-reply is shown, flagged");
+  assert.match(routing, /auto: kind === "auto-reply"/, "an auto-reply is shown, flagged");
 });
 
 test("the send never sets Reply-To to a host that cannot receive", () => {
@@ -26064,7 +26076,8 @@ test("a bounce on a hyphenated selector still resolves its brand", async () => {
   // a multi-brand domain would have been dropped, which is the silent half of a
   // delivery problem.
   const { readFileSync } = await import("node:fs");
-  const inbound = readFileSync(new URL("../src/app/api/inbound/email/route.ts", import.meta.url), "utf8");
+  // In `backend/inbound-routing.ts` since the collector became a second caller.
+  const inbound = readFileSync(new URL("../src/backend/inbound-routing.ts", import.meta.url), "utf8");
   assert.match(inbound, /\^\[a-z0-9-\]\*bounce\\\./,
     "the bounce-host stripper must accept the hyphen a brand-scoped selector introduces");
   assert.equal("mwos-kodabounce.shared.example".replace(/^[a-z0-9-]*bounce\./i, ""), "shared.example");
@@ -28790,6 +28803,157 @@ test("a refused login checks whether we are even asking the mailbox's own provid
   assert.equal(mh.registrableDomain("MX1.Hostinger.Com."), "hostinger.com", "case and a trailing dot are normalised");
   assert.match(code, /mailProviderMatches\(mx, node\.host\)/,
     "and the route must use that shared function rather than growing its own copy");
+});
+
+test("the platform reads its own bounces — nobody opens a mailbox", async () => {
+  // THE COMPLAINT, VERBATIM: "so if I have 1000000 users sending from their domain
+  // in MarketWar, I will have to look at our private email? is this how Brevo
+  // works?" No. Every part of receiving was built — classification, VERP brand
+  // attribution, the suppression ledger, the Inbox — and all of it hung off an
+  // HTTP webhook that a mail node has to POST to. No such node exists here, so
+  // nothing ever arrived and the only way to learn why a message failed was to
+  // open the mailbox by hand.
+  const collector = await import("../src/backend/bounce-collector.ts");
+  const reply = await import("../src/backend/reply-routing.ts");
+  const events = await import("../src/backend/email-events.ts");
+
+  const had = {
+    h: process.env.MW_BOUNCE_IMAP_HOST, u: process.env.MW_BOUNCE_IMAP_USER,
+    p: process.env.MW_BOUNCE_IMAP_PASS, b: process.env.MW_BOUNCE_HOST,
+  };
+  try {
+    // UNCONFIGURED IS SAID PLAINLY, not silently treated as "nothing to collect".
+    delete process.env.MW_BOUNCE_IMAP_HOST;
+    const dark = await collector.collectBounces(10, { fetch: async () => [] });
+    assert.equal(dark.ok, false, "with no mailbox configured this is not a success");
+    assert.match(dark.note, /not being collected/, "…and it must say so, not report zero and look healthy");
+
+    process.env.MW_BOUNCE_HOST = "bounces.example.test";
+    process.env.MW_BOUNCE_IMAP_HOST = "imap.example.test";
+    process.env.MW_BOUNCE_IMAP_USER = "info@marketwaros.test";
+    process.env.MW_BOUNCE_IMAP_PASS = "pw";
+
+    // A REAL POSTFIX NOTICE, addressed to the VERP envelope the platform itself
+    // issues — which is what carries the brand and the recipient.
+    const brand = `bounce-collect-${Date.now()}`;
+    const envelope = reply.bounceAddressFor(brand, "gone@example.com");
+    assert.ok(envelope, "a VERP envelope is needed for attribution");
+    await events.recordEvent({ brandId: brand, email: "gone@example.com", type: "sent", at: new Date().toISOString() });
+
+    const dsn = [
+      "Return-Path: <>",
+      "From: Mail Delivery System <MAILER-DAEMON@relay.test>",
+      `X-Original-To: ${envelope}`,
+      `To: ${envelope}`,
+      "Subject: Undelivered Mail Returned to Sender",
+      "Auto-Submitted: auto-replied",
+      "",
+      "<gone@example.com>: host mx.example.com said:",
+      "    550 5.1.1 Recipient address rejected: User unknown",
+    ].join("\r\n");
+
+    const r = await collector.collectBounces(10, { fetch: async () => [{ uid: "1", raw: dsn }] });
+    assert.equal(r.ok, true);
+    assert.equal(r.collected, 1);
+    assert.equal(r.suppressed, 1, "a delivery failure must suppress, not land in an Inbox");
+    assert.deepEqual(r.addresses, ["gone@example.com"], "and it must name the address the ENVELOPE identified");
+
+    const after = await events.brandEvents(brand);
+    assert.ok(after.some((e) => e.type === "bounce" && e.email === "gone@example.com"),
+      "the suppression ledger is what makes this a product rather than a log line");
+
+    // One unreadable message must not abandon the rest of the run.
+    const mixed = await collector.collectBounces(10, {
+      fetch: async () => [{ uid: "1", raw: "not a message at all" }, { uid: "2", raw: dsn }],
+    });
+    assert.equal(mixed.collected, 2);
+    assert.equal(mixed.suppressed, 1, "the good notice is still processed");
+
+    // AND A MESSAGE THAT THROWS ON THE WAY THROUGH — the case the try/catch is
+    // actually for, and unreachable without a seam. A malformed notice parses to
+    // empty fields and is merely ignored; a routing failure (a database error
+    // mid-run) is what would otherwise abandon the forty-nine behind it.
+    let seen = 0;
+    const survived = await collector.collectBounces(10, {
+      fetch: async () => [{ uid: "1", raw: dsn }, { uid: "2", raw: dsn }],
+      route: async (m) => {
+        seen += 1;
+        if (seen === 1) throw new Error("the ledger was unreachable for this one");
+        return { routed: "suppression", suppressed: "gone@example.com" };
+      },
+    });
+    assert.equal(seen, 2, "the run must continue past a message that threw");
+    assert.equal(survived.collected, 2);
+    assert.equal(survived.suppressed, 1, "and still process the one behind it");
+  } finally {
+    for (const [k, v] of [["MW_BOUNCE_IMAP_HOST", had.h], ["MW_BOUNCE_IMAP_USER", had.u],
+                          ["MW_BOUNCE_IMAP_PASS", had.p], ["MW_BOUNCE_HOST", had.b]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test("a delivery notice from the mail system is a bounce, whatever its subject says", async () => {
+  // TWO DEFECTS FOUND BY DRIVING A REAL POSTFIX NOTICE THROUGH THE COLLECTOR.
+  //
+  // "Undelivered Mail Returned to Sender" is Postfix's standard bounce subject
+  // and the commonest one on the internet — and the pattern matched
+  // "undeliverable" but not "undelivered", "returned mail" but not "mail
+  // returned". Worse, the Auto-Submitted branch was tested FIRST, and every DSN
+  // is auto-submitted by RFC 3464, so a textbook failure notice from
+  // MAILER-DAEMON came out as an "auto-reply": filed to the Inbox, no
+  // suppression, the dead address left on the list for ever.
+  const { classifyInbound } = await import("../src/backend/inbound.ts");
+
+  const daemon = classifyInbound(
+    "MAILER-DAEMON@relay.test", "b.x.y.z@bounces.test",
+    "Undelivered Mail Returned to Sender", { "auto-submitted": "auto-replied" });
+  assert.equal(daemon.kind, "bounce", "the mail system saying a message failed is a bounce");
+
+  for (const subject of [
+    "Undelivered Mail Returned to Sender",
+    "Delivery Status Notification (Failure)",
+    "Mail delivery failed: returning message to sender",
+    "Returned mail: see transcript for details",
+    "Your message could not be delivered",
+    // The bare Postfix wording, which ONLY the `undelivered` alternative catches
+    // — every other subject in this list also matches a different alternative, so
+    // deleting that one stayed green until this line existed.
+    "Undelivered Mail",
+  ]) {
+    assert.equal(classifyInbound("noreply@some-host.test", "x@y.test", subject).kind, "bounce",
+      `"${subject}" must read as a delivery failure`);
+  }
+
+  // AND A HUMAN'S AUTORESPONDER IS STILL NOT A BOUNCE — the reordering must not
+  // turn every out-of-office into a suppression, which would destroy live
+  // addresses at scale.
+  const ooo = classifyInbound("marie@client.test", "r.brand.tag@reply.test",
+    "Out of office until Monday", { "auto-submitted": "auto-replied" });
+  assert.equal(ooo.kind, "auto-reply", "an out-of-office is evidence a person exists, never a bounce");
+  assert.equal(classifyInbound("marie@client.test", "x@y.test", "Re: your email").kind, "human");
+});
+
+test("the webhook and the collector share one routing, so a bounce means one thing", async () => {
+  // Two front doors now. If each carried its own copy of "what is a bounce", they
+  // would drift, and the one that drifted would quietly stop suppressing.
+  const route = codeOf(readFileSync("src/app/api/inbound/email/route.ts", "utf8"));
+  const coll = codeOf(readFileSync("src/backend/bounce-collector.ts", "utf8"));
+  assert.match(route, /routeInbound\(/, "the webhook must delegate to the shared routing");
+  // The collector routes through an injectable seam, so what matters is that its
+  // DEFAULT is the shared routing — an injected router in a test must never be
+  // able to become the shipped one.
+  assert.match(coll, /deps\.route \?\? routeInbound/, "the collector's default router must be the shared routing");
+  assert.match(coll, /import \{ routeInbound \} from "@\/backend\/inbound-routing"/,
+    "…imported from the one module that defines it");
+  assert.ok(!/classifyInbound/.test(route), "the route must not keep a second copy of the classification");
+  assert.ok(!/parseBounceAddress/.test(route), "nor of the attribution");
+
+  // The scheduled entry point exists and is scheduler-authorised — it writes to
+  // the suppression ledger, so an anonymous caller must never reach it.
+  const cron = codeOf(readFileSync("src/app/api/cron/collect-bounces/route.ts", "utf8"));
+  assert.match(cron, /cronAuthorised\(req\)/, "the collector route must be scheduler-gated");
+  assert.match(cron, /status: 401/, "…and refuse everyone else");
 });
 
 test("a reply the provider says was CUT OFF is retried, not handed back as advice", async () => {

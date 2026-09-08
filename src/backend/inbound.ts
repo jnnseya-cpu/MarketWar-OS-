@@ -113,7 +113,13 @@ export type InboundKind = "bounce" | "auto-reply" | "human";
 
 const DAEMON = /mailer-daemon|postmaster|daemon@/i;
 const NOREPLY = /no-?reply|do-?not-?reply/i;
-const DSN_SUBJECT = /delivery status notification|undeliverable|mail delivery (?:failed|subsystem)|returned mail|delivery has failed|failure notice|message not delivered/i;
+// POSTFIX'S OWN WORDING WAS MISSING, and it is the commonest bounce subject on
+// the internet: "Undelivered Mail Returned to Sender". The list matched
+// "undeliverable" but not "undelivered", and "returned mail" but not "mail
+// returned" — so a textbook DSN fell through to the auto-reply branch and the
+// dead address stayed on the list. Found by driving a real Postfix notice
+// through the collector.
+const DSN_SUBJECT = /delivery status notification|undeliver(?:able|ed)|mail delivery (?:failed|subsystem)|returned mail|mail returned|returned to sender|delivery (?:has failed|failure|incomplete)|failure notice|(?:message|mail) (?:not|could not be) delivered/i;
 const AUTO_SUBJECT = /auto(?:matic)?[- ]?reply|out of (?:the )?office|autoresponder|away from (?:my|the) (?:desk|office)|annual leave|on holiday|vacation reply|abwesenheit|réponse automatique/i;
 
 export function classifyInbound(
@@ -127,23 +133,30 @@ export function classifyInbound(
   const s = (subject || "").toLowerCase();
   const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v || "").toLowerCase()]));
 
-  // RFC 3834 and the de-facto headers. An auto-responder that labels itself is
-  // the easiest case and the most reliable.
-  const autoSubmitted = h["auto-submitted"] || "";
-  if (autoSubmitted && autoSubmitted !== "no") {
-    return DSN_SUBJECT.test(s)
-      ? { kind: "bounce", why: `Auto-Submitted: ${autoSubmitted} with a delivery-failure subject` }
-      : { kind: "auto-reply", why: `the sender marked it Auto-Submitted: ${autoSubmitted}` };
-  }
-  if (h["x-autoreply"] || h["x-autorespond"] || h["x-auto-response-suppress"]) {
-    return { kind: "auto-reply", why: "the sender's own auto-responder headers" };
-  }
-
-  // A real delivery-status notification: from the mail system, about a failure.
+  // WHO SENT IT IS THE STRONGEST SIGNAL, AND IT MUST BE READ FIRST.
+  //
+  // This used to sit BELOW the Auto-Submitted branch, and every delivery-status
+  // notification is auto-submitted — RFC 3464 requires it. So a textbook DSN from
+  // MAILER-DAEMON was classified by its SUBJECT alone, and any wording the list
+  // below did not happen to carry came out as an "auto-reply": filed to the
+  // Inbox, no suppression, the dead address left on the list for ever. A message
+  // from the mail system about a message we sent is a bounce whatever else it
+  // carries.
   if (DAEMON.test(f) || /^bounce@|^bounce\+|@bounces?\./.test(t)) {
     return { kind: "bounce", why: "it came from the mail system, not from a person" };
   }
   if (DSN_SUBJECT.test(s)) return { kind: "bounce", why: "the subject is a delivery-failure notice" };
+
+  // RFC 3834 and the de-facto headers. An auto-responder that labels itself is
+  // the easiest case and the most reliable — and by here it is not from the mail
+  // system and does not carry a failure subject, so it is a person's autoresponder.
+  const autoSubmitted = h["auto-submitted"] || "";
+  if (autoSubmitted && autoSubmitted !== "no") {
+    return { kind: "auto-reply", why: `the sender marked it Auto-Submitted: ${autoSubmitted}` };
+  }
+  if (h["x-autoreply"] || h["x-autorespond"] || h["x-auto-response-suppress"]) {
+    return { kind: "auto-reply", why: "the sender's own auto-responder headers" };
+  }
 
   if (AUTO_SUBJECT.test(s)) return { kind: "auto-reply", why: "the subject is an out-of-office or auto-reply" };
   // A no-reply sender is a machine, but it is not a failure — showing it is
