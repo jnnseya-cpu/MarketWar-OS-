@@ -170,7 +170,33 @@ export async function POST(req: NextRequest) {
     const contacts = await listContacts(brandId);
     // Optional status filter (prospect lists): "contacted" | "new" | etc.
     const statusFilter = typeof body.statusFilter === "string" ? body.statusFilter.trim().toLowerCase() : "";
-    const pool = statusFilter ? contacts.filter((c) => (c.status || "").toLowerCase() === statusFilter) : contacts;
+    const byStatus = statusFilter ? contacts.filter((c) => (c.status || "").toLowerCase() === statusFilter) : contacts;
+
+    // NAMED GROUPS — send to a list rather than to the whole vault.
+    //
+    // An EMPTY selection is everyone, so every campaign written before groups
+    // existed behaves exactly as it did. Choosing groups is opting in to
+    // narrowing, and `UNGROUPED` is a legitimate choice: newsletter signups and
+    // audit leads arrive with no label and are often the first people worth
+    // mailing.
+    //
+    // Applied AFTER the status filter and before eligibility, so the two can be
+    // combined and the "nothing matched" message below can still tell the
+    // customer which of the two emptied the list.
+    const groupFilter = Array.isArray(body.groups)
+      ? body.groups.filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+      : [];
+    const { selectByGroups, UNGROUPED } = await import("@/shared/contact-groups");
+    const pool = groupFilter.length ? selectByGroups(byStatus, groupFilter) : byStatus;
+
+    if (groupFilter.length && pool.length === 0) {
+      const named = groupFilter.map((g) => (g === UNGROUPED ? "not in any group" : `"${g}"`)).join(", ");
+      return NextResponse.json({
+        error: `No contacts are in ${named}${statusFilter ? ` with status "${statusFilter}"` : ""}, so there is nobody to send to. Nothing was sent and nothing was charged.`,
+        sent: 0, attempted: 0, failed: 0, sendable: 0, consented: 0, remaining: 0,
+        matched: 0, groups: groupFilter, mode: emailConfigured ? "live" : "demo", note: "",
+      }, { status: 400 });
+    }
     // Eligibility. Consent model matches the Customer Vault DISPLAY (which counts
     // a contact as consented unless it EXPLICITLY opted out, consent===false) so
     // "100% consented" in the vault and "sendable" here never disagree. Only an

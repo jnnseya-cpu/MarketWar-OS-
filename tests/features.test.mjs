@@ -25769,6 +25769,125 @@ test("the site is shareable: Open Graph and a Twitter card, on one origin", asyn
     "the app serves www; an apex fallback reintroduces the split this test exists to close");
 });
 
+// ---------------------------------------------------------------------------
+// NAMED GROUPS — send to a list, not to the whole vault.
+//
+// The only narrowing before this was `statusFilter`, a free-text box matched
+// against an IMPORT ARTEFACT ("new", "contacted") that nobody chose and that
+// silently selected nobody when mistyped. A customer with buyers, newsletter
+// subscribers and cold prospects in one vault had to mail all three or none.
+// ---------------------------------------------------------------------------
+const cg = await import("../src/shared/contact-groups.ts");
+
+test("groups: an empty selection is everyone, which is what every old campaign did", () => {
+  const people = [{ email: "a@x.com" }, { email: "b@x.com", groups: ["Buyers"] }];
+  assert.equal(cg.selectByGroups(people, []).length, 2);
+  assert.equal(cg.selectByGroups(people, undefined).length, 2);
+  // Choosing is opting IN to narrowing — never the other way round.
+  assert.equal(cg.selectByGroups(people, ["Buyers"]).length, 1);
+});
+
+test("groups: ungrouped is a real, selectable bucket", () => {
+  // Every newsletter signup and audit lead lands with no label, and they are
+  // exactly the people worth mailing. A bucket you can see but not target would
+  // be worse than no buckets at all.
+  const people = [
+    { email: "filed@x.com", groups: ["Buyers"] },
+    { email: "loose1@x.com" },
+    { email: "loose2@x.com", groups: [] },
+  ];
+  const picked = cg.selectByGroups(people, [cg.UNGROUPED]);
+  assert.deepEqual(picked.map((p) => p.email), ["loose1@x.com", "loose2@x.com"]);
+  const summary = cg.summariseGroups(people);
+  assert.ok(summary.some((g) => g.isUngrouped && g.count === 2), "the bucket must be summarised, not hidden");
+  // And it is LAST — a remainder, not a choice competing with real lists.
+  assert.ok(summary[summary.length - 1].isUngrouped);
+});
+
+test("groups: two selections are OR-ed, and nobody is counted or sent twice", () => {
+  const both = { email: "both@x.com", groups: ["Buyers", "Newsletter"] };
+  const people = [both, { email: "b@x.com", groups: ["Buyers"] }, { email: "n@x.com", groups: ["Newsletter"] }];
+  const picked = cg.selectByGroups(people, ["Buyers", "Newsletter"]);
+  assert.equal(picked.length, 3, "asking for two lists must not duplicate the person in both");
+  assert.equal(picked.filter((p) => p.email === "both@x.com").length, 1);
+});
+
+test("groups: one name, however it was typed", () => {
+  // "Newsletter" and " newsletter " are one list, not two that look identical.
+  const people = [{ email: "a@x.com", groups: ["Newsletter"] }, { email: "b@x.com", groups: [" newsletter "] }];
+  const summary = cg.summariseGroups(people);
+  assert.equal(summary.filter((g) => !g.isUngrouped).length, 1, "case and spacing must not split a list in two");
+  assert.equal(summary[0].count, 2);
+  assert.equal(cg.selectByGroups(people, ["NEWSLETTER"]).length, 2);
+});
+
+test("groups: the ungrouped token cannot be forged as a real group name", () => {
+  // If somebody could create a group literally called __ungrouped__, selecting
+  // the bucket would become ambiguous and a send could go to the wrong people.
+  assert.equal(cg.normaliseGroupName(cg.UNGROUPED), "");
+  assert.equal(cg.normaliseGroupName("__anything__"), "");
+  assert.equal(cg.normaliseGroupName("  Past customers  "), "Past customers");
+  assert.equal(cg.normaliseGroupName(""), "");
+  assert.equal(cg.normaliseGroupName("x".repeat(cg.MAX_GROUP_NAME + 1)), "", "a paste accident is not a name");
+  assert.equal(cg.normaliseGroupName("x".repeat(cg.MAX_GROUP_NAME)).length, cg.MAX_GROUP_NAME);
+});
+
+test("groups: assigning is idempotent and returns the SAME object when nothing changed", () => {
+  // The API skips the write when the object is unchanged, so this identity is
+  // load-bearing: without it, filing 900 contacts writes 900 no-ops.
+  const c = { email: "a@x.com", groups: ["Buyers"] };
+  assert.equal(cg.addToGroup(c, "Buyers"), c, "already in — must not write");
+  assert.equal(cg.addToGroup(c, "buyers"), c, "already in, different casing");
+  assert.equal(cg.removeFromGroup(c, "Newsletter"), c, "not in it — must not write");
+  assert.deepEqual(cg.addToGroup(c, "VIP").groups, ["Buyers", "VIP"]);
+  assert.deepEqual(cg.removeFromGroup(c, "buyers").groups, []);
+});
+
+test("groups: a rename that collides MERGES rather than duplicating", () => {
+  const c = { email: "a@x.com", groups: ["VIP", "Buyers"] };
+  const out = cg.renameGroup(c, "VIP", "Buyers");
+  assert.deepEqual(out.groups, ["Buyers"], "renaming onto a group they are already in must not list it twice");
+  assert.equal(cg.renameGroup(c, "Nope", "X"), c, "a rename that does not apply must not write");
+});
+
+test("groups: the count beside a list is what can be EMAILED, not the raw total", () => {
+  // "412 contacts" beside a send that reaches 180 is the kind of number this
+  // platform exists to stop printing. Same rule as the send path: an address,
+  // and not an explicit opt-out.
+  const people = [
+    { email: "ok@x.com", consent: true, groups: ["L"] },
+    { email: "unknown@x.com", groups: ["L"] },            // no consent recorded → sendable
+    { email: "no@x.com", consent: false, groups: ["L"] }, // opted out
+    { name: "no address", groups: ["L"] },
+  ];
+  const [g] = cg.summariseGroups(people);
+  assert.equal(g.count, 4);
+  assert.equal(g.sendable, 2, "an opt-out and a contact with no address are not sendable");
+  assert.match(cg.describeSelection(people, ["L"]), /2 of 4 can be emailed/);
+  assert.match(cg.describeSelection(people, []), /Everyone in the vault/);
+});
+
+test("groups: a selection nobody is in says so instead of sending to everyone", () => {
+  // The dangerous failure: narrowing that silently falls back to the whole vault.
+  const people = [{ email: "a@x.com", groups: ["Buyers"] }];
+  assert.equal(cg.selectByGroups(people, ["Does Not Exist"]).length, 0);
+  assert.match(cg.describeSelection(people, ["Does Not Exist"]), /Nothing to send/);
+});
+
+test("groups: the send route narrows the pool and refuses an empty selection", async () => {
+  const { readFileSync } = await import("node:fs");
+  const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
+  assert.match(route, /selectByGroups\(byStatus, groupFilter\)/,
+    "the campaign must actually narrow by group");
+  assert.match(route, /groupFilter\.length && pool\.length === 0/,
+    "a group nobody is in must be refused, not quietly widened to the whole vault");
+  assert.match(route, /sent: 0, attempted: 0/, "and nothing may be charged for it");
+  // A re-import must never wipe the lists somebody built.
+  const contacts = readFileSync(new URL("../src/backend/contacts.ts", import.meta.url), "utf8");
+  assert.match(contacts, /if \(groups\.length\) c\.groups = /,
+    "groups must only be written when the row carries them — otherwise an import empties every list");
+});
+
 test("tracking links resolve to the host that actually serves the app", async () => {
   // THE THIRD SYMPTOM OF ONE ROOT CAUSE. `trackingBase()` fell back to the APEX
   // while `siteOrigin()` — robots.txt, the sitemap, every JSON-LD block and the

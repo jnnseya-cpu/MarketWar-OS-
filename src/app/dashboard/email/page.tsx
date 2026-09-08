@@ -29,6 +29,7 @@ import { authedFetch } from "@/frontend/api-client";
 import { emailContext } from "@/shared/agent-context";
 import { useAuthUser } from "@/frontend/use-auth-user";
 import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike, type SenderFields } from "@/shared/email-identity";
+import { type GroupSummary } from "@/shared/contact-groups";
 
 // Headline deliverability posture is COMPUTED per brand by the Email
 // Deliverability Posture Engine (/api/email-metrics) — every figure is a
@@ -96,6 +97,10 @@ export default function EmailPage() {
   const [drafting, setDrafting] = useState(false);
   const [draftNotes, setDraftNotes] = useState<string[]>([]);
   const [campaignStatus, setCampaignStatus] = useState(""); // optional: target a prospect status e.g. "contacted"
+  // NAMED GROUPS — send to a list instead of the whole vault. Empty = everyone,
+  // which is exactly what every campaign did before groups existed.
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [pickedGroups, setPickedGroups] = useState<string[]>([]);
   const [fromEmail, setFromEmail] = useState(""); // send AS this address (your authenticated domain)
   const [fromName, setFromName] = useState("");
   const [replyTo, setReplyTo] = useState(""); // where replies land (your real inbox)
@@ -153,7 +158,23 @@ export default function EmailPage() {
     setFromNote("");
     setPreviewBlockers(0);
     setDraftNotes([]);
+    setGroups([]);
+    setPickedGroups([]);
   }, [activeBrand?.id]);
+
+  // The brand's own groups, with counts. Read-only; the vault screen is where
+  // they are created and assigned.
+  useEffect(() => {
+    if (!activeBrand) { setGroups([]); return; }
+    let off = false;
+    authedFetch("/api/contacts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "groups", brandId: activeBrand.id }),
+    }).then((r) => r.json())
+      .then((d) => { if (!off) setGroups(Array.isArray(d.groups) ? d.groups : []); })
+      .catch(() => { if (!off) setGroups([]); });
+    return () => { off = true; };
+  }, [activeBrand]);
 
   // Which brand the screen is on RIGHT NOW, for responses that arrive late. A
   // request started for one brand must never write into another one's panel.
@@ -320,6 +341,7 @@ export default function EmailPage() {
       const payload: Record<string, unknown> = {
         action: "send_campaign", brandId: activeBrand.id, business: activeBrand.name, test,
         statusFilter: campaignStatus.trim() || undefined,
+        groups: pickedGroups.length ? pickedGroups : undefined,
         fromEmail: fromEmail.trim() || undefined, fromName: fromName.trim() || undefined,
         replyTo: replyTo.trim() || undefined,
         attachments: files.length ? files.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64, contentType: f.contentType })) : undefined,
@@ -661,6 +683,44 @@ export default function EmailPage() {
                 {templates.map((t) => <option key={t.id} value={t.id}>Template: {t.name}</option>)}
               </select>
               {templateId && <span className="text-[11px] text-emerald-300/90">Using a saved template — personalised per contact. Manage in Email Templates.</span>}
+            </div>
+          )}
+          {/* WHO THIS GOES TO — named groups from the Customer Vault.
+              Nothing picked means everyone, which is what every campaign did
+              before groups existed. "Not in any group" is a real choice: every
+              newsletter signup and audit lead lands there. */}
+          {groups.length > 0 && (
+            <div className="rounded-lg border border-white/10 bg-ink-900/50 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Send to</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button" onClick={() => setPickedGroups([])}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${pickedGroups.length === 0 ? "bg-emerald-500 text-ink-950" : "border border-white/10 text-slate-300 hover:border-emerald-500/40"}`}
+                >
+                  Everyone in the vault
+                </button>
+                {groups.map((g) => {
+                  const on = pickedGroups.includes(g.name);
+                  return (
+                    <button
+                      key={g.name} type="button"
+                      onClick={() => setPickedGroups((prev) => on ? prev.filter((x) => x !== g.name) : [...prev, g.name])}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${on ? "bg-emerald-500 text-ink-950" : "border border-white/10 text-slate-300 hover:border-emerald-500/40"}`}
+                    >
+                      {g.isUngrouped ? "Not in any group" : g.name}
+                      <span className={`ml-1.5 font-mono ${on ? "text-ink-950/70" : "text-slate-500"}`}>{g.sendable}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* The number that matters is SENDABLE, not the raw count — a
+                  group of 412 that reaches 180 is the kind of figure this
+                  platform exists to stop printing. */}
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                {pickedGroups.length === 0
+                  ? `Every consented contact in the vault. Pick one or more groups to narrow it — the number on each is how many can actually be emailed.`
+                  : `${groups.filter((g) => pickedGroups.includes(g.name)).reduce((n, g) => n + g.sendable, 0)} can be emailed across ${pickedGroups.length} group${pickedGroups.length === 1 ? "" : "s"} — anyone in two of them is counted and sent once. Groups are named in the Customer Vault.`}
+              </p>
             </div>
           )}
           {/* Segment target — always applies (template or one-off). */}

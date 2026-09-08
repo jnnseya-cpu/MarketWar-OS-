@@ -111,6 +111,79 @@ export async function POST(req: NextRequest) {
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
+  // ---- NAMED GROUPS — the lists a person builds by hand ----
+  //
+  // Send to a group rather than to the whole vault. Distinct from the COMPUTED
+  // segments in /dashboard/segments, and from `status`, which is an import
+  // artefact. See shared/contact-groups.ts.
+  //
+  // Every write is by EMAIL rather than by contact id, because that is what the
+  // vault screen has in hand and what a person can check. Addresses that match
+  // nothing are reported back rather than silently dropped.
+  if (body.action === "groups" || body.action === "assign_group"
+      || body.action === "remove_group" || body.action === "rename_group") {
+    const g = await import("@/shared/contact-groups");
+    const stored = await listContacts(brandId);
+
+    // Read-only: what groups exist, with counts.
+    if (body.action === "groups") {
+      return NextResponse.json({ groups: g.summariseGroups(stored), total: stored.length });
+    }
+
+    // A rename touches every contact carrying the old label.
+    if (body.action === "rename_group") {
+      const from = typeof body.from === "string" ? body.from.trim() : "";
+      const to = g.normaliseGroupName(body.to);
+      if (!from) return NextResponse.json({ error: "Which group is being renamed?" }, { status: 400 });
+      if (from === g.UNGROUPED) {
+        return NextResponse.json({ error: "“Not in any group” is not a group — it is everybody who has not been put in one, so there is no name to change. Put those contacts in a group instead." }, { status: 400 });
+      }
+      if (!to) return NextResponse.json({ error: `A group name has to be 1–${g.MAX_GROUP_NAME} characters and cannot be wrapped in double underscores.` }, { status: 400 });
+      let changed = 0;
+      for (const c of stored) {
+        const next = g.renameGroup(c, from, to);
+        if (next === c) continue;                      // untouched — no write
+        await patchContact(brandId, c.id, { groups: next.groups ?? [] });
+        changed++;
+      }
+      return NextResponse.json({ ok: true, renamed: changed, from, to });
+    }
+
+    // Assign / remove, by address.
+    const group = body.action === "assign_group" ? g.normaliseGroupName(body.group) : String(body.group ?? "").trim();
+    if (!group) {
+      return NextResponse.json({ error: `A group name has to be 1–${g.MAX_GROUP_NAME} characters and cannot be wrapped in double underscores.` }, { status: 400 });
+    }
+    if (group === g.UNGROUPED) {
+      return NextResponse.json({ error: "“Not in any group” is a view of the contacts nobody has filed yet, so it cannot be assigned. Remove a contact from its groups to put it back there." }, { status: 400 });
+    }
+    const wanted = Array.isArray(body.emails)
+      ? body.emails.filter((e: unknown): e is string => typeof e === "string" && e.includes("@")).map((e) => e.trim().toLowerCase())
+      : [];
+    if (!wanted.length) {
+      return NextResponse.json({ error: "Name the addresses to change. Nothing is applied to a whole vault without saying so." }, { status: 400 });
+    }
+    const wantedSet = new Set(wanted);
+    let changed = 0;
+    const matched = new Set<string>();
+    for (const c of stored) {
+      const email = (c.email || "").toLowerCase();
+      if (!email || !wantedSet.has(email)) continue;
+      matched.add(email);
+      const next = body.action === "assign_group" ? g.addToGroup(c, group) : g.removeFromGroup(c, group);
+      if (next === c) continue;                        // already in / already out
+      await patchContact(brandId, c.id, { groups: next.groups ?? [] });
+      changed++;
+    }
+    const missing = wanted.filter((e) => !matched.has(e));
+    return NextResponse.json({
+      ok: true, group, changed, matched: matched.size, missing,
+      note: missing.length
+        ? `${changed} contact(s) updated. ${missing.length} address(es) are not in this brand's vault and were skipped.`
+        : `${changed} contact(s) updated${matched.size !== changed ? `, ${matched.size - changed} already ${body.action === "assign_group" ? "in" : "out of"} that group` : ""}.`,
+    });
+  }
+
   // ---- Audit action: remove emails that belong to somebody else ----
   // Local-only, free, and reversible by re-running discovery. It exists because
   // fixing the discovery path does nothing about rows written before the fix —

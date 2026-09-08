@@ -15,6 +15,7 @@ import { createHash } from "crypto";
 import { FieldPath } from "firebase-admin/firestore";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import type { CustomerRecord } from "@/backend/segments";
+import { normaliseGroupName } from "@/shared/contact-groups";
 
 // Firestore reads are paged this many at a time; there is NO overall cap — the
 // whole brand's contacts are walked via cursor so a large real list (tens of
@@ -44,6 +45,12 @@ export type Contact = {
   // Enrichment (discovered from the company's own website via live search).
   website?: string;
   emailConfidence?: string; // "high" | "medium" | "low"
+  // NAMED GROUPS — the labels a person put on this contact on purpose, so a
+  // campaign can go to one list rather than the whole vault. Absent means
+  // ungrouped, which is itself a selectable bucket (every newsletter signup and
+  // audit lead lands there). Distinct from `status`, an import artefact, and from
+  // the COMPUTED segments in /dashboard/segments. See shared/contact-groups.ts.
+  groups?: string[];
   enrichedAt?: string;
   enrichNote?: string;
 };
@@ -90,6 +97,17 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
       score: scoreNum,
       source: r.source || "csv-import", importedAt: nowISO,
     };
+    // GROUPS ARE ONLY WRITTEN WHEN THE ROW ACTUALLY CARRIES THEM.
+    //
+    // Both save paths below merge onto the existing record, so an import that
+    // says nothing about groups leaves the labels alone — which is the whole
+    // point: re-importing a CSV must not silently empty every list somebody
+    // built. Setting the key to undefined here would defeat that, so it is only
+    // set when there is something to set.
+    const groups = Array.isArray(r.groups)
+      ? r.groups.map((g) => normaliseGroupName(g)).filter(Boolean)
+      : [];
+    if (groups.length) c.groups = [...new Set(groups)];
     byId.set(id, { ...byId.get(id), ...c });
   }
   const list = [...byId.values()];
