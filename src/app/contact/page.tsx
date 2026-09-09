@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { SUPPORT_EMAIL } from "@/shared/site";
 import { Mail, MessageCircle, Building2 } from "lucide-react";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 
 
-const SUPPORT_EMAIL = "info@marketwaros.com";
+// One source of truth — see shared/site.ts. Every page that offers a way to get
+// in touch must reach the same mailbox.
 
 export default function ContactPage() {
   const [name, setName] = useState("");

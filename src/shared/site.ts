@@ -40,6 +40,17 @@ export function siteUrl(path = "/"): string {
 }
 
 /** The shared 1200×630 social card. One file, so one page cannot drift from the rest. */
+/**
+ * THE ADDRESS A CUSTOMER WRITES TO, in one place.
+ *
+ * It was a `const` inside `/contact/page.tsx`, so every other page that wanted to
+ * offer a way to get in touch either linked to that page or offered nothing. Our
+ * own audit found the second case on `/choose-plan` — "No phone link, email link
+ * or form on this page" — which is the page where money changes hands, and the
+ * buyer with a question is exactly the buyer worth answering.
+ */
+export const SUPPORT_EMAIL = "info@marketwaros.com";
+
 export const OG_IMAGE = "/brand/social/og-card.png";
 
 /**
