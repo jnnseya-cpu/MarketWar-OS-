@@ -28824,6 +28824,35 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("every cron route this repo ships is actually scheduled", async () => {
+  // A ROUTE NOBODY CALLS IS NOT A FEATURE. The bounce collector was written,
+  // tested, driven against a real IMAP server and pushed — and never added to
+  // vercel.json, so with CRON_SECRET set and the mailbox configured it would
+  // still have collected nothing, for ever, silently. Caught while answering
+  // "where do I get these values", not by any test.
+  const { readFileSync } = await import("node:fs");
+  const { readdirSync, existsSync } = await import("node:fs");
+  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const scheduled = new Set((vercel.crons || []).map((c) => String(c.path).split("?")[0]));
+
+  const dir = new URL("../src/app/api/cron/", import.meta.url);
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      if (!name.isDirectory()) continue;
+      const path = `/api/cron/${name.name}`;
+      assert.ok(scheduled.has(path),
+        `${path} exists as a route and is not in vercel.json — nothing will ever call it`);
+    }
+  }
+  // And every scheduled path must resolve to a route, or the schedule fires into
+  // a 404 once a day and nobody notices.
+  for (const c of vercel.crons || []) {
+    const p = String(c.path).split("?")[0].replace(/^\/api\//, "");
+    assert.ok(existsSync(new URL(`../src/app/api/${p}/route.ts`, import.meta.url)),
+      `vercel.json schedules ${c.path}, which has no route`);
+  }
+});
+
 test("the platform reads its own bounces — nobody opens a mailbox", async () => {
   // THE COMPLAINT, VERBATIM: "so if I have 1000000 users sending from their domain
   // in MarketWar, I will have to look at our private email? is this how Brevo
