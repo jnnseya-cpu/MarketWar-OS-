@@ -28824,6 +28824,29 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("the page where money changes hands offers a way to ask a question", async () => {
+  // OUR OWN AUDIT, POINTED AT OUR OWN PAGES, FOUND THIS. `/choose-plan` scored
+  // lowest of six and said why: "No phone link, email link or form on this page."
+  // Every other page at least reached /contact; the pricing page offered a buyer
+  // with a question nothing at all — which is the buyer most worth answering, and
+  // the reason a platform reads as a demo rather than a business. 77 → 82 on the
+  // same crawler after this.
+  const page = readFileSync("src/app/choose-plan/page.tsx", "utf8");
+  assert.match(page, /mailto:\$\{SUPPORT_EMAIL\}/, "the plan page must offer a real mailbox");
+  assert.match(page, /href="\/contact"/, "…and the contact page as well, for anyone who prefers a form");
+
+  // ONE SOURCE OF TRUTH FOR THE ADDRESS. It was a const inside contact/page.tsx,
+  // so a second page offering a way to get in touch either linked to that page or
+  // invented its own address — and two support addresses is one that nobody reads.
+  const site = await import("../src/shared/site.ts");
+  assert.match(site.SUPPORT_EMAIL, /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i, "a real address");
+  const contact = readFileSync("src/app/contact/page.tsx", "utf8");
+  assert.match(contact, /import \{ SUPPORT_EMAIL \} from "@\/shared\/site"/,
+    "the contact page must read the shared address");
+  assert.ok(!/const SUPPORT_EMAIL = "/.test(codeOf(contact)),
+    "…and must not keep its own copy to drift from");
+});
+
 test("every cron route this repo ships is actually scheduled", async () => {
   // A ROUTE NOBODY CALLS IS NOT A FEATURE. The bounce collector was written,
   // tested, driven against a real IMAP server and pushed — and never added to

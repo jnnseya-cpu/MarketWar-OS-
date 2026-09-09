@@ -11,6 +11,7 @@ import { Check, Loader2, Cpu } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
 import { BrandLockup } from "@/components/Logo";
 import { AGENT_LIST } from "@/shared/agents";
+import { SUPPORT_EMAIL } from "@/shared/site";
 import { COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
 
 
@@ -157,6 +158,19 @@ export default function ChoosePlanPage() {
 
         <p className="mt-8 text-center text-sm text-slate-500">
           Not sure yet? <Link href="/dashboard" className="font-semibold text-emerald-400 hover:text-emerald-300">Explore the demo first</Link> — you can pick a plan any time from Billing.
+        </p>
+
+        {/* A CONTACT ROUTE ON THE PAGE WHERE MONEY CHANGES HANDS.
+            Our own audit, pointed at our own pages, scored this one lowest of six
+            and said why: "No phone link, email link or form on this page." Every
+            other page at least reached /contact; the pricing page offered a buyer
+            with a question nothing at all, which is the buyer most worth
+            answering. The address comes from shared/site.ts so it cannot drift
+            from the one on /contact. */}
+        <p className="mt-2 text-center text-sm text-slate-500">
+          A question before you choose?{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("[Plans] MarketWar OS enquiry")}`} className="font-semibold text-emerald-400 hover:text-emerald-300">{SUPPORT_EMAIL}</a>
+          {" "}or <Link href="/contact" className="font-semibold text-emerald-400 hover:text-emerald-300">the contact page</Link> — a real answer, not a bot.
         </p>
       </div>
     </div>
