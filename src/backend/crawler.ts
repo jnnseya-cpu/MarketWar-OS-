@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 // HTML produces a confident, entirely fictional report.
 
 import { detectRenderGap, classifyBlock, type RenderGap, type BlockVerdict } from "@/backend/render-gap";
+import { TITLE_MIN, TITLE_MAX, DESC_MIN, DESC_MAX, titleOk, descriptionOk } from "@/shared/seo-limits";
 import { aiReadability } from "@/shared/ai-readability";
 import { blockedUrlReason, blockedAddressReason, MAX_REDIRECTS } from "@/shared/net-guard";
 
@@ -602,8 +603,12 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   add("Technical", "HTTPS", https, 10, "Served over HTTPS.", "Not served over HTTPS — a ranking + trust negative.");
   add("Technical", "Reachable (2xx)", status >= 200 && status < 400, 8, `Responded ${status}.`, `Returned HTTP ${status}.`);
   add("Technical", "Load time", ms < 2500, 6, `First byte in ${ms}ms.`, `Slow first response (${ms}ms) — trim page weight / server time.`, ms < 5000);
-  add("SEO", "Title tag", Boolean(title && title.length >= 15 && title.length <= 65), 10, `Title present (${title?.length} chars).`, title ? `Title length ${title.length} — aim 15-65 chars.` : "No <title> tag.", Boolean(title));
-  add("SEO", "Meta description", Boolean(metaDescription && metaDescription.length >= 50 && metaDescription.length <= 165), 8, `Description present (${metaDescription?.length} chars).`, metaDescription ? `Description length ${metaDescription.length} — aim 50-165.` : "No meta description.", Boolean(metaDescription));
+  // BOUNDS FROM `shared/seo-limits.ts`, not literals. They were inline here, so
+  // nothing that WRITES a title could read the rule this scores it against —
+  // which is how eight marketing pages and every blog article came to fail the
+  // check this platform sells.
+  add("SEO", "Title tag", Boolean(title && titleOk(title)), 10, `Title present (${title?.length} chars).`, title ? `Title length ${title.length} — aim ${TITLE_MIN}-${TITLE_MAX} chars.` : "No <title> tag.", Boolean(title));
+  add("SEO", "Meta description", Boolean(metaDescription && descriptionOk(metaDescription)), 8, `Description present (${metaDescription?.length} chars).`, metaDescription ? `Description length ${metaDescription.length} — aim ${DESC_MIN}-${DESC_MAX}.` : "No meta description.", Boolean(metaDescription));
   add("SEO", "Single H1", h1s.length === 1, 7, "Exactly one H1.", h1s.length === 0 ? "No H1 heading." : `${h1s.length} H1s — use one primary H1.`, h1s.length > 0);
   add("SEO", "Canonical tag", canonical, 4, "Canonical link present.", "No canonical tag — add one to avoid duplicate-content dilution.", true);
   add("SEO", "Indexable", !noindex, 8, "Page is indexable.", "Page is set to NOINDEX — search engines are told to skip it.");
