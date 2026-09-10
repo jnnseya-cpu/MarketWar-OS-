@@ -28832,6 +28832,97 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("no article publishes below the bar, and a whole-site drop unpublishes nothing", async () => {
+  // THE GATE. Three published articles were found at 80, 75 and 75 — outside the
+  // very bounds this platform charges customers to fix. Those are fixed, but
+  // nothing stopped them happening: an article went from a model to the public
+  // with no measurement anywhere in between.
+  //
+  // It measures with the REAL crawler on the REAL page rather than scoring the
+  // draft against a checklist, because a second implementation of the thirty
+  // checks is the one that drifts — and a gate that passes what the crawler fails
+  // is worse than no gate, since it produces a number people trust.
+  const gate = await import("../src/backend/blog-seo-gate.ts");
+  assert.equal(gate.MIN_SCORE, 90, "the bar is the owner's stated standard");
+
+  // Injected scorer: the wire is proved by driving the real crawler against a
+  // production build (85/100, held, reverted to draft, publishedAt cleared).
+  // What must be asserted here is the DECISION, which needs scores this test
+  // controls.
+  const at = (score) => async () => ({ ok: score >= gate.MIN_SCORE, score, grade: "B", failing: [], note: "" });
+
+  const posts = [];
+  const store = {
+    listPosts: async () => posts.filter((p) => p.status === "published"),
+    getPost: async (slug) => posts.find((p) => p.slug === slug) || null,
+    savePost: async (p) => { const i = posts.findIndex((x) => x.slug === p.slug); if (i >= 0) posts[i] = p; else posts.push(p); },
+  };
+
+  // ONE BAD ARTICLE AMONG GOOD ONES IS HELD.
+  posts.length = 0;
+  for (let i = 0; i < 6; i++) posts.push({ slug: `ok-${i}`, status: "published", publishedAt: "2026-01-01", title: "t", excerpt: "e" });
+  posts.push({ slug: "bad", status: "published", publishedAt: "2026-01-01", title: "t", excerpt: "e" });
+  let r = await gate.sweepPublished(undefined, {
+    store, score: async (slug) => (slug === "bad" ? at(70)() : at(95)()),
+  });
+  assert.deepEqual(r.held, ["bad"], "the one that fell must be held");
+  assert.equal(posts.find((p) => p.slug === "bad").status, "draft");
+  assert.equal(posts.find((p) => p.slug === "bad").publishedAt, null,
+    "and its publication date cleared, or the next sweep reads it as long-live");
+  assert.equal(posts.find((p) => p.slug === "ok-0").status, "published", "the healthy ones are untouched");
+
+  // A WHOLE-SITE DROP HOLDS NOTHING. This is the case that actually happens: the
+  // three articles at 75 all failed on the SAME faults, because a suffix was
+  // appended to every title at once. Unpublishing the entire blog is the wrong
+  // response to one layout change. Driven against a loopback origin, where the
+  // HTTPS check cannot pass, the sweep held 12 of 13 before this guard existed.
+  posts.length = 0;
+  for (let i = 0; i < 7; i++) posts.push({ slug: `p-${i}`, status: "published", publishedAt: "2026-01-01", title: "t", excerpt: "e" });
+  r = await gate.sweepPublished(undefined, { store, score: at(70) });
+  assert.deepEqual(r.held, [], "a site-level regression must unpublish nothing");
+  assert.match(r.note, /SITE-LEVEL regression/, "…and must say so, loudly");
+  assert.ok(posts.every((p) => p.status === "published"), "every article stays up");
+
+  // AND THE PUBLICATION GATE ITSELF: an article below the bar must come back OUT.
+  // A draft is not routable, so the only way to score the thing that actually
+  // ships is to publish it, measure it, and revert within the same request.
+  {
+    const saved = [];
+    // A DATE THAT IS NOT ALREADY NULL. The first version used a fresh draft whose
+    // publishedAt was null anyway, so a mutation that KEPT the old date passed —
+    // the fixture could not tell "cleared" from "unchanged". This is a
+    // re-publication of an article that has been live before, which is the case
+    // where keeping the date matters.
+    const article = { slug: "fresh", status: "draft", publishedAt: "2026-01-01T00:00:00.000Z", title: "t", excerpt: "e" };
+
+    const held = await gate.publishWithGate(article, undefined, { save: async (p) => saved.push(p), score: at(80) });
+    assert.equal(held.ok, false);
+    assert.equal(held.reverted, true, "an article below the bar must be reverted");
+    assert.equal(saved.length, 2, "published, then put back");
+    assert.equal(saved[0].status, "published", "it has to go live to be measurable at all");
+    assert.equal(saved[1].status, "draft", "and must not stay there");
+    assert.equal(saved[1].publishedAt, null, "with the publication date cleared");
+    assert.match(held.note, /Held as a draft/, "and the writer told why");
+
+    const passed = [];
+    const good = await gate.publishWithGate(article, undefined, { save: async (p) => passed.push(p), score: at(95) });
+    assert.equal(good.ok, true);
+    assert.ok(!good.reverted, "a passing article is not reverted");
+    assert.equal(passed.length, 1, "and is written once, as published");
+    assert.equal(passed[0].status, "published");
+  }
+
+  // AN UNREACHABLE PAGE IS NOT A BAD ARTICLE. A deploy that briefly 404s must
+  // never unpublish anything.
+  posts.length = 0;
+  posts.push({ slug: "solo", status: "published", publishedAt: "2026-01-01", title: "t", excerpt: "e" });
+  r = await gate.sweepPublished(undefined, {
+    store, score: async () => ({ ok: false, score: 0, grade: "F", failing: [], note: "could not be measured" }),
+  });
+  assert.deepEqual(r.held, [], "an unmeasurable page is not a failing page");
+  assert.equal(posts[0].status, "published");
+});
+
 test("every blog article obeys the title and description rules this platform sells", async () => {
   // DRIVEN, THEN FIXED. Our own crawler, pointed at our own published articles on
   // a production build, scored them 80, 75 and 75 — and named the causes: titles
@@ -28949,6 +29040,19 @@ test("every cron route this repo ships is actually scheduled", async () => {
         `${path} exists as a route and is not in vercel.json — nothing will ever call it`);
     }
   }
+  // EVERY CRON ROUTE MUST BE SCHEDULER-GATED. They write: the collector
+  // suppresses addresses, the SEO sweep unpublishes articles. An anonymous caller
+  // must never reach one, and `cronAuthorised` fails closed when CRON_SECRET is
+  // unset rather than treating an unconfigured deployment as an open one.
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      if (!name.isDirectory()) continue;
+      const src = readFileSync(new URL(`../src/app/api/cron/${name.name}/route.ts`, import.meta.url), "utf8");
+      assert.match(src, /cronAuthorised\(req\)/, `/api/cron/${name.name} does not check the scheduler credential`);
+      assert.match(src, /status: 401/, `/api/cron/${name.name} does not refuse an unauthorised caller`);
+    }
+  }
+
   // And every scheduled path must resolve to a route, or the schedule fires into
   // a 404 once a day and nobody notices.
   for (const c of vercel.crons || []) {
