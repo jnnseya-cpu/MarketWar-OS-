@@ -3,6 +3,7 @@
 // single source of truth for the public site's navigation links.
 
 import type { ReactNode } from "react";
+import { SUPPORT_EMAIL } from "@/shared/site";
 import Link from "next/link";
 import { BrandLockup } from "@/components/Logo";
 import { FOOTER_NAV as NAV_COLUMNS, HEADER_NAV } from "@/components/marketing-nav";
@@ -69,7 +70,18 @@ export function SiteFooter() {
           ))}
         </div>
         <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-6 text-xs text-slate-600">
-          <p>© 2026 MarketWar OS · marketwaros.com</p>
+          {/* A REAL MAILBOX IN THE FOOTER, ON EVERY PAGE.
+              Our own crawler scores a "Contact route" check at weight 9 — "no
+              phone link, email link or form on this page" — and a <Link> to
+              /contact does not satisfy it, because a link to a page is not a way
+              to make contact. Every blog article failed it, and the blog is the
+              surface built to be found by strangers. One address here fixes it
+              for the whole site rather than page by page, and it is the same
+              address /contact and /choose-plan use. */}
+          <p>
+            © 2026 MarketWar OS · marketwaros.com ·{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-slate-400">{SUPPORT_EMAIL}</a>
+          </p>
           <p className="flex items-center gap-4">
             <Link href="/terms" className="hover:text-slate-400">Terms</Link>
             <Link href="/privacy" className="hover:text-slate-400">Privacy</Link>

@@ -26377,10 +26377,18 @@ test("every marketing description obeys the length rule this platform publishes"
   // so a change to the rule moves this test rather than leaving it asserting a
   // number nobody maintains.
   const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  // IMPORTED, NOT SCRAPED OUT OF THE SOURCE. This used to regex the bounds from
+  // `crawler.ts`, which was the right instinct — measure against the rule the
+  // engine actually applies — reaching for the only mechanism available while
+  // the numbers were inline literals there. They now live in
+  // `shared/seo-limits.ts` and the crawler reads them too, so both sides take
+  // the same value and a change to the rule moves everything at once.
+  const { DESC_MIN: min, DESC_MAX: max } = await import("../src/shared/seo-limits.ts");
+  assert.ok(Number.isFinite(min) && Number.isFinite(max) && max > min, "the description rule is gone");
+  // And the crawler must be USING it, or this measures a rule nothing enforces.
   const crawler = readFileSync(new URL("../src/backend/crawler.ts", import.meta.url), "utf8");
-  const rule = crawler.match(/metaDescription\.length >= (\d+) && metaDescription\.length <= (\d+)/);
-  assert.ok(rule, "the meta-description rule is gone from the crawler");
-  const [min, max] = [Number(rule[1]), Number(rule[2])];
+  assert.match(crawler, /descriptionOk\(metaDescription\)/, "the crawler must score against the shared rule");
+  assert.match(crawler, /titleOk\(title\)/, "and so must the title check");
 
   const appDir = new URL("../src/app/", import.meta.url).pathname.replace(/\/$/, "");
   const files = [];
@@ -28822,6 +28830,80 @@ test("a refused login checks whether we are even asking the mailbox's own provid
   assert.equal(mh.registrableDomain("MX1.Hostinger.Com."), "hostinger.com", "case and a trailing dot are normalised");
   assert.match(code, /mailProviderMatches\(mx, node\.host\)/,
     "and the route must use that shared function rather than growing its own copy");
+});
+
+test("every blog article obeys the title and description rules this platform sells", async () => {
+  // DRIVEN, THEN FIXED. Our own crawler, pointed at our own published articles on
+  // a production build, scored them 80, 75 and 75 — and named the causes: titles
+  // of 82, 110 and 71 characters against our own 15-65 rule, descriptions of 247,
+  // 184 and 195 against 50-165, and no contact route on any of them. That is 27
+  // of the 100 points, failed by the blog, by the engine this platform charges
+  // customers to run on THEIR pages. 85 after, and 95 in production where the
+  // HTTPS check stops failing on a loopback crawl.
+  const { fitTitle, fitDescription, titleOk, descriptionOk, TITLE_MAX, DESC_MAX } =
+    await import("../src/shared/seo-limits.ts");
+  const { listPosts } = await import("../src/backend/blog-store.ts");
+  const posts = await listPosts().catch(() => []);
+  assert.ok(posts.length > 0, "there are articles to check");
+
+  for (const post of posts) {
+    const title = fitTitle(post.title, " · MarketWar OS");
+    assert.ok(titleOk(title), `"${post.slug}" renders a ${title.length}-char title`);
+    const desc = fitDescription(post.excerpt || "");
+    if ((post.excerpt || "").length >= 50) {
+      assert.ok(descriptionOk(desc), `"${post.slug}" renders a ${desc.length}-char description`);
+    }
+  }
+
+  // THE SUFFIX IS WHAT GOES, not the subject. The brand is already on the result
+  // line in the domain; the last words of the title are what earn the click.
+  // CHOSEN SO THE 65-CHARACTER CUT LANDS INSIDE A WORD ("sea|rch"). The first
+  // string tried here happened to cut exactly on a space, so removing the
+  // word-boundary logic changed nothing and the mutation survived — the test was
+  // exercising the one input that could not tell the two apart.
+  const long = "The complete guide to ranking your small business website in local search";
+  const fitted = fitTitle(long, " · MarketWar OS");
+  assert.ok(fitted.length <= TITLE_MAX);
+  assert.ok(!fitted.includes("MarketWar OS"), "the suffix is dropped before the title is cut");
+  assert.ok(!fitted.endsWith("sea"), "and the cut never leaves half a word");
+  assert.ok(!/\s$/.test(fitted) && !/[,;:–—-]$/.test(fitted), "and never leaves dangling punctuation");
+  // A short title keeps its suffix — trimming one that fits would be pointless.
+  assert.equal(fitTitle("Short title", " · MarketWar OS"), "Short title · MarketWar OS");
+  // NEVER MID-WORD, asserted against the original's WORD LIST rather than as a
+  // substring: "websit" is a substring of the original too, so the substring form
+  // passed happily while the cut split a word in half.
+  const words = new Set(long.split(/\s+/));
+  for (const w of fitted.split(/\s+/)) {
+    assert.ok(words.has(w), `"${w}" is not a whole word from the title — the cut landed mid-word`);
+  }
+
+  const longDesc = "x".repeat(40) + ". " + "y".repeat(400);
+  assert.ok(fitDescription(longDesc).length <= DESC_MAX);
+
+  // THE PAGE TITLE, NOT THE TWITTER ONE. Scoped to the metadata object between
+  // `return {` and `openGraph:`, because `title: fitTitle(post.title` also
+  // appears in the twitter block further down — so an unscoped match passed while
+  // the real <title> was back to raw concatenation. The fourth time in this suite
+  // an assertion has found the wrong occurrence of a string.
+  const page = readFileSync("src/app/blog/[slug]/page.tsx", "utf8");
+  const metaStart = page.indexOf("alternates: { canonical: `/blog/");
+  assert.notEqual(metaStart, -1, "the post metadata has been restructured — re-check by hand");
+  const head = page.slice(page.lastIndexOf("return {", metaStart), metaStart);
+  assert.match(head, /title: fitTitle\(post\.title, " · MarketWar OS"\)/,
+    "the page <title> must be fitted, suffix and all");
+  assert.match(head, /description: fitDescription\(post\.excerpt\)/, "and the description with it");
+});
+
+test("every page offers a contact route, because a link to /contact is not one", async () => {
+  // Weight 9 on our own audit: "no phone link, email link or form on this page".
+  // A <Link href="/contact"> does not satisfy it and should not — a link to a page
+  // is not a way to make contact. Every blog article failed it, and the blog is
+  // the surface built to be found by strangers. One address in the shared footer
+  // fixes the whole site rather than page by page.
+  const footer = readFileSync("src/components/marketing.tsx", "utf8");
+  assert.match(footer, /mailto:\$\{SUPPORT_EMAIL\}/, "the shared footer must carry a real mailbox");
+  assert.match(footer, /import \{ SUPPORT_EMAIL \} from "@\/shared\/site"/,
+    "…the same one /contact and /choose-plan use");
 });
 
 test("the page where money changes hands offers a way to ask a question", async () => {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { fitTitle, fitDescription } from "@/shared/seo-limits";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPost, listPosts } from "@/backend/blog-store";
@@ -20,8 +21,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!post) return { title: "Article · MarketWar OS" };
   const url = `${SITE}/blog/${post.slug}`;
   return {
-    title: `${post.title} · MarketWar OS`,
-    description: post.excerpt,
+    // FITTED, NOT CONCATENATED. `${title} · MarketWar OS` put every article past
+    // the 65-character rule this platform charges customers to fix — 82, 110 and
+    // 71 characters on the three live posts, a weight-10 check failed by our own
+    // blog. The suffix is dropped when it does not fit, because the brand is
+    // already in the domain on that result line and the last words of the title
+    // are the ones that earn the click.
+    title: fitTitle(post.title, " · MarketWar OS"),
+    // Excerpts ran to 247 characters against a 165 rule. Cut on a sentence where
+    // one falls inside the limit, so it reads as a summary rather than a scrape.
+    description: fitDescription(post.excerpt),
     // Without a canonical, every tracking parameter a shared link picks up
     // looks like a separate page to a crawler and the article competes with
     // copies of itself for the ranking it earned.
@@ -29,12 +38,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     openGraph: {
       // Spread, not replaced: the shared card and site name come from one place,
       // and only the fields an ARTICLE adds are written here.
-      ...openGraphFor({ title: post.title, description: post.excerpt, path: `/blog/${post.slug}`, type: "article" }),
+      ...openGraphFor({ title: post.title, description: fitDescription(post.excerpt), path: `/blog/${post.slug}`, type: "article" }),
       url,
       publishedTime: post.publishedAt || post.createdAt,
       authors: [post.author || "MarketWar OS"],
     },
-    twitter: { card: "summary_large_image", title: post.title, description: post.excerpt },
+    twitter: { card: "summary_large_image", title: fitTitle(post.title), description: fitDescription(post.excerpt) },
     keywords: SEO_ARTICLES.find((a) => a.slug === post.slug)?.keywords,
   };
 }
