@@ -6558,7 +6558,13 @@ test("crawler: unknown checks are excluded from the score, not counted as failur
     const total = fs.reduce((s, f) => s + f.weight, 0);
     return Math.round((earned / total) * 100);
   };
-  const measured = a.findings.filter((f) => f.measured !== false);
+  // BOTH EXCLUSIONS, because the crawler applies both: `measured === false` is
+  // "we could not read it" and `applicable === false` is "the question does not
+  // arise here", and scoring counts neither. This filtered only the first, so it
+  // matched the crawler by luck — every check that did not apply also happened to
+  // be unmeasured — until a check arrived that applies conditionally and is
+  // perfectly readable when it does.
+  const measured = a.findings.filter((f) => f.measured !== false && f.applicable !== false);
   assert.ok(measured.length < a.findings.length, "this page must actually have unknowns, or the test proves nothing");
   assert.equal(a.score, at(measured));
   assert.notEqual(a.score, at(a.findings),
@@ -28830,6 +28836,107 @@ test("a refused login checks whether we are even asking the mailbox's own provid
   assert.equal(mh.registrableDomain("MX1.Hostinger.Com."), "hostinger.com", "case and a trailing dot are normalised");
   assert.match(code, /mailProviderMatches\(mx, node\.host\)/,
     "and the route must use that shared function rather than growing its own copy");
+});
+
+test("IndexNow announces only our own URLs, and never calls a refusal a success", async () => {
+  // Bing Webmaster Tools: "Set up IndexNow and boost your site's visibility in
+  // search engines within minutes." One POST notifies Bing, Yandex, Seznam and
+  // Naver that a page changed. It does not make anything rank — Google is not a
+  // participant — but on a domain with no crawl history it is the difference
+  // between hours and weeks.
+  const inow = await import("../src/backend/indexnow.ts");
+  const had = process.env.INDEXNOW_KEY;
+  const origin = "https://www.example.test";
+  try {
+    // UNCONFIGURED IS SAID PLAINLY, not reported as "nothing to do".
+    delete process.env.INDEXNOW_KEY;
+    let r = await inow.submitUrls([`${origin}/a`], { origin });
+    assert.equal(r.ok, false);
+    assert.match(r.note, /No INDEXNOW_KEY is set/);
+
+    // A key pasted with quotes or a newline is the commonest cause of a 403 that
+    // reads like a server fault.
+    process.env.INDEXNOW_KEY = '"abc123def456"';
+    r = await inow.submitUrls([`${origin}/a`], { origin });
+    assert.equal(r.ok, false);
+    assert.match(r.note, /not a valid key/);
+
+    process.env.INDEXNOW_KEY = "a1b2c3d4e5f6a7b8";
+
+    // ONLY OUR OWN HOST. The endpoint rejects the WHOLE batch if one URL belongs
+    // elsewhere, so a single stray link would silently cost every other URL.
+    assert.deepEqual(
+      inow.ownUrlsOnly([`${origin}/a`, "https://evil.test/b", `${origin}/a`, "javascript:alert(1)"], origin),
+      [`${origin}/a`],
+      "foreign hosts, duplicates and non-http schemes are dropped before the request");
+
+    // What actually goes on the wire.
+    let sent = null;
+    r = await inow.submitUrls(["/blog/one", "/blog/two"], {
+      origin,
+      fetchImpl: async (url, init) => { sent = { url, body: JSON.parse(init.body) }; return new Response("", { status: 200 }); },
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.submitted, 2);
+    assert.equal(sent.body.host, "www.example.test");
+    assert.equal(sent.body.keyLocation, `${origin}${inow.KEY_PATH}`, "the proof location must be on our own host");
+    assert.deepEqual(sent.body.urlList, [`${origin}/blog/one`, `${origin}/blog/two`]);
+    assert.match(r.note, /not the same as indexed/, "accepted for crawling is not indexed, and not a ranking");
+
+    // EVERY STATUS MEANS SOMETHING DIFFERENT, and calling them all "submitted" is
+    // this codebase's oldest defect — a success message for something that did
+    // not happen.
+    const at = async (status) => inow.submitUrls(["/a"], { origin, fetchImpl: async () => new Response("", { status }) });
+    for (const [status, pattern] of [[403, /refused the key/], [422, /do not belong to the host/], [429, /Rate-limited/], [500, /answered 500/]]) {
+      const x = await at(status);
+      assert.equal(x.ok, false, `${status} must not be reported as success`);
+      assert.equal(x.submitted, 0, `${status} submitted nothing`);
+      assert.match(x.note, pattern, `${status} must say what it means`);
+    }
+
+    // A network failure is not a refusal either.
+    const dead = await inow.submitUrls(["/a"], { origin, fetchImpl: async () => { throw new Error("ECONNRESET"); } });
+    assert.equal(dead.ok, false);
+    assert.match(dead.note, /could not be reached/);
+  } finally {
+    if (had === undefined) delete process.env.INDEXNOW_KEY; else process.env.INDEXNOW_KEY = had;
+  }
+
+  // The ownership proof serves NOTHING when unconfigured — an empty 200 tells an
+  // engine the proof exists and is blank, which is a verification failure that
+  // looks like a content bug.
+  const route = codeOf(readFileSync("src/app/indexnow-key.txt/route.ts", "utf8"));
+  assert.match(route, /status: 404/, "no key configured must 404, not serve an empty file");
+  assert.ok(!/\\n/.test(route.split("new NextResponse(key")[1] || ""), "the key is served alone, with no trailing newline");
+});
+
+test("a description can be legal and still too short — the check Bing had and we did not", async () => {
+  // Bing Webmaster Tools: "Meta descriptions on many pages are too short."
+  // Our own audit had passed every one of them, because its only floor was 50.
+  // Measured on a production build: twelve pages under 120 characters — /terms at
+  // 53, /policies 55, /privacy 67, /contact 97. A competitor's tool caught
+  // something the audit this platform SELLS did not, which is a gap in the
+  // product and not merely in our own pages.
+  const { descriptionThin, descriptionOk, DESC_MIN, DESC_THIN, DESC_MAX } =
+    await import("../src/shared/seo-limits.ts");
+
+  const short = "x".repeat(53);
+  assert.equal(descriptionOk(short), true, "53 characters is legal — that is why it went unnoticed");
+  assert.equal(descriptionThin(short), true, "…and thin, which is the thing worth saying");
+  assert.equal(descriptionThin("x".repeat(DESC_THIN)), false, "at the threshold it is no longer thin");
+  assert.equal(descriptionThin("x".repeat(DESC_MIN - 1)), false,
+    "below the legal floor the OTHER check fails it — one fault must not take a page down twice");
+  assert.equal(descriptionThin("x".repeat(DESC_MAX)), false);
+  assert.equal(descriptionThin(""), false, "no description is not a short description");
+
+  // A WARN, not a fail. A short description costs clicks, not crawling, and
+  // scoring it as a defect would push pages under the publish gate for it.
+  const crawler = readFileSync("src/backend/crawler.ts", "utf8");
+  const line = crawler.split('add("SEO", "Description length"')[1] || "";
+  assert.ok(line, "the check is gone from the crawler");
+  assert.match(line.slice(0, 700), /true,/, "it must be raised as a warning");
+  assert.ok(line.slice(0, 700).includes("There is no description to measure"),
+    "and must not apply at all when there is no description");
 });
 
 test("no article publishes below the bar, and a whole-site drop unpublishes nothing", async () => {

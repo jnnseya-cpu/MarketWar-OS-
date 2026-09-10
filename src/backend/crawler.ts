@@ -15,7 +15,7 @@ if (typeof window !== "undefined") {
 // HTML produces a confident, entirely fictional report.
 
 import { detectRenderGap, classifyBlock, type RenderGap, type BlockVerdict } from "@/backend/render-gap";
-import { TITLE_MIN, TITLE_MAX, DESC_MIN, DESC_MAX, titleOk, descriptionOk } from "@/shared/seo-limits";
+import { TITLE_MIN, TITLE_MAX, DESC_MIN, DESC_MAX, DESC_THIN, titleOk, descriptionOk, descriptionThin } from "@/shared/seo-limits";
 import { aiReadability } from "@/shared/ai-readability";
 import { blockedUrlReason, blockedAddressReason, MAX_REDIRECTS } from "@/shared/net-guard";
 
@@ -609,6 +609,25 @@ export async function crawlSite(rawUrl: string): Promise<CrawlReport> {
   // check this platform sells.
   add("SEO", "Title tag", Boolean(title && titleOk(title)), 10, `Title present (${title?.length} chars).`, title ? `Title length ${title.length} — aim ${TITLE_MIN}-${TITLE_MAX} chars.` : "No <title> tag.", Boolean(title));
   add("SEO", "Meta description", Boolean(metaDescription && descriptionOk(metaDescription)), 8, `Description present (${metaDescription?.length} chars).`, metaDescription ? `Description length ${metaDescription.length} — aim ${DESC_MIN}-${DESC_MAX}.` : "No meta description.", Boolean(metaDescription));
+  // A SEPARATE, LIGHTER CHECK FOR A DESCRIPTION THAT IS LEGAL BUT THIN.
+  //
+  // The check above passes anything from 50 characters up, and Bing Webmaster
+  // Tools flagged "meta descriptions on many pages are too short" on pages ours
+  // had passed — twelve of them under 120 characters. A result gives about 160
+  // characters of snippet, and a 53-character description hands two thirds of it
+  // back to the engine to fill from the page, which it does badly.
+  //
+  // A WARN, not a fail: a short description is a missed opportunity, not a
+  // defect, and scoring it as a defect would put pages below the publish gate for
+  // something that costs clicks rather than crawling.
+  add("SEO", "Description length", !metaDescription || !descriptionThin(metaDescription), 3,
+    metaDescription ? `Description uses ${metaDescription.length} of the ~${DESC_MAX} characters a result shows.` : "",
+    `Description is only ${metaDescription?.length} characters — under ${DESC_THIN} leaves most of the search snippet for the engine to fill from the page. Aim for ${DESC_THIN}-${DESC_MAX}.`,
+    true,
+    // Not applicable when there is no description at all — the check above
+    // already scores that, and marking it failed here would take the same page
+    // down twice for one fault.
+    metaDescription ? "" : "There is no description to measure — see the check above.");
   add("SEO", "Single H1", h1s.length === 1, 7, "Exactly one H1.", h1s.length === 0 ? "No H1 heading." : `${h1s.length} H1s — use one primary H1.`, h1s.length > 0);
   add("SEO", "Canonical tag", canonical, 4, "Canonical link present.", "No canonical tag — add one to avoid duplicate-content dilution.", true);
   add("SEO", "Indexable", !noindex, 8, "Page is indexable.", "Page is set to NOINDEX — search engines are told to skip it.");

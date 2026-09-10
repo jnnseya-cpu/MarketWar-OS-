@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/seo-gate",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/announce-urls",
+      "schedule": "30 6 * * *"
     }
   ]
 }

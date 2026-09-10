@@ -26,6 +26,29 @@ export const TITLE_MAX = 65;
 export const DESC_MIN = 50;
 /** Past this the tail is cut off in the result. */
 export const DESC_MAX = 165;
+/**
+ * Below this a description is legal and still wasteful.
+ *
+ * WHY THERE ARE TWO FLOORS. `DESC_MIN` is the point below which a description is
+ * not worth having; this is the point below which it is not EARNING what it
+ * could. A search result gives roughly 160 characters of snippet, and a 53-
+ * character description leaves two thirds of it to the engine to fill from the
+ * page — which it does badly, with whatever text happens to be near the match.
+ *
+ * WE FOUND THIS BY BEING TOLD. Bing Webmaster Tools reported "meta descriptions
+ * on many pages are too short" and our own audit had passed every one of them,
+ * because our only floor was 50. Measured: twelve pages under 120 characters,
+ * /terms at 53, /policies at 55, /privacy at 67, /contact at 97. A competitor's
+ * tool caught something the audit this platform SELLS did not, which is a gap in
+ * the product and not merely in our own pages.
+ */
+export const DESC_THIN = 120;
+
+/** Legal, but leaving most of the snippet unwritten. */
+export const descriptionThin = (d: string): boolean => {
+  const n = String(d ?? "").trim().length;
+  return n >= DESC_MIN && n < DESC_THIN;
+};
 
 /** Is this title inside the bounds the audit scores? */
 export const titleOk = (t: string): boolean => t.trim().length >= TITLE_MIN && t.trim().length <= TITLE_MAX;
