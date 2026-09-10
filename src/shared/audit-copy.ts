@@ -91,6 +91,12 @@ export const AUDIT_COPY: Record<string, FindingCopy> = {
     fix: "Write 50–165 characters that give a reason to click: the outcome, the area you cover, and what to do next.",
     ours: "Written per page by the content engine, with the same approval step, so your listing says what you would have said.",
   },
+  "Description length": {
+    area: "SEO",
+    costs: "A search result gives you about 160 characters. A short description hands most of that space back to the engine, which fills it from whatever text sits nearest the match — a menu, a cookie notice, half a sentence. You still appear; you just appear worse than the result above you, and the click goes there.",
+    fix: "Use 120–165 characters. Say the outcome, the area you cover, and what to do next — the space is free and it is the only advert you get on that page.",
+    ours: "The content engine writes to the length the result actually shows, and the audit flags any page that leaves the space unused.",
+  },
   "Single H1": {
     area: "SEO",
     costs: "The main heading tells both a visitor and a search engine what the page is for. Missing it, or having several, makes the page read as unfocused to both — and unfocused pages get skipped.",
