@@ -13,10 +13,32 @@
 // machines that cannot tell an aspiration from a fact.
 
 import { legalEntityConfigured } from "@/components/LegalEntity";
-import { siteOrigin } from "@/shared/site";
+import { siteOrigin, isPublicProfileUrl } from "@/shared/site";
 
 const SITE = siteOrigin();
 const ENTITY = process.env.NEXT_PUBLIC_LEGAL_ENTITY_NAME || "";
+
+/**
+ * Profiles that are verifiably the same organisation.
+ *
+ * Read from the environment rather than typed, because these are facts about the
+ * business that only the owner holds — and an entry here that points somewhere
+ * wrong tells every AI assistant and search engine that a stranger's profile is
+ * this company.
+ */
+const SAME_AS: string[] = [
+  process.env.NEXT_PUBLIC_SOCIAL_LINKEDIN,
+  process.env.NEXT_PUBLIC_SOCIAL_X,
+  process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
+  process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,
+  process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE,
+  process.env.NEXT_PUBLIC_COMPANIES_HOUSE_URL,
+]
+  .map((v) => (v || "").trim())
+  // An https URL or nothing — see `isPublicProfileUrl`. One implementation, in
+  // shared/, because a copy of this rule beside a copy in its test proves only
+  // that the two copies agree.
+  .filter(isPublicProfileUrl);
 
 const DESCRIPTION =
   "An AI customer-acquisition platform: audits a website, builds and runs campaigns, publishes content, and measures whether AI assistants recommend the business.";
@@ -27,9 +49,29 @@ export default function SiteJsonLd() {
       "@type": "Organization",
       "@id": `${SITE}/#organization`,
       name: "MarketWar OS",
+      // WHAT PEOPLE ACTUALLY TYPE. Search Console shows the brand queries
+      // reaching this site are "marketwar" and "marketwor", not "MarketWar OS" —
+      // so the shorter form is a genuine alternate name of this organisation and
+      // declaring it helps an engine bind those queries to one entity instead of
+      // guessing. Factual, not aspirational: nobody is claiming a trading name
+      // here, only that the company is also called MarketWar.
+      alternateName: ["MarketWar"],
       url: SITE,
       description: DESCRIPTION,
       logo: `${SITE}/brand/icon-512.png`,
+      // WHO WE ARE THE SAME ENTITY AS — the field this platform's own AI-citation
+      // module tells customers they must have: "sameAs → your Companies House
+      // record, LinkedIn, Crunchbase, review profiles. Without it a model has to
+      // infer all of that from prose, and it will usually decline to." We
+      // published none of it, which is the fourth time this site has failed a
+      // check it sells.
+      //
+      // IT CANNOT BE INVENTED. A sameAs pointing at a profile that is not ours,
+      // or does not exist, is a machine-readable lie and worse than the silence.
+      // So the WIRING ships and the values stay the owner's: set the social
+      // profile variables and the field appears on the next deploy with no code
+      // change. Until then it is absent, which is the honest state.
+      ...(SAME_AS.length ? { sameAs: SAME_AS } : {}),
       // Only when the operating entity is actually configured — a legalName we
       // invented would be a fabrication in machine-readable form.
       ...(legalEntityConfigured && ENTITY ? { legalName: ENTITY } : {}),

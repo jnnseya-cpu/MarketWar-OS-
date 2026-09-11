@@ -51,6 +51,21 @@ export function siteUrl(path = "/"): string {
  */
 export const SUPPORT_EMAIL = "info@marketwaros.com";
 
+/**
+ * Is this a profile URL we are willing to publish as "the same entity as us"?
+ *
+ * ONE IMPLEMENTATION, because a `sameAs` pointing at a profile that is not ours —
+ * or at a half-typed value — is a machine-readable lie told to every search engine
+ * and AI assistant at once. The first version of this lived inline in the schema
+ * component with a copy of the rule in its test, so a mutation that published
+ * anything non-empty survived: the test was only checking that the copy agreed
+ * with itself.
+ *
+ * https only. A profile served over http is not one this site will vouch for.
+ */
+export const isPublicProfileUrl = (v: unknown): boolean =>
+  /^https:\/\/[^\s]+\.[^\s]+$/.test(String(v ?? "").trim());
+
 export const OG_IMAGE = "/brand/social/og-card.png";
 
 /**

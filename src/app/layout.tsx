@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { auditCheckCount } from "@/shared/audit-copy";
 import { Suspense } from "react";
 import { Archivo, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
@@ -55,8 +56,21 @@ const TITLE = "MarketWar OS — AI Customer Acquisition Operating System";
 // and scores customers against it, and every page on this site inherited a
 // description a third of which Google cuts off. The last thing it said, "tells
 // you exactly what to do next", is the part that was never being read.
+// AND THE SNIPPET HAS TO EARN THE CLICK, which the previous one did not.
+//
+// Search Console: the query "marketwar" returned 27 impressions and 2 clicks —
+// about 7%, where a brand searching its own name normally takes 30% or more from
+// the top result. Somebody typing the company name already knows what it is
+// called, so describing the product back to them wins nothing. What wins is the
+// one concrete thing they can have without deciding anything: the free audit,
+// with no account and no card, which six adverts already promise and
+// `npm run ads:verify` fails if it ever stops being true.
+//
+// THE CHECK COUNT IS DERIVED, never typed — it moved from 30 to 31 the day a
+// check was added, and a description carrying a stale number is the exact defect
+// this repository keeps finding on other people's sites.
 const DESCRIPTION =
-  "Stop guessing. MarketWar OS audits your site, rebuilds your offer, runs the campaigns and protects your budget — then tells you exactly what to do next.";
+  `Free website audit — ${auditCheckCount()} checks, no account, no card. Then MarketWar OS rebuilds your offer, runs the campaigns and protects your budget.`;
 
 // EVERY SHARE OF THIS SITE RENDERED AS A BARE GREY LINK.
 //
