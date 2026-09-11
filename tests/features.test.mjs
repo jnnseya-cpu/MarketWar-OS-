@@ -28838,6 +28838,205 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("storage rules: a size cap belongs on write, never on read", async () => {
+  // A REAL DEFECT, found auditing the rules rather than guessing at them. It read:
+  //
+  //   allow read, write: if request.auth != null
+  //     && request.auth.token.tenantId == tenantId
+  //     && request.resource.size < 25 * 1024 * 1024;
+  //
+  // `request.resource` describes the object BEING WRITTEN. On a read there is no
+  // incoming object, so the size term can never be satisfied and the whole
+  // condition fails — denying every client read of a tenant's own files while
+  // looking exactly like a sensible upload cap.
+  //
+  // STATICALLY GUARDED, AND SAID PLAINLY: the Firebase emulator is not available
+  // in this container (no firebase CLI, no rules-unit-testing), so this is not an
+  // emulator-verified fix. It is reasoned from the rules language and guarded
+  // against reintroduction.
+  const rules = readFileSync("storage.rules", "utf8");
+  // WHOLE STATEMENTS, NOT LINES. The first version split on newlines, and a rule
+  // spans three of them — `allow read: if request.auth != null` on one, the size
+  // term two lines below. So `request.resource` never appeared on the same line
+  // as `allow read` and reintroducing the exact defect sailed through. Caught by
+  // mutating it back.
+  const body = codeOf(rules); // comments stripped: the old rule is quoted in one
+  const statements = [...body.matchAll(/allow\s+([a-z,\s]+):\s*if([\s\S]*?);/g)]
+    .map((m) => ({ verbs: m[1].split(",").map((v) => v.trim()), condition: m[2] }));
+  assert.ok(statements.length >= 3, `expected several allow statements, parsed ${statements.length}`);
+  for (const st of statements) {
+    if (st.verbs.includes("read") && /request\.resource/.test(st.condition)) {
+      assert.fail(`a rule granting READ tests request.resource, which is null on a read: allow ${st.verbs.join(", ")}`);
+    }
+  }
+  // And the write rule must still carry the cap, or removing it looks like a fix.
+  assert.ok(statements.some((st) => st.verbs.includes("write") && /request\.resource\.size/.test(st.condition)),
+    "the upload size cap must survive on the write rule");
+
+  // EVERY GRANT IS TENANT-SCOPED. Dropping `request.auth.token.tenantId ==
+  // tenantId` leaves `request.auth != null`, which reads as a sensible signed-in
+  // check and lets any authenticated user read every other tenant's files. It is
+  // a one-line deletion and the most damaging edit possible in this file, so it
+  // is asserted rather than assumed — a mutation removing it survived until this.
+  for (const st of statements) {
+    // The `if` keyword is OUTSIDE the captured group, so the catch-all's
+    // condition is the bare word `false` — matching on "if false" skipped
+    // nothing and failed the deny-all rule for not being tenant-scoped.
+    if (/^\s*false\s*$/.test(st.condition)) continue; // the deny-all catch-all
+    assert.match(st.condition, /request\.auth\.token\.tenantId == tenantId/,
+      `a grant is not tenant-scoped — any signed-in user would reach another tenant's files: allow ${st.verbs.join(", ")}`);
+  }
+
+  // Deny-by-default survives, and nothing is granted outside a scoped match.
+  assert.match(rules, /match \/\{allPaths=\*\*\} \{\s*\n\s*allow read, write: if false;/,
+    "the catch-all must still deny everything");
+  assert.ok(!/allow [^\n]*if true/.test(rules), "no blanket allow");
+
+  // The same discipline across every rules file this repo ships.
+  for (const f of ["firestore.rules", "storage.rules"]) {
+    const src = readFileSync(f, "utf8");
+    assert.ok(!/if true/.test(src), `${f} contains a blanket allow`);
+  }
+  const rtdb = JSON.parse(readFileSync("database.rules.json", "utf8"));
+  assert.equal(rtdb.rules[".read"], false, "the realtime database must stay closed");
+  assert.equal(rtdb.rules[".write"], false);
+});
+
+test("two hosting configs must not drift — it is how the answer stayed hidden for five weeks", async () => {
+  // THIS IS NOT A HYPOTHETICAL. `apphosting.yaml` declares
+  // SMTP_HOST = smtp.hostinger.com and has done all along. The live deployment
+  // runs on Vercel, where SMTP_HOST pointed at a machine that does not hold the
+  // mailbox — and five weeks went into finding a value that was committed in this
+  // repository the whole time, in the config file for the other hosting target.
+  //
+  // Duplicate configuration does not merely create ambiguity. It hides answers.
+  const yaml = readFileSync("apphosting.yaml", "utf8");
+  const declared = [...yaml.matchAll(/- variable: (\w+)/g)].map((m) => m[1]);
+  assert.ok(declared.length > 5, "the App Hosting config declares variables");
+
+  // EVERY variable either config names must be in the ONE registry, or a setting
+  // exists on one platform and is invisible to whoever is configuring the other.
+  const { ENV_CATALOGUE } = await import("../src/shared/env-catalogue.ts");
+  const known = new Set(ENV_CATALOGUE.map((e) => e.name));
+  const missing = declared.filter((v) => !known.has(v));
+  assert.deepEqual(missing, [],
+    `declared for App Hosting but absent from the env catalogue: ${missing.join(", ")} — a value nobody can discover from the registry is a value that hides`);
+
+  // And vercel.json must not quietly declare env of its own: two files setting
+  // the same variable to different values is the defect above, repeated.
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
+  assert.ok(!vercel.env && !vercel.build?.env,
+    "vercel.json must not declare environment values — Vercel's own dashboard is the single source for that platform, and a third copy is a third answer");
+});
+
+test("invented data reaches the landing page and nothing else", async () => {
+  // "THERE IS NO REAL CUSTOMER AS I AM NOT CONVINCED THIS IS A COMMERCIAL OS."
+  // The owner's doubt had a concrete cause: `src/shared/demo.ts` opened with
+  // "Every dashboard renders from this", which had stopped being true. Reading
+  // the repository, the product looked like a demo wearing a platform's clothes.
+  //
+  // MEASURED, NOT ASSUMED. Of its thirteen exports, EIGHT were imported by
+  // nothing: fabricated customers with names, phone numbers and email addresses,
+  // invented WhatsApp threads, named competitors, a daily action list, a
+  // business profile and a brand roster. Unreachable code removes no capability,
+  // so they are gone. The five that remain feed the landing page's charts, which
+  // is the zero-configuration demo this platform must keep working.
+  //
+  // THIS TEST IS THE BOUNDARY, and it is the part that has to survive: the file
+  // may hold illustrative figures for anonymous visitors, and must never become
+  // something a signed-in account renders as its own numbers again.
+  const src = readFileSync("src/shared/demo.ts", "utf8");
+
+  // NO PERSON-SHAPED FABRICATIONS. A made-up name beside a made-up phone number
+  // and email is the thing that cannot sit in a repository, whether or not
+  // anything draws it.
+  for (const [pattern, what] of [
+    [/\bphone:\s*"/, "a fabricated phone number"],
+    [/\bemail:\s*"/, "a fabricated email address"],
+    [/lastMessage:\s*"/, "an invented private message"],
+  ]) {
+    assert.ok(!pattern.test(codeOf(src)), `demo data contains ${what}`);
+  }
+
+  // AND IT IS REACHABLE FROM THE LANDING PAGE ONLY. Derived by walking the
+  // imports rather than trusting the comment — trusting the comment is what
+  // let the stale sentence stand.
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name)) files.push(p);
+    }
+  };
+  walk("src");
+  const importers = files.filter((f) => f !== "src/shared/demo.ts"
+    && /from\s+"@\/shared\/demo"/.test(readFileSync(f, "utf8")));
+  assert.ok(importers.length > 0, "the landing visuals still render the illustrative charts");
+  for (const f of importers) {
+    assert.ok(!/^src\/app\/(dashboard|api)\//.test(f),
+      `${f} imports invented figures — a dashboard or API route must never serve them to a signed-in account`);
+  }
+
+  // Every surviving export must actually be used, or the next dead fixture
+  // accumulates exactly the way these eight did.
+  const body = files.filter((f) => f !== "src/shared/demo.ts").map((f) => readFileSync(f, "utf8")).join("\n");
+  for (const name of [...codeOf(src).matchAll(/export const (\w+)/g)].map((m) => m[1])) {
+    assert.ok(new RegExp(`\\b${name}\\b`).test(body),
+      `${name} is invented data that nothing imports — dead fixtures are how eight of these accumulated`);
+  }
+});
+
+test("the patched floors hold — a dependency cannot be pinned back under a known advisory", async () => {
+  // FOUND BY RUNNING `npm audit --omit=dev`, not by reading the code, and it is
+  // the reason "the build passes" is not the same claim as "the platform is
+  // safe". Production dependencies carried two CRITICAL Next.js advisories:
+  //
+  //   GHSA-2xp9-vwfh-vxw4  unauthenticated RCE in the Image Optimization API
+  //                        when AVIF files are used   (>=10.0.0 <15.5.24)
+  //   GHSA-p293-qw3h-jr36  unauthenticated RCE on Windows-hosted servers
+  //   GHSA-rgj7-g3m4-5g8c  high: libheif flaws reachable through sharp (<0.35.4)
+  //
+  // The first is not Windows-specific and needs no credentials. This deployment
+  // serves optimised images, so it was reachable. Fixed by a patch bump inside
+  // the same minor line — not a framework upgrade, and no behaviour changed:
+  // 1846 tests and a production build pass on it.
+  //
+  // A FLOOR, NOT A SNAPSHOT. `^15.5.25` still installs 15.5.30 tomorrow; what
+  // this refuses is somebody pinning BACK under the advisory to dodge an
+  // unrelated break, which is how a patched fault returns silently.
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const floor = (spec) => String(spec || "").replace(/^[^0-9]*/, "").split(".").map(Number);
+  const atLeast = (spec, want) => {
+    const a = floor(spec), b = want.split(".").map(Number);
+    for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; }
+    return true;
+  };
+  for (const [name, want, why] of [
+    ["next", "15.5.25", "unauthenticated RCE via the AVIF image optimiser (GHSA-2xp9-vwfh-vxw4)"],
+    ["sharp", "0.35.4", "libheif flaws reachable through image processing (GHSA-rgj7-g3m4-5g8c)"],
+    ["firebase-admin", "14.3.0", "the @google-cloud/storage advisory chain"],
+  ]) {
+    const spec = pkg.dependencies[name];
+    assert.ok(spec, `${name} must stay a direct dependency`);
+    assert.ok(atLeast(spec, want),
+      `${name} is pinned at ${spec}, below the patched floor ${want} — that reopens ${why}`);
+  }
+  // The override must move WITH the dependency, or npm quietly reinstalls the
+  // vulnerable copy underneath a package.json that looks patched.
+  assert.ok(atLeast(pkg.overrides?.sharp, "0.35.4"),
+    `the sharp override is ${pkg.overrides?.sharp} and would pull the vulnerable build back under the patched dependency`);
+
+  // WHAT IS STILL OPEN, STATED RATHER THAN QUIETLY CLOSED. Two moderate
+  // advisories remain, both inside @google-cloud/storage@8.1.0, which pins
+  // gaxios ^6 — and 6.7.1 is the last 6.x, so no patch exists in that line. The
+  // one real advisory is uuid's missing bounds check in v3/v5/v6 when a `buf`
+  // argument is passed; gaxios calls `uuid.v4()` at a single site to build a
+  // multipart boundary and passes no buffer, so it is not reachable from here.
+  // Forcing gaxios 7 under the storage SDK would be a major bump of its HTTP
+  // client to close something that cannot fire — recorded, not papered over.
+});
+
 test("the brand result gives somebody a reason to click, and the entity is bound", async () => {
   // SEARCH CONSOLE: the query "marketwar" returned 27 impressions and 2 clicks —
   // about 7%, where a brand searching its own name normally takes 30% or more

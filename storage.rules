@@ -4,12 +4,28 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     // Tenant assets (creative, imports, exports): owner-only access.
+    //
+    // READ AND WRITE ARE SEPARATE RULES, and combining them was a real defect.
+    // It read:
+    //
+    //   allow read, write: if request.auth != null
+    //     && request.auth.token.tenantId == tenantId
+    //     && request.resource.size < 25 * 1024 * 1024;
+    //
+    // `request.resource` describes the object BEING WRITTEN. On a read there is
+    // no incoming object, so the size term could never be satisfied and the whole
+    // condition failed — denying every client read of a tenant's own files while
+    // looking like a sensible upload cap. A size limit belongs on write and
+    // nowhere else.
     match /tenants/{tenantId}/{allPaths=**} {
-      allow read, write: if request.auth != null
+      allow read: if request.auth != null
+        && request.auth.token.tenantId == tenantId;
+      allow write: if request.auth != null
         && request.auth.token.tenantId == tenantId
         && request.resource.size < 25 * 1024 * 1024;
     }
 
+    // Everything else: denied.
     match /{allPaths=**} {
       allow read, write: if false;
     }
