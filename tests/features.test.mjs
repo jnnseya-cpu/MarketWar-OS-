@@ -28838,6 +28838,97 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("storage rules: a size cap belongs on write, never on read", async () => {
+  // A REAL DEFECT, found auditing the rules rather than guessing at them. It read:
+  //
+  //   allow read, write: if request.auth != null
+  //     && request.auth.token.tenantId == tenantId
+  //     && request.resource.size < 25 * 1024 * 1024;
+  //
+  // `request.resource` describes the object BEING WRITTEN. On a read there is no
+  // incoming object, so the size term can never be satisfied and the whole
+  // condition fails — denying every client read of a tenant's own files while
+  // looking exactly like a sensible upload cap.
+  //
+  // STATICALLY GUARDED, AND SAID PLAINLY: the Firebase emulator is not available
+  // in this container (no firebase CLI, no rules-unit-testing), so this is not an
+  // emulator-verified fix. It is reasoned from the rules language and guarded
+  // against reintroduction.
+  const rules = readFileSync("storage.rules", "utf8");
+  // WHOLE STATEMENTS, NOT LINES. The first version split on newlines, and a rule
+  // spans three of them — `allow read: if request.auth != null` on one, the size
+  // term two lines below. So `request.resource` never appeared on the same line
+  // as `allow read` and reintroducing the exact defect sailed through. Caught by
+  // mutating it back.
+  const body = codeOf(rules); // comments stripped: the old rule is quoted in one
+  const statements = [...body.matchAll(/allow\s+([a-z,\s]+):\s*if([\s\S]*?);/g)]
+    .map((m) => ({ verbs: m[1].split(",").map((v) => v.trim()), condition: m[2] }));
+  assert.ok(statements.length >= 3, `expected several allow statements, parsed ${statements.length}`);
+  for (const st of statements) {
+    if (st.verbs.includes("read") && /request\.resource/.test(st.condition)) {
+      assert.fail(`a rule granting READ tests request.resource, which is null on a read: allow ${st.verbs.join(", ")}`);
+    }
+  }
+  // And the write rule must still carry the cap, or removing it looks like a fix.
+  assert.ok(statements.some((st) => st.verbs.includes("write") && /request\.resource\.size/.test(st.condition)),
+    "the upload size cap must survive on the write rule");
+
+  // EVERY GRANT IS TENANT-SCOPED. Dropping `request.auth.token.tenantId ==
+  // tenantId` leaves `request.auth != null`, which reads as a sensible signed-in
+  // check and lets any authenticated user read every other tenant's files. It is
+  // a one-line deletion and the most damaging edit possible in this file, so it
+  // is asserted rather than assumed — a mutation removing it survived until this.
+  for (const st of statements) {
+    // The `if` keyword is OUTSIDE the captured group, so the catch-all's
+    // condition is the bare word `false` — matching on "if false" skipped
+    // nothing and failed the deny-all rule for not being tenant-scoped.
+    if (/^\s*false\s*$/.test(st.condition)) continue; // the deny-all catch-all
+    assert.match(st.condition, /request\.auth\.token\.tenantId == tenantId/,
+      `a grant is not tenant-scoped — any signed-in user would reach another tenant's files: allow ${st.verbs.join(", ")}`);
+  }
+
+  // Deny-by-default survives, and nothing is granted outside a scoped match.
+  assert.match(rules, /match \/\{allPaths=\*\*\} \{\s*\n\s*allow read, write: if false;/,
+    "the catch-all must still deny everything");
+  assert.ok(!/allow [^\n]*if true/.test(rules), "no blanket allow");
+
+  // The same discipline across every rules file this repo ships.
+  for (const f of ["firestore.rules", "storage.rules"]) {
+    const src = readFileSync(f, "utf8");
+    assert.ok(!/if true/.test(src), `${f} contains a blanket allow`);
+  }
+  const rtdb = JSON.parse(readFileSync("database.rules.json", "utf8"));
+  assert.equal(rtdb.rules[".read"], false, "the realtime database must stay closed");
+  assert.equal(rtdb.rules[".write"], false);
+});
+
+test("two hosting configs must not drift — it is how the answer stayed hidden for five weeks", async () => {
+  // THIS IS NOT A HYPOTHETICAL. `apphosting.yaml` declares
+  // SMTP_HOST = smtp.hostinger.com and has done all along. The live deployment
+  // runs on Vercel, where SMTP_HOST pointed at a machine that does not hold the
+  // mailbox — and five weeks went into finding a value that was committed in this
+  // repository the whole time, in the config file for the other hosting target.
+  //
+  // Duplicate configuration does not merely create ambiguity. It hides answers.
+  const yaml = readFileSync("apphosting.yaml", "utf8");
+  const declared = [...yaml.matchAll(/- variable: (\w+)/g)].map((m) => m[1]);
+  assert.ok(declared.length > 5, "the App Hosting config declares variables");
+
+  // EVERY variable either config names must be in the ONE registry, or a setting
+  // exists on one platform and is invisible to whoever is configuring the other.
+  const { ENV_CATALOGUE } = await import("../src/shared/env-catalogue.ts");
+  const known = new Set(ENV_CATALOGUE.map((e) => e.name));
+  const missing = declared.filter((v) => !known.has(v));
+  assert.deepEqual(missing, [],
+    `declared for App Hosting but absent from the env catalogue: ${missing.join(", ")} — a value nobody can discover from the registry is a value that hides`);
+
+  // And vercel.json must not quietly declare env of its own: two files setting
+  // the same variable to different values is the defect above, repeated.
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
+  assert.ok(!vercel.env && !vercel.build?.env,
+    "vercel.json must not declare environment values — Vercel's own dashboard is the single source for that platform, and a third copy is a third answer");
+});
+
 test("the brand result gives somebody a reason to click, and the entity is bound", async () => {
   // SEARCH CONSOLE: the query "marketwar" returned 27 impressions and 2 clicks —
   // about 7%, where a brand searching its own name normally takes 30% or more
