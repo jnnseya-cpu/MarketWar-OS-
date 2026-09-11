@@ -6133,3 +6133,68 @@ list should be imported again.
 Killed by mutation: one column back to `name`, the Windows-1252 fallback removed,
 section headings imported as prospects, the possessive rule removed, and the
 enrichment filter back to company-only.
+
+---
+
+## §127 — A paid key the customer's own button could not reach (2026-09-11)
+
+The owner holds a Hunter key AND an Apollo key. The Customer Vault's "Find
+emails" used Apollo and the site scraper. **The word "hunter" did not appear in
+`backend/enrich.ts` once.**
+
+A complete, tested Hunter adapter existed the whole time — email finder, domain
+search, mailbox verifier, error envelope read properly — wired into
+`/api/contact-hunter`, a different screen. Two modules doing the same job under
+different names, which is the rule this repository writes down and had broken.
+
+**IT WAS A MODULE GRAPH, NOT A DECISION.** `enrichment-adapters.ts` imports
+`scrapeEnrich` from `enrich.ts`, so `enrich.ts` could not import the adapter back
+without a cycle. Nobody chose to leave Hunter out of the vault; an import
+direction did, silently, and the owner paid for a key his own button could never
+reach.
+
+The client moved to `backend/hunter-client.ts`, which depends on nothing, so both
+callers share one implementation. `hunter-probe.ts` follows it. No behaviour
+changed in the move; it is what makes the fix possible.
+
+`enrichContact` is now Apollo → scraper → **Hunter**, and Hunter runs last
+because it costs. The company's own page is free and is the better evidence
+anyway — a data broker sells a copy of it. Hunter answers the question neither
+Apollo nor the crawl could: a domain that publishes no address anywhere a crawler
+can see. It needs a domain, so it only runs once something else has found one,
+and with no domain no call is made.
+
+Three rules the paid supplier does not get to bypass:
+
+- **The ownership gate.** An address on another company's domain is refused,
+  bought or not. Attaching a directory inbox to a customer's prospect is a defect
+  this platform has already paid for once.
+- **Personal providers are refused.** This one was written WRONG and a test
+  caught it: `isPersonalProvider` splits on "@" itself, and it was being handed a
+  bare hostname, so it read everything before a non-existent "@" and matched
+  nothing. The guard was present, looked correct, and refused nobody.
+- **`medium` confidence, never `confirmed`.** `confirmed` means WE read the page
+  the address is on. A supplier citing a source is a different claim and
+  collapsing the two turns a guess into a fact downstream.
+
+A role mailbox is preferred over a named row from a broker's list: `info@` and
+`enquiries@` are published to be written to, while the named person on a bought
+list is the one most likely to be stale, private, or the wrong person.
+
+Driven by stubbing `fetch`, which exercises the real client, the real ownership
+gate and the real picker — everything but the network. Killed by mutation:
+Hunter never called, the ownership gate bypassed, personal mailboxes accepted,
+and the role mailbox no longer preferred.
+
+**Two mutations survived as genuine equivalents and are recorded rather than
+contorted around:** removing the key check and removing the domain check from
+`hunterFallback` each change nothing, because the client refuses without a key
+and the URL parse fails without a domain. The behaviour asserted — that no call
+is made — holds either way.
+
+**What is still not merged.** The vault charges one flat metered action per row
+up front; the waterfall in `enrichment-provider.ts` charges by what actually ran.
+Pointing the vault at the waterfall would change the pricing model and risks
+double-charging, which is a product decision and not a bug fix. Apollo is
+therefore still absent from the waterfall's registry, and the waterfall is still
+absent from the vault. Recorded here rather than half-done.

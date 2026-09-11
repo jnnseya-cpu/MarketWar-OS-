@@ -26,8 +26,10 @@ import { extractDecisionMaker, learnSitePattern } from "@/backend/contact-hunt-r
 import { companiesHouseKey, firstRegisterHit } from "@/backend/market-exit-detect";
 import { parseRobots, robotsAllows, OUR_AGENT } from "@/backend/robots";
 import { candidateFromPattern, learnPattern } from "@/shared/contact-hunter";
+// One Hunter client, shared with `enrich.ts`. See hunter-client.ts for why it
+// cannot live in this file.
+import { hunterKey, hunterGet, asRecord, asString, asNumber, firstSourceUrl, HUNTER_COST_ACU } from "@/backend/hunter-client";
 import { readTitle } from "@/shared/contact-confidence";
-import { ACU_PER_GBP, USD_TO_GBP } from "@/shared/creative";
 import {
   registerProvider,
   type EnrichmentProvider, type CompanyCandidate, type PersonCandidate,
@@ -277,76 +279,6 @@ export const companiesHouse: EnrichmentProvider = {
 // Email Finder call at $0.05 and a verification at $0.011. `costAcu` is OUR
 // spend, and `/api/contact-hunter` charges the customer exactly twice it, which
 // is the margin floor. One number has to cover both calls, so it is the DEARER
-// one: reserving for a search and spending on a verification recovers more than
-// it cost, and the reverse would breach the floor. Derived from the shared
-// constants rather than typed as a magic number, so a change to either moves
-// this with it.
-const HUNTER_SEARCH_USD = 0.05;
-/** 4 ACUs at today's constants: $0.05 × 0.79 × 100 = 3.95, rounded up so the floor cannot be undercut. */
-const HUNTER_COST_ACU = Math.ceil(HUNTER_SEARCH_USD * USD_TO_GBP * ACU_PER_GBP);
-
-export const hunterKey = (): string => (process.env.HUNTER_API_KEY || "").trim();
-
-/**
- * Read Hunter's answer WITHOUT asserting its shape.
- *
- * `scripts/check-casts.mjs` forbids a cast on external data, and this is why:
- * a supplier's JSON is the definition of data we do not control, and a cast
- * would turn a changed field into `undefined` flowing silently through the
- * engine rather than an empty result. Every field is checked and anything
- * unrecognised is simply absent.
- */
-const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? { ...v } : {});
-const asString = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-const asNumber = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
-/** The first source URL Hunter cites for an address, if it cites any. */
-function firstSourceUrl(v: unknown): string | undefined {
-  if (!Array.isArray(v)) return undefined;
-  for (const s of v) {
-    const uri = asString(asRecord(s).uri);
-    if (uri) return uri;
-  }
-  return undefined;
-}
-
-/**
- * Hunter's own error envelope, turned into a sentence.
- *
- * It answers 4xx with `{ errors: [{ id, code, details }] }`, and the id is the
- * fact that decides what to do: `wrong_auth` is a bad key, `usage_exceeded` is
- * an empty balance, `too_many_requests` is a rate limit. Reporting "the lookup
- * failed" for all three is the failure this repository keeps writing down.
- */
-export function hunterErrorNote(status: number, body: unknown): string {
-  const errs = asRecord(body).errors;
-  const first = Array.isArray(errs) ? asRecord(errs[0]) : {};
-  const id = asString(first.id);
-  const details = asString(first.details);
-  if (id === "wrong_auth" || status === 401) return `Hunter rejected the API key${details ? ` — ${details}` : ""}. Check HUNTER_API_KEY on this deployment.`;
-  if (id === "usage_exceeded" || status === 402) return `Hunter has no credits left${details ? ` — ${details}` : ""}. Buy more, or this provider stays dark and the free sources still run.`;
-  if (id === "too_many_requests" || status === 429) return "Hunter rate-limited this deployment. Nothing was charged; try again shortly.";
-  if (details) return `Hunter refused the request: ${details}`;
-  return `Hunter answered HTTP ${status} with no reason given.`;
-}
-
-async function hunterGet(path: string, params: Record<string, string>, signal: AbortSignal): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; why: string }> {
-  const key = hunterKey();
-  if (!key) return { ok: false, why: "Not configured." };
-  const q = new URLSearchParams({ ...params, api_key: key });
-  let res: Response;
-  try {
-    res = await fetch(`https://api.hunter.io/v2/${path}?${q.toString()}`, { signal, headers: { Accept: "application/json" } });
-  } catch (e) {
-    // A network failure is not a refusal, and it is not billable either.
-    return { ok: false, why: `Hunter could not be reached: ${e instanceof Error ? e.message : String(e)}. Nothing was charged.` };
-  }
-  let body: unknown = null;
-  try { body = await res.json(); } catch { /* an empty or non-JSON body is handled below */ }
-  if (!res.ok) return { ok: false, why: hunterErrorNote(res.status, body) };
-  return { ok: true, data: asRecord(asRecord(body).data) };
-}
-
 export const hunter: EnrichmentProvider = {
   id: "hunter",
   costAcu: HUNTER_COST_ACU,

@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 // site, and junk/tracking addresses (sentry, wixpress, .png…) are filtered out.
 
 import { webSearch } from "@/backend/search";
+import { hunterKey, hunterGet, asRecord, asString } from "@/backend/hunter-client";
 
 export type EnrichInput = { company: string; town?: string; area?: string; trade?: string; website?: string };
 export type EnrichResult = {
@@ -25,7 +26,7 @@ export type EnrichResult = {
   phone: string | null;
   contactName?: string | null;
   contactTitle?: string | null;
-  source: "apollo" | "site" | "search" | "none";
+  source: "apollo" | "site" | "search" | "hunter" | "none";
   mode: "live" | "demo";
   note: string;
   /**
@@ -39,6 +40,7 @@ export type EnrichResult = {
   providerError?: string;
 };
 
+export function hunterConfigured(): boolean { return Boolean(hunterKey()); }
 export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO_API_KEY || "").trim()); }
 
 // Circuit-breaker: if Apollo returns 403 (the key is valid but the plan doesn't
@@ -438,24 +440,102 @@ async function apolloEnrich(input: EnrichInput): Promise<EnrichResult | null> {
   } catch { return null; }
 }
 
-// Enrich ONE company. Apollo first (licensed, high-yield) → scraper fallback.
+/**
+ * HUNTER — THE LAST STEP, AND THE ONE THIS BUTTON NEVER HAD.
+ *
+ * The owner holds a Hunter key AND an Apollo key. This path used Apollo and the
+ * scraper; the word "hunter" did not appear in this file once. A complete,
+ * tested Hunter adapter existed the whole time, one import away, wired into a
+ * DIFFERENT screen — and it could not be imported here because the module
+ * holding it imports `scrapeEnrich` from this file. A paid key the owner's own
+ * button could never reach, blocked by a module graph nobody had drawn.
+ *
+ * IT RUNS LAST BECAUSE IT COSTS. The company's own page is free and is the
+ * better evidence anyway: a data broker sells a copy of it. Hunter answers the
+ * question neither Apollo nor the crawl could — a domain that publishes no
+ * address anywhere a crawler can see it — so it is worth a credit exactly then
+ * and not before.
+ *
+ * IT NEEDS A DOMAIN, so it can only run once something else has found one.
+ * Without one there is nothing to ask about and no call is made.
+ */
+async function hunterFallback(input: EnrichInput, website: string | null): Promise<{ email: string; note: string } | null> {
+  if (!hunterKey() || !website) return null;
+  let domain = "";
+  try { domain = new URL(website.startsWith("http") ? website : `https://${website}`).hostname.replace(/^www\./, ""); } catch { return null; }
+  if (!domain) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const got = await hunterGet("domain-search", { domain, limit: "10" }, controller.signal);
+    if (!got.ok) return null;
+    const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
+    const addresses = rows.map((r) => asString(asRecord(r).value).toLowerCase()).filter(Boolean);
+    if (!addresses.length) return null;
+
+    // THE SAME OWNERSHIP RULE AS EVERY OTHER SOURCE. An address Hunter returns
+    // for this domain is still checked against the domain before it is kept,
+    // and a personal-provider mailbox is still refused — a paid supplier does
+    // not get to bypass the gate that stops us emailing the wrong business.
+    const owned = addresses.filter((e) => {
+      const host = e.split("@")[1] || "";
+      return host === domain || host.endsWith(`.${domain}`);
+      // THE WHOLE ADDRESS, NOT THE HOST. `isPersonalProvider` splits on "@"
+      // itself, so handing it a bare hostname made it read everything before a
+      // non-existent "@" and match nothing — the guard was present, looked
+      // right, and refused nobody. Caught by a test written for the one input
+      // where it does the work.
+    }).filter((e) => !isPersonalProvider(e));
+    if (!owned.length) return null;
+
+    // A ROLE MAILBOX IS THE RIGHT ANSWER FOR A BUSINESS, and preferring one is
+    // not laziness: info@ and enquiries@ are published to be written to, while a
+    // named person's address on a broker's list is the one most likely to be
+    // stale, private, or the wrong person entirely.
+    const ROLE = /^(info|hello|enquiries|enquiry|contact|sales|bookings|admin|office|reception|events)@/;
+    const pick = owned.find((e) => ROLE.test(e)) || owned[0];
+    return { email: pick, note: `Hunter found ${pick} on ${domain} after the free sources found nothing.` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Enrich ONE company. Apollo first (licensed, high-yield) → scraper → Hunter.
 export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
+  const withHunter = async (r: EnrichResult): Promise<EnrichResult> => {
+    if (r.email) return r;
+    const h = await hunterFallback(input, r.website || input.website || null);
+    if (!h) return r;
+    return {
+      ...r,
+      email: h.email,
+      // PROVIDER, NEVER CONFIRMED. `confirmed` means WE read the page the
+      // address is on; a supplier citing a source is not the same claim, and
+      // collapsing the two is how a guess becomes a fact further downstream.
+      emailConfidence: "medium",
+      source: "hunter",
+      stage: "found",
+      note: `${r.note} ${h.note}`.trim(),
+    };
+  };
+
   if (apolloUsable()) {
     const a = await apolloEnrich(input);
     if (a?.email) return a;                        // Apollo got a real email — done.
     if (a && (a.website || a.phone)) {             // Apollo found the company; scrape its site for an email.
       const scraped = await scrapeEnrich({ ...input, website: a.website || input.website });
-      return {
+      return withHunter({
         ...scraped,
         phone: scraped.phone || a.phone,
         website: scraped.website || a.website,
         contactName: scraped.contactName ?? a.contactName,
         note: scraped.email ? scraped.note : `${a.note} ${scraped.note}`.trim(),
-      };
+      });
     }
     // Apollo returned nothing usable — fall through to the scraper.
   }
-  return scrapeEnrich(input);
+  return withHunter(await scrapeEnrich(input));
 }
 
 // Scraper (Provider 2) — free fallback. Finds the firm's own site via live Google
