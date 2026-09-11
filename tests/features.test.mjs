@@ -28838,6 +28838,67 @@ test("a refused login checks whether we are even asking the mailbox's own provid
     "and the route must use that shared function rather than growing its own copy");
 });
 
+test("the brand result gives somebody a reason to click, and the entity is bound", async () => {
+  // SEARCH CONSOLE: the query "marketwar" returned 27 impressions and 2 clicks —
+  // about 7%, where a brand searching its own name normally takes 30% or more
+  // from the top result. Somebody typing the company name already knows what it
+  // is called, so describing the product back to them wins nothing.
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+  const { auditCheckCount } = await import("../src/shared/audit-copy.ts");
+  const { descriptionOk, descriptionThin } = await import("../src/shared/seo-limits.ts");
+
+  // THE NUMBER IS DERIVED, NEVER TYPED. It moved 30 → 31 the day a check was
+  // added, and a snippet carrying a stale count is the exact defect this
+  // repository keeps finding on other people's sites.
+  assert.match(layout, /\$\{auditCheckCount\(\)\} checks/,
+    "the check count in the description must come from the audit, not from a literal");
+  assert.ok(!/\b3[01] checks\b/.test(codeOf(layout)), "and must not be hard-coded anywhere in it");
+
+  // READ FROM THE SOURCE, not rebuilt here. The first version of this test
+  // constructed the sentence itself, so changing the real one in layout.tsx left
+  // the test happily measuring its own copy.
+  const literal = /const DESCRIPTION =\s*\n?\s*`([^`]+)`/.exec(layout);
+  assert.ok(literal, "the description literal has moved — re-check by hand");
+  const description = literal[1].replace("${auditCheckCount()}", String(auditCheckCount()));
+  assert.ok(descriptionOk(description), `the rendered description is ${description.length} chars`);
+  assert.equal(descriptionThin(description), false, "and must not be thin — this is the one snippet that matters most");
+
+  // The free audit is the hook because it is a claim this repo already enforces:
+  // no account, no card, and `npm run ads:verify` fails if that stops being true.
+  assert.match(description, /no account, no card/i,
+    "the concrete offer must lead — it is what a brand searcher can have without deciding anything");
+
+  // ENTITY BINDING. Our own AI-citation module tells customers that without
+  // sameAs "a model has to infer all of that from prose, and it will usually
+  // decline to" — and this site published none of it.
+  const jsonld = readFileSync("src/components/SiteJsonLd.tsx", "utf8");
+  assert.match(jsonld, /alternateName: \["MarketWar"\]/,
+    "the shorter name is what people actually search — Search Console shows marketwar and marketwor, never the full name");
+  assert.match(jsonld, /\.\.\.\(SAME_AS\.length \? \{ sameAs: SAME_AS \} : \{\}\)/,
+    "sameAs must ship as wiring, absent until real profile URLs exist");
+
+  // A HALF-TYPED VALUE IS NEVER PUBLISHED. A sameAs pointing at a profile that is
+  // not ours is a machine-readable lie, and worse than the silence.
+  //
+  // THE REAL PREDICATE, not a copy. The first version defined the regex again
+  // here, so a mutation that published anything non-empty survived — the test was
+  // checking that the copy agreed with itself. Third time in this suite.
+  const { isPublicProfileUrl } = await import("../src/shared/site.ts");
+  assert.equal(isPublicProfileUrl("https://www.linkedin.com/company/example"), true);
+  assert.equal(isPublicProfileUrl("not-a-url"), false, "a half-typed value must be dropped, not published as fact");
+  assert.equal(isPublicProfileUrl("http://insecure.example"), false, "and http is not a profile we will vouch for");
+  assert.equal(isPublicProfileUrl(""), false);
+  assert.equal(isPublicProfileUrl(undefined), false);
+  assert.match(jsonld, /\.filter\(isPublicProfileUrl\)/, "and the schema must use that one implementation");
+
+  // Every social variable must be catalogued, or it is invisible to whoever has
+  // to set it — which is how 91 of 133 variables went missing once already.
+  const { ENV_CATALOGUE } = await import("../src/shared/env-catalogue.ts");
+  for (const name of ["NEXT_PUBLIC_SOCIAL_LINKEDIN", "NEXT_PUBLIC_SOCIAL_X", "NEXT_PUBLIC_COMPANIES_HOUSE_URL"]) {
+    assert.ok(ENV_CATALOGUE.some((e) => e.name === name), `${name} is not in the one registry`);
+  }
+});
+
 test("IndexNow announces only our own URLs, and never calls a refusal a success", async () => {
   // Bing Webmaster Tools: "Set up IndexNow and boost your site's visibility in
   // search engines within minutes." One POST notifies Bing, Yandex, Seznam and
