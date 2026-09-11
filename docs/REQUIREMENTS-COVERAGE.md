@@ -5708,3 +5708,160 @@ addressed to a VERP envelope this code issued: collected 1, suppressed 1,
 
 To switch it on: `MW_BOUNCE_IMAP_HOST`; user and password default to
 `SMTP_USER`/`SMTP_PASS`, the mailbox the failures already arrive at.
+
+---
+
+## §119 — A publish gate, and announcing what it publishes (2026-09-09 → 09-10)
+
+**Pointed at our own published articles, our own crawler scored them 80, 75 and
+75** — titles and descriptions outside the very bounds this platform charges
+customers to fix. Those three are corrected, but nothing stopped it happening and
+nothing would stop the next one: an article went from a model to the public with
+no measurement anywhere in between.
+
+`backend/blog-seo-gate.ts` publishes only above **90/100**, measured by the REAL
+crawler against the REAL page and reverted to draft inside the same request if it
+falls short. Scoring the draft's markdown against a checklist would have built a
+SECOND implementation of the thirty checks, and the second implementation is the
+one that drifts — it would pass an article the real crawler fails, which is worse
+than no gate because it produces a number people trust.
+
+**A daily sweep re-scores everything, because "cannot regress" is a claim about
+tomorrow.** The three articles at 75 had correct titles when they were written and
+only became wrong when a suffix was appended to all of them at once; no publication
+step would ever have seen that. And when MOST articles fail together the sweep
+holds NOTHING and raises the alarm instead — a site-level regression is one fault,
+not twelve bad articles, and the correct response to "the whole blog just dropped"
+is never to delete the blog. Driven: against a loopback origin, where the HTTPS
+check cannot pass, it held 12 of 13 before that guard existed.
+
+`shared/seo-limits.ts` is now the single source for the title and description
+bounds, read by the crawler, by page metadata and by the writer — a generator
+cannot honour a rule it cannot read. Bing Webmaster Tools reported "meta
+descriptions on many pages are too short" while our own audit passed every one of
+them, because our only floor was 50; `DESC_THIN` (120) is the check a competitor's
+tool had and the product we sell did not.
+
+`backend/indexnow.ts` announces new and changed pages to Bing, Yandex, Seznam and
+Naver. **Google is not a participant and this code does not pretend otherwise.**
+Every status is read for what it means — 403 is a key the engines could not verify,
+422 a URL that does not belong to the host — because reporting "submitted" for a
+403 would be this platform's oldest defect.
+
+**Brand CTR.** Search Console: the query "marketwar" returned 27 impressions and 2
+clicks. Somebody typing the company name already knows what it is called, so a
+snippet describing the product back to them wins nothing; the description now
+answers what they came for, and the `sameAs` entity binding ties the site to the
+company's own profiles rather than leaving engines to infer it from prose.
+
+---
+
+## §120 — A size cap on a READ rule denied every tenant its own files (2026-09-11)
+
+```
+allow read, write: if request.auth != null
+  && request.auth.token.tenantId == tenantId
+  && request.resource.size < 25 * 1024 * 1024;
+```
+
+`request.resource` describes the object BEING WRITTEN. On a read there is no
+incoming object, so the size term can never be satisfied and the whole condition
+fails. Every client read of a tenant's own files was denied by something that looks
+exactly like a sensible upload cap. Read and write are separate rules now.
+
+**NOT EMULATOR-VERIFIED, and that is stated rather than implied.** There is no
+firebase CLI and no `@firebase/rules-unit-testing` in this container, so this is
+reasoned from the rules language and guarded statically — it is not a fix that was
+executed and watched.
+
+The guard took four mutations to become real. The first version parsed line by
+line and the rule spans three lines, so `request.resource` never appeared beside
+`allow read` and putting the exact defect back sailed through. Whole-statement
+parsing fixed that; then removing `request.auth.token.tenantId == tenantId` from
+the read rule ALSO survived, because what it leaves behind — `request.auth !=
+null` — reads as a sensible signed-in check while letting any authenticated user
+read every other tenant's files. That assertion then failed the deny-all
+catch-all, because `if` sits outside the captured group and the condition is the
+bare word `false`: exempting on the text "if false" exempted nothing.
+
+**Two hosting configs must not drift.** `apphosting.yaml` has had
+`SMTP_HOST = smtp.hostinger.com` committed all along — the exact value that took
+five weeks to find on the Vercel side, sitting in the config file for the other
+platform, which nobody compared. Duplicate configuration does not merely create
+ambiguity; it hides answers. A test now asserts every variable either config
+declares is in `ENV_CATALOGUE`, and found `REQUIRE_LIVE` uncatalogued on its first
+run — a setting that existed on one platform and was invisible to anyone
+configuring the other.
+
+---
+
+## §121 — Two critical advisories under a green gate (2026-09-11)
+
+`npm audit --omit=dev`, which nothing in the verify gate had ever run:
+
+| | | |
+|---|---|---|
+| CRITICAL | `next` | unauthenticated RCE in the Image Optimization API when AVIF files are used (GHSA-2xp9-vwfh-vxw4) |
+| CRITICAL | `next` | unauthenticated RCE on Windows-hosted servers (GHSA-p293-qw3h-jr36) |
+| HIGH | `sharp` | libheif flaws reachable through image processing (GHSA-rgj7-g3m4-5g8c) |
+
+The first needs no credentials, is not Windows-specific, and this deployment
+serves optimised images. Patched inside the same minor lines — 15.5.25, 0.35.4,
+firebase-admin 14.3 — so no framework upgrade and no behaviour change; tests and a
+production build pass on it.
+
+**Layers, casts, lint, types, 1,846 tests and a production build were all green
+while this was true.** "Verify passes" was a statement about this repository and
+never about what it ships on top of. `scripts/check-advisories.mjs` now fails the
+gate on HIGH or CRITICAL in a shipped dependency; moderate is reported, because a
+gate that cries weekly is a gate people start passing with a flag, and a flaw in a
+test runner never reaches a customer.
+
+**An unreachable registry is not a pass.** `npm audit` needs the network, and a
+check that quietly succeeds when it could not run is this codebase's oldest defect
+in miniature — it prints UNKNOWN and says plainly that nothing was verified.
+
+**What is still open, on the record rather than silenced.** Two moderates sit
+inside `@google-cloud/storage@8.1.0`, which pins `gaxios ^6`; 6.7.1 is the last
+release in that line, so no patch exists to move to. The advisory is uuid's
+missing bounds check in v3/v5/v6 when a `buf` argument is supplied, and gaxios
+calls `uuid.v4()` at one site to build a multipart boundary, passing no buffer.
+Not reachable. `KNOWN_UNFIXABLE` records both with the reason, and the exemption is
+per-severity, so a re-rating to HIGH blocks the gate rather than honouring a stale
+waiver. Driven through all three branches: a critical exits 1 naming the advisory,
+an unreachable registry exits 0 reporting UNKNOWN, an exempted package escalated to
+HIGH still exits 1.
+
+---
+
+## §122 — Eight fabricated fixtures that nothing imported (2026-09-11)
+
+`src/shared/demo.ts` opened with "Every dashboard renders from this", and it had
+been false for a long time. The dashboards moved to real stores; the sentence did
+not move with them. **Reading this repository, the product looked like a demo
+wearing a platform's clothes** — which is a fair account of exactly what the owner
+said he could not tell.
+
+Walking the imports rather than trusting the comment: EIGHT of the thirteen
+exports were imported by NOTHING. Fabricated customers carrying names, phone
+numbers and email addresses; invented private WhatsApp messages; named
+competitors; a daily action list; a business profile; a three-brand roster.
+Unreachable code removes no capability, so removing it downgrades nothing — and
+person-shaped fabrications sitting in a repository are a liability whether or not
+anything draws them.
+
+The five that remain feed the landing page's charts, which is the
+zero-configuration demo this platform is required to keep working: aggregate
+figures for one openly fictional business, shown to anonymous visitors, never
+presented to a signed-in account as its own numbers. The owner ruling recorded
+above the deleted roster is kept in place, so removing dead data does not also
+remove the reason it existed.
+
+**The boundary is now a test**, derived by walking imports: no dashboard or API
+route may import it, no person-shaped record may return to it, and every surviving
+export must actually be used. Killed by mutation: a fabricated contact record
+reintroduced, a dead unimported fixture added, a dashboard page importing demo
+figures.
+
+**A stale comment is a defect with no failing test.** It costs nothing at runtime
+and costs everything in whether the owner can believe the thing he is selling.
