@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one s
 in credits, deployed at marketwaros.com. Live-tested on **AxionOS** (evandeli.com, UK trades),
 **VeryX** (veryxjnn.com) and **KODA** (kodajnn.com, mobile-money verification, DRC). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 250 backend modules, 186 API
-routes, 69 dashboard pages, **1,848 tests**.
+routes, 69 dashboard pages, **1,849 tests**.
 
 **IT RUNS ON VERCEL** — `vercel.json` holds the ten crons, DNS is Vercel's, and
 `PRODUCTION-ARCHITECTURE.md` adopts Hostinger → Cloudflare → Vercel → Firebase. `apphosting.yaml`
@@ -74,15 +74,18 @@ agree to is not a fix**; `overrides.jose: ^5` did.
 **1. MAIL: SENDING IS FIXED; DELIVERY IS NOT CONFIRMED (§115, §118).** Five weeks of `535 5.7.8` and
 three password resets were never the password: **a 535 at the auth stage says a server refused the
 credential, not that it is wrong**, and `SMTP_HOST` named a machine that does not hold the mailbox.
-**What is left:**
-(a) **the message was not seen arriving** — set `MW_BOUNCE_IMAP_HOST` so the platform reads the
+Left: (a) **the message was not seen arriving** — set `MW_BOUNCE_IMAP_HOST` so the platform reads the
 delivery notice itself instead of a human opening a mailbox; (b) **alignment** — the From was on one
 domain while the login was on another, so SPF authenticates the wrong domain and under `aspf=s` cannot
-align. `pickNode` now prefers a node whose account is ON the sending domain, so **`MW_SENDING_POOL`
-with one node per domain** closes it with no code change. Still owed: `EMAIL_FROM`.
+align. `pickNode` now prefers a node ON the sending domain, so **`MW_SENDING_POOL` with one node per
+domain** closes it with no code change. Still owed: `EMAIL_FROM`.
 
-**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING.** Live key valid, `whsec_` set. Left: the wrong
-`whsec_` of that account's SEVEN endpoints. **To close:** `/api/health/stripe`.
+**2. STRIPE WEBHOOK: 246 EVENTS, NOTHING LANDING — AND THE GO-LIVE REPORT CALLED IT FINE.** Live key
+valid, `whsec_` set, and the wrong one of that account's SEVEN endpoints. `launch-check` went silent
+on any string, so present was read as correct on the one finding whose point is that a customer is
+charged and served nothing. The webhook now records a receipt the instant a signature VERIFIES, and a
+live key with no receipt is a **blocker**. **To close:** `/api/health/stripe` names the right endpoint;
+one test delivery clears it for good.
 
 **3. NEXT 15 IS LANDED — confirm it in production. To close:** one real signup.
 
@@ -115,12 +118,10 @@ by OUR own refused password · Node 20 in production · 91 of 133 env variables 
 **Owner actions (nothing in code can substitute):**
 1. **`CRON_SECRET`** — unset, so every scheduled path is dark INCLUDING bounce collection. Set it with
    `MW_BOUNCE_IMAP_HOST` and the platform starts reading its own delivery failures.
-2. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; makes the owner `executive`, never metered. Without it the
-   `/api/health/*` reports are unreadable, which is how a diagnostic becomes useless.
+2. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; makes the owner `executive`, never metered. Without it the `/api/health/*` reports are unreadable, which is how a diagnostic becomes useless.
 3. Open `/api/health/live` after every change — `envPresent`/`envMissing`, `build.commit` and
    `buildBuiltAt` are the only proof the running build received it and was built AFTER the change.
-4. **Send the first ten messages** (`/dashboard/acquisition` has the text per brand), then the first
-   Facebook campaign (`npm run ads:doc`): Traffic, not Awareness, five custom audiences built FIRST.
+4. **Send the first ten messages** (`/dashboard/acquisition` has the text per brand), then the first Facebook campaign (`npm run ads:doc`): Traffic, not Awareness, five custom audiences built FIRST.
 5. **`SERPER_API_KEY`** gates live company discovery; the current value is rejected 401/403.
 
 **No feature section of the growth spec is MISSING** — what remains is partial rows; see
@@ -170,8 +171,8 @@ module-level constant.**
 
 **A FOURTH, 09-11: A COMMENT THAT STOPPED BEING TRUE AND WAS READ AS IF IT WERE.** `demo.ts` said
 "Every dashboard renders from this" long after the dashboards moved to real stores. Nothing broke, but
-the repository read as a demo wearing a platform's clothes — exactly the doubt the owner voiced. **A
-stale comment is a defect with no failing test: derive the claim by walking the code.**
+the repository read as a demo wearing a platform's clothes. **A stale comment is a defect with no
+failing test: derive the claim by walking the code.**
 
 **ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT BEFORE THE THIRD GUESS.** **A diagnostic only its author can read is not a diagnostic**: the SMTP stage, the refusal line and the enrichment probe were each gated behind a sign-in that was itself broken. **A VERDICT MUST NOT OPEN WITH A CAUSE ITS OWN NEXT SENTENCE DISPROVES.** **And read the output, never recall it.**
 

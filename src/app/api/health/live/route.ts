@@ -155,7 +155,22 @@ export async function GET() {
       // the go-live report reads the environment and declares Firebase fine on
       // a deployment where the SDK rejected the credentials and nothing persists.
       const a = adminWhy as { initError?: string } | null;
-      return m.launchReport(m.readLaunchEnv(process.env, { adminConfigured: admin, adminInitError: a?.initError ?? null }));
+      // AND WHETHER A STRIPE DELIVERY HAS EVER VERIFIED HERE. The presence of
+      // STRIPE_WEBHOOK_SECRET says nothing: this account has several endpoints,
+      // each with its own secret, and the wrong one passes every shape check
+      // while failing every delivery. A read that throws yields null, which the
+      // report treats as unproven — the safe direction.
+      const verifiedAt = await (async () => {
+        try {
+          const r = await import("@/backend/webhook-receipt");
+          return (await r.lastVerifiedDelivery()).lastVerifiedAt;
+        } catch { return null; }
+      })();
+      return m.launchReport(m.readLaunchEnv(process.env, {
+        adminConfigured: admin,
+        adminInitError: a?.initError ?? null,
+        stripeWebhookVerifiedAt: verifiedAt,
+      }));
     } catch (e) {
       errors["launch-check"] = (e as Error).message;
       return undefined;

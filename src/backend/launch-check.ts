@@ -69,6 +69,24 @@ export type LaunchEnv = {
    * you set is wrong", and telling somebody to set a variable they have already
    * set is how a day disappears.
    */
+  /**
+   * When a real Stripe delivery last VERIFIED against the secret this deployment
+   * holds — not whether the variable is set.
+   *
+   * PRESENT IS NOT CORRECT, and that gap cost this platform its money path. The
+   * rule below used to go quiet the moment `STRIPE_WEBHOOK_SECRET` held any
+   * string. This account has SEVEN webhook endpoints, each with its own signing
+   * secret; the wrong one is present, well-formed, starts `whsec_`, passes every
+   * shape check, and fails every delivery. 246 events were sent, nothing landed,
+   * and the go-live report said the money path was fine the whole time.
+   *
+   * Nothing short of a delivery can settle it — Stripe returns a signing secret
+   * on create and never on list, so no API call can compare ours against theirs.
+   * `null` means nothing has ever verified, which is NOT the same as "broken":
+   * a deployment that has taken no payments has nothing to have proved. The rule
+   * distinguishes them by whether the key is live.
+   */
+  stripeWebhookVerifiedAt: string | null;
   firebaseAdminConfigured: boolean;
   /** The credentials exist in the environment, whatever the SDK made of them. */
   firebaseAdminCredsPresent: boolean;
@@ -94,13 +112,19 @@ export function readLaunchEnv(
    * is omitted the presence of the credentials is the best available answer and
    * is used, exactly as before.
    */
-  runtime?: { adminConfigured: boolean; adminInitError?: string | null },
+  runtime?: {
+    adminConfigured: boolean;
+    adminInitError?: string | null;
+    /** When a Stripe delivery last verified here. Omitted by callers that cannot read it. */
+    stripeWebhookVerifiedAt?: string | null;
+  },
 ): LaunchEnv {
   const s = (k: string) => (env[k] || "").trim();
   const credsPresent = Boolean(s("FIREBASE_CLIENT_EMAIL") && s("FIREBASE_PRIVATE_KEY"));
   return {
     stripeSecretKey: s("STRIPE_SECRET_KEY"),
     stripeWebhookSecret: s("STRIPE_WEBHOOK_SECRET"),
+    stripeWebhookVerifiedAt: runtime?.stripeWebhookVerifiedAt ?? null,
     // Both halves of the Admin credential are needed; one alone configures
     // nothing, and reporting "Firebase is on" from a lone client email would
     // send the owner looking in the wrong place.
@@ -161,6 +185,30 @@ export function launchReport(env: LaunchEnv): LaunchReport {
       title: "Payments are taken but nothing is credited",
       consequence: "Stripe charges the card, the webhook that credits ACUs and activates the plan is refused (production fails closed on an unsigned event), and the customer is left paid-up with a Free-plan wallet. They have been charged and served nothing, and neither side gets an error.",
       fix: "Stripe → Developers → Webhooks → add endpoint https://marketwaros.com/api/webhooks/stripe → copy its signing secret into STRIPE_WEBHOOK_SECRET, then redeploy.",
+    });
+  }
+
+  // A SIGNING SECRET THAT IS PRESENT AND WRONG IS THE SAME OUTCOME AS NO SECRET,
+  // and until this rule existed the report could not tell them apart.
+  //
+  // The finding above fires when the variable is EMPTY. It then went silent on
+  // any string at all — and this account has SEVEN webhook endpoints, each with
+  // its own signing secret. The wrong one is present, starts `whsec_`, is the
+  // right length, and fails every delivery with a signature mismatch. 246 events
+  // were sent, nothing landed, and the go-live answer was "no blockers".
+  //
+  // ONLY ON A LIVE KEY, and that distinction is the whole design. A deployment
+  // that has never taken a payment has nothing to have proved, so demanding
+  // proof from it would be a permanent red light nobody can clear — the kind of
+  // check people learn to ignore. A LIVE key means real cards can be charged
+  // right now, and on that deployment "no delivery has ever verified" is the
+  // difference between a working money path and a customer paying for nothing.
+  if (publicLaunch && isLiveKey(env.stripeSecretKey) && env.stripeWebhookSecret && !env.stripeWebhookVerifiedAt) {
+    f.push({
+      id: "stripe-webhook-never-verified", severity: "blocker",
+      title: "The webhook secret is set and has never verified a real delivery",
+      consequence: "Present is not correct. This account has several webhook endpoints and each has its own signing secret, so the wrong one passes every shape check and fails every delivery with a signature mismatch — the card is charged, the event is refused at the door, and the customer is left paid-up with a Free-plan wallet. Nothing here has ever recorded a delivery verifying, so on a live key that possibility is open.",
+      fix: "Open /api/health/stripe: it lists this account's endpoints and names the one whose URL matches the host serving the request. Copy THAT endpoint's signing secret into STRIPE_WEBHOOK_SECRET, redeploy, then use Stripe's 'Send test webhook' on it. One verified delivery clears this permanently.",
     });
   }
 

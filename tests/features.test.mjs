@@ -27978,8 +27978,19 @@ test("the live diagnostic gives a reason for Firebase, not a boolean", () => {
   assert.match(src, /impact:/, "it must say what a user actually loses, not just which key is missing");
 
   // And the launch report must be handed the real state rather than re-reading env.
-  assert.match(src, /readLaunchEnv\(process\.env, \{ adminConfigured: admin/,
+  // Whitespace-tolerant on purpose: the first version pinned the call on ONE
+  // line, so wrapping the argument object broke a test about Firebase without
+  // anything changing about Firebase — a check failing for a reason unrelated to
+  // what it tests, which is the same class in the other direction.
+  assert.match(src, /readLaunchEnv\(process\.env,\s*\{\s*adminConfigured: admin/,
     "the go-live report is inferring Firebase from the environment again");
+
+  // The same rule for the money path. A secret that is PRESENT is not a secret
+  // that WORKS, and the report can only tell them apart if this route hands it
+  // the receipt — read it from the environment and the finding is worthless.
+  assert.match(src, /stripeWebhookVerifiedAt: verifiedAt/,
+    "the go-live report is not being told whether a Stripe delivery ever verified");
+  assert.match(src, /lastVerifiedDelivery\(\)/, "nothing reads the webhook receipt");
 });
 
 test("a credential is assembled from wherever each field is, not all-or-nothing", async () => {
@@ -28985,6 +28996,102 @@ test("invented data reaches the landing page and nothing else", async () => {
     assert.ok(new RegExp(`\\b${name}\\b`).test(body),
       `${name} is invented data that nothing imports — dead fixtures are how eight of these accumulated`);
   }
+});
+
+test("a webhook secret that is SET is not a webhook secret that WORKS", async (t) => {
+  // THE GO-LIVE REPORT SAID THE MONEY PATH WAS FINE WHILE 246 EVENTS LANDED
+  // NOWHERE. `launch-check` raises a blocker when STRIPE_WEBHOOK_SECRET is
+  // absent, in exactly the right words — "Payments are taken but nothing is
+  // credited" — and then went silent the moment the variable held any string.
+  //
+  // This account has SEVEN webhook endpoints and each has its own signing
+  // secret. The wrong one is present, starts `whsec_`, is the right length, and
+  // fails every single delivery with a signature mismatch. Present and correct
+  // are different facts, and the report could not tell them apart: the second
+  // defect class, standing on the one finding whose whole point is that a real
+  // person gets charged and served nothing.
+  //
+  // Stripe returns a signing secret on create and NEVER on list, so no API call
+  // can compare ours with theirs. Only an arriving delivery settles it.
+  const { launchReport } = await import("../src/backend/launch-check.ts");
+  const base = {
+    stripeSecretKey: "sk_live_x", stripeWebhookSecret: "whsec_x", stripeWebhookVerifiedAt: null,
+    firebaseAdminConfigured: true, firebaseAdminCredsPresent: true, firebaseAdminInitError: "",
+    fieldEncryptionKey: "k".repeat(64), platformAdminEmails: "a@b.c",
+    aiKeys: { anthropic: true, openai: true, gemini: false },
+    cronSecret: "c", humanCheckSecret: "h", aiMonthlyCeilingUsd: "50",
+    legalEntityName: "N", legalEntityAddress: "A", vercelEnv: "production",
+  };
+  const has = (r) => r.findings.some((f) => f.id === "stripe-webhook-never-verified");
+  const blocking = (r) => r.findings.some((f) => f.id === "stripe-webhook-never-verified" && f.severity === "blocker");
+
+  // Live key, production, secret present, nothing ever verified: a BLOCKER, and
+  // the whole report must refuse rather than merely mention it.
+  const unproven = launchReport(base);
+  assert.ok(blocking(unproven), "a live key with an unproven webhook secret must block the launch");
+  assert.equal(unproven.goPublic, false, "goPublic must be false while a blocker stands");
+
+  // ONE VERIFIED DELIVERY CLEARS IT PERMANENTLY.
+  assert.ok(!has(launchReport({ ...base, stripeWebhookVerifiedAt: "2026-09-11T10:00:00.000Z" })),
+    "a delivery that verified is the proof, and must clear the finding");
+
+  // NOT A PERMANENT RED LIGHT NOBODY CAN CLEAR. A deployment that has never
+  // taken a payment has nothing to have proved, so demanding proof of it would
+  // be a check people learn to ignore — which is worse than no check.
+  assert.ok(!has(launchReport({ ...base, stripeSecretKey: "sk_test_x" })),
+    "a TEST key cannot charge a real card, so it is not asked to prove delivery");
+  assert.ok(!has(launchReport({ ...base, vercelEnv: "preview" })),
+    "a preview deployment is not a public launch");
+
+  // And the ABSENT case still reports as its own thing: the two need different
+  // actions, and telling somebody to fix a secret they have not set wastes a day.
+  const missing = launchReport({ ...base, stripeWebhookSecret: "" });
+  assert.ok(missing.findings.some((f) => f.id === "stripe-webhook-missing"), "an absent secret keeps its own finding");
+  assert.ok(!has(missing), "and must not also be reported as unverified — there is nothing to verify");
+
+  // ---- THE WIRE, DRIVEN. ----------------------------------------------------
+  // A rule reading a field proves nothing about whether anything ever WRITES it.
+  // This posts a correctly signed event at the real route and asserts the
+  // receipt appears — the seam where a value stops crossing the boundary is the
+  // defect this repository has produced thirty-one times.
+  const saved = { ...process.env };
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_receipt_test_secret";
+  t.after(() => { process.env = saved; });
+
+  const { createHmac } = await import("node:crypto");
+  const receipt = await import("../src/backend/webhook-receipt.ts");
+  receipt.__resetWebhookReceipt();
+  assert.equal((await receipt.lastVerifiedDelivery()).lastVerifiedAt, null, "nothing has verified yet");
+
+  const route = await import("../src/app/api/webhooks/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const post = (payload, sig) => route.POST(new NextRequest("https://x.test/api/webhooks/stripe", {
+    method: "POST", body: payload,
+    headers: { "stripe-signature": sig, "content-type": "application/json" },
+  }));
+  const sign = (payload) => {
+    const ts = Math.floor(Date.now() / 1000);
+    return `t=${ts},v1=${createHmac("sha256", "whsec_receipt_test_secret").update(`${ts}.${payload}`).digest("hex")}`;
+  };
+
+  // A FORGED delivery must record NOTHING. A receipt written before the
+  // signature check would let anybody on the internet clear a launch blocker by
+  // POSTing an empty object, which turns the proof into its opposite.
+  const body = JSON.stringify({ id: "evt_receipt_1", type: "customer.subscription.updated", data: { object: {} } });
+  await post(body, "t=1,v1=deadbeef");
+  assert.equal((await receipt.lastVerifiedDelivery()).lastVerifiedAt, null,
+    "an unverified POST recorded a delivery — anyone could clear the blocker by asking");
+
+  // A correctly signed one records it — and note the event type: this carries no
+  // wallet credit at all. Hanging the proof off `processed_events`, which only
+  // gains a row when money moves, would leave a working webhook reading as
+  // unproven for ever.
+  await post(body, sign(body));
+  const after = await receipt.lastVerifiedDelivery();
+  assert.ok(after.lastVerifiedAt, "a verified delivery must be recorded, even when it credits nothing");
+  assert.equal(after.lastEventType, "customer.subscription.updated");
+  assert.ok(!has(launchReport({ ...base, stripeWebhookVerifiedAt: after.lastVerifiedAt })),
+    "and the recorded value must be the shape the launch rule accepts");
 });
 
 test("the patched floors hold — a dependency cannot be pinned back under a known advisory", async () => {
