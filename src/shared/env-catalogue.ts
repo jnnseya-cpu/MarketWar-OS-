@@ -181,6 +181,11 @@ export const ENV_TUNING: string[] = [
   "WORKER_ID",
   "SMOKE_BASE",
   "SMOKE_BASE_URL",
+  // Where `npm run drive:loop` points: the server to walk the money path
+  // against, and the public site to hand the crawler. Both default to something
+  // that works, and neither gates a feature on any deployment.
+  "BASE_URL",
+  "AUDIT_TARGET",
 ];
 
 /** Set by the host, not by the owner. Nothing to obtain and nothing to fix. */
