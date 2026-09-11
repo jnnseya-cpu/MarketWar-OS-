@@ -460,10 +460,27 @@ export async function findPerson(input: {
  */
 export async function findCompanyEmail(input: {
   company: string;
+  /** May be empty: a supplier that can resolve one is asked, if the budget allows. */
   domain: string;
   maxCostAcu?: number;
   deadlineMs?: number;
-}): Promise<{ emails: EmailCandidate[]; person: PersonCandidate | null; steps: WaterfallStep[]; costAcu: number; note: string }> {
+}): Promise<{
+  emails: EmailCandidate[];
+  person: PersonCandidate | null;
+  domain: string;
+  /**
+   * Which provider returned each address, keyed by the address.
+   *
+   * WHY IT IS CARRIED. Apollo can resolve a domain and Hunter can then find the
+   * address on it, and reporting "found by Apollo" for that row credits the
+   * wrong supplier — a small untruth, but it is the field somebody reads when
+   * deciding which key is worth paying for.
+   */
+  emailProvider: Record<string, string>;
+  steps: WaterfallStep[];
+  costAcu: number;
+  note: string;
+}> {
   const budget = Math.max(1_000, Math.min(input.deadlineMs ?? 14_000, 60_000));
   const started = Date.now();
   const remaining = () => budget - (Date.now() - started);
@@ -472,6 +489,7 @@ export async function findCompanyEmail(input: {
   const steps: WaterfallStep[] = [];
   const spent = () => steps.reduce((n, x) => n + x.costAcu, 0);
   const emails: EmailCandidate[] = [];
+  const emailProvider: Record<string, string> = {};
   let person: PersonCandidate | null = null;
 
   // The same rule as `findPerson`, and a refusal is RECORDED rather than
@@ -507,6 +525,38 @@ export async function findCompanyEmail(input: {
     } finally { clearTimeout(timer); }
   };
 
+  // 0. NO DOMAIN? ASK FOR ONE — because that is the whole case this platform
+  //    is used for, and refusing it made the feature useless on exactly the list
+  //    the owner brought.
+  //
+  //    A prospecting import is a column of business NAMES. The free crawl turns
+  //    a name into a website via live search, and when that search has no key or
+  //    a rejected one, every row arrives here with nothing. Giving up at that
+  //    point meant a licensed database that can answer "what domain is Wembley
+  //    Stadium" was never asked the one question it is best at.
+  //
+  //    Cost-checked as a PAIR with the email lookup that follows it: buying a
+  //    domain and then being refused the address is the exact waste this
+  //    function was written to stop, and it is worse here because the domain
+  //    alone is worth nothing to the caller.
+  let domain = input.domain;
+  if (!domain) {
+    for (const p of registry) {
+      if (!p.findCompany || !p.health().configured) continue;
+      if (remaining() <= 0) break;
+      if (!affordable(p, "company", p.costAcu * 2)) continue;
+      const got = await run(p, "company", (sig) => p.findCompany!({ name: input.company }, sig));
+      const resolved = got.find((c) => c.domain)?.domain;
+      if (resolved) { domain = resolved.replace(/^www\./, "").toLowerCase(); break; }
+    }
+  }
+  if (!domain) {
+    return {
+      emails: [], person: null, domain: "", emailProvider, steps, costAcu: spent(),
+      note: `No website could be found for ${input.company}, so no supplier could be asked for its address. ${spent() ? `${spent()} ACU(s) spent looking.` : "Nothing was charged."}`,
+    };
+  }
+
   // 1. THE CHEAPEST ROUTE TO AN ADDRESS. A domain search returns the role
   //    mailboxes a business publishes, which is what a company-level outreach
   //    wants — and it is one call rather than two.
@@ -514,8 +564,8 @@ export async function findCompanyEmail(input: {
     if (!p.findEmails || !p.health().configured) continue;
     if (remaining() <= 0) break;
     if (!affordable(p, "emails")) continue;
-    const got = await run(p, "emails", (sig) => p.findEmails!({ domain: input.domain }, sig));
-    for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) emails.push(c);
+    const got = await run(p, "emails", (sig) => p.findEmails!({ domain }, sig));
+    for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) { emails.push(c); emailProvider[c.value.toLowerCase()] = p.id; }
     // A PUBLISHED ADDRESS ENDS IT. Anything further is spending to improve on
     // the best evidence there is.
     if (emails.some((e) => e.provenance === "confirmed")) break;
@@ -530,25 +580,25 @@ export async function findCompanyEmail(input: {
       if (!p.findPeople || !p.findEmails || !p.health().configured) continue;
       if (remaining() <= 0) break;
       if (!affordable(p, "people", p.costAcu * 2)) continue;
-      const found = await run(p, "people", (sig) => p.findPeople!({ company: input.company, domain: input.domain }, sig));
+      const found = await run(p, "people", (sig) => p.findPeople!({ company: input.company, domain }, sig));
       if (!found.length) continue;
       person = found[0];
       const parts = person.fullName.split(/\s+/);
       const got = await run(p, "emails", (sig) => p.findEmails!({
-        fullName: person!.fullName, firstName: parts[0], lastName: parts.slice(1).join(" "), domain: input.domain,
+        fullName: person!.fullName, firstName: parts[0], lastName: parts.slice(1).join(" "), domain,
       }, sig));
-      for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) emails.push(c);
+      for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) { emails.push(c); emailProvider[c.value.toLowerCase()] = p.id; }
       if (emails.length) break;
     }
   }
 
   const paid = [...new Set(steps.filter((s) => s.ran && s.costAcu > 0).map((s) => s.provider))];
   return {
-    emails, person, steps, costAcu: spent(),
+    emails, person, domain, emailProvider, steps, costAcu: spent(),
     note: emails.length
-      ? `${emails.length} address(es) for ${input.domain}${paid.length ? ` — ${paid.join(" and ")} charged ${spent()} ACU(s)` : " from free sources"}.`
+      ? `${emails.length} address(es) for ${domain}${paid.length ? ` — ${paid.join(" and ")} charged ${spent()} ACU(s)` : " from free sources"}.`
       : paid.length
-        ? `${paid.join(" and ")} were asked about ${input.domain} and returned nothing. ${spent()} ACU(s) of supplier cost.`
-        : `No supplier was affordable or configured for ${input.domain}, so only free sources ran.`,
+        ? `${paid.join(" and ")} were asked about ${domain} and returned nothing. ${spent()} ACU(s) of supplier cost.`
+        : `No supplier was affordable or configured for ${domain}, so only free sources ran.`,
   };
 }

@@ -58,12 +58,17 @@ export async function enrichPaid(
   };
   const domain = hostOf(input.website || "");
 
-  // NO DOMAIN, NO SUPPLIER. Every paid lookup keys off one, and asking about a
-  // company with no domain spends a credit on a question nobody can answer.
-  if (!domain) {
-    return { ...base, stage: "no_own_site", note: "No website was found for this business, so no supplier could be asked about it. Nothing was charged." };
-  }
-
+  // NO DOMAIN IS THE NORMAL CASE, NOT A DEAD END — and treating it as one made
+  // this useless on exactly the list it was built for.
+  //
+  // A prospecting import is a column of business NAMES. The free crawl turns a
+  // name into a website through live search, and when that search has no key or
+  // a rejected one, every row reaches here with nothing. An earlier version
+  // returned at this point, which meant a licensed database that can answer
+  // "what domain is Wembley Stadium" was never asked the one question it is best
+  // at. The chain resolves the domain itself now, cost-checked as a pair with
+  // the address lookup that follows, so a credit is never spent on a domain the
+  // budget could not then use.
   const run = await findCompanyEmail({
     company: input.company,
     domain,
@@ -80,7 +85,8 @@ export async function enrichPaid(
   // does not make it this company's. This is the defect the vault has already
   // been burned by once, and a paid result is the likeliest place for it to
   // return, because a broker's row carries no page for anyone to check.
-  const companyDomain = domain;
+  // The domain the chain ended up with, which may be one a supplier resolved.
+  const companyDomain = run.domain || domain;
   const usable = run.emails
     .map((e) => ({ ...e, value: e.value.toLowerCase() }))
     .filter((e) => {
@@ -101,7 +107,7 @@ export async function enrichPaid(
     usable.find((e) => ROLE.test(e.value)) ??
     usable[0];
 
-  const website = base.website;
+  const website = base.website || (run.domain ? `https://${run.domain}` : null);
   const person = run.person;
 
   if (!picked) {
@@ -126,7 +132,13 @@ export async function enrichPaid(
     emailConfidence: picked.provenance === "confirmed" ? "high" : "medium",
     contactName: person?.fullName ?? null,
     contactTitle: person?.jobTitle ?? null,
-    source: paidRan.includes("apollo") ? "apollo" : paidRan.includes("hunter") ? "hunter" : "search",
+    // THE SUPPLIER THAT FOUND THE ADDRESS, not merely one that was paid on this
+    // row. Apollo resolving a domain and Hunter finding the address on it is the
+    // ordinary case now, and crediting Apollo for it is the field somebody reads
+    // when deciding which key is worth renewing.
+    source: run.emailProvider[picked.value] === "apollo" ? "apollo"
+      : run.emailProvider[picked.value] === "hunter" ? "hunter"
+      : "search",
     stage: "found",
     note: `${picked.value} via ${who || "the free sources"}${spent ? ` — ${spent} ACU(s) of supplier cost` : ""}.`,
   };

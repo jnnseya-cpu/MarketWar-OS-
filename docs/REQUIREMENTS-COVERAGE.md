@@ -6276,3 +6276,62 @@ check. The obvious test case uses Apollo's literal `@domain.com` placeholder,
 which the ownership gate throws out first — so the test passed for the wrong
 reason and deleting the check changed nothing. Rebuilt on the company's own
 domain, it kills.
+
+---
+
+## §129 — A name with no website is the normal case, not a dead end (2026-09-11)
+
+Asked plainly: what do I do about email scraping. The answer needed the chain
+driven rather than described, and driving it found the gap §128 had left.
+
+**THE FREE CRAWL IS GATED ON `SERPER_API_KEY`, WHICH THIS DEPLOYMENT'S IS
+REJECTING (401/403).** That key is what turns a business NAME into a website.
+Without it `findWebsite` returns demo mode, so every row of a prospecting import
+reaches the paid pass with no domain at all.
+
+And §128 made the paid pass give up exactly there: *"No website was found for
+this business, so no supplier could be asked about it."* A licensed database that
+can answer "what domain is Wembley Stadium" was never asked the one question it
+is best at — on a list of 354 business names and no websites, which is what a
+prospecting import IS.
+
+`findCompanyEmail` resolves the domain itself now, through the same registry in
+the same cost order. Driven end to end on a row carrying nothing but a name:
+
+```
+apollo         company  ran=true  cost=4  found=1
+marketwar-web  emails   ran=true  cost=0  found=0
+hunter         emails   ran=true  cost=4  found=1   info@wembleystadium.com
+```
+
+Eight ACUs of supplier cost against sixteen charged. The floor holds.
+
+**THE PAIR IS PRICED AS A PAIR.** Resolving a domain and finding an address are
+two paid calls, and a budget with room for only one must buy neither: the caller
+wanted an address, and a domain alone is worth nothing to it. A mutation removing
+that check survived at a budget of 8, where both readings behave alike, and was
+killed by testing at 4 — where one call fits and the pair does not.
+
+**THE ADDRESS IS CREDITED TO WHOEVER FOUND IT.** Apollo resolving the domain and
+Hunter finding the address on it is now the ordinary path, and the first version
+reported the row as Apollo's because Apollo had been paid on it. Small untruth,
+and it is the field somebody reads when deciding which key is worth renewing.
+`emailProvider` carries which supplier returned each address.
+
+**A TEST FAILED FOR A REASON THAT HAD NOTHING TO DO WITH WHAT IT TESTS.** The
+provider registry is module-global, other tests register fakes into it, and one
+leaves behind a provider called `slow`. It answered this chain with
+`example.co.uk`, Hunter was asked about the wrong domain, and the ownership gate
+correctly threw the answer away — a green ownership gate producing a red test
+about Apollo. The test now clears the registry and asserts it holds only the four
+built-in providers, so it is measuring the chain that ships.
+
+Killed by mutation: the no-domain path restored to giving up, the pair-cost check
+removed, the address credited to the wrong supplier, and the resolved domain not
+used by the ownership gate.
+
+**WHAT THE OWNER STILL HAS TO DO.** `SERPER_API_KEY` is rejected, and it is the
+cheap half of this: it finds the website for free, and a supplier credit is then
+spent only on businesses that publish no address anywhere a crawler can see.
+Without it every row buys its domain from Apollo at 4 ACUs before anything else
+happens, which works and costs four times more than it needs to.
