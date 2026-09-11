@@ -6,6 +6,7 @@ import {
 import { recordEvent } from "@/backend/ledger";
 import { applyWebhookOutcome } from "@/backend/wallet";
 import { commissionForPayment, type CommissionOutcome } from "@/backend/marketwar-commission";
+import { recordVerifiedDelivery } from "@/backend/webhook-receipt";
 
 // Locate the org whose wallet a payment credits. MarketWar-created checkouts stamp
 // the id three ways (client_reference_id + metadata.orgId + metadata.marketwar_org_id)
@@ -75,6 +76,23 @@ export async function POST(req: NextRequest) {
   if (!event || typeof event.id !== "string" || typeof event.type !== "string") {
     return NextResponse.json({ error: "Malformed Stripe event (missing id/type)" }, { status: 400 });
   }
+
+  // A DELIVERY VERIFIED, AND THAT IS THE ONLY PROOF THE SECRET IS THE RIGHT ONE.
+  //
+  // This account has SEVEN webhook endpoints and each has its own signing
+  // secret, so a value that is present, well-formed and belongs to this account
+  // can still fail every delivery. Stripe never returns a signing secret on a
+  // list, only on create, so nothing but an arriving event can settle it — and
+  // until this line existed, the go-live report called the money path fine while
+  // 246 events landed nowhere.
+  //
+  // RECORDED HERE rather than beside the wallet write: an event that verifies
+  // and needs no wallet change is still proof the secret is right, and hanging
+  // the proof off the credit would leave a working webhook reading as unproven.
+  // Awaited but never allowed to fail the response — the module swallows its own
+  // errors, because a bookkeeping write that throws would make Stripe retry a
+  // delivery we have already accepted.
+  await recordVerifiedDelivery(event.type);
 
   // Compute the outcome, then PERSIST it: credit the org's ACU wallet + activate
   // its plan. applyWebhookOutcome is idempotent by event.id (records the id in the

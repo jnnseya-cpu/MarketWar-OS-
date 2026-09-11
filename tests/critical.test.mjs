@@ -342,6 +342,14 @@ const { launchReport, readLaunchEnv } = await import("../src/backend/launch-chec
 
 const baseEnv = {
   stripeSecretKey: "sk_live_x", stripeWebhookSecret: "whsec_x",
+  // "FULLY CONFIGURED" NOW INCLUDES A WEBHOOK THAT HAS ACTUALLY DELIVERED, and
+  // adding that field is not fixture bookkeeping — this fixture described a
+  // deployment as clear to launch on the strength of the secret being PRESENT,
+  // which is the exact reading under which 246 real events landed nowhere while
+  // the report said the money path was fine. A live key with an unproven secret
+  // now blocks, so a fixture claiming a clean production config has to carry the
+  // proof a clean production config would have.
+  stripeWebhookVerifiedAt: "2026-09-11T09:00:00.000Z",
   firebaseAdminConfigured: true, fieldEncryptionKey: "x".repeat(32),
   platformAdminEmails: "owner@example.com",
   aiKeys: { anthropic: true, openai: true, gemini: false },

@@ -5865,3 +5865,63 @@ figures.
 
 **A stale comment is a defect with no failing test.** It costs nothing at runtime
 and costs everything in whether the owner can believe the thing he is selling.
+
+---
+
+## §123 — A webhook secret that is SET is not one that WORKS (2026-09-11)
+
+The go-live report answered the launch question with "no blockers" while 246
+Stripe events landed nowhere.
+
+`launch-check.ts` raises a blocker when `STRIPE_WEBHOOK_SECRET` is ABSENT, and
+says exactly the right thing about it: the card is charged, the event that
+credits the wallet is refused, and the customer is left paid-up with a Free-plan
+balance. Then it went silent the moment the variable held any string at all.
+
+**This account has SEVEN webhook endpoints and each has its own signing secret.**
+The wrong one is present, starts `whsec_`, is the right length, passes every
+shape check, and fails every single delivery with a signature mismatch. Present
+and correct are different facts, and the report could not tell them apart — the
+second defect class, standing on the one finding whose entire purpose is that a
+real person gets charged and served nothing.
+
+**Nothing short of a delivery can settle it.** Stripe returns a signing secret
+when you create an endpoint and never when you list them, so no amount of API
+access can compare the secret this deployment holds against the one Stripe signs
+with. `/api/health/stripe` can name which endpoint matches the serving host,
+which narrows it; it cannot prove the secret.
+
+So the webhook route records a receipt the instant a signature VERIFIES, and the
+launch report reads it. A live key on a production deployment with no receipt is
+now a blocker.
+
+Three decisions inside that, each one load-bearing:
+
+- **Recorded on verification, not on outcome.** `processed_events` already holds
+  event ids and reading it would have been the shortcut, but it only gains a row
+  when an event carries a wallet credit or an entitlement change. A
+  `customer.subscription.updated` that verifies perfectly and needs no wallet
+  change writes nothing there, so a working webhook would still have read as
+  never proven.
+- **After the signature check, never before.** A receipt written first would let
+  anyone on the internet clear a launch blocker by POSTing an empty object, which
+  turns the proof into its opposite. Driven: a forged delivery records nothing.
+- **Only on a LIVE key in production.** A deployment that has never taken a
+  payment has nothing to have proved. Demanding proof of it would be a permanent
+  red light nobody can clear, and a check people learn to ignore is worse than no
+  check.
+
+The bookkeeping write can never fail the response: Stripe retries anything that
+is not a 2xx, so a receipt that threw would turn a healthy endpoint into a retry
+storm. Every function in `backend/webhook-receipt.ts` swallows its own failure,
+and a read that fails returns "not proven" rather than "fine", because the
+alternative is clearing somebody's money path on the strength of a database
+error.
+
+Killed by mutation: the rule removed, the blocker downgraded to a warning, the
+receipt recorded before the signature check, and the receipt never passed from
+the health route to the report. The last of those is the thirty-first instance of
+this repository's oldest defect and was mutated for exactly that reason.
+
+**What this changes about the go/no-go.** The launch report, run against
+production as recorded here, returned one blocker. It now returns two.
