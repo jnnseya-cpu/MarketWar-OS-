@@ -41,7 +41,7 @@ delivery is confirmed and the first real campaign runs; `/dashboard/acquisition`
   contact in several, **"not in any group" selectable**, empty means everyone, and the button's number
   is the SENDABLE count. **The preview computes the SAME audience (§116)** — it did not.
 - **Contact Hunter + Contact Finder** — on `lead-harvest`'s 12 checks and UK/EU/US lawful basis. **Confirmed / inferred / provider never convert.** **The Stripe webhook** refuses forgery, replay, stale timestamps and a tampered body; five CONCURRENT deliveries of one event credit exactly once.
-- **ONE ENRICHMENT CHAIN (§128)** — the vault and Contact Hunter share it. Free crawl → Companies House → Hunter → Apollo, in COST order. The vault's paid pass is charged separately (`enrich_paid`, derived from the dearest supplier) and budgeted at half of it, so the margin floor is code. It was two chains: the vault ran Apollo-first and could not reach Hunter at all.
+- **ONE ENRICHMENT CHAIN (§§128–129)** — the vault and Contact Hunter share it. Free crawl → Companies House → Hunter → Apollo, in COST order, and a row carrying only a NAME has its domain resolved by the chain itself. The paid pass is charged separately (`enrich_paid`, derived from the dearest supplier) and budgeted at half of it, so the margin floor is code. It was two chains: the vault ran Apollo-first and could not reach Hunter at all.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — credit before rate limit (both 429, opposite remedies); an unrecognised refusal keeps the provider's words and offers NO remedy.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — `wallet.meteringExempt`, asked by `meterAction` AND `spendAcus`; a refund returns what was TAKEN, so an exempt render cannot mint ACUs. **§50 the paid-boost ladder** — which post earns a budget, against the brand's own median; refuses to promote without conversion tracking; never spends.
 - **The provider waterfall** — one name and company through every supplier in COST order inside 14s.
@@ -126,7 +126,9 @@ sell** · Node 20 in production · 91 of 133 env variables invisible (119 catalo
 2. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; makes the owner `executive`, never metered. Without it the `/api/health/*` reports are unreadable, which is how a diagnostic becomes useless.
 3. Open `/api/health/live` after every change — `envPresent`/`envMissing`, `build.commit` and `buildBuiltAt` are the only proof the running build received it and was built AFTER the change.
 4. **Send the first ten messages** (`/dashboard/acquisition` has the text per brand), then the first Facebook campaign (`npm run ads:doc`): Traffic, not Awareness, five custom audiences built FIRST.
-5. **`SERPER_API_KEY`** gates live company discovery; the current value is rejected 401/403.
+5. **`SERPER_API_KEY` — REJECTED 401/403, and it is the CHEAP half of email finding (§129).** It turns a
+   business name into a website for nothing. Without it every row buys its domain from Apollo at 4 ACUs
+   first, which works and costs four times more than it needs to.
 
 **No feature section of the growth spec is MISSING** — what remains is partial rows; see
 `GROWTH-ENGINE-COVERAGE.md`. **Not built:** §80 agent message bus (rejected), §14 calendars, §21 carousels.
@@ -144,12 +146,11 @@ defect**: a size cap on a combined read/write rule, and `request.resource` is nu
 client read of a tenant's own files was denied. Split in two. **NOT EMULATOR-VERIFIED** (no firebase
 CLI here) — guarded statically, four mutations killed.
 
-**Invented data.** `demo.ts` said "Every dashboard renders from this", false for a long time. Walking
-the imports, EIGHT of thirteen exports were imported by nothing — fabricated customers with names,
-phones and emails, invented private messages, named competitors, a brand roster. Removed: unreachable
-code is no capability. The five that remain feed the landing page's charts only, the zero-config demo
-that must keep working. **A test holds that boundary** — no dashboard or API route may import it, no
-person-shaped record may return, no dead fixture may accumulate.
+**Invented data.** `demo.ts` said "Every dashboard renders from this", false for a long time. EIGHT of
+thirteen exports were imported by nothing — fabricated customers with names, phones and emails,
+invented messages, named competitors, a brand roster. Removed: unreachable code is no capability. The
+five that remain feed the landing page's charts only. **A test holds that boundary** — no dashboard or
+API route may import it, no person-shaped record may return, no dead fixture may accumulate.
 
 ## 6. The defect class that keeps recurring
 
@@ -170,10 +171,9 @@ endpoint Stripe never reaches. **Inspect the thing that RUNS, from where it is c
 defaulting to a host nobody confirmed serves, and a vault row priced at 2 ACUs while one Hunter search
 costs 4. **A floor nobody can compute is a floor nobody holds.**
 
-**A FOURTH, 09-11: A COMMENT — OR A DIAGNOSIS — THAT STOPPED BEING TRUE AND WAS READ AS IF IT WERE.**
-`demo.ts` claimed every dashboard rendered from it long after they stopped; this file blamed the
-webhook on a wrong secret, and Stripe's own email says the deliveries never produced an HTTP status at
-all. **Derive the claim by walking the code, and re-read the evidence when it arrives.**
+**A FOURTH, 09-11: A CLAIM THAT STOPPED BEING TRUE AND WAS READ AS IF IT WERE.** `demo.ts` said every
+dashboard rendered from it long after they stopped; this file blamed the webhook on a wrong secret, and
+Stripe says those deliveries produced no HTTP status at all. **Re-read the evidence when it arrives.**
 
 **ASK FOR THE DIAGNOSTIC OUTPUT BEFORE REASONING FROM THE SYMPTOM — and if none exists, BUILD IT BEFORE THE THIRD GUESS.** **A diagnostic only its author can read is not a diagnostic**: the SMTP stage, the refusal line and the enrichment probe were each gated behind a sign-in that was itself broken. **A VERDICT MUST NOT OPEN WITH A CAUSE ITS OWN NEXT SENTENCE DISPROVES.** **And read the output, never recall it.**
 

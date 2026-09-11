@@ -29023,8 +29023,8 @@ test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in 
   // Now there is one waterfall, cost-ordered, with both suppliers registered in
   // it, and the vault's paid pass goes through it.
   const { enrichPaid } = await import("../src/backend/enrich-paid.ts");
-  const { registerBuiltInProviders } = await import("../src/backend/enrichment-adapters.ts");
-  const { providers } = await import("../src/backend/enrichment-provider.ts");
+  const { registerBuiltInProviders, __resetRegistration } = await import("../src/backend/enrichment-adapters.ts");
+  const { providers, __clearProviders } = await import("../src/backend/enrichment-provider.ts");
 
   const saved = { ...process.env };
   const realFetch = globalThis.fetch;
@@ -29032,8 +29032,18 @@ test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in 
   process.env.HUNTER_API_KEY = "hunter_test_key";
   process.env.APOLLO_API_KEY = "apollo_test_key";
 
+  // THE REGISTRY IS MODULE-GLOBAL AND OTHER TESTS PUT FAKES IN IT. One of them
+  // leaves a provider called "slow" behind, and it answered this chain with
+  // `example.co.uk` — so Hunter was asked about the wrong domain and the
+  // ownership gate correctly threw the answer away. The test failed for a reason
+  // that had nothing to do with what it tests, which is this repository's second
+  // defect class arriving through shared mutable state.
+  __clearProviders();
+  __resetRegistration();
   registerBuiltInProviders();
   const ids = providers().map((p) => p.id);
+  assert.deepEqual(ids.filter((id) => !["marketwar-web", "companies-house", "hunter", "apollo"].includes(id)), [],
+    "a provider from another test is still in the registry, so this chain is not the one that ships");
   assert.ok(ids.includes("hunter"), "Hunter is not registered on the waterfall");
   assert.ok(ids.includes("apollo"), "Apollo is not registered on the waterfall");
 
@@ -29123,6 +29133,48 @@ test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in 
   assert.equal(hunterCalls, 0, "Hunter was called with no budget for it");
   assert.equal(apolloCalls, 0, "Apollo was called with no budget for it");
   assert.equal(broke.email, null);
+
+  // A ROW WITH A NAME AND NO WEBSITE IS THE ORDINARY CASE, NOT A DEAD END.
+  //
+  // A prospecting import is a column of business names. The free crawl turns a
+  // name into a website through live search, and when that search has no key or
+  // a rejected one — which is the state this deployment is in — every row
+  // reaches the paid pass with nothing. An earlier version gave up there, so a
+  // licensed database that can answer "what domain is Wembley Stadium" was never
+  // asked the one question it is best at, and the feature did nothing on exactly
+  // the list it exists for.
+  hunterCalls = 0; apolloCalls = 0;
+  stub({ hunterEmails: [{ value: "info@wembleystadium.com" }] });
+  const noSite = await enrichPaid({ company: "Wembley Stadium" }, { maxCostAcu: BUDGET });
+  assert.equal(noSite.email, "info@wembleystadium.com", `a row with no website found nothing: ${noSite.note}`);
+  assert.equal(noSite.website, "https://wembleystadium.com", "the resolved domain was not kept on the row");
+
+  // AND THE ADDRESS IS CREDITED TO WHOEVER FOUND IT. Apollo resolved the domain
+  // and Hunter found the address on it; reporting "apollo" there credits the
+  // wrong supplier, which is the field somebody reads when deciding which key is
+  // worth renewing.
+  assert.equal(noSite.source, "hunter", "the address was credited to the supplier that only resolved the domain");
+
+  // A BUDGET THAT FITS ONE CALL BUT NOT TWO MUST BUY NEITHER.
+  //
+  // Resolving the domain and then finding the address are two paid calls. With
+  // room for only one, buying the domain spends a credit on something the caller
+  // cannot use — it wanted an address, and a domain alone is worth nothing to
+  // it. So the pair is affordability-checked as a PAIR. At a budget of 4, one
+  // Apollo call fits and the pair does not, and nothing may be bought.
+  hunterCalls = 0; apolloCalls = 0;
+  stub({ hunterEmails: [{ value: "info@wembleystadium.com" }] });
+  const halfBudget = await enrichPaid({ company: "Wembley Stadium" }, { maxCostAcu: 4 });
+  assert.equal(apolloCalls, 0,
+    "a domain was bought with no budget left to look up an address with it — a credit spent on something the caller cannot use");
+  assert.equal(halfBudget.email, null);
+
+  // NO BUDGET MEANS NO DOMAIN RESOLUTION EITHER, or the free tier quietly buys
+  // one. Resolving is a paid call like any other.
+  hunterCalls = 0; apolloCalls = 0;
+  const noSiteNoBudget = await enrichPaid({ company: "Wembley Stadium" }, { maxCostAcu: 0 });
+  assert.equal(apolloCalls, 0, "a domain was bought on a lookup allowed no paid providers");
+  assert.equal(noSiteNoBudget.email, null);
 
   // AND A SUPPLIER RESULT IS NEVER `confirmed`. That word means WE read the page
   // the address is published on; a licensed database saying so is a weaker
