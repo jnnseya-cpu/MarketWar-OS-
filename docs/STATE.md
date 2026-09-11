@@ -35,12 +35,12 @@ delivery is confirmed and the first real campaign runs; `/dashboard/acquisition`
   inbound prospect. No account, no card; `npm run ads:verify` fails if six adverts stop being true.
   **Confirmed live 09-03** — construxvg.com, 83→92/100. Every article now clears **≥90 or is held as
   a draft**, measured by that same crawler against the real page, re-swept daily (§119).
-- **The client approval portal** — a signed, expiring link a client opens with no account.
+- **The client approval portal** — a signed, expiring link a client opens with no account. **The go/no-go answer itself** (`/api/health/live` → `launch`): consequences, never variables.
 - **The command bar**, **ad canvas**, **pricing and margin arithmetic**, **paid-media guardrails**, **payout engine**, **emergency stop** — every refusal computed, never guessed. **The publication ledger**: a lost publish response is uncertain, so the next attempt asks the channel rather than posting twice. Plus eight pre-publish checks, channel health, versions and restore, creative fatigue, the audit log, teams, Sentinel, 13 articles.
 - **Named groups in the customer vault (§110)** — a deliberate label (segments stay COMPUTED), a
   contact in several, **"not in any group" selectable**, empty means everyone, and the button's number
   is the SENDABLE count. **The preview computes the SAME audience (§116)** — it did not.
-- **Contact Hunter + Contact Finder** — on `lead-harvest`'s 12 checks and UK/EU/US lawful basis. **Confirmed / inferred / provider never convert.**
+- **Contact Hunter + Contact Finder** — on `lead-harvest`'s 12 checks and UK/EU/US lawful basis. **Confirmed / inferred / provider never convert.** **The Stripe webhook** refuses forgery, replay, stale timestamps and a tampered body; five CONCURRENT deliveries of one event credit exactly once.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — credit before rate limit (both 429, opposite remedies); an unrecognised refusal keeps the provider's words and offers NO remedy.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — `wallet.meteringExempt`, asked by `meterAction` AND `spendAcus`; a refund returns what was TAKEN, so an exempt render cannot mint ACUs. **§50 the paid-boost ladder** — which post earns a budget, against the brand's own median; refuses to promote without conversion tracking; never spends.
 - **The provider waterfall** — one name and company through every supplier in COST order inside 14s.
@@ -87,7 +87,11 @@ charged and served nothing. The webhook now records a receipt the instant a sign
 live key with no receipt is a **blocker**. **To close:** `/api/health/stripe` names the right endpoint;
 one test delivery clears it for good.
 
-**3. NEXT 15 IS LANDED — confirm it in production. To close:** one real signup.
+**3. THE COMMERCIAL LOOP IS PROVEN IN PARTS, NEVER END TO END WITH A BUYER.** `npm run drive:loop`
+walks it against a running production build and reports what it could NOT exercise rather than passing
+it: 5 proven, 4 not exercisable here, 0 broken. **Not provable here:** a live checkout URL, a credit
+landing in Firestore, the crawl (outbound HTTPS blocked; confirmed live 09-03). **To close WITHOUT a
+customer:** clear §5.2, then Stripe → Send test webhook.
 
 **4. THE TRADING IDENTITY IS NOT ON THE SITE.** Four `NEXT_PUBLIC_LEGAL_*` values, two a UK launch
 blocker (§4), plus phone, postal address and social profiles. **I will not invent any of these** — a
@@ -95,8 +99,7 @@ fabricated company number on a page that sells is worse than a blank one.
 
 **5. FIREBASE APP HOSTING vs VERCEL — AN OWNER DECISION, NOT A BUG.** A brief asked to stabilise the
 platform on App Hosting; it already runs in production on Vercel. Migrating abandons a working
-deployment AND the ten `vercel.json` crons, which App Hosting has no equivalent for — blog, SEO sweep,
-bounce collection and IndexNow would each need a Cloud Scheduler job built first. **I have not
+deployment AND the ten `vercel.json` crons, which App Hosting has no equivalent for. **I have not
 migrated anything.** The duplication already cost five weeks: `apphosting.yaml` has held
 `SMTP_HOST = smtp.hostinger.com` the whole time, in the config for the other platform, which nobody
 compared. A test now asserts every variable either config declares is in `ENV_CATALOGUE`.
@@ -109,18 +112,15 @@ imported, in a file whose comment said every dashboard rendered from it.
 check exempted the one domain it should have tested · `MW_SENDING_POOL` silently overrode
 `SMTP_USER`/`SMTP_PASS` while the diagnostic named the variable being edited · an OUTLINE previewed as
 a finished email for 836 people, counting a different audience · the platform could not read its own
-bounces. *Earlier (§§103–113):* named vault groups · campaign failover · per-brand DKIM selectors · the
-CI secret scan skipping behind a red audit · an anonymous GET on `/api/email/suppression-repair` ·
-video failures charging without refunding · **we failed the checks we sell** · 354 addresses suppressed
-by OUR own refused password · Node 20 in production · 91 of 133 env variables invisible
-(`shared/env-catalogue.ts` is the one registry, 117 entries).
+bounces. *Earlier (§§103–113):* named vault groups · campaign failover · per-brand DKIM selectors · an
+anonymous GET on `/api/email/suppression-repair` · video failures charging without refunding · **we
+failed the checks we sell** · 354 addresses suppressed by OUR own refused password · Node 20 in
+production · 91 of 133 env variables invisible (`env-catalogue.ts` is the one registry, 119 entries).
 
 **Owner actions (nothing in code can substitute):**
-1. **`CRON_SECRET`** — unset, so every scheduled path is dark INCLUDING bounce collection. Set it with
-   `MW_BOUNCE_IMAP_HOST` and the platform starts reading its own delivery failures.
+1. **`CRON_SECRET`** — unset, so every scheduled path is dark INCLUDING bounce collection. Set it with `MW_BOUNCE_IMAP_HOST` and the platform starts reading its own delivery failures.
 2. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; makes the owner `executive`, never metered. Without it the `/api/health/*` reports are unreadable, which is how a diagnostic becomes useless.
-3. Open `/api/health/live` after every change — `envPresent`/`envMissing`, `build.commit` and
-   `buildBuiltAt` are the only proof the running build received it and was built AFTER the change.
+3. Open `/api/health/live` after every change — `envPresent`/`envMissing`, `build.commit` and `buildBuiltAt` are the only proof the running build received it and was built AFTER the change.
 4. **Send the first ten messages** (`/dashboard/acquisition` has the text per brand), then the first Facebook campaign (`npm run ads:doc`): Traffic, not Awareness, five custom audiences built FIRST.
 5. **`SERPER_API_KEY`** gates live company discovery; the current value is rejected 401/403.
 
@@ -137,32 +137,31 @@ which pins `gaxios ^6` where no patch exists; the advisory is uuid's bounds chec
 `buf` and gaxios passes none. Not reachable; in `KNOWN_UNFIXABLE`, not silenced.
 
 **Rules files.** All three deny by default, no blanket allow. **`storage.rules` carried a real
-defect**: `allow read, write: if … && request.resource.size < 25MB` — `request.resource` is null on a
-READ, so every client read of a tenant's own files was denied by something shaped like a sensible
-upload cap. Read and write are now separate rules. **NOT EMULATOR-VERIFIED** (no firebase CLI here) —
-reasoned from the rules language, guarded statically, four mutations killed.
+defect**: a size cap on a combined read/write rule, and `request.resource` is null on a READ, so every
+client read of a tenant's own files was denied by something shaped like a sensible upload cap. Split in
+two. **NOT EMULATOR-VERIFIED** (no firebase CLI here) — guarded statically, four mutations killed.
 
-**Invented data.** `src/shared/demo.ts` said "Every dashboard renders from this", false for a long
-time. Walking the imports, EIGHT of thirteen exports were imported by nothing — fabricated customers
-with names, phones and emails, invented private messages, named competitors, a brand roster. Removed:
-unreachable code is no capability. The five that remain feed the landing page's charts only, the
-zero-config demo that must keep working. **A test holds that boundary** — no dashboard or API route
-may import it, no person-shaped record may return, no dead fixture may accumulate.
+**Invented data.** `demo.ts` said "Every dashboard renders from this", false for a long time. Walking
+the imports, EIGHT of thirteen exports were imported by nothing — fabricated customers with names,
+phones and emails, invented private messages, named competitors, a brand roster. Removed: unreachable
+code is no capability. The five that remain feed the landing page's charts only, the zero-config demo
+that must keep working. **A test holds that boundary** — no dashboard or API route may import it, no
+person-shaped record may return, no dead fixture may accumulate.
 
 ## 6. The defect class that keeps recurring
 
 **A value that exists on one side of a boundary and is never carried across.** THIRTY-ONE. Newest
-(09-08): the gateway has always returned `truncated` and the AI writer never read it, so a cut-off
-reply became "the model did not return usable JSON" and the only remedy offered reproduces it. Before
-it: groups reached the send path and not the preview, so two screens computed different audiences;
-the server's refusal line was read once and dropped, so five weeks of "the mail server refused the
-message" hid `535` vs `550 SMTP disabled`. Worst historically: a message whose login, envelope sender
-and From were three mailboxes, **all three invented**.
+(09-11): the webhook receipt proving the money path works had to be handed to the launch report, and
+mutating that one line away was the mutation that survived longest. Before: the gateway returned
+`truncated` and the AI writer never read it; groups reached the send path and not the preview, so two
+screens computed different audiences; the server's refusal line was read once and dropped, so five
+weeks of "the mail server refused the message" hid `535` vs `550`. Worst historically: a message whose
+login, envelope sender and From were three mailboxes, **all three invented**.
 
-**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF.** `replyVerdict` answered reachability by real DNS and
-returned `yes` for OUR host without looking, green while every reply bounced; the credential fields
-read `process.env.SMTP_PASS` while `MW_SENDING_POOL` authenticates. **A diagnostic must inspect the
-thing that RUNS.** 09-11: the verify gate reported on the code and never on what it ships on top of.
+**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF.** `replyVerdict` returned `yes` for OUR host without
+looking, green while every reply bounced; the credential fields read `process.env.SMTP_PASS` while
+`MW_SENDING_POOL` authenticates; the go-live report called the money path fine because the webhook
+secret was PRESENT. **A diagnostic must inspect the thing that RUNS.**
 
 **A THIRD: a value hard-coded as a module CONSTANT where it should have come from the record** — the
 DKIM selector, the bounce host built from it, the tracking base falling back to the apex. Each was
@@ -185,7 +184,7 @@ green through the whole second outage, able to fail only on the repair. **A test
 production is down, and would fail on the fix, is worse than no test. A MUTATION THAT CHANGES NOTHING
 PROVES NOTHING.**
 
-**A DIAGNOSTIC IS AN ENDPOINT TOO** — `/api/health/email` authorised `?send=` but left the REPORT open, twenty recipient addresses beside the SMTP host and username. **A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** **And a test that passes is not evidence until something has broken it** — drive the real handler and assert on a value only the real path can produce. EIGHT tests have failed on their own comments and one on a STRING LITERAL; strip both before scanning (`codeOf()`).
+**A DIAGNOSTIC IS AN ENDPOINT TOO** — `/api/health/email` authorised `?send=` but left the REPORT open, twenty recipient addresses beside the SMTP host and username. **A PANEL MUST NOT BLAME THE OWNER FOR ITS OWN FAILED REQUEST.** **And a test that passes is not evidence until something has broken it** — drive the real handler and assert on a value only the real path can produce. **A HARNESS MUST TELL "IT REFUSED ME, RIGHTLY" FROM "IT IS BROKEN"**: `drive:loop` first read three correct refusals as product faults. EIGHT tests have failed on their own comments and one on a STRING LITERAL; strip both (`codeOf()`).
 
 ## 7. Rules that outrank preference
 
@@ -201,8 +200,7 @@ the additive-only law, the margin floor and the no-fabrication rule. Only here:
 - **"IMPENETRABLE" IS NOT A CLAIM ANYONE CAN MAKE, AND WILL NOT BE MADE HERE.** What is true is
   narrower and checkable: deny-by-default rules, server-side tenant scoping, field encryption at rest,
   no secret in repo/bundle/log/URL, a gate that fails on a shipped advisory. **End-to-end encryption
-  does not apply where the server must read the data** — an agent cannot write copy it cannot
-  decrypt; `FIELD_ENCRYPTION_MASTER_KEY` covers PII at rest, which is the applicable control.
+  does not apply where the server must read the data**; `FIELD_ENCRYPTION_MASTER_KEY` is the control.
 - **`requireAuth` returning `ok` does NOT mean the scope was checked** — with no Firebase Admin it
   returns `{ok:true, enforced:false}` first. Any surface touching real customer data needs `enforced`.
 - **Drive the routes, do not read them** — a production build on `next start` found an open endpoint

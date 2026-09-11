@@ -5925,3 +5925,63 @@ this repository's oldest defect and was mutated for exactly that reason.
 
 **What this changes about the go/no-go.** The launch report, run against
 production as recorded here, returned one blocker. It now returns two.
+
+---
+
+## §124 — Driving the commercial loop, and what it could not prove (2026-09-11)
+
+The honest answer to "is this commercially ready" had become "no customer has
+ever paid, so nobody knows." That is true, and it is not an answer, because it
+covers two completely different situations with one sentence:
+
+- **A.** The machine CANNOT take a customer's money and deliver what was bought.
+- **B.** The machine CAN, and nobody has walked through the door yet.
+
+A is a defect and mine to fix. B is a market fact and is not. Nothing in this
+repository distinguished them, which left the owner unable to tell whether he had
+a product or a demo — and he said so.
+
+`scripts/drive-commercial-loop.mjs` walks the money path over HTTP against a
+running production build: a visitor arrives, the free audit runs with no account,
+a signup challenge is issued, a paid plan is chosen, a signed delivery arrives,
+the wallet is credited, a forgery is refused, a redelivery does not credit twice,
+and the platform answers its own go/no-go. **Run: 5 proven, 4 not exercisable in
+this container, 0 broken.**
+
+**Proven by driving it.** The site serves. The signup challenge issues. A forged
+delivery is refused with a 400, so any credit requires the real secret. And a
+credit that cannot be persisted is never acknowledged: the route answers 500 and
+Stripe redelivers for three days, rather than returning 200 while the ACUs exist
+only in one process's memory. The launch pre-flight answers with its blockers
+named.
+
+Alongside it the suite drives the same webhook route to an actual credit:
+unsigned, forged, stale-timestamped and tampered deliveries are all refused with
+the wallet unchanged; a correct one credits; a redelivery credits nothing more;
+and **five CONCURRENT deliveries of one event credit exactly once**.
+
+**NOT proven, and not claimed.** A live Stripe checkout URL needs the live key and
+a signed-in account. A credit landing in Firestore needs Admin credentials this
+container does not have. The crawl needs outbound HTTPS, which the sandbox denies
+— it was confirmed live on 09-03 against construxvg.com, 83 → 92.
+
+**THE HARNESS WAS WRONG BEFORE THE PLATFORM WAS.** Its first run reported three
+failures, and all three were the platform refusing correctly:
+
+1. The audit refused to crawl `localhost`, because crawling a private network on
+   a visitor's say-so is server-side request forgery.
+2. The webhook refused to acknowledge a credit it could not persist.
+3. The redelivery check then "failed" for the same reason.
+
+A harness that cannot tell "it refused me, rightly" from "it is broken" will
+eventually report one as the other, and a suite people stop believing is worth
+less than none. Each step now states which it is. The reachability of the crawl
+target is probed directly first, because the egress proxy manufactures a 403 and
+the route read that — reasonably — as a site turning away automated requests.
+
+**What this changes about readiness.** Not the verdict: two blockers stand and
+both are configuration the owner holds. What it changes is what the verdict
+rests on. The remaining unknown is no longer "does the machine work"; it is
+"will somebody buy", and no amount of code answers that one. Crucially, the
+machine can be proved without waiting for a customer: clear the trading identity,
+fix the webhook secret, and send one test delivery from Stripe's own dashboard.
