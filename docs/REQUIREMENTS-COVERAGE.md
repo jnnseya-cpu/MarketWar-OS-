@@ -6054,3 +6054,82 @@ cannot be run against the real host from here — it was driven against a local
 production build, where it correctly reported an unreachable host as "other
 errors" and a proxy 403 as reached-and-refused. The answer comes from running it
 on the deployment.
+
+---
+
+## §126 — One column of business names is a prospect list, not 354 people (2026-09-11)
+
+A 362-line CSV of UK venues went into the vault. Find emails answered:
+
+> No rows to enrich — every prospect already has an email, or the rows have no
+> company name to search.
+
+**Neither was true.** The importer had put every venue in `name` and left
+`company` empty, and the enrichment filter required `company || website`. The
+single most ordinary prospecting import there is — one column of business names —
+produced a vault that could do nothing at all.
+
+**THE PARSER HAD NEVER BEEN TESTED, BECAUSE IT COULD NOT BE.** It lived inside
+`app/dashboard/customers/page.tsx`, a client component, so nothing could import
+it. It now lives in `shared/csv-import.ts` and the file that failed is the
+fixture. That move is the fix, not a tidy-up.
+
+Four defects, each found by driving the real file:
+
+**1. A lone column went to `name`.** The old code took the first text cell as a
+person and the second as their employer; with one column there is no second cell,
+so every row was a nameless company. A lone personal name is not enrichable and a
+lone organisation is — you cannot find an address from "Amara Okafor" with
+nothing else, and you can from "Wembley Stadium" — so `company` is the only
+mapping that can ever do anything.
+
+**2. The column decides, not the row, and judging row by row was wrong by 22%.**
+"Villa Park" carries an organisational word and classifies correctly. "Elland
+Road", "Old Trafford", "Bramall Lane", "Clapham Common" and "Tobacco Dock" are
+two plain capitalised words and are indistinguishable from a person by any rule
+written about one row — 79 of 354 venues would have been filed as people and
+never enriched. Nobody exports a list that is 78% venues and 22% staff, so the
+share carrying an unmistakable organisational signal decides the whole column and
+the ambiguous rows follow the majority.
+
+Two row-level rules survived that change because they are genuinely about the
+row: a trailing possessive names a thing belonging to somebody, so "Ronnie
+Scott's" and "Sneaky Pete's" are businesses; and a capital inside a surname is
+still a surname, so O'Brien, McDonald and MacLeod are people. The first rule
+demanded every letter after the first be lower case, which made three of the
+commonest surname shapes in these islands read as organisations — each one a paid
+search that could never succeed.
+
+**3. The bytes were not UTF-8.** `File.text()` always decodes UTF-8; Excel on
+Windows writes Windows-1252 by default, which is most of the CSVs in the world.
+`An Se\xf2mar` and `Sneaky Pete\x92s` arrived as replacement characters and were
+stored that way. A prospecting tool that misspells a prospect's name misspells it
+in the first email it sends. UTF-8 is tried strictly first so a genuine UTF-8
+file is never mangled by the fallback.
+
+**4. Section headings became prospects.** "Indoor arenas", "Exhibition and
+conference venues", "Indoor theatres and halls" and "Smaller venues" are titles
+in the spreadsheet, and the platform would have tried to sell to them. Blank
+lines are now kept until the headings are found, because dropping them first is
+what made a title indistinguishable from a venue. They are reported, never
+silently dropped.
+
+**AND THE BOUNDARY DEFECT, INSIDE ONE FILE.** `enrichBatch` was already called
+with `company || name`, so the searcher could always have handled a row whose
+only text was a business name. The filter choosing which rows reached it required
+`company || website`. A value good enough for the consumer was not good enough
+for the gate in front of it. Rows already sitting in somebody's vault are no
+longer dead: a `name` that is not a personal name is searchable now. A lone
+personal name is still skipped, deliberately — enrichment charges a paid search
+per row, and charging for a certainty of failure is not something to fix by
+searching anyway.
+
+**The message named two opposite causes in one sentence** and the reader could
+not tell which applied, nor that a third case existed. Each cause now gets its
+own answer with the count that proves it: everything already has an email; N rows
+carry only a person's name; or N rows have nothing to search and a single-column
+list should be imported again.
+
+Killed by mutation: one column back to `name`, the Windows-1252 fallback removed,
+section headings imported as prospects, the possessive rule removed, and the
+enrichment filter back to company-only.

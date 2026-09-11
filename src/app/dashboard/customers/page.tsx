@@ -15,6 +15,11 @@ import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
 import ExportButton from "@/components/ExportButton";
 import { type GroupSummary } from "@/shared/contact-groups";
+// THE PARSER LIVES IN `shared/` NOW, and that move is the fix rather than a
+// tidy-up: buried in this file nothing could import it and nothing ever tested
+// it, so a one-column list of business names was filed as people for as long
+// as this page has existed.
+import { parseCsv, parseCsvDetailed, decodeCsvBytes, type ParsedContact } from "@/shared/csv-import";
 
 type Row = {
   id: string; name: string; segment: string; segmentLabel: string; spendGbp: number;
@@ -30,107 +35,6 @@ type VaultReport = {
   customers: Row[]; note: string;
 };
 
-type ParsedContact = { email: string; name: string; phone: string; company: string; totalSpendGbp: string; orderCount: string; lastOrderDaysAgo: string; consent?: boolean; trade?: string; town?: string; area?: string; status?: string; score?: string };
-
-// Robust client-side parser. Handles real-world exports:
-//  • auto-detects the delimiter (tab, comma or semicolon),
-//  • works WITH a header row (fuzzy-mapped) OR WITHOUT one (headerless),
-//  • finds the email in whatever column it lands in (even mid-cell / with junk),
-//  • falls back to phone/name so a row is never silently dropped.
-// Extract the first email-looking token from any text (strips trailing quotes,
-// commas, surrounding whitespace, and multi-email cells like "a@x.com,b@x.com").
-function firstEmail(s: string): string {
-  const m = (s || "").match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/);
-  return m ? m[0].toLowerCase() : "";
-}
-function firstPhone(s: string): string {
-  const t = (s || "").replace(/[^\d+]/g, "");
-  return t.replace(/^\+/, "").length >= 7 ? (s.trim()) : "";
-}
-
-function parseCsv(text: string): ParsedContact[] {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim().length);
-  if (!lines.length) return [];
-
-  // Detect delimiter from the sample: tab wins over semicolon wins over comma
-  // when it appears more (handles tab-separated pastes with commas inside cells).
-  const sample = lines.slice(0, 20).join("\n");
-  const n = (re: RegExp) => (sample.match(re) || []).length;
-  const tabs = n(/\t/g), semis = n(/;/g), commas = n(/,/g);
-  const delim = tabs >= commas && tabs >= semis ? "\t" : semis > commas ? ";" : ",";
-
-  const parseLine = (line: string): string[] => {
-    const out: string[] = []; let cur = ""; let q = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
-      else { if (ch === '"') q = true; else if (ch === delim) { out.push(cur); cur = ""; } else cur += ch; }
-    }
-    out.push(cur); return out.map((s) => s.trim());
-  };
-
-  const first = parseLine(lines[0]);
-  const KNOWN = ["email", "e-mail", "name", "phone", "mobile", "tel", "company", "organisation", "organization", "spend", "revenue", "ltv", "orders", "consent", "opt", "first", "last", "contact"];
-  const firstHasEmail = first.some((c) => firstEmail(c));
-  const looksHeader = !firstHasEmail && first.some((c) => KNOWN.some((k) => c.toLowerCase().includes(k)));
-  const truthy = new Set(["yes", "true", "1", "y", "subscribed", "opt-in", "opted in", "opted-in", "consented", "oui"]);
-
-  // ---- Header path: map columns by name (as before, delimiter-aware) ----
-  if (looksHeader) {
-    const headers = first.map((h) => h.toLowerCase());
-    const find = (...names: string[]) => headers.findIndex((h) => names.some((x) => h === x || h.includes(x)));
-    const iEmail = find("email", "e-mail"), iName = find("full name", "name", "contact");
-    const iFirst = headers.findIndex((h) => ["first name", "firstname", "first", "given name"].includes(h));
-    const iLast = headers.findIndex((h) => ["last name", "lastname", "surname", "family name"].includes(h));
-    const iPhone = find("phone", "mobile", "tel", "cell"), iCompany = find("company", "organisation", "organization", "account");
-    const iSpend = find("spend", "revenue", "ltv", "total value", "value", "amount"), iOrders = find("orders", "order count", "purchases", "transactions");
-    const iRecency = find("last order days", "days since", "recency", "days ago"), iConsent = find("consent", "opt-in", "optin", "subscribed", "marketing");
-    // Prospect-list columns (Company / Trade / Town / Area / Score / Status).
-    const iTrade = find("trade", "sector", "category"), iTown = find("town", "city"), iArea = find("area", "region", "postcode area");
-    const iStatus = find("status", "stage"), iScore = find("score", "rating");
-    const g = (c: string[], i: number) => (i >= 0 && i < c.length ? c[i] : "");
-    const rows: ParsedContact[] = [];
-    for (let r = 1; r < lines.length; r++) {
-      const c = parseLine(lines[r]);
-      let name = g(c, iName);
-      if (!name && (iFirst >= 0 || iLast >= 0)) name = [g(c, iFirst), g(c, iLast)].filter(Boolean).join(" ");
-      rows.push({
-        email: firstEmail(g(c, iEmail)) || (iEmail < 0 ? firstEmail(c.join(" ")) : ""),
-        name, phone: g(c, iPhone), company: g(c, iCompany),
-        totalSpendGbp: g(c, iSpend), orderCount: g(c, iOrders), lastOrderDaysAgo: g(c, iRecency),
-        consent: iConsent >= 0 ? truthy.has(g(c, iConsent).toLowerCase()) : undefined,
-        trade: g(c, iTrade) || undefined, town: g(c, iTown) || undefined, area: g(c, iArea) || undefined,
-        status: g(c, iStatus) || undefined, score: g(c, iScore) || undefined,
-      });
-    }
-    // Keep company-only prospect rows too (not just email/phone/name).
-    return rows.filter((r) => r.email || r.phone || r.name || r.company);
-  }
-
-  // ---- Headerless path: detect the email column by content ----
-  const parsed = lines.map(parseLine);
-  const colCount = Math.max(...parsed.map((c) => c.length));
-  let emailCol = -1, best = 0;
-  for (let ci = 0; ci < colCount; ci++) {
-    let hits = 0;
-    for (const c of parsed) if (c[ci] && firstEmail(c[ci])) hits++;
-    if (hits > best) { best = hits; emailCol = ci; }
-  }
-  const rows: ParsedContact[] = [];
-  for (const c of parsed) {
-    const email = emailCol >= 0 && firstEmail(c[emailCol] || "") ? firstEmail(c[emailCol]) : firstEmail(c.join(" "));
-    // Remaining non-email text cells → name (first) + company (second), skipping
-    // the detected email cell and any obvious phone cell.
-    const others = c.map((s) => s.trim()).filter((s, i) => s && i !== emailCol && !firstEmail(s));
-    const phone = c.map((s) => firstPhone(s)).find(Boolean) || "";
-    const textOthers = others.filter((s) => !firstPhone(s));
-    rows.push({
-      email, name: textOthers[0] || "", phone, company: textOthers[1] || "",
-      totalSpendGbp: "", orderCount: "", lastOrderDaysAgo: "", consent: undefined,
-    });
-  }
-  return rows.filter((r) => r.email || r.phone || r.name);
-}
 
 // One-click contact helpers. The email is prefilled but fully editable in the
 // user's own mail client (no send happens here — the user stays in control).
@@ -155,6 +59,11 @@ export default function CustomerVaultPage() {
   const [report, setReport] = useState<VaultReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  // WHAT THE PARSER DECIDED, SHOWN. A one-column list is read as businesses or
+  // as people and the two behave completely differently downstream; leaving that
+  // judgement invisible is how 362 venues became 362 unenrichable person names
+  // with nothing on screen to suggest anything had happened.
+  const [importNote, setImportNote] = useState("");
   // The list these rows belong to. Blank = ungrouped, which is a real, selectable
   // bucket on the send screen rather than a hole.
   const [importGroup, setImportGroup] = useState("");
@@ -275,8 +184,13 @@ export default function CustomerVaultPage() {
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    await importContacts(parseCsv(text));
+    // NOT `file.text()`, which always decodes UTF-8. Excel on Windows writes
+    // Windows-1252 by default, and the venue list arrived with "An Seòmar" and
+    // "Sneaky Pete's" already corrupted into replacement characters — stored in
+    // the vault, and spelled wrong in the first email sent to them.
+    const parsed = parseCsvDetailed(decodeCsvBytes(await file.arrayBuffer()));
+    setImportNote(parsed.note);
+    await importContacts(parsed.rows);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -436,6 +350,11 @@ export default function CustomerVaultPage() {
             <p className="mb-3 text-xs text-slate-400">
               Columns detected automatically: <span className="text-slate-300">email, name, phone, company, spend, orders, last-order-days, consent</span>. Email is enough. Re-importing the same email merges (no duplicates).
             </p>
+            {importNote && (
+              <p className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+                {importNote}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} className="hidden" id="csvfile" />
               <label htmlFor="csvfile" className="btn-primary cursor-pointer">

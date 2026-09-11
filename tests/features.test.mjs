@@ -29012,6 +29012,116 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
+test("one column of business names is a prospect list, not 354 people", async () => {
+  // THE FILE THAT FAILED, KEPT AS THE FIXTURE. A 362-line list of UK venues was
+  // imported and Find emails answered "No rows to enrich — every prospect
+  // already has an email, or the rows have no company name to search." Neither
+  // was true. The parser put every venue in `name` and left `company` empty,
+  // and the enrichment filter required `company || website`.
+  //
+  // The parser lived inside `dashboard/customers/page.tsx`, so nothing could
+  // import it and nothing had ever tested it. The single most ordinary
+  // prospecting import there is produced a vault that could do nothing at all.
+  const { parseCsvDetailed, decodeCsvBytes, looksLikePersonName } =
+    await import("../src/shared/csv-import.ts");
+
+  const bytes = readFileSync(new URL("./fixtures/uk-venues.csv", import.meta.url));
+
+  // THE BYTES ARE NOT UTF-8, AND THAT IS THE COMMONEST CSV THERE IS. Excel on
+  // Windows writes Windows-1252 by default. `File.text()` always decodes UTF-8,
+  // so "An Seòmar" and "Sneaky Pete's" arrived with replacement characters and
+  // were stored that way — a prospecting tool spelling a prospect's name wrong
+  // in the first email it sends.
+  assert.throws(() => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    "the fixture is valid UTF-8, so it no longer exercises the decoder it was added for");
+  const text = decodeCsvBytes(bytes);
+  assert.ok(text.includes("An Seòmar"), "the accented name did not survive decoding");
+  assert.ok(text.includes("Sneaky Pete’s"), "the curly apostrophe did not survive decoding");
+  assert.ok(!text.includes("�"), "a replacement character survived into the parsed text");
+
+  const parsed = parseCsvDetailed(text);
+
+  // EVERY ROW CARRIES A COMPANY. This is the whole defect in one assertion.
+  assert.ok(parsed.rows.length > 300, `expected the venue list, parsed ${parsed.rows.length} rows`);
+  const noCompany = parsed.rows.filter((r) => !r.company);
+  assert.deepEqual(noCompany, [],
+    `${noCompany.length} venue(s) were imported with no company, so Find emails has nothing to search for them`);
+
+  // AND THE SECTION HEADINGS ARE NOT PROSPECTS. "Indoor arenas" is a title in
+  // the spreadsheet, and the platform would have tried to sell to it.
+  assert.ok(parsed.headingsSkipped.includes("Indoor arenas"));
+  assert.ok(parsed.headingsSkipped.includes("Smaller venues"));
+  for (const h of parsed.headingsSkipped) {
+    assert.ok(!parsed.rows.some((r) => r.company === h), `${h} is a section heading and was imported as a prospect`);
+  }
+  assert.match(parsed.note, /business names/i, "the parser must say what it decided the column was");
+
+  // THE COLUMN DECIDES, NOT THE ROW — and judging row by row was wrong by 22% on
+  // this very file. "Villa Park" carries an organisational word and classifies
+  // correctly; "Elland Road", "Old Trafford", "Bramall Lane" and "Tobacco Dock"
+  // are two plain capitalised words, indistinguishable from a person by any rule
+  // written about a single row. Seventy-nine of 354 would have been filed as
+  // people and never enriched: the same dead end, smaller.
+  for (const ambiguous of ["Elland Road", "Old Trafford", "Bramall Lane", "Tobacco Dock", "Clapham Common"]) {
+    assert.ok(looksLikePersonName(ambiguous),
+      `${ambiguous} is no longer ambiguous, so this test has stopped proving the column-level rule is needed`);
+    assert.ok(parsed.rows.some((r) => r.company === ambiguous),
+      `${ambiguous} was filed as a person, so the column-level decision is not being applied`);
+  }
+
+  // A REAL LIST OF PEOPLE MUST STILL BE PEOPLE, or the fix has simply swapped
+  // which import is broken.
+  const people = parseCsvDetailed("Amara Okafor\nDaniel Mensah\nSophie Turner\nMarcus Boateng\nPriya Sharma");
+  assert.equal(people.rows.filter((r) => r.name).length, 5, "a column of person names became companies");
+  assert.equal(people.rows.filter((r) => r.company).length, 0);
+  assert.match(people.note, /cannot be searched|person names/i,
+    "a person-only list must say plainly that Find emails will have nothing to do");
+
+  // Emails and phones in a single column still land in their own fields.
+  const mixed = parseCsvDetailed("a@x.com\n+44 7700 900123\nWembley Stadium");
+  assert.equal(mixed.rows.find((r) => r.email)?.email, "a@x.com");
+  assert.ok(mixed.rows.some((r) => r.phone));
+  assert.ok(mixed.rows.some((r) => r.company === "Wembley Stadium"));
+});
+
+test("the filter that decides what gets enriched agrees with the thing that enriches it", async () => {
+  // THE BOUNDARY DEFECT AGAIN, INSIDE ONE FILE. `enrichBatch` was already called
+  // with `company || name`, so the searcher could always have handled a row
+  // whose only text was a business name. The filter choosing which rows reached
+  // it required `company || website`. A value good enough for the consumer was
+  // not good enough for the gate in front of it, and 354 prospects sat idle.
+  const src = codeOf(readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8"));
+  assert.match(src, /company: c\.company \|\| c\.name/, "the searcher no longer falls back to the name");
+  assert.match(src, /looksLikePersonName/, "the filter is not using the shared rule the parser uses");
+  assert.match(src, /c\.name && !looksLikePersonName\(c\.name\)/,
+    "a row whose only text is a business name is excluded from enrichment again");
+
+  // AND THE MESSAGE NAMES ONE CAUSE, WITH ITS COUNT. The old one offered two
+  // opposite explanations in a single sentence — "every prospect already has an
+  // email, or the rows have no company name" — and the reader could not tell
+  // which, nor that a third case existed at all.
+  assert.ok(!/already has an email, or the rows have no company name/.test(src),
+    "the two-causes-one-sentence message is back");
+  assert.match(src, /all \$\{stored\.length\} prospect\(s\) already have an email/, "the 'nothing to do' case must be its own answer");
+  assert.match(src, /carry only a person's name/, "the person-name case must be its own answer");
+  assert.match(src, /re-import it/, "the no-company case must say what to do about it");
+
+  // A LONE PERSONAL NAME IS STILL NOT SEARCHED, because enrichment charges a
+  // paid search per row and an address cannot be found from a name alone.
+  const { looksLikePersonName } = await import("../src/shared/csv-import.ts");
+  assert.equal(looksLikePersonName("Amara Okafor"), true);
+  assert.equal(looksLikePersonName("Wembley Stadium"), false);
+  assert.equal(looksLikePersonName("O2 Academy Leeds"), false);
+  assert.equal(looksLikePersonName("Ronnie Scott's"), false, "a trailing possessive names a business, not a person");
+  // AND REAL SURNAME SHAPES ARE PEOPLE. The first rule demanded every letter
+  // after the first be lower case, so O'Brien, McDonald and MacLeod — three of
+  // the commonest surname shapes in these islands — read as organisations and
+  // would each have cost a paid search that could never succeed.
+  for (const who of ["O'Brien Smith", "McDonald Grant", "MacLeod Ross", "van der Berg"]) {
+    assert.equal(looksLikePersonName(who), true, `${who} is a person and would be charged for a search that cannot succeed`);
+  }
+});
+
 test("the Stripe diagnostic does not hand the account to a stranger", async () => {
   // THE SAME DEFECT, TWICE, AND THE SECOND ONE SURVIVED THE FIRST FIX.
   // `/api/health/email` authorised its `?send=` and left the REPORT open —
