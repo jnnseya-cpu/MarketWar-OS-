@@ -32,7 +32,7 @@ if (typeof window !== "undefined") {
 // address, never a name. A diagnostic that leaks the thing it is diagnosing is
 // the defect this codebase already fixed once on the mail report.
 
-import { hunterKey, hunterErrorNote } from "@/backend/enrichment-adapters";
+import { hunterKey, hunterErrorNote } from "@/backend/hunter-client";
 
 export type FieldCheck = {
   /** The path the adapter reads, exactly as it reads it. */

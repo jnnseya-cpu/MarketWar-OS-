@@ -29012,6 +29012,95 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
+test("Find emails reaches Hunter, which it never could before", async (t) => {
+  // THE OWNER HOLDS BOTH A HUNTER KEY AND AN APOLLO KEY, and the button he
+  // presses used Apollo and the scraper. The word "hunter" did not appear in
+  // `backend/enrich.ts` once — while a complete, tested Hunter adapter sat one
+  // import away, wired into a DIFFERENT screen.
+  //
+  // IT WAS A MODULE GRAPH, NOT A DECISION. The adapter lives in
+  // `enrichment-adapters.ts`, which imports `scrapeEnrich` from `enrich.ts`, so
+  // `enrich.ts` could not import it back without a cycle. A paid key the
+  // customer's own button could never reach, blocked by an import nobody had
+  // drawn. The client now lives in `hunter-client.ts`, which depends on nothing.
+  const enrich = await import("../src/backend/enrich.ts");
+  const client = await import("../src/backend/hunter-client.ts");
+
+  const saved = { ...process.env };
+  process.env.HUNTER_API_KEY = "hunter_test_key";
+  delete process.env.APOLLO_API_KEY;
+  t.after(() => { process.env = saved; globalThis.fetch = realFetch; });
+  const realFetch = globalThis.fetch;
+
+  // THE CLIENT IS THE SEAM. Stubbing `fetch` drives the real client, the real
+  // ownership gate and the real picker — everything except the network, which
+  // this container cannot reach and which would be a different test anyway.
+  let asked = null;
+  const stubHunter = (emails) => {
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("api.hunter.io")) {
+        asked = new URL(u);
+        return new Response(JSON.stringify({ data: { emails } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      // Everything else — the Serper search the scraper uses — is absent here,
+      // which is the exact state the fallback exists for: free sources found
+      // nothing.
+      return new Response("{}", { status: 404 });
+    };
+  };
+
+  // THE ADDRESS IS FOUND, and the call is the cheap domain question.
+  stubHunter([{ value: "info@wembleystadium.com" }, { value: "j.smith@wembleystadium.com" }]);
+  const found = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  assert.equal(found.email, "info@wembleystadium.com", `Hunter was not reached: ${found.note}`);
+  assert.equal(found.source, "hunter");
+  assert.ok(asked && asked.pathname.includes("domain-search"), "the broad search was used when the narrow one would not apply");
+  assert.equal(asked.searchParams.get("domain"), "wembleystadium.com", "the bare domain was not sent");
+
+  // A ROLE MAILBOX IS PREFERRED over a named person from a broker's list: info@
+  // is published to be written to, and the named row is the one most likely to
+  // be stale or the wrong person. Order-independent, or this asserts nothing.
+  stubHunter([{ value: "j.smith@wembleystadium.com" }, { value: "enquiries@wembleystadium.com" }]);
+  const role = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  assert.equal(role.email, "enquiries@wembleystadium.com", "a named broker row was preferred to the published role mailbox");
+
+  // THE OWNERSHIP GATE STILL APPLIES TO A PAID SUPPLIER. An address on somebody
+  // else's domain is the defect this platform has already paid for once — a
+  // directory inbox attached to a customer's prospect — and buying it does not
+  // make it right.
+  stubHunter([{ value: "hello@some-directory.co.uk" }, { value: "sales@yell.com" }]);
+  const foreign = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  assert.equal(foreign.email, null, `an address on another company's domain was accepted: ${foreign.email}`);
+
+  // A PERSONAL MAILBOX IS REFUSED — and this case has to be built carefully, or
+  // it proves nothing. `wembley@gmail.com` against wembleystadium.com is thrown
+  // out by the OWNERSHIP gate before the personal check is ever reached, so a
+  // mutation deleting that check survived it. The only input where the personal
+  // rule does the work is one where the domain ITSELF is a webmail host, which
+  // happens when the scraper mistakes a company's Gmail for its website.
+  stubHunter([{ value: "thevenue@gmail.com" }]);
+  const personal = await enrich.enrichContact({ company: "A Venue", website: "https://gmail.com" });
+  assert.equal(personal.email, null, "a personal-provider mailbox was accepted as a company address");
+
+  // NO DOMAIN, NO CALL. There is nothing to ask about, and a credit spent on
+  // that is a credit spent on a certainty.
+  asked = null;
+  stubHunter([{ value: "info@anything.com" }]);
+  const nodomain = await enrich.enrichContact({ company: "A Company With No Website" });
+  assert.equal(asked, null, "Hunter was called with no domain to ask about");
+  assert.equal(nodomain.email, null);
+
+  // NO KEY, NO CALL, and no pretence that one was made.
+  delete process.env.HUNTER_API_KEY;
+  asked = null;
+  stubHunter([{ value: "info@wembleystadium.com" }]);
+  const unconfigured = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  assert.equal(asked, null, "Hunter was called with no API key configured");
+  assert.equal(unconfigured.source !== "hunter", true);
+  assert.equal(client.hunterKey(), "", "the client still reports a key");
+});
+
 test("one column of business names is a prospect list, not 354 people", async () => {
   // THE FILE THAT FAILED, KEPT AS THE FIXTURE. A 362-line list of UK venues was
   // imported and Find emails answered "No rows to enrich — every prospect
@@ -30319,7 +30408,12 @@ test("the Hunter adapter maps a domain search into people and emails, honestly",
 });
 
 test("the Hunter verifier never turns 'could not ask' into 'invalid'", async () => {
-  const { hunter, hunterErrorNote } = await import("../src/backend/enrichment-adapters.ts");
+  const { hunter } = await import("../src/backend/enrichment-adapters.ts");
+  // THE CLIENT MOVED, AND THAT MOVE IS THE FIX. It lived inside the adapters
+  // module, which imports `enrich.ts` — so `enrich.ts` could not import it back
+  // without a cycle, and that module graph is the only reason the Customer
+  // Vault's Find emails button had no Hunter step at all.
+  const { hunterErrorNote } = await import("../src/backend/hunter-client.ts");
   const realFetch = globalThis.fetch;
   process.env.HUNTER_API_KEY = "test-key";
   const reply = (body, status = 200) => { globalThis.fetch = async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }); };
