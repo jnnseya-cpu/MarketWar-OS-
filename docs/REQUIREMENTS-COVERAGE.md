@@ -5985,3 +5985,72 @@ rests on. The remaining unknown is no longer "does the machine work"; it is
 "will somebody buy", and no amount of code answers that one. Crucially, the
 machine can be proved without waiting for a customer: clear the trading identity,
 fix the webhook secret, and send one test delivery from Stripe's own dashboard.
+
+---
+
+## §125 — "Other errors" is not a wrong secret (2026-09-11)
+
+Stripe, by email: 73 deliveries to
+`https://www.marketwaros.com/api/webhooks/stripe` had **"other errors"** since
+4 September, zero successes, and the endpoint is disabled on the 13th.
+
+**That sentence rules out the diagnosis this repository had been carrying.**
+Stripe reports a wrong signing secret as a 4xx, because the endpoint answered
+400. It reports our own refusal to credit without a durable store as a 5xx.
+"Other errors" is the category for an exchange that produced **no HTTP status at
+all** — DNS that did not resolve, a TLS handshake that did not complete, a
+connection refused or reset. The failure happens BEFORE any of our code runs.
+
+Checked before concluding: no commit touched the webhook route, the wallet or
+the middleware anywhere near 4 September. The last change to all three was
+30 August. This is not a regression in the code.
+
+**Every check we had was blind to it by construction.** `/api/health/stripe`
+compares the configured host against the host serving the request — and a
+request that never arrives serves nothing to compare. The endpoint Stripe cannot
+reach is, by definition, not the one the diagnostic is being read on. Reasoning
+from inside the process is the one vantage point that cannot see this.
+
+So `backend/webhook-probe.ts` delivers to our own endpoints the way Stripe does:
+a real HTTPS POST, a real signature, identifying itself as Stripe so that a CDN
+or firewall rule turning away automated traffic turns this away too, and
+**`redirect: "manual"`, because Stripe does not follow redirects**. A `www` host
+that 308s to the apex looks perfect in a browser and fails every single
+delivery; following the redirect here would report success for exactly the
+configuration that is failing. Each result says what Stripe would have seen: no
+response at all, a redirect and where to, a timeout, a 400 meaning reached but
+refused, or a 2xx.
+
+The probe signs an event type the dispatcher does not act on, so a diagnostic
+can never become a transaction, and the real route is driven in the test to
+confirm it answers 2xx to it — a probe our own route rejected would report a
+fault it invented.
+
+**AND THE DIAGNOSTIC WAS HANDING THE ACCOUNT TO STRANGERS.** `/api/health/stripe`
+answered 200 anonymously with the whole account's webhook endpoints — URLs that
+name the other services this business runs on, plus their ids — and a count of
+recent payable events, which is revenue volume. This is the same defect as
+`/api/health/email` authorising its `?send=` while leaving the report open, and
+fixing one instance while its twin stood is how a class survives. Both now
+withhold for a signed-out caller and keep public the part that fixes things: the
+verdict, the secret's shape, the round trip, and a delivery to this app's own
+webhook address, which is not a secret.
+
+**A MUTATION THAT CHANGES NOTHING PROVES NOTHING, TWICE OVER.** The URL selection
+lived inline in the route, where the account listing is empty without a live
+Stripe key — so mutating it open leaked nothing and survived. Moved to
+`shared/stripe-endpoints.ts` and tested with a populated listing, it then had TWO
+guards, either of which alone sufficed; each mutated open individually still
+survived, and only removing both failed. Two redundant guards mean neither is
+tested. Collapsed to ONE privilege decision in one place, with the https and
+path restrictions applying to everyone so the probe can never become a request
+forwarder. Four mutations now killed: the privilege gate removed, the path
+restriction removed, the https restriction removed, and an operator losing the
+listing.
+
+**What is still not known.** Why `www.marketwaros.com` produced no HTTP response
+for a week. This container's egress proxy denies outbound HTTPS, so the probe
+cannot be run against the real host from here — it was driven against a local
+production build, where it correctly reported an unreachable host as "other
+errors" and a proxy 403 as reached-and-refused. The answer comes from running it
+on the deployment.
