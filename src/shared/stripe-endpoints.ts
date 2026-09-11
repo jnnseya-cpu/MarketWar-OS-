@@ -125,3 +125,68 @@ export function classifyEndpoints(input: {
       : `This account has no webhook endpoints at all, so nothing is being delivered anywhere. Add one at ${servingUrl}.`,
   };
 }
+
+/**
+ * WHICH URLS MAY THIS DEPLOYMENT DELIVER A PROBE TO, given who is asking.
+ *
+ * PURE, AND HERE RATHER THAN INLINE, for the same reason `classifyEndpoints` is:
+ * the interesting case needs a populated account listing, which only a live
+ * Stripe key produces, and a branch that can only run in production is a branch
+ * nobody has ever run. Inline in the route this was mutated open and NOTHING
+ * FAILED — the test container has no Stripe key, so `rows` was empty and the
+ * mutation had nothing to leak.
+ *
+ * TWO RULES, AND THE SECOND IS THE ONE THAT WAS MISSED.
+ *
+ *  1. Only URLs on this app's own webhook path, so the probe can never become a
+ *     request forwarder pointed at whatever an account listing happens to hold.
+ *  2. For a caller who is NOT an operator, only THIS app's own addresses. The
+ *     account's other endpoint URLs name the other services this business runs
+ *     on — which is exactly what withholding `accountEndpoints` protects, and
+ *     returning those same URLs inside a probe result would hand them back.
+ */
+export function probeTargets(input: {
+  rows?: { url?: string }[];
+  servingHost?: string;
+  configuredUrl: string;
+  webhookPath: string;
+  privileged: boolean;
+  limit?: number;
+}): string[] {
+  const { rows, servingHost, configuredUrl, webhookPath, privileged } = input;
+
+  // ONE DECISION, IN ONE PLACE. The first version had TWO guards — the account
+  // listing was gated on `privileged`, and a second filter then dropped foreign
+  // hosts for an unprivileged caller. Each alone was sufficient, so mutating
+  // either one open changed nothing and both survived: a mutation that changes
+  // nothing proves nothing, and redundant logic is how a rule ends up with no
+  // test on it at all. Removing BOTH was the only mutation that failed, which is
+  // precisely the shape of a hole a future edit walks into.
+  //
+  // So the privilege decision happens exactly here, once: an unprivileged caller
+  // never sees the account's listing, and therefore only ever probes this
+  // deployment's own addresses by construction.
+  const candidates = [
+    ...(privileged && Array.isArray(rows) ? rows.map((r) => String(r?.url || "")) : []),
+    ...(servingHost ? [`https://${servingHost}${webhookPath}`] : []),
+    configuredUrl,
+  ];
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of candidates) {
+    if (!raw) continue;
+    let u: URL;
+    try { u = new URL(raw); } catch { continue; }
+    // These two apply to EVERYONE, operator included: the probe delivers to this
+    // app's own webhook path over TLS or it does not deliver at all, so it can
+    // never become a request forwarder pointed wherever a listing happens to lead.
+    if (u.protocol !== "https:") continue;
+    if (u.pathname !== webhookPath) continue;
+    const s = u.toString();
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out.slice(0, Math.max(1, input.limit ?? 8));
+}

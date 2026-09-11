@@ -27617,12 +27617,26 @@ test("the Stripe diagnostic lists the account's endpoints and names which one is
 
   const route = await import("../src/app/api/health/stripe/route.ts");
   const { NextRequest } = await import("next/server");
-  const res = await route.GET(new NextRequest("https://mw.test/api/health/stripe"));
-  const d = await res.json();
-  assert.equal(res.status, 200);
-  assert.ok(d.webhookDiagnostic?.accountEndpoints, "the endpoint listing is missing from the response");
-  // With no key configured here it must say so rather than report zero endpoints.
-  assert.equal(d.webhookDiagnostic.accountEndpoints.ran, false);
+
+  // AS AN OPERATOR, because the endpoint listing names the other services this
+  // account posts to and is no longer public. The scheduler bearer is the way in
+  // on a deployment with no Firebase Admin, which is every deployment where
+  // nobody can be recognised as an admin at all.
+  const savedEnv = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "cron_secret_for_stripe_diagnostic_test";
+  try {
+    const res = await route.GET(new NextRequest("https://mw.test/api/health/stripe", {
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    }));
+    const d = await res.json();
+    assert.equal(res.status, 200);
+    assert.ok(d.webhookDiagnostic?.accountEndpoints, "the endpoint listing is missing for an authorised operator");
+    // With no key configured here it must say so rather than report zero endpoints.
+    assert.equal(d.webhookDiagnostic.accountEndpoints.ran, false);
+    assert.equal(d.webhookDiagnostic.restricted, undefined, "an authorised operator must not be told the report is restricted");
+  } finally {
+    if (savedEnv === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = savedEnv;
+  }
 });
 
 test("the endpoint classifier tells the three causes of 'delivered, nothing landing' apart", async () => {
@@ -28996,6 +29010,201 @@ test("invented data reaches the landing page and nothing else", async () => {
     assert.ok(new RegExp(`\\b${name}\\b`).test(body),
       `${name} is invented data that nothing imports — dead fixtures are how eight of these accumulated`);
   }
+});
+
+test("the Stripe diagnostic does not hand the account to a stranger", async () => {
+  // THE SAME DEFECT, TWICE, AND THE SECOND ONE SURVIVED THE FIRST FIX.
+  // `/api/health/email` authorised its `?send=` and left the REPORT open —
+  // twenty recipient addresses to anyone who asked. Fixed. This route answered
+  // 200 anonymously with the whole Stripe account's webhook endpoints (their
+  // URLs name the OTHER services this business runs on, plus their ids) and a
+  // count of recent payable events, which is revenue volume. Fixing one instance
+  // of a class and leaving its twin is how a class survives.
+  const route = await import("../src/app/api/health/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const res = await route.GET(new NextRequest("https://x.test/api/health/stripe"));
+  assert.equal(res.status, 200, "the diagnostic must still answer — a lockout is the other half of this defect");
+  const body = await res.json();
+  const wd = body.webhookDiagnostic;
+
+  // WITHHELD from a signed-out caller.
+  assert.equal(wd.accountEndpoints, undefined, "the account's webhook endpoints are public again");
+  assert.equal(wd.recentActivity, undefined, "the account's payment volume is public again");
+  assert.match(String(wd.restricted || ""), /scheduler bearer|CRON_SECRET/,
+    "a withheld section must say how an operator gets it, or the fix is a lockout");
+
+  // STILL PUBLIC, because these are what turn a failure into an action and none
+  // of them is anybody's data: the verdict, the secret's SHAPE (never its
+  // value), the round trip, and a delivery to this app's own webhook address —
+  // which is printed in this route's own GET and is where Stripe already posts.
+  assert.ok(typeof body.verdict === "string" && body.verdict.length > 10, "the verdict must stay readable");
+  assert.ok(wd.secretShape, "the secret's shape must stay readable");
+  assert.ok(wd.signatureRoundTrip, "the signature round trip must stay readable");
+  assert.ok(wd.endpointUrl, "the URL comparison must stay readable");
+  assert.ok("selfDelivery" in wd, "the self-delivery result must stay readable — it is the only check that sees what Stripe sees");
+
+  // AND NO SECRET, EVER, AT ANY PRIVILEGE LEVEL.
+  const flat = JSON.stringify(body);
+  assert.ok(!/whsec_[A-Za-z0-9]/.test(flat), "a signing secret reached the response body");
+  assert.ok(!/\b(sk|rk)_(live|test)_[A-Za-z0-9]/.test(flat), "an API key reached the response body");
+
+  // THE PROBE MUST NOT HAND BACK WHAT THE REDACTION JUST HID.
+  //
+  // This is the assertion that was missing, and a mutation opening the URL
+  // selection to anonymous callers SURVIVED because of it: the route's Stripe
+  // listing is empty in this container, so there was nothing to leak and the
+  // hole was invisible. The decision is pure now and tested with a populated
+  // listing, which is the only way the interesting case ever runs.
+  const { probeTargets } = await import("../src/shared/stripe-endpoints.ts");
+  const PATH = "/api/webhooks/stripe";
+  const rows = [
+    { url: "https://www.marketwaros.com" + PATH },
+    { url: "https://billing.someothersaas.example" + PATH },
+    { url: "https://internal-crm.example.co.uk" + PATH },
+  ];
+  const args = { rows, servingHost: "www.marketwaros.com", configuredUrl: "https://www.marketwaros.com" + PATH, webhookPath: PATH };
+
+  const anon = probeTargets({ ...args, privileged: false });
+  assert.deepEqual(anon, ["https://www.marketwaros.com" + PATH],
+    "a signed-out caller was handed the account's OTHER endpoint URLs inside the probe results");
+
+  const operator = probeTargets({ ...args, privileged: true });
+  assert.ok(operator.includes("https://billing.someothersaas.example" + PATH),
+    "an operator must still be able to probe every endpoint on the account — that is the diagnostic");
+  assert.equal(new Set(operator).size, operator.length, "the same address is probed twice");
+
+  // NEVER A REQUEST FORWARDER. Only this app's own path, only https, whoever asks.
+  const hostile = probeTargets({
+    ...args, privileged: true,
+    rows: [{ url: "https://evil.example/internal/admin" }, { url: "http://insecure.example" + PATH }, { url: "not a url" }],
+  });
+  for (const u of hostile) {
+    assert.ok(u.startsWith("https://"), `${u} is not https`);
+    assert.ok(new URL(u).pathname === PATH, `${u} is not this app's webhook path — the probe has become a request forwarder`);
+  }
+});
+
+test("the webhook endpoint is called the way Stripe calls it, redirects and all", async (t) => {
+  // STRIPE, 11 SEPTEMBER: 73 deliveries to
+  // https://www.marketwaros.com/api/webhooks/stripe "had other errors" since the
+  // 4th, and the endpoint is disabled on the 13th. "Other errors" is Stripe's
+  // category for an exchange that never produced an HTTP STATUS AT ALL — DNS
+  // that did not resolve, TLS that did not complete, a connection refused.
+  //
+  // That rules out the diagnosis this repository had been carrying. A wrong
+  // signing secret produces a 400, which Stripe reports as a 4xx. Our own
+  // refusal to credit without a store produces a 500, reported as a 5xx. Neither
+  // is "other errors", so the failure happens BEFORE any of our code runs, and
+  // no check that reasons from inside the process can see it — the endpoint
+  // Stripe cannot reach is by definition not the one serving the diagnostic.
+  //
+  // So the platform now delivers to its own endpoints the way Stripe does. Every
+  // outcome below is one Stripe actually reported or would report, and not one of
+  // them can be arranged from this container, which is exactly why the fetch is
+  // injectable: a branch that can only run in production is a branch nobody has
+  // ever run.
+  const { probeWebhookEndpoint, signLikeStripe, probePayload, PROBE_EVENT_TYPE } =
+    await import("../src/backend/webhook-probe.ts");
+  const URL_ = "https://www.marketwaros.com/api/webhooks/stripe";
+  const SEC = "whsec_probe_secret_value_long_enough";
+
+  // NO HTTP RESPONSE AT ALL — the reported fault. It must be named as Stripe's
+  // own category, and must NOT be reported as a signature or a secret problem,
+  // because that is the answer somebody would spend two days acting on.
+  const dead = await probeWebhookEndpoint(URL_, SEC, {
+    fetchImpl: async () => { throw new Error("getaddrinfo ENOTFOUND www.marketwaros.com"); },
+  });
+  assert.equal(dead.ok, false);
+  assert.match(dead.stripeWouldSee, /other errors/, "the reported category must be named, or nobody can match it to Stripe's email");
+  assert.match(dead.note, /does not resolve|serving TLS/, "the note must point at DNS or TLS");
+  assert.ok(!/secret|signature/i.test(dead.note), "a connection failure must never be blamed on the signing secret");
+
+  // A REDIRECT. Stripe does not follow them, so `www` forwarding to the apex is
+  // a site that looks perfect in a browser and fails every single delivery.
+  const moved = await probeWebhookEndpoint(URL_, SEC, {
+    fetchImpl: async () => new Response("", { status: 308, headers: { location: "https://marketwaros.com/api/webhooks/stripe" } }),
+  });
+  assert.equal(moved.ok, false, "a redirect is a FAILED delivery, however healthy the site looks");
+  assert.equal(moved.redirectedTo, "https://marketwaros.com/api/webhooks/stripe");
+  assert.match(moved.note, /does not follow/, "the note must say Stripe does not follow the redirect");
+
+  // AND THE REQUEST MUST NOT FOLLOW IT EITHER. This is the whole point of the
+  // function: following the redirect would report success for exactly the
+  // configuration that is failing, which is worse than having no probe.
+  let sawInit = null;
+  await probeWebhookEndpoint(URL_, SEC, {
+    fetchImpl: async (_u, init) => { sawInit = init; return new Response("{}", { status: 200 }); },
+  });
+  assert.equal(sawInit.redirect, "manual", "the probe follows redirects, so it cannot see the fault it exists to find");
+
+  // IT MUST ARRIVE LOOKING LIKE STRIPE. A gate, CDN rule or firewall that turns
+  // away automated traffic has to turn this away too; a browser-shaped request
+  // would make a blocked endpoint look reachable.
+  assert.match(String(sawInit.headers["user-agent"]), /^Stripe\//, "the probe does not identify as Stripe, so a bot rule would let it through and turn Stripe away");
+  assert.ok(sawInit.headers["stripe-signature"], "the probe is unsigned, so it proves nothing about the signature path");
+
+  // AND IT MUST NOT MOVE MONEY. The signed event is a type the dispatcher does
+  // not act on, so a diagnostic cannot become a transaction.
+  const { HANDLED_EVENTS } = await import("../src/backend/stripe-billing.ts");
+  assert.ok(!HANDLED_EVENTS.includes(PROBE_EVENT_TYPE),
+    "the probe sends an event the app ACTS ON — running the diagnostic would credit a wallet");
+
+  // A 400: reached, and the secret is the wrong one of the account's several.
+  // This is a different instruction from every case above and must read as one.
+  const refused = await probeWebhookEndpoint(URL_, SEC, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: "Signature mismatch" }), { status: 400 }),
+  });
+  assert.equal(refused.ok, false);
+  assert.match(refused.note, /REACHED/, "a 400 means the endpoint was reached, and conflating it with an unreachable host costs days");
+  assert.match(refused.note, /own signing secret|its own/, "the note must explain that each endpoint has its own secret");
+
+  // A 2xx is the only success, and it is what Stripe needs.
+  const good = await probeWebhookEndpoint(URL_, SEC, { fetchImpl: async () => new Response("{}", { status: 200 }) });
+  assert.equal(good.ok, true);
+  assert.match(good.stripeWouldSee, /successful/);
+
+  // A TIMEOUT reads as a timeout, not as a dead host: the remedies differ.
+  const slow = await probeWebhookEndpoint(URL_, SEC, {
+    fetchImpl: async () => { const e = new Error("The operation was aborted"); e.name = "AbortError"; throw e; },
+  });
+  assert.match(slow.stripeWouldSee, /timeout/i);
+
+  // THE SIGNATURE IS REAL, not decorative — our own verifier must accept it, or
+  // a 400 from our own route would be the probe's fault and send somebody
+  // hunting a secret that is correct.
+  const { verifyStripeSignature } = await import("../src/backend/stripe-billing.ts");
+  const body = probePayload();
+  const at = Math.floor(Date.now() / 1000);
+  const v = verifyStripeSignature(body, signLikeStripe(body, SEC, at), SEC, 300, at);
+  assert.equal(v.valid, true, `the probe's own signature is rejected by our verifier: ${v.reason}`);
+
+  // And an endpoint that is not https is refused before anything is sent —
+  // Stripe delivers over TLS only, so probing http:// would answer a question
+  // nobody asked.
+  const insecure = await probeWebhookEndpoint("http://marketwaros.com/api/webhooks/stripe", SEC, {
+    fetchImpl: async () => { throw new Error("should not be called"); },
+  });
+  assert.equal(insecure.ok, false);
+  assert.match(insecure.stripeWouldSee, /not attempted/);
+
+  // ---- AND THE ROUTE ANSWERS 2xx TO IT. ------------------------------------
+  // The probe is worthless if our own route rejects the event it sends: the
+  // diagnostic would report a fault it created. Driven against the real handler.
+  const saved = { ...process.env };
+  process.env.STRIPE_WEBHOOK_SECRET = SEC;
+  t.after(() => { process.env = saved; });
+  const route = await import("../src/app/api/webhooks/stripe/route.ts");
+  const { NextRequest } = await import("next/server");
+  const payload = probePayload();
+  const res = await route.POST(new NextRequest("https://x.test/api/webhooks/stripe", {
+    method: "POST",
+    headers: { "content-type": "application/json", "stripe-signature": signLikeStripe(payload, SEC) },
+    body: payload,
+  }));
+  assert.ok(res.status >= 200 && res.status < 300,
+    `the real route answered ${res.status} to the probe's own event, so the diagnostic would report a fault it invented`);
+  const out = await res.json();
+  assert.notEqual(out?.outcome?.handled, true, "the probe event reached the dispatcher — a diagnostic must not move money");
 });
 
 test("a webhook secret that is SET is not a webhook secret that WORKS", async (t) => {

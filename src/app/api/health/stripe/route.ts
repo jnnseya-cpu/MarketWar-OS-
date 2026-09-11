@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
 import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH, HANDLED_EVENTS } from "@/backend/stripe-billing";
-import { classifyEndpoints } from "@/shared/stripe-endpoints";
+import { classifyEndpoints, probeTargets } from "@/shared/stripe-endpoints";
 
 // Stripe self-diagnostic — is the money path live? Reports which Stripe env vars
 // are present (booleans only) and validates the secret key by calling Stripe
@@ -13,6 +13,30 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  // A DIAGNOSTIC IS AN ENDPOINT TOO — AND THIS IS THE SECOND TIME.
+  //
+  // `/api/health/email` authorised its `?send=` and left the REPORT open,
+  // handing twenty recipient addresses to anyone who asked. That was fixed. This
+  // route answered 200 to an anonymous caller with the whole account's webhook
+  // endpoints — their URLs, which name the OTHER services this business runs on,
+  // their ids, and a count of recent payable events, which is revenue volume.
+  // Fixing one instance of a class and leaving its twin is how a class survives.
+  //
+  // THE SCHEDULER BEARER IS THE ESCAPE HATCH, exactly as it is there:
+  // `cronAuthorised` works with no Firebase Admin, so an operator on such a
+  // deployment can still read the full report with CRON_SECRET instead of being
+  // locked out of their own diagnostic.
+  //
+  // WHAT STAYS PUBLIC IS THE PART THAT FIXES THINGS. The verdict, the secret's
+  // shape, the signature round trip, and a self-delivery to THIS APP's OWN
+  // webhook URL — that address is not a secret, it is printed in this route's
+  // own GET and is where Stripe posts. Withholding the one fact that turns
+  // "deliveries are failing" into an action would repeat the other half of this
+  // defect: a diagnostic only its author can read is not a diagnostic.
+  const { requireAuth, cronAuthorised } = await import("@/backend/guard");
+  const auth = await requireAuth(req, { scope: "platform_admin" });
+  const privileged = cronAuthorised(req).ok || (auth.ok && auth.enforced);
+
   const secret = process.env.STRIPE_SECRET_KEY || "";
   const present = {
     STRIPE_SECRET_KEY: Boolean(secret),
@@ -182,6 +206,46 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 6. DELIVER TO OUR OWN ENDPOINTS, EXACTLY AS STRIPE DOES.
+  //
+  // Every check above reasons from INSIDE the process, which is the one vantage
+  // point that cannot see this fault: Stripe reported 73 deliveries to
+  // https://www.marketwaros.com/api/webhooks/stripe as "other errors", its
+  // category for an exchange that never produced an HTTP status at all. A
+  // request that never arrives serves nothing to compare a host against, so the
+  // endpoint Stripe cannot reach is by definition not the one you are reading
+  // this diagnostic on.
+  //
+  // So this sends a real signed delivery to each configured URL and reports what
+  // Stripe would have seen. Redirects are NOT followed, because Stripe does not
+  // follow them — a `www` host that 308s to the apex looks perfect in a browser
+  // and fails every single delivery. The probe event is a type the dispatcher
+  // ignores, so nothing is credited and no ledger row is written.
+  let selfDelivery: Record<string, unknown> = { ran: false, note: "No STRIPE_WEBHOOK_SECRET, so a signed delivery cannot be produced." };
+  if (whsec) {
+    const { probeWebhookEndpoint } = await import("@/backend/webhook-probe");
+    const rows = (endpoints as { endpoints?: { url?: string }[] }).endpoints;
+    // WHICH ADDRESSES, decided in the pure module so the interesting case can be
+    // tested without a Stripe account. Inline here it was mutated open and
+    // nothing failed, because this container has no key and the listing is empty.
+    // The serving host is always included as a control: if the configured
+    // endpoint fails and this one succeeds, the difference between them is the
+    // answer.
+    const urls = probeTargets({
+      rows, servingHost, configuredUrl, webhookPath: STRIPE_WEBHOOK_PATH, privileged,
+    });
+    const results = [];
+    for (const u of urls) results.push(await probeWebhookEndpoint(u, whsec));
+    const reachable = results.filter((r) => r.ok).map((r) => r.url);
+    selfDelivery = {
+      ran: true,
+      results,
+      note: reachable.length
+        ? `Stripe would succeed at: ${reachable.join(", ")}. Point the endpoint at one of those. Any URL above that did not answer 2xx is one Stripe records as a failed delivery, whatever a browser shows for it.`
+        : "NOT ONE of these addresses accepted a correctly signed delivery. Read each result's `stripeWouldSee`: a redirect means the endpoint is set to a host that forwards rather than answers, and no HTTP response at all means the hostname does not resolve or nothing is serving TLS on it — neither of which our code can fix from inside.",
+    };
+  }
+
   const webhook = present.STRIPE_WEBHOOK_SECRET;
   const verdict = !secret
     ? "RED — no Stripe key; cannot take payment (demo mode)."
@@ -212,8 +276,12 @@ export async function GET(req: NextRequest) {
       secretShape: shape,
       signatureRoundTrip: roundTrip,
       endpointUrl,
-      accountEndpoints: endpoints,
-      recentActivity: activity,
+      // THE ONLY CHECK HERE THAT SEES WHAT STRIPE SEES. Public on purpose: it
+      // reports on this app's own webhook address, which is not a secret.
+      selfDelivery,
+      ...(privileged ? { accountEndpoints: endpoints, recentActivity: activity } : {
+        restricted: "Signed out, so the account's other webhook endpoints and its recent payment volume are withheld — those name the other services this business runs on and how much money is moving. Sign in as a platform admin, or call this with the scheduler bearer (CRON_SECRET), for the full report. The verdict, the secret's shape, the signature round trip and the delivery to this app's own endpoint stay public, because they are what turn a failure into a fix.",
+      }),
       whatThisCannotSee: "The signing secrets themselves — Stripe returns those only when an endpoint is created, so no diagnostic can compare them for you. `accountEndpoints` narrows it to the ONE endpoint whose secret should be in STRIPE_WEBHOOK_SECRET; reveal that endpoint's secret in Stripe and compare it by eye. Also invisible here: what status Stripe recorded per delivery. Open a failed event in Stripe and read the response body — this route returns the reason in it.",
     },
   });
