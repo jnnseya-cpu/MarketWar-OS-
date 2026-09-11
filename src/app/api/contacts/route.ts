@@ -5,6 +5,7 @@ import { scoredCustomerList, segmentLabel } from "@/backend/segments";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { meterAction } from "@/backend/wallet";
 import { rateLimit, clientKey } from "@/backend/guard";
+import { looksLikePersonName } from "@/shared/csv-import";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -231,11 +232,39 @@ export async function POST(req: NextRequest) {
     const wanted = Array.isArray(body.contactIds) ? new Set((body.contactIds as unknown[]).map(String)) : null;
     // Targets: explicitly requested rows, else every row that has a company but no
     // email yet (re-running never re-hits ones already enriched with an email).
-    const targets = stored.filter((c) =>
-      (wanted ? wanted.has(c.id) : !c.email) && (c.company || c.website)
-    );
+    // A BUSINESS NAME IN THE WRONG FIELD IS STILL A BUSINESS NAME.
+    //
+    // This required `company || website`, and a 362-row list of UK venues had
+    // been imported with every name in `name` — so it matched nothing and the
+    // vault reported the rows had "no company name to search", which was true
+    // and was the import's own doing. The import is fixed, but rows already in
+    // somebody's vault must not stay dead for it: a `name` that is not a
+    // personal name is searchable, and searching it is exactly the feature.
+    //
+    // A LONE PERSONAL NAME IS STILL SKIPPED, and deliberately. Enrichment costs
+    // a paid search per row; "Amara Okafor" with no company can never resolve to
+    // an address, and charging for that search would be taking money for a
+    // certainty of failure.
+    const searchable = (c: { company?: string | null; website?: string | null; name?: string | null }) =>
+      Boolean(c.company || c.website || (c.name && !looksLikePersonName(c.name)));
+    const withoutEmail = stored.filter((c) => !c.email);
+    const targets = stored.filter((c) => (wanted ? wanted.has(c.id) : !c.email) && searchable(c));
     if (!targets.length) {
-      return NextResponse.json({ action: "enrich", enrichedCount: 0, remaining: 0, results: [], ...(await scoredVault(brandId, business)), note: "No rows to enrich — every prospect already has an email, or the rows have no company name to search." });
+      // TWO CAUSES, ONE SENTENCE, NEITHER ACTIONABLE — the message this replaces
+      // said "every prospect already has an email, OR the rows have no company
+      // name", and the reader could not tell which, nor that a third case (rows
+      // whose only text is a person's name) existed at all. Each cause now gets
+      // its own answer, with the count that proves it.
+      const peopleOnly = withoutEmail.filter((c) => !c.company && !c.website && c.name && looksLikePersonName(c.name)).length;
+      const emptyRows = withoutEmail.length - peopleOnly;
+      const note = !stored.length
+        ? "The vault is empty — import a CSV first."
+        : !withoutEmail.length
+          ? `Nothing to do: all ${stored.length} prospect(s) already have an email address.`
+          : peopleOnly
+            ? `${peopleOnly} of ${withoutEmail.length} row(s) without an email carry only a person's name. An address cannot be found from a name alone, and searching for one would charge you for a certainty of failure. Add the company each person works at and run this again.`
+            : `${emptyRows} row(s) have no email and no business name, website or company to search. If you imported a single-column list, re-import it — the importer now reads one column of business names as companies, which is what this searches.`;
+      return NextResponse.json({ action: "enrich", enrichedCount: 0, remaining: 0, results: [], ...(await scoredVault(brandId, business)), note });
     }
     const batch = targets.slice(0, ENRICH_CAP);
     // Enrichment is a paid search per row, so it is charged per row and charged
