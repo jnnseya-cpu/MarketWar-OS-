@@ -51,13 +51,20 @@ export const FREE_SIGNUP_ACUS = 100;
 // ---------------------------------------------------------------------------
 import { requiredAcus } from "@/backend/subscription";
 import { minimumAcusFor } from "@/backend/unit-economics";
+import { ACU_PER_GBP, DEAREST_ENRICHMENT_COST_ACU } from "@/shared/creative";
 
 const PROVIDER_COST_GBP = {
   llm: 0.0125,     // one completion (blended across providers)
   search: 0.0025,  // one Serper query
   image: 0.025,    // one generated image
   video: 0.10,     // one rendered clip
-  enrich: 0.005,   // one contact/email lookup
+  enrich: 0.005,   // one contact/email lookup, FREE sources only
+  // A LOOKUP THAT REACHES A PAID SUPPLIER, priced from what the dearest of them
+  // actually charges rather than from a number somebody typed. The vault charged
+  // 2 ACUs a row while one Hunter search costs 4, so every paid lookup sold at
+  // half cost — neither figure wrong alone, and nothing compared them because
+  // the price lived here and the cost lived in an adapter.
+  enrich_paid: (DEAREST_ENRICHMENT_COST_ACU / ACU_PER_GBP),
   post: 0.0625,    // a long-form article (several completions)
   // ElevenLabs. Speech is billed per character and dubbing per minute, so these
   // are per-UNIT costs and the caller passes the unit count to meterAction:
@@ -107,7 +114,8 @@ export const ACTION_COST_ACU = {
   search: priced("search"),    // 1
   image: priced("image"),      // 10
   video: priced("video"),      // 40
-  enrich: priced("enrich"),    // 2
+  enrich: priced("enrich"),    // 2 — free sources only
+  enrich_paid: priced("enrich_paid"), // derived from the dearest paid supplier
   post: priced("post"),        // 25
   voice: priced("voice"),      // per 1,000 characters of speech
   dub: priced("dub"),          // per minute of dubbed video

@@ -6198,3 +6198,81 @@ Pointing the vault at the waterfall would change the pricing model and risks
 double-charging, which is a product decision and not a bug fix. Apollo is
 therefore still absent from the waterfall's registry, and the waterfall is still
 absent from the vault. Recorded here rather than half-done.
+
+---
+
+## §128 — One enrichment chain, with Apollo and Hunter in it (2026-09-11)
+
+Asked for directly: merge the vault onto the waterfall and put both suppliers in
+it. Hunter was already registered there; Apollo was not, and the vault was on
+neither.
+
+**Apollo is now an adapter** — `findCompany`, `findPeople`, `findEmails` against
+the provider interface, order 3, priced from the shared supplier table. Its HTTP
+client is imported from `enrich.ts` rather than rewritten, so there is one Apollo
+implementation. The old single-shot `apolloEnrich` is gone rather than left
+beside its replacement: it did the same three calls in sequence, and keeping both
+is how two chains came to exist.
+
+**THE MERGE FOUND A PRICING DEFECT BEFORE IT FOUND ANYTHING ELSE.** A vault row
+was charged 2 ACUs. One Hunter search costs 4. Every paid lookup sold at half
+cost. Neither number was wrong alone — the price lived in the wallet and the cost
+lived in an adapter, and a floor nobody can compute is a floor nobody holds.
+
+`ENRICHMENT_PROVIDER_USD` is now the one table both adapters price from, and
+`enrich_paid` is derived from the dearest entry in it, so adding a more expensive
+supplier RAISES what we charge instead of silently breaching the owner's margin
+law. Two passes, because they cost different amounts: the free crawl is charged
+at the old flat rate, and only rows it could not answer are charged the paid rate
+and sent to a supplier. The budget handed to the waterfall is half what was
+charged — the floor expressed as code.
+
+**AND THE FIRST ATTEMPT BOUGHT THE WRONG THING, WHICH THE TRACE MADE OBVIOUS.**
+Pointing the vault at `findPerson` and giving it a budget produced this:
+
+```
+apollo  company  ran=true  cost=4  found=1
+apollo  people   ran=true  cost=4  found=1
+hunter  emails   ran=false cost=0  Not called — past the 8-ACU limit
+apollo  emails   ran=false cost=0  Not called — past the 8-ACU limit
+```
+
+Eight ACUs spent confirming a company the vault had named and a person it had not
+asked for, and both email steps then refused for being over budget. Every step
+behaved correctly. The question was wrong: `findPerson` answers Contact Hunter's
+question, and the vault's is narrower — it has the company and wants an address.
+
+`findCompanyEmail` asks that narrower question of the SAME registry, in the same
+cost order, under the same affordability rule. One chain, a second question. It
+never buys company identification, and it buys people identification only when an
+address could not be had more cheaply — checking that pair's cost as a PAIR,
+because buying a name and then being refused the address is the exact waste the
+trace showed.
+
+**The free pass is deliberately NOT routed through the waterfall.** The vault's
+scraper returns a phone number, a website, a contact name and a `stage` saying
+where the row stopped; the waterfall's candidate types carry none of those.
+Sending the free pass through it would have dropped all four — a downgrade
+wearing a refactor's clothes.
+
+**What changes for the owner.** Apollo used to run FIRST, before the free crawl,
+spending a credit on every row including ones a company's own contact page
+answers for nothing. It now runs last, by cost. Fewer Apollo credits, and a row
+only a licensed database can answer still reaches it.
+
+Every rule applies to a paid supplier exactly as to a crawl: the ownership gate,
+the personal-provider refusal, `medium` confidence rather than `confirmed`, and a
+role mailbox preferred over a named row from a bought list. An empty wallet stops
+the suppliers, not the results — the free findings stand and the note says why.
+
+Killed by mutation: Apollo not registered, Apollo ordered before the free
+sources, Apollo's `email_not_unlocked` placeholder accepted as an address, the
+ownership gate bypassed, personal mailboxes accepted, the role mailbox not
+preferred, the budget raised past the margin floor, and a paid row priced like a
+free one.
+
+**One mutation survived and was fixed rather than accepted:** the placeholder
+check. The obvious test case uses Apollo's literal `@domain.com` placeholder,
+which the ownership gate throws out first — so the test passed for the wrong
+reason and deleting the check changed nothing. Rebuilt on the company's own
+domain, it kills.

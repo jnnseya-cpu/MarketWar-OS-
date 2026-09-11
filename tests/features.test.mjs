@@ -29012,93 +29012,157 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
-test("Find emails reaches Hunter, which it never could before", async (t) => {
-  // THE OWNER HOLDS BOTH A HUNTER KEY AND AN APOLLO KEY, and the button he
-  // presses used Apollo and the scraper. The word "hunter" did not appear in
-  // `backend/enrich.ts` once — while a complete, tested Hunter adapter sat one
-  // import away, wired into a DIFFERENT screen.
+test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in it", async (t) => {
+  // THE MERGE THE OWNER ASKED FOR. Two implementations of "find this company's
+  // email" existed: the Customer Vault ran Apollo then a scrape, Contact Hunter
+  // ran our own crawl, the company register, then Hunter. Neither screen could
+  // use the other's supplier, and the owner holds keys for both. The vault could
+  // not even import the Hunter adapter — the module holding it imports the
+  // vault's scraper, so an import cycle decided which key was reachable.
   //
-  // IT WAS A MODULE GRAPH, NOT A DECISION. The adapter lives in
-  // `enrichment-adapters.ts`, which imports `scrapeEnrich` from `enrich.ts`, so
-  // `enrich.ts` could not import it back without a cycle. A paid key the
-  // customer's own button could never reach, blocked by an import nobody had
-  // drawn. The client now lives in `hunter-client.ts`, which depends on nothing.
-  const enrich = await import("../src/backend/enrich.ts");
-  const client = await import("../src/backend/hunter-client.ts");
+  // Now there is one waterfall, cost-ordered, with both suppliers registered in
+  // it, and the vault's paid pass goes through it.
+  const { enrichPaid } = await import("../src/backend/enrich-paid.ts");
+  const { registerBuiltInProviders } = await import("../src/backend/enrichment-adapters.ts");
+  const { providers } = await import("../src/backend/enrichment-provider.ts");
 
   const saved = { ...process.env };
-  process.env.HUNTER_API_KEY = "hunter_test_key";
-  delete process.env.APOLLO_API_KEY;
-  t.after(() => { process.env = saved; globalThis.fetch = realFetch; });
   const realFetch = globalThis.fetch;
+  t.after(() => { process.env = saved; globalThis.fetch = realFetch; });
+  process.env.HUNTER_API_KEY = "hunter_test_key";
+  process.env.APOLLO_API_KEY = "apollo_test_key";
 
-  // THE CLIENT IS THE SEAM. Stubbing `fetch` drives the real client, the real
-  // ownership gate and the real picker — everything except the network, which
-  // this container cannot reach and which would be a different test anyway.
-  let asked = null;
-  const stubHunter = (emails) => {
-    globalThis.fetch = async (url) => {
+  registerBuiltInProviders();
+  const ids = providers().map((p) => p.id);
+  assert.ok(ids.includes("hunter"), "Hunter is not registered on the waterfall");
+  assert.ok(ids.includes("apollo"), "Apollo is not registered on the waterfall");
+
+  // COST ORDER IS THE PRODUCT DECISION. Free sources first; a paid credit buys
+  // only what they could not answer. Apollo used to run FIRST in the vault,
+  // spending a credit on rows a company's own contact page answers for nothing.
+  const paid = providers().filter((p) => p.costAcu > 0).map((p) => p.id);
+  const free = providers().filter((p) => p.costAcu === 0).map((p) => p.id);
+  for (const f of free) {
+    for (const g of paid) {
+      assert.ok(providers().findIndex((p) => p.id === f) < providers().findIndex((p) => p.id === g),
+        `${g} costs money and runs before the free ${f}`);
+    }
+  }
+
+  let hunterCalls = 0, apolloCalls = 0, lastHunterUrl = null;
+  const stub = ({ hunterEmails = [], apolloEmail = null } = {}) => {
+    globalThis.fetch = async (url, init) => {
       const u = String(url);
       if (u.includes("api.hunter.io")) {
-        asked = new URL(u);
-        return new Response(JSON.stringify({ data: { emails } }), { status: 200, headers: { "content-type": "application/json" } });
+        hunterCalls++; lastHunterUrl = new URL(u);
+        return new Response(JSON.stringify({ data: { emails: hunterEmails } }), { status: 200, headers: { "content-type": "application/json" } });
       }
-      // Everything else — the Serper search the scraper uses — is absent here,
-      // which is the exact state the fallback exists for: free sources found
-      // nothing.
+      if (u.includes("api.apollo.io")) {
+        apolloCalls++;
+        if (u.includes("mixed_companies")) return new Response(JSON.stringify({ organizations: [{ name: "Wembley Stadium", primary_domain: "wembleystadium.com" }] }), { status: 200 });
+        if (u.includes("mixed_people")) return new Response(JSON.stringify({ people: [{ name: "Jo Bloggs", title: "Events Manager", organization: { name: "Wembley Stadium" } }] }), { status: 200 });
+        if (u.includes("people/match")) return new Response(JSON.stringify({ person: apolloEmail ? { email: apolloEmail, email_status: "verified" } : {} }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }
+      // Everything else — the free crawl's search — is absent, which is the
+      // state the paid pass exists for.
       return new Response("{}", { status: 404 });
     };
   };
+  const BUDGET = 8; // what the route allows: half of what the customer paid.
 
-  // THE ADDRESS IS FOUND, and the call is the cheap domain question.
-  stubHunter([{ value: "info@wembleystadium.com" }, { value: "j.smith@wembleystadium.com" }]);
-  const found = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  // HUNTER IS REACHED, and it is the cheaper of the two so it goes first.
+  stub({ hunterEmails: [{ value: "info@wembleystadium.com" }, { value: "j.smith@wembleystadium.com" }] });
+  const found = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: BUDGET });
   assert.equal(found.email, "info@wembleystadium.com", `Hunter was not reached: ${found.note}`);
-  assert.equal(found.source, "hunter");
-  assert.ok(asked && asked.pathname.includes("domain-search"), "the broad search was used when the narrow one would not apply");
-  assert.equal(asked.searchParams.get("domain"), "wembleystadium.com", "the bare domain was not sent");
+  assert.ok(hunterCalls > 0, "Hunter was never called");
+  assert.equal(lastHunterUrl.searchParams.get("domain"), "wembleystadium.com");
 
-  // A ROLE MAILBOX IS PREFERRED over a named person from a broker's list: info@
-  // is published to be written to, and the named row is the one most likely to
-  // be stale or the wrong person. Order-independent, or this asserts nothing.
-  stubHunter([{ value: "j.smith@wembleystadium.com" }, { value: "enquiries@wembleystadium.com" }]);
-  const role = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
-  assert.equal(role.email, "enquiries@wembleystadium.com", "a named broker row was preferred to the published role mailbox");
+  // A ROLE MAILBOX BEATS A NAMED ROW from a bought list. Order-independent, or
+  // this asserts nothing.
+  stub({ hunterEmails: [{ value: "j.smith@wembleystadium.com" }, { value: "enquiries@wembleystadium.com" }] });
+  const role = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: BUDGET });
+  assert.equal(role.email, "enquiries@wembleystadium.com", "a named broker row beat the published role mailbox");
 
-  // THE OWNERSHIP GATE STILL APPLIES TO A PAID SUPPLIER. An address on somebody
-  // else's domain is the defect this platform has already paid for once — a
-  // directory inbox attached to a customer's prospect — and buying it does not
-  // make it right.
-  stubHunter([{ value: "hello@some-directory.co.uk" }, { value: "sales@yell.com" }]);
-  const foreign = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
+  // APOLLO IS REACHED WHEN HUNTER FINDS NOTHING — the whole point of a chain.
+  apolloCalls = 0;
+  stub({ hunterEmails: [], apolloEmail: "jo.bloggs@wembleystadium.com" });
+  const viaApollo = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: BUDGET });
+  assert.ok(apolloCalls > 0, "Apollo was never called after Hunter returned nothing");
+  assert.equal(viaApollo.email, "jo.bloggs@wembleystadium.com", `Apollo's address was not used: ${viaApollo.note}`);
+
+  // APOLLO'S PLACEHOLDER IS NOT AN ADDRESS. A contact the plan will not reveal
+  // comes back as `email_not_unlocked@…`, and storing that would put a fake
+  // address in a customer's vault and bounce on the first send. Built ON the
+  // company's own domain deliberately: the obvious `@domain.com` form is thrown
+  // out by the ownership gate first, so a mutation deleting this check survived
+  // a test that used it.
+  stub({ hunterEmails: [], apolloEmail: "email_not_unlocked@wembleystadium.com" });
+  const locked = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: BUDGET });
+  assert.equal(locked.email, null, `Apollo's "not unlocked" placeholder was stored as a real address: ${locked.email}`);
+
+  // THE OWNERSHIP GATE APPLIES TO A PAID SUPPLIER. A directory inbox attached to
+  // a customer's prospect is a defect this platform has already paid for once,
+  // and buying the row does not make it right.
+  stub({ hunterEmails: [{ value: "hello@some-directory.co.uk" }] });
+  const foreign = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: BUDGET });
   assert.equal(foreign.email, null, `an address on another company's domain was accepted: ${foreign.email}`);
 
-  // A PERSONAL MAILBOX IS REFUSED — and this case has to be built carefully, or
-  // it proves nothing. `wembley@gmail.com` against wembleystadium.com is thrown
-  // out by the OWNERSHIP gate before the personal check is ever reached, so a
-  // mutation deleting that check survived it. The only input where the personal
-  // rule does the work is one where the domain ITSELF is a webmail host, which
-  // happens when the scraper mistakes a company's Gmail for its website.
-  stubHunter([{ value: "thevenue@gmail.com" }]);
-  const personal = await enrich.enrichContact({ company: "A Venue", website: "https://gmail.com" });
+  // A PERSONAL MAILBOX IS REFUSED — and the case has to be one where the domain
+  // itself is webmail, or the ownership gate catches it first and this proves
+  // nothing about the personal rule.
+  stub({ hunterEmails: [{ value: "thevenue@gmail.com" }] });
+  const personal = await enrichPaid({ company: "A Venue", website: "https://gmail.com" }, { maxCostAcu: BUDGET });
   assert.equal(personal.email, null, "a personal-provider mailbox was accepted as a company address");
 
-  // NO DOMAIN, NO CALL. There is nothing to ask about, and a credit spent on
-  // that is a credit spent on a certainty.
-  asked = null;
-  stubHunter([{ value: "info@anything.com" }]);
-  const nodomain = await enrich.enrichContact({ company: "A Company With No Website" });
-  assert.equal(asked, null, "Hunter was called with no domain to ask about");
-  assert.equal(nodomain.email, null);
+  // NO BUDGET, NO PAID CALL. Zero is the waterfall's default, so a mistake here
+  // spends nothing rather than spending silently.
+  hunterCalls = 0; apolloCalls = 0;
+  stub({ hunterEmails: [{ value: "info@wembleystadium.com" }], apolloEmail: "x@wembleystadium.com" });
+  const broke = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: 0 });
+  assert.equal(hunterCalls, 0, "Hunter was called with no budget for it");
+  assert.equal(apolloCalls, 0, "Apollo was called with no budget for it");
+  assert.equal(broke.email, null);
 
-  // NO KEY, NO CALL, and no pretence that one was made.
-  delete process.env.HUNTER_API_KEY;
-  asked = null;
-  stubHunter([{ value: "info@wembleystadium.com" }]);
-  const unconfigured = await enrich.enrichContact({ company: "Wembley Stadium", website: "https://wembleystadium.com" });
-  assert.equal(asked, null, "Hunter was called with no API key configured");
-  assert.equal(unconfigured.source !== "hunter", true);
-  assert.equal(client.hunterKey(), "", "the client still reports a key");
+  // AND A SUPPLIER RESULT IS NEVER `confirmed`. That word means WE read the page
+  // the address is published on; a licensed database saying so is a weaker
+  // claim, and merging the two turns a bought guess into a fact downstream.
+  assert.equal(found.emailConfidence, "medium", "a bought address was recorded as strongly as a published one");
+});
+
+test("a paid lookup cannot be sold below what it costs", async () => {
+  // THE VAULT WAS SELLING AT HALF COST. A row was charged 2 ACUs while one
+  // Hunter search costs 4. Neither number was wrong on its own; nothing compared
+  // them, because the price lived in the wallet and the cost lived in an
+  // adapter. A floor nobody can compute is a floor nobody holds.
+  const { ACTION_COST_ACU } = await import("../src/backend/wallet.ts");
+  const { DEAREST_ENRICHMENT_COST_ACU, ENRICHMENT_PROVIDER_USD } = await import("../src/shared/creative.ts");
+  const { HUNTER_COST_ACU } = await import("../src/backend/hunter-client.ts");
+  const { APOLLO_COST_ACU } = await import("../src/backend/enrichment-adapters.ts");
+
+  // ONE SOURCE FOR WHAT A SUPPLIER COSTS. Both adapters must price from the
+  // shared table, or the derived floor is measuring something nobody charges.
+  assert.equal(HUNTER_COST_ACU, Math.ceil(ENRICHMENT_PROVIDER_USD.hunter * 0.79 * 100));
+  assert.equal(APOLLO_COST_ACU, Math.ceil(ENRICHMENT_PROVIDER_USD.apollo * 0.79 * 100));
+  assert.equal(DEAREST_ENRICHMENT_COST_ACU, Math.max(HUNTER_COST_ACU, APOLLO_COST_ACU),
+    "the derived floor does not track the dearest supplier, so adding a pricier one would breach it silently");
+
+  // THE OWNER'S LAW: price never below twice the provider cost.
+  assert.ok(ACTION_COST_ACU.enrich_paid >= 2 * DEAREST_ENRICHMENT_COST_ACU,
+    `a paid row is priced at ${ACTION_COST_ACU.enrich_paid} ACUs against a supplier cost of ${DEAREST_ENRICHMENT_COST_ACU} — below the margin floor`);
+
+  // AND THE FREE ROW STAYS CHEAP, or the fix has made the common case expensive
+  // to protect the rare one.
+  assert.ok(ACTION_COST_ACU.enrich < ACTION_COST_ACU.enrich_paid,
+    "a free lookup costs the same as a paid one, so the two-pass split buys the customer nothing");
+
+  // THE ROUTE'S BUDGET IS HALF WHAT IT CHARGED, which is the floor expressed as
+  // code rather than as a sentence in a document.
+  const route = codeOf(readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /Math\.floor\(ACTION_COST_ACU\.enrich_paid \/ 2\)/,
+    "the paid budget is no longer derived from what the customer was charged");
+  assert.match(route, /meterAction\(access, "enrich_paid", misses\.length\)/,
+    "the paid pass is not charged per row that actually reached a supplier");
 });
 
 test("one column of business names is a prospect list, not 354 people", async () => {

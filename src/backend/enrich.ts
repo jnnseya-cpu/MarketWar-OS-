@@ -15,7 +15,6 @@ if (typeof window !== "undefined") {
 // site, and junk/tracking addresses (sentry, wixpress, .png…) are filtered out.
 
 import { webSearch } from "@/backend/search";
-import { hunterKey, hunterGet, asRecord, asString } from "@/backend/hunter-client";
 
 export type EnrichInput = { company: string; town?: string; area?: string; trade?: string; website?: string };
 export type EnrichResult = {
@@ -40,7 +39,6 @@ export type EnrichResult = {
   providerError?: string;
 };
 
-export function hunterConfigured(): boolean { return Boolean(hunterKey()); }
 export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO_API_KEY || "").trim()); }
 
 // Circuit-breaker: if Apollo returns 403 (the key is valid but the plan doesn't
@@ -52,7 +50,7 @@ export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO
 // plan lights the licensed path back up with no code change.
 let apolloBlockedUntil = 0;
 const APOLLO_BLOCK_MS = 60 * 60 * 1000; // 1 hour
-function apolloUsable(): boolean { return apolloConfigured() && Date.now() >= apolloBlockedUntil; }
+export function apolloUsable(): boolean { return apolloConfigured() && Date.now() >= apolloBlockedUntil; }
 
 // Domains that are NOT a firm's own site — directories, registries, socials,
 // review sites, job boards. We never treat these as the company website.
@@ -359,9 +357,8 @@ async function findWebsite(input: EnrichInput): Promise<{ website: string | null
 // scraper. HONESTY: only returns an email Apollo actually verified.
 // ---------------------------------------------------------------------------
 const APOLLO_BASE = "https://api.apollo.io/api/v1";
-const SENIOR_TITLES = ["owner", "founder", "co-founder", "director", "managing director", "ceo", "principal", "partner", "manager", "general manager"];
 
-async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs = 12_000): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+export async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs = 12_000): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -380,162 +377,34 @@ async function apolloPost(path: string, body: Record<string, unknown>, timeoutMs
 
 // A usable, revealed email — not Apollo's "email_not_unlocked@domain.com"
 // placeholder or an unverified guess.
-function apolloEmailUsable(email?: string, status?: string): boolean {
+export function apolloEmailUsable(email?: string, status?: string): boolean {
   if (!email || looksJunkEmail(email)) return false;
   if (/not_unlocked|email_not_unlocked|domain\.com$/i.test(email)) return false;
   if (status && /^(unavailable|bounced|invalid)$/i.test(status)) return false;
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
 }
 
-async function apolloEnrich(input: EnrichInput): Promise<EnrichResult | null> {
-  try {
-    // 1) Resolve the company domain (from the given website, or org search by name).
-    let domain = "";
-    if (input.website) { const h = hostOf(input.website); if (h && !isAggregator(input.website)) domain = h; }
-    let orgPhone: string | null = null;
-    if (!domain) {
-      const os = await apolloPost("/mixed_companies/search", { q_organization_name: input.company, page: 1, per_page: 1 });
-      const org = ((os.data.organizations as Array<Record<string, unknown>>) || [])[0];
-      if (org) { domain = String(org.primary_domain || org.website_url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, ""); orgPhone = (org.phone as string) || null; }
-    }
-    // 2) Find a senior contact at that company + reveal their email.
-    const ps = await apolloPost("/mixed_people/search", {
-      ...(domain ? { q_organization_domains: domain } : { q_organization_name: input.company }),
-      person_titles: SENIOR_TITLES, page: 1, per_page: 10,
-    });
-    const people = (ps.data.people as Array<Record<string, unknown>>) || [];
-    let person = people.find((p) => apolloEmailUsable(p.email as string, p.email_status as string)) || people[0];
-    if (!person) {
-      return domain ? { company: input.company, website: `https://${domain}`, email: null, emailConfidence: "none", phone: orgPhone, source: "apollo", mode: "live", note: `Apollo matched the company (${domain}) but no contact with a reachable email.` } : null;
-    }
-    let email = person.email as string | undefined;
-    let status = person.email_status as string | undefined;
-    // 3) Reveal a locked email via people/match (costs a credit, but gets the real one).
-    if (!apolloEmailUsable(email, status) && (person.first_name || person.last_name)) {
-      const m = await apolloPost("/people/match", {
-        first_name: person.first_name, last_name: person.last_name,
-        organization_name: (person.organization as { name?: string })?.name || input.company,
-        domain, reveal_personal_emails: true,
-      });
-      const mp = m.data.person as Record<string, unknown> | undefined;
-      if (mp) { email = (mp.email as string) || email; status = (mp.email_status as string) || status; person = { ...person, ...mp }; }
-    }
-    const website = domain ? `https://${domain}` : null;
-    const phone = (person.phone_numbers as Array<{ raw_number?: string }>)?.[0]?.raw_number || orgPhone;
-    const name = [person.first_name, person.last_name].filter(Boolean).join(" ") || null;
-    // Apollo matches by name and can land on a different company with a similar
-    // one. The same ownership rule applies to a licensed provider as to the
-    // scraper: the address must sit on this company's domain, or on a consumer
-    // provider, before it is attached to their row.
-    const emailHost = (email || "").split("@")[1] || "";
-    const apolloOwned = Boolean(email) && (isPersonalProvider(email as string) || (domain ? emailHost.endsWith(domain.replace(/^www\./, "")) : domainMatchesCompany(input.company, emailHost)));
-    if (apolloEmailUsable(email, status) && apolloOwned) {
-      return { company: input.company, website, email: (email as string).toLowerCase(), emailConfidence: status === "verified" ? "verified" : "high", phone, contactName: name, contactTitle: (person.title as string) || null, source: "apollo", mode: "live", note: `Apollo: ${name || "contact"}${person.title ? ` (${person.title})` : ""} — ${status === "verified" ? "verified" : "found"} email.` };
-    }
-    if (apolloEmailUsable(email, status) && !apolloOwned) {
-      return { company: input.company, website, email: null, emailConfidence: "none", phone, contactName: name, source: "apollo", mode: "live", note: `Apollo returned an address at ${emailHost}, which does not belong to ${input.company} — dropped rather than emailing the wrong business.` };
-    }
-    // Apollo knew the company but couldn't reveal an email — hand domain+phone to the scraper.
-    return { company: input.company, website, email: null, emailConfidence: "none", phone, contactName: name, source: "apollo", mode: "live", note: `Apollo matched ${domain || input.company} but the email is locked/unavailable.` };
-  } catch { return null; }
-}
+// THE OLD SINGLE-SHOT APOLLO PATH LIVED HERE, and it is gone rather than left
+// beside its replacement. It did three Apollo calls in sequence — org search,
+// people search, people/match — and the adapter in `enrichment-adapters.ts` now
+// exposes those same three as `findCompany`, `findPeople` and `findEmails`, with
+// the waterfall composing them in cost order. No capability was lost; a second
+// implementation of it was. Keeping both is how two chains came to exist in the
+// first place, which is the thing this merge removes.
 
-/**
- * HUNTER — THE LAST STEP, AND THE ONE THIS BUTTON NEVER HAD.
- *
- * The owner holds a Hunter key AND an Apollo key. This path used Apollo and the
- * scraper; the word "hunter" did not appear in this file once. A complete,
- * tested Hunter adapter existed the whole time, one import away, wired into a
- * DIFFERENT screen — and it could not be imported here because the module
- * holding it imports `scrapeEnrich` from this file. A paid key the owner's own
- * button could never reach, blocked by a module graph nobody had drawn.
- *
- * IT RUNS LAST BECAUSE IT COSTS. The company's own page is free and is the
- * better evidence anyway: a data broker sells a copy of it. Hunter answers the
- * question neither Apollo nor the crawl could — a domain that publishes no
- * address anywhere a crawler can see it — so it is worth a credit exactly then
- * and not before.
- *
- * IT NEEDS A DOMAIN, so it can only run once something else has found one.
- * Without one there is nothing to ask about and no call is made.
- */
-async function hunterFallback(input: EnrichInput, website: string | null): Promise<{ email: string; note: string } | null> {
-  if (!hunterKey() || !website) return null;
-  let domain = "";
-  try { domain = new URL(website.startsWith("http") ? website : `https://${website}`).hostname.replace(/^www\./, ""); } catch { return null; }
-  if (!domain) return null;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const got = await hunterGet("domain-search", { domain, limit: "10" }, controller.signal);
-    if (!got.ok) return null;
-    const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
-    const addresses = rows.map((r) => asString(asRecord(r).value).toLowerCase()).filter(Boolean);
-    if (!addresses.length) return null;
-
-    // THE SAME OWNERSHIP RULE AS EVERY OTHER SOURCE. An address Hunter returns
-    // for this domain is still checked against the domain before it is kept,
-    // and a personal-provider mailbox is still refused — a paid supplier does
-    // not get to bypass the gate that stops us emailing the wrong business.
-    const owned = addresses.filter((e) => {
-      const host = e.split("@")[1] || "";
-      return host === domain || host.endsWith(`.${domain}`);
-      // THE WHOLE ADDRESS, NOT THE HOST. `isPersonalProvider` splits on "@"
-      // itself, so handing it a bare hostname made it read everything before a
-      // non-existent "@" and match nothing — the guard was present, looked
-      // right, and refused nobody. Caught by a test written for the one input
-      // where it does the work.
-    }).filter((e) => !isPersonalProvider(e));
-    if (!owned.length) return null;
-
-    // A ROLE MAILBOX IS THE RIGHT ANSWER FOR A BUSINESS, and preferring one is
-    // not laziness: info@ and enquiries@ are published to be written to, while a
-    // named person's address on a broker's list is the one most likely to be
-    // stale, private, or the wrong person entirely.
-    const ROLE = /^(info|hello|enquiries|enquiry|contact|sales|bookings|admin|office|reception|events)@/;
-    const pick = owned.find((e) => ROLE.test(e)) || owned[0];
-    return { email: pick, note: `Hunter found ${pick} on ${domain} after the free sources found nothing.` };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// Enrich ONE company. Apollo first (licensed, high-yield) → scraper → Hunter.
+// THE FREE PASS. Our own crawl, via live search, and nothing that costs.
+//
+// APOLLO USED TO RUN HERE, FIRST, and it has moved to the paid waterfall in
+// `enrich-paid.ts` — which is the merge the owner asked for. A licensed database
+// running before a free crawl spends a credit on every row, including the ones a
+// company's own contact page would have answered for nothing. On the waterfall
+// it runs by cost, last, on what the free sources could not answer.
+//
+// This function is now genuinely free to call: nothing in it spends a supplier
+// credit, so the vault can run it across a whole list at the flat `enrich` price
+// and only pay a supplier for the rows that are still empty afterwards.
 export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
-  const withHunter = async (r: EnrichResult): Promise<EnrichResult> => {
-    if (r.email) return r;
-    const h = await hunterFallback(input, r.website || input.website || null);
-    if (!h) return r;
-    return {
-      ...r,
-      email: h.email,
-      // PROVIDER, NEVER CONFIRMED. `confirmed` means WE read the page the
-      // address is on; a supplier citing a source is not the same claim, and
-      // collapsing the two is how a guess becomes a fact further downstream.
-      emailConfidence: "medium",
-      source: "hunter",
-      stage: "found",
-      note: `${r.note} ${h.note}`.trim(),
-    };
-  };
-
-  if (apolloUsable()) {
-    const a = await apolloEnrich(input);
-    if (a?.email) return a;                        // Apollo got a real email — done.
-    if (a && (a.website || a.phone)) {             // Apollo found the company; scrape its site for an email.
-      const scraped = await scrapeEnrich({ ...input, website: a.website || input.website });
-      return withHunter({
-        ...scraped,
-        phone: scraped.phone || a.phone,
-        website: scraped.website || a.website,
-        contactName: scraped.contactName ?? a.contactName,
-        note: scraped.email ? scraped.note : `${a.note} ${scraped.note}`.trim(),
-      });
-    }
-    // Apollo returned nothing usable — fall through to the scraper.
-  }
-  return withHunter(await scrapeEnrich(input));
+  return scrapeEnrich(input);
 }
 
 // Scraper (Provider 2) — free fallback. Finds the firm's own site via live Google

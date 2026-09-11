@@ -15,13 +15,13 @@ if (typeof window !== "undefined") {
 // Nothing about the behaviour changes here. The client is the same code, in a
 // file that has no dependencies of its own, so both callers can use it.
 
-import { ACU_PER_GBP, USD_TO_GBP } from "@/shared/creative";
+import { ACU_PER_GBP, USD_TO_GBP, ENRICHMENT_PROVIDER_USD } from "@/shared/creative";
 
 // one: reserving for a search and spending on a verification recovers more than
 // it cost, and the reverse would breach the floor. Derived from the shared
 // constants rather than typed as a magic number, so a change to either moves
 // this with it.
-const HUNTER_SEARCH_USD = 0.05;
+const HUNTER_SEARCH_USD = ENRICHMENT_PROVIDER_USD.hunter;
 /** 4 ACUs at today's constants: $0.05 × 0.79 × 100 = 3.95, rounded up so the floor cannot be undercut. */
 export const HUNTER_COST_ACU = Math.ceil(HUNTER_SEARCH_USD * USD_TO_GBP * ACU_PER_GBP);
 

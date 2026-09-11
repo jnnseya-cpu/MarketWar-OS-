@@ -41,6 +41,7 @@ delivery is confirmed and the first real campaign runs; `/dashboard/acquisition`
   contact in several, **"not in any group" selectable**, empty means everyone, and the button's number
   is the SENDABLE count. **The preview computes the SAME audience (§116)** — it did not.
 - **Contact Hunter + Contact Finder** — on `lead-harvest`'s 12 checks and UK/EU/US lawful basis. **Confirmed / inferred / provider never convert.** **The Stripe webhook** refuses forgery, replay, stale timestamps and a tampered body; five CONCURRENT deliveries of one event credit exactly once.
+- **ONE ENRICHMENT CHAIN (§128)** — the vault and Contact Hunter share it. Free crawl → Companies House → Hunter → Apollo, in COST order. The vault's paid pass is charged separately (`enrich_paid`, derived from the dearest supplier) and budgeted at half of it, so the margin floor is code. It was two chains: the vault ran Apollo-first and could not reach Hunter at all.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — credit before rate limit (both 429, opposite remedies); an unrecognised refusal keeps the provider's words and offers NO remedy.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — `wallet.meteringExempt`, asked by `meterAction` AND `spendAcus`; a refund returns what was TAKEN, so an exempt render cannot mint ACUs. **§50 the paid-boost ladder** — which post earns a budget, against the brand's own median; refuses to promote without conversion tracking; never spends.
 - **The provider waterfall** — one name and company through every supplier in COST order inside 14s.
@@ -160,15 +161,14 @@ screens computed different audiences; the server's refusal line was read once an
 weeks of "the mail server refused the message" hid `535` vs `550`. Worst historically: a message whose
 login, envelope sender and From were three mailboxes, **all three invented**.
 
-**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF — or that can only see from inside.** `replyVerdict`
-returned `yes` for OUR host without looking; the go-live report called the money path fine because the
-secret was PRESENT; and every webhook check reasoned from inside the process, the one vantage point
-that cannot see an endpoint Stripe never reaches. **Inspect the thing that RUNS, from where it is
-called.**
+**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF — or can only see from inside.** `replyVerdict` returned
+`yes` for OUR host without looking; the go-live report called the money path fine because the secret
+was PRESENT; every webhook check reasoned from inside the process, the one place that cannot see an
+endpoint Stripe never reaches. **Inspect the thing that RUNS, from where it is called.**
 
-**A THIRD: a value hard-coded as a module CONSTANT where it should have come from the record** — the
-DKIM selector, the bounce host built from it, `MAIN_DOMAIN` defaulting to a host nobody confirmed
-serves. **Anything identifying WHOSE something is cannot be a module-level constant.**
+**A THIRD: a value hard-coded where it should be DERIVED** — the DKIM selector, `MAIN_DOMAIN`
+defaulting to a host nobody confirmed serves, and a vault row priced at 2 ACUs while one Hunter search
+costs 4. **A floor nobody can compute is a floor nobody holds.**
 
 **A FOURTH, 09-11: A COMMENT — OR A DIAGNOSIS — THAT STOPPED BEING TRUE AND WAS READ AS IF IT WERE.**
 `demo.ts` claimed every dashboard rendered from it long after they stopped; this file blamed the
