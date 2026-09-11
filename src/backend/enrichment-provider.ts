@@ -437,3 +437,118 @@ export async function findPerson(input: {
           : `${enough.why.replace(/, so the waterfall continues\.$/, ".")} Every configured provider has now been tried; what is short is short because nothing available could settle it.`,
   };
 }
+
+/**
+ * "I ALREADY KNOW THE COMPANY — FIND ME AN ADDRESS FOR IT."
+ *
+ * WHY THIS EXISTS AND WHY IT IS NOT A SECOND WATERFALL. `findPerson` answers
+ * Contact Hunter's question: who works at this company, and what is their
+ * address. The Customer Vault's question is narrower — it has the company, it
+ * wants somewhere to write.
+ *
+ * Pointing the vault at `findPerson` and giving it a budget produced exactly the
+ * wrong purchase, and the trace made it obvious: Apollo's company lookup spent 4
+ * ACUs confirming a company the vault had named, its people lookup spent the
+ * other 4, and BOTH email steps were then refused for being over budget. Eight
+ * ACUs of supplier cost, no address, and every step behaving correctly. A budget
+ * spent on the part of the question you already know the answer to.
+ *
+ * So this asks the same registry, in the same cost order, under the same
+ * affordability rule — one chain, a second question. It never buys company
+ * identification, and it only buys people identification when an address could
+ * not be had more cheaply.
+ */
+export async function findCompanyEmail(input: {
+  company: string;
+  domain: string;
+  maxCostAcu?: number;
+  deadlineMs?: number;
+}): Promise<{ emails: EmailCandidate[]; person: PersonCandidate | null; steps: WaterfallStep[]; costAcu: number; note: string }> {
+  const budget = Math.max(1_000, Math.min(input.deadlineMs ?? 14_000, 60_000));
+  const started = Date.now();
+  const remaining = () => budget - (Date.now() - started);
+  const maxCost = Math.max(0, input.maxCostAcu ?? 0);
+
+  const steps: WaterfallStep[] = [];
+  const spent = () => steps.reduce((n, x) => n + x.costAcu, 0);
+  const emails: EmailCandidate[] = [];
+  let person: PersonCandidate | null = null;
+
+  // The same rule as `findPerson`, and a refusal is RECORDED rather than
+  // silently skipped — "we did not call the one that would have found this" is
+  // the fact a reader needs most.
+  const affordable = (p: EnrichmentProvider, capability: WaterfallStep["capability"], need = p.costAcu): boolean => {
+    if (p.costAcu === 0) return true;
+    if (spent() + need <= maxCost) return true;
+    steps.push({
+      provider: p.id, capability, ran: false, ms: 0, found: 0, costAcu: 0,
+      outcome: maxCost === 0
+        ? `Not called — this lookup was allowed no paid providers, and ${p.id} costs ${p.costAcu} ACUs.`
+        : `Not called — ${need} ACUs would take this lookup past the ${maxCost}-ACU limit it was given (${spent()} already spent).`,
+    });
+    return false;
+  };
+
+  const run = async <T>(p: EnrichmentProvider, capability: WaterfallStep["capability"], fn: (sig: AbortSignal) => Promise<T[]>): Promise<T[]> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.max(500, remaining()));
+    const at = Date.now();
+    try {
+      const items = await fn(ctrl.signal);
+      // NOTHING FOUND IS NOT CHARGED. A supplier that returned an empty answer
+      // cost us nothing to be told so, and billing for it is how a waterfall
+      // becomes a way to spend money rather than a way to find things.
+      const cost = items.length > 0 ? p.costAcu : 0;
+      steps.push({ provider: p.id, capability, ran: true, ms: Date.now() - at, found: items.length, costAcu: cost, outcome: items.length ? `${items.length} result(s).` : "Nothing found. Not charged." });
+      return items;
+    } catch (e) {
+      steps.push({ provider: p.id, capability, ran: true, ms: Date.now() - at, found: 0, costAcu: 0, outcome: `Failed: ${e instanceof Error ? e.message : String(e)}. Not charged.` });
+      return [];
+    } finally { clearTimeout(timer); }
+  };
+
+  // 1. THE CHEAPEST ROUTE TO AN ADDRESS. A domain search returns the role
+  //    mailboxes a business publishes, which is what a company-level outreach
+  //    wants — and it is one call rather than two.
+  for (const p of registry) {
+    if (!p.findEmails || !p.health().configured) continue;
+    if (remaining() <= 0) break;
+    if (!affordable(p, "emails")) continue;
+    const got = await run(p, "emails", (sig) => p.findEmails!({ domain: input.domain }, sig));
+    for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) emails.push(c);
+    // A PUBLISHED ADDRESS ENDS IT. Anything further is spending to improve on
+    // the best evidence there is.
+    if (emails.some((e) => e.provenance === "confirmed")) break;
+  }
+
+  // 2. ONLY IF THAT FOUND NOTHING: identify somebody, then ask for their
+  //    address. Two calls, so the pair is affordability-checked as a PAIR —
+  //    buying the name and then being refused the address is the exact waste
+  //    this function was written to stop.
+  if (!emails.length) {
+    for (const p of registry) {
+      if (!p.findPeople || !p.findEmails || !p.health().configured) continue;
+      if (remaining() <= 0) break;
+      if (!affordable(p, "people", p.costAcu * 2)) continue;
+      const found = await run(p, "people", (sig) => p.findPeople!({ company: input.company, domain: input.domain }, sig));
+      if (!found.length) continue;
+      person = found[0];
+      const parts = person.fullName.split(/\s+/);
+      const got = await run(p, "emails", (sig) => p.findEmails!({
+        fullName: person!.fullName, firstName: parts[0], lastName: parts.slice(1).join(" "), domain: input.domain,
+      }, sig));
+      for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) emails.push(c);
+      if (emails.length) break;
+    }
+  }
+
+  const paid = [...new Set(steps.filter((s) => s.ran && s.costAcu > 0).map((s) => s.provider))];
+  return {
+    emails, person, steps, costAcu: spent(),
+    note: emails.length
+      ? `${emails.length} address(es) for ${input.domain}${paid.length ? ` — ${paid.join(" and ")} charged ${spent()} ACU(s)` : " from free sources"}.`
+      : paid.length
+        ? `${paid.join(" and ")} were asked about ${input.domain} and returned nothing. ${spent()} ACU(s) of supplier cost.`
+        : `No supplier was affordable or configured for ${input.domain}, so only free sources ran.`,
+  };
+}

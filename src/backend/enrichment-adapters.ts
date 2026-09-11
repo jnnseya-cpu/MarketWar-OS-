@@ -20,7 +20,7 @@ if (typeof window !== "undefined") {
 // free ones could not, which is the opposite of how these stacks are usually
 // assembled.
 
-import { scrapeEnrich, isPersonalProvider } from "@/backend/enrich";
+import { scrapeEnrich, isPersonalProvider, apolloConfigured, apolloUsable, apolloPost, apolloEmailUsable } from "@/backend/enrich";
 import { verifyEmail as harvestVerify, classifyEmail } from "@/backend/lead-harvest";
 import { extractDecisionMaker, learnSitePattern } from "@/backend/contact-hunt-run";
 import { companiesHouseKey, firstRegisterHit } from "@/backend/market-exit-detect";
@@ -30,6 +30,7 @@ import { candidateFromPattern, learnPattern } from "@/shared/contact-hunter";
 // cannot live in this file.
 import { hunterKey, hunterGet, asRecord, asString, asNumber, firstSourceUrl, HUNTER_COST_ACU } from "@/backend/hunter-client";
 import { readTitle } from "@/shared/contact-confidence";
+import { ACU_PER_GBP, USD_TO_GBP, ENRICHMENT_PROVIDER_USD } from "@/shared/creative";
 import {
   registerProvider,
   type EnrichmentProvider, type CompanyCandidate, type PersonCandidate,
@@ -384,6 +385,118 @@ export const hunter: EnrichmentProvider = {
 };
 
 // ---------------------------------------------------------------------------
+// 4. Apollo — licensed people data, paid, and last
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT IT COSTS, DERIVED RATHER THAN TYPED. Apollo bills in credits; one export
+ * credit against a contact is the unit this adapter spends. Priced from the same
+ * shared table as Hunter so the margin floor is computed from both, and rounded
+ * UP so a rounding error cannot undercut it.
+ */
+const APOLLO_CALL_USD = ENRICHMENT_PROVIDER_USD.apollo;
+export const APOLLO_COST_ACU = Math.ceil(APOLLO_CALL_USD * USD_TO_GBP * ACU_PER_GBP);
+
+const SENIOR_TITLES_FOR_ADAPTER = ["owner", "founder", "co-founder", "director", "managing director", "ceo", "principal", "partner", "manager", "general manager"];
+
+/**
+ * APOLLO, AS AN ADAPTER, SO THE VAULT AND CONTACT HUNTER SHARE ONE CHAIN.
+ *
+ * Apollo had a complete implementation inside `enrich.ts`, reachable only from
+ * the Customer Vault. Hunter had a complete implementation here, reachable only
+ * from Contact Hunter. Two suppliers, two chains, neither screen able to use the
+ * other's key — and the owner paying for both.
+ *
+ * The HTTP client is NOT rewritten. It is imported from `enrich.ts`, which this
+ * module already depends on, so there is one Apollo implementation and this is a
+ * different shape over it rather than a second copy to drift.
+ *
+ * ORDER 3 — after the free crawl, after the register, after Hunter. Not a
+ * judgement about quality: the order is by cost, and a paid credit is spent only
+ * on what the cheaper sources could not answer. In the vault Apollo used to run
+ * FIRST, spending a credit on every row including the ones a company's own
+ * contact page answers for nothing.
+ */
+export const apollo: EnrichmentProvider = {
+  id: "apollo",
+  costAcu: APOLLO_COST_ACU,
+  order: 3,
+
+  health(): ProviderHealth {
+    const configured = apolloConfigured();
+    return {
+      id: this.id,
+      configured,
+      note: configured
+        ? `Licensed B2B people data. ${APOLLO_COST_ACU} ACUs a call, charged only when it returns something, and only after the free sources and Hunter have run.`
+        : "Not configured. Set APOLLO_API_KEY for named decision-makers with job titles — the one thing a crawl of a company's own site rarely publishes.",
+    };
+  },
+
+  async findCompany(input): Promise<CompanyCandidate[]> {
+    if (!apolloUsable()) return [];
+    const name = (input.name || "").trim();
+    if (!name && !input.domain) return [];
+    const res = await apolloPost("/mixed_companies/search", { q_organization_name: name, page: 1, per_page: 1 });
+    if (!res.ok) return [];
+    const orgs = Array.isArray(res.data.organizations) ? res.data.organizations : [];
+    const org = asRecord(orgs[0]);
+    const legalName = asString(org.name);
+    const domain = asString(org.primary_domain) || asString(org.website_url);
+    if (!legalName && !domain) return [];
+    return [{ legalName: legalName || name, domain: HOST(domain) || undefined, sourceUrl: domain || undefined }];
+  },
+
+  async findPeople(input): Promise<PersonCandidate[]> {
+    if (!apolloUsable()) return [];
+    const domain = HOST(input.domain || "");
+    if (!domain) return [];
+    const res = await apolloPost("/mixed_people/search", {
+      q_organization_domains: domain, page: 1, per_page: 5, person_titles: SENIOR_TITLES_FOR_ADAPTER,
+    });
+    if (!res.ok) return [];
+    const rows = Array.isArray(res.data.people) ? res.data.people : [];
+    const out: PersonCandidate[] = [];
+    for (const row of rows) {
+      const r = asRecord(row);
+      const fullName = asString(r.name) || [asString(r.first_name), asString(r.last_name)].filter(Boolean).join(" ");
+      // NO NAME, NO PERSON — the same rule Hunter's adapter keeps, and for the
+      // same reason: inventing one from an email's local part is fabrication.
+      if (!fullName) continue;
+      out.push({
+        fullName,
+        jobTitle: asString(r.title) || undefined,
+        company: asString(asRecord(r.organization).name) || input.company,
+        domain,
+        sourceUrl: asString(r.linkedin_url) || undefined,
+      });
+    }
+    return out;
+  },
+
+  async findEmails(input): Promise<EmailCandidate[]> {
+    if (!apolloUsable()) return [];
+    const domain = HOST(input.domain || "");
+    if (!domain) return [];
+    const first = (input.firstName || input.fullName?.split(/\s+/)[0] || "").trim();
+    const last = (input.lastName || input.fullName?.split(/\s+/).slice(1).join(" ") || "").trim();
+    if (!first || !last) return [];
+    const res = await apolloPost("/people/match", { first_name: first, last_name: last, domain, reveal_personal_emails: false });
+    if (!res.ok) return [];
+    const person = asRecord(res.data.person);
+    const email = asString(person.email);
+    // APOLLO'S PLACEHOLDER IS NOT AN ADDRESS. `email_not_unlocked@domain.com`
+    // comes back for a contact the plan will not reveal, and treating it as a
+    // result would put a fake address in a customer's vault. The check is the one
+    // `enrich.ts` already uses rather than a second opinion about it.
+    if (!apolloEmailUsable(email, asString(person.email_status))) return [];
+    // PROVIDER, NEVER CONFIRMED. `confirmed` means WE read the page the address
+    // is published on; a licensed database saying so is a weaker claim.
+    return [{ value: email.toLowerCase(), provenance: "provider", sourceUrl: asString(person.linkedin_url) || undefined }];
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Providers this platform does NOT have, stated rather than stubbed
 // ---------------------------------------------------------------------------
 
@@ -414,6 +527,9 @@ export function registerBuiltInProviders(): void {
   // this list. Registering only when configured would read the environment at
   // module load, which is the thing that makes a variable set later invisible.
   registerProvider(hunter);
+  // Same rule as Hunter: registered whatever the environment says, because
+  // reading a key at module load is what makes one set later invisible.
+  registerProvider(apollo);
   registered = true;
 }
 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveContacts, listContacts, clearContacts, patchContact, toCustomerRecords, type Contact } from "@/backend/contacts";
 import { enrichBatch, dropSharedEmails, auditStoredEmails } from "@/backend/enrich";
+import { enrichPaidBatch } from "@/backend/enrich-paid";
 import { scoredCustomerList, segmentLabel } from "@/backend/segments";
 import { resolveBrandAccess } from "@/backend/brand-access";
-import { meterAction } from "@/backend/wallet";
+import { meterAction, ACTION_COST_ACU } from "@/backend/wallet";
 import { rateLimit, clientKey } from "@/backend/guard";
 import { looksLikePersonName } from "@/shared/csv-import";
 
@@ -274,7 +275,60 @@ export async function POST(req: NextRequest) {
     // rows left pays for eleven.
     const meter = await meterAction(access, "enrich", batch.length);
     if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
-    const raw = await enrichBatch(batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website })), 8);
+    const inputs = batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website }));
+    const raw = await enrichBatch(inputs, 8);
+
+    // ---- PASS TWO: THE PAID SUPPLIERS, ON THE ONE WATERFALL ----------------
+    //
+    // TWO PASSES BECAUSE THEY COST DIFFERENT AMOUNTS. The pass above is free —
+    // our own crawl via live search — and is charged at the flat `enrich` price.
+    // Only the rows it could not answer reach a supplier, and only those rows
+    // are charged `enrich_paid`. Charging every row the paid price would make
+    // the feature expensive for lists a free crawl handles, and charging every
+    // row the free price is what had the vault SELLING AT HALF COST: one Hunter
+    // search costs 4 ACUs and the row was priced at 2.
+    //
+    // THE BUDGET IS HALF OF WHAT WAS CHARGED, which is the owner's margin floor
+    // expressed as code rather than as a note in a document. A supplier the
+    // budget cannot cover is not called, so the floor cannot be breached by
+    // adding a dearer provider later — the price is derived from the dearest one
+    // and rises with it.
+    //
+    // AN EMPTY WALLET STOPS THE SUPPLIERS, NOT THE RESULTS. If the paid pass
+    // cannot be afforded the free findings still stand and the note says why,
+    // rather than failing a request that already did useful work.
+    let paidCharged = 0;
+    let paidNote = "";
+    const misses = raw.map((r, i) => (r.email ? -1 : i)).filter((i) => i >= 0);
+    if (misses.length) {
+      const paidMeter = await meterAction(access, "enrich_paid", misses.length);
+      if (paidMeter.allowed) {
+        paidCharged = misses.length;
+        const budget = Math.floor(ACTION_COST_ACU.enrich_paid / 2);
+        const found = await enrichPaidBatch(misses.map((i) => inputs[i]), { maxCostAcu: budget, concurrency: 4 });
+        misses.forEach((rowIndex, k) => {
+          const r = found[k];
+          // ONLY AN IMPROVEMENT IS TAKEN. A paid supplier that returned nothing
+          // must not overwrite the free pass's website, phone or stage with its
+          // own empty fields — that would make paying for a row worse than not.
+          if (!r) return;
+          const before = raw[rowIndex];
+          raw[rowIndex] = {
+            ...before,
+            email: r.email || before.email,
+            emailConfidence: r.email ? r.emailConfidence : before.emailConfidence,
+            website: before.website || r.website,
+            contactName: before.contactName ?? r.contactName,
+            contactTitle: before.contactTitle ?? r.contactTitle,
+            source: r.email ? r.source : before.source,
+            stage: r.email ? "found" : before.stage,
+            note: `${before.note} ${r.note}`.trim(),
+          };
+        });
+      } else {
+        paidNote = `${misses.length} row(s) found nothing free and were not sent to a paid supplier: ${paidMeter.error}`;
+      }
+    }
 
     // Addresses the vault has ALREADY attached to some other company. An address
     // that turns up again for a different firm is a directory inbox, and catching
@@ -354,6 +408,11 @@ export async function POST(req: NextRequest) {
             breakdown.noOwnSite > 0 ? ` ${breakdown.noOwnSite} have no website of their own — only directory pages about them, which is normal for small trades and is a phone/WhatsApp lead, not an email one.` : "",
             breakdown.siteNoEmail > 0 ? ` ${breakdown.siteNoEmail} have a site but publish no address (contact form only).` : "",
             sharedDropped > 0 ? ` ${sharedDropped} address${sharedDropped === 1 ? "" : "es"} were rejected for belonging to a directory rather than to the business.` : "",
+            // WHAT THE PAID PASS COST, SAID OUT LOUD. A customer whose balance
+            // moved by more than the flat rate is owed the reason, and burying
+            // it is how a bill becomes a complaint.
+            paidCharged > 0 ? ` ${paidCharged} row${paidCharged === 1 ? "" : "s"} found nothing free and went to a paid supplier (Hunter, then Apollo), charged at the paid rate.` : "",
+            paidNote ? ` ${paidNote}` : "",
             targets.length > batch.length ? ` ${targets.length - batch.length} more remain — run again to continue.` : "",
           ].join(""),
     });

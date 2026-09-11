@@ -153,6 +153,30 @@ export const IMAGE_MARGIN_FLOOR = 2;
 export const ACU_PER_GBP = 100; // £1 = 100 ACUs
 export const USD_TO_GBP = 0.79;
 
+/**
+ * WHAT EACH PAID ENRICHMENT SUPPLIER CHARGES US, IN USD, PER CALL.
+ *
+ * WHY THIS IS HERE AND NOT IN EACH ADAPTER. The vault charged 2 ACUs to enrich a
+ * row while a single Hunter search costs 4 — selling at half cost, every time a
+ * paid provider ran. Neither number was wrong on its own; nothing compared them,
+ * because the price lived in the wallet and the cost lived in an adapter, and a
+ * floor nobody can compute is a floor nobody can hold.
+ *
+ * The price of a paid lookup is now DERIVED from the dearest entry below, so
+ * adding a more expensive supplier raises what we charge instead of quietly
+ * breaching the owner's margin law. A supplier added here without a price does
+ * not compile.
+ */
+export const ENRICHMENT_PROVIDER_USD = {
+  hunter: 0.05,   // one Hunter domain search or email-finder call
+  apollo: 0.04,   // one Apollo export credit against a contact
+} as const;
+
+/** What the dearest paid supplier costs us for one lookup, in ACUs. */
+export const DEAREST_ENRICHMENT_COST_ACU = Math.ceil(
+  Math.max(...Object.values(ENRICHMENT_PROVIDER_USD)) * USD_TO_GBP * ACU_PER_GBP,
+);
+
 // --------------------------------------------------------------- Brand theme
 // The 6-colour theme extracted from the logo (spec "Brand Colour Extraction").
 // Becomes the default theme for ad images, landing pages, CTA buttons, social
