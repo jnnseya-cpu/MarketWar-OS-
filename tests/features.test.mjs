@@ -28929,6 +28929,114 @@ test("two hosting configs must not drift — it is how the answer stayed hidden 
     "vercel.json must not declare environment values — Vercel's own dashboard is the single source for that platform, and a third copy is a third answer");
 });
 
+test("invented data reaches the landing page and nothing else", async () => {
+  // "THERE IS NO REAL CUSTOMER AS I AM NOT CONVINCED THIS IS A COMMERCIAL OS."
+  // The owner's doubt had a concrete cause: `src/shared/demo.ts` opened with
+  // "Every dashboard renders from this", which had stopped being true. Reading
+  // the repository, the product looked like a demo wearing a platform's clothes.
+  //
+  // MEASURED, NOT ASSUMED. Of its thirteen exports, EIGHT were imported by
+  // nothing: fabricated customers with names, phone numbers and email addresses,
+  // invented WhatsApp threads, named competitors, a daily action list, a
+  // business profile and a brand roster. Unreachable code removes no capability,
+  // so they are gone. The five that remain feed the landing page's charts, which
+  // is the zero-configuration demo this platform must keep working.
+  //
+  // THIS TEST IS THE BOUNDARY, and it is the part that has to survive: the file
+  // may hold illustrative figures for anonymous visitors, and must never become
+  // something a signed-in account renders as its own numbers again.
+  const src = readFileSync("src/shared/demo.ts", "utf8");
+
+  // NO PERSON-SHAPED FABRICATIONS. A made-up name beside a made-up phone number
+  // and email is the thing that cannot sit in a repository, whether or not
+  // anything draws it.
+  for (const [pattern, what] of [
+    [/\bphone:\s*"/, "a fabricated phone number"],
+    [/\bemail:\s*"/, "a fabricated email address"],
+    [/lastMessage:\s*"/, "an invented private message"],
+  ]) {
+    assert.ok(!pattern.test(codeOf(src)), `demo data contains ${what}`);
+  }
+
+  // AND IT IS REACHABLE FROM THE LANDING PAGE ONLY. Derived by walking the
+  // imports rather than trusting the comment — trusting the comment is what
+  // let the stale sentence stand.
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name)) files.push(p);
+    }
+  };
+  walk("src");
+  const importers = files.filter((f) => f !== "src/shared/demo.ts"
+    && /from\s+"@\/shared\/demo"/.test(readFileSync(f, "utf8")));
+  assert.ok(importers.length > 0, "the landing visuals still render the illustrative charts");
+  for (const f of importers) {
+    assert.ok(!/^src\/app\/(dashboard|api)\//.test(f),
+      `${f} imports invented figures — a dashboard or API route must never serve them to a signed-in account`);
+  }
+
+  // Every surviving export must actually be used, or the next dead fixture
+  // accumulates exactly the way these eight did.
+  const body = files.filter((f) => f !== "src/shared/demo.ts").map((f) => readFileSync(f, "utf8")).join("\n");
+  for (const name of [...codeOf(src).matchAll(/export const (\w+)/g)].map((m) => m[1])) {
+    assert.ok(new RegExp(`\\b${name}\\b`).test(body),
+      `${name} is invented data that nothing imports — dead fixtures are how eight of these accumulated`);
+  }
+});
+
+test("the patched floors hold — a dependency cannot be pinned back under a known advisory", async () => {
+  // FOUND BY RUNNING `npm audit --omit=dev`, not by reading the code, and it is
+  // the reason "the build passes" is not the same claim as "the platform is
+  // safe". Production dependencies carried two CRITICAL Next.js advisories:
+  //
+  //   GHSA-2xp9-vwfh-vxw4  unauthenticated RCE in the Image Optimization API
+  //                        when AVIF files are used   (>=10.0.0 <15.5.24)
+  //   GHSA-p293-qw3h-jr36  unauthenticated RCE on Windows-hosted servers
+  //   GHSA-rgj7-g3m4-5g8c  high: libheif flaws reachable through sharp (<0.35.4)
+  //
+  // The first is not Windows-specific and needs no credentials. This deployment
+  // serves optimised images, so it was reachable. Fixed by a patch bump inside
+  // the same minor line — not a framework upgrade, and no behaviour changed:
+  // 1846 tests and a production build pass on it.
+  //
+  // A FLOOR, NOT A SNAPSHOT. `^15.5.25` still installs 15.5.30 tomorrow; what
+  // this refuses is somebody pinning BACK under the advisory to dodge an
+  // unrelated break, which is how a patched fault returns silently.
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const floor = (spec) => String(spec || "").replace(/^[^0-9]*/, "").split(".").map(Number);
+  const atLeast = (spec, want) => {
+    const a = floor(spec), b = want.split(".").map(Number);
+    for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; }
+    return true;
+  };
+  for (const [name, want, why] of [
+    ["next", "15.5.25", "unauthenticated RCE via the AVIF image optimiser (GHSA-2xp9-vwfh-vxw4)"],
+    ["sharp", "0.35.4", "libheif flaws reachable through image processing (GHSA-rgj7-g3m4-5g8c)"],
+    ["firebase-admin", "14.3.0", "the @google-cloud/storage advisory chain"],
+  ]) {
+    const spec = pkg.dependencies[name];
+    assert.ok(spec, `${name} must stay a direct dependency`);
+    assert.ok(atLeast(spec, want),
+      `${name} is pinned at ${spec}, below the patched floor ${want} — that reopens ${why}`);
+  }
+  // The override must move WITH the dependency, or npm quietly reinstalls the
+  // vulnerable copy underneath a package.json that looks patched.
+  assert.ok(atLeast(pkg.overrides?.sharp, "0.35.4"),
+    `the sharp override is ${pkg.overrides?.sharp} and would pull the vulnerable build back under the patched dependency`);
+
+  // WHAT IS STILL OPEN, STATED RATHER THAN QUIETLY CLOSED. Two moderate
+  // advisories remain, both inside @google-cloud/storage@8.1.0, which pins
+  // gaxios ^6 — and 6.7.1 is the last 6.x, so no patch exists in that line. The
+  // one real advisory is uuid's missing bounds check in v3/v5/v6 when a `buf`
+  // argument is passed; gaxios calls `uuid.v4()` at a single site to build a
+  // multipart boundary and passes no buffer, so it is not reachable from here.
+  // Forcing gaxios 7 under the storage SDK would be a major bump of its HTTP
+  // client to close something that cannot fire — recorded, not papered over.
+});
+
 test("the brand result gives somebody a reason to click, and the entity is bound", async () => {
   // SEARCH CONSOLE: the query "marketwar" returned 27 impressions and 2 clicks —
   // about 7%, where a brand searching its own name normally takes 30% or more
