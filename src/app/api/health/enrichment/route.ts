@@ -44,8 +44,37 @@ export const GET = jsonRoute(async (req: Request) => {
     providers,
     notConfigured: adapters.NOT_IMPLEMENTED,
     order: "Free sources run first and are better evidence: our own crawl, then the company register, then any paid finder. A paid credit is only spent on what the free ones missed.",
+    whyDidARowFindNothing: "Add ?company=<a business name> to run ONE row through the real chain and see every step, free. Add &paid=1 (platform admin or scheduler bearer) to let Hunter and Apollo answer too.",
     howToProve: "Add ?probe=1 (platform admin or the scheduler bearer) to make three real Hunter calls and check every field the adapter reads. That spends about $0.11.",
   };
+  // WHY DID THIS ROW FIND NOTHING? The question the key list cannot answer.
+  //
+  // "I have all three keys and it still does not work" has at least seven causes
+  // that look identical from outside — a stale build, a rejected search key, a
+  // site with no address, a refused directory inbox, an empty wallet, a supplier
+  // with no data, a supplier refusing us. Each needs a different action. This
+  // runs ONE named company through the real chain and reports every step.
+  //
+  // Free by default: the crawl costs nothing, and that is where most failures
+  // are. `&paid=1` spends one row's budget and is authorised like the Hunter
+  // probe below, because it moves money.
+  const company = (url.searchParams.get("company") || "").trim();
+  if (company) {
+    const explain = await loadModule("@/backend/enrichment-explain", () => import("@/backend/enrichment-explain"));
+    let budget = 0;
+    let paidNote = "";
+    if (url.searchParams.get("paid") === "1") {
+      const guard = await loadModule("@/backend/guard", () => import("@/backend/guard"));
+      const ok = guard.cronAuthorised(req instanceof NextRequest ? req : new NextRequest(req)).ok
+        || (await guard.requireAuth(req, { scope: "platform_admin" })).ok;
+      const wallet = await loadModule("@/backend/wallet", () => import("@/backend/wallet"));
+      if (ok) budget = Math.floor(wallet.ACTION_COST_ACU.enrich_paid / 2);
+      else paidNote = "&paid=1 spends real supplier credit, so it needs a platform-admin session or the scheduler bearer. The free half below ran anyway.";
+    }
+    const result = await explain.explainEnrichment(company, budget);
+    return NextResponse.json({ ...free, explain: result, ...(paidNote ? { paidNote } : {}) });
+  }
+
   if (!wantsProbe) return NextResponse.json(free);
 
   // THE PAID HALF. Money moves, so the caller has to be somebody.

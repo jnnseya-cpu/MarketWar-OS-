@@ -6335,3 +6335,63 @@ cheap half of this: it finds the website for free, and a supplier credit is then
 spent only on businesses that publish no address anywhere a crawler can see.
 Without it every row buys its domain from Apollo at 4 ACUs before anything else
 happens, which works and costs four times more than it needs to.
+
+---
+
+## §130 — "I have all three keys and it still does not work" (2026-09-12)
+
+A sentence the platform could not answer. `/api/health/enrichment` reported which
+keys EXIST. `/api/health/live` reported which build is running. Neither said what
+happened to a row, and "it found nothing" has at least seven causes that look
+identical from outside:
+
+1. The running build is older than the fix.
+2. The search key is set and REJECTED, so no website is ever found.
+3. A website is found but publishes no address anywhere.
+4. An address is found, belongs to a directory, and is refused.
+5. The paid suppliers were never reached because the wallet said no.
+6. A supplier was reached and its own answer was empty.
+7. A supplier refused us — bad key, no credit, rate limit.
+
+Each needs a different action. `GET /api/health/enrichment?company=<name>` runs
+ONE named company through the real chain and reports every stage with the reason
+it did or did not run. Free by default, because the crawl costs nothing and that
+is where most failures are; `&paid=1` spends one row's budget and is authorised
+like the Hunter probe, because it moves money.
+
+**PRESENT-AND-REJECTED IS NOT ABSENT**, and that distinction is the whole point
+here. The owner set all three keys and was told nothing worked — the exact state
+in which a presence check is worth less than nothing. The report now asks the
+search provider and prints its refusal verbatim with the HTTP status, so "set it"
+and "the value you set is being refused" are different sentences.
+
+**A SET APOLLO KEY THAT DOES NOTHING HAS AN EXPLANATION NOW.** Apollo answers 403
+when the plan has no API access, and the client trips a one-hour breaker so the
+rest of a batch skips it. That deployment reports the key as present and Apollo
+as silent, which reads as the platform ignoring something that was paid for.
+`apolloBreakerTripped` names it.
+
+**AND THE REPORT SAYS WHICH CODE ANSWERED IT.** A fix that was never deployed is
+the commonest cause of "still not working" and no amount of reading the code
+finds it — it cost this repository a full day once, with a green CI run and a
+production build serving older code.
+
+**TWO RULES WERE NEARLY BROKEN QUIETLY WHILE BUILDING IT.**
+
+The first: `buildIdentity` was about to be a second implementation reading one
+environment variable, which would have answered "unknown" on three of the four
+hosts this platform can run on — in the field whose entire purpose is to say
+whether a fix is deployed. It is one function now, shared with the live report,
+and a mutation removing a host from it fails.
+
+The second, and worse: that function was first placed in `backend/` and imported
+by `/api/health/live`, whose own header states it imports NOTHING from
+`@/backend` at module level. The reason is an outage this platform has had twice
+— a top-level import that throws on load cannot be caught by any try/catch in
+the handler, so it takes the whole route down and answers a bare 500, on the one
+endpoint somebody opens to find out what is broken. The rule was written in a
+comment and nothing enforced it. It is asserted now.
+
+Killed by mutation: a rejected key reported as a missing one, the tripped Apollo
+breaker made invisible, a host's commit stamp dropped, the live route importing
+backend at module level, and the paid suppliers running without being asked.
