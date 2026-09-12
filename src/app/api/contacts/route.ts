@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { saveContacts, listContacts, clearContacts, patchContact, toCustomerRecords, type Contact } from "@/backend/contacts";
 import { enrichBatch, dropSharedEmails, auditStoredEmails } from "@/backend/enrich";
 import { enrichPaidBatch } from "@/backend/enrich-paid";
+import { diagnoseRun } from "@/backend/enrichment-explain";
+import { serperKey } from "@/backend/search";
+import { hunterKey } from "@/backend/hunter-client";
+import { apolloConfigured, apolloUsable } from "@/backend/enrich";
 import { scoredCustomerList, segmentLabel } from "@/backend/segments";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { meterAction, ACTION_COST_ACU } from "@/backend/wallet";
@@ -391,6 +395,24 @@ export async function POST(req: NextRequest) {
       rejectedAsDirectory: sharedDropped,
       breakdown,
       providerError,
+      // WHY THIS RUN FOUND NOTHING, DECIDED HERE RATHER THAN LEFT TO THE READER.
+      //
+      // The note below lists counts. When the real answer is "your search key is
+      // being refused", a breakdown of website coverage is noise sitting on top
+      // of it — and the owner is left opening a health endpoint to find out,
+      // which is the platform asking him to do its looking. Free: every fact
+      // comes from the batch that just ran plus the key states.
+      diagnosis: diagnoseRun({
+        results: results.map((r) => ({ email: r?.email ?? null, mode: r?.mode ?? "live", stage: r?.stage, providerError: r?.providerError })),
+        keys: {
+          serper: Boolean(serperKey()),
+          hunter: Boolean(hunterKey()),
+          apollo: apolloConfigured(),
+          apolloBreakerTripped: apolloConfigured() && !apolloUsable(),
+        },
+        paidWasRun: paidCharged > 0,
+        paidRefusedReason: paidNote || undefined,
+      }),
       results: batch.map((c, i) => ({ id: c.id, company: c.company || c.name, email: results[i]?.email || null, phone: results[i]?.phone || null, website: results[i]?.website || null, note: results[i]?.note || "" })),
       ...vault,
       note: allDemo

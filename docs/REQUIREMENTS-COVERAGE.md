@@ -6395,3 +6395,56 @@ comment and nothing enforced it. It is asserted now.
 Killed by mutation: a rejected key reported as a missing one, the tripped Apollo
 breaker made invisible, a host's commit stamp dropped, the live route importing
 backend at module level, and the paid suppliers running without being asked.
+
+---
+
+## §131 — The screen says why, without being asked (2026-09-12)
+
+§130 built a diagnostic endpoint and I then told the owner to open a URL and read
+JSON to find out why his list found nothing. His answer: *"Really?? This is hours
+job. I will not do it."*
+
+He is right, and the rule was already written down in this repository, by me:
+**never tell the owner to do by hand what the platform should do for them — when
+the answer is "go and look", the defect is that nothing is looking.** A
+diagnostic somebody has to go and run is a diagnostic that does not exist.
+
+`diagnoseRun` decides the cause from the batch that just finished, and the vault
+screen shows it above the button that was pressed. It is PURE and FREE: every
+fact is already in the results plus the key states, so there is no second crawl,
+no second search and nothing to authorise.
+
+**IT NAMES ONE CAUSE.** The note it sits above lists four counts, and when the
+real answer is "your search key is being refused", a breakdown of website
+coverage is noise on top of it. Driven through every branch:
+
+| State | What the screen says |
+|---|---|
+| No search key | No search key, so no website could be found. Set SERPER_API_KEY. |
+| Key SET and refused | The search provider refused this deployment's key. **Replacing the value is the fix; setting it again is not.** |
+| Apollo 403 | Apollo refused this deployment. Check the Apollo **plan** — the key is set and is not the problem. |
+| Wallet stopped the paid half | These publish no address a crawler can read, and the suppliers were not asked. |
+| No websites | 60 of these have no website of their own. **No fix offered.** |
+| Something was found | Nothing. Silence. |
+
+Three of those distinctions are the point. A key that is SET and being REFUSED
+must not read as a missing key, because the two need opposite actions and the
+owner was in the first state while every report described the second. An Apollo
+403 is a PLAN problem, and calling it a key problem sends somebody to re-paste a
+value that is already correct. And a fact about the data gets no action at all —
+inventing one sends somebody chasing a problem that is not theirs, and the
+commonest wrong conclusion after an empty run is that the feature is broken.
+
+It stays silent when anything was found. A diagnosis on a successful run is
+noise, and noise is how a real one gets ignored.
+
+Killed by mutation: the refused key collapsed into "no key", a data fact dressed
+as a fault, a diagnosis shown on a successful run, the diagnosis never leaving
+the server, and the screen rendering a placeholder instead of the cause. The last
+two matter most — the rule is about what the owner SEES, and a diagnosis computed
+and not rendered is the same failure in a new place.
+
+**One mutation survived and was re-aimed rather than accepted.** It changed the
+first `fix: ""` in the file, which belongs to a different branch from the one the
+test asserts, so it proved nothing. The wrong-occurrence trap, for the fifth time
+in this repository.
