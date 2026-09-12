@@ -6558,3 +6558,62 @@ demo request, and a guarantee.
 inspected; two layout faults were fixed that no test would have caught — the
 three size columns had rules stepping up and down at different heights, and the
 closing slide's body collided with its headline.
+
+## §134 — The same deck, rewritten to actually sell (2026-09-12)
+
+The owner read §133's deck and said it had to be "punchy and persuasive". They
+were right. It was accurate, calm, and it sold nothing — it read like an
+engineering document with a price list stapled to the end.
+
+**THE TEMPTATION AT THAT POINT IS THE ONE THING WE CANNOT DO.** What makes a
+deck feel persuasive is a testimonial, a customer count, "4x ROI", a wall of
+logos. This company has no customers. Every one of those is a lie a serious
+buyer finds in one search, and §133's verifier already fails the build on all of
+them. So the punch had to come from craft, and the method is written into the
+head of `scripts/deck-content.mjs` so the next rewrite does not reach for the
+lies again:
+
+- **Second person, present tense.** "You boosted a post" beats "businesses often
+  boost posts."
+- **Scenes, not adjectives.** A reader recognises a Tuesday they have had. Nobody
+  recognises "powerful growth platform."
+- **Arithmetic the reader supplies.** We never claim a result. We ask a question
+  whose answer is their own number, and their own number persuades harder than
+  any figure we could invent. Slide two is one sentence at 62pt: *name the advert
+  that brought you your last customer.* Most owners cannot.
+- **The weakness, said first.** "You have never heard of us" is the objection in
+  every reader's head by slide three. Saying it out loud, and answering it with a
+  free check they can run before speaking to anybody, converts the one thing we
+  cannot fix into the reason to start.
+
+Ten slides became twelve: two new `hero` slides that carry a single sentence and
+nothing else, because the first draft gave every slide identical weight and a
+reader skimming it found no rhythm and nothing to remember. The figures, the
+plans and the refusals are unchanged — this is a rewrite of the words around
+them, not of what they say.
+
+**AND MY OWN COPY TRIPPED THE GUARD, WHICH IS THE POINT OF HAVING ONE.** The
+objection slide originally said "a testimonial we wrote ourselves" — rejecting
+one, not making one — and the verifier failed the build on the word. The tempting
+fix is to teach the check about context. The right fix was to move the copy: a
+word-match guarding a claim that could cost a customer their trust should stay
+stupid and loud, because the day somebody teaches it to understand context is the
+day it starts letting things through.
+
+**THEN IT SLIPPED ONE PAST ANYWAY.** The same slide read "it is the same engine
+our paying customers use." No number, no logo, no superlative — so every check in
+§133 passed it, and it is still a customer claim from a company with no
+customers. Social proof does not need a figure to be a lie; a possessive is
+enough. The copy now says it runs the same checks the paid product runs, which is
+true, and the verifier has a ninth guard that fails the build on "our customers",
+"our clients", "our users" and their variants. Mutation-tested by putting the old
+sentence back: the build fails.
+
+**Rendered and looked at, again.** All twelve slides were screenshotted and
+inspected, and two typographic faults were fixed that no test would have caught.
+The objection headline broke as "You have never heard of / us", orphaning one
+word on its own line — every display line now sets `text-wrap: balance`. And on
+the three slides whose body is a full-width grid of cards, a headline held to the
+prose measure stacked into three narrow lines above four wide ones; those
+headlines now take the grid's width, so "No setup fee. No contract. No sales
+call." lands on one line instead of two.

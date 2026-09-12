@@ -19,11 +19,15 @@
     font-size: 10.5pt; letter-spacing: .22em; text-transform: uppercase;
     color: #C79C51; margin-bottom: 7mm; font-weight: 700;
   }
+  /* text-wrap: balance on every display line, because a headline that drops one
+     short word onto its own line reads as a mistake the reader notices before the
+     sentence. "You have never heard of us" was breaking after "of". */
   h1 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
-       font-size: 40pt; line-height: 1.1; font-weight: 700; color: #EAD3A8; max-width: 24ch; }
+       font-size: 40pt; line-height: 1.1; font-weight: 700; color: #EAD3A8;
+       max-width: 24ch; text-wrap: balance; }
   h2 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
        font-size: 27pt; line-height: 1.15; font-weight: 700; color: #EAD3A8;
-       max-width: 30ch; margin-bottom: 9mm; }
+       max-width: 30ch; margin-bottom: 9mm; text-wrap: balance; }
   h3 { font-size: 13pt; font-weight: 700; color: #E8E6E1; margin-bottom: 3mm; }
   p  { font-size: 12pt; line-height: 1.55; color: #A9A59C; }
 
@@ -33,11 +37,30 @@
   .foot { margin-top: 12mm; font-size: 10.5pt; color: #C79C51; }
   .foot.big { margin-top: 10mm; font-size: 17pt; font-weight: 700; letter-spacing: .04em; }
 
+  /* THE HERO SLIDE. A single sentence at size, with the payoff underneath in the
+     display face so the two read as one thought rather than a title and a
+     subtitle that happen to share a page. */
+  .hero { justify-content: center; }
+  h1.big { font-size: 62pt; line-height: 1; color: #C79C51; max-width: 20ch; margin-bottom: 3mm; }
+  .heroline { font-size: 34pt; line-height: 1.12; max-width: 26ch; margin-bottom: 8mm; color: #EAD3A8; }
+  .herobody { font-size: 13.5pt; line-height: 1.6; max-width: 78ch; color: #E8E6E1; }
+
+  /* The objection slide names the weakness in the headline, so the headline gets
+     the reader's eye and the answer gets the room underneath it. */
+  .objtitle { font-size: 40pt; max-width: 30ch; margin-bottom: 8mm; }
+
+  /* A HEADLINE SHARES THE MEASURE OF WHAT IT INTRODUCES. The default 30ch is set
+     for slides whose body is running prose. On a slide whose body is a full-width
+     grid of cards, the same headline stacked into three narrow lines above four
+     wide ones, and balancing it only moved the awkward break ("9 of / them").
+     Give those headlines the grid's width and they settle into clean lines. */
+  .slide:has(> .grid) > h2 { max-width: 46ch; }
+
   .statement { max-width: 84ch; }
   /* The closing slide puts a statement straight under the headline, and with no
      margin the two collided — the body read as a stray subtitle. */
   .close .statement { margin-top: 9mm; }
-  .statement p { font-size: 14pt; line-height: 1.62; margin-bottom: 5mm; color: #E8E6E1; }
+  .statement p { font-size: 14.5pt; line-height: 1.6; margin-bottom: 5.5mm; color: #E8E6E1; }
   .statement p:last-child { margin-bottom: 0; }
 
   .steps { display: flex; gap: 11mm; }
@@ -74,76 +97,85 @@
 <section class="slide cover">
       <div class="rule"></div>
       <p class="eyebrow">marketwaros.com</p>
-      <h1>Marketing that refuses to waste your money</h1>
-      <p class="lede">Start with a free 31-point audit of your own website. No account. No card. Then 39 AI agents build the offer, run the campaigns and stop the spend that is not working.</p>
-      <p class="foot">A deck you can check before you believe it — every number here is on the website.</p>
+      <h1>Your marketing spends. It never stops.</h1>
+      <p class="lede">39 AI agents that write the offer, run the campaigns, and kill the ones losing your money. Start by auditing your own website free — 31 checks, no account, no card.</p>
+      <p class="foot">Every number in this deck is on the website. Check it before you believe it.</p>
     </section>
-<section class="slide"><p class="eyebrow">The problem</p><h2>Most marketing tools tell you what happened. None of them refuse.</h2>
-      <div class="statement"><p>A dashboard shows you that £400 went out and two enquiries came back. It shows you that again next month.</p><p>Nothing in it ever declines to run an advert that cannot be measured, stops a campaign that is losing, or tells you an address it found belongs to somebody else.</p><p>That is the gap this was built in. Not more reporting — refusal.</p></div><div class="num">2 / 10</div></section>
-<section class="slide"><p class="eyebrow">Start here, free</p><h2>A real crawl of your real website, 31 checks</h2>
+<section class="slide hero">
+      <p class="eyebrow">Start here</p>
+      <h1 class="big">Name the advert</h1>
+      <h2 class="heroline">that brought you your last customer.</h2>
+      <p class="herobody">Most owners cannot. Not because they are careless — because nothing they pay for was ever built to tell them.</p><div class="num">2 / 12</div></section>
+<section class="slide"><p class="eyebrow">The Tuesday you have had</p><h2>You know this week</h2>
+      <div class="statement"><p>You boosted a post. It got four thousand views and no phone calls. You do not know which four thousand.</p><p>An agency sends a report on the 5th. It is beautiful. Nothing in it says stop.</p><p>A customer who bought from you twice last year has not been back since March. Nobody noticed.</p><p>None of that is a marketing problem. It is a nobody-is-watching problem.</p></div><div class="num">3 / 12</div></section>
+<section class="slide hero">
+      <p class="eyebrow">The difference</p>
+      <h1 class="big">It says no.</h1>
+      <h2 class="heroline">Every other tool only says what happened.</h2>
+      <p class="herobody">A dashboard shows you £400 went out and two enquiries came back. It shows you that again next month. Ours refuses to run the advert that cannot be measured, and stops the one that is losing.</p><div class="num">4 / 12</div></section>
+<section class="slide"><p class="eyebrow">What it refuses</p><h2>Five things it will not do, whatever you tell it</h2>
+      <ul class="list">
+        <li><span class="h">Spend where it cannot measure</span><span class="p">No conversion tracking, no paid boost. Spending blind is not a service you should be sold.</span></li>
+        <li><span class="h">Hand you somebody else's email</span><span class="p">Every address is checked against the business it belongs to. Directory inboxes are binned, not added to your list.</span></li>
+        <li><span class="h">Post the same thing twice</span><span class="p">When a publish response is lost, it asks the channel what happened instead of guessing and posting again.</span></li>
+        <li><span class="h">Invent anything</span><span class="p">No made-up contacts. No filler statistics. When it cannot find something, it tells you it could not.</span></li>
+        <li><span class="h">Keep going when you say stop</span><span class="p">One control halts every campaign, every scheduled send and every pound, instantly.</span></li></ul><div class="num">5 / 12</div></section>
+<section class="slide"><p class="eyebrow">No sales call. No card.</p><h2>Audit your own website in four minutes</h2>
       <div class="steps">
         <div class="step"><div class="stepnum">1</div>
-          <h3>Put your address in</h3><p>No account, no card, no call. The crawler fetches your actual pages, exactly as a search engine would.</p></div>
+          <h3>Type your address</h3><p>It crawls your real pages and runs 31 checks, exactly as a search engine would.</p></div>
         <div class="step"><div class="stepnum">2</div>
-          <h3>See your three worst problems</h3><p>Free, in full, with what each one costs you and how to fix it. Not a score with a sales call attached.</p></div>
+          <h3>Read your three worst problems</h3><p>In full. Free. With what each one is costing you and how to fix it. Not a score with a salesperson attached.</p></div>
         <div class="step"><div class="stepnum">3</div>
-          <h3>Decide afterwards</h3><p>If the audit is wrong, you have lost nothing and you will know not to trust the rest. That is the point of leading with it.</p></div></div>
-      <p class="cta">marketwaros.com/audit</p><div class="num">3 / 10</div></section>
-<section class="slide"><p class="eyebrow">What it actually does</p><h2>39 agents, 12 tools, 9 of them working before you connect anything</h2>
+          <h3>Judge us on it</h3><p>If it is wrong, you have lost four minutes and learned not to trust the rest. That is exactly why we lead with it.</p></div></div>
+      <p class="cta">marketwaros.com/audit</p><div class="num">6 / 12</div></section>
+<section class="slide"><p class="eyebrow">Then it goes to work</p><h2>39 agents. 12 tools. 9 of them running before you connect a thing.</h2>
       <div class="grid">
-        <div class="card"><h3>Find the customers</h3><p>Import a list of business names and it finds their websites, their published addresses and their phone numbers. It never invents one.</p></div>
-        <div class="card"><h3>Write what you send</h3><p>Offers, emails, adverts and landing pages, in your brand's voice and your customer's language — not a template with your name dropped in.</p></div>
-        <div class="card"><h3>Run the campaigns</h3><p>Briefs, creative, publication and follow-up across email, social and paid, from one place with one bill.</p></div>
-        <div class="card"><h3>Watch the money</h3><p>Cost per lead and per order against your own numbers, not an industry average. Every refusal is calculated, never guessed.</p></div></div><div class="num">4 / 10</div></section>
-<section class="slide"><p class="eyebrow">Whatever size you are</p><h2>The same engine. Three different jobs.</h2>
+        <div class="card"><h3>Finds the customers</h3><p>Give it a list of business names. It finds their websites, their published addresses and their numbers — and never invents one.</p></div>
+        <div class="card"><h3>Writes what you send</h3><p>Offers, emails, adverts, landing pages. In your voice and your customer's language, not a template with your name dropped in.</p></div>
+        <div class="card"><h3>Runs the campaigns</h3><p>Email, social and paid, briefed, made, published and followed up from one place, on one bill.</p></div>
+        <div class="card"><h3>Guards the money</h3><p>Cost per lead and per order against your own numbers. Every refusal is calculated, never guessed.</p></div></div><div class="num">7 / 12</div></section>
+<section class="slide"><p class="eyebrow">Whatever size you are</p><h2>One engine. Three very different jobs.</h2>
       <div class="grid three">
-        <div class="card size"><h3>On your own</h3><p class="sub">A trade, a shop, a single practice</p>
-          <p>You have no marketing hours and no agency. It does the writing, the sending and the chasing, and it tells you which of your own customers are about to leave.</p><p class="proof">Starts at £0 — the audit, the offer builder and the vault need no card at all.</p></div>
+        <div class="card size"><h3>On your own</h3><p class="sub">A trade, a shop, one practice</p>
+          <p>No marketing hours, no agency. It writes, sends and chases — and tells you which of your own customers are about to leave while there is still time.</p><p class="proof">Starts at £0. The audit, the vault and the offer builder need no card at all.</p></div>
         <div class="card size"><h3>Growing</h3><p class="sub">A team, a few thousand customers</p>
-          <p>You have campaigns running and no idea which are paying. It scores every one against your own median, kills the losers and reroutes the budget to what is working.</p><p class="proof">Growth is £49 a month for 3 brands and 5 people.</p></div>
+          <p>Campaigns running, no idea which pay. It scores every one against your own median, kills the losers and moves the budget to what works.</p><p class="proof">Growth: £49 a month, 3 brands, 5 people.</p></div>
         <div class="card size"><h3>Several brands</h3><p class="sub">A group, a franchise, an agency</p>
-          <p>Each brand keeps its own voice, its own sending domain and its own audience. One account, one bill, and no brand's list ever touches another's.</p><p class="proof">Brands are separated in the database itself, not by a filter in the interface.</p></div></div><div class="num">5 / 10</div></section>
-<section class="slide"><p class="eyebrow">The part nobody else sells</p><h2>It says no, and it says why</h2>
-      <ul class="list">
-        <li><span class="h">It will not spend where it cannot measure</span><span class="p">A paid boost is refused outright when conversion tracking is not connected. Spending blind is not a service.</span></li>
-        <li><span class="h">It will not send you somebody else's address</span><span class="p">Every email it finds is checked against the business it belongs to. A directory inbox is thrown away rather than added to your list.</span></li>
-        <li><span class="h">It will not post twice</span><span class="p">When a publish response is lost, the next attempt asks the channel what happened instead of guessing and posting again.</span></li>
-        <li><span class="h">It will not invent anything</span><span class="p">No fabricated contacts, no made-up statistics, no filler where a real answer should be. When it cannot find something it tells you that it could not.</span></li>
-        <li><span class="h">It stops when you say stop</span><span class="p">One control halts every campaign, every scheduled send and every pound of spend, immediately.</span></li></ul><div class="num">6 / 10</div></section>
-<section class="slide"><p class="eyebrow">Pricing</p><h2>Three plans. No setup fee, no contract, no sales call.</h2>
+          <p>Each brand keeps its own voice, its own sending domain, its own audience. One account, one bill, and no brand's list ever touches another's.</p><p class="proof">Separated in the database, not by a filter on a screen.</p></div></div><div class="num">8 / 12</div></section>
+<section class="slide objection">
+      <p class="eyebrow">The obvious question</p>
+      <h2 class="objtitle">You have never heard of us</h2>
+      <div class="statement"><p>That is true, and we are not going to paper over it with a wall of logos or a five-star quote we wrote ourselves.</p><p>So here is the deal instead. Run the free audit on your own website before you speak to anybody here. It costs nothing, needs no account, and it runs the same checks the paid product runs.</p><p>If it finds something you did not know, that is your answer. If it does not, you have lost four minutes and you owe us nothing.</p></div>
+      <p class="cta">We would rather be checked than believed.</p><div class="num">9 / 12</div></section>
+<section class="slide"><p class="eyebrow">Pricing</p><h2>No setup fee. No contract. No sales call.</h2>
       <div class="grid three">
         <div class="card plan">
           <h3>Free</h3>
           <p class="price">£0<span>for ever</span></p>
           <p class="spec">1 brand · 1 user · 0 credits a month</p>
-          <p>The audit, the customer vault and the offer builder. Enough to judge it.</p>
+          <p>The audit, the customer vault and the offer builder. Enough to judge us on.</p>
         </div>
         <div class="card plan">
           <h3>Starter</h3>
           <p class="price">£19<span>a month</span></p>
           <p class="spec">1 brand · 2 users · 380 credits a month</p>
-          <p>Or £160/yr. Everything above plus live campaigns and AI work.</p>
+          <p>Or £160/yr. Everything above, plus live campaigns and AI work.</p>
         </div>
         <div class="card plan featured">
           <h3>Growth</h3>
           <p class="price">£49<span>a month</span></p>
           <p class="spec">3 brands · 5 users · 980 credits a month</p>
-          <p>Or £412/yr. For several brands and a team around them.</p>
+          <p>Or £412/yr. Several brands and the team around them.</p>
         </div></div>
-      <p class="cta small">AI work is charged in credits so you pay for what you use, not a seat you do not fill. A 15-second video is about £5.25; the shortest is £2.81. Unused work costs nothing.</p><div class="num">7 / 10</div></section>
-<section class="slide"><p class="eyebrow">What stays yours</p><h2>Your customers, your data, your exit</h2>
-      <ul class="list">
-        <li><span class="h">Your list is yours</span><span class="p">Export every contact, every campaign and every result at any time, in a file you can open. No permission needed and no fee.</span></li>
-        <li><span class="h">Consent travels with the contact</span><span class="p">Who agreed, when, and how, recorded against each person. Unsubscribes are honoured across every brand in the account at once.</span></li>
-        <li><span class="h">Your data is separated at the database</span><span class="p">Not hidden by the interface. Another account cannot read yours even if the screen is wrong.</span></li>
-        <li><span class="h">Sensitive fields are encrypted before they are stored</span><span class="p">Contact details are written encrypted, not merely protected by a login.</span></li></ul><div class="num">8 / 10</div></section>
-<section class="slide"><p class="eyebrow">Referrals</p><h2>If you send somebody, you get paid for it</h2>
-      <div class="statement"><p>Share a link. When somebody you introduced spends, you earn 0.5% of it, for as long as they stay.</p><p>Withdraw from £20. No follower count, no application, no tier to reach first.</p></div><div class="num">9 / 10</div></section>
+      <p class="cta small">AI work is charged in credits, so you pay for what you use instead of a seat you do not fill. A 15-second video is about £5.25; the shortest is £2.81. Work you do not run costs nothing. Cancel whenever you like and take your list with you.</p><div class="num">10 / 12</div></section>
+<section class="slide"><p class="eyebrow">And if you send somebody</p><h2>You get paid for the introduction</h2>
+      <div class="statement"><p>Share your link. When somebody you introduced spends, you earn 0.5% of it — for as long as they stay.</p><p>Withdraw from £20. No follower count. No application. No tier to climb first.</p></div><div class="num">11 / 12</div></section>
 <section class="slide cover close">
     <div class="rule"></div>
-    <p class="eyebrow">Start</p>
-    <h1>Audit your website before you talk to anybody</h1>
-    <div class="statement"><p>marketwaros.com/audit — 31 checks against your real pages, your three worst problems in full, free.</p><p>If it finds nothing useful, you have lost four minutes and learned something about us.</p></div>
+    <p class="eyebrow">Do this next</p>
+    <h1>Audit your website before you talk to us</h1>
+    <div class="statement"><p>Go to marketwaros.com/audit. Type your address. 31 checks against your real pages, your three worst problems in full, free.</p><p>Then decide whether the rest of this deck was worth reading.</p></div>
     <p class="foot big">marketwaros.com</p>
   </section>
 </body></html>

@@ -1,25 +1,44 @@
 // THE CUSTOMER DECK — EVERY NUMBER READ OUT OF `src/`, NOT TYPED HERE.
 //
-// WHY IT IS BUILT RATHER THAN WRITTEN. A deck is the one document that outlives
-// the conversation: it gets forwarded, quoted back, and held up six months later
-// when a price has moved. Every figure below comes from `ads-facts.mjs`, which
-// parses the real plan table, the real agent registry and the real audit route,
-// and THROWS if the shape changes. A price nobody can quote wrongly is worth
-// more than a prettier slide.
+// WHY IT IS BUILT RATHER THAN WRITTEN. A deck outlives the conversation: it gets
+// forwarded, quoted back, and held up six months later when a price has moved.
+// Every figure below comes from `ads-facts.mjs`, which parses the real plan
+// table, the real agent registry and the real audit route, and THROWS if a shape
+// changes. A price nobody can quote wrongly is worth more than a prettier slide.
 //
-// WHAT IS DELIBERATELY ABSENT, AND WILL STAY ABSENT:
+// HOW IT IS PUNCHY WITHOUT LYING, because the first draft was neither.
 //
-//   • Customer names, logos, testimonials, case studies. This platform has no
-//     customers yet. Inventing social proof is the one lie a deck can tell that
-//     a buyer will definitely discover, and it is the lie that ends the deal.
-//   • "Trusted by", "used by N businesses", growth percentages, ROI multiples.
-//     None of it is measured, so none of it is claimed.
-//   • A legal entity name or address. They are not published on the site yet, and
-//     a deck is not the place to invent them.
+// The first version read like an engineering document: accurate, calm, and it
+// sold nothing. The temptation at that point is to reach for the things that
+// make a deck feel persuasive — a testimonial, a customer count, "4x ROI". This
+// company has no customers, so every one of those would be a lie a serious buyer
+// discovers in one search, and the verifier fails the build on all of them.
 //
-// WHAT IS CLAIMED INSTEAD is what the code does, which is checkable by anybody
-// who opens the free audit before they speak to a salesperson — and that is the
-// strongest thing an unknown company can offer.
+// So the punch comes from craft instead:
+//
+//   • SECOND PERSON, PRESENT TENSE. "You boosted a post" beats "businesses often
+//     boost posts".
+//   • SCENES, NOT ADJECTIVES. A reader recognises a Tuesday they have had. They
+//     do not recognise "powerful growth platform".
+//   • ARITHMETIC THE READER SUPPLIES. We never claim a result. We ask a question
+//     whose answer is their own number, and their own number is more persuasive
+//     than any figure we could invent.
+//   • THE WEAKNESS, SAID FIRST. "You have never heard of us" is the objection in
+//     every reader's head by slide three. Saying it out loud, and answering it
+//     with a free check they can run before they speak to anybody, converts the
+//     one thing we cannot fix into the reason to start.
+//
+// WHAT IS DELIBERATELY ABSENT AND WILL STAY ABSENT: customer names, logos,
+// testimonials, case studies, "trusted by", growth percentages, ROI multiples,
+// guarantees, awards — and any legal entity name or address, which are not
+// published on the site yet.
+//
+// AND THE GUARD IS BLUNT ON PURPOSE. This slide originally said "a testimonial
+// we wrote ourselves" — rejecting one, not making one — and the verifier failed
+// the build on the word. The tempting fix is to make the check cleverer. The
+// right fix is to move the copy: a word-match guarding a claim that could cost a
+// customer their trust should stay stupid and loud, because the day somebody
+// teaches it to understand context is the day it starts letting things through.
 
 import {
   FREE, STARTER, GROWTH,
@@ -57,132 +76,149 @@ export const SLIDES = [
   {
     kind: "cover",
     eyebrow: BRAND.site,
-    title: "Marketing that refuses to waste your money",
-    lede: `Start with a free ${CHECKS}-point audit of your own website. No account. No card. ` +
-      `Then ${AGENT_COUNT} AI agents build the offer, run the campaigns and stop the spend that is not working.`,
-    foot: "A deck you can check before you believe it — every number here is on the website.",
+    title: "Your marketing spends. It never stops.",
+    lede: `${AGENT_COUNT} AI agents that write the offer, run the campaigns, and kill the ones losing your money. ` +
+      `Start by auditing your own website free — ${CHECKS} checks, no account, no card.`,
+    foot: "Every number in this deck is on the website. Check it before you believe it.",
+  },
+
+  {
+    kind: "hero",
+    eyebrow: "Start here",
+    big: "Name the advert",
+    title: "that brought you your last customer.",
+    body: "Most owners cannot. Not because they are careless — because nothing they pay for was ever built to tell them.",
   },
 
   {
     kind: "statement",
-    eyebrow: "The problem",
-    title: "Most marketing tools tell you what happened. None of them refuse.",
+    eyebrow: "The Tuesday you have had",
+    title: "You know this week",
     body: [
-      "A dashboard shows you that £400 went out and two enquiries came back. It shows you that again next month.",
-      "Nothing in it ever declines to run an advert that cannot be measured, stops a campaign that is losing, or tells you an address it found belongs to somebody else.",
-      "That is the gap this was built in. Not more reporting — refusal.",
+      "You boosted a post. It got four thousand views and no phone calls. You do not know which four thousand.",
+      "An agency sends a report on the 5th. It is beautiful. Nothing in it says stop.",
+      "A customer who bought from you twice last year has not been back since March. Nobody noticed.",
+      "None of that is a marketing problem. It is a nobody-is-watching problem.",
+    ],
+  },
+
+  {
+    kind: "hero",
+    eyebrow: "The difference",
+    big: "It says no.",
+    title: "Every other tool only says what happened.",
+    body: "A dashboard shows you £400 went out and two enquiries came back. It shows you that again next month. Ours refuses to run the advert that cannot be measured, and stops the one that is losing.",
+  },
+
+  {
+    kind: "list",
+    eyebrow: "What it refuses",
+    title: "Five things it will not do, whatever you tell it",
+    items: [
+      { h: "Spend where it cannot measure", p: "No conversion tracking, no paid boost. Spending blind is not a service you should be sold." },
+      { h: "Hand you somebody else's email", p: "Every address is checked against the business it belongs to. Directory inboxes are binned, not added to your list." },
+      { h: "Post the same thing twice", p: "When a publish response is lost, it asks the channel what happened instead of guessing and posting again." },
+      { h: "Invent anything", p: "No made-up contacts. No filler statistics. When it cannot find something, it tells you it could not." },
+      { h: "Keep going when you say stop", p: "One control halts every campaign, every scheduled send and every pound, instantly." },
     ],
   },
 
   {
     kind: "steps",
-    eyebrow: "Start here, free",
-    title: `A real crawl of your real website, ${CHECKS} checks`,
+    eyebrow: "No sales call. No card.",
+    title: `Audit your own website in four minutes`,
     steps: [
-      { n: "1", h: "Put your address in", p: "No account, no card, no call. The crawler fetches your actual pages, exactly as a search engine would." },
-      { n: "2", h: `See your ${FREE_FINDINGS_WORD} worst problems`, p: "Free, in full, with what each one costs you and how to fix it. Not a score with a sales call attached." },
-      { n: "3", h: "Decide afterwards", p: "If the audit is wrong, you have lost nothing and you will know not to trust the rest. That is the point of leading with it." },
+      { n: "1", h: "Type your address", p: `It crawls your real pages and runs ${CHECKS} checks, exactly as a search engine would.` },
+      { n: "2", h: `Read your ${FREE_FINDINGS_WORD} worst problems`, p: "In full. Free. With what each one is costing you and how to fix it. Not a score with a salesperson attached." },
+      { n: "3", h: "Judge us on it", p: "If it is wrong, you have lost four minutes and learned not to trust the rest. That is exactly why we lead with it." },
     ],
-    foot: `${BRAND.auditUrl}`,
+    foot: BRAND.auditUrl,
   },
 
   {
     kind: "grid",
-    eyebrow: "What it actually does",
-    title: `${AGENT_COUNT} agents, ${TOOL_TOTAL} tools, ${TOOL_KEYLESS} of them working before you connect anything`,
+    eyebrow: "Then it goes to work",
+    title: `${AGENT_COUNT} agents. ${TOOL_TOTAL} tools. ${TOOL_KEYLESS} of them running before you connect a thing.`,
     cards: [
-      { h: "Find the customers", p: "Import a list of business names and it finds their websites, their published addresses and their phone numbers. It never invents one." },
-      { h: "Write what you send", p: "Offers, emails, adverts and landing pages, in your brand's voice and your customer's language — not a template with your name dropped in." },
-      { h: "Run the campaigns", p: "Briefs, creative, publication and follow-up across email, social and paid, from one place with one bill." },
-      { h: "Watch the money", p: "Cost per lead and per order against your own numbers, not an industry average. Every refusal is calculated, never guessed." },
+      { h: "Finds the customers", p: "Give it a list of business names. It finds their websites, their published addresses and their numbers — and never invents one." },
+      { h: "Writes what you send", p: "Offers, emails, adverts, landing pages. In your voice and your customer's language, not a template with your name dropped in." },
+      { h: "Runs the campaigns", p: "Email, social and paid, briefed, made, published and followed up from one place, on one bill." },
+      { h: "Guards the money", p: "Cost per lead and per order against your own numbers. Every refusal is calculated, never guessed." },
     ],
   },
 
   {
     kind: "sizes",
     eyebrow: "Whatever size you are",
-    title: "The same engine. Three different jobs.",
+    title: "One engine. Three very different jobs.",
     columns: [
       {
         h: "On your own",
-        sub: "A trade, a shop, a single practice",
-        p: "You have no marketing hours and no agency. It does the writing, the sending and the chasing, and it tells you which of your own customers are about to leave.",
-        proof: `Starts at ${FREE.monthly} — the audit, the offer builder and the vault need no card at all.`,
+        sub: "A trade, a shop, one practice",
+        p: "No marketing hours, no agency. It writes, sends and chases — and tells you which of your own customers are about to leave while there is still time.",
+        proof: `Starts at ${FREE.monthly}. The audit, the vault and the offer builder need no card at all.`,
       },
       {
         h: "Growing",
         sub: "A team, a few thousand customers",
-        p: "You have campaigns running and no idea which are paying. It scores every one against your own median, kills the losers and reroutes the budget to what is working.",
-        proof: `${GROWTH.name} is ${GROWTH.monthly} a month for ${GROWTH.brands} brands and ${GROWTH.users} people.`,
+        p: "Campaigns running, no idea which pay. It scores every one against your own median, kills the losers and moves the budget to what works.",
+        proof: `${GROWTH.name}: ${GROWTH.monthly} a month, ${GROWTH.brands} brands, ${GROWTH.users} people.`,
       },
       {
         h: "Several brands",
         sub: "A group, a franchise, an agency",
-        p: "Each brand keeps its own voice, its own sending domain and its own audience. One account, one bill, and no brand's list ever touches another's.",
-        proof: "Brands are separated in the database itself, not by a filter in the interface.",
+        p: "Each brand keeps its own voice, its own sending domain, its own audience. One account, one bill, and no brand's list ever touches another's.",
+        proof: "Separated in the database, not by a filter on a screen.",
       },
     ],
   },
 
   {
-    kind: "list",
-    eyebrow: "The part nobody else sells",
-    title: "It says no, and it says why",
-    items: [
-      { h: "It will not spend where it cannot measure", p: "A paid boost is refused outright when conversion tracking is not connected. Spending blind is not a service." },
-      { h: "It will not send you somebody else's address", p: "Every email it finds is checked against the business it belongs to. A directory inbox is thrown away rather than added to your list." },
-      { h: "It will not post twice", p: "When a publish response is lost, the next attempt asks the channel what happened instead of guessing and posting again." },
-      { h: "It will not invent anything", p: "No fabricated contacts, no made-up statistics, no filler where a real answer should be. When it cannot find something it tells you that it could not." },
-      { h: "It stops when you say stop", p: "One control halts every campaign, every scheduled send and every pound of spend, immediately." },
+    kind: "objection",
+    eyebrow: "The obvious question",
+    title: "You have never heard of us",
+    body: [
+      "That is true, and we are not going to paper over it with a wall of logos or a five-star quote we wrote ourselves.",
+      "So here is the deal instead. Run the free audit on your own website before you speak to anybody here. It costs nothing, needs no account, and it runs the same checks the paid product runs.",
+      "If it finds something you did not know, that is your answer. If it does not, you have lost four minutes and you owe us nothing.",
     ],
+    foot: "We would rather be checked than believed.",
   },
 
   {
     kind: "pricing",
     eyebrow: "Pricing",
-    title: "Three plans. No setup fee, no contract, no sales call.",
+    title: "No setup fee. No contract. No sales call.",
     plans: [
       { name: FREE.name, price: FREE.monthly, per: "for ever", brands: FREE.brands, users: FREE.users, acus: FREE.monthlyAcus,
-        line: "The audit, the customer vault and the offer builder. Enough to judge it." },
+        line: "The audit, the customer vault and the offer builder. Enough to judge us on." },
       { name: STARTER.name, price: STARTER.monthly, per: "a month", brands: STARTER.brands, users: STARTER.users, acus: STARTER.monthlyAcus,
-        line: `Or ${STARTER.annual}. Everything above plus live campaigns and AI work.` },
+        line: `Or ${STARTER.annual}. Everything above, plus live campaigns and AI work.` },
       { name: GROWTH.name, price: GROWTH.monthly, per: "a month", brands: GROWTH.brands, users: GROWTH.users, acus: GROWTH.monthlyAcus,
-        line: `Or ${GROWTH.annual}. For several brands and a team around them.`, featured: true },
+        line: `Or ${GROWTH.annual}. Several brands and the team around them.`, featured: true },
     ],
-    foot: `AI work is charged in credits so you pay for what you use, not a seat you do not fill. ` +
+    foot: `AI work is charged in credits, so you pay for what you use instead of a seat you do not fill. ` +
       `A ${VIDEO_DEFAULT_PRICE.seconds}-second video is about £${VIDEO_DEFAULT_PRICE.gbp}; the shortest is £${VIDEO_CHEAPEST.gbp}. ` +
-      `Unused work costs nothing.`,
-  },
-
-  {
-    kind: "list",
-    eyebrow: "What stays yours",
-    title: "Your customers, your data, your exit",
-    items: [
-      { h: "Your list is yours", p: "Export every contact, every campaign and every result at any time, in a file you can open. No permission needed and no fee." },
-      { h: "Consent travels with the contact", p: "Who agreed, when, and how, recorded against each person. Unsubscribes are honoured across every brand in the account at once." },
-      { h: "Your data is separated at the database", p: "Not hidden by the interface. Another account cannot read yours even if the screen is wrong." },
-      { h: "Sensitive fields are encrypted before they are stored", p: "Contact details are written encrypted, not merely protected by a login." },
-    ],
+      `Work you do not run costs nothing. Cancel whenever you like and take your list with you.`,
   },
 
   {
     kind: "statement",
-    eyebrow: "Referrals",
-    title: "If you send somebody, you get paid for it",
+    eyebrow: "And if you send somebody",
+    title: "You get paid for the introduction",
     body: [
-      `Share a link. When somebody you introduced spends, you earn ${SHARE2EARN_PCT} of it, for as long as they stay.`,
-      `Withdraw from £${MIN_WITHDRAWAL_GBP}. No follower count, no application, no tier to reach first.`,
+      `Share your link. When somebody you introduced spends, you earn ${SHARE2EARN_PCT} of it — for as long as they stay.`,
+      `Withdraw from £${MIN_WITHDRAWAL_GBP}. No follower count. No application. No tier to climb first.`,
     ],
   },
 
   {
     kind: "close",
-    eyebrow: "Start",
-    title: "Audit your website before you talk to anybody",
+    eyebrow: "Do this next",
+    title: "Audit your website before you talk to us",
     body: [
-      `${BRAND.auditUrl} — ${CHECKS} checks against your real pages, your ${FREE_FINDINGS_WORD} worst problems in full, free.`,
-      "If it finds nothing useful, you have lost four minutes and learned something about us.",
+      `Go to ${BRAND.auditUrl}. Type your address. ${CHECKS} checks against your real pages, your ${FREE_FINDINGS_WORD} worst problems in full, free.`,
+      "Then decide whether the rest of this deck was worth reading.",
     ],
     foot: BRAND.site,
   },

@@ -116,6 +116,12 @@ const forbidden = [
   [/\btrusted by\b/i, '"trusted by" — there are no customers to be trusted by yet'],
   [/\b\d[\d,]*\+?\s+(?:businesses|companies|customers|clients|users)\s+(?:use|trust|rely)/i, "a customer count"],
   [/\btestimonial/i, "a testimonial"],
+  // ADDED AFTER MY OWN COPY SLIPPED IT THROUGH. The objection slide read "it is
+  // the same engine our paying customers use" — a customer claim with no number
+  // and no logo attached, so every check above passed it. Social proof does not
+  // need a figure to be a lie; a possessive is enough.
+  [/\bour (?:paying |existing |current |first )?(?:customers|clients|users|members)\b/i,
+   "a reference to customers this platform does not have yet"],
   [/\bcase stud(?:y|ies)\b/i, "a case study"],
   [/\b\d+x\s+(?:ROI|return|growth|more)\b/i, "an ROI or growth multiple"],
   [/\bguarantee(?:d|s)?\b/i, "a guarantee"],
