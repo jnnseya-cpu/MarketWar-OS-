@@ -65,8 +65,8 @@ Nothing fabricates data — thin modules label their numbers as estimates.
 | Module | What's real | Key that lights it up |
 |---|---|---|
 | **billing** | plan/wallet display | **STRIPE** (top-up = real checkout) |
-| **inbox** | real per-brand inbound store | **SMTP/RESEND/SENDGRID** (send replies) |
-| **email** | hygiene filter + vault sends + event ledger | **SMTP/RESEND/SENDGRID** (delivery) |
+| **inbox** | real per-brand inbound store | **our own sending pool** (send replies) |
+| **email** | hygiene filter + vault sends + event ledger | **our own sending pool** (delivery) |
 | **prospecting** | ICP + deal-scoring | **SERPER** (real companies) |
 | **first-customer** | chained flow | **AI + SERPER + STRIPE** |
 | **discover** | opportunity/leads | **SERPER** (live Google) |

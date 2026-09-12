@@ -126,8 +126,10 @@ console **only** — never committed. Public `NEXT_PUBLIC_*` identifiers are saf
 
 ## 6. Email / SMTP (transactional + lifecycle)
 
-The engine (`src/backend/email.ts`) tries **SMTP first**, then the Resend and
-SendGrid HTTP APIs, then demo. SMTP is spoken with Node's own `tls`/`net` — no
+The engine (`src/backend/email.ts`) sends on **our own node pool** and nothing
+else — `MW_SENDING_POOL`, or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` on our own
+domain — falling back only to demo. There is no outside provider to reach for:
+MarketWar OS is the sending service. SMTP is spoken with Node's own `tls`/`net` — no
 third-party dependency — supporting implicit TLS (465) and STARTTLS (587).
 
 - [ ] Point `SMTP_*` at your relay (Brevo / Postmark / SES / Mailgun).

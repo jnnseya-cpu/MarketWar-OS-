@@ -27597,18 +27597,21 @@ test("crashed is a category the type allows, and it is distinct from provider", 
     "sendEmail must be the wrapper, or the whole guarantee is gone");
 });
 
-test("a provider that cannot be reached falls through instead of throwing", async () => {
-  // `fetch` rejects on DNS failure, TLS error or blocked egress. Both provider
-  // calls were unwrapped, so a host that could not reach Resend did not fall
-  // through to SendGrid — it threw out of the middle of the chain.
+test("there is no outside email provider to fall through to", async () => {
+  // THIS TEST USED TO ASSERT THE OPPOSITE, and that is the point of rewriting it
+  // rather than deleting it. It required two third-party HTTP sender calls to be
+  // present and individually wrapped in a catch. Neither key had ever been set on
+  // any deployment, so neither had ever run — and the owner's sending law is that
+  // MarketWar OS IS the email service provider. The branches are gone (§136), so
+  // what has to be guarded now is their ABSENCE: a helpful future edit that adds
+  // a vendor fallback back in should fail the build, not pass it.
   const src = codeOf(readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8"));
-  const resend = src.indexOf("api.resend.com");
-  const sendgrid = src.indexOf("api.sendgrid.com");
-  assert.ok(resend > 0 && sendgrid > 0);
-  // Each provider block must contain a catch between its fetch and the next.
-  const betweenProviders = src.slice(resend, sendgrid);
-  assert.match(betweenProviders, /catch\s*\(/, "the Resend call can still throw out of the provider chain");
-  assert.match(src.slice(sendgrid), /catch\s*\(/, "the SendGrid call can still throw out of the provider chain");
+  for (const host of ["api.resend.com", "api.sendgrid.com", "api.mailgun", "email.amazonaws.com", "api.postmarkapp.com", "api.brevo.com", "api.sendinblue.com"]) {
+    assert.equal(src.includes(host), false, `the mailer reaches an outside email provider (${host}) — we ARE the provider`);
+  }
+  // Redundancy is our own fleet: a node that will not take the message hands it
+  // to the next node in the pool, and that is the only failover there is.
+  assert.match(src, /pickNode\(/, "the send must choose a node from our own pool");
 });
 
 test("a batch that fails gives every recipient a row, so a retry cannot double-send", async () => {

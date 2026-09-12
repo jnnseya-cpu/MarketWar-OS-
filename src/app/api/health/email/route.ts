@@ -207,7 +207,7 @@ export async function GET(req: NextRequest) {
       why,
       note:
         "The email code could not be loaded on this deployment, so nothing was sent and no mail setting is the cause. " +
-        "Checking SMTP_HOST, RESEND_API_KEY or the sending pool will not change this — the failure is above all of them. " +
+        "Checking SMTP_HOST or the sending pool will not change this — the failure is above both of them. " +
         "The message in `why` is the whole diagnosis.",
     }, { status: 200 });
   }
@@ -372,8 +372,6 @@ export async function GET(req: NextRequest) {
     SMTP_SECURE: inspect("SMTP_SECURE"),
     EMAIL_FROM: inspect("EMAIL_FROM"),
     MW_SENDING_POOL: inspect("MW_SENDING_POOL"),
-    RESEND_API_KEY: inspect("RESEND_API_KEY"),
-    SENDGRID_API_KEY: inspect("SENDGRID_API_KEY"),
   };
 
   const pool = getPool();

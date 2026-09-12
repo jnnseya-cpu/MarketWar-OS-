@@ -102,7 +102,6 @@ a capability from demo → live **with no code change**. Full catalogue with not
 |---------|-----------|---------|
 | **Firebase Storage** | `FIREBASE_STORAGE_BUCKET` / `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Hosted media for **social publishing** (images/video need a real URL to post). Viewing already works inline. |
 | **Email — SMTP** | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `EMAIL_FROM` | **Email Command Center** real sending. |
-| **Email — HTTP fallback** | `RESEND_API_KEY`, `SENDGRID_API_KEY` | Failover email pool members. |
 | **Field encryption** | `FIELD_ENCRYPTION_MASTER_KEY` | At-rest encryption of sensitive stored fields. |
 | **Social publishing** | `ZERNIO_API_KEY` (+ a Zernio account **with a payment method** for >2 channels) | **One-Click Publish** to 15 channels. NB the "connect links failed / free tier reached" message is a **Zernio billing** step, not a code bug. |
 
@@ -150,7 +149,7 @@ connector must be built first. Documented so the roadmap is explicit.
 2. **One AI text key** (`ANTHROPIC_API_KEY`) — *required.*
 3. **`PLATFORM_ADMIN_EMAILS`** — *required*, then run the B-4 auth check.
 4. **`STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`** (B-3) — if billing is in scope.
-5. **An email provider** (SMTP or Resend/SendGrid) for transactional mail.
+5. **Our own sending pool** (`MW_SENDING_POOL`, or `SMTP_*` on our own domain) for transactional mail. There is no outside ESP in this platform.
 6. **Error monitoring** (B-1) + **tested Firestore backups** (B-2) — the two operational gates.
 7. For partner payouts: **`STRIPE_SECRET_KEY` / `BITRIPAY_API_KEY` + `CREATOR_LEDGER_SECRET`** (B-5/B-6), then the reconciliation run (B-7).
 

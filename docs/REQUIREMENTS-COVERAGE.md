@@ -943,7 +943,7 @@ Strategic adoption: `docs/ai-os/13-listening-and-ai-visibility.md`.
 |---|---|---|---|
 | **User can delete their account** (GDPR right to erasure) — type-DELETE confirm, deletes Firebase Auth user, `requires-recent-login` re-auth flow, demo-mode notice | Owner directive 2026-07-20 | ✅ | `src/components/DeleteAccount.tsx` in `/dashboard/settings` Danger zone |
 | **PWA fits any screen** — installable manifest, maskable icon, network-first service worker (never caches /api/auth/webhooks), `viewport-fit=cover` safe areas | Owner directive 2026-07-20 | ✅ | `public/manifest.webmanifest`, `public/icon*.svg`, `public/sw.js`, `src/components/PWARegister.tsx`, `src/app/layout.tsx` |
-| **Email SMTP path in place** — SMTP-first provider pool (Node tls/net, zero-dependency; implicit-TLS 465 + STARTTLS 587 + AUTH LOGIN), then Resend/SendGrid HTTP, then demo; hygiene pipeline unchanged | Owner directive 2026-07-20 ("just need the email smtp to be in place") | ✅ | `src/backend/email.ts` (`sendViaSmtp`, `smtpConfigured`, `emailProvider`); `.env.example` SMTP_* block |
+| **Email SMTP path in place** — our own node pool (Node tls/net, zero-dependency; implicit-TLS 465 + STARTTLS 587 + AUTH LOGIN), then demo; hygiene pipeline unchanged. *(As written this row also listed two outside HTTP providers; they were removed in §136 — MarketWar OS is the ESP.)* | Owner directive 2026-07-20 ("just need the email smtp to be in place") | ✅ | `src/backend/email.ts` (`sendViaSmtp`, `smtpConfigured`, `emailProvider`); `.env.example` SMTP_* block |
 | **Go-live checklist + requirements + test plan** so testing can start | Owner directive 2026-07-20 | ✅ | `docs/GO-LIVE.md` (11 sections: verification gate → domain → env → Firebase → Stripe → SMTP → PWA → lifecycle → prod smoke → rollback → sign-off) |
 | Deploy-ready across frontend + backend + shared (App Hosting root `/`) | Owner directive 2026-07-20 | ✅ code ready; ⏳ owner console rollout | `apphosting.yaml`, `docs/DEPLOYMENT.md`, `docs/GO-LIVE.md` §2 |
 
@@ -4835,8 +4835,9 @@ render key and a mail key that **appear nowhere in this codebase**, while:
 
 - video actually runs on `GEMINI_API_KEY` (Veo) or `OPENAI_API_KEY` (Sora),
   decided by `videoGatewayConfigured()`;
-- mail readiness is decided by `emailIsConfigured()`, which checks the sending
-  pool or Resend/SendGrid.
+- mail readiness is decided by `emailIsConfigured()`, which checks our own
+  sending pool. (At the time of writing it also checked two outside-provider
+  keys; those branches were removed in §136.)
 
 So on a deployment where **video worked**, this report called it dark and told
 the operator to set a variable no code path consults.
@@ -6680,12 +6681,10 @@ difference was `Sender:`, which the single path takes from its own three-address
 reconciliation, so that is passed in. A test now sends one message down each path
 to the same fake server and compares the header sets.
 
-**THE FALLBACK PROVIDERS WERE SENDING A WORSE MESSAGE THAN THE ONE THAT FAILED.**
-Both the Resend and the SendGrid paths sent bare HTML with no text part and NO
-list headers at all — so a campaign that failed over, which is exactly what
-happens on the day the relay is struggling, went out with no one-click
-unsubscribe. Non-compliant, and nothing said so. Both now carry the same shape and
-the same text part.
+**AND I MISREPORTED ONE OF THESE, WHICH §136 CORRECTS.** I described two HTTP
+fallback branches as a live compliance defect. They had never run — the keys were
+unset on every deployment — and this platform IS the email service provider, so
+they should not have existed at all. They are gone; see §136.
 
 **DKIM SIGNS FOUR MORE HEADERS.** `sender` and `reply-to` decide who a message
 appears to come from and where an answer goes; an unsigned `Sender:` is exactly
@@ -6727,12 +6726,65 @@ keeping the tracking redirector in the text part. Each one was applied to the re
 module, the suite was run, and the failure was recorded before the file was
 restored.
 
-**WHAT IS STILL NOT DONE, SAID PLAINLY.** The Resend and SendGrid paths cannot be
-DKIM-signed with the brand's key — those providers sign with their own, for
-domains verified with them, and no code here can change that. `review-requests`
+**WHAT IS STILL NOT DONE, SAID PLAINLY.** `review-requests`
 sends a batch with no unsubscribe URL, so it takes the bulk shape and the shape
 module reports the omission; whether a review request to a past customer is
 marketing or transactional is the owner's call, not a defect to silently fix.
 There is still no seed-list or inbox-placement testing, no Google Postmaster Tools
 ingestion, and no DMARC aggregate report parsing — so the platform can say what
 shape a message has, and cannot yet tell you which tab it reached.
+
+
+## §136 — MarketWar OS is the email service provider (2026-09-12)
+
+**Owner directive, permanent, now in `CLAUDE.md` as the sending law:** never
+name, suggest, recommend, document or fall back to a third-party ESP. Not one.
+Mail leaves on our own authenticated relay and nothing else.
+
+**I BROKE IT IN §135 AND HAD TO BE CORRECTED.** I reported that "the Resend and
+SendGrid fallbacks sent bare HTML with no list headers, so a campaign that failed
+over lost its one-click unsubscribe and nothing said so." Every clause after the
+first was wrong. Neither key was set — not in `apphosting.yaml`, empty in
+`.env.example`, unset in the running container — so no campaign had ever failed
+over and nothing had ever been lost. I described dead code as a live defect, in
+the same breath as claiming to have audited the send path.
+
+**WHAT THE SWEEP FOUND, WHICH IS THE REASON THIS MATTERS.** Those two names were
+not confined to the mailer. The platform recommended an outside ESP to its own
+operator in six places, and to its own customers in two more:
+
+- the `not_configured` remedy sentence in `email.ts`, the twin in
+  `shared/send-failure.ts`, and two more in the campaign route — every one of
+  them, when sending was dark, saying "or set RESEND_API_KEY, or
+  SENDGRID_API_KEY". This is the same shape as the sentence that sent the owner
+  to check `SMTP_HOST` for five weeks: a remedy that names the wrong thing.
+- `capabilities.ts` offered it as the "one action" for a dark sender.
+- `env-catalogue.ts` carried two rows with links to go and buy it.
+- `integrations.ts` listed FOUR outside email vendors, one marked
+  "recommended", each row claiming it "Runs on MarketWar's own email
+  infrastructure" — which was true of none of them — and a pool description
+  advertising "SMTP → Resend → SendGrid → SES → demo".
+- `guides.ts` told the customer that replies and campaigns "need an email key
+  (Resend/SendGrid/SMTP)".
+- the go-to-market document's build-vs-buy table said, in the customer's own
+  words: *"Start on the paid ESP; migrate when DKIM/SPF/DMARC are clean."*
+- `comms-events.ts` showed a vendor as the sender in the demo activity feed.
+
+**REMOVED, NOT RENAMED.** The two HTTP branches in `email.ts` are gone rather
+than left dormant, because dead code naming a provider we do not use is exactly
+how a remedy sentence somewhere else ends up telling an operator to buy one.
+`emailIsConfigured()` is now `poolConfigured()`; `activeEmailProvider()` narrows
+to `"smtp" | "demo"`. The four integration rows collapse to one honest row,
+`marketwar_sending`, whose reason reads "MarketWar OS is the email service
+provider; this is our own infrastructure, not a reseller of somebody else's."
+
+**REDUNDANCY COMES FROM OUR OWN FLEET.** `MW_SENDING_POOL` carries a node per
+authenticated domain and `pickNode` moves on when one is over its daily cap.
+Capacity is a node, never a vendor. That is also the honest answer to the
+build-vs-buy question the go-to-market table was answering wrongly: email has no
+per-message provider cost to clear, because there is no provider.
+
+**ONE MENTION IS DELIBERATELY LEFT.** `dns-auth.ts` probes 26 common DKIM
+selector names against a prospect's domain to report what authentication THEY
+already have. Those are detection strings for reading somebody else's DNS, not
+providers we offer, and removing them would blind a working audit.

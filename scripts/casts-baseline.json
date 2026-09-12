@@ -82,7 +82,6 @@
     "src/app/onboarding/page.tsx": 1,
     "src/app/unsubscribe/page.tsx": 1,
     "src/backend/checkout.ts": 3,
-    "src/backend/email.ts": 1,
     "src/backend/gateway.ts": 3,
     "src/backend/search.ts": 1,
     "src/backend/voice.ts": 3,

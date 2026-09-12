@@ -136,7 +136,7 @@ export async function GET() {
   // EVERY VARIABLE THIS PLATFORM READS, from the one registry.
   //
   // This was a hand-typed list of 35 names while the codebase read 133 — so
-  // RESEND_API_KEY, APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY, ONFIDO_API_TOKEN,
+  // APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY, ONFIDO_API_TOKEN,
   // WHATSAPP_TOKEN, FB_APP_SECRET, the Google OAuth trio and every webhook
   // secret were invisible here. A key you cannot see is a key you cannot tell is
   // missing. `shared/env-catalogue.ts` is now the single list, and a test walks

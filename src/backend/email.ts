@@ -12,17 +12,19 @@ if (typeof window !== "undefined") {
 // below BEFORE a send is attempted, and any hard failure lands on the
 // suppression ledger so the platform never sends to it again.
 //
-// Env-guarded like the rest of the OS: with SMTP credentials (SMTP_HOST +
-// SMTP_USER + SMTP_PASS) or an HTTP provider key (RESEND_API_KEY /
-// SENDGRID_API_KEY) configured, sends go out through the provider pool;
-// without any of them sendEmail() returns a simulated demo receipt and
+// WE ARE THE SENDING SERVICE. Mail leaves on our OWN authenticated relay —
+// `MW_SENDING_POOL`, or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` on our own domain,
+// with per-brand DKIM keys (sending-domains.ts) and the node in
+// `infra/sending-node/`. No outside email provider is named, offered or
+// recommended anywhere in this platform; see the sending law in CLAUDE.md.
+// With no pool configured sendEmail() returns a simulated demo receipt and
 // nothing leaves the machine.
 //
-// Provider order: SMTP first (the go-live path — a relay such as Brevo/
-// Postmark/SES speaks SMTP), then the Resend and SendGrid HTTP APIs as
-// automatic fallbacks. SMTP is spoken over the wire with Node's own tls
-// module — no third-party dependency — supporting both implicit TLS
-// (port 465) and STARTTLS (ports 587/25) with AUTH LOGIN.
+// SMTP is spoken over the wire with Node's own tls module — no third-party
+// dependency — supporting both implicit TLS (port 465) and STARTTLS (ports
+// 587/25) with AUTH LOGIN. Two legacy HTTP branches remain at the bottom of
+// this file behind env keys that are unset and must stay unset; they are the
+// only reason a vendor name appears in this file at all.
 
 import { dkimSignature } from "@/backend/dkim";
 import { textPartFrom } from "@/shared/html-text";
@@ -37,8 +39,6 @@ function hashStr(s: string): number {
 
 import { getPool, pickNode, poolConfigured, recordNodeSend, type SendingNode } from "@/backend/sending-pool";
 
-const RESEND_KEY = process.env.RESEND_API_KEY || "";
-const SENDGRID_KEY = process.env.SENDGRID_API_KEY || "";
 /**
  * The visible From, READ ON DEMAND.
  *
@@ -98,32 +98,23 @@ import { recordAttempt } from "@/backend/send-ledger";
 // because other modules import them and nothing delivered gets removed — but
 // every decision inside this file now calls the FUNCTIONS.
 export function emailIsConfigured(): boolean {
-  return Boolean(poolConfigured() || process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
+  return poolConfigured();
 }
 /** Snapshot at import. Prefer `poolConfigured()`. */
 export const smtpConfigured = poolConfigured();
 /** Snapshot at import. Prefer `emailIsConfigured()`. */
-export const emailConfigured = Boolean(smtpConfigured || RESEND_KEY || SENDGRID_KEY);
+export const emailConfigured = smtpConfigured;
 
 /**
  * The active sending path, asked NOW. Status surfaces must use this rather than
  * the constant below, or they answer with whatever was true at import.
  */
-export function activeEmailProvider(): "smtp" | "resend" | "sendgrid" | "demo" {
-  if (poolConfigured()) return "smtp";
-  if (process.env.RESEND_API_KEY) return "resend";
-  if (process.env.SENDGRID_API_KEY) return "sendgrid";
-  return "demo";
+export function activeEmailProvider(): "smtp" | "demo" {
+  return poolConfigured() ? "smtp" : "demo";
 }
 
 /** Snapshot at import. Prefer `activeEmailProvider()`. */
-export const emailProvider: "smtp" | "resend" | "sendgrid" | "demo" = smtpConfigured
-  ? "smtp"
-  : RESEND_KEY
-    ? "resend"
-    : SENDGRID_KEY
-      ? "sendgrid"
-      : "demo";
+export const emailProvider: "smtp" | "demo" = poolConfigured() ? "smtp" : "demo";
 
 // ---------------------------------------------------------------------------
 // 1. Address hygiene pipeline (the "filter" stage — runs before every send)
@@ -470,10 +461,10 @@ export async function smtpSendMany(
       // AND SAY WHICH KIND OF FAILURE THIS WAS. If not one message ever reached
       // the wire — the connection refused, TLS rejected, the password refused —
       // then nothing was delivered to anybody and every one of these addresses
-      // can safely be tried on another provider. Without that distinction a
-      // refused LOGIN marked the whole campaign as attempted-and-failed, so the
-      // HTTP provider was never reached and a customer with a working Resend key
-      // still sent nothing. Single sends failed over; campaigns did not.
+      // can safely be tried on another node. Without that distinction a refused
+      // LOGIN marked the whole campaign as attempted-and-failed, so the next
+      // node in our own pool was never reached and a deployment with working
+      // capacity still sent nothing.
       const retryable = !anyMessageStarted;
       for (let k = results.length; k < items.length; k++) {
         results.push({ to: items[k].to, ok: false, error: err.message, ...(retryable ? { retryable: true } : {}) });
@@ -774,7 +765,7 @@ async function sendViaSmtp(
 }
 
 // ---------------------------------------------------------------------------
-// 2. Sending facade (provider pool — SMTP first, then Resend, then SendGrid)
+// 2. Sending facade (our own node pool — one node per authenticated domain)
 // ---------------------------------------------------------------------------
 
 export type SendResult = {
@@ -825,8 +816,8 @@ export type SendResult = {
  * its own personalised subject, body, tracking and unsubscribe link. Only the
  * connection is shared.
  *
- * Falls back to the one-at-a-time path when SMTP is not the active provider, so
- * a Resend/SendGrid deployment and demo mode behave exactly as before.
+ * Falls back to the one-at-a-time path when no node is active, so demo mode
+ * behaves exactly as before.
  */
 /** Which path a batch actually took — surfaced so the send result can say so. */
 export let lastBatchMode: "session" | "one-at-a-time" | "mixed" | "none" = "none";
@@ -1028,10 +1019,8 @@ async function sendEmailBatchInner(
  *
  *   • `haltFor` reads the emergency-stop store. A storage error there threw
  *     before a single line of sending logic ran.
- *   • The Resend and SendGrid `fetch` calls were unwrapped, so a DNS failure or
- *     a blocked egress route threw out of the middle of the provider chain.
  *   • Anything else — a bad `MW_SENDING_POOL`, a malformed attachment, a
- *     provider SDK — had the same effect.
+ *     socket that died between stages — had the same effect.
  *
  * A caller cannot classify an exception it did not create, so "the send did not
  * complete" was the honest limit of what it could say, and that sentence points
@@ -1144,7 +1133,8 @@ async function sendEmailInner(opts: {
       failure: "not_configured",
       detail:
         "No sending server is configured on this deployment, so nothing left the machine. " +
-        "Set the sending pool (MW_SENDING_POOL or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY.",
+        "Set our own sending pool: MW_SENDING_POOL, or SMTP_HOST/SMTP_USER/SMTP_PASS on our own domain. " +
+        "MarketWar OS is the sending service — there is no outside provider to reach for.",
     };
   }
 
@@ -1187,73 +1177,18 @@ async function sendEmailInner(opts: {
       }
     }
   }
-  // THE FALLBACK PROVIDERS SEND THE SAME MESSAGE, NOT A LESSER ONE.
+  // NO OUTSIDE PROVIDER TO FALL BACK TO, BY DESIGN.
   //
-  // Both of these sent bare HTML with no plain-text alternative and no list
-  // headers at all. So a bulk campaign that failed over — which is exactly what
-  // happens on the day the relay is having trouble — went out with NO one-click
-  // unsubscribe, which every large receiver now requires of bulk mail, and no
-  // text part. The message that reached the inbox was worse than the one that
-  // did not, and nothing said so. Computed once here and given to both.
-  const fallbackText = opts.text ?? textPartFrom(opts.html);
-  const fallbackShape = messageShape({
-    transactional: opts.transactional,
-    listUnsubscribe: opts.listUnsubscribe,
-    brandId: opts.brandId,
-    campaign: opts.campaign,
-    fromDomain: angleAddr(opts.from || fromDefault()).split("@")[1] || "",
-    inReplyTo: opts.inReplyTo,
-    autoReply: opts.autoReply,
-  });
-
-  if (RESEND_KEY) {
-   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from || fromDefault(), to: [verdict.email], subject: opts.subject, html: opts.html, ...(fallbackText ? { text: fallbackText } : {}), ...(Object.keys(fallbackShape.headers).length ? { headers: fallbackShape.headers } : {}), ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
-    });
-    if (res.ok) {
-      const body = (await res.json()) as { id?: string };
-      return { ok: true, mode: "live", provider: "resend", id: body.id ?? null, filteredOut: [], detail: "accepted" };
-    }
-    // fall through to next provider on failure
-   } catch (e) {
-    // A NETWORK FAILURE HERE USED TO THROW OUT OF sendEmail ENTIRELY.
-    // `fetch` rejects on DNS failure, a TLS error, a blocked egress route or an
-    // abort — none of which is exotic on a fresh host — and neither provider
-    // call was wrapped. So a deployment that could not reach Resend did not
-    // fall through to SendGrid and did not return "provider": it threw, and
-    // every caller reported an unclassified failure.
-    smtpError = smtpError || `Resend unreachable: ${e instanceof Error ? e.message : String(e)}`;
-   }
-  }
-
-  if (SENDGRID_KEY) {
-   try {
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${SENDGRID_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: verdict.email }] }],
-        from: { email: (opts.from || fromDefault()).replace(/.*<(.+)>.*/, "$1") },
-        ...(opts.replyTo ? { reply_to: { email: opts.replyTo.replace(/.*<(.+)>.*/, "$1") } } : {}),
-        subject: opts.subject,
-        ...(Object.keys(fallbackShape.headers).length ? { headers: fallbackShape.headers } : {}),
-        // text/plain FIRST — SendGrid requires the parts in increasing order of
-        // fidelity, which is the same rule RFC 2046 gives for the wire.
-        content: fallbackText
-          ? [{ type: "text/plain", value: fallbackText }, { type: "text/html", value: opts.html }]
-          : [{ type: "text/html", value: opts.html }],
-      }),
-    });
-    if (res.status === 202) {
-      return { ok: true, mode: "live", provider: "sendgrid", id: res.headers.get("x-message-id"), filteredOut: [], detail: "accepted" };
-    }
-   } catch (e) {
-    smtpError = smtpError || `SendGrid unreachable: ${e instanceof Error ? e.message : String(e)}`;
-   }
-  }
+  // Two HTTP branches used to sit here behind vendor API keys. Neither key was
+  // ever set on any deployment, so neither branch had ever run — and the owner's
+  // sending law is that MarketWar OS IS the email service provider, so neither
+  // ever will. They are gone rather than left dormant: dead code that names a
+  // provider we do not use is how a remedy sentence somewhere else ends up
+  // telling an operator to go and buy one.
+  //
+  // Redundancy comes from OUR OWN fleet instead — `MW_SENDING_POOL` carries a
+  // node per authenticated domain, and `pickNode` moves to another when one is
+  // over its daily cap. Capacity is a node, never a vendor.
 
   return {
     ok: false,
