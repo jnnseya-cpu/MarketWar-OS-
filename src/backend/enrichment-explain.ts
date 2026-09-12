@@ -204,6 +204,8 @@ export function diagnoseRun(input: {
   keys: { serper: boolean; hunter: boolean; apollo: boolean; apolloBreakerTripped: boolean };
   paidWasRun: boolean;
   paidRefusedReason?: string;
+  /** Suppliers that refused, whichever they were. Named by the data, never by this code. */
+  supplierRefusals?: { supplier: string; reason: string }[];
 }): RunDiagnosis | null {
   const rows = input.results || [];
   if (!rows.length) return null;
@@ -239,10 +241,26 @@ export function diagnoseRun(input: {
       actionable: true,
     };
   }
+  // 2b. A SUPPLIER REFUSED US — WHICHEVER ONE. This reported Apollo only, and
+  //     the owner asked why, which was the right question: Hunter is the FIRST
+  //     paid supplier, so it fails earlier and more often, and its refusal was
+  //     invisible. `hunterErrorNote` had been writing the exact sentence for a
+  //     bad key, an empty balance and a rate limit all along, and the adapter
+  //     threw it away. Both suppliers report through the same field now, and
+  //     neither is named in this code — whatever refused us is what is shown.
+  const refusals = input.supplierRefusals || [];
+  if (refusals.length) {
+    const names = refusals.map((r) => r.supplier).join(" and ");
+    return {
+      headline: `${names} refused this deployment, so ${refusals.length === 1 ? "that supplier was" : "those suppliers were"} skipped.`,
+      fix: refusals.map((r) => r.reason).join(" "),
+      actionable: true,
+    };
+  }
   if (input.keys.apolloBreakerTripped) {
     return {
-      headline: "Apollo refused this deployment and was skipped for the rest of the run.",
-      fix: "Apollo answers 403 when the plan does not include API access. Check the Apollo plan — the key itself is set and is not the problem.",
+      headline: "Apollo refused this deployment earlier and is still being skipped.",
+      fix: "Apollo answers 403 when the plan does not include API access. Check the Apollo plan — the key itself is set and is not the problem. The skip clears an hour after the refusal.",
       actionable: true,
     };
   }

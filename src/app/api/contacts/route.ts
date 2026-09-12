@@ -412,6 +412,11 @@ export async function POST(req: NextRequest) {
         },
         paidWasRun: paidCharged > 0,
         paidRefusedReason: paidNote || undefined,
+        // Whichever supplier refused, from the rows themselves. Deduplicated:
+        // one bad key produces the same sentence on every row in the batch.
+        supplierRefusals: Object.values(Object.fromEntries(
+          results.flatMap((r) => r?.supplierRefusals ?? []).map((r) => [r.supplier, r]),
+        )),
       }),
       results: batch.map((c, i) => ({ id: c.id, company: c.company || c.name, email: results[i]?.email || null, phone: results[i]?.phone || null, website: results[i]?.website || null, note: results[i]?.note || "" })),
       ...vault,

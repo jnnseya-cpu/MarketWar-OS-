@@ -28,7 +28,7 @@ import { parseRobots, robotsAllows, OUR_AGENT } from "@/backend/robots";
 import { candidateFromPattern, learnPattern } from "@/shared/contact-hunter";
 // One Hunter client, shared with `enrich.ts`. See hunter-client.ts for why it
 // cannot live in this file.
-import { hunterKey, hunterGet, asRecord, asString, asNumber, firstSourceUrl, HUNTER_COST_ACU } from "@/backend/hunter-client";
+import { hunterKey, hunterGet, asRecord, asString, asNumber, firstSourceUrl, HUNTER_COST_ACU, SupplierRefusal } from "@/backend/hunter-client";
 import { readTitle } from "@/shared/contact-confidence";
 import { ACU_PER_GBP, USD_TO_GBP, ENRICHMENT_PROVIDER_USD } from "@/shared/creative";
 import {
@@ -302,7 +302,7 @@ export const hunter: EnrichmentProvider = {
     const domain = HOST(input.domain || "");
     if (!domain) return [];
     const got = await hunterGet("domain-search", { domain, limit: "10" }, signal);
-    if (!got.ok) return [];
+    if (!got.ok) { if (got.why === "Not configured.") return []; throw new SupplierRefusal("hunter", got.why); }
 
     const organization = asString(got.data.organization);
     const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
@@ -335,14 +335,14 @@ export const hunter: EnrichmentProvider = {
     // the narrow one would do spends the same credit for a worse answer.
     if (input.firstName && input.lastName) {
       const got = await hunterGet("email-finder", { domain, first_name: input.firstName, last_name: input.lastName }, signal);
-      if (!got.ok) return [];
+      if (!got.ok) { if (got.why === "Not configured.") return []; throw new SupplierRefusal("hunter", got.why); }
       const value = asString(got.data.email);
       if (!value) return [];
       return [{ value, provenance: "provider", sourceUrl: firstSourceUrl(got.data.sources) }];
     }
 
     const got = await hunterGet("domain-search", { domain, limit: "10" }, signal);
-    if (!got.ok) return [];
+    if (!got.ok) { if (got.why === "Not configured.") return []; throw new SupplierRefusal("hunter", got.why); }
     const rows = Array.isArray(got.data.emails) ? got.data.emails : [];
     const out: EmailCandidate[] = [];
     for (const row of rows) {
@@ -397,6 +397,22 @@ export const hunter: EnrichmentProvider = {
 const APOLLO_CALL_USD = ENRICHMENT_PROVIDER_USD.apollo;
 export const APOLLO_COST_ACU = Math.ceil(APOLLO_CALL_USD * USD_TO_GBP * ACU_PER_GBP);
 
+/**
+ * Apollo's refusal, turned into the sentence that names the right fix.
+ *
+ * A 403 is the one that matters: Apollo's cheaper plans do not include API
+ * access at all, so the key is correct and unusable at the same time. Telling
+ * somebody to check the key there costs them an afternoon re-pasting a value
+ * that was always right.
+ */
+function apolloRefusal(status: number): string {
+  if (status === 403) return "Apollo refused API access (403). The key is set and the PLAN does not include the API — that is a billing change at Apollo, not a key to re-paste.";
+  if (status === 401) return "Apollo rejected the API key (401). Check APOLLO_API_KEY on this deployment.";
+  if (status === 402) return "Apollo has no credits left (402). Top up, or this supplier stays dark and the others still run.";
+  if (status === 429) return "Apollo rate-limited this deployment (429). Nothing was charged; try again shortly.";
+  return `Apollo answered HTTP ${status} and returned nothing.`;
+}
+
 const SENIOR_TITLES_FOR_ADAPTER = ["owner", "founder", "co-founder", "director", "managing director", "ceo", "principal", "partner", "manager", "general manager"];
 
 /**
@@ -438,7 +454,7 @@ export const apollo: EnrichmentProvider = {
     const name = (input.name || "").trim();
     if (!name && !input.domain) return [];
     const res = await apolloPost("/mixed_companies/search", { q_organization_name: name, page: 1, per_page: 1 });
-    if (!res.ok) return [];
+    if (!res.ok) throw new SupplierRefusal("apollo", apolloRefusal(res.status));
     const orgs = Array.isArray(res.data.organizations) ? res.data.organizations : [];
     const org = asRecord(orgs[0]);
     const legalName = asString(org.name);
@@ -454,7 +470,7 @@ export const apollo: EnrichmentProvider = {
     const res = await apolloPost("/mixed_people/search", {
       q_organization_domains: domain, page: 1, per_page: 5, person_titles: SENIOR_TITLES_FOR_ADAPTER,
     });
-    if (!res.ok) return [];
+    if (!res.ok) throw new SupplierRefusal("apollo", apolloRefusal(res.status));
     const rows = Array.isArray(res.data.people) ? res.data.people : [];
     const out: PersonCandidate[] = [];
     for (const row of rows) {
@@ -482,7 +498,7 @@ export const apollo: EnrichmentProvider = {
     const last = (input.lastName || input.fullName?.split(/\s+/).slice(1).join(" ") || "").trim();
     if (!first || !last) return [];
     const res = await apolloPost("/people/match", { first_name: first, last_name: last, domain, reveal_personal_emails: false });
-    if (!res.ok) return [];
+    if (!res.ok) throw new SupplierRefusal("apollo", apolloRefusal(res.status));
     const person = asRecord(res.data.person);
     const email = asString(person.email);
     // APOLLO'S PLACEHOLDER IS NOT AN ADDRESS. `email_not_unlocked@domain.com`
