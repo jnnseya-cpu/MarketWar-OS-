@@ -116,9 +116,9 @@ export const GUIDES: Record<string, Guide> = {
   // ── Money & comms ─────────────────────────────────────────────────────
   billing: { title: "Billing", goal: "Manage your plan and ACU wallet.", status: K, statusNote: "Top-ups create a real Stripe checkout — live with your Stripe key.",
     steps: ["Review your plan and wallet balance.", "Click top-up to add ACUs — it opens a real Stripe checkout.", "Payment reflects back automatically."] },
-  inbox: { title: "Inbox", goal: "Handle inbound messages in one place.", status: K, statusNote: "Reads real inbound; sending replies needs an email key (Resend/SendGrid/SMTP).",
+  inbox: { title: "Inbox", goal: "Handle inbound messages in one place.", status: K, statusNote: "Reads real inbound; sending replies needs our own sending pool configured.",
     steps: ["Read inbound messages (real per-brand store).", "Reply — delivery goes out once an email key is set.", "Triage and tag."] },
-  email: { title: "Email Center", goal: "Send a real, hygiene-checked email campaign.", status: K, statusNote: "Vault sends + stats are real; delivery needs an email key (Resend/SendGrid/SMTP).",
+  email: { title: "Email Center", goal: "Send a real, hygiene-checked email campaign.", status: K, statusNote: "Vault sends + stats are real; delivery needs our own sending pool configured.",
     steps: ["Pick a segment (or a status segment for imported prospects).", "Choose a template and set the message.", "Send — it filters non-consented/invalid, and delivers once a sender key is set."] },
   whatsapp: { title: "WhatsApp Center", goal: "Run a WhatsApp sales funnel.", status: D, statusNote: "Demo funnel today; add WHATSAPP_TOKEN + a send UI for real send/receive.",
     steps: ["Review the funnel stages.", "Set WHATSAPP_TOKEN to enable real messaging.", "Use the composer links to message from your own number meanwhile."] },

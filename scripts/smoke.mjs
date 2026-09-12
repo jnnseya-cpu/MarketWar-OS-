@@ -250,8 +250,8 @@ try {
   // Platform-managed connectivity: infra connectors run on our key (tenant does
   // nothing); every connector carries a provisioning + billing model.
   const allHaveProvisioning = body.integrations?.every((i) => i.provisioning && i.billing && i.userStatus);
-  const emailIsManaged = body.integrations?.find((i) => i.provider === "sendgrid_email")?.platformManaged === true;
-  const emailPooled = body.integrations?.find((i) => i.provider === "sendgrid_email")?.pool === "Email sending pool";
+  const emailIsManaged = body.integrations?.find((i) => i.provider === "marketwar_sending")?.platformManaged === true;
+  const emailPooled = body.integrations?.find((i) => i.provider === "marketwar_sending")?.pool === "Email sending pool";
   const adsAreUserConnect = body.integrations?.find((i) => i.provider === "meta_ads")?.provisioning === "user_connect";
   // Autonomy guarantee: works with zero connected; managed connectors are pooled/interchangeable.
   const autonomy = body.autonomyGuarantee;
@@ -275,7 +275,7 @@ try {
   // Platform-managed send is ACU-billed at the protected margin, cost hidden.
   const res = await fetch(BASE + "/api/integrations", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "charge", provider: "sendgrid_email", providerCostGbp: 1, units: 1 }),
+    body: JSON.stringify({ action: "charge", provider: "marketwar_sending", providerCostGbp: 1, units: 1 }),
   });
   const body = await res.json();
   if (res.status === 200 && body.billable === true && body.acus === 400 && body.marginMultiplier === 4 && body.providerCostGbp === undefined) {

@@ -76,7 +76,7 @@ export function publicSendFailure(raw: unknown): string {
 export function operatorFix(raw: unknown): string {
   switch (sendFailureOf(raw)) {
     case "not_configured":
-      return "Set SMTP_HOST + SMTP_USER + SMTP_PASS (all three), or RESEND_API_KEY, or SENDGRID_API_KEY. Then open /api/health/email.";
+      return "Set MW_SENDING_POOL, or SMTP_HOST + SMTP_USER + SMTP_PASS (all three) on our own domain. Then open /api/health/email.";
     case "provider":
       return "The credentials are present but the server rejected them or the message. Open /api/health/email — it opens a real SMTP connection and names the stage it failed at.";
     case "hygiene":

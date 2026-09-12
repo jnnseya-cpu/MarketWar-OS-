@@ -49,8 +49,7 @@ With none set, agents return honest deterministic scaffolds. **At least one is r
 | Engine | Env var(s) | Turns Live |
 |---|---|---|
 | Email — SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `EMAIL_FROM` | **Email Command Center** real sending |
-| Email — Resend | `RESEND_API_KEY` | Email pool member |
-| Email — SendGrid | `SENDGRID_API_KEY` | Email pool member (failover) |
+| Email — our own relay | `MW_SENDING_POOL` / `SMTP_*` | NOT an external engine. MarketWar OS is the email service provider; sending is our own infrastructure and no outside ESP appears in this platform. |
 | WhatsApp | `WHATSAPP_TOKEN` | **WhatsApp Sales Center** live funnel + sending |
 | Social publishing | `ZERNIO_API_KEY` (+ a **Zernio account with a payment method** for >2 accounts) | **One-Click Publish** to 15 channels. NB: the "connect links failed / free tier reached" message is a **Zernio account/billing** step, not a code issue. |
 
@@ -102,5 +101,5 @@ Until a rail key is set, payouts are **computed and approved** but the engine tr
 2. One AI text provider key — *required.*
 3. `PLATFORM_ADMIN_EMAILS` — *required.*
 4. Stripe (if billing/payouts are in scope) + `STRIPE_WEBHOOK_SECRET`.
-5. An email provider (Resend/SendGrid/SMTP) for transactional mail.
+5. Our own sending pool (`MW_SENDING_POOL`, or `SMTP_*` on our own domain) for transactional mail.
 6. Optional but high-value: `ZERNIO_API_KEY` (+ billing) for publishing; `OPENAI_IMAGE_MODEL`/video for creative render; `SERPER_API_KEY`/`APOLLO_API_KEY` for real market + prospect data.

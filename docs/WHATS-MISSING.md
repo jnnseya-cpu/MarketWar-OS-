@@ -32,7 +32,7 @@ board (`/dashboard/go-live`).
 | AI generation (copy, agents, blog, offers…) | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | ✅ all 3 live |
 | Real prospect/market data (Google/Places) | `SERPER_API_KEY` | ✅ live |
 | Media hosting (creatives/video) | `FIREBASE_*` (Storage) | ✅ live |
-| Email sending (own Brevo/SMTP infra) | `SMTP_*` + `EMAIL_FROM` (or `RESEND_API_KEY`/`SENDGRID_API_KEY`) | ✅ live |
+| Email sending (our own relay — we are the ESP) | `MW_SENDING_POOL` or `SMTP_*` + `EMAIL_FROM` | ✅ live |
 | Verified business emails ("Find emails") | `APOLLO_API_KEY` | ⚙️ key held — set it in Vercel |
 
 ## 3. Search / local data (measured)

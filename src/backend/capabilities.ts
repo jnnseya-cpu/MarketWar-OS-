@@ -97,7 +97,7 @@ export const CAPABILITIES: Capability[] = [
     label: "Sending email",
     whenDark: "Nothing this platform writes can be delivered to anybody. Campaigns compose and never send, and the free audit's report cannot be emailed.",
     stillWorks: "Every message is still produced in full and can be copied out and sent from your own inbox — which for the first fifty is what you should do anyway.",
-    oneAction: "Either configure the sending pool (MW_SENDING_HOST and the pool variables) with its DNS verified, or set RESEND_API_KEY or SENDGRID_API_KEY. `emailIsConfigured()` in src/backend/email.ts is the check that decides.",
+    oneAction: "Configure our own sending pool (MW_SENDING_HOST and the pool variables) with its DNS verified. MarketWar OS is the sending service, so this is the only action — `emailIsConfigured()` in src/backend/email.ts is the check that decides.",
   },
   {
     id: "image_generation",

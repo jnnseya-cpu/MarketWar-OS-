@@ -522,7 +522,7 @@ export async function POST(req: NextRequest) {
       ...(senderIdentity ? { senderAlignment: { aligned: senderIdentity.aligned, why: senderIdentity.why } } : {}),
       note: live
         ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}.${worstLine ? ` The server said: “${worstLine}”.` : ""}${worstMeaning ? ` ${worstMeaning}` : ""}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
-        : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set MW_SENDING_POOL (or SMTP_HOST/SMTP_USER/SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then run this again and they all still go.`,
+        : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set our own sending pool — MW_SENDING_POOL, or SMTP_HOST/SMTP_USER/SMTP_PASS on our own domain — then run this again and they all still go.`,
     });
   }
 
@@ -542,7 +542,7 @@ export async function GET() {
   return NextResponse.json({
     engine: "M-34 AI Transactional Email Engine",
     mode: configured ? "live" : "demo",
-    provider, // "smtp" | "resend" | "sendgrid" | "demo" — never a credential
+    provider, // "smtp" | "demo" — never a credential
     // Unambiguous, because "demo" has been read as "fine, it is simulating" by
     // everyone who has ever looked at it, including while real campaigns were
     // being reported as sent.
@@ -552,7 +552,7 @@ export async function GET() {
       : "No. Nothing sent from this deployment reaches anybody, and every send is reported as not sent.",
     toGoLive: configured
       ? null
-      : "Set MW_SENDING_POOL (or SMTP_HOST + SMTP_USER + SMTP_PASS), or RESEND_API_KEY, or SENDGRID_API_KEY, then redeploy and reopen this endpoint.",
+      : "Set our own sending pool — MW_SENDING_POOL, or SMTP_HOST + SMTP_USER + SMTP_PASS on our own domain — then redeploy and reopen this endpoint.",
     from: process.env.EMAIL_FROM || "MarketWar OS <os@notifications.marketwaros.com>",
     hygiene: ["syntax", "disposable-domain", "role-address", "suppression-ledger"],
     doctrine: "Inbox placement is earned: authentication + warm-up + consent + hygiene. Bounces are prevented pre-send and never repeated.",

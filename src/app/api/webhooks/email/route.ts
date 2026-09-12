@@ -8,7 +8,7 @@ import { recordEvent, type EmailEventType } from "@/backend/email-events";
 //
 // Accepts (a) the normalized MarketWar shape — the format the self-hosted sending
 // node's bounce handler posts — as a single object or an array, and (b) a
-// SendGrid event array (best-effort; brandId must ride in a custom arg).
+// a relay's own event array (best-effort; brandId must ride in a custom arg).
 //
 // Normalized: { brandId, email, type:"bounce"|"complaint"|"unsubscribe", campaign? }
 export const runtime = "nodejs";
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
 
   for (const it of items) {
-    // Normalized shape first; fall back to SendGrid field names.
+    // Normalized shape first; fall back to the field names a relay commonly uses.
     const rawType = String(it.type ?? it.event ?? "").toLowerCase();
     const type = NORMAL[rawType];
     const email = String(it.email ?? "").toLowerCase().trim();
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     webhook: "MarketWar OS email delivery events",
-    accepts: "POST a normalized event {brandId,email,type} (or array), or a SendGrid event array. Requires EMAIL_WEBHOOK_SECRET via x-webhook-secret header or ?secret=.",
+    accepts: "POST a normalized event {brandId,email,type} (or array), or a relay event array. Requires EMAIL_WEBHOOK_SECRET via x-webhook-secret header or ?secret=.",
     types: ["bounce", "complaint", "unsubscribe", "open", "click", "delivered"],
     effect: "bounce/complaint/unsubscribe auto-suppress the address (never sent to again).",
   });

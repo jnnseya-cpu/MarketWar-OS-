@@ -289,10 +289,10 @@ export function sendTest(eventId: string, prefs: ChannelPrefs = {}) {
 // Deterministic recent-deliveries sample for the dashboard.
 export function demoDeliveries() {
   return [
-    { channel: "email", event: "campaign.generated", status: "sent", via: "resend", at: "12:03:23" },
+    { channel: "email", event: "campaign.generated", status: "sent", via: "marketwar-sending", at: "12:03:23" },
     { channel: "push", event: "lead.hot", status: "logged", via: "push", at: "12:03:23" },
     { channel: "whatsapp", event: "quote.requested", status: "sent", via: "whatsapp-cloud", at: "12:02:58" },
-    { channel: "email", event: "invoice.generated", status: "sent", via: "resend", at: "11:58:10" },
+    { channel: "email", event: "invoice.generated", status: "sent", via: "marketwar-sending", at: "11:58:10" },
     { channel: "sms", event: "security.alert", status: "sent", via: "sms", at: "11:41:06" },
     { channel: "inapp", event: "acu.low_balance", status: "logged", via: "in-app", at: "11:40:52" },
   ];

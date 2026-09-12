@@ -94,6 +94,24 @@ cost) while remaining **extremely competitive and attractive** — win on a
 lower cost base (caching, reuse, cheap-model routing, ACU recycling), never
 by breaching the floor. Detail: docs/ai-os/08 §A.1a.
 
+## The sending law (owner directive — permanent)
+
+**MarketWar OS IS the email service provider. Never name, suggest, recommend,
+document or fall back to a third-party ESP — not Resend, not SendGrid, not
+Brevo, not Mailgun, not SES, not Postmark, not any other.**
+
+Mail leaves on our own authenticated sending pool: `MW_SENDING_POOL`, or
+`SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` on our own domain, with the customer's
+domain authenticated through Sending Domains (`src/backend/sending-domains.ts`)
+and the relay in `infra/sending-node/`. That is the only sending path a person
+is ever pointed at.
+
+This applies to every surface: remedy sentences when sending is dark, the
+environment catalogue, the integrations list, health-check output, setup docs,
+commit messages, and anything said in chat. When a send fails, the answer names
+OUR pool and nothing else. A capability table that offers an outside provider as
+"one action" is offering the wrong action.
+
 ## Conventions
 
 - Never commit credentials; any key that appears in source material gets

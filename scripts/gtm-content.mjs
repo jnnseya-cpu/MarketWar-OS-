@@ -448,7 +448,7 @@ export const DOC = {
             ["Search and market data", "Serper", "Direct search APIs", "Per-query pricing, tens of pounds a month at this stage. Underpins the free audit, so it is load-bearing for acquisition, not just for the product."],
             ["Contact and company data", "Apollo", "Manual list building", "Optional. The manual second source is genuinely viable at 2,000 messages and should be used until volume justifies the seat."],
             ["Social publishing", "Zernio (aggregator)", "Meta Graph API direct", "Direct Meta carries the better margin; the aggregator carries the wider coverage. Both are wired."],
-            ["Email sending", "Own sending pool (SMTP, authenticated DNS)", "Resend, SendGrid", "The own pool is the cheapest at volume and the slowest to set up. Start on the paid ESP; migrate when DKIM/SPF/DMARC are clean."],
+            ["Email sending", "Our own sending pool (SMTP, authenticated DNS)", "Add a node", "No line item, because there is no vendor: MarketWar OS is the email service provider. Per-brand DKIM, our own warm-up governor and our own bounce intake. Capacity scales by adding a node, never by adding a provider — which is why email carries no per-message cost to clear."],
             ["Messaging", "WhatsApp Cloud API (Meta)", "Manual send", "Per-conversation pricing; watch it, it moves."],
             ["Payments in", "Stripe", "—", "Single source by design. The 20p fixed fee is why the top-up floor is £5."],
             ["Payouts out", "BitriPay", "Nine rails behind it", "Fee quotes are computed per rail before money moves."],

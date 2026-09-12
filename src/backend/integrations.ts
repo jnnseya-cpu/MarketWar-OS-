@@ -18,7 +18,7 @@ import { quoteAcu } from "@/backend/acu";
 
 export type IntegrationProvider =
   | "meta_ads" | "google_ads" | "tiktok_ads" | "linkedin_ads"
-  | "whatsapp_cloud" | "twilio_sms" | "sendgrid_email" | "amazon_ses" | "resend_email" | "mailgun_email"
+  | "whatsapp_cloud" | "twilio_sms" | "marketwar_sending"
   | "stripe" | "paypal" | "shopify" | "woocommerce"
   | "google_calendar" | "microsoft_calendar" | "google_business_profile"
   | "facebook_pages" | "instagram_business" | "linkedin_pages" | "zapier" | "make"
@@ -48,9 +48,13 @@ export const INTEGRATIONS: IntegrationMeta[] = [
   { provider: "linkedin_ads", label: "LinkedIn Marketing", category: "paid_ads", dependencyLevel: "optional", costMode: "usage_based", accelerates: "B2B sponsored content + professional targeting", envKey: "LINKEDIN_ACCESS_TOKEN", manualFallback: ["Copy the post + targeting", "Publish manually in Campaign Manager"] },
   { provider: "whatsapp_cloud", label: "WhatsApp Cloud API", category: "messaging", dependencyLevel: "recommended", costMode: "usage_based", accelerates: "Template + session messages, booking/order flows, status", envKey: "WHATSAPP_TOKEN", manualFallback: ["Generate the WhatsApp message", "Generate a wa.me click-to-chat link", "Export the contact CSV", "User sends manually / broadcasts via an approved method"] },
   { provider: "twilio_sms", label: "Twilio SMS", category: "messaging", dependencyLevel: "optional", costMode: "usage_based", accelerates: "SMS + bulk send, delivery/reply tracking", envKey: "TWILIO_AUTH_TOKEN", manualFallback: ["Export the recipient CSV", "Copy the SMS script", "Send via a local telecom provider / bring-your-own gateway"] },
-  { provider: "sendgrid_email", label: "SendGrid (email)", category: "email", dependencyLevel: "recommended", costMode: "usage_based", accelerates: "Bulk + transactional email, deliverability", envKey: "SENDGRID_API_KEY", manualFallback: ["Export the list", "Download the email HTML", "Copy the campaign into any provider"] },
-  { provider: "amazon_ses", label: "Amazon SES (email)", category: "email", dependencyLevel: "optional", costMode: "usage_based", accelerates: "Low-cost high-volume email sending", envKey: "AWS_SES_KEY", manualFallback: ["Export the list", "Download the email HTML"] },
-  { provider: "resend_email", label: "Resend (email)", category: "email", dependencyLevel: "optional", costMode: "usage_based", accelerates: "Developer-friendly transactional email", envKey: "RESEND_API_KEY", manualFallback: ["Export the list", "Download the email HTML"] },
+  // EMAIL IS NOT AN INTEGRATION. It was listed as four outside vendors, each row
+  // claiming it "runs on MarketWar's own email infrastructure" — which was true
+  // of none of them and was the platform recommending a competitor for the one
+  // thing it exists to do. MarketWar OS IS the email service provider: its own
+  // authenticated relay (infra/sending-node), its own DKIM keys per brand, its
+  // own warm-up governor and its own bounce intake. One honest row.
+  { provider: "marketwar_sending", label: "MarketWar Sending (email)", category: "email", dependencyLevel: "required_for_feature", costMode: "usage_based", accelerates: "Bulk + one-to-one email on our own authenticated relay, with per-brand DKIM, warm-up and bounce handling", envKey: "MW_SENDING_POOL", manualFallback: ["Export the list", "Download the email HTML"] },
   { provider: "stripe", label: "Stripe (payments)", category: "payments", dependencyLevel: "recommended", costMode: "usage_based", accelerates: "Subscriptions, ACU top-ups, pay-per-lead, invoices", envKey: "STRIPE_SECRET_KEY", manualFallback: ["Record a manual payment", "Send a bank-transfer invoice", "Admin credits the ACU wallet", "Offline payment confirmation"] },
   { provider: "paypal", label: "PayPal (payments)", category: "payments", dependencyLevel: "optional", costMode: "usage_based", accelerates: "Alternative checkout", envKey: "PAYPAL_CLIENT_SECRET", manualFallback: ["Manual payment record", "Bank-transfer invoice"] },
   { provider: "shopify", label: "Shopify", category: "ecommerce", dependencyLevel: "optional", costMode: "subscription", accelerates: "Import products/customers/orders, cart-abandonment webhooks", envKey: "SHOPIFY_TOKEN", manualFallback: ["Create products manually in the OS", "Import via CSV"] },
@@ -63,7 +67,6 @@ export const INTEGRATIONS: IntegrationMeta[] = [
   { provider: "linkedin_pages", label: "LinkedIn Pages", category: "social", dependencyLevel: "optional", costMode: "free", accelerates: "Publish company posts", envKey: "LINKEDIN_PAGE_TOKEN", manualFallback: ["Copy the post", "Publish manually"] },
   { provider: "zapier", label: "Zapier", category: "automation", dependencyLevel: "optional", costMode: "subscription", accelerates: "Connect to 6,000+ apps", envKey: "ZAPIER_KEY", manualFallback: ["Use the OS's own No-Code Automation Builder"] },
   { provider: "make", label: "Make", category: "automation", dependencyLevel: "optional", costMode: "subscription", accelerates: "Visual multi-app automation", envKey: "MAKE_KEY", manualFallback: ["Use the OS's own No-Code Automation Builder"] },
-  { provider: "mailgun_email", label: "Mailgun (email)", category: "email", dependencyLevel: "optional", costMode: "usage_based", accelerates: "Transactional + bulk email sending", envKey: "MAILGUN_API_KEY", manualFallback: ["Export the list", "Download the email HTML"] },
   { provider: "brevo_import", label: "Brevo (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of contacts/lists from Brevo", envKey: "BREVO_API_KEY", manualFallback: ["Export a CSV from Brevo", "Import into the OS Customer Data Platform"] },
   { provider: "mailchimp_import", label: "Mailchimp (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of audiences from Mailchimp", envKey: "MAILCHIMP_API_KEY", manualFallback: ["Export a CSV from Mailchimp", "Import into the OS Customer Data Platform"] },
   { provider: "hubspot_import", label: "HubSpot (import)", category: "automation", dependencyLevel: "optional", costMode: "free", accelerates: "One-time import of contacts/deals from HubSpot", envKey: "HUBSPOT_API_KEY", manualFallback: ["Export a CSV from HubSpot", "Import into the OS CRM"] },
@@ -120,10 +123,7 @@ const PROVISIONING: Record<IntegrationProvider, ProvisioningMeta> = {
   // Infrastructure — MarketWar owns the credential; tenant does nothing.
   whatsapp_cloud: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "WHATSAPP_TOKEN", userAction: "Nothing — messages send through the MarketWar messaging pool, billed from your ACU balance.", reason: "Runs on MarketWar's own WhatsApp infrastructure." },
   twilio_sms: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "TWILIO_AUTH_TOKEN", userAction: "Nothing — SMS sends from the platform number pool, billed from your ACU balance.", reason: "Runs on MarketWar's own SMS infrastructure." },
-  sendgrid_email: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "SENDGRID_API_KEY", userAction: "Nothing — email sends from the platform's authenticated pool, billed from your ACU balance.", reason: "Runs on MarketWar's own email infrastructure." },
-  amazon_ses: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "AWS_SES_KEY", userAction: "Nothing — a failover sender in the platform email pool.", reason: "Runs on MarketWar's own email infrastructure." },
-  resend_email: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "RESEND_API_KEY", userAction: "Nothing — a sender in the platform email pool.", reason: "Runs on MarketWar's own email infrastructure." },
-  mailgun_email: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "MAILGUN_API_KEY", userAction: "Nothing — a failover sender in the platform email pool.", reason: "Runs on MarketWar's own email infrastructure." },
+  marketwar_sending: { provisioning: "platform", billing: "acu_metered", platformEnvKey: "MW_SENDING_POOL", userAction: "Nothing — email sends from our own authenticated relay, billed from your ACU balance. Authenticate your domain in Sending Domains and it sends as you.", reason: "MarketWar OS is the email service provider; this is our own infrastructure, not a reseller of somebody else's." },
   // Owned-alternative automation — bundled; the built-in builder needs no account.
   zapier: { provisioning: "user_connect", billing: "user_billed_direct", userAction: "Optional one-click connect — or use the built-in Automation Builder (no account needed).", reason: "Zapier bills on your own Zapier plan; the OS's Automation Builder already covers this." },
   make: { provisioning: "user_connect", billing: "user_billed_direct", userAction: "Optional one-click connect — or use the built-in Automation Builder (no account needed).", reason: "Make bills on your own Make plan; the OS's Automation Builder already covers this." },
@@ -190,10 +190,11 @@ export function connectIsLive(provider: IntegrationProvider): boolean {
 // platform-managed connector belongs to a pool; within a pool the platform
 // routes across providers with automatic failover, so NO single vendor is a
 // foundation. If one changes pricing/policy/access, the platform reroutes and
-// the tenant never notices. (The email engine already pools SMTP→Resend→
-// SendGrid→SES→demo; SMS and WhatsApp pool the same way.)
+// the tenant never notices. Email is the exception and deliberately so: we are
+// the provider, so the email pool is OUR OWN nodes (MW_SENDING_POOL), and it
+// scales by adding nodes rather than by adding vendors.
 export const PROVIDER_POOLS: Record<string, { pool: string; members: IntegrationProvider[]; failover: string }> = {
-  email: { pool: "Email sending pool", members: ["sendgrid_email", "amazon_ses", "resend_email", "mailgun_email"], failover: "SMTP → Resend → SendGrid → SES → demo — automatic, per send." },
+  email: { pool: "Email sending pool", members: ["marketwar_sending"], failover: "Our own sending nodes, one per authenticated domain, chosen per send by MW_SENDING_POOL — a node that refuses hands the message to the next. Adding capacity is adding a node, never adding a vendor." },
   sms: { pool: "SMS pool", members: ["twilio_sms"], failover: "Add a second SMS vendor and the platform load-balances + fails over automatically." },
   whatsapp: { pool: "WhatsApp pool", members: ["whatsapp_cloud"], failover: "Falls back to SMS/email + wa.me manual link if the WhatsApp provider is unavailable." },
   publishing: { pool: "Social publishing pool", members: ["zernio_publish", "facebook_pages", "instagram_business", "linkedin_pages", "google_business_profile"], failover: "White-label aggregator fans out to 15 channels; if it is unavailable, falls back to direct page connectors or the download-and-post-manually path — the OS still works." },

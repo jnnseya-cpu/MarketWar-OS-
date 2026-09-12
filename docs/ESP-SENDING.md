@@ -1,7 +1,8 @@
 # MarketWar OS as an ESP — send from your own domain, no third party
 
-**Goal (owner directive):** users don't depend on our shared Brevo/Resend/
-SendGrid account. Each user authenticates **their own domain**, campaigns send
+**Goal (owner directive):** MarketWar OS IS the email service provider. No
+outside ESP is used, named, offered or fallen back to — anywhere, ever. Each
+user authenticates **their own domain**, campaigns send
 **as them** (From + Reply-To on their address, so replies land in their own
 inbox), the mail is **DKIM-signed** so inboxes trust it, and users manage their
 own DNS/DMARC. MarketWar OS becomes the sending platform itself.

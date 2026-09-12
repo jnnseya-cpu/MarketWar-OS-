@@ -2,7 +2,7 @@
 //
 // THE PROBLEM THIS EXISTS TO END. `/api/health/live` reported `envPresent` from
 // a hand-typed list of 35 names. The codebase actually reads 133. So 91
-// variables — including RESEND_API_KEY, APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY,
+// variables — including APOLLO_API_KEY, COMPANIES_HOUSE_API_KEY,
 // ONFIDO_API_TOKEN, WHATSAPP_TOKEN, FB_APP_SECRET, the Google OAuth trio and
 // every webhook secret — were invisible to the one diagnostic that answers
 // "what does this deployment actually hold?". A key you cannot see is a key you
@@ -73,8 +73,10 @@ export const ENV_CATALOGUE: EnvVar[] = [
   { name: "SMTP_SECURE", group: "Email", secret: false, unlocks: "Forces implicit TLS, which port 465 requires and 587 does not.", where: "Set true only for port 465." },
   { name: "SMTP_CONCURRENCY", group: "Email", secret: false, unlocks: "How many SMTP sessions run in parallel, deciding how fast a campaign sends.", where: "Your choice, within your mail host's connection limit." },
   { name: "EMAIL_FROM", group: "Email", secret: false, unlocks: "The visible From address. Must be one the relay is allowed to send as.", where: "An address on your own domain." },
-  { name: "RESEND_API_KEY", group: "Email", secret: true, unlocks: "Sending via Resend instead of SMTP.", where: "resend.com → API keys." },
-  { name: "SENDGRID_API_KEY", group: "Email", secret: true, unlocks: "Sending via SendGrid instead of SMTP.", where: "sendgrid.com → Settings → API keys." },
+  // NO OUTSIDE SENDER IS LISTED HERE. Two rows used to offer one, with a link
+  // to go and buy it — which is the platform recommending a competitor for the
+  // one thing it exists to do. MarketWar OS IS the email service provider; mail
+  // leaves on our own authenticated pool. See the sending law in CLAUDE.md.
   { name: "MW_SENDING_POOL", group: "Email", secret: true, unlocks: "A JSON array of sending nodes, for rotating across several. Overrides the single SMTP_* node.", where: "Written by you; see docs/DEPLOYMENT.md." },
   { name: "MW_BOUNCE_ADDRESS", group: "Email", secret: false, unlocks: "The envelope return path. Must be a mailbox that EXISTS or failure notices vanish.", where: "A real mailbox you own." },
   { name: "EMAIL_WEBHOOK_SECRET", group: "Email", secret: true, unlocks: "Verifying inbound delivery webhooks from the mail provider.", where: "Your mail provider's webhook settings." },
