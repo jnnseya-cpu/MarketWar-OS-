@@ -29012,6 +29012,90 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
+test("\"I have all three keys and it still does not work\" gets an answer, not a key list", async (t) => {
+  // THE SENTENCE THE PLATFORM COULD NOT ANSWER. `/api/health/enrichment` reports
+  // which keys EXIST. `/api/health/live` reports which build is running. Neither
+  // says what happened to a row — and "it found nothing" has at least seven
+  // causes that look identical from outside: a stale build, a rejected search
+  // key, a site with no address, a refused directory inbox, an empty wallet, a
+  // supplier with no data, a supplier refusing us. Each needs a different action,
+  // and the vault's summary line cannot tell them apart.
+  const { explainEnrichment } = await import("../src/backend/enrichment-explain.ts");
+  const saved = { ...process.env };
+  const realFetch = globalThis.fetch;
+  t.after(() => { process.env = saved; globalThis.fetch = realFetch; });
+
+  // PRESENT-AND-REJECTED IS NOT ABSENT, and telling them apart is the whole
+  // point: the owner set all three keys and was told nothing worked, which is
+  // the state where a presence check is worth less than nothing.
+  process.env.SERPER_API_KEY = "set-but-refused";
+  process.env.HUNTER_API_KEY = "h";
+  process.env.APOLLO_API_KEY = "a";
+  globalThis.fetch = async (u) => (String(u).includes("serper.dev")
+    ? new Response(JSON.stringify({ message: "Unauthorized" }), { status: 403 })
+    : new Response("{}", { status: 404 }));
+
+  const rejected = await explainEnrichment("Wembley Stadium");
+  assert.equal(rejected.keys.serper, true, "the key is set, and the report must say so");
+  const key = rejected.steps.find((s) => s.stage === "search key");
+  assert.equal(key.ok, false);
+  assert.match(key.detail, /SET and the provider refused it/i,
+    "a rejected key reads as a missing one, which sends somebody to set a variable they have already set");
+  assert.match(key.detail, /403/, "the provider's own status is withheld");
+
+  // THE SAME STAGE, WITH THE KEY GENUINELY ABSENT, MUST READ DIFFERENTLY.
+  delete process.env.SERPER_API_KEY;
+  const missing = await explainEnrichment("Wembley Stadium");
+  const missingKey = missing.steps.find((s) => s.stage === "search key");
+  assert.notEqual(missingKey.detail, key.detail,
+    "an absent key and a refused key produce the same sentence, so the report cannot tell them apart");
+  assert.match(missingKey.detail, /is not set/i);
+
+  // THE RUNNING BUILD IS REPORTED, because a fix that was never deployed is the
+  // commonest cause of "still not working" and no amount of reading the code
+  // finds it.
+  assert.ok(missing.build.commit && missing.build.host,
+    "the report does not say which code answered it");
+  // THE SAME IMPLEMENTATION AS THE LIVE REPORT. Reading one environment variable
+  // here would answer "unknown" on three of the four hosts this can run on, in
+  // the field whose whole purpose is to say whether a fix is deployed.
+  // AND THE LIVE ROUTE STILL IMPORTS NOTHING FROM `@/backend` AT MODULE LEVEL.
+  //
+  // That route says so at the top of its own file, and the reason is an outage
+  // this platform has had twice: a top-level import that throws on load cannot
+  // be caught by any try/catch in the handler, so it takes the whole route down
+  // and answers a bare 500 — on the one endpoint somebody opens to find out what
+  // is broken. Sharing this helper nearly broke that rule silently, which is why
+  // it lives in `shared/` and why the rule is now asserted rather than written.
+  const liveRoute = codeOf(readFileSync(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8"));
+  const topLevelBackend = [...liveRoute.matchAll(/^import[^\n]*from\s+"(@\/backend\/[^"]+)"/gm)].map((m) => m[1]);
+  assert.deepEqual(topLevelBackend, [],
+    `/api/health/live imports ${topLevelBackend.join(", ")} at module level — a throw on load takes the whole diagnostic down with a bare 500`);
+
+  const { buildIdentity } = await import("../src/shared/build-identity.ts");
+  assert.deepEqual(missing.build, buildIdentity(), "the two reports derive the running build differently");
+  assert.equal(buildIdentity({ K_REVISION: "svc-00042-abc" }).host, "firebase-app-hosting",
+    "only one host's commit stamp is recognised, so the others report unknown");
+
+  // THE PAID HALF IS NOT RUN BY ACCIDENT, and the report says so rather than
+  // quietly omitting the half somebody is asking about.
+  const paidStep = missing.steps.find((s) => s.stage === "paid suppliers");
+  assert.equal(paidStep.ok, false);
+  assert.match(paidStep.detail, /Not run/i);
+  assert.match(paidStep.fix, /paid=1/, "the report does not say how to see the paid half");
+
+  // APOLLO SET AND UNUSABLE IS ITS OWN STATE. A 403 from Apollo trips a one-hour
+  // breaker, so the key reads as present while the supplier does nothing — which
+  // looks exactly like the platform ignoring a key that was paid for.
+  assert.ok("apolloBreakerTripped" in missing.keys,
+    "a tripped Apollo breaker is invisible, so a key that is set and doing nothing has no explanation");
+
+  // AND A FREE FIND IS REPORTED AS FREE. A customer who was charged nothing must
+  // not be left wondering what a supplier cost them.
+  const found = await explainEnrichment("");
+  assert.match(found.verdict, /nothing to look up/i, "an empty company name must not start a lookup");
+});
+
 test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in it", async (t) => {
   // THE MERGE THE OWNER ASKED FOR. Two implementations of "find this company's
   // email" existed: the Customer Vault ran Apollo then a scrape, Contact Hunter

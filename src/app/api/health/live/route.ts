@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { ENV_CATALOGUE, ENV_NAMES } from "@/shared/env-catalogue";
+// One implementation of "which code is answering", shared with every other
+// diagnostic that needs it. Reading a single environment variable in the second
+// caller would answer "unknown" on three of the four hosts this can run on.
+import { buildIdentity } from "@/shared/build-identity";
 
 // Live-readiness matrix — a SAFE, no-spend pre-flight for the deployed app.
 // Reports which live capabilities are wired vs still demo, and exactly what to
@@ -196,22 +200,8 @@ export async function GET() {
     // The full credential diagnostic, beside the capability it explains. Safe:
     // lengths, a one-way fingerprint and a reason — never a key.
     firebaseAdmin: adminWhy,
-    build: (() => {
-      const sources: [string, string | undefined][] = [
-        ["vercel", process.env.VERCEL_GIT_COMMIT_SHA],
-        ["firebase-app-hosting", process.env.CLOUD_RUN_REVISION || process.env.K_REVISION],
-        ["github-actions", process.env.GITHUB_SHA],
-        ["generic", process.env.COMMIT_SHA || process.env.SOURCE_COMMIT || process.env.GIT_COMMIT],
-      ];
-      const found = sources.find(([, v]) => Boolean(v && v.trim()));
-      return {
-        commit: found ? String(found[1]).slice(0, 12) : "unknown",
-        host: found ? found[0] : "unknown",
-        note: found
-          ? "Compare this with the commit you pushed. If they differ, the deployment has not picked up your change yet and nothing in the code will explain what you are seeing."
-          : "This deployment exposes no commit stamp, so it cannot say which build it is running. Set COMMIT_SHA in the host's environment to make that answerable.",
-      };
-    })(),
+    // One implementation, shared with every other diagnostic that needs it.
+    build: buildIdentity(),
     vercelEnv: process.env.VERCEL_ENV || "unknown", // "production" | "preview" | "development"
     // THE VERSION THE HOST ACTUALLY CHOSE, WHICH IS NOT NECESSARILY THE ONE ASKED FOR.
     //

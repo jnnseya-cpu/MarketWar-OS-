@@ -1,7 +1,7 @@
 # MarketWar OS — current state
 
 **This file describes where things stand right now. It is REPLACED, never appended to.**
-Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-09-11.
+Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-09-12.
 
 ## 1. What this is
 
@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one s
 in credits, deployed at marketwaros.com. Live-tested on **AxionOS** (evandeli.com, UK trades),
 **VeryX** (veryxjnn.com) and **KODA** (kodajnn.com, mobile-money verification, DRC). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 250 backend modules, 186 API
-routes, 69 dashboard pages, **1,849 tests**.
+routes, 69 dashboard pages, **1,856 tests**.
 
 **IT RUNS ON VERCEL** — `vercel.json` holds the ten crons, DNS is Vercel's, and
 `PRODUCTION-ARCHITECTURE.md` adopts Hostinger → Cloudflare → Vercel → Firebase. `apphosting.yaml`
@@ -44,15 +44,15 @@ delivery is confirmed and the first real campaign runs; `/dashboard/acquisition`
 - **ONE ENRICHMENT CHAIN (§§128–129)** — the vault and Contact Hunter share it. Free crawl → Companies House → Hunter → Apollo, in COST order, and a row carrying only a NAME has its domain resolved by the chain itself. The paid pass is charged separately (`enrich_paid`, derived from the dearest supplier) and budgeted at half of it, so the margin floor is code. It was two chains: the vault ran Apollo-first and could not reach Hunter at all.
 - **CORRECT ON THE FIRST RENDER** (`shared/render-brief.ts`) — a brief that will come back wrong is REFUSED before a penny moves. **A PROVIDER'S REFUSAL IS READ, NOT GUESSED AT** (`shared/provider-failure.ts`) — credit before rate limit (both 429, opposite remedies); an unrecognised refusal keeps the provider's words and offers NO remedy.
 - **STAFF ARE NOT BILLED FOR THEIR OWN PLATFORM** — `wallet.meteringExempt`, asked by `meterAction` AND `spendAcus`; a refund returns what was TAKEN, so an exempt render cannot mint ACUs. **§50 the paid-boost ladder** — which post earns a budget, against the brand's own median; refuses to promote without conversion tracking; never spends.
-- **The provider waterfall** — one name and company through every supplier in COST order inside 14s.
-  Free first; **only calls that ran AND returned are charged**. Hunter is the first PAID adapter at
-  2×; every address is `provenance: "provider"`, because `confirmed` means WE read the page.
+- **The provider waterfall** — one name and company through every supplier in COST order inside 14s. Free first; **only calls that ran AND returned are charged**; every bought address is `provenance: "provider"`, because `confirmed` means WE read the page.
 
 **EVERY PUBLIC CLAIM IS BOUND TO THE CODE OR TESTED AGAINST IT** (08-26). Landing stats, plan prices/ACUs, agent cards, answer pages — twelve tests. **What broke was always what somebody TYPED.**
 
 ## 4. What is dark without keys, and the one action for each
 
-`/api/capabilities` is the live answer for any deployment; trust it over this table.
+`/api/capabilities` is the live answer for any deployment; trust it over this table. **"It found nothing"
+has seven causes that look identical: `/api/health/enrichment?company=<name>` runs one row through the
+real chain and names which (§130). Free; `&paid=1` asks the suppliers.**
 
 | Capability | One action |
 |---|---|
