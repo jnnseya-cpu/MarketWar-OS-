@@ -6029,14 +6029,30 @@ test("tracking domains: the host is resolved ONCE per send, not per recipient", 
     "resolving inside the map is one datastore read per recipient");
 });
 
-test("email: one-click unsubscribe is set on the BULK path, per RFC 8058", () => {
+test("email: one-click unsubscribe is set on the BULK path, per RFC 8058", async () => {
   // Google and Yahoo have required this of bulk senders since February 2024.
   // Missing it means filtering regardless of DNS, content or list quality.
-  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
-  const headerPairs = email.split('headers["List-Unsubscribe"]').length - 1;
-  assert.ok(headerPairs >= 2, "both the single-send and the batched send paths must set it");
-  assert.match(email, /headers\["List-Unsubscribe-Post"\] = "List-Unsubscribe=One-Click"/,
+  //
+  // THIS TEST USED TO COUNT SOURCE OCCURRENCES and demand at least two, on the
+  // reasoning that the single-send path and the batch path each had to set the
+  // header. That was counting the DUPLICATION, not the behaviour — and when the
+  // two near-identical header blocks were collapsed into one builder, a change
+  // that can only have made the header more reliable, this failed. A check that
+  // passes or fails for a reason unrelated to what it tests: the second defect
+  // class in this repository, and the reason it now drives the real decision.
+  const { messageShape } = await import("../src/shared/message-shape.ts");
+  const bulk = messageShape({ transactional: false, listUnsubscribe: "https://x.test/u?t=1", brandId: "b", fromDomain: "b.test" });
+  assert.equal(bulk.headers["List-Unsubscribe"], "<https://x.test/u?t=1>");
+  assert.equal(bulk.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click",
     "List-Unsubscribe alone is the OLD spec — one-click needs the Post header too");
+
+  // And the wire builder must actually ask for that decision rather than
+  // deciding for itself, which is what put the headers in two places before.
+  const email = readFileSync(new URL("../src/backend/email.ts", import.meta.url), "utf8");
+  assert.match(email, /const shape = messageShape\(\{/,
+    "the message builder must take its list headers from the one decision");
+  assert.match(email, /for \(const \[k, v\] of Object\.entries\(shape\.headers\)\) headers\[k\] = v;/);
+
   const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
   assert.match(route, /listUnsubscribe: unsubscribeUrl\(brandId, to, campaign/,
     "and the bulk route must actually pass a URL, or the header is never added");

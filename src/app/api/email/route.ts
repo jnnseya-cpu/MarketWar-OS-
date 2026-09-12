@@ -118,6 +118,10 @@ export async function POST(req: NextRequest) {
         ? body.groups.filter((g): g is string => typeof g === "string" && g.trim().length > 0)
         : [],
       samples: Number(body.samples) || 3,
+      // The same From the send below will use. Without it the preview cannot
+      // tell whether the links in this campaign point at the customer's own
+      // domain or at ours, which is the check that most affects where it lands.
+      fromEmail: typeof body.fromEmail === "string" ? body.fromEmail.trim() : "",
     });
     return NextResponse.json(preview);
   }
@@ -390,6 +394,10 @@ export async function POST(req: NextRequest) {
     try {
       results = await sendEmailBatch(prepared, {
         from: fromHeader, replyTo, dkim, brandId,
+        // Named on the wire in the Feedback-ID, so Google reports reputation for
+        // THIS campaign rather than for the domain as a whole — which is the
+        // difference between finding the bad send and watching everything dip.
+        campaign,
         attachments: attachments.length ? attachments : undefined,
         deadline: sendDeadline,
       });

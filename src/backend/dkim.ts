@@ -48,7 +48,22 @@ export type DkimOptions = {
   headerNames?: string[]; // which headers to sign (order preserved)
 };
 
-const DEFAULT_SIGNED = ["from", "to", "subject", "date", "mime-version", "content-type", "message-id", "list-unsubscribe"];
+// WHAT THE SIGNATURE COVERS. Only headers that are actually present are signed
+// (see `signedNames` below), so listing one that a given message does not carry
+// costs nothing — and leaving one OFF means a relay in the middle can add,
+// remove or rewrite it without breaking the signature.
+//
+// The four added here are the ones that were unprotected and worth protecting.
+// `sender` and `reply-to` decide who the message appears to come from and where
+// an answer goes; an unsigned `Sender:` is exactly the header a forgery wants to
+// set. `list-unsubscribe-post` is what makes one-click unsubscribe one-click,
+// and signing the URL while leaving the instruction unsigned protects half the
+// mechanism. `list-id` identifies the list a receiver may choose to block
+// instead of blocking the domain.
+const DEFAULT_SIGNED = [
+  "from", "sender", "reply-to", "to", "subject", "date", "mime-version",
+  "content-type", "message-id", "list-unsubscribe", "list-unsubscribe-post", "list-id",
+];
 
 // Build the `DKIM-Signature: …` header for a message. `headers` is the exact set
 // present in the message (name → value). Returns the full header line (no CRLF).

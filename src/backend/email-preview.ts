@@ -30,6 +30,13 @@ import { fixTokens, tokenWarnings, usedTokens } from "@/shared/merge-tokens";
 import type { Contact } from "@/backend/contacts";
 import { selectByGroups } from "@/shared/contact-groups";
 import { looksUnwritten } from "@/backend/email-template-writer";
+// The preview's text and preheader come from the SAME converter the wire
+// builder uses, so what this screen shows is what the recipient's text
+// alternative actually says. Re-exported because callers and tests import them
+// from here, and the additive rule keeps that surface working.
+import { htmlToText, preheaderOf, textPartFrom } from "@/shared/html-text";
+export { htmlToText, preheaderOf };
+import { registrableDomain } from "@/shared/mail-host";
 
 export type PreviewSource = "written" | "ai" | "template";
 
@@ -65,39 +72,6 @@ export type EmailPreview = {
   note: string;
 };
 
-// ---------------------------------------------------------------------------
-// HTML → text. Not a general converter; a faithful-enough one for the two jobs
-// that matter: the plain-text part, and the preheader an inbox shows.
-// ---------------------------------------------------------------------------
-
-export function htmlToText(html: string): string {
-  return (html || "")
-    // Anything invisible must not become the preheader. A tracking pixel's alt
-    // text or a display:none block would otherwise be the first thing the
-    // inbox shows beside the subject line.
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+style\s*=\s*"[^"]*display\s*:\s*none[^"]*"[^>]*>[\s\S]*?<\/[^>]+>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "• ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-/** The ~90 characters an inbox shows next to the subject. */
-export function preheaderOf(html: string): string {
-  const t = htmlToText(html).replace(/\s+/g, " ").trim();
-  return t.length <= 90 ? t : `${t.slice(0, 89).trimEnd()}…`;
-}
-
 const maskEmail = (e: string): string => {
   const [local = "", domain = ""] = String(e).split("@");
   if (!domain) return e;
@@ -126,6 +100,10 @@ export function previewChecks(input: {
   narrowed?: boolean;
   /** Per token: how many eligible contacts have no value for it. */
   blankByToken?: Record<string, number>;
+  /** The From address the send will use — needed to judge link alignment. */
+  fromEmail?: string;
+  /** The tracking host every link is rewritten through. */
+  trackingBase?: string;
 }): PreviewCheck[] {
   const checks: PreviewCheck[] = [];
   const add = (level: PreviewCheck["level"], where: PreviewCheck["where"], message: string) =>
@@ -251,6 +229,41 @@ export function previewChecks(input: {
         : `There is nobody to send to: ${input.matched} contact(s) match, but none of them has both an email address and consent. Add addresses, or send to a selection that has them.`);
   }
 
+  // ---- WHERE THIS WILL LAND, HONESTLY -------------------------------------
+  //
+  // A campaign is bulk mail. It carries one-click unsubscribe because every
+  // large receiver now requires that of bulk mail — and that header is also the
+  // clearest signal a classifier has that a message is marketing. So a campaign
+  // usually lands in Promotions, and nothing here will pretend otherwise: the
+  // way to reach somebody's Primary tab is to write to them personally from the
+  // vault, not to dress marketing up as a personal note. Stripping the header to
+  // chase the tab does not move the message to Primary; it moves it to spam, and
+  // it takes the domain's personal mail down with it.
+  //
+  // What these three check is the difference between a campaign filed under
+  // Promotions and one filed under spam, which is the difference that matters.
+
+  // THE LINK DOMAIN. Every link is rewritten through the tracking host so the
+  // click can be counted. When the customer has not verified their own sending
+  // domain that host is ours, so mail claiming to come from their business
+  // carries links to somebody else's domain — the shape of a phishing message,
+  // and weighed accordingly.
+  const fromDomain = registrableDomain(String(input.fromEmail || "").split("@")[1] || "");
+  const linkDomain = registrableDomain(String(input.trackingBase || "").replace(/^https?:\/\//, "").split("/")[0] || "");
+  if (fromDomain && linkDomain && fromDomain !== linkDomain) {
+    add("warning", "body", `The message comes from ${fromDomain} but every link in it points at ${linkDomain}. Receivers weigh that mismatch heavily — it is the shape of a phishing message. Verify ${fromDomain} in Sending Domains and the links move onto it.`);
+  }
+
+  // THE TEXT ALTERNATIVE. Every message now goes out with one; a body that
+  // yields no readable text produces an empty one, which is the case a filter
+  // scores worst — and is what a watch or a screen reader is left with.
+  const plain = textPartFrom(input.html).trim();
+  if (input.html.trim() && !plain) {
+    add("warning", "body", "This body produces no readable plain text, so the text alternative every message carries would be empty. That is the version a watch, a screen reader and most spam filters read.");
+  } else if (imgs.length >= 3 && plain.length < 200) {
+    add("warning", "body", `${imgs.length} images and ${plain.length} characters of text. A message that is mostly picture is read as an advert by filters and shows as a blank rectangle wherever images are off.`);
+  }
+
   // The grammar problems that are legal but read badly on a real list.
   for (const w of tokenWarnings(`${input.subject} ${input.html}`)) add("warning", "body", w);
 
@@ -283,6 +296,12 @@ export async function buildEmailPreview(input: {
    */
   groups?: string[];
   samples?: number;
+  /**
+   * The From address the send will use. Optional, because the panel can be
+   * opened before one is chosen — and when it is absent the link-alignment
+   * check stays silent rather than guessing at a domain.
+   */
+  fromEmail?: string;
 }): Promise<EmailPreview> {
   const brandName = input.brandName ?? "";
   const campaign = input.campaign ?? "";
@@ -324,7 +343,10 @@ export async function buildEmailPreview(input: {
       name: String(contact.name || "").trim(),
       subject,
       html,
-      text: htmlToText(html),
+      // THE TEXT THE RECIPIENT ACTUALLY GETS. `htmlToText` drops every link, so
+      // the preview showed a text version stripped of the very thing the message
+      // asks the reader to do. The wire sends `textPartFrom`, so this does too.
+      text: textPartFrom(html),
       preheader: preheaderOf(merged),
     };
   });
@@ -344,6 +366,10 @@ export async function buildEmailPreview(input: {
     matched: pool.length,
     narrowed: Boolean(input.statusFilter) || groupFilter.length > 0,
     blankByToken,
+    // The two values the placement checks need. `base` is already resolved
+    // above — the host every link in this campaign is rewritten through.
+    fromEmail: input.fromEmail,
+    trackingBase: base,
   });
   const blockers = checks.filter((c) => c.level === "blocker").length;
 
