@@ -36,7 +36,9 @@
     "pitch:doc": "node --import tsx scripts/build-pitch-doc.mjs && node --import tsx scripts/verify-pitch-doc.mjs",
     "pitch:verify": "node --import tsx scripts/verify-pitch-doc.mjs",
     "check:advisories": "node scripts/check-advisories.mjs",
-    "drive:loop": "node scripts/drive-commercial-loop.mjs"
+    "drive:loop": "node scripts/drive-commercial-loop.mjs",
+    "deck:doc": "node --import tsx scripts/build-deck.mjs && node --import tsx scripts/verify-deck.mjs",
+    "deck:verify": "node --import tsx scripts/verify-deck.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
