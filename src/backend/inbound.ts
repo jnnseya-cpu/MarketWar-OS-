@@ -29,6 +29,15 @@ export type InboundMessage = {
   read: boolean;
   /** An out-of-office or auto-responder. Shown, flagged, and never suppressed. */
   auto?: boolean;
+  /**
+   * The RFC 5322 Message-ID this arrived with, kept so a reply can quote it in
+   * In-Reply-To and be shown INSIDE the existing conversation rather than as a
+   * new one. Threading is the strongest inbox-placement signal a sender has:
+   * a receiving client keeps a thread in the tab that thread already lives in,
+   * so a threaded reply to a message the recipient wrote inherits the Primary
+   * placement of their own mail. It was being parsed on the way in and dropped.
+   */
+  messageId?: string;
 };
 
 const mem = new Map<string, InboundMessage[]>(); // brandId → messages
@@ -44,7 +53,7 @@ export async function saveInbound(m: Omit<InboundMessage, "id" | "read"> & { id?
     snippet: (m.snippet || m.text || "").replace(/\s+/g, " ").trim().slice(0, 240),
     text: m.text ? m.text.slice(0, 100_000) : undefined,
     html: m.html ? m.html.slice(0, 300_000) : undefined,
-    receivedAt: m.receivedAt, read: false,
+    receivedAt: m.receivedAt, read: false, messageId: m.messageId,
   };
   if (adminConfigured && adminDb) {
     await adminDb.collection("inbound_messages").doc(docId(id)).set(msg, { merge: true });

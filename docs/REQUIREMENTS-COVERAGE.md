@@ -6617,3 +6617,122 @@ the three slides whose body is a full-width grid of cards, a headline held to th
 prose measure stacked into three narrow lines above four wide ones; those
 headlines now take the grid's width, so "No setup fee. No contract. No sales
 call." lands on one line instead of two.
+
+## §135 — Where the mail lands: the stream decides the shape (2026-09-12)
+
+The owner asked that mail sent by this platform, ours and our customers', land in
+the Primary tab rather than Promotions. The first duty here is the honest answer,
+because the honest answer changed the design.
+
+**NOBODY CAN PROMISE PRIMARY.** It is a classifier Google runs on its own side.
+Any product that promises placement is lying, and this one will not.
+
+**AND THE TWO GOALS PULL AGAINST EACH OTHER.** The single most reliable way to be
+filed under Promotions is to carry a `List-Unsubscribe` header — and that header
+is MANDATORY for bulk marketing mail under Google's, Yahoo's, Apple's and now
+Microsoft's sender rules. Strip it to chase Primary and the mail stops being
+compliant, and non-compliant bulk mail does not land in Promotions. It lands in
+spam, and it takes the domain's personal mail down with it.
+
+So "put all our mail in Primary" is not a setting. What is achievable is
+**separating the mail into streams and enforcing the shape of each one in code**,
+which is what `src/shared/message-shape.ts` now does:
+
+- **conversational** — one person writing to one person: outreach from the vault,
+  replies, receipts, account access, a report somebody asked for. No unsubscribe
+  header, no `List-ID`, no `Precedence`. Primary is genuinely reachable here, and
+  this is the mail that wins the work.
+- **bulk** — campaigns and the newsletter. One-click unsubscribe, `List-ID`,
+  `Precedence: bulk` and a `Feedback-ID` so Google reports reputation per campaign
+  rather than per domain. It will usually be filed under Promotions. That is
+  correct, it is legal, and it is where a recipient looks for it.
+
+**THE FLAG WAS ALREADY THERE AND NEVER CROSSED THE BOUNDARY.** Nine call sites
+were passing `transactional: true`. It did exactly one thing — exempt the message
+from the emergency stop — while the header block three functions away, the only
+place that could act on it, never saw it. **Defect class one, thirty-second
+instance.**
+
+**SO WAS THE PLAIN TEXT.** Every message this platform had ever sent was
+`text/html` and nothing else, which is one of the oldest and most reliable signals
+that a message is bulk rather than written by a person. `htmlToText` had existed
+for months — producing exactly that text, for the preview screen, and dropping it
+at the boundary. It now moves to `shared/html-text.ts` (the wire cannot import the
+preview: `email-preview` → `email-events` → `email` would close a cycle) and every
+message goes out `multipart/alternative`, text part first, because RFC 2046 says a
+client renders the LAST part it can and HTML-first means everyone reads the plain
+text. `textPartFrom` keeps a real link's destination beside its label, so a
+text-only reader can still act, and drops the tracking redirector, which is
+unreadable, identifies the recipient and is the most spam-like string on the page.
+
+**A POUND SIGN IN A SUBJECT LINE WAS GOING OUT ILLEGAL.** Headers are seven-bit
+ASCII. A British customer typing "Save £50" produced a raw high byte in a header,
+which a receiving server is entitled to reject or strip. RFC 2047 encoded-words
+now apply where they are needed and nowhere else, folded so no encoded word
+exceeds 75 characters, and chunked on CHARACTER boundaries — chunking on byte
+boundaries is how this becomes mojibake. Only the display name of an address is
+encoded; wrapping the mailbox produces a name with no address behind it.
+
+**THE TWO MESSAGE BUILDERS ARE ONE.** `sendViaSmtp` carried a near-identical copy
+of `buildWireMessage`, under a comment warning that building the header map twice
+is how a DKIM signature silently stops matching. It was right. The only real
+difference was `Sender:`, which the single path takes from its own three-address
+reconciliation, so that is passed in. A test now sends one message down each path
+to the same fake server and compares the header sets.
+
+**THE FALLBACK PROVIDERS WERE SENDING A WORSE MESSAGE THAN THE ONE THAT FAILED.**
+Both the Resend and the SendGrid paths sent bare HTML with no text part and NO
+list headers at all — so a campaign that failed over, which is exactly what
+happens on the day the relay is struggling, went out with no one-click
+unsubscribe. Non-compliant, and nothing said so. Both now carry the same shape and
+the same text part.
+
+**DKIM SIGNS FOUR MORE HEADERS.** `sender` and `reply-to` decide who a message
+appears to come from and where an answer goes; an unsigned `Sender:` is exactly
+what a forgery wants to set. `list-unsubscribe-post` is what makes one-click
+unsubscribe one-click, and signing the URL while leaving the instruction unsigned
+protected half the mechanism. `list-id` lets a receiver block one list instead of
+the domain. Only headers actually present are signed, so this costs nothing.
+
+**A REPLY NOW THREADS.** The arriving `Message-ID` was parsed on the way in and
+discarded, so every reply the platform sent started a new conversation beside the
+one it was answering. It is kept on the inbound record and quoted in `In-Reply-To`
+and `References`. A conversation stays in the tab it already lives in, so a
+threaded reply inherits the recipient's own Primary placement — the strongest
+signal available to a sender, and it costs one header. An automatic reply also
+declares `Auto-Submitted: auto-replied` (RFC 3834), without which two
+auto-responders write to each other for ever.
+
+**AND THE PANEL SAYS IT BEFORE THE CUSTOMER PRESSES SEND.** Three checks added to
+the campaign preview, each actionable: links pointing at a different registrable
+domain from the From address (the shape of a phishing message, and the fix is
+verifying their own sending domain); a body that yields no readable plain text, so
+the alternative every message now carries would be empty; and a message that is
+three or more images and under 200 characters of text. The preview's own text
+sample was built with `htmlToText`, which drops every link — it now uses the same
+`textPartFrom` the wire uses, so the screen shows what the recipient gets.
+
+**A TEST FAILED, CORRECTLY, AND WAS ASSERTING THE WRONG THING.** `features.test.mjs`
+counted occurrences of `headers["List-Unsubscribe"]` in the source and demanded at
+least two, one per send path. It was asserting the DUPLICATION, not the behaviour,
+so collapsing the two builders into one — a change that can only have made the
+header more reliable — failed it. **Defect class two: a check that passes or fails
+for a reason unrelated to what it tests.** It drives the real decision now.
+
+**Seven mutations, seven killed.** Carrying `List-Unsubscribe` on conversational
+mail anyway; never emitting a text part; returning header values unencoded;
+treating unmarked mail as conversational rather than bulk; putting the HTML part
+before the text part; dropping `transactional` from the single-send extra; and
+keeping the tracking redirector in the text part. Each one was applied to the real
+module, the suite was run, and the failure was recorded before the file was
+restored.
+
+**WHAT IS STILL NOT DONE, SAID PLAINLY.** The Resend and SendGrid paths cannot be
+DKIM-signed with the brand's key — those providers sign with their own, for
+domains verified with them, and no code here can change that. `review-requests`
+sends a batch with no unsubscribe URL, so it takes the bulk shape and the shape
+module reports the omission; whether a review request to a past customer is
+marketing or transactional is the owner's call, not a defect to silently fix.
+There is still no seed-list or inbox-placement testing, no Google Postmaster Tools
+ingestion, and no DMARC aggregate report parsing — so the platform can say what
+shape a message has, and cannot yet tell you which tab it reached.

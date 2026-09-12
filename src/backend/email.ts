@@ -25,6 +25,8 @@ if (typeof window !== "undefined") {
 // (port 465) and STARTTLS (ports 587/25) with AUTH LOGIN.
 
 import { dkimSignature } from "@/backend/dkim";
+import { textPartFrom } from "@/shared/html-text";
+import { composeBody, encodeAddressHeader, encodeHeaderWord, messageShape } from "@/shared/message-shape";
 
 // Small stable hash for Message-ID uniqueness (no crypto needed here).
 function hashStr(s: string): number {
@@ -268,29 +270,21 @@ export function validateAttachments(list: EmailAttachment[] | undefined): { ok: 
   return { ok: true, total };
 }
 
-// Returns the multipart body plus the Content-Type header value to use.
-function buildMimeBody(html: string, attachments: EmailAttachment[]): { body: string; contentType: string } {
-  const boundary = `=_mw_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-  const parts: string[] = [];
-  parts.push(`--${boundary}`);
-  parts.push("Content-Type: text/html; charset=utf-8");
-  parts.push("Content-Transfer-Encoding: 8bit");
-  parts.push("");
-  parts.push(html);
-  for (const a of attachments) {
-    const name = safeFilename(a.filename);
-    const ext = name.split(".").pop()?.toLowerCase() || "";
-    const ctype = a.contentType || EXT_TYPES[ext] || "application/octet-stream";
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Type: ${ctype}; name="${name}"`);
-    parts.push("Content-Transfer-Encoding: base64");
-    parts.push(`Content-Disposition: attachment; filename="${name}"`);
-    parts.push("");
+// ONE attachment part. The filename rules and the extension→type table are this
+// module's; the composition around them is in `shared/message-shape` so the
+// preview screen and the wire cannot disagree about the shape of a message.
+function attachmentPart(a: EmailAttachment): string[] {
+  const name = safeFilename(a.filename);
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const ctype = a.contentType || EXT_TYPES[ext] || "application/octet-stream";
+  return [
+    `Content-Type: ${ctype}; name="${name}"`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${name}"`,
+    "",
     // RFC 2045: base64 lines must not exceed 76 chars.
-    parts.push((a.contentBase64.replace(/\s+/g, "").match(/.{1,76}/g) || []).join("\r\n"));
-  }
-  parts.push(`--${boundary}--`);
-  return { body: parts.join("\r\n"), contentType: `multipart/mixed; boundary="${boundary}"` };
+    (a.contentBase64.replace(/\s+/g, "").match(/.{1,76}/g) || []).join("\r\n"),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -303,43 +297,92 @@ export type SmtpExtra = {
   /** RFC 5322 Sender: — the account that submitted, when it is not the From. */
   senderHeader?: string;
   attachments?: EmailAttachment[]; dkim?: { domain: string; selector: string; privateKeyPem: string };
+  // ---- what KIND of message this is, which decides its shape ---------------
+  //
+  // These reached the mailer and stopped there. `transactional` was already
+  // being passed to `sendEmail` by nine call sites and used for exactly one
+  // thing — exempting a message from the emergency stop — while the header
+  // block three functions away, which is the only place it could affect where
+  // the message lands, never saw it. A value computed on one side of a boundary
+  // and never carried across: the defect this repository makes most often.
+  /** True for one-to-one mail: no unsubscribe header, no list headers. */
+  transactional?: boolean;
+  /** Scopes List-ID and Feedback-ID so a receiver can judge one list, not the domain. */
+  brandId?: string;
+  campaign?: string;
+  /** Message-ID of the message this answers, so the reply threads. */
+  inReplyTo?: string;
+  /** RFC 3834: a machine wrote this without a person asking. */
+  autoReply?: boolean;
+  /**
+   * Overrides the derived plain-text alternative. Only for a message that
+   * already has a better hand-written text version than the HTML can yield.
+   */
+  text?: string;
 };
 
+/**
+ * THE ONLY PLACE A MESSAGE IS BUILT.
+ *
+ * It used to be two: this, and a near-identical block inlined in `sendViaSmtp`.
+ * The comment above them said building the header map twice is how a DKIM
+ * signature silently stops matching — and it was right, so they are one now.
+ * The single-send path passes `senderHeader` from its own reconciliation, which
+ * was the only real difference between the two.
+ */
 function buildWireMessage(from: string, to: string, subject: string, html: string, extra?: SmtpExtra, hostHint = ""): string {
   const domainOfFrom = angleAddr(from).split("@")[1] || hostHint || "marketwaros.com";
   const messageId = `<${Date.now().toString(36)}.${Math.abs(hashStr(to + subject)).toString(36)}@${domainOfFrom}>`;
+
+  // THE PLAIN-TEXT ALTERNATIVE, DERIVED HERE SO NO CALLER CAN FORGET IT.
+  // Every message this platform sent was HTML and nothing else, which is one of
+  // the oldest signals that a message is bulk rather than written by a person.
+  // The text was already being produced for the preview screen and dropped at
+  // the boundary; now it goes on the wire.
+  const text = extra?.text ?? textPartFrom(html);
+  const composed = composeBody(html, text, extra?.attachments ?? [], attachmentPart);
+
   const headers: Record<string, string> = {
-    From: from,
-    To: to,
-    Subject: subject,
+    // RFC 2047 where it is needed and nowhere else — a pound sign in a subject
+    // line was going out as a raw high byte, which a receiver may reject.
+    From: encodeAddressHeader(from),
+    To: encodeAddressHeader(to),
+    Subject: encodeHeaderWord(subject),
     Date: new Date().toUTCString(),
     "Message-ID": messageId,
     "MIME-Version": "1.0",
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Transfer-Encoding": "8bit",
+    "Content-Type": composed.contentType,
   };
-  const atts = extra?.attachments ?? [];
-  let bodySource = html;
-  if (atts.length) {
-    const mime = buildMimeBody(html, atts);
-    bodySource = mime.body;
-    headers["Content-Type"] = mime.contentType;
-    delete headers["Content-Transfer-Encoding"];
-  }
-  if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
-  // Declared, not implied — see the single-send path for why a From/account
+  // A multipart message declares its encoding per part, never at the top.
+  if (!composed.contentType.startsWith("multipart/")) headers["Content-Transfer-Encoding"] = "8bit";
+
+  if (extra?.replyTo) headers["Reply-To"] = encodeAddressHeader(extra.replyTo);
+  // Declared, not implied — see sender-identity.ts for why a From/account
   // mismatch with no Sender: header reads as a forgery to the receiving side.
-  if (extra?.senderHeader) headers["Sender"] = extra.senderHeader;
-  if (extra?.listUnsubscribe) {
-    headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
-    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
-  }
+  if (extra?.senderHeader) headers["Sender"] = encodeAddressHeader(extra.senderHeader);
+
+  // THE STREAM DECIDES THE REST. One-to-one mail gets no unsubscribe header and
+  // no list headers, because carrying them is what files a personal message
+  // under Promotions; bulk mail gets all of them, because not carrying them is
+  // what files it under spam. See shared/message-shape.ts.
+  const shape = messageShape({
+    transactional: extra?.transactional,
+    listUnsubscribe: extra?.listUnsubscribe,
+    brandId: extra?.brandId,
+    campaign: extra?.campaign,
+    fromDomain: domainOfFrom,
+    inReplyTo: extra?.inReplyTo,
+    autoReply: extra?.autoReply,
+  });
+  for (const [k, v] of Object.entries(shape.headers)) headers[k] = v;
+
   // Dot-stuffing + bare-LF normalisation so the body cannot break the DATA
-  // terminator or trip a strict MTA.
-  const canonBody = bodySource.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+  // terminator or trip a strict MTA. DKIM signs the pre-stuffed body, which is
+  // what the receiver sees after its own MTA un-stuffs it.
+  const canonBody = composed.body.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
   let dkimHeader = "";
   if (extra?.dkim) {
-    try { dkimHeader = dkimSignature(headers, bodySource, { ...extra.dkim }) + "\r\n"; }
+    try { dkimHeader = dkimSignature(headers, composed.body, { ...extra.dkim }) + "\r\n"; }
     catch { dkimHeader = ""; /* never block a send on a signing hiccup */ }
   }
   const headerBlock = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n");
@@ -563,7 +606,10 @@ async function sendViaSmtp(
   to: string,
   subject: string,
   html: string,
-  extra?: { replyTo?: string; listUnsubscribe?: string; bounceReturnPath?: string; attachments?: EmailAttachment[]; dkim?: { domain: string; selector: string; privateKeyPem: string } },
+  // The SAME extra the batch path takes, rather than a hand-copied subset of it.
+  // The subset was how `transactional` reached the mailer and stopped: it was
+  // simply not in this type, so no caller could pass it through to the headers.
+  extra?: SmtpExtra,
 ): Promise<string> {
   const net = await import("node:net");
   const tls = await import("node:tls");
@@ -598,62 +644,14 @@ async function sendViaSmtp(
 
     const write = (line: string) => socket.write(line + "\r\n");
 
-    // Build the header set. Date + Message-ID are required for deliverability;
-    // Reply-To makes replies land in the sender's own inbox. The header map is
-    // also what DKIM signs, so it must match the emitted headers exactly.
-    const domainOfFrom = angleAddr(from).split("@")[1] || SMTP_HOST || "marketwaros.com";
-    const messageId = `<${Date.now().toString(36)}.${Math.abs(hashStr(to + subject)).toString(36)}@${domainOfFrom}>`;
-    const dateHeader = new Date().toUTCString();
-    const headers: Record<string, string> = {
-      From: from,
-      To: to,
-      Subject: subject,
-      Date: dateHeader,
-      "Message-ID": messageId,
-      "MIME-Version": "1.0",
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Transfer-Encoding": "8bit",
-    };
-    // With attachments the message becomes multipart/mixed; the HTML is part 1.
-    const atts = extra?.attachments ?? [];
-    let bodySource = html;
-    if (atts.length) {
-      const mime = buildMimeBody(html, atts);
-      bodySource = mime.body;
-      headers["Content-Type"] = mime.contentType;
-      delete headers["Content-Transfer-Encoding"];
-    }
-    if (extra?.replyTo) headers["Reply-To"] = extra.replyTo;
-    // RFC 5322 §3.6.2: when the mailbox in From is not the party that actually
-    // submitted the message, `Sender:` names the party that did — for example a
-    // dedicated sending account submitting as the address the business puts its
-    // name to. (On marketwaros.com the two are now the SAME mailbox, `info@`, so
-    // `identity.senderHeader` is empty and no header is emitted: there is no
-    // arrangement to declare. The separate `appuser@` account this once assumed
-    // was never created — see shared/sender-identity.ts.)
-    // Declaring it when they DO differ is what tells a receiving server this is an arrangement
-    // rather than a forgery — a mismatch with no Sender header reads as spoofing
-    // and is exactly the shape of message a relay accepts and then drops.
-    if (identity.senderHeader) headers["Sender"] = identity.senderHeader;
-    if (extra?.listUnsubscribe) {
-      headers["List-Unsubscribe"] = `<${extra.listUnsubscribe}>`;
-      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
-    }
-
-    // Dot-stuffing + bare-LF normalisation so the message body can't break the
-    // DATA terminator or trip strict MTAs.
-    const canonBody = bodySource.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
-
-    // DKIM-sign with the sending domain's key when the domain is authenticated —
-    // this is what earns the inbox. Signed as its own header, prepended first.
-    let dkimHeader = "";
-    if (extra?.dkim) {
-      try { dkimHeader = dkimSignature(headers, bodySource, { ...extra.dkim }) + "\r\n"; }
-      catch { dkimHeader = ""; /* never block a send on a signing hiccup */ }
-    }
-
-    const headerBlock = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n");
-    const message = dkimHeader + headerBlock + "\r\n\r\n" + canonBody;
+    // ONE BUILDER, NOT A SECOND COPY OF IT.
+    //
+    // This was a near-identical duplicate of `buildWireMessage`, sitting under a
+    // comment warning that building the header map twice is how a DKIM
+    // signature silently stops matching. It was right. The only real difference
+    // was the Sender: header, which this path takes from its own three-address
+    // reconciliation rather than from the caller, so that is passed in.
+    const message = buildWireMessage(from, to, subject, html, { ...extra, senderHeader: identity.senderHeader }, SMTP_HOST);
 
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
@@ -868,6 +866,8 @@ async function sendEmailBatchInner(
     deadline?: number;
     /** Makes each message's bounce attributable to this brand and recipient. */
     brandId?: string;
+    /** Named in the Feedback-ID so reputation is reported per campaign. */
+    campaign?: string;
   } = {},
 ): Promise<SendResult[]> {
   const from = common.from || fromDefault();
@@ -922,6 +922,10 @@ async function sendEmailBatchInner(
           // is precisely what hid a month of undelivered mail.
           bounceReturnPath: (bounceHostConfigured() && common.brandId && bounceAddressFor(common.brandId, v.verdict.email)) || bounceReturnPath(),
           attachments: common.attachments,
+          // A batch is marketing by definition — the halt above says so — so it
+          // takes the bulk shape: List-ID, Precedence and a Feedback-ID that
+          // lets a receiver judge ONE campaign rather than the whole domain.
+          transactional: false, brandId: common.brandId, campaign: common.campaign,
         },
       }));
 
@@ -1066,9 +1070,24 @@ async function sendEmailInner(opts: {
   from?: string;
   replyTo?: string;
   listUnsubscribe?: string; // RFC 8058 one-click unsubscribe URL
+  /**
+   * TRUE for one-to-one mail — a receipt, account access, a reply, a report
+   * somebody asked for. It exempts the message from the emergency stop AND it
+   * decides the message's shape on the wire: no unsubscribe header, no list
+   * headers, no bulk precedence. See shared/message-shape.ts for why those two
+   * jobs are the same decision.
+   */
   transactional?: boolean;
-  /** Lets a brand-scoped emergency stop apply. Absent means only a platform-wide halt reaches it. */
+  /** Scopes the emergency stop, and the List-ID / Feedback-ID on bulk mail. */
   brandId?: string;
+  /** Names the campaign in the Feedback-ID, so a receiver can judge one send. */
+  campaign?: string;
+  /** Message-ID this answers. A threaded reply stays in the tab the thread is in. */
+  inReplyTo?: string;
+  /** RFC 3834: a machine wrote this without a person asking. */
+  autoReply?: boolean;
+  /** A better hand-written text alternative than the HTML can yield. */
+  text?: string;
   // When the sending domain is authenticated (sending-domains.ts), the caller
   // passes its DKIM key so the message is signed as that domain — the inbox key.
   dkim?: { domain: string; selector: string; privateKeyPem: string };
@@ -1142,7 +1161,15 @@ async function sendEmailInner(opts: {
       // at them.
       const identity = resolveSender({ from: opts.from || fromDefault(), authUser: node.user, bounce: bounceReturnPath() });
       try {
-        const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, { replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe, bounceReturnPath: bounceReturnPath(), attachments: opts.attachments });
+        const id = await sendViaSmtp(node, opts.from || fromDefault(), verdict.email, opts.subject, opts.html, {
+          replyTo: opts.replyTo, dkim: opts.dkim, listUnsubscribe: opts.listUnsubscribe,
+          bounceReturnPath: bounceReturnPath(), attachments: opts.attachments,
+          // CARRIED ACROSS THE BOUNDARY. Nine call sites were already declaring
+          // whether their message is one-to-one; until now that declaration
+          // reached the emergency stop and went no further.
+          transactional: opts.transactional, brandId: opts.brandId, campaign: opts.campaign,
+          inReplyTo: opts.inReplyTo, autoReply: opts.autoReply, text: opts.text,
+        });
         recordNodeSend(node.label, day, 1);
         // WRITE IT DOWN. The provider's queue id is the only thing that turns
         // "nothing sends" into a question their support desk can answer, and it
@@ -1160,12 +1187,31 @@ async function sendEmailInner(opts: {
       }
     }
   }
+  // THE FALLBACK PROVIDERS SEND THE SAME MESSAGE, NOT A LESSER ONE.
+  //
+  // Both of these sent bare HTML with no plain-text alternative and no list
+  // headers at all. So a bulk campaign that failed over — which is exactly what
+  // happens on the day the relay is having trouble — went out with NO one-click
+  // unsubscribe, which every large receiver now requires of bulk mail, and no
+  // text part. The message that reached the inbox was worse than the one that
+  // did not, and nothing said so. Computed once here and given to both.
+  const fallbackText = opts.text ?? textPartFrom(opts.html);
+  const fallbackShape = messageShape({
+    transactional: opts.transactional,
+    listUnsubscribe: opts.listUnsubscribe,
+    brandId: opts.brandId,
+    campaign: opts.campaign,
+    fromDomain: angleAddr(opts.from || fromDefault()).split("@")[1] || "",
+    inReplyTo: opts.inReplyTo,
+    autoReply: opts.autoReply,
+  });
+
   if (RESEND_KEY) {
    try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from || fromDefault(), to: [verdict.email], subject: opts.subject, html: opts.html, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
+      body: JSON.stringify({ from: opts.from || fromDefault(), to: [verdict.email], subject: opts.subject, html: opts.html, ...(fallbackText ? { text: fallbackText } : {}), ...(Object.keys(fallbackShape.headers).length ? { headers: fallbackShape.headers } : {}), ...(opts.replyTo ? { reply_to: opts.replyTo } : {}), ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.contentBase64 })) } : {}) }),
     });
     if (res.ok) {
       const body = (await res.json()) as { id?: string };
@@ -1193,7 +1239,12 @@ async function sendEmailInner(opts: {
         from: { email: (opts.from || fromDefault()).replace(/.*<(.+)>.*/, "$1") },
         ...(opts.replyTo ? { reply_to: { email: opts.replyTo.replace(/.*<(.+)>.*/, "$1") } } : {}),
         subject: opts.subject,
-        content: [{ type: "text/html", value: opts.html }],
+        ...(Object.keys(fallbackShape.headers).length ? { headers: fallbackShape.headers } : {}),
+        // text/plain FIRST — SendGrid requires the parts in increasing order of
+        // fidelity, which is the same rule RFC 2046 gives for the wire.
+        content: fallbackText
+          ? [{ type: "text/plain", value: fallbackText }, { type: "text/html", value: opts.html }]
+          : [{ type: "text/html", value: opts.html }],
       }),
     });
     if (res.status === 202) {

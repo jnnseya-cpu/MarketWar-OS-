@@ -124,8 +124,14 @@ export async function routeInbound(input: InboundInput): Promise<InboundOutcome>
 
   // An auto-reply is evidence a real person received it. It goes to the Inbox
   // flagged, so the customer sees it and it is not mistaken for a real reply.
+  // KEEP THE MESSAGE-ID. It was already parsed out of the arriving headers and
+  // then discarded, so every reply the platform sent started a NEW conversation
+  // beside the one it was answering. Header names arrive in whatever case the
+  // sending server used, so both spellings are looked for.
+  const messageId = String(headers["Message-ID"] ?? headers["message-id"] ?? "").trim() || undefined;
+
   const msg = await saveInbound({
-    brandId, from, fromName, to, subject, text, html,
+    brandId, from, fromName, to, subject, text, html, messageId,
     snippet: text || "", receivedAt, auto: kind === "auto-reply",
   });
   return { routed: kind === "auto-reply" ? "inbox (auto-reply)" : "inbox", why, brandId, id: msg.id };

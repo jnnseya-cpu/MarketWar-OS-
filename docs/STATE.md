@@ -58,7 +58,7 @@ is SET and refused never reads as missing, and a SUPPLIER that refused never rea
 |---|---|
 | AI, images, video | `ANTHROPIC_API_KEY` set. **THE ACU WALLET IS THE GATE, NOT `AI_MONTHLY_CEILING_USD`** — every AI route requires auth AND `meterAction`; the only unmetered path (the daily blog cron) needs BOTH `BLOG_DAILY_ENABLED=1` and `CRON_SECRET`, neither set. |
 | Scheduled work | **`CRON_SECRET` (unset — every scheduled path is dark, including bounce collection)** · Newsletter: `NEWSLETTER_SECRET` |
-| Sending email | **WORKING** as of 09-08. See §5.1 for what is left: delivery confirmation and per-domain alignment. |
+| Sending email | **WORKING** as of 09-08. See §5.1 for what is left: delivery confirmation and per-domain alignment. **WHERE IT LANDS is now decided by the message's STREAM (§135)** — one-to-one mail carries no unsubscribe or list headers, bulk carries all of them; every message carries a plain-text alternative and RFC 2047 headers. Nobody can promise the Primary tab; what is enforced is the shape. |
 | **Collecting bounces** | **`MW_BOUNCE_IMAP_HOST`** — user and password default to `SMTP_USER`/`SMTP_PASS`, the mailbox failures already arrive at. Without it nothing reads them and a human has to open a mailbox, which is not a platform (§118). |
 | Replies into the Inbox | `MW_REPLY_HOST` — a subdomain whose MX points at an inbound intake. Until then no reply address is issued and Reply-To falls back to the customer's own From (§114). |
 | Client approval links | `PORTAL_LINK_SECRET`, falling back to `HUMAN_CHECK_SECRET`, which IS set. With NEITHER, issuing is refused rather than minting a link that verifies on one server and fails on every other. |
@@ -154,9 +154,15 @@ API route may import it, no person-shaped record may return, no dead fixture may
 
 ## 6. The defect class that keeps recurring
 
-**A value that exists on one side of a boundary and is never carried across.** THIRTY-ONE. Newest
-(09-11): the webhook receipt proving the money path works had to be handed to the launch report, and
-mutating that one line away was the mutation that survived longest. Before: the gateway returned
+**A value that exists on one side of a boundary and is never carried across.** THIRTY-TWO. Newest
+(09-12): **`transactional` reached the mailer and stopped there.** Nine call sites were already
+declaring whether their message is one-to-one; the flag exempted them from the emergency stop and went
+no further, so the header block three functions away — the only place it could decide whether a
+message reads as personal or as bulk — never saw it. The plain-text body was the same defect twice
+over: `htmlToText` produced it for the preview screen and the wire dropped it, so every message this
+platform had ever sent was HTML and nothing else. Before that (09-11): the webhook receipt proving the
+money path works had to be handed to the launch report, and mutating that one line away was the
+mutation that survived longest. Before: the gateway returned
 `truncated` and the AI writer never read it; groups reached the send path and not the preview, so two
 screens computed different audiences; the server's refusal line was read once and dropped, so five
 weeks of "the mail server refused the message" hid `535` vs `550`. Worst historically: a message whose

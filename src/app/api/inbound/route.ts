@@ -53,7 +53,12 @@ export async function POST(req: NextRequest) {
     const { sendEmail } = await import("@/backend/email");
     const dkim = (await signingFor(brandId, fromEmail.split("@")[1] || "")) ?? undefined;
     const wrapped = `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">${html}</div>`;
-    const r = await sendEmail({ to: msg.from, subject, html: wrapped, from: fromEmail, replyTo: fromEmail, dkim, transactional: true });
+    // THREADED. `inReplyTo` carries the identifier of the message being answered,
+    // so the recipient sees this inside the conversation they started instead of
+    // as a separate message — and a conversation stays in the tab it already
+    // lives in, which is the whole point. Absent when the arriving message had
+    // no Message-ID, in which case nothing is claimed.
+    const r = await sendEmail({ to: msg.from, subject, html: wrapped, from: fromEmail, replyTo: fromEmail, dkim, transactional: true, inReplyTo: msg.messageId, brandId });
     await markRead(brandId, id, true);
     return NextResponse.json({ ok: r.ok, provider: r.provider, detail: r.detail });
   }
