@@ -54,6 +54,23 @@ const slideHtml = (s, i, total) => {
       <p class="foot">${esc(s.foot)}</p>
     </section>`;
   }
+  if (s.kind === "hero") {
+    // ONE IDEA, AT SIZE. The first draft gave every slide the same weight, so a
+    // reader skimming it found no rhythm and nothing to remember. A deck needs
+    // moments where the page carries a single sentence and nothing else.
+    return `<section class="slide hero">
+      <p class="eyebrow">${esc(s.eyebrow)}</p>
+      <h1 class="big">${esc(s.big)}</h1>
+      <h2 class="heroline">${esc(s.title)}</h2>
+      ${s.body ? `<p class="herobody">${esc(s.body)}</p>` : ""}${num}</section>`;
+  }
+  if (s.kind === "objection") {
+    return `<section class="slide objection">
+      <p class="eyebrow">${esc(s.eyebrow)}</p>
+      <h2 class="objtitle">${esc(s.title)}</h2>
+      <div class="statement">${s.body.map((p) => `<p>${esc(p)}</p>`).join("")}</div>
+      <p class="cta">${esc(s.foot)}</p>${num}</section>`;
+  }
   if (s.kind === "statement") {
     return `<section class="slide">${head}
       <div class="statement">${s.body.map((p) => `<p>${esc(p)}</p>`).join("")}</div>${num}</section>`;
@@ -123,11 +140,15 @@ export const buildDeckHtml = (slides = SLIDES) => `<!doctype html>
     font-size: 10.5pt; letter-spacing: .22em; text-transform: uppercase;
     color: ${C.brass}; margin-bottom: 7mm; font-weight: 700;
   }
+  /* text-wrap: balance on every display line, because a headline that drops one
+     short word onto its own line reads as a mistake the reader notices before the
+     sentence. "You have never heard of us" was breaking after "of". */
   h1 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
-       font-size: 40pt; line-height: 1.1; font-weight: 700; color: ${C.brassPale}; max-width: 24ch; }
+       font-size: 40pt; line-height: 1.1; font-weight: 700; color: ${C.brassPale};
+       max-width: 24ch; text-wrap: balance; }
   h2 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
        font-size: 27pt; line-height: 1.15; font-weight: 700; color: ${C.brassPale};
-       max-width: 30ch; margin-bottom: 9mm; }
+       max-width: 30ch; margin-bottom: 9mm; text-wrap: balance; }
   h3 { font-size: 13pt; font-weight: 700; color: ${C.text}; margin-bottom: 3mm; }
   p  { font-size: 12pt; line-height: 1.55; color: ${C.muted}; }
 
@@ -137,11 +158,30 @@ export const buildDeckHtml = (slides = SLIDES) => `<!doctype html>
   .foot { margin-top: 12mm; font-size: 10.5pt; color: ${C.brass}; }
   .foot.big { margin-top: 10mm; font-size: 17pt; font-weight: 700; letter-spacing: .04em; }
 
+  /* THE HERO SLIDE. A single sentence at size, with the payoff underneath in the
+     display face so the two read as one thought rather than a title and a
+     subtitle that happen to share a page. */
+  .hero { justify-content: center; }
+  h1.big { font-size: 62pt; line-height: 1; color: ${C.brass}; max-width: 20ch; margin-bottom: 3mm; }
+  .heroline { font-size: 34pt; line-height: 1.12; max-width: 26ch; margin-bottom: 8mm; color: ${C.brassPale}; }
+  .herobody { font-size: 13.5pt; line-height: 1.6; max-width: 78ch; color: ${C.text}; }
+
+  /* The objection slide names the weakness in the headline, so the headline gets
+     the reader's eye and the answer gets the room underneath it. */
+  .objtitle { font-size: 40pt; max-width: 30ch; margin-bottom: 8mm; }
+
+  /* A HEADLINE SHARES THE MEASURE OF WHAT IT INTRODUCES. The default 30ch is set
+     for slides whose body is running prose. On a slide whose body is a full-width
+     grid of cards, the same headline stacked into three narrow lines above four
+     wide ones, and balancing it only moved the awkward break ("9 of / them").
+     Give those headlines the grid's width and they settle into clean lines. */
+  .slide:has(> .grid) > h2 { max-width: 46ch; }
+
   .statement { max-width: 84ch; }
   /* The closing slide puts a statement straight under the headline, and with no
      margin the two collided — the body read as a stray subtitle. */
   .close .statement { margin-top: 9mm; }
-  .statement p { font-size: 14pt; line-height: 1.62; margin-bottom: 5mm; color: ${C.text}; }
+  .statement p { font-size: 14.5pt; line-height: 1.6; margin-bottom: 5.5mm; color: ${C.text}; }
   .statement p:last-child { margin-bottom: 0; }
 
   .steps { display: flex; gap: 11mm; }

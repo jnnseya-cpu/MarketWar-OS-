@@ -26,7 +26,7 @@ defect (§5.5).
 `SMTP_HOST` naming a server that does not hold the mailbox (§5.1). That number moves off 1 when
 delivery is confirmed and the first real campaign runs; `/dashboard/acquisition` holds the count.
 
-`GO-TO-MARKET-MarketWar-OS.docx`, `FACEBOOK-LAUNCH-CAMPAIGN.docx` and `brand/email-signature.html` are the sales surface; both documents parse their prices out of `src/`. **`docs/MarketWar-OS-Customer-Deck.pdf` (§133) is the customer-facing deck** — ten 16:9 slides, every figure derived, every slide rendered and looked at, and `npm run deck:doc` FAILS the build on a testimonial, a customer count, a guarantee or an invented legal entity. The older `.pptx` was never opened in a renderer here and is superseded by it.
+`GO-TO-MARKET-MarketWar-OS.docx`, `FACEBOOK-LAUNCH-CAMPAIGN.docx` and `brand/email-signature.html` are the sales surface; both documents parse their prices out of `src/`. **`docs/MarketWar-OS-Customer-Deck.pdf` (§133, rewritten §134) is the customer-facing deck** — twelve 16:9 slides, every figure derived, every slide rendered and looked at, and `npm run deck:doc` FAILS the build on a testimonial, a customer count, a guarantee, an invented legal entity or a reference to "our customers". It is written in second person around scenes the reader recognises, and it leads with the objection ("you have never heard of us") answered by the free audit. The older `.pptx` was never opened in a renderer here and is superseded by it.
 
 ## 3. What works with NO keys at all — no provider, no card, no configuration
 
