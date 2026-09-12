@@ -29012,6 +29012,95 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
+test("a supplier that REFUSED us is not a supplier with no data — either supplier", async (t) => {
+  // ASKED DIRECTLY: why does this report Apollo and not Hunter? The right
+  // question. Hunter is the FIRST paid supplier, so it fails earlier and more
+  // often, and its refusal was invisible.
+  //
+  // `hunterErrorNote` had been writing the exact sentence all along — a bad key,
+  // an empty balance, a rate limit, each with its own remedy — and the adapter
+  // did `if (!got.ok) return []`. So "Hunter rejected the API key" and "Hunter
+  // has never heard of this business" produced an identical empty result, and
+  // the screen reported the second while the first was true. A value that exists
+  // on one side of a boundary and never crosses it, on the field that says
+  // whether a key the owner pays for is working.
+  const saved = { ...process.env };
+  const realFetch = globalThis.fetch;
+  t.after(() => { process.env = saved; globalThis.fetch = realFetch; });
+  process.env.HUNTER_API_KEY = "h";
+  delete process.env.APOLLO_API_KEY;
+
+  const { registerBuiltInProviders, __resetRegistration } = await import("../src/backend/enrichment-adapters.ts");
+  const { __clearProviders } = await import("../src/backend/enrichment-provider.ts");
+  const { enrichPaid } = await import("../src/backend/enrich-paid.ts");
+  __clearProviders(); __resetRegistration(); registerBuiltInProviders();
+
+  // HUNTER'S REAL REFUSAL ENVELOPE, not a hand-made object — the mapping from
+  // `wrong_auth` to a sentence is the part that has to survive.
+  globalThis.fetch = async (u) => (String(u).includes("api.hunter.io")
+    ? new Response(JSON.stringify({ errors: [{ id: "wrong_auth", code: 401, details: "Invalid API key" }] }), { status: 401 })
+    : new Response("{}", { status: 404 }));
+
+  const refused = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: 8 });
+  assert.equal(refused.email, null);
+  assert.ok(refused.supplierRefusals?.length, "Hunter refused us and the row records no refusal at all");
+  assert.equal(refused.supplierRefusals[0].supplier, "hunter");
+  assert.match(refused.supplierRefusals[0].reason, /rejected the API key/i,
+    "the reason hunterErrorNote wrote was thrown away again");
+  assert.match(refused.supplierRefusals[0].reason, /HUNTER_API_KEY/,
+    "the reason does not name the variable to change");
+
+  // AND A REFUSAL IS NOT CHARGED FOR. We were told no; being told no costs us
+  // nothing and must cost the customer nothing.
+  assert.ok(!/ACU\(s\) of supplier cost/.test(refused.note) || /0 ACU/.test(refused.note),
+    `a refusal was billed as supplier cost: ${refused.note}`);
+
+  // AN ABSENT KEY IS STILL SILENT. Not configured is a normal state, not a fault
+  // to shout about, and reporting it as a refusal would make every unconfigured
+  // deployment look broken.
+  delete process.env.HUNTER_API_KEY;
+  __clearProviders(); __resetRegistration(); registerBuiltInProviders();
+  const unset = await enrichPaid({ company: "Wembley Stadium", website: "https://wembleystadium.com" }, { maxCostAcu: 8 });
+  assert.deepEqual(unset.supplierRefusals ?? [], [], "an unconfigured supplier was reported as having refused us");
+
+  // THE DIAGNOSIS NAMES WHOEVER REFUSED, and this code names neither supplier —
+  // the asymmetry the owner spotted came from one being hard-coded.
+  const { diagnoseRun } = await import("../src/backend/enrichment-explain.ts");
+  const KEYS = { serper: true, hunter: true, apollo: true, apolloBreakerTripped: false };
+  const rows = (n) => Array.from({ length: n }, () => ({ email: null, mode: "live", stage: "site_no_email" }));
+  const viaHunter = diagnoseRun({ results: rows(10), keys: KEYS, paidWasRun: true,
+    supplierRefusals: [{ supplier: "hunter", reason: "Hunter has no credits left." }] });
+  assert.match(viaHunter.headline, /hunter/i, "a Hunter refusal is still not named on the screen");
+  assert.match(viaHunter.fix, /no credits left/i);
+
+  const viaApollo = diagnoseRun({ results: rows(10), keys: KEYS, paidWasRun: true,
+    supplierRefusals: [{ supplier: "apollo", reason: "Apollo refused API access (403)." }] });
+  assert.match(viaApollo.headline, /apollo/i);
+
+  // Both at once, deduplicated — one bad key produces the same sentence on every
+  // row of a 120-row batch, and sixty copies of it is not a report.
+  const both = diagnoseRun({ results: rows(10), keys: KEYS, paidWasRun: true,
+    supplierRefusals: [{ supplier: "hunter", reason: "A." }, { supplier: "apollo", reason: "B." }] });
+  assert.match(both.headline, /hunter and apollo/i);
+
+  // AND THE SOURCE FILE MUST NOT HARD-CODE ONE SUPPLIER'S NAME in the branch
+  // that reports refusals, or the asymmetry returns with the next provider.
+  const src = codeOf(readFileSync(new URL("../src/backend/enrichment-explain.ts", import.meta.url), "utf8"));
+  const branch = src.slice(src.indexOf("const refusals = input.supplierRefusals"), src.indexOf("if (input.keys.apolloBreakerTripped)"));
+  assert.ok(!/hunter|apollo/i.test(branch),
+    "the refusal branch names a supplier, so the next one added will be invisible exactly as Hunter was");
+
+  // AND THE ROUTE ACTUALLY HANDS THEM OVER. The last boundary, and the one this
+  // repository keeps dropping things at: a mutation that stopped the route
+  // passing `supplierRefusals` to the diagnosis SURVIVED, because everything
+  // above tests the two ends and nothing tested the join.
+  const route = codeOf(readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8"));
+  const call = route.slice(route.indexOf("diagnosis: diagnoseRun({"), route.indexOf("}),", route.indexOf("diagnosis: diagnoseRun({")));
+  assert.match(call, /supplierRefusals:/,
+    "the run collects supplier refusals and never passes them to the diagnosis, so the screen cannot name them");
+  assert.match(call, /r\?\.supplierRefusals/, "the refusals are not read off the rows that recorded them");
+});
+
 test("the run says WHY it found nothing, on the screen, without being asked", async () => {
   // MY MISTAKE, AND THIS IS THE FIX FOR IT. I built an explain endpoint and then
   // told the owner to open a URL and read JSON. That is the rule this repository

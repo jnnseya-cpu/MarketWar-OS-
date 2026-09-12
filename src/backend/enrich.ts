@@ -37,6 +37,14 @@ export type EnrichResult = {
   stage?: "found" | "search_unavailable" | "no_own_site" | "site_no_email" | "email_rejected";
   /** Set when the search provider refused (quota/key), as opposed to no key at all. */
   providerError?: string;
+  /**
+   * Paid suppliers that REFUSED this lookup, with each one's reason.
+   *
+   * "Hunter rejected the API key" and "Hunter has never heard of this business"
+   * produced the same empty result until this existed, and only one of them is
+   * something the owner can act on.
+   */
+  supplierRefusals?: { supplier: string; reason: string }[];
 };
 
 export function apolloConfigured(): boolean { return Boolean((process.env.APOLLO_API_KEY || "").trim()); }

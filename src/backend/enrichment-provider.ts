@@ -477,6 +477,15 @@ export async function findCompanyEmail(input: {
    * deciding which key is worth paying for.
    */
   emailProvider: Record<string, string>;
+  /**
+   * Suppliers that REFUSED us, with the reason each gave.
+   *
+   * Separate from "found nothing", because the two look identical in a result
+   * and need opposite actions: one is a key, a plan or a balance, the other is
+   * a fact about the business. Collapsing them is why a Hunter key that was
+   * being rejected read as Hunter having no data.
+   */
+  refusals: { supplier: string; reason: string }[];
   steps: WaterfallStep[];
   costAcu: number;
   note: string;
@@ -490,6 +499,7 @@ export async function findCompanyEmail(input: {
   const spent = () => steps.reduce((n, x) => n + x.costAcu, 0);
   const emails: EmailCandidate[] = [];
   const emailProvider: Record<string, string> = {};
+  const refusals: { supplier: string; reason: string }[] = [];
   let person: PersonCandidate | null = null;
 
   // The same rule as `findPerson`, and a refusal is RECORDED rather than
@@ -520,7 +530,11 @@ export async function findCompanyEmail(input: {
       steps.push({ provider: p.id, capability, ran: true, ms: Date.now() - at, found: items.length, costAcu: cost, outcome: items.length ? `${items.length} result(s).` : "Nothing found. Not charged." });
       return items;
     } catch (e) {
-      steps.push({ provider: p.id, capability, ran: true, ms: Date.now() - at, found: 0, costAcu: 0, outcome: `Failed: ${e instanceof Error ? e.message : String(e)}. Not charged.` });
+      const reason = e instanceof Error ? e.message : String(e);
+      steps.push({ provider: p.id, capability, ran: true, ms: Date.now() - at, found: 0, costAcu: 0, outcome: `Failed: ${reason}. Not charged.` });
+      // RECORDED ONCE PER SUPPLIER. A key that is wrong is wrong for every
+      // capability it has, and repeating the same sentence three times buries it.
+      if (!refusals.some((r) => r.supplier === p.id)) refusals.push({ supplier: p.id, reason });
       return [];
     } finally { clearTimeout(timer); }
   };
@@ -552,7 +566,7 @@ export async function findCompanyEmail(input: {
   }
   if (!domain) {
     return {
-      emails: [], person: null, domain: "", emailProvider, steps, costAcu: spent(),
+      emails: [], person: null, domain: "", emailProvider, refusals, steps, costAcu: spent(),
       note: `No website could be found for ${input.company}, so no supplier could be asked for its address. ${spent() ? `${spent()} ACU(s) spent looking.` : "Nothing was charged."}`,
     };
   }
@@ -594,7 +608,7 @@ export async function findCompanyEmail(input: {
 
   const paid = [...new Set(steps.filter((s) => s.ran && s.costAcu > 0).map((s) => s.provider))];
   return {
-    emails, person, domain, emailProvider, steps, costAcu: spent(),
+    emails, person, domain, emailProvider, refusals, steps, costAcu: spent(),
     note: emails.length
       ? `${emails.length} address(es) for ${domain}${paid.length ? ` — ${paid.join(" and ")} charged ${spent()} ACU(s)` : " from free sources"}.`
       : paid.length

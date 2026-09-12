@@ -86,3 +86,27 @@ export async function hunterGet(path: string, params: Record<string, string>, si
   if (!res.ok) return { ok: false, why: hunterErrorNote(res.status, body) };
   return { ok: true, data: asRecord(asRecord(body).data) };
 }
+
+/**
+ * A SUPPLIER REFUSED US. NOT THE SAME AS A SUPPLIER HAVING NO DATA.
+ *
+ * WHY THIS EXISTS. `hunterErrorNote` above writes exactly the right sentence for
+ * each case — a bad key, an empty balance, a rate limit — and the adapter threw
+ * it away and returned an empty array. So "Hunter rejected the API key" and
+ * "Hunter has never heard of this company" produced the identical outcome, and
+ * the screen reported the second while the first was true. A value that exists on
+ * one side of a boundary and never crosses it: this repository's oldest defect,
+ * on the field that says whether a key the owner pays for is working.
+ *
+ * Thrown rather than returned, because the waterfall already catches a throw,
+ * records the reason on the step, charges nothing for it and carries on to the
+ * next supplier. Returning it would have needed a new shape in four places.
+ */
+export class SupplierRefusal extends Error {
+  readonly supplier: string;
+  constructor(supplier: string, reason: string) {
+    super(reason);
+    this.name = "SupplierRefusal";
+    this.supplier = supplier;
+  }
+}

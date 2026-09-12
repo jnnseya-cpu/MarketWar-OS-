@@ -9,7 +9,7 @@ An AI marketing operating system for small businesses. Every engine behind one s
 in credits, deployed at marketwaros.com. Live-tested on **AxionOS** (evandeli.com, UK trades),
 **VeryX** (veryxjnn.com) and **KODA** (kodajnn.com, mobile-money verification, DRC). Next.js,
 TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 250 backend modules, 186 API
-routes, 69 dashboard pages, **1,857 tests**.
+routes, 69 dashboard pages, **1,858 tests**.
 
 **IT RUNS ON VERCEL** — `vercel.json` holds the ten crons, DNS is Vercel's, and
 `PRODUCTION-ARCHITECTURE.md` adopts Hostinger → Cloudflare → Vercel → Firebase. `apphosting.yaml`
@@ -51,8 +51,8 @@ delivery is confirmed and the first real campaign runs; `/dashboard/acquisition`
 ## 4. What is dark without keys, and the one action for each
 
 `/api/capabilities` is the live answer for any deployment; trust it over this table. **"It found nothing"
-has seven causes that look identical, so the RUN names its own (§131) on the vault screen — a key that
-is SET and refused never reads as a missing one. Per-row detail: `/api/health/enrichment?company=`.**
+has seven identical-looking causes, so the RUN names its own (§§131–132) on the vault screen: a key that
+is SET and refused never reads as missing, and a SUPPLIER that refused never reads as one with no data.**
 
 | Capability | One action |
 |---|---|

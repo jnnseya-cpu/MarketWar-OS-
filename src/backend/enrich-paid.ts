@@ -116,6 +116,7 @@ export async function enrichPaid(
       website,
       contactName: person?.fullName ?? null,
       contactTitle: person?.jobTitle ?? null,
+      supplierRefusals: run.refusals,
       stage: "site_no_email",
       note: spent > 0
         ? `${who || "A paid supplier"} was asked and returned no address that belongs to ${input.company}. ${spent} ACU(s) of supplier cost.`
@@ -140,6 +141,7 @@ export async function enrichPaid(
       : run.emailProvider[picked.value] === "hunter" ? "hunter"
       : "search",
     stage: "found",
+    supplierRefusals: run.refusals,
     note: `${picked.value} via ${who || "the free sources"}${spent ? ` — ${spent} ACU(s) of supplier cost` : ""}.`,
   };
 }

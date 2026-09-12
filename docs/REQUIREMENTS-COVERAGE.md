@@ -6448,3 +6448,52 @@ and not rendered is the same failure in a new place.
 first `fix: ""` in the file, which belongs to a different branch from the one the
 test asserts, so it proved nothing. The wrong-occurrence trap, for the fifth time
 in this repository.
+
+---
+
+## §132 — A supplier that REFUSED us is not a supplier with no data (2026-09-12)
+
+Asked directly: *"Why you focus on Apollo only when Hunter is there too?"* The
+right question, and the answer is a defect rather than a preference.
+
+**Hunter is the FIRST paid supplier** — order 2, ahead of Apollo at 3 — so it
+fails earlier and more often than Apollo does. Its refusals were invisible.
+
+`hunterErrorNote` had been writing the exact sentence all along, and writing it
+well: `wrong_auth` is a bad key, `usage_exceeded` is an empty balance,
+`too_many_requests` is a rate limit, each with its own remedy. The adapter then
+did `if (!got.ok) return []`. So **"Hunter rejected the API key" and "Hunter has
+never heard of this business" produced an identical empty result**, and the
+screen reported the second while the first was true.
+
+This repository's oldest defect — a value that exists on one side of a boundary
+and never crosses it — sitting on the field that says whether a key the owner
+pays for is working. Apollo was only visible because it happens to keep a
+one-hour breaker in a module variable that could be read from outside.
+
+Both suppliers throw a `SupplierRefusal` now, which the waterfall already catches,
+records on the step, charges nothing for, and carries on past. The reason travels
+step → row → run → screen. **Apollo gained a proper refusal mapping in the same
+change**, since it had none: a 403 there means the PLAN excludes API access, so
+the key is correct and unusable at once, and telling somebody to check the key
+costs them an afternoon re-pasting a value that was always right.
+
+**The diagnosis names neither supplier in code.** The branch that reports a
+refusal contains no provider name at all, and a test asserts that — because the
+asymmetry came from one being hard-coded, and the next supplier added would have
+been invisible exactly as Hunter was.
+
+Two states stay silent, deliberately. An unconfigured supplier is a normal state,
+not a fault, and reporting it as a refusal would make every deployment without a
+key look broken. And a refusal is never charged for: being told no costs us
+nothing and must cost the customer nothing.
+
+Killed by mutation: Hunter's refusal swallowed again, an unconfigured supplier
+reported as refusing, the Apollo-only asymmetry restored, refusals never leaving
+the waterfall, and refusals never reaching the screen.
+
+**The last of those survived the first time round.** Everything tested the two
+ends — the adapter records a refusal, the diagnosis renders one — and nothing
+tested the join, so stopping the route passing `supplierRefusals` to
+`diagnoseRun` changed nothing any test could see. The same boundary, in the same
+session, in the test written to catch that boundary.
