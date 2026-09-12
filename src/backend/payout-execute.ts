@@ -151,22 +151,33 @@ export async function executePayout(input: ExecuteInput): Promise<PayoutOutcome>
   const quote = quoteWithdrawal({ railId: input.railId, amountPence: amount, country: input.country });
   if (!quote.ok) return { ok: false, error: quote.error, hint: quote.hint, quote };
 
-  // 4. CLAIM — written BEFORE the provider call, so a retry finds it.
+  // 4. CLAIM — ATOMICALLY, before the provider call. The claim IS the lock:
+  // only the caller that creates the record proceeds to send; a concurrent
+  // duplicate or a replay loses the create() and returns the first outcome
+  // instead of sending a second payment.
   const id = payoutKey({ creatorId, railId: input.railId, amountPence: amount, requestId: input.requestId });
-  const existing = await loadAttempt(id);
-  if (existing) {
-    // A replay. Return what happened the first time; never send again.
-    return existing.state === "failed"
-      ? { ok: false, error: existing.error || "The earlier attempt failed.", hint: "Nothing was sent and your balance was released. Try again with a NEW requestId.", quote }
-      : { ok: true, attempt: existing, quote, replayed: true, note: `Already processed. ${existing.state === "sent" ? `Sent on ${(existing.settledAt || existing.createdAt).slice(0, 10)}, provider reference ${existing.providerRef}.` : "In flight."} Nothing was sent twice.` };
-  }
-
   const attempt: PayoutAttempt = {
     id, creatorId, railId: input.railId,
     grossPence: amount, feesPence: quote.totalFeesPence, netPence: quote.netPence,
     state: "claimed", createdAt: input.nowISO,
   };
-  await saveAttempt(attempt);
+  const claim = await claimAttempt(attempt);
+  if (!claim.ok) {
+    if (!claim.replay) {
+      // Could not reserve the withdrawal (e.g. a store write error) — do NOT
+      // send: an unclaimed send is the one that can double up.
+      return { ok: false, error: "This withdrawal could not be reserved just now. Nothing was sent and your balance is untouched — please try again.", hint: claim.error, quote };
+    }
+    // A replay / concurrent duplicate. Return what the FIRST attempt did; never send again.
+    const existing = await loadAttempt(id);
+    if (!existing) {
+      // Claimed on another instance but not yet readable here. Treat as in-flight — never send.
+      return { ok: false, error: "This withdrawal is already being processed. Nothing was sent twice.", quote };
+    }
+    return existing.state === "failed"
+      ? { ok: false, error: existing.error || "The earlier attempt failed.", hint: "Nothing was sent and your balance was released. Try again with a NEW requestId.", quote }
+      : { ok: true, attempt: existing, quote, replayed: true, note: `Already processed. ${existing.state === "sent" ? `Sent on ${(existing.settledAt || existing.createdAt).slice(0, 10)}, provider reference ${existing.providerRef}.` : "In flight."} Nothing was sent twice.` };
+  }
 
   // 5. SEND.
   const sent = await sendVia(input.railId, { netPence: quote.netPence, destination: input.destination, creatorId, reference: id });
@@ -310,6 +321,35 @@ const useDb = () => Boolean(adminConfigured && adminDb);
 export async function saveAttempt(a: PayoutAttempt): Promise<void> {
   mem.set(a.id, a);
   if (useDb()) { try { await adminDb!.collection(COLLECTION).doc(a.id).set(a); } catch { /* memory copy is the claim on this instance */ } }
+}
+
+/**
+ * Atomic FIRST claim of an attempt id. Returns { ok: true } only if THIS call
+ * created the record. A check-then-set() cannot make a payout idempotent: two
+ * concurrent requests that both read "no attempt" would both write and both
+ * send — a double withdrawal. Firestore `create()` throws ALREADY_EXISTS when
+ * the doc already exists, which is the atomic compare-and-set we need; on a
+ * single in-memory instance, has()+set() is atomic because the runtime is
+ * single-threaded. `replay: true` means the id was already claimed (safe —
+ * return the first outcome); an `error` means the claim could NOT be made and
+ * nothing must be sent.
+ */
+export async function claimAttempt(a: PayoutAttempt): Promise<{ ok: true } | { ok: false; replay: boolean; error?: string }> {
+  if (useDb()) {
+    try {
+      await adminDb!.collection(COLLECTION).doc(a.id).create(a);
+      mem.set(a.id, a);
+      return { ok: true };
+    } catch (e: unknown) {
+      const err = e as { code?: number; message?: string };
+      const msg = String(err?.message ?? e);
+      if (err?.code === 6 || /ALREADY_EXISTS/i.test(msg)) return { ok: false, replay: true };
+      return { ok: false, replay: false, error: msg };
+    }
+  }
+  if (mem.has(a.id)) return { ok: false, replay: true };
+  mem.set(a.id, a);
+  return { ok: true };
 }
 
 export async function loadAttempt(id: string): Promise<PayoutAttempt | null> {
