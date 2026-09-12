@@ -6497,3 +6497,64 @@ ends — the adapter records a refusal, the diagnosis renders one — and nothin
 tested the join, so stopping the route passing `supplierRefusals` to
 `diagnoseRun` changed nothing any test could see. The same boundary, in the same
 session, in the test written to catch that boundary.
+
+---
+
+## §133 — A customer deck whose numbers cannot drift (2026-09-12)
+
+`npm run deck:doc` builds `docs/MarketWar-OS-Customer-Deck.pdf` — ten 16:9
+slides, printed by the same headless Chrome the go-to-market pack uses, so there
+is one PDF pipeline here rather than two that drift.
+
+**EVERY FIGURE IS PARSED OUT OF `src/`.** Prices, plan limits, the agent count,
+the tool counts, the audit check count, the free-findings count, video prices and
+the referral terms all come from `ads-facts.mjs`, which reads the real plan
+table and THROWS when a shape changes. A deck is the document that outlives the
+conversation: forwarded, quoted back, and held up six months later when a price
+has moved. A price nobody can quote wrongly is worth more than a prettier slide.
+
+**AND IT REFUSES THE CLAIMS THIS PLATFORM CANNOT MAKE.** There are no customers
+yet, so the verifier fails the build on "trusted by", a customer count, a
+testimonial, a case study, an ROI multiple, a guarantee, an award or an
+unprovable superlative. It also fails on a legal entity name, a company number
+or a VAT number, because the trading identity is not published on the site yet
+and a deck is not the place to invent one. Adding social proof is now a build
+failure rather than a judgement somebody makes at midnight.
+
+The deck sells what is checkable instead: the free audit that needs no account
+and no card, the refusals that are the actual product (it will not spend where it
+cannot measure, will not send you somebody else's address, will not post twice,
+will not invent anything), the three plans, and what the customer keeps on the
+way out. For an unknown company, "check us before you believe us" is the
+strongest line available.
+
+**THE VERIFIER TOOK FOUR ROUNDS TO BECOME REAL, and every survivor was the same
+mistake.**
+
+A document-wide search for the Growth price PASSED when the pricing slide was
+changed to a figure the site does not charge, because the correct price also
+appears in a sentence three slides earlier. The same for the agent count. **The
+wrong-occurrence trap, sixth and seventh time in this repository.** Figures are
+now bound to the slides that must carry them.
+
+Binding each figure to ONE slide then let a third mutation through: the check
+count is stated on three slides and was required on one, so changing it on
+another passed. Every slide that states a figure is checked now.
+
+And the free-findings count was not checked at all, so "your three worst
+problems" could have quietly become five — the number the adverts promise.
+
+The call to action was checked against the deck's own `BRAND.auditUrl`, so
+replacing the audit with "ask us for a demo" passed: the demand became whatever
+the deck happened to say. It is derived from `ROUTES.audit` now, which
+`ads-facts` validates against a page that exists.
+
+Eight mutations killed: a price the site does not charge, an agent count typed
+instead of derived, an audit check count typed, a free-findings count typed,
+invented social proof, an invented legal entity, the free audit swapped for a
+demo request, and a guarantee.
+
+**Rendered and looked at, not assumed.** Each slide was screenshotted and
+inspected; two layout faults were fixed that no test would have caught — the
+three size columns had rules stepping up and down at different heights, and the
+closing slide's body collided with its headline.

@@ -26,12 +26,12 @@ defect (§5.5).
 `SMTP_HOST` naming a server that does not hold the mailbox (§5.1). That number moves off 1 when
 delivery is confirmed and the first real campaign runs; `/dashboard/acquisition` holds the count.
 
-`GO-TO-MARKET-MarketWar-OS.docx`, `FACEBOOK-LAUNCH-CAMPAIGN.docx`, `MarketWar-OS-Sales-Deck.pptx` and `brand/email-signature.html` are the sales surface; the first two parse their prices out of `src/`. **The deck was never opened in a renderer here**, so its layout is unverified by me.
+`GO-TO-MARKET-MarketWar-OS.docx`, `FACEBOOK-LAUNCH-CAMPAIGN.docx` and `brand/email-signature.html` are the sales surface; both documents parse their prices out of `src/`. **`docs/MarketWar-OS-Customer-Deck.pdf` (§133) is the customer-facing deck** — ten 16:9 slides, every figure derived, every slide rendered and looked at, and `npm run deck:doc` FAILS the build on a testimonial, a customer count, a guarantee or an invented legal entity. The older `.pptx` was never opened in a renderer here and is superseded by it.
 
 ## 3. What works with NO keys at all — no provider, no card, no configuration
 
-- **The free website audit** (`/audit`) — a real crawl, **30 checks** (DERIVED from `AUDIT_COPY`, never
-  typed), the three WORST free, each finding carrying its cost and fix, the lead recorded as an inbound
+- **The free website audit** (`/audit`) — a real crawl, **31 checks as of today** (always DERIVED from
+  `AUDIT_COPY`; this line said 30 while the code said 31, which is the defect in miniature), the three WORST free, each finding carrying its cost and fix, the lead recorded as an inbound
   prospect. No account, no card; `npm run ads:verify` fails if six adverts stop being true. **Confirmed
   live 09-03** — construxvg.com, 83→92/100. Every article clears **≥90 or is held as a draft**, by that
   same crawler against the real page, re-swept daily (§119).

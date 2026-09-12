@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><title>MarketWar OS — customer deck</title>
+<style>
+  /* 16:9 at print. Chrome prints one section per page at exactly this size. */
+  @page { size: 338.67mm 190.5mm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0C0F16; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; color: #E8E6E1; }
+
+  .slide {
+    position: relative; width: 338.67mm; height: 190.5mm;
+    padding: 20mm 22mm 16mm; page-break-after: always; break-after: page;
+    background: #0C0F16;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  .eyebrow {
+    font-size: 10.5pt; letter-spacing: .22em; text-transform: uppercase;
+    color: #C79C51; margin-bottom: 7mm; font-weight: 700;
+  }
+  h1 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
+       font-size: 40pt; line-height: 1.1; font-weight: 700; color: #EAD3A8; max-width: 24ch; }
+  h2 { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif;
+       font-size: 27pt; line-height: 1.15; font-weight: 700; color: #EAD3A8;
+       max-width: 30ch; margin-bottom: 9mm; }
+  h3 { font-size: 13pt; font-weight: 700; color: #E8E6E1; margin-bottom: 3mm; }
+  p  { font-size: 12pt; line-height: 1.55; color: #A9A59C; }
+
+  .cover { justify-content: center; }
+  .cover .rule { width: 34mm; height: 2.6mm; background: #C79C51; margin-bottom: 11mm; }
+  .lede { font-size: 15pt; line-height: 1.6; color: #E8E6E1; max-width: 62ch; margin-top: 9mm; }
+  .foot { margin-top: 12mm; font-size: 10.5pt; color: #C79C51; }
+  .foot.big { margin-top: 10mm; font-size: 17pt; font-weight: 700; letter-spacing: .04em; }
+
+  .statement { max-width: 84ch; }
+  /* The closing slide puts a statement straight under the headline, and with no
+     margin the two collided — the body read as a stray subtitle. */
+  .close .statement { margin-top: 9mm; }
+  .statement p { font-size: 14pt; line-height: 1.62; margin-bottom: 5mm; color: #E8E6E1; }
+  .statement p:last-child { margin-bottom: 0; }
+
+  .steps { display: flex; gap: 11mm; }
+  .step { flex: 1; border-top: 1.6pt solid #C79C51; padding-top: 6mm; }
+  .stepnum { font-family: "Liberation Serif", Georgia, serif; font-size: 23pt; color: #C79C51; margin-bottom: 3mm; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
+  .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+  .card { background: #141926; border: .8pt solid rgba(199,156,81,0.28); border-radius: 2.6mm; padding: 8mm;
+          display: flex; flex-direction: column; }
+  .card.size .sub { color: #C79C51; font-size: 10.5pt; margin-bottom: 4mm; letter-spacing: .05em; }
+  /* PUSHED TO THE BOTTOM so the three rules line up across columns. Bodies are
+     different lengths and a rule that steps up and down reads as a mistake. */
+  .card.size .proof { margin-top: auto; padding-top: 4mm; border-top: .8pt solid rgba(199,156,81,0.28);
+                      color: #DABE81; font-size: 10.5pt; }
+  .card.size p + .proof { margin-top: 5mm; }
+  .card.plan.featured { border-color: #C79C51; border-width: 1.6pt; }
+  .price { font-family: "Liberation Serif", Georgia, serif; font-size: 33pt;
+           color: #EAD3A8; line-height: 1; margin-bottom: 3mm; }
+  .price span { font-family: inherit; font-size: 11pt; color: #A9A59C; margin-left: 2.5mm; }
+  .spec { color: #DABE81; font-size: 10.5pt; margin-bottom: 4mm; }
+
+  .list { list-style: none; }
+  .list li { padding: 4.6mm 0; border-bottom: .8pt solid rgba(199,156,81,0.28); display: flex; gap: 8mm; }
+  .list li:last-child { border-bottom: 0; }
+  .list .h { flex: 0 0 78mm; font-weight: 700; color: #E8E6E1; font-size: 12pt; }
+  .list .p { flex: 1; color: #A9A59C; font-size: 11.5pt; line-height: 1.5; }
+
+  .cta { margin-top: 9mm; color: #C79C51; font-size: 14pt; font-weight: 700; letter-spacing: .04em; }
+  .cta.small { font-size: 10.5pt; font-weight: 400; color: #A9A59C; line-height: 1.55; max-width: 90ch; }
+
+  .num { position: absolute; right: 22mm; bottom: 11mm; font-size: 9pt; color: #C79C51; opacity: .7; }
+</style></head><body>
+<section class="slide cover">
+      <div class="rule"></div>
+      <p class="eyebrow">marketwaros.com</p>
+      <h1>Marketing that refuses to waste your money</h1>
+      <p class="lede">Start with a free 31-point audit of your own website. No account. No card. Then 39 AI agents build the offer, run the campaigns and stop the spend that is not working.</p>
+      <p class="foot">A deck you can check before you believe it — every number here is on the website.</p>
+    </section>
+<section class="slide"><p class="eyebrow">The problem</p><h2>Most marketing tools tell you what happened. None of them refuse.</h2>
+      <div class="statement"><p>A dashboard shows you that £400 went out and two enquiries came back. It shows you that again next month.</p><p>Nothing in it ever declines to run an advert that cannot be measured, stops a campaign that is losing, or tells you an address it found belongs to somebody else.</p><p>That is the gap this was built in. Not more reporting — refusal.</p></div><div class="num">2 / 10</div></section>
+<section class="slide"><p class="eyebrow">Start here, free</p><h2>A real crawl of your real website, 31 checks</h2>
+      <div class="steps">
+        <div class="step"><div class="stepnum">1</div>
+          <h3>Put your address in</h3><p>No account, no card, no call. The crawler fetches your actual pages, exactly as a search engine would.</p></div>
+        <div class="step"><div class="stepnum">2</div>
+          <h3>See your three worst problems</h3><p>Free, in full, with what each one costs you and how to fix it. Not a score with a sales call attached.</p></div>
+        <div class="step"><div class="stepnum">3</div>
+          <h3>Decide afterwards</h3><p>If the audit is wrong, you have lost nothing and you will know not to trust the rest. That is the point of leading with it.</p></div></div>
+      <p class="cta">marketwaros.com/audit</p><div class="num">3 / 10</div></section>
+<section class="slide"><p class="eyebrow">What it actually does</p><h2>39 agents, 12 tools, 9 of them working before you connect anything</h2>
+      <div class="grid">
+        <div class="card"><h3>Find the customers</h3><p>Import a list of business names and it finds their websites, their published addresses and their phone numbers. It never invents one.</p></div>
+        <div class="card"><h3>Write what you send</h3><p>Offers, emails, adverts and landing pages, in your brand's voice and your customer's language — not a template with your name dropped in.</p></div>
+        <div class="card"><h3>Run the campaigns</h3><p>Briefs, creative, publication and follow-up across email, social and paid, from one place with one bill.</p></div>
+        <div class="card"><h3>Watch the money</h3><p>Cost per lead and per order against your own numbers, not an industry average. Every refusal is calculated, never guessed.</p></div></div><div class="num">4 / 10</div></section>
+<section class="slide"><p class="eyebrow">Whatever size you are</p><h2>The same engine. Three different jobs.</h2>
+      <div class="grid three">
+        <div class="card size"><h3>On your own</h3><p class="sub">A trade, a shop, a single practice</p>
+          <p>You have no marketing hours and no agency. It does the writing, the sending and the chasing, and it tells you which of your own customers are about to leave.</p><p class="proof">Starts at £0 — the audit, the offer builder and the vault need no card at all.</p></div>
+        <div class="card size"><h3>Growing</h3><p class="sub">A team, a few thousand customers</p>
+          <p>You have campaigns running and no idea which are paying. It scores every one against your own median, kills the losers and reroutes the budget to what is working.</p><p class="proof">Growth is £49 a month for 3 brands and 5 people.</p></div>
+        <div class="card size"><h3>Several brands</h3><p class="sub">A group, a franchise, an agency</p>
+          <p>Each brand keeps its own voice, its own sending domain and its own audience. One account, one bill, and no brand's list ever touches another's.</p><p class="proof">Brands are separated in the database itself, not by a filter in the interface.</p></div></div><div class="num">5 / 10</div></section>
+<section class="slide"><p class="eyebrow">The part nobody else sells</p><h2>It says no, and it says why</h2>
+      <ul class="list">
+        <li><span class="h">It will not spend where it cannot measure</span><span class="p">A paid boost is refused outright when conversion tracking is not connected. Spending blind is not a service.</span></li>
+        <li><span class="h">It will not send you somebody else's address</span><span class="p">Every email it finds is checked against the business it belongs to. A directory inbox is thrown away rather than added to your list.</span></li>
+        <li><span class="h">It will not post twice</span><span class="p">When a publish response is lost, the next attempt asks the channel what happened instead of guessing and posting again.</span></li>
+        <li><span class="h">It will not invent anything</span><span class="p">No fabricated contacts, no made-up statistics, no filler where a real answer should be. When it cannot find something it tells you that it could not.</span></li>
+        <li><span class="h">It stops when you say stop</span><span class="p">One control halts every campaign, every scheduled send and every pound of spend, immediately.</span></li></ul><div class="num">6 / 10</div></section>
+<section class="slide"><p class="eyebrow">Pricing</p><h2>Three plans. No setup fee, no contract, no sales call.</h2>
+      <div class="grid three">
+        <div class="card plan">
+          <h3>Free</h3>
+          <p class="price">£0<span>for ever</span></p>
+          <p class="spec">1 brand · 1 user · 0 credits a month</p>
+          <p>The audit, the customer vault and the offer builder. Enough to judge it.</p>
+        </div>
+        <div class="card plan">
+          <h3>Starter</h3>
+          <p class="price">£19<span>a month</span></p>
+          <p class="spec">1 brand · 2 users · 380 credits a month</p>
+          <p>Or £160/yr. Everything above plus live campaigns and AI work.</p>
+        </div>
+        <div class="card plan featured">
+          <h3>Growth</h3>
+          <p class="price">£49<span>a month</span></p>
+          <p class="spec">3 brands · 5 users · 980 credits a month</p>
+          <p>Or £412/yr. For several brands and a team around them.</p>
+        </div></div>
+      <p class="cta small">AI work is charged in credits so you pay for what you use, not a seat you do not fill. A 15-second video is about £5.25; the shortest is £2.81. Unused work costs nothing.</p><div class="num">7 / 10</div></section>
+<section class="slide"><p class="eyebrow">What stays yours</p><h2>Your customers, your data, your exit</h2>
+      <ul class="list">
+        <li><span class="h">Your list is yours</span><span class="p">Export every contact, every campaign and every result at any time, in a file you can open. No permission needed and no fee.</span></li>
+        <li><span class="h">Consent travels with the contact</span><span class="p">Who agreed, when, and how, recorded against each person. Unsubscribes are honoured across every brand in the account at once.</span></li>
+        <li><span class="h">Your data is separated at the database</span><span class="p">Not hidden by the interface. Another account cannot read yours even if the screen is wrong.</span></li>
+        <li><span class="h">Sensitive fields are encrypted before they are stored</span><span class="p">Contact details are written encrypted, not merely protected by a login.</span></li></ul><div class="num">8 / 10</div></section>
+<section class="slide"><p class="eyebrow">Referrals</p><h2>If you send somebody, you get paid for it</h2>
+      <div class="statement"><p>Share a link. When somebody you introduced spends, you earn 0.5% of it, for as long as they stay.</p><p>Withdraw from £20. No follower count, no application, no tier to reach first.</p></div><div class="num">9 / 10</div></section>
+<section class="slide cover close">
+    <div class="rule"></div>
+    <p class="eyebrow">Start</p>
+    <h1>Audit your website before you talk to anybody</h1>
+    <div class="statement"><p>marketwaros.com/audit — 31 checks against your real pages, your three worst problems in full, free.</p><p>If it finds nothing useful, you have lost four minutes and learned something about us.</p></div>
+    <p class="foot big">marketwaros.com</p>
+  </section>
+</body></html>
