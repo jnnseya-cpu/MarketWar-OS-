@@ -171,3 +171,103 @@ export async function explainEnrichment(company: string, allowPaid = 0): Promise
     : `No address could be found for ${name} by the free crawl or by the paid suppliers. Read each step above: they fail for different reasons and only one of them is ever about the data.`;
   return out;
 }
+
+export type RunDiagnosis = {
+  /** One line naming the cause, for the top of the screen. */
+  headline: string;
+  /** The exact thing to change, or "" when there is nothing to change. */
+  fix: string;
+  /** True when this is a configuration fault rather than a fact about the data. */
+  actionable: boolean;
+};
+
+/**
+ * WHY DID THIS RUN FIND NOTHING? DECIDED HERE, SHOWN ON THE SCREEN.
+ *
+ * WHAT THIS REPLACES, AND IT WAS MY MISTAKE. I built the explain endpoint above
+ * and then told the owner to open a URL and read JSON. That is precisely the
+ * rule this repository holds me to — never tell the owner to do by hand what the
+ * platform should do for them; when the answer is "go and look", the defect is
+ * that nothing is looking. A diagnostic somebody has to go and run is a
+ * diagnostic that does not exist.
+ *
+ * So the run diagnoses ITSELF. Pure, and it costs nothing: every fact below is
+ * already in the results the batch just produced, plus the key states. No second
+ * crawl, no second search, nothing to authorise.
+ *
+ * IT NAMES ONE CAUSE. The old note listed four counts and left the reader to
+ * work out which mattered — and when the answer is "your search key is being
+ * refused", a breakdown of website coverage is noise sitting on top of it.
+ */
+export function diagnoseRun(input: {
+  results: { email: string | null; mode: string; stage?: string; providerError?: string }[];
+  keys: { serper: boolean; hunter: boolean; apollo: boolean; apolloBreakerTripped: boolean };
+  paidWasRun: boolean;
+  paidRefusedReason?: string;
+}): RunDiagnosis | null {
+  const rows = input.results || [];
+  if (!rows.length) return null;
+  const found = rows.filter((r) => r.email).length;
+  if (found > 0) return null; // Something worked. A diagnosis would be noise.
+
+  const providerError = rows.find((r) => r.providerError)?.providerError;
+  const demo = rows.filter((r) => r.mode === "demo").length;
+
+  // 1. THE SEARCH KEY, FIRST, because everything else depends on it and because
+  //    a key that is SET and being refused is invisible in every other report.
+  if (!input.keys.serper) {
+    return {
+      headline: "No search key, so no website could be found for any of these businesses.",
+      fix: "Set SERPER_API_KEY on the deployment and redeploy. It turns a business name into a website, which every other step needs.",
+      actionable: true,
+    };
+  }
+  if (providerError || demo === rows.length) {
+    return {
+      headline: `The search provider refused this deployment's key, so no website was looked up. ${providerError || ""}`.trim(),
+      fix: "SERPER_API_KEY is SET and being rejected — it is wrong, revoked, or out of credit. Replacing the value is the fix; setting it again is not.",
+      actionable: true,
+    };
+  }
+
+  // 2. THE PAID SUPPLIERS, when they were the ones that could have answered.
+  if (!input.paidWasRun) {
+    return {
+      headline: "These businesses publish no address a crawler can read, and the paid suppliers were not asked.",
+      fix: input.paidRefusedReason
+        || "Top up the ACU balance. Rows the free crawl cannot answer go to Hunter and then Apollo, charged only for the rows that reach them.",
+      actionable: true,
+    };
+  }
+  if (input.keys.apolloBreakerTripped) {
+    return {
+      headline: "Apollo refused this deployment and was skipped for the rest of the run.",
+      fix: "Apollo answers 403 when the plan does not include API access. Check the Apollo plan — the key itself is set and is not the problem.",
+      actionable: true,
+    };
+  }
+
+  // 3. NOT A FAULT. Saying so matters: the commonest wrong conclusion after a
+  //    run like this is that the feature is broken, and it is not.
+  const noSite = rows.filter((r) => r.stage === "no_own_site").length;
+  const rejected = rows.filter((r) => r.stage === "email_rejected").length;
+  if (rejected && rejected >= rows.length / 2) {
+    return {
+      headline: `${rejected} address(es) were found and refused for belonging to a directory rather than to the business.`,
+      fix: "",
+      actionable: false,
+    };
+  }
+  if (noSite && noSite >= rows.length / 2) {
+    return {
+      headline: `${noSite} of these businesses have no website of their own — only directory pages about them.`,
+      fix: "",
+      actionable: false,
+    };
+  }
+  return {
+    headline: "Every source was asked and none of these businesses has a published email address.",
+    fix: "",
+    actionable: false,
+  };
+}

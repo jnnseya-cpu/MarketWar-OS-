@@ -64,6 +64,9 @@ export default function CustomerVaultPage() {
   // judgement invisible is how 362 venues became 362 unenrichable person names
   // with nothing on screen to suggest anything had happened.
   const [importNote, setImportNote] = useState("");
+  // WHY THE LAST RUN FOUND NOTHING, ON THE SCREEN. Not a health endpoint to go
+  // and open — the platform does its own looking and shows the answer here.
+  const [diagnosis, setDiagnosis] = useState<{ headline: string; fix: string; actionable: boolean } | null>(null);
   // The list these rows belong to. Blank = ungrouped, which is a real, selectable
   // bucket on the send screen rather than a hole.
   const [importGroup, setImportGroup] = useState("");
@@ -219,6 +222,10 @@ export default function CustomerVaultPage() {
         siteNoEmail: Number(b.siteNoEmail) || 0,
         total: Number((d as { enrichedCount?: number }).enrichedCount) || 0,
       } : null);
+      const diag = d.diagnosis as { headline?: string; fix?: string; actionable?: boolean } | null | undefined;
+      setDiagnosis(diag?.headline
+        ? { headline: String(diag.headline), fix: String(diag.fix || ""), actionable: Boolean(diag.actionable) }
+        : null);
       setMsg({ text: (typeof d.note === "string" && d.note) || "Enrichment complete.", error: (d as { emailsFound?: number }).emailsFound === 0 });
     } catch (e) {
       setMsg({ text: `Enrichment failed: ${(e as Error).message || "network error"}.`, error: true });
@@ -350,6 +357,16 @@ export default function CustomerVaultPage() {
             <p className="mb-3 text-xs text-slate-400">
               Columns detected automatically: <span className="text-slate-300">email, name, phone, company, spend, orders, last-order-days, consent</span>. Email is enough. Re-importing the same email merges (no duplicates).
             </p>
+            {diagnosis && (
+              <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${diagnosis.actionable ? "border-amber-500/40 bg-amber-500/10 text-amber-100" : "border-slate-600/40 bg-slate-700/20 text-slate-200"}`}>
+                <p className="font-semibold">{diagnosis.headline}</p>
+                {/* A FAULT GETS THE ONE THING TO CHANGE. A fact about the data
+                    gets nothing, because there is nothing to do and inventing an
+                    action would send somebody chasing a problem that is not
+                    theirs. */}
+                {diagnosis.fix && <p className="mt-1 opacity-90">{diagnosis.fix}</p>}
+              </div>
+            )}
             {importNote && (
               <p className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
                 {importNote}

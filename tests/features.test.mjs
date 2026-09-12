@@ -29012,6 +29012,65 @@ test("invented data reaches the landing page and nothing else", async () => {
   }
 });
 
+test("the run says WHY it found nothing, on the screen, without being asked", async () => {
+  // MY MISTAKE, AND THIS IS THE FIX FOR IT. I built an explain endpoint and then
+  // told the owner to open a URL and read JSON. That is the rule this repository
+  // holds me to, broken by the person who wrote it down: never tell the owner to
+  // do by hand what the platform should do for them — when the answer is "go and
+  // look", the defect is that nothing is looking. A diagnostic somebody has to go
+  // and run is a diagnostic that does not exist.
+  //
+  // The run diagnoses itself now and the vault screen shows the answer. Free:
+  // every fact comes from the batch that just ran plus the key states, so there
+  // is no second crawl and nothing to authorise.
+  const { diagnoseRun } = await import("../src/backend/enrichment-explain.ts");
+  const rows = (n, patch) => Array.from({ length: n }, () => ({ email: null, mode: "live", ...patch }));
+  const KEYS = { serper: true, hunter: true, apollo: true, apolloBreakerTripped: false };
+
+  // A KEY THAT IS SET AND REFUSED IS THE ONE THAT MATTERS, because it is
+  // invisible everywhere else and it is the state the owner was actually in.
+  const refused = diagnoseRun({
+    results: rows(60, { mode: "demo", providerError: "The search key was rejected (401/403)." }),
+    keys: KEYS, paidWasRun: false,
+  });
+  assert.match(refused.headline, /refused this deployment's key/i);
+  assert.match(refused.fix, /SET and being rejected/i,
+    "the fix must not read as 'set the key' to somebody who has already set it");
+  assert.equal(refused.actionable, true);
+
+  // AND IT MUST NOT READ THE SAME AS A MISSING KEY, or the report has collapsed
+  // the two states that need opposite actions.
+  const missing = diagnoseRun({ results: rows(60, { mode: "demo" }), keys: { ...KEYS, serper: false }, paidWasRun: false });
+  assert.notEqual(missing.headline, refused.headline);
+  assert.match(missing.headline, /No search key/i);
+
+  // APOLLO SET AND REFUSING IS A PLAN PROBLEM, NOT A KEY PROBLEM, and saying the
+  // wrong one of those sends somebody to re-paste a value that is already right.
+  const breaker = diagnoseRun({ results: rows(60, { stage: "site_no_email" }), keys: { ...KEYS, apolloBreakerTripped: true }, paidWasRun: true });
+  assert.match(breaker.fix, /plan/i);
+  assert.match(breaker.fix, /not the problem/i, "the fix must say the key itself is fine");
+
+  // A FACT ABOUT THE DATA IS NOT A FAULT, and must not be dressed as one — the
+  // commonest wrong conclusion after an empty run is that the feature is broken.
+  const noSite = diagnoseRun({ results: rows(60, { stage: "no_own_site" }), keys: KEYS, paidWasRun: true });
+  assert.equal(noSite.actionable, false);
+  assert.equal(noSite.fix, "", "a fact about the data was given an action, which sends somebody chasing nothing");
+
+  // AND IT STAYS SILENT WHEN SOMETHING WORKED. A diagnosis on a successful run is
+  // noise, and noise is how a real one gets ignored.
+  assert.equal(diagnoseRun({ results: [{ email: "a@b.com", mode: "live" }, ...rows(59, {})], keys: KEYS, paidWasRun: true }), null);
+  assert.equal(diagnoseRun({ results: [], keys: KEYS, paidWasRun: true }), null);
+
+  // ---- IT REACHES THE SCREEN. ----------------------------------------------
+  // The rule is about what the owner SEES. A diagnosis computed and not rendered
+  // is the same failure in a new place.
+  const route = codeOf(readFileSync(new URL("../src/app/api/contacts/route.ts", import.meta.url), "utf8"));
+  assert.match(route, /diagnosis: diagnoseRun\(/, "the enrich response does not carry the diagnosis");
+  const page = codeOf(readFileSync(new URL("../src/app/dashboard/customers/page.tsx", import.meta.url), "utf8"));
+  assert.match(page, /setDiagnosis\(/, "the page never reads the diagnosis");
+  assert.match(page, /diagnosis\.headline/, "the page never shows the diagnosis");
+});
+
 test("\"I have all three keys and it still does not work\" gets an answer, not a key list", async (t) => {
   // THE SENTENCE THE PLATFORM COULD NOT ANSWER. `/api/health/enrichment` reports
   // which keys EXIST. `/api/health/live` reports which build is running. Neither
