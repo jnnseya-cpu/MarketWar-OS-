@@ -7059,3 +7059,83 @@ several statements is not seen. It narrows the hole; it does not close it.
   outstanding list.
 
 The runbook for both is `docs/SECURITY-RULES-TESTING.md`.
+
+## §140 — Inbox placement: the platform can now answer where its mail landed (2026-09-13)
+
+§135 built the SHAPE of a message and stated its own limit plainly: *"the
+platform can say what shape a message has, and cannot yet tell you which tab it
+reached."* §139 repeated it as the last unclosed gap. The owner said build it.
+
+**WHAT IT IS.** `/api/placement` sends a probe to mailboxes we own, through the
+ORDINARY bulk path — same builder, same From, same DKIM key, same headers a
+campaign gets, because a probe that took a shortcut would measure the shortcut —
+then reads each mailbox over IMAP and reports the folder and the Gmail tab.
+`shared/placement.ts` holds the decision, `backend/placement-probe.ts` runs it,
+`backend/imap.ts` gained a session runner and a token search beside the bounce
+collector it already had.
+
+**THE TWO THINGS THAT ARE EASY TO GET WRONG, AND BOTH ARE TESTED.**
+
+*Gmail's tab is a LABEL, not a folder.* A promoted message is still in `\Inbox`;
+what separates it is `CATEGORY_PROMOTIONS` in `X-GM-LABELS`. A reader that looked
+at the folder alone would call every Promotions message an inbox hit — the
+flattering answer, and the exact lie the feature exists to refuse.
+
+*The spam folder beats any label it still carries.* Gmail keeps `CATEGORY_*` on a
+message it has also junked, so reading the label first reports a spam-foldered
+message as "promotions" — the most damaging direction for this number to be
+wrong in.
+
+**THE HONESTY RULE.** A seed that did not report is `missing` — not an inbox, not
+a spam folder — and a report containing one refuses to quote a rate, because a
+rate over the seeds that happened to answer flatters exactly the runs that went
+worst. The precedent is `eventStats`, which already withholds its own rates when
+the sample cannot support them.
+
+**AND THE FIRST VERSION BROKE THAT RULE, CAUGHT BY ITS OWN TEST.** With no seeds
+configured, `missing` is zero, so the withholding never fired and the report came
+back claiming **0% reached the inbox** — the most alarming number available,
+produced by measuring nothing. Both rates are now withheld unless at least one
+seed actually reported.
+
+**IT REFUSES TO TREAT PROMOTIONS AS A FAULT.** A campaign carries one-click
+unsubscribe because bulk mail must, and that header is the clearest signal a
+classifier has. The advice says Promotions is the correct place for marketing and
+that reaching Primary means sending one-to-one mail from the vault — the same
+position §135 took, now attached to a measurement instead of an argument.
+
+**IT DOES NOT TOUCH THE MAILBOX IT MEASURES.** `BODY.PEEK`, never `STORE`. A seed
+marked read by the act of measuring it is a seed whose next measurement differs
+because we looked. Asserted against a real server, by checking no `STORE` was
+ever sent.
+
+**PROVED AGAINST A REAL SOCKET, AND END TO END.** `tests/helpers/fake-imap.mjs`
+is a real TLS IMAP server — the bugs live in the protocol, specifically in
+literals, where a payload is announced as `{123}` and may contain text that looks
+exactly like a tagged completion line. Seventeen tests, including one that sends
+through the real SMTP path, has a mail system file the result, and reads it back:
+Gmail's seed reported `promotions`, Microsoft's reported `spam`, and the rates
+were quoted because both answered.
+
+**Six mutations, six killed** — the sixth only after a test was added for it:
+label-before-folder, unknown-folder-as-inbox, rates-despite-missing,
+zero-seeds-as-0%, marking the mailbox read, and taking the first match instead of
+the newest.
+
+**AND THE HARNESS ITSELF HAD A DEFECT, found by the emulator dying mid-run.**
+`drive-modules.mjs` let a refused connection throw: one absent dependency killed
+the run and destroyed every result already proved — the same fault as a harness
+reading a correct refusal as a breakage. Every call to an outside dependency is
+guarded now, and an unreachable emulator is a recorded skip. A second
+mis-classification went with it: a metered route answering 401 in a run with no
+identity was being reported as broken rather than as not exercisable.
+
+**WHAT IS STILL NOT BUILT, NAMED RATHER THAN IMPLIED.** Google Postmaster Tools
+ingestion — domain reputation, spam rate and authentication percentages across
+real volume — is the other half of this and does not exist. And seeds are a
+SAMPLE of receivers, not a verdict about every recipient: a seed mailbox has no
+history with the sender, so this measures how a receiver treats mail from this
+domain to a STRANGER. That is the honest number for cold outreach and the
+pessimistic end for an engaged list.
+
+Runbook: `docs/INBOX-PLACEMENT.md`.

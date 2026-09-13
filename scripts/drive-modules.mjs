@@ -46,6 +46,9 @@
 //   MW_DRIVE_TOKEN               a real Firebase ID token, for a live deployment
 //   MW_DRIVE_MAILBOX             a JSONL file a local SMTP server appends to,
 //                                so a sent campaign can be read back
+//   MW_DRIVE_PROBE=1             actually SEND an inbox-placement probe. Off by
+//                                default: a probe spends real sends from the
+//                                sending domain's reputation.
 //
 // Exits non-zero if any step that COULD run did not do what it promises.
 
@@ -91,6 +94,25 @@ async function call(path, { method = "POST", body, headers = {} } = {}) {
 
 const get = (path) => call(path, { method: "GET" });
 
+// A HARNESS MUST NOT DIE ON THE FIRST THING THAT IS NOT THERE.
+//
+// `fetch` REJECTS on a refused connection, and an emulator that is simply not
+// running is the normal case on most machines. The first version of this file
+// let that throw: one absent dependency killed the run and lost every result
+// that had already been proved, which is the same fault as a harness that reads
+// a correct refusal as a breakage — it destroys its own evidence.
+async function tryFetch(url, init) {
+  try {
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not json */ }
+    return { ok: true, status: res.status, json, text };
+  } catch (e) {
+    return { ok: false, status: 0, json: null, text: "", error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 0. WHAT IS ACTUALLY LIVE HERE. Asked, never assumed — the whole review turns
 //    on telling "not configured" apart from "broken", and the deployment is the
@@ -124,13 +146,16 @@ const SEARCH = liveHas("prospect");
   } else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
     const host = process.env.FIREBASE_AUTH_EMULATOR_HOST;
     const email = `drive-${Date.now()}@marketwaros.test`;
-    const r = await fetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=drive`, {
+    const r = await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=drive`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password: "Passw0rd!23", returnSecureToken: true }),
     });
-    const b = await r.json();
+    if (!r.ok) {
+      rec("Sign in", "skip", `FIREBASE_AUTH_EMULATOR_HOST names ${host} but nothing is answering there (${r.error}). Brand-scoped steps are skipped rather than reported as broken.`);
+    }
+    const b = r.json ?? {};
     if (b.idToken) { bearer = b.idToken; localId = b.localId; signedInEmail = email; rec("Sign in", "pass", `Registered ${email} and carried its ID token.`); }
-    else rec("Sign in", "fail", `The auth emulator refused to register a user: ${JSON.stringify(b).slice(0, 200)}`);
+    else if (r.ok) rec("Sign in", "fail", `The auth emulator refused to register a user: ${JSON.stringify(b).slice(0, 200)}`);
   } else {
     rec("Sign in", "skip", "No MW_DRIVE_TOKEN and no auth emulator — the run carries no identity, so brand-scoped steps are skipped.");
   }
@@ -176,25 +201,24 @@ if (!bearer || !process.env.FIREBASE_AUTH_EMULATOR_HOST) {
 } else {
   const host = process.env.FIREBASE_AUTH_EMULATOR_HOST;
   const project = process.env.FIREBASE_PROJECT_ID || "demo-marketwar";
-  await fetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=drive`, {
+  await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=drive`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ requestType: "VERIFY_EMAIL", idToken: bearer }),
   });
-  const codes = await (await fetch(`http://${host}/emulator/v1/projects/${project}/oobCodes`)).json();
+  const codes = (await tryFetch(`http://${host}/emulator/v1/projects/${project}/oobCodes`)).json ?? {};
   const code = (codes.oobCodes || []).filter((c) => c.email === signedInEmail).pop()?.oobCode;
   if (code) {
-    await fetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:update?key=drive`, {
+    await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:update?key=drive`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ oobCode: code }),
     });
     // A NEW TOKEN, because email_verified is a claim INSIDE the token — the old
     // one still says unverified however many times the mailbox is confirmed.
-    const re = await fetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=drive`, {
+    const re = await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=drive`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: signedInEmail, password: "Passw0rd!23", returnSecureToken: true }),
     });
-    const rb = await re.json();
-    if (rb.idToken) bearer = rb.idToken;
+    if (re.json?.idToken) bearer = re.json.idToken;
   }
   const claim = await call("/api/auth/human", { method: "PUT", body: { token: humanToken } });
   if (claim.status === 200 && (claim.json?.granted > 0 || claim.json?.already)) {
@@ -236,18 +260,19 @@ if (!signedIn || !PERSIST) {
 // ---------------------------------------------------------------------------
 if (!vaultOk || !process.env.FIREBASE_AUTH_EMULATOR_HOST) {
   rec("Tenant isolation", "skip", vaultOk ? "Needs a second real identity; only one token was supplied." : "No vault to attempt to reach.");
-} else {
+} else if (true) {
   const host = process.env.FIREBASE_AUTH_EMULATOR_HOST;
-  const r = await fetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=drive`, {
+  const r = await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=drive`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: `intruder-${Date.now()}@elsewhere.test`, password: "Passw0rd!23", returnSecureToken: true }),
   });
-  const other = (await r.json()).idToken;
-  const res = await fetch(BASE + `/api/contacts?brandId=${encodeURIComponent(BRAND)}`, {
+  const other = r.json?.idToken;
+  if (!other) { rec("Tenant isolation", "skip", `Could not register a second account to attack with (${r.error ?? "no token returned"}).`); }
+  const res = await tryFetch(BASE + `/api/contacts?brandId=${encodeURIComponent(BRAND)}`, {
     method: "GET",
     headers: { authorization: `Bearer ${other}`, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") },
   });
-  const body = await res.json().catch(() => ({}));
+  const body = res.json ?? {};
   const leaked = Array.isArray(body?.customers) && body.customers.length > 0;
   if (!leaked && res.status >= 400) rec("Tenant isolation", "pass", `A second real account was refused with HTTP ${res.status} on another tenant's brand.`);
   else if (!leaked) rec("Tenant isolation", "pass", `A second real account got HTTP ${res.status} and NO rows — nothing of the other tenant's leaked.`);
@@ -322,7 +347,13 @@ if (!vaultOk || !MAIL) {
 // 7. THE THINGS THAT NEED NO KEY AT ALL — poster, landing page, campaign design.
 //    These are what a customer sees on day one, so they are driven every run.
 // ---------------------------------------------------------------------------
-{
+if (!signedIn) {
+  // A 401 FROM A ROUTE THAT REQUIRES AUTH IS CORRECT, NOT BROKEN. The creative
+  // engine is metered, so it needs an identity to charge; without one the right
+  // report is "not exercisable", exactly as for a missing key. Reporting it as a
+  // defect is the same fault as a harness reading a refusal as a breakage.
+  rec("Poster / creative", "skip", "Image generation is metered, so it needs a signed-in account to charge. No identity in this run.");
+} else {
   const r = await call("/api/image", { body: { action: "generate", brandId: BRAND, prompt: "Poster for a Leeds plumber", headline: "Boiler service £89", variants: 3 } });
   const v = r.json?.variants?.[0];
   const showable = typeof v?.imageUrl === "string" && /^data:image\/(png|jpe?g|webp|svg\+xml)[;,]/.test(v.imageUrl) && v.imageUrl.length > 1000;
@@ -375,6 +406,31 @@ if (!vaultOk || !MAIL) {
     const r = await call("/api/video-render", { body: { action: "start", brandId: BRAND, prompt: "Ten second advert for a Leeds plumber", seconds: 10 } });
     if (r.status === 200 && (r.json?.jobId || r.json?.id)) rec("Video creation", "pass", `Job ${r.json.jobId ?? r.json.id} accepted, status ${r.json.status}.`);
     else rec("Video creation", "fail", `HTTP ${r.status}: ${JSON.stringify(r.json).slice(0, 250)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. INBOX PLACEMENT — the one question the shape of a message cannot answer.
+// ---------------------------------------------------------------------------
+{
+  const st = await get("/api/placement");
+  if (st.status !== 200) {
+    rec("Inbox placement", "fail", `HTTP ${st.status}: ${JSON.stringify(st.json).slice(0, 200)}`);
+  } else if (!st.json.canRun) {
+    rec("Inbox placement", "skip", st.json.blocker || st.json.note);
+  } else {
+    // A probe SENDS, so it is only run when the deployment is set up for it and
+    // the caller asked. Reading the status is free; spending a send is not.
+    if (process.env.MW_DRIVE_PROBE !== "1") {
+      rec("Inbox placement", "skip", `${st.json.count} seed(s) across ${st.json.receivers.join(", ")} — ready. Set MW_DRIVE_PROBE=1 to actually send one and measure.`);
+    } else {
+      const p = await call("/api/placement", { body: { waitMs: 60_000 } });
+      const rep = p.json?.report;
+      if (p.status === 200 && rep) {
+        rec("Inbox placement", rep.inboxRatePct === null ? "fail" : "pass",
+          `${p.json.sendNote} ${rep.verdict}` + (rep.advice.length ? ` — ${rep.advice[0]}` : ""));
+      } else rec("Inbox placement", "fail", `HTTP ${p.status}: ${JSON.stringify(p.json).slice(0, 250)}`);
+    }
   }
 }
 

@@ -111,7 +111,10 @@ side effect of a review.
   `firebase deploy --only firestore:rules` reconciles them. Deploy from this repo
   and the two are the same thing.
 - **Real indexes, real quota, real latency.** The emulator has none of these.
-- **Inbox placement.** A real SMTP server accepting the bytes is not Gmail
-  filing them. Nothing in this repository can answer that; it needs seeded
-  mailboxes on the real receivers and Google Postmaster Tools on a domain with
-  volume.
+- **Inbox placement — this is no longer true and the sentence that said so is
+  gone.** It read "nothing in this repository can answer that". It can now:
+  `/api/placement` sends a probe through the ordinary bulk path to mailboxes we
+  own and reads back the folder and the Gmail tab. See
+  `docs/INBOX-PLACEMENT.md`. What it still needs is the mailboxes —
+  `MW_SEED_MAILBOXES` — and until those exist it reports that it has measured
+  nothing rather than a rate.
