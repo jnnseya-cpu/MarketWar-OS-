@@ -38,7 +38,8 @@
     "check:advisories": "node scripts/check-advisories.mjs",
     "drive:loop": "node scripts/drive-commercial-loop.mjs",
     "deck:doc": "node --import tsx scripts/build-deck.mjs && node --import tsx scripts/verify-deck.mjs",
-    "deck:verify": "node --import tsx scripts/verify-deck.mjs"
+    "deck:verify": "node --import tsx scripts/verify-deck.mjs",
+    "drive:modules": "node --import tsx scripts/drive-modules.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",

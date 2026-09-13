@@ -25,7 +25,8 @@ if (typeof window !== "undefined") {
 // because that is where the fallback fires or the sentence breaks.
 
 import { mergeTemplate } from "@/backend/email-templates";
-import { injectTracking, unsubscribeUrl, trackingBaseFor } from "@/backend/email-events";
+import { injectTracking, unsubscribeUrl, trackingBaseFor, suppressedEmails } from "@/backend/email-events";
+import { filterList } from "@/backend/email";
 import { fixTokens, tokenWarnings, usedTokens } from "@/shared/merge-tokens";
 import type { Contact } from "@/backend/contacts";
 import { selectByGroups } from "@/shared/contact-groups";
@@ -321,9 +322,28 @@ export async function buildEmailPreview(input: {
   // to disagree in the first place.
   const groupFilter = (input.groups ?? []).filter((g) => typeof g === "string" && g.trim().length > 0);
   const pool = groupFilter.length ? selectByGroups(byStatus, groupFilter) : byStatus;
-  const eligible = input.statusFilter
+  const consented = input.statusFilter
     ? pool.filter((c) => c.email)
     : pool.filter((c) => c.email && c.consent !== false);
+
+  // THE SAME TWO FILTERS THE SEND APPLIES, IN THE SAME ORDER — because until
+  // now the preview stopped at consent and the send went on to reject the
+  // address itself. Driven end to end, a four-row list previewed as "3 eligible"
+  // and delivered TWO: the third was a disposable domain the hygiene pipeline
+  // refuses at send time. The button's number is what a customer decides on, and
+  // it was counting people who were never going to receive anything.
+  //
+  // `filterList` and `suppressedEmails` are the send's own functions, not a
+  // second implementation of the rule — two implementations of "who receives
+  // this" is exactly how a preview and a send come to disagree, which is the
+  // fault §116 already fixed once for GROUPS and missed for addresses.
+  const hygienic = new Set(filterList(consented.map((c) => String(c.email))).sendable.map((v) => v.email.toLowerCase()));
+  const suppressed = await suppressedEmails(input.brandId).catch(() => new Set<string>());
+  const eligible = consented.filter((c) => {
+    const e = String(c.email).toLowerCase();
+    return hygienic.has(e) && !suppressed.has(e);
+  });
+  const refusedByHygiene = consented.length - eligible.length;
 
   const wanted = Math.max(1, Math.min(5, input.samples ?? 3));
   // Prefer contacts with a MISSING first name in the sample. Those are the ones
@@ -393,6 +413,12 @@ export async function buildEmailPreview(input: {
       // preview too — and that is worth saying, because a preview that silently
       // shows a dead one teaches people not to check it.
       samples.length ? "The unsubscribe link is this recipient's own signed link; it works." : "",
+      // SAID, NOT SILENTLY SUBTRACTED. Now that the preview applies the send's
+      // hygiene and suppression filters, the count can be lower than "everyone
+      // who consented" — and a number that quietly shrinks is its own puzzle.
+      refusedByHygiene
+        ? `${refusedByHygiene} more consented, but ${refusedByHygiene === 1 ? "that address is" : "those addresses are"} disposable, a role mailbox, or already unsubscribed, so the send will refuse ${refusedByHygiene === 1 ? "it" : "them"}.`
+        : "",
     ].filter(Boolean).join(" "),
   };
 }
