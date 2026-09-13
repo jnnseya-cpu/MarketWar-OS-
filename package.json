@@ -21,7 +21,7 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "seed:accounts": "node scripts/seed-accounts.mjs",
-    "verify": "npm run check:layers && npm run check:casts && npm run check:advisories && npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run check:layers && npm run check:casts && npm run check:advisories && npm run check:indexes && npm run lint && npm run typecheck && npm test && npm run build",
     "check:layers": "node scripts/check-layers.mjs",
     "check:casts": "node scripts/check-casts.mjs",
     "check:palette": "node scripts/check-palette.mjs",
@@ -39,7 +39,8 @@
     "drive:loop": "node scripts/drive-commercial-loop.mjs",
     "deck:doc": "node --import tsx scripts/build-deck.mjs && node --import tsx scripts/verify-deck.mjs",
     "deck:verify": "node --import tsx scripts/verify-deck.mjs",
-    "drive:modules": "node --import tsx scripts/drive-modules.mjs"
+    "drive:modules": "node --import tsx scripts/drive-modules.mjs",
+    "check:indexes": "node scripts/check-firestore-indexes.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
@@ -66,6 +67,7 @@
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.23.1",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "@firebase/rules-unit-testing": "^5.0.2"
   }
 }

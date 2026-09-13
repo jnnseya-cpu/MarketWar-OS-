@@ -6985,3 +6985,77 @@ indexes, or real quota. **Delivery to a real human inbox remains unproven** — 
 real SMTP server accepted the bytes, which is not the same as Gmail filing them.
 To close that, `npm run drive:modules` accepts `MW_DRIVE_TOKEN` and `BASE_URL`
 and can be pointed at the live deployment from a machine that can reach it.
+
+## §139 — Closing two of the four gaps, and being exact about the other two (2026-09-13)
+
+§138 ended with four things unproven. Reachability was re-checked first, not
+assumed: **still blocked** — `connect_rejected: gateway answered 403 to CONNECT`
+for both marketwaros.com and www.marketwaros.com, seven denials logged. So the
+two that need the live deployment stay open. The other two do not need it, and
+are now closed.
+
+### Closed: the rules file, run by Google's own engine
+
+`tests/security-rules.test.mjs` loads `firestore.rules` and `storage.rules` —
+the exact artefacts that get deployed — and runs them through the emulator's
+rules engine as a signed-out visitor, as the owner, and **as a second signed-in
+tenant**. That last caller is the realistic attacker and the one a server test
+cannot reach: every isolation proof in this repository until now was of the API
+guard, and the rules are what stand between a token and the database when the
+API is not in the path at all.
+
+Nothing had ever executed them. They were deployed on the strength of being
+read — and this session had already found a defect in `storage.rules` by reading
+(a write-size condition applied across `read, write`, where `request.resource` is
+null on a read, so every download failed). That fix is now a regression test
+rather than an argument.
+
+Six checks pass, and **three mutations to the rules each failed one**: making
+`brands` readable by any signed-in user, dropping the `tenantId` scope, and
+putting the storage size check back on the read.
+
+### Closed: composite indexes, as a build gate
+
+**A missing composite index is invisible everywhere except production.** The
+Firestore emulator does not require indexes at all — it answers any query — so a
+query that will 500 live passes every local run, every CI run, and every
+emulator-backed test written above. That is the same defect class this repository
+keeps paying for: a check that passes for a reason unrelated to what it tests.
+
+`npm run check:indexes` reads the queries out of `src/` and decides per query
+whether Firestore needs a composite index, then checks `firestore.indexes.json`.
+It encodes the cases that need NOTHING as carefully as the cases that do —
+equality filters alone, a lone inequality, `orderBy` on the filtered field,
+`orderBy(__name__)` beside equalities — because a gate that cries wolf gets
+ignored. It is in `npm run verify`. Mutation-tested: adding one `orderBy` on an
+unfiltered field to a real query fails the build with the file, the line and the
+remedy.
+
+Today: **26 multi-clause queries, 0 needing a composite index, all declared** —
+and a finding, reported rather than acted on: the only declared index,
+`agent_runs` on `agentId + generatedAt`, is a fossil. That collection is written
+to and never read with that shape. Removing a deployed index is the owner's call,
+not a side effect of a review.
+
+Its edge is stated in the file rather than implied: it reads chained
+`.collection().where().orderBy()` expressions, so a query assembled across
+several statements is not seen. It narrows the hole; it does not close it.
+
+### Still open, and exactly what each needs
+
+- **AI writing, email scraping, video rendering, Stripe.** Keys this container
+  does not have and cannot fetch. `npm run drive:modules` already takes
+  `MW_DRIVE_TOKEN` and `BASE_URL` and will answer all four in one run from a
+  machine that can reach the deployment.
+- **The rules DEPLOYED to the live project.** These prove the files in this
+  repository. If the live project's rules have drifted, only
+  `firebase deploy --only firestore:rules` reconciles them — deploy from this
+  repo and the two become the same thing.
+- **Real quota and latency.** The emulator has neither.
+- **Inbox placement.** A real SMTP server accepting the bytes is not Gmail
+  filing them. Nothing in this repository can answer it: it needs seeded
+  mailboxes on the real receivers and Postmaster Tools on a domain with volume.
+  That is a feature to build, not a test to run, and it is named in §135's
+  outstanding list.
+
+The runbook for both is `docs/SECURITY-RULES-TESTING.md`.
