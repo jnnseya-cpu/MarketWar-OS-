@@ -33,6 +33,10 @@ export async function POST(req: NextRequest) {
   // debit and no image, and must never end up with an image and no debit.
   // Charged per variant, because that is what the provider bills us for.
   let meterVariants = 1;
+  // Carried out of the metering block so the DELIVERY can refund it. It was
+  // scoped to the block that charges, which is how a charge with nothing behind
+  // it became unrefundable — see the demo-mode refund below.
+  let charged = 0;
   if (action === "generate") {
     const rl = rateLimit(clientKey(req, "image-generate"), 20, 60_000, Date.now());
     if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
@@ -41,6 +45,7 @@ export async function POST(req: NextRequest) {
     meterVariants = Math.max(1, Math.min(8, Number(body.variants) || 1));
     const meter = await meterAction(auth, "image", meterVariants);
     if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
+    charged = meter.charged ?? 0;
   }
 
   if (action === "theme") {
@@ -104,7 +109,28 @@ export async function POST(req: NextRequest) {
   if (action === "generate") {
     try {
       const results = await generateImage(genReq);
-      return NextResponse.json({ variants: results, mode: results[0]?.mode ?? "demo" });
+      const mode = results[0]?.mode ?? "demo";
+
+      // A PLACEHOLDER IS NOT WHAT WAS BOUGHT, SO IT IS NOT CHARGED FOR.
+      //
+      // The doctrine two lines below — "charged and nothing delivered is the one
+      // outcome that must not survive" — was enforced only on the THROW path.
+      // With no image model configured `generateImage` does not throw: it
+      // returns a brand placeholder in `mode: "demo"`, so the refund never ran
+      // and the wallet kept the charge. On a deployment with a real wallet and
+      // no image key, every render cost the customer full price for a coloured
+      // rectangle with their headline on it. Found by driving the route and
+      // reading the mode, not by reading the code.
+      if (mode === "demo" && charged > 0) {
+        const auth = await requireAuth(req);
+        if (auth.ok) await creditAcus(auth.uid || "", charged).catch(() => {});
+        return NextResponse.json({
+          variants: results, mode, refundedAcus: charged,
+          note: "No image model is connected on this deployment, so this is a brand placeholder — your colours, your logo and your exact text, composed here. "
+            + "It has not been charged for. Connect an image model for a photoreal creative.",
+        });
+      }
+      return NextResponse.json({ variants: results, mode });
     } catch (e) {
       // Charged and nothing delivered is the one outcome that must not survive.
       const auth = await requireAuth(req);

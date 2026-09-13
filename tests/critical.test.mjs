@@ -4535,3 +4535,118 @@ test("the audit page colours a failure differently from a pass", async () => {
     assert.ok(page.includes(field), `${field} never reaches the page`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// AUTH THAT FAILS OPEN — found by driving the route, not by reading it.
+//
+// `/api/email` with `action: "send"` answered an ANONYMOUS POST with a send
+// result. Its own comment says "Real send — MUST be authenticated.
+// Unauthenticated send would turn the platform's authenticated sending domain
+// into an open phishing relay." It was authenticated by `requireAuth`, which
+// returns `{ ok: true, enforced: false }` from its first line whenever Firebase
+// Admin is unconfigured — and that return is ABOVE the scope check, so a
+// `{ scope: "platform_admin" }` on a credit-minting route is not applied either.
+//
+// In demo and CI that is correct and must stay: zero-config mode is a promise
+// this platform keeps. In PRODUCTION it means a stranger cannot be told from an
+// admin, and this platform has twice had a module-load failure take Firebase
+// Admin out from under a running production deployment.
+// ---------------------------------------------------------------------------
+test("a production deployment with no verified identities refuses to send or spend", async () => {
+  const guard = await import("../src/backend/guard.ts");
+  const saved = process.env.NODE_ENV;
+  try {
+    // Admin is unconfigured in this test process — that is the whole condition.
+    Object.defineProperty(process.env, "NODE_ENV", { value: "production", configurable: true });
+    assert.equal(guard.isolationUnavailable(), true,
+      "no Firebase Admin in production means no caller can be identified");
+
+    const verdict = await guard.requireAuthEnforced(new Request("https://mw.test/api/email", { method: "POST" }));
+    assert.equal(verdict.ok, false, "an unidentified caller must not be treated as authorised");
+    assert.equal(verdict.status, 403);
+    assert.match(verdict.error, /Isolation unavailable/);
+
+    // AND THE ORDINARY GUARD STILL PASSES, which is exactly why the two are
+    // different functions: changing `requireAuth` itself would have broken every
+    // public route that uses it only to notice a signed-in visitor.
+    const lenient = await guard.requireAuth(new Request("https://mw.test/api/audit", { method: "POST" }));
+    assert.equal(lenient.ok, true, "the public surfaces must keep working");
+    assert.equal(lenient.enforced, false, "and must still be able to see that nobody was identified");
+  } finally {
+    Object.defineProperty(process.env, "NODE_ENV", { value: saved, configurable: true });
+  }
+});
+
+test("demo mode keeps working — the guard only closes in production", async () => {
+  // ZERO-CONFIG DEMO MODE IS A PROMISE, and a security fix that breaks it has
+  // traded one defect for another. With NODE_ENV anything but production the
+  // enforced guard must behave exactly like the lenient one.
+  const guard = await import("../src/backend/guard.ts");
+  assert.equal(guard.isolationUnavailable(), false, `NODE_ENV is ${process.env.NODE_ENV}, so nothing may close`);
+  const verdict = await guard.requireAuthEnforced(new Request("https://mw.test/api/email", { method: "POST" }));
+  assert.equal(verdict.ok, true, "demo mode must not start refusing sends");
+});
+
+test("every route that sends or spends uses the enforced guard", async () => {
+  // The rule is stated in guard.ts: if being wrong would expose or alter
+  // somebody else's data, require `enforced` too. These are the surfaces where
+  // being wrong puts mail on the wire from our authenticated domain, mints
+  // credits, or moves money — so the rule is checked rather than trusted.
+  const { readFileSync } = await import("node:fs");
+  const mustEnforce = [
+    "src/app/api/email/route.ts",
+    "src/app/api/newsletter/route.ts",
+    "src/app/api/admin/grant-acus/route.ts",
+    "src/app/api/admin/invites/route.ts",
+    "src/app/api/billing/topup/route.ts",
+    "src/app/api/billing/subscribe/route.ts",
+  ];
+  for (const rel of mustEnforce) {
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+    assert.match(src, /requireAuthEnforced\(/,
+      `${rel} sends or spends, so an unidentified caller must be refused, not passed through`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CHARGED FOR A PLACEHOLDER — found by driving /api/image and reading the mode.
+//
+// The route's own doctrine is "charged and nothing delivered is the one outcome
+// that must not survive", and it was enforced only where the generator THROWS.
+// With no image model connected the generator does not throw: it returns a brand
+// placeholder in `mode: "demo"`. So the refund never ran, and on a deployment
+// with a real wallet the customer paid full price for a coloured rectangle with
+// their headline on it.
+// ---------------------------------------------------------------------------
+test("a demo-mode render is refunded, and the refund restores the exact balance", async () => {
+  const wallet = await import("../src/backend/wallet.ts");
+  const uid = `t-image-refund-${Date.now()}`;
+  await wallet.creditAcus(uid, 500);
+  const before = (await wallet.getWallet(uid)).balanceAcu;
+
+  const cost = wallet.ACTION_COST_ACU.image * 3;
+  const debit = await wallet.debitAcus(uid, cost);
+  assert.equal(debit.ok, true, "the charge must land, or the refund proves nothing");
+  assert.equal((await wallet.getWallet(uid)).balanceAcu, before - cost);
+
+  await wallet.creditAcus(uid, debit.charged);
+  assert.equal((await wallet.getWallet(uid)).balanceAcu, before,
+    "a refund must return exactly what was TAKEN — not a recomputed price, which is how a refund mints credit");
+});
+
+test("the image route refunds the placeholder path, not only the throw path", async () => {
+  // WIRING, CHECKED AS WIRING. The charge itself cannot be driven in this
+  // environment: with no Firebase Admin there is no uid, so `meterAction`
+  // charges nothing and the refund branch has nothing to return. The balance
+  // arithmetic above is the real proof; this is the proof that the branch the
+  // driven run lands in is the one that calls it.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/app/api/image/route.ts", import.meta.url), "utf8");
+  const demoBranch = src.slice(src.indexOf('if (mode === "demo"'), src.indexOf("return NextResponse.json({ variants: results, mode });"));
+  assert.ok(demoBranch.length > 0, "the demo-mode branch must exist");
+  assert.match(demoBranch, /creditAcus\(/, "a placeholder render must hand the charge back");
+  assert.match(demoBranch, /refundedAcus/, "and must say so in the response, or the customer cannot tell");
+  // The charge has to be readable where the refund happens. It was scoped to the
+  // block that takes it, which is why it could not be given back.
+  assert.match(src, /let charged = 0;/);
+});

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createTopupCheckout } from "@/backend/checkout";
 import { MIN_TOPUP_GBP } from "@/backend/subscription";
-import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth, requireAuthEnforced } from "@/backend/guard";
 
 // ACU top-up — POST { amountGbp, acus?, orgId?, planId? } → a Stripe Checkout
 // link that credits ACUs to the wallet on payment (via the webhook). If acus is
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "topup"), 60, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const auth = await requireAuth(req);
+  const auth = await requireAuthEnforced(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let body: Record<string, unknown> = {};

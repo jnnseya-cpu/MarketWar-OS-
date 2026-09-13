@@ -6,7 +6,7 @@ import {
 import { sendEmail } from "@/backend/email";
 import { haltFor } from "@/backend/emergency-stop";
 import { record as auditRecord } from "@/backend/audit-log";
-import { rateLimit, clientKey, requireAuth, cronAuthorised } from "@/backend/guard";
+import { rateLimit, clientKey, requireAuth, requireAuthEnforced, cronAuthorised } from "@/backend/guard";
 
 // THE WEEKLY NEWSLETTER.
 //
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await requireAuthEnforced(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const nowISO = new Date().toISOString();
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   }
 
   const cronOk = cronAuthorised(req).ok;
-  const auth = cronOk ? null : await requireAuth(req);
+  const auth = cronOk ? null : await requireAuthEnforced(req);
   if (auth && !auth.ok) {
     return NextResponse.json({ error: "Unauthorised — call it as the scheduler or sign in." }, { status: auth.status });
   }
