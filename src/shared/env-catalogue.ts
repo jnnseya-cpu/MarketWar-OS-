@@ -168,6 +168,12 @@ export const ENV_CATALOGUE: EnvVar[] = [
  * a readiness report would bury the fourteen that actually gate a feature.
  */
 export const ENV_TUNING: string[] = [
+  // Read ONLY by `scripts/drive-modules.mjs`, the end-to-end module driver. None
+  // of them changes how the platform behaves; they tell the harness where to
+  // sign in and where to read the messages a driven campaign actually sent.
+  "FIREBASE_AUTH_EMULATOR_HOST",
+  "MW_DRIVE_MAILBOX",
+  "MW_DRIVE_TOKEN",
   "AGENT_DAILY_CAP_ACU",
   "AI_CITATION_BUDGET_MS",
   "AI_GATEWAY_ORDER_FAST",

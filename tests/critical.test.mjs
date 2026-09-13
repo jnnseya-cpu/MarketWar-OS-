@@ -4650,3 +4650,49 @@ test("the image route refunds the placeholder path, not only the throw path", as
   // block that takes it, which is why it could not be given back.
   assert.match(src, /let charged = 0;/);
 });
+
+// ---------------------------------------------------------------------------
+// THE BUTTON'S NUMBER MUST BE THE NUMBER THAT RECEIVES IT.
+//
+// Found by driving the whole thing end to end against a real Firestore and a
+// real SMTP server: a four-row list previewed as "3 eligible" and delivered TWO.
+// The preview stopped at consent; the send went on to reject the address itself,
+// because one was a disposable domain the hygiene pipeline refuses. The customer
+// decides to press send on that number.
+//
+// §116 fixed exactly this fault for GROUPS — the preview computed a different
+// AUDIENCE from the send — and missed that the send applies two more filters
+// after the audience is chosen. Same defect, one layer down.
+// ---------------------------------------------------------------------------
+test("the preview counts who will RECEIVE it, not who consented", async () => {
+  const { buildEmailPreview } = await import("../src/backend/email-preview.ts");
+  const { filterList } = await import("../src/backend/email.ts");
+
+  const contacts = [
+    { id: "1", name: "Ann Smith", email: "ann@example.com", consent: true },
+    { id: "2", name: "Bob Jones", email: "bob@example.org", consent: true },
+    { id: "3", name: "No Consent", email: "nc@example.net", consent: false },
+    { id: "4", name: "Burner", email: "throwaway@mailinator.com", consent: true },
+    { id: "5", name: "Role Mailbox", email: "info@example.com", consent: true },
+  ];
+
+  const preview = await buildEmailPreview({
+    brandId: "t-preview-count", subject: "Hello {{ firstName | there }}",
+    html: "<p>Hi {{ firstName | there }}, this is the offer.</p>",
+    contacts, source: "written", samples: 5,
+  });
+
+  // What the SEND would do, using the send's own function.
+  const consented = contacts.filter((c) => c.email && c.consent !== false);
+  const wouldReceive = filterList(consented.map((c) => c.email)).sendable.length;
+
+  assert.equal(wouldReceive, 2, "the disposable and the role mailbox are both refused at send time");
+  assert.equal(preview.recipients, wouldReceive,
+    `the preview says ${preview.recipients} and the send would deliver ${wouldReceive} — that gap is what the customer presses send on`);
+
+  // AND IT SAYS WHY, because a number that quietly shrinks is its own puzzle.
+  assert.match(preview.note, /disposable|role mailbox|unsubscribed/i,
+    "a count lower than 'everyone who consented' has to explain itself");
+  assert.ok(preview.samples.every((s) => !/mailinator|^info@/.test(s.to)),
+    "and nobody the send will refuse may appear as a preview sample");
+});

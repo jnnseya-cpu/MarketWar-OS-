@@ -6912,3 +6912,76 @@ treatment against its route before it is either fixed or skipped. Two more are
 environment limits already understood: the public audit cannot reach the internet
 from this container (egress proxy answers 403) and the video status poll needs a
 job id that only a configured deployment can mint.
+
+## §138 — Driving the modules for real: one defect the last review could not see (2026-09-13)
+
+The owner said the keys and Firebase were in place and asked for the review
+again, without assuming. **The first thing checked was that claim, and it is not
+true of this container:** zero of twenty-five keys are set here, and the session's
+network policy refuses CONNECT to marketwaros.com (`connect_rejected: gateway
+answered 403`). The keys are on the live deployment, which this session cannot
+reach. Saying so is the whole job; a review that pretends otherwise is worthless.
+
+**SO THE DEPENDENCIES WERE STOOD UP LOCALLY, FOR REAL.** Not mocked — run:
+
+- the **Firebase Auth + Firestore emulators** (real `firebase-tools`, real rules
+  from this repo), with a locally generated service-account credential that never
+  authenticates against Google and is never committed;
+- a **real SMTP server** — the repo's own `tests/helpers/fake-smtp.mjs`, the one
+  the wire tests use — wired in as the sending node, appending every message it
+  receives to a file so a sent campaign can be read back byte for byte.
+
+`/api/health/live` then reported **Firebase Admin LIVE** and **Email sending
+LIVE**, which is what unlocked everything the previous review had to record as
+503. AI, search, video and Stripe stayed dark and are still reported as skips.
+
+**`npm run drive:modules` (`scripts/drive-modules.mjs`) IS THE NEW HARNESS,** and
+it is a third concern beside the two that exist: smoke asks "does every surface
+answer", drive:loop asks "can the machine take money", and this asks **"does the
+feature work"** — sign in, own a brand, fill the vault, write a campaign, send
+it, and read the bytes that arrived. It solves the platform's real 18-bit proof
+of work with the platform's own solver rather than going round the gate, and it
+verifies a mailbox through the emulator's out-of-band code rather than granting
+itself credit.
+
+**WHAT IT PROVED, each by a value only doing the thing produces:** a real account
+registered and its token accepted · the human gate solved (18 bits, ~110k hashes)
+· **the free allowance granted only after the mailbox was verified — 100 ACUs,
+from zero** · four contacts written to Firestore and read back through the
+dashboard's own API · **a second real account refused with 403 on the first
+tenant's brand** · a campaign previewed against the real list · **two messages
+delivered to a real SMTP server, carrying a plain-text part, one-click
+unsubscribe, and merge tags resolved** · three 1080×1350 poster variants · a
+landing page · a campaign design scoring 86 with 12 payloads.
+
+**AND IT CONFIRMED THE §137 REFUND ON A REAL WALLET.** Last review could only
+prove the refund arithmetic, because with no Firebase there was no uid to charge.
+With a real metered wallet the driven run reports *"refunded 30 ACUs because no
+image model is connected"* — the charge landed and came back.
+
+### The defect: the button's number was not the number that receives it
+
+A four-row list previewed as **3 eligible** and delivered **2**. The preview
+stopped at consent; the send goes on to reject the address itself, and one row
+was a disposable domain the hygiene pipeline refuses. The customer decides to
+press send on that number.
+
+**§116 fixed exactly this fault one layer up** — the preview computed a different
+AUDIENCE from the send, for groups — and missed that the send applies two further
+filters after the audience is chosen: `filterList` and the brand's suppression
+set. The preview now applies both, using the send's own functions rather than a
+second implementation of the rule, and the note says why the count is lower
+instead of silently shrinking it. Driven again: preview 2, delivered 2.
+
+**Two mutations, two killed:** returning the preview to a consent-only count, and
+removing the sentence that explains the shrink.
+
+### Still not provable here, and why
+
+AI writing, email scraping, video rendering and Stripe need keys this container
+does not have and cannot fetch. The emulators prove the *code paths* that depend
+on Firebase; they do not prove the owner's real Firestore rules deployment, real
+indexes, or real quota. **Delivery to a real human inbox remains unproven** — a
+real SMTP server accepted the bytes, which is not the same as Gmail filing them.
+To close that, `npm run drive:modules` accepts `MW_DRIVE_TOKEN` and `BASE_URL`
+and can be pointed at the live deployment from a machine that can reach it.
