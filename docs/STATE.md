@@ -1,7 +1,7 @@
 # MarketWar OS — current state
 
 **This file describes where things stand right now. It is REPLACED, never appended to.**
-Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-09-12.
+Read this one first. Companions are listed in `CLAUDE.md`. Updated: 2026-09-13.
 
 ## 1. What this is
 
@@ -58,6 +58,8 @@ TypeScript strict, three layers enforced by `scripts/check-layers.mjs`. 250 back
 | Stripe, Firebase Admin | Both configured and verified live. `FIELD_ENCRYPTION_MASTER_KEY` set, unblocking PII writes that were being refused in silence. |
 | **Trading identity** | **`NEXT_PUBLIC_LEGAL_ENTITY_NAME` + `NEXT_PUBLIC_REGISTERED_ADDRESS` are a LAUNCH BLOCKER** for a UK site selling to the public. |
 
+**DRIVEN ON 09-13, NOT READ (§137).** A production build was started and every module exercised over HTTP with real payloads; `npm run smoke` (347 checks) and `npm run drive:loop` were reused rather than replaced. **Working with no keys:** posters (three 1080×1350 PNG variants, rendered and looked at, margin floor holding), campaign design (score 100, 12 payloads, 6 offers), landing pages, email hygiene, message construction on the wire, and the enrichment chain naming its own blocked step. **Refusing correctly:** 39 agents name the one missing AI provider; the vault, preview, video, settings and publishing return 503 "Isolation unavailable" without Firebase Admin. **Dark:** email scraping — every path from a NAME to a website needs `SERPER_API_KEY`. **Two real defects found and fixed** (auth failing open, a placeholder creative charged at full price) **and three magic numbers in the smoke suite that were measuring the wrong thing.**
+
 ## 5. Outstanding — the whole list, deduplicated
 
 **STILL OPEN: 1, 2, 3, 4, 5.** **0 is CLOSED — `require(esm)`, which took production down TWICE**;
@@ -111,7 +113,7 @@ thirteen exports were imported by nothing — fabricated customers with names, p
 **A value that exists on one side of a boundary and is never carried across.** THIRTY-TWO. Newest
 (09-12): **`transactional` reached the mailer and stopped there.** Nine call sites were already declaring whether their message is one-to-one; the flag exempted them from the emergency stop and went no further, so the header block three functions away — the only place it could decide whether a message reads as personal or as bulk — never saw it. The plain-text body was the same defect twice over: `htmlToText` produced it for the preview screen and the wire dropped it, so every message this platform had ever sent was HTML and nothing else. Before that (09-11): the webhook receipt proving the money path works had to be handed to the launch report, and mutating that one line away was the mutation that survived longest. Before: the gateway returned `truncated` and the AI writer never read it; groups reached the send path and not the preview, so two screens computed different audiences; the server's refusal line was read once and dropped, so five weeks of "the mail server refused the message" hid `535` vs `550`. Worst historically: a message whose login, envelope sender and From were three mailboxes, **all three invented**.
 
-**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF — or can only see from inside.** `replyVerdict` returned
+**A SECOND SHAPE: A CHECK THAT EXEMPTS ITSELF — or can only see from inside.** NEWEST (09-13, §137): `requireAuth` returns `{ok:true, enforced:false}` from its FIRST line when Firebase Admin is unconfigured, ABOVE the scope check — so `/api/email` `action:"send"` answered an anonymous POST with a send result, under its own comment saying it must never be unauthenticated, and `{scope:"platform_admin"}` on the credit-minting route was never applied. Correct in demo; in production it means a stranger cannot be told from an admin. `requireAuthEnforced` now guards the six surfaces that send or spend. `replyVerdict` returned
 `yes` for OUR host without looking; the go-live report called the money path fine because the secret was PRESENT; every webhook check reasoned from inside the process, the one place that cannot see an endpoint Stripe never reaches. **Inspect the thing that RUNS, from where it is called.**
 
 **A THIRD: a value hard-coded where it should be DERIVED** — the DKIM selector, `MAIN_DOMAIN`

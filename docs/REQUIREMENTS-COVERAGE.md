@@ -6788,3 +6788,127 @@ per-message provider cost to clear, because there is no provider.
 selector names against a prospect's domain to report what authentication THEY
 already have. Those are detection strings for reading somebody else's DNS, not
 providers we offer, and removing them would blind a working audit.
+
+## §137 — The deep review: what was DRIVEN, and the three defects it found (2026-09-13)
+
+The owner asked for a deep review and testing of whether the modules actually
+work: bulk email, email scraping, video creation, landing pages, posters,
+campaigns — everything. Not a read of the code; a drive of it.
+
+**HOW IT WAS DONE, AND WHAT THAT CAN AND CANNOT PROVE.** A production build was
+started and every module was exercised over HTTP with a real payload, reading the
+real response. The existing harnesses were reused rather than replaced:
+`npm run smoke` (347 checks over ~55 routes and ~60 pages) and
+`npm run drive:loop`. **No key is set in this container** — no AI provider, no
+Firebase Admin, no SMTP, no Serper, no Hunter, no Apollo — so the review
+separates three states and never merges them: driven and working; refusing
+correctly because a key is absent; and not exercisable here at all.
+
+### The three defects
+
+**1. AUTH FAILED OPEN ON EVERY ROUTE THAT SENDS OR SPENDS.** `/api/email` with
+`action: "send"` answered an ANONYMOUS POST with a send result. Its own comment
+reads "Real send — MUST be authenticated. Unauthenticated send would turn the
+platform's authenticated sending domain into an open phishing relay." It was
+authenticated by `requireAuth`, which returns `{ ok: true, enforced: false }`
+from its first line whenever Firebase Admin is unconfigured — and that return is
+ABOVE the scope check, so `{ scope: "platform_admin" }` on the credit-minting
+route was not applied either.
+
+In demo and CI that pass-through is correct and must stay: zero-config mode is a
+promise this platform keeps. In PRODUCTION it means a stranger cannot be told
+from an admin — and this platform has twice had a module-load failure take
+Firebase Admin out from under a running production deployment, which is exactly
+when the relay would have opened. The hazard was fully documented in guard.ts,
+including the rule ("require `enforced` as well, and refuse with 503"); the send
+route simply did not follow it, while the campaign path beside it was safe
+because `resolveBrandAccess` already fails closed.
+
+`requireAuthEnforced` is that rule, named once, applied to the six surfaces where
+being wrong puts mail on the wire, mints credits or moves money: the email send,
+the newsletter, both admin routes and both billing routes. `requireAuth` itself
+is untouched, deliberately — changing it would have closed the public audit.
+**Three mutations, three killed:** reverting the email route to the lenient
+guard; making the guard never close; and making it always close, which breaks
+demo mode and must also fail.
+
+**2. A PLACEHOLDER CREATIVE WAS CHARGED FOR AT FULL PRICE.** `/api/image` meters
+the wallet before calling the provider, and refunds in a `catch`. With no image
+model connected the generator does not throw: it returns a brand placeholder in
+`mode: "demo"`. So the refund never ran and the wallet kept the charge — 40 ACUs
+for a coloured rectangle with the customer's headline on it. The route's own
+doctrine, two lines below, is "charged and nothing delivered is the one outcome
+that must not survive"; it was enforced on the throw path only. The charge was
+also scoped to the block that takes it, which is why it could not be handed back.
+A demo-mode render now refunds exactly what was taken and says so in the
+response. Found by driving the route and reading the `mode`, not by reading the
+code.
+
+**3. THREE MAGIC NUMBERS IN THE SMOKE SUITE WERE MEASURING THE WRONG THING.**
+Defect class two, three more times — a check that passes or fails for a reason
+unrelated to what it tests:
+
+- `platformManagedCount >= 5` failed because §136 collapsed four outside email
+  vendors into our own single sending row. The threshold was counting duplicate
+  vendors, not capabilities. It now names the four capabilities that must be
+  platform-managed.
+- `dimensions.length === 8` on the campaign readiness brief has been failing on a
+  CORRECT product since 2026-09-04, when one input was made optional because the
+  form never collected it. The real invariant — every scored dimension maps to a
+  field the form shows — is owned by a test that asserts it against the form.
+- `imageUrl.startsWith("data:image/svg+xml")` failed the render that fixed blank
+  creatives: the creative is rasterised to PNG on purpose, because an SVG data
+  URI is not postable to a social channel.
+
+### What was driven and WORKS with no keys at all
+
+| Module | Driven result |
+|---|---|
+| Poster / creative | Three 1080×1350 PNG variants, exact headline, brand colours, CTA, logo overlaid. **Rendered and looked at.** Pricing 4× provider cost — the margin floor holds. |
+| Campaign creation | `/api/warfare` scored 100, 12 payloads, 6 offers, vertical detected. `/api/campaign-architect` returns a four-layer plan with budget shares. |
+| Landing pages | `/api/landing` returns a full typed page — headline, sections, CTA hierarchy, scores. |
+| Email hygiene | Disposable, role and malformed addresses filtered with the reason, before any provider is contacted. |
+| Message construction | Every message multipart with a text part, RFC 2047 headers, stream-correct list headers — asserted on the bytes reaching a real socket (§135). |
+| Enrichment diagnosis | Names its own blocked step and the fix, per stage, free. |
+
+### What refuses correctly, and what it is waiting for
+
+39 agents answer with one sentence naming the missing AI provider and what still
+works without it — one cause, not 39 faults. The customer vault, campaign
+preview, video render, settings and publishing all return 503 "Isolation
+unavailable" without Firebase Admin, which is the fail-closed posture ISO2 asks
+for. Email scraping is wired end to end and completely dark: every route from a
+business NAME to a website depends on `SERPER_API_KEY`, and the chain says so at
+the exact step that stops.
+
+### What this review could NOT prove, said plainly
+
+- **Delivery to a real inbox.** Unchanged from §5.1. The wire bytes are proven;
+  the arrival is not.
+- **The public website audit** could not be run against a real site: this
+  container's egress proxy answers 403, and the route correctly reports that as a
+  host turning away automated requests. The crawl and its 31 checks ARE driven
+  against a real local page by the test suite.
+- **Anything behind a key**: AI writing, video rendering, image models, paid
+  enrichment, Stripe money movement, Firestore persistence.
+- **The charge-then-refund on a real wallet**, because with no Firebase Admin
+  there is no uid to charge. The refund arithmetic is proven at the wallet level;
+  the branch that calls it is proven by driving the route into `mode: "demo"`.
+
+**AND THE SUITE GAINED A THIRD STATE.** It could say "worked" and "broken" and
+nothing else, so `/api/geo` answering *"no AI provider key is configured, so
+citation share cannot be measured — no figures are shown, an unmeasured share
+would be a guess"* was counted as a failure beside real ones. That is precisely
+the fault `drive:loop` was built to avoid, where three correct refusals were
+first read as product faults. `skip()` reports those separately and never makes
+the suite green on its own.
+
+**STILL TO RE-DERIVE, NAMED RATHER THAN LOOSENED.** Five checks still fail on a
+route that answered 200 with a shaped response: `/api/landing`, `/api/prospecting`,
+`/api/reputation`, `/api/siteraid` and `/api/engagement`. Four of the four checks
+examined so far turned out to be stale expectations rather than defects, so the
+same is likely — but likely is not verified, and each needs the same one-by-one
+treatment against its route before it is either fixed or skipped. Two more are
+environment limits already understood: the public audit cannot reach the internet
+from this container (egress proxy answers 403) and the video status poll needs a
+job id that only a configured deployment can mint.

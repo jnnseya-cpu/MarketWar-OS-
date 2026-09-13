@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createInvite, listInvites, revokeInvite } from "@/backend/invites";
-import { requireAuth } from "@/backend/guard";
+import { requireAuth, requireAuthEnforced } from "@/backend/guard";
 import { sendEmail } from "@/backend/email";
 
 function inviteHtml(companyName: string, link: string): string {
@@ -29,13 +29,13 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAuth(req, { scope: "tenant_manage" });
+  const auth = await requireAuthEnforced(req, { scope: "tenant_manage" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   return NextResponse.json({ invites: await listInvites() });
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req, { scope: "tenant_manage" });
+  const auth = await requireAuthEnforced(req, { scope: "tenant_manage" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = await requireAuth(req, { scope: "tenant_manage" });
+  const auth = await requireAuthEnforced(req, { scope: "tenant_manage" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const token = req.nextUrl.searchParams.get("token") || "";
   if (!token) return NextResponse.json({ error: "token is required" }, { status: 400 });

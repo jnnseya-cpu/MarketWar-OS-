@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { emailConfigured, emailIsConfigured, filterList, sendEmail, sendEmailBatch, lastBatchMode, validateAttachments, type EmailAttachment } from "@/backend/email";
-import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
+import { requireAuth, requireAuthEnforced, rateLimit, clientKey } from "@/backend/guard";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
 import { sendFailureOf, publicSendFailure, operatorFix, isRecipientRejection, redactSmtpLine, readSmtpRefusal, type SendFailure } from "@/shared/send-failure";
@@ -129,7 +129,13 @@ export async function POST(req: NextRequest) {
   if (body.action === "send") {
     // Real send — MUST be authenticated. Unauthenticated send would turn the
     // platform's authenticated sending domain into an open phishing relay.
-    const auth = await requireAuth(req);
+    //
+    // AND `requireAuth` ALONE DID NOT MAKE THAT TRUE. It passes everybody
+    // through when Firebase Admin is unconfigured, so this route answered an
+    // anonymous POST with a send result — proved by driving it. The campaign
+    // path below was already safe because `resolveBrandAccess` fails closed;
+    // this one had nothing equivalent. `requireAuthEnforced` is that rule.
+    const auth = await requireAuthEnforced(req);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { to, subject, html } = body as { to?: string; subject?: string; html?: string };
     const single = (Array.isArray(body.attachments) ? body.attachments : []) as EmailAttachment[];

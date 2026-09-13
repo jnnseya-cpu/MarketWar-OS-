@@ -99,6 +99,50 @@ export type AuthResult =
  * else's data, require `enforced` as well, and refuse with 503 rather than
  * answering an unidentified request.
  */
+/**
+ * TRUE when an unidentified caller could still be treated as authorised.
+ *
+ * With Firebase Admin unconfigured there are no verified identities, so
+ * `requireAuth` returns `{ ok: true, enforced: false }` from its first line and
+ * never reaches the scope check. That is correct for zero-config demo mode and
+ * it is NOT correct for a production deployment, where it means a stranger is
+ * indistinguishable from an admin. `resolveBrandAccess` has refused on exactly
+ * this condition since ISO2; this is the same rule, named once so every caller
+ * that needs it asks the same question.
+ */
+export function isolationUnavailable(): boolean {
+  return process.env.NODE_ENV === "production" && (!adminConfigured || !adminAuth);
+}
+
+/** The refusal to send when it is. 503, because it is a missing setting, not a bad request. */
+export const ISOLATION_REFUSAL =
+  "Isolation unavailable — Firebase Admin is not configured on this deployment, so no caller can be identified. "
+  + "This action changes or sends real things, so it is refused rather than performed for an unidentified request. "
+  + "Set the FIREBASE_* admin credentials.";
+
+/**
+ * `requireAuth` for a surface where being wrong SENDS SOMETHING OR SPENDS
+ * SOMETHING — mail leaving on our authenticated domain, credits minted, money
+ * taken. It applies the rule the doc comment above already states: require
+ * `enforced` too, and refuse with 503 rather than answer an unidentified
+ * request.
+ *
+ * THE DEFECT THIS CLOSES, FOUND BY DRIVING THE ROUTE. `/api/email` with
+ * `action: "send"` accepted an anonymous POST and returned a send result. Its
+ * own comment says "Real send — MUST be authenticated. Unauthenticated send
+ * would turn the platform's authenticated sending domain into an open phishing
+ * relay." It was authenticated by a function that passes everybody through when
+ * Admin is unconfigured, so on any production deployment where the Firebase
+ * credential is missing — or fails to load, which has taken this platform down
+ * twice — that comment stopped being true and nothing said so. The campaign
+ * path next to it was already safe, because it goes through
+ * `resolveBrandAccess`, which fails closed.
+ */
+export async function requireAuthEnforced(req: Request, opts?: { scope?: Scope }): Promise<AuthResult> {
+  if (isolationUnavailable()) return { ok: false, status: 403, error: ISOLATION_REFUSAL };
+  return requireAuth(req, opts);
+}
+
 export async function requireAuth(req: Request, opts?: { scope?: Scope }): Promise<AuthResult> {
   // Demo / CI: Admin not configured → do not enforce (keeps zero-config working).
   // NOTE: this returns BEFORE `opts.scope` is looked at — see the doc comment.

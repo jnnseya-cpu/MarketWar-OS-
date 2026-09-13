@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, rateLimit, clientKey } from "@/backend/guard";
+import { requireAuth, requireAuthEnforced, rateLimit, clientKey } from "@/backend/guard";
 import { adminAuth, adminConfigured } from "@/backend/firebase-admin";
 import { creditAcus, getWallet } from "@/backend/wallet";
 import { PLANS } from "@/backend/subscription";
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(clientKey(req, "grant-acus"), 30, 60_000, Date.now());
   if (!rl.ok) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const auth = await requireAuth(req, { scope: "platform_admin" });
+  const auth = await requireAuthEnforced(req, { scope: "platform_admin" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let body: Record<string, unknown> = {};
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   // Peek a wallet balance by email/orgId (admin only) — handy to confirm a grant.
-  const auth = await requireAuth(req, { scope: "platform_admin" });
+  const auth = await requireAuthEnforced(req, { scope: "platform_admin" });
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const url = new URL(req.url);
   const email = (url.searchParams.get("email") || "").trim();
