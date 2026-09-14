@@ -25836,6 +25836,14 @@ test("the lane audit: every route, both directions", async () => {
     "GET /api/health/ai", "GET /api/health/apollo", "GET /api/health/auth", "GET /api/health/email",
     "GET /api/health/google", "GET /api/health/live", "GET /api/health/serper",
     "GET /api/health/smtp", "GET /api/health/storage", "GET /api/health/stripe",
+    // /api/health/store is in the open LANE like its siblings — that is what this
+    // list records — but unlike them it does not redact for a signed-out caller,
+    // it refuses. It reports whether this deployment is being refused for quota
+    // or on credentials: operational state of no use to a visitor and of some
+    // use to somebody probing. The sibling that taught this lesson is
+    // /api/health/stripe, which once handed strangers the account's other
+    // webhook endpoints.
+    "GET /api/health/store",
     // /api/health/enrichment is anonymous for its FREE half only — which
     // providers this build can see, which is the same list /api/contact-hunter
     // already returns publicly and answers the question an owner asks after
