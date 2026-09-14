@@ -208,7 +208,23 @@ export function launchReport(env: LaunchEnv): LaunchReport {
       id: "stripe-webhook-never-verified", severity: "blocker",
       title: "The webhook secret is set and has never verified a real delivery",
       consequence: "Present is not correct. This account has several webhook endpoints and each has its own signing secret, so the wrong one passes every shape check and fails every delivery with a signature mismatch — the card is charged, the event is refused at the door, and the customer is left paid-up with a Free-plan wallet. Nothing here has ever recorded a delivery verifying, so on a live key that possibility is open.",
-      fix: "Open /api/health/stripe: it lists this account's endpoints and names the one whose URL matches the host serving the request. Copy THAT endpoint's signing secret into STRIPE_WEBHOOK_SECRET, redeploy, then use Stripe's 'Send test webhook' on it. One verified delivery clears this permanently.",
+      // THE FIX NO LONGER ENDS IN A CLICK.
+      //
+      // It used to read "…then use Stripe's 'Send test webhook' on it" — a
+      // person, a browser, a button. That is the one instruction this platform
+      // has a standing rule against giving: never tell the owner to do by hand
+      // what the platform should do for them. When the answer is "go and click",
+      // the defect is that nothing is clicking.
+      //
+      // `npm run drive:commerce` now makes Stripe itself emit a real event and
+      // deliver it, then reads back whether it verified — and on a test key it
+      // pays a real invoice, so the wallet credit is measured rather than
+      // assumed. It refuses to create anything billable on a live key.
+      fix: "Run `npm run drive:commerce`. It asks Stripe to emit a real event, waits for Stripe to deliver it here, "
+        + "and reports whether the signature verified — which is the single fact that clears this and the one thing no "
+        + "amount of checking from inside this process can establish. If it verifies, this blocker is gone "
+        + "permanently. If it does not, the run names which of the two causes it is (an address Stripe cannot reach, "
+        + "or the wrong signing secret) and what to do about that one. See docs/PROVE-THE-MONEY-PATH.md.",
     });
   }
 

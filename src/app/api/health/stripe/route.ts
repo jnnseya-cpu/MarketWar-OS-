@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
 import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH, HANDLED_EVENTS } from "@/backend/stripe-billing";
 import { classifyEndpoints, probeTargets } from "@/shared/stripe-endpoints";
+import { stripeKeyMode } from "@/shared/stripe-drive";
 
 // Stripe self-diagnostic — is the money path live? Reports which Stripe env vars
 // are present (booleans only) and validates the secret key by calling Stripe
@@ -53,7 +54,11 @@ export async function GET(req: NextRequest) {
   };
   const publishableKeyNeeded = false;
   // Recognise both standard (sk_) and restricted (rk_) keys, live vs test.
-  const keyMode = /^(sk|rk)_live/.test(secret) ? "live" : /^(sk|rk)_test/.test(secret) ? "test" : secret ? "unknown" : "none";
+  // ONE DEFINITION, in `shared/stripe-drive.ts`. This was the same two regexes
+  // written out here, and `drive:commerce` needs the identical answer to decide
+  // whether it may create a billable object — two copies of "is this key live"
+  // is precisely the duplication that ends with one of them being updated.
+  const keyMode = stripeKeyMode(secret);
 
   let probe: Record<string, unknown> = { ran: false, note: "No STRIPE_SECRET_KEY — payments run in demo mode (no real charges)." };
   if (secret) {
@@ -246,6 +251,58 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  // 7. HAS A DELIVERY FROM STRIPE EVER VERIFIED HERE?
+  //
+  // The single fact that settles the `stripe-webhook-never-verified` blocker,
+  // and the one `npm run drive:commerce` reads back after making Stripe emit a
+  // real event — before and after, so the driver proves the receipt MOVED rather
+  // than that it was already non-empty. Without this the driver would have to
+  // infer the answer from a launch finding appearing or disappearing, which is a
+  // check that would pass or fail for reasons unrelated to what it tests.
+  //
+  // PRIVILEGED. A timestamp and a count are not money, but a running total of
+  // verified deliveries is a shape of payment volume, and `recentActivity` is
+  // withheld from a signed-out caller for exactly that reason. The scheduler
+  // bearer works here as it does everywhere else in this route, so the driver
+  // can read it with CRON_SECRET on a deployment with no Firebase Admin.
+  const verifiedDelivery = await (async () => {
+    if (!privileged) return null;
+    try {
+      const r = await import("@/backend/webhook-receipt");
+      const receipt = await r.lastVerifiedDelivery();
+      return {
+        ...receipt,
+        everVerified: receipt.lastVerifiedAt !== null,
+        note: receipt.lastVerifiedAt
+          ? `A delivery from Stripe last verified against this deployment's secret at ${receipt.lastVerifiedAt} (${receipt.lastEventType}). The secret is the right one for whichever endpoint sent that.`
+          : "No delivery has ever verified here. That is not the same as the secret being wrong — it is also what an "
+            + "endpoint nobody has ever posted to looks like. `npm run drive:commerce` tells the two apart by making "
+            + "Stripe emit a real event and watching this value.",
+      };
+    } catch { return null; }
+  })();
+
+  // 8. WHAT DID ONE NAMED EVENT DO TO THE WALLET?
+  //
+  // `?event=evt_…` answers it from `processed_events`, which is written in the
+  // same transaction as the credit — so it exists if and only if the wallet
+  // moved. `drive:commerce` reads this by the id Stripe itself gave it, which is
+  // what turns "the event type carries money" (an intention) into "980 ACUs
+  // landed in this wallet" (a measurement). PRIVILEGED: it names an org and an
+  // amount of money.
+  const askedEvent = (req.nextUrl.searchParams.get("event") || "").trim().slice(0, 120);
+  const eventOutcome = await (async () => {
+    if (!askedEvent) return null;
+    if (!privileged) return { restricted: "Sign in as a platform admin, or call with the scheduler bearer (CRON_SECRET), to read what an event did — it names an org and an amount." };
+    try {
+      const w = await import("@/backend/wallet");
+      const row = await w.processedEvent(askedEvent);
+      return row
+        ? { ...row, credited: row.creditedAcu > 0, note: `Event ${row.eventId} credited ${row.creditedAcu} ACUs to ${row.orgId} at ${row.at}. This record is written in the same transaction as the credit, so it cannot exist unless the wallet moved.` }
+        : { found: false, note: `No wallet outcome recorded for ${askedEvent}. Either it never reached the dispatcher, or it was an event that carries no money, or this deployment has no durable store — those are three different things and this cannot tell them apart on its own.` };
+    } catch { return { found: false, note: "The wallet store could not be read." }; }
+  })();
+
   const webhook = present.STRIPE_WEBHOOK_SECRET;
   const verdict = !secret
     ? "RED — no Stripe key; cannot take payment (demo mode)."
@@ -279,7 +336,8 @@ export async function GET(req: NextRequest) {
       // THE ONLY CHECK HERE THAT SEES WHAT STRIPE SEES. Public on purpose: it
       // reports on this app's own webhook address, which is not a secret.
       selfDelivery,
-      ...(privileged ? { accountEndpoints: endpoints, recentActivity: activity } : {
+      ...(askedEvent ? { eventOutcome } : {}),
+      ...(privileged ? { accountEndpoints: endpoints, recentActivity: activity, verifiedDelivery } : {
         restricted: "Signed out, so the account's other webhook endpoints and its recent payment volume are withheld — those name the other services this business runs on and how much money is moving. Sign in as a platform admin, or call this with the scheduler bearer (CRON_SECRET), for the full report. The verdict, the secret's shape, the signature round trip and the delivery to this app's own endpoint stay public, because they are what turn a failure into a fix.",
       }),
       whatThisCannotSee: "The signing secrets themselves — Stripe returns those only when an endpoint is created, so no diagnostic can compare them for you. `accountEndpoints` narrows it to the ONE endpoint whose secret should be in STRIPE_WEBHOOK_SECRET; reveal that endpoint's secret in Stripe and compare it by eye. Also invisible here: what status Stripe recorded per delivery. Open a failed event in Stripe and read the response body — this route returns the reason in it.",

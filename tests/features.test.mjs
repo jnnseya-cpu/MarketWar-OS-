@@ -31669,3 +31669,33 @@ test("the scheduler bearer still works, and only with the real secret", async ()
     if (had === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = had;
   }
 });
+
+test("the Stripe API base is a harness seam and never reaches shipped code", () => {
+  // THE COMMENT IN `ENV_TUNING` MAKES A CLAIM; THIS IS WHAT FAILS WHEN IT STOPS
+  // BEING TRUE. `MW_STRIPE_API_BASE` lets `drive:commerce` point at a stand-in
+  // Stripe so its branches can run in a container with no Stripe account. If it
+  // ever migrated into `src/`, a deployment's Stripe secret key could be sent
+  // to whatever host an environment variable named — a credential exfiltration
+  // hole wearing a test seam's clothes.
+  //
+  // Scanned by the QUOTED NAME, not by `process.env.X`, because the name can be
+  // reached through a helper — the same lesson the catalogue scan above already
+  // learned the hard way.
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === ".next" || name === ".git") continue;
+      const p = `${dir}/${name}`;
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (!/\.(ts|tsx|mjs|js)$/.test(name)) continue;
+      // `env-catalogue.ts` is the one place in src/ that must name it: it is the
+      // catalogue. Naming it there is documentation, not a read.
+      if (p.endsWith("shared/env-catalogue.ts")) continue;
+      if (readFileSync(p, "utf8").includes("MW_STRIPE_API_BASE")) offenders.push(p);
+    }
+  };
+  walk("src");
+  assert.deepEqual(offenders, [],
+    `MW_STRIPE_API_BASE must never be read by shipped code — it would let an environment variable redirect requests `
+    + `that carry STRIPE_SECRET_KEY. Found in:\n  ${offenders.join("\n  ")}`);
+});

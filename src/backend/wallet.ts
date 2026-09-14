@@ -693,3 +693,60 @@ export async function spendAcus(who: Spender | null, walletId: string, cost: num
   await recordSpend({ walletId, agent: label?.agent || label?.kind || "engine", kind: label?.kind || "llm", acus: res.charged });
   return { ok: true, charged: res.charged, exempt: false, why: verdict.why, balanceAcu: res.balanceAcu };
 }
+
+// ---------------------------------------------------------------------------
+// WHAT DID ONE EVENT ACTUALLY DO TO THE WALLET?
+//
+// WHY THIS EXISTS, AND IT IS A DEFECT I SHIPPED AND CAUGHT BY DRIVING IT.
+// `drive:commerce` makes Stripe emit a real event and then reported "the wallet
+// credit and the ledger row ran" — from the fact that the event TYPE carries
+// money. Not from the wallet. The receipt it read moves on signature
+// verification, before anything else can fail, so a delivery that verified and
+// then credited nothing would have produced exactly the same green tick. That is
+// this repository's second defect class — a check that passes for a reason
+// unrelated to what it tests — sitting on the money path.
+//
+// The `processed_events` record is written in the SAME TRANSACTION as the credit
+// (see `applyWebhookOutcome`), which makes it the one fact that cannot be true
+// unless the credit is: it exists if and only if the wallet moved. So the driver
+// reads THIS, by the event id Stripe itself gave it, and the claim becomes a
+// measurement.
+//
+// IT NEVER THROWS AND NEVER INVENTS. A read that fails returns null, which the
+// caller must treat as "not proven" — the safe direction, because the
+// alternative is telling somebody their money path is fine on a database error.
+// ---------------------------------------------------------------------------
+export type ProcessedEvent = {
+  eventId: string;
+  orgId: string;
+  action: string;
+  creditedAcu: number;
+  planId: string | null;
+  at: string;
+};
+
+export async function processedEvent(eventId: string): Promise<ProcessedEvent | null> {
+  const id = (eventId || "").trim();
+  if (!id) return null;
+  try {
+    if (adminConfigured && adminDb) {
+      const snap = await adminDb.collection(EVENTS).doc(id).get();
+      if (!snap.exists) return null;
+      const d = (snap.data() ?? {}) as Partial<ProcessedEvent>;
+      return {
+        eventId: String(d.eventId || id),
+        orgId: String(d.orgId || ""),
+        action: String(d.action || ""),
+        creditedAcu: Math.max(0, Math.round(Number(d.creditedAcu) || 0)),
+        planId: d.planId ? String(d.planId) : null,
+        at: String(d.at || ""),
+      };
+    }
+  } catch {
+    return null;
+  }
+  // The in-memory path records only that an id was seen, not what it did, so it
+  // cannot answer this. Saying so is the honest answer; synthesising a record
+  // would make a demo deployment claim a credit it never persisted.
+  return null;
+}
