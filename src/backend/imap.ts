@@ -233,3 +233,146 @@ export function parseRawMessage(raw: string): {
     date: headers["date"] || "",
   };
 }
+
+// ---------------------------------------------------------------------------
+// A SESSION RUNNER, FOR THE QUESTION `fetchUnread` CANNOT ASK.
+// ---------------------------------------------------------------------------
+//
+// Placement measurement (shared/placement.ts) needs something the collector
+// above deliberately does not do: look for ONE known message across SEVERAL
+// folders, read Gmail's category labels, and touch nothing — a seed mailbox that
+// gets marked read by the act of measuring it is a mailbox whose next
+// measurement is different because we looked.
+//
+// `fetchUnread` is working code with one job, and its job is not this one.
+// Rather than teach it a mode — which is how a function ends up with two
+// behaviours and one set of tests — this adds the primitive both could have been
+// written on: run tagged IMAP commands over one authenticated connection and
+// hand back what the server said.
+//
+// THE LITERAL IS THE WHOLE DIFFICULTY. IMAP announces a payload as `{123}` and
+// then sends exactly 123 bytes, which may contain anything at all — including
+// text that looks exactly like a tagged completion line. So completion is
+// decided by WALKING the buffer and skipping every announced literal, never by
+// searching for the tag. Getting this wrong truncates a message body at whatever
+// point it happens to mention the tag, which is the kind of bug that only shows
+// up on somebody else's mail.
+
+export type ImapReply = { ok: boolean; text: string };
+
+/** Has the reply to `tag` fully arrived, literals and all? Returns its length, or -1. */
+function completeAt(buffer: string, tag: string): number {
+  let i = 0;
+  const done = new RegExp(`^${tag} (OK|NO|BAD)`, "i");
+  while (i < buffer.length) {
+    const nl = buffer.indexOf("\r\n", i);
+    if (nl === -1) return -1;
+    const line = buffer.slice(i, nl);
+    const lit = /\{(\d+)\}$/.exec(line);
+    if (lit) {
+      const start = nl + 2;
+      const need = Number(lit[1]);
+      if (buffer.length < start + need) return -1; // the payload is still arriving
+      i = start + need;
+      continue;
+    }
+    if (done.test(line)) return nl + 2;
+    i = nl + 2;
+  }
+  return -1;
+}
+
+export async function imapSession<T>(
+  cfg: ImapConfig,
+  run: (exec: (cmd: string) => Promise<ImapReply>) => Promise<T>,
+  timeoutMs = 25_000,
+): Promise<T> {
+  const socket = tls.connect({ host: cfg.host, port: cfg.port, servername: cfg.host });
+  let buffer = "";
+  let tagN = 0;
+  let waiter: ((r: ImapReply) => void) | null = null;
+  let waitTag = "";
+  let failed: Error | null = null;
+
+  const fail = (e: Error) => {
+    failed = e;
+    if (waiter) { const w = waiter; waiter = null; w({ ok: false, text: e.message }); }
+  };
+
+  socket.setTimeout(timeoutMs, () => fail(new Error(`imap: no response within ${timeoutMs}ms`)));
+  socket.on("error", (e) => fail(e instanceof Error ? e : new Error(String(e))));
+  socket.on("data", (chunk) => {
+    buffer += chunk.toString("binary");
+    if (!waiter) return;
+    const end = completeAt(buffer, waitTag);
+    if (end === -1) return;
+    const text = Buffer.from(buffer.slice(0, end), "binary").toString("utf8");
+    buffer = buffer.slice(end);
+    const w = waiter; waiter = null;
+    w({ ok: new RegExp(`^${waitTag} OK`, "im").test(text), text });
+  });
+
+  const exec = (cmd: string): Promise<ImapReply> => new Promise((resolve) => {
+    if (failed) return resolve({ ok: false, text: failed.message });
+    waitTag = `m${++tagN}`;
+    waiter = resolve;
+    socket.write(`${waitTag} ${cmd}\r\n`);
+  });
+
+  try {
+    // The greeting arrives unsolicited, before any tag.
+    await new Promise<void>((resolve) => {
+      if (/^\* (OK|PREAUTH)/m.test(buffer)) return resolve();
+      const onData = () => { if (/^\* (OK|PREAUTH)/m.test(buffer)) { socket.off("data", onData); buffer = ""; resolve(); } };
+      socket.on("data", onData);
+      setTimeout(() => { socket.off("data", onData); resolve(); }, timeoutMs);
+    });
+    const login = await exec(`LOGIN ${quoted(cfg.user)} ${quoted(cfg.pass)}`);
+    if (!login.ok) throw new Error("imap: the server refused the login for this mailbox");
+    return await run(exec);
+  } finally {
+    try { await exec("LOGOUT"); } catch { /* closing anyway */ }
+    try { socket.end(); } catch { /* already gone */ }
+  }
+}
+
+export type Sighting = { mailbox: string; labels: string[]; uid: string };
+
+/**
+ * Find a message by a token that appears in its SUBJECT, across several folders,
+ * reading Gmail's labels and leaving every flag exactly as it was.
+ *
+ * BODY.PEEK, never BODY — the difference is whether measuring a mailbox changes
+ * it. Searching HEADER SUBJECT rather than TEXT because the token is put in the
+ * subject on purpose: a body search on a large mailbox is slow and can match a
+ * quoted copy in a reply.
+ */
+export async function findByToken(
+  cfg: ImapConfig,
+  token: string,
+  mailboxes: string[] = ["INBOX", "[Gmail]/Spam", "Junk", "Junk E-mail", "Spam", "Bulk Mail"],
+): Promise<Sighting | null> {
+  if (!token) return null;
+  return imapSession(cfg, async (exec) => {
+    for (const mailbox of mailboxes) {
+      const sel = await exec(`SELECT ${quoted(mailbox)}`);
+      if (!sel.ok) continue; // a folder this server does not have — not an error
+      const search = await exec(`UID SEARCH HEADER SUBJECT ${quoted(token)}`);
+      if (!search.ok) continue;
+      const uids = (/^\* SEARCH([^\r\n]*)/m.exec(search.text)?.[1] || "").trim().split(/\s+/).filter(Boolean);
+      if (!uids.length) continue;
+      const uid = uids[uids.length - 1];
+      // X-GM-LABELS is a Gmail extension. Asking a server that does not have it
+      // returns BAD, so it is asked for separately and its absence is not a
+      // failure — it is simply a receiver with no tabs.
+      let labels: string[] = [];
+      const withLabels = await exec(`UID FETCH ${uid} (X-GM-LABELS)`);
+      if (withLabels.ok) {
+        const m = /X-GM-LABELS \(([^)]*)\)/.exec(withLabels.text);
+        labels = (m?.[1] || "").split(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/).filter(Boolean);
+      }
+      return { mailbox, labels, uid };
+    }
+    return null;
+  });
+}
