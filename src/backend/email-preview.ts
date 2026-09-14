@@ -338,7 +338,14 @@ export async function buildEmailPreview(input: {
   // this" is exactly how a preview and a send come to disagree, which is the
   // fault §116 already fixed once for GROUPS and missed for addresses.
   const hygienic = new Set(filterList(consented.map((c) => String(c.email))).sendable.map((v) => v.email.toLowerCase()));
-  const suppressed = await suppressedEmails(input.brandId).catch(() => new Set<string>());
+  // NO CATCH. This was `.catch(() => new Set())`, which is my own defect from the
+  // fix that made this count match the send: a refused suppression read became
+  // "nobody is suppressed", so the preview would count people the send is going
+  // to refuse — putting the two back out of step, which is the one thing this
+  // panel must never do. The send has no catch here either, and for the stronger
+  // reason: proceeding as though nobody opted out is how a platform mails people
+  // who asked it not to.
+  const suppressed = await suppressedEmails(input.brandId);
   const eligible = consented.filter((c) => {
     const e = String(c.email).toLowerCase();
     return hygienic.has(e) && !suppressed.has(e);

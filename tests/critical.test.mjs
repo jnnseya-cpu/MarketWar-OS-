@@ -4696,3 +4696,98 @@ test("the preview counts who will RECEIVE it, not who consented", async () => {
   assert.ok(preview.samples.every((s) => !/mailinator|^info@/.test(s.to)),
     "and nobody the send will refuse may appear as a preview sample");
 });
+
+// ---------------------------------------------------------------------------
+// THE DATABASE SAYING NO MUST NEVER READ AS "NOTHING IS THERE".
+//
+// `countContacts` caught every store error under a comment naming one cause
+// ("aggregation unavailable") and answered it with a FULL PAGED SCAN of the
+// brand's contacts — the most expensive operation available, run at the exact
+// moment the project is out of Firestore quota. It then failed again from
+// `listContacts`, which has no catch, so the customer got a crash rather than a
+// sentence. A failure that says "you are reading too much" is never answered by
+// reading more.
+// ---------------------------------------------------------------------------
+test("a store failure is classified from the driver's own code, not guessed at", async () => {
+  const { readStoreFailure, mustNotEscalate } = await import("../src/shared/store-failure.ts");
+
+  // gRPC codes are the contract; the message text is localised and reworded.
+  assert.equal(readStoreFailure({ code: 8, message: "Quota exceeded" }).kind, "quota");
+  assert.equal(readStoreFailure({ code: 7 }).kind, "permission");
+  assert.equal(readStoreFailure({ code: 16 }).kind, "unauthenticated");
+  assert.equal(readStoreFailure({ code: 14 }).kind, "unavailable");
+  assert.equal(readStoreFailure({ code: 10 }).kind, "conflict");
+
+  // No code at all — a REST path or a wrapped error. Read the words instead.
+  assert.equal(readStoreFailure(new Error("RESOURCE_EXHAUSTED: quota")).kind, "quota");
+  assert.equal(readStoreFailure(new Error("PERMISSION_DENIED")).kind, "permission");
+
+  // THE ONE THE DEFECT NEEDED. Out of quota and timed out both mean "stop",
+  // never "try something bigger".
+  assert.equal(mustNotEscalate({ code: 8 }), true, "out of quota must never trigger a larger read");
+  assert.equal(mustNotEscalate({ code: 4 }), true, "a deadline means the query is too big already");
+  assert.equal(mustNotEscalate({ code: 14 }), false, "a transient outage may be retried as normal");
+});
+
+test("an unrecognised store failure keeps the driver's words and offers NO remedy", async () => {
+  const { readStoreFailure } = await import("../src/shared/store-failure.ts");
+  const f = readStoreFailure(new Error("something nobody has seen before"));
+  assert.equal(f.kind, "unknown");
+  assert.match(f.why, /something nobody has seen before/);
+  assert.equal(f.fix, "",
+    "a confident remedy on an unrecognised failure sends somebody to fix the wrong thing, and the next honest message is then discounted");
+});
+
+test("a missing index carries the console URL that creates it", async () => {
+  const { readStoreFailure } = await import("../src/shared/store-failure.ts");
+  const f = readStoreFailure(new Error(
+    "9 FAILED_PRECONDITION: The query requires an index. You can create it here: https://console.firebase.google.com/project/x/firestore/indexes?create=abc",
+  ));
+  assert.equal(f.kind, "index");
+  assert.match(f.fix, /console\.firebase\.google\.com/, "that URL IS the remedy — dropping it makes the message useless");
+  assert.match(f.fix, /check:indexes/, "and the gate that catches this before production is worth naming");
+});
+
+test("the contact count refuses to escalate a quota failure into a full scan", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/contacts.ts", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf("export async function countContacts"), src.indexOf("export async function vaultCountsFor"));
+  assert.match(block, /mustNotEscalate\(e\)/, "the cheap aggregate's fallback must ask whether escalating is allowed");
+  assert.ok(!/catch\s*\{/.test(block), "the bare catch that swallowed every cause must be gone");
+});
+
+// ---------------------------------------------------------------------------
+// A SUPPRESSION LIST THAT IS TRUNCATED IS NOT A SUPPRESSION LIST.
+//
+// `suppressedEmails` defaulted to `limit = 5000`, and the campaign send filters
+// against exactly that set. A brand with six thousand unsubscribes got five
+// thousand back, and the other thousand — people who had asked not to be
+// contacted — were mailed. Nothing said the set was partial, and it gets worse
+// as a customer's list gets better.
+// ---------------------------------------------------------------------------
+test("every suppressed address is returned, however many there are", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/email-events.ts", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("export async function suppressedEmails"), src.indexOf("export async function brandEvents"));
+  assert.ok(!/limit\s*=\s*\d/.test(fn), "no caller may be able to ask for a partial suppression list");
+  assert.match(fn, /startAfter\(cursor\)/, "it must page the whole collection, the way listContacts does");
+  assert.ok(!/catch/.test(fn),
+    "a refused suppression read must NOT become 'nobody is suppressed' — fail closed, or the platform mails people who opted out");
+
+  // And in memory, the behaviour it stands in for: everything, lower-cased.
+  const events = await import("../src/backend/email-events.ts");
+  const brand = `t-sup-${Date.now()}`;
+  await events.addSuppression(brand, "A@Example.com", "unsubscribe");
+  await events.addSuppression(brand, "b@example.com", "bounce");
+  const set = await events.suppressedEmails(brand);
+  assert.equal(set.has("a@example.com"), true, "case must not let a suppressed address through");
+  assert.equal(set.has("b@example.com"), true);
+});
+
+test("the preview does not pretend nobody is suppressed when the read fails", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/backend/email-preview.ts", import.meta.url), "utf8");
+  assert.ok(!/suppressedEmails\([^)]*\)\.catch\(/.test(src),
+    "swallowing this read puts the preview and the send back out of step — the one thing this panel must never do");
+  assert.match(src, /const suppressed = await suppressedEmails\(input\.brandId\);/);
+});

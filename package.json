@@ -40,7 +40,9 @@
     "deck:doc": "node --import tsx scripts/build-deck.mjs && node --import tsx scripts/verify-deck.mjs",
     "deck:verify": "node --import tsx scripts/verify-deck.mjs",
     "drive:modules": "node --import tsx scripts/drive-modules.mjs",
-    "check:indexes": "node scripts/check-firestore-indexes.mjs"
+    "check:indexes": "node scripts/check-firestore-indexes.mjs",
+    "drive:live": "node --import tsx scripts/drive-modules.mjs",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage:rules"
   },
   "dependencies": {
     "firebase": "^12.16.0",
