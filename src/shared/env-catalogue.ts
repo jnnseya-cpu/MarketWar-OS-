@@ -178,6 +178,13 @@ export const ENV_TUNING: string[] = [
   "MW_DRIVE_EMAIL",
   "MW_DRIVE_PASSWORD",
   "MW_DRIVE_TOKEN",
+  // A TEST SEAM, AND ONLY A TEST SEAM. Read by `scripts/drive-commerce.mjs`
+  // alone, so `tests/helpers/fake-stripe.mjs` can stand in for Stripe and the
+  // driver's branches can be exercised in a container with no Stripe account.
+  // NOTHING SHIPPED READS IT, deliberately: a redirectable API base in code that
+  // carries a secret key is a credential exfiltration hole, so this must never
+  // migrate out of the harness and into `src/`.
+  "MW_STRIPE_API_BASE",
   "AGENT_DAILY_CAP_ACU",
   "AI_CITATION_BUDGET_MS",
   "AI_GATEWAY_ORDER_FAST",

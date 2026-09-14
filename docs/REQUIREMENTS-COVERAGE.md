@@ -7316,3 +7316,130 @@ and reports the rest as not exercisable rather than passing it. Nothing further
 can be written that would change that — what closes it is the Stripe webhook
 (outstanding item 2) and one test purchase. Building something here to make the
 list look shorter would be the padding this file exists to prevent.
+
+## §143 — The third one was a build too, and I was wrong about that (2026-09-14)
+
+§142 closed two of the three "nobody can finish this yet" items and said of the
+third: *"Two were builds. The third is a run, and saying so is the whole point of
+the distinction."*
+
+That was wrong, and the sentence that proves it was already in this repository:
+**never tell the owner to do by hand what the platform should do for them. When
+the answer is "go and click", the defect is that nothing is clicking.**
+
+The `stripe-webhook-never-verified` blocker's own fix text ended:
+
+> …redeploy, then use Stripe's **'Send test webhook'** on it.
+
+A person, a browser, a button. I had read "this needs a real checkout" and
+concluded it needed a human, without asking the narrower question: **does it need
+a human, or does it need money?** It needs money only for the wallet half. The
+part the blocker is actually about — can Stripe reach us, and is our signing
+secret the one Stripe signs with — needs neither a card nor a click, because
+Stripe emits real events for things its API can cause, and delivers them over the
+real internet with a real signature.
+
+### What was built
+
+**`npm run drive:commerce`** — one command that makes Stripe prove the money
+path and reads back whether it landed.
+
+- **`src/shared/stripe-drive.ts`** — every decision, pure. `stripeKeyMode`,
+  `mayCreateBillableObjects`, `chooseProvocation`, `driveVerdict`. Pure because
+  every interesting branch needs a populated Stripe account, and this codebase
+  has already paid for that exact shape once: `probeTargets` was inline in a
+  route, was mutated open, and **nothing failed**, because the container has no
+  key and the branch never ran.
+- **`scripts/drive-commerce.mjs`** — the I/O. Lists the account's endpoints,
+  provokes, waits, reads back, cleans up.
+- **`tests/helpers/fake-stripe.mjs`** — a stand-in that **really signs and really
+  delivers**: it POSTs to the endpoint itself, so the driver never touches a
+  signature. Nothing MarketWar owns is stood in for; the one participant this
+  container cannot have is.
+- **`wallet.processedEvent(eventId)`** and `/api/health/stripe?event=…` — the
+  read-back that turns the money claim into a measurement.
+- **`docs/PROVE-THE-MONEY-PATH.md`** — the runbook.
+
+### The safety rule, which outranks everything else here
+
+**A LIVE KEY NEVER CREATES A BILLABLE OBJECT.** In test mode an invoice is a toy;
+on a live account the identical three calls invoice a real customer and may email
+them. A diagnostic that bills somebody is not a diagnostic. A restricted `rk_`
+key that will not reveal its mode counts as **live**, because the two mistakes
+are not symmetrical: refusing on a test key costs a diagnostic, proceeding on a
+live key invoices a stranger. Two tests hold that gate and two mutations confirm
+they hold it.
+
+On a live key the run falls back to creating and deleting a customer — free,
+delivered, and it proves reachability and the secret. It proves **nothing** about
+the wallet, and says so in those words rather than letting a green tick imply it.
+
+### Three defects found in it, by driving it rather than reading it
+
+All three are the same class: **a check that passes, or fails, for a reason
+unrelated to what it tests.** Each was found by running the thing, and the second
+and third were found only because the first fix was driven again.
+
+**1. It claimed the wallet from the event TYPE.** `walletProven` was set to
+`provocation.exercisesWallet` — "this kind of event carries money". The receipt
+it read moves on *signature verification*, before anything downstream can fail,
+so a delivery that verified and then credited **nothing** produced an identical
+green tick, on the money path, which is the entire point of the exercise. It now
+reads `processed_events` by Stripe's own event id: that record is written in the
+**same transaction** as the credit, so it cannot exist unless the wallet moved.
+The first run printed "PROVEN END TO END … the wallet credit and the ledger row
+all ran" and had measured neither.
+
+**2. It blamed DNS for a wrong signing secret.** An outstanding delivery attempt
+was read as "Stripe cannot reach the address". Driving a deliberately wrong
+secret produced exactly that state — the delivery arrived, the route answered
+400, and **Stripe leaves a 400 outstanding just as it leaves a connection that
+never opened** — and the run sent the operator to check DNS for a secret they had
+pasted from the wrong endpoint. That is the wrong-remedy defect. The two causes
+are separated by whether the address is reachable, which `selfDelivery` answers;
+where it cannot, the verdict now asserts **neither** and gives both remedies in
+order.
+
+**3. The reachability answer was about a different address.** `selfDelivery`
+probes `https://` addresses on this app's own path — correct in production, and
+**not** the address Stripe used when driving a local server over http. Taking
+`some(r => r.ok)` answered "unreachable" about addresses Stripe never touched,
+and reproduced defect 2 one commit after fixing it. The result is now only
+accepted **for the same URL Stripe delivered to**; no match means the question
+was not answered, which is `null`, not `false`.
+
+A fourth, smaller: my own comment in `ENV_TUNING` asserted that nothing shipped
+reads `MW_STRIPE_API_BASE` — the seam that lets the driver point at the stand-in
+Stripe. An assertion in a comment is not a guard, and a redirectable API base in
+code carrying `STRIPE_SECRET_KEY` is credential exfiltration wearing a test
+seam's clothes. A test now fails if the name appears anywhere under `src/`, and a
+mutation that plants it in `gateway.ts` kills that test.
+
+### Verified
+
+`npm run verify` green: 1,951 tests, 0 failures. **Eleven mutations on
+`stripe-drive.ts`, all eleven killed** — including "wallet claimed from the event
+type again" and "reachable address still blamed on the network", the two defects
+above, so each now has a test that fails when it comes back. One mutation
+survived the first pass (`receipt movement ignores the count`, because every case
+moved the timestamp too) and a case was added for two deliveries inside the same
+millisecond.
+
+Driven against a **real running production build with real Firestore**, three
+scenarios, with a stand-in that genuinely signs and posts:
+
+| Scenario | Result |
+|---|---|
+| Healthy | **8 proven · 0 broken.** 980 ACUs read back out of wallet `drive-…` on plan `growth`. |
+| Wrong signing secret | **6 proven · 2 broken**, exit 1. Refuses to assert a cause it cannot separate; both remedies, in order. |
+| Endpoint subscribed to neither event | **2 proven · 2 not exercisable · 0 broken**, exit 0. Not a failure — there is nothing to deliver. |
+
+### What is still not proven, plainly
+
+This container has no Stripe account, so what ran against Stripe's own servers is
+**nothing**. Every MarketWar byte ran for real; the payment processor did not.
+Against a real test key the run is the same command, and the parts it cannot
+cover on any key are: a human typing a card number into the hosted page, and —
+on a live key — the wallet credit, which needs money to move.
+
+The blocker's fix text no longer ends in a click.
