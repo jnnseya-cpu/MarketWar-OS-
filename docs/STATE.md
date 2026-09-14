@@ -95,7 +95,7 @@ advisories under a green gate that had never run `npm audit` · eight fabricated
 *09-08 (§§114–118):* the reply path pointed at hosts that cannot receive mail, and its own reachability
 check exempted the one domain it should have tested · `MW_SENDING_POOL` silently overrode `SMTP_USER`/`SMTP_PASS` while the diagnostic named the variable being edited · an OUTLINE previewed as a finished email for 836 people, counting a different audience. *Earlier (§§103–113):* named vault groups · campaign failover · per-brand DKIM selectors · an anonymous GET on `/api/email/suppression-repair` · video failures charging without refunding · **we failed the checks we sell** · Node 20 in production · 91 of 133 env variables invisible (119 catalogued now).
 
-**Owner actions (nothing in code can substitute):**
+**Owner actions (nothing in code can substitute) — the step-by-step version, with the exact commands and the Windows syntax, is `docs/FINISH-IT.md`:**
 1. **`CRON_SECRET`** — unset, so every scheduled path is dark INCLUDING bounce collection. Set it with `MW_BOUNCE_IMAP_HOST` and the platform starts reading its own delivery failures.
 2. **`PLATFORM_ADMIN_EMAILS`** — set ONCE; makes the owner `executive`, never metered. Without it the `/api/health/*` reports are unreadable, which is how a diagnostic becomes useless.
 3. Open `/api/health/live` after every change — `envPresent`/`envMissing`, `build.commit` and `buildBuiltAt` are the only proof the running build received it and was built AFTER the change.

@@ -97,6 +97,26 @@ async function call(path, { method = "POST", body, headers = {} } = {}) {
 
 const get = (path) => call(path, { method: "GET" });
 
+
+/** Read a secret from the terminal with echo OFF. Returns "" when not a terminal. */
+async function askSecret(prompt) {
+  if (!process.stdin.isTTY) return "";
+  const readline = await import("node:readline");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  return new Promise((resolve) => {
+    const onData = (ch) => {
+      // Backspace and newline still have to reach the line editor; every other
+      // keystroke is swallowed so the password never appears on screen.
+      if (["\r", "\n", "\u0004"].includes(String(ch))) process.stdin.removeListener("data", onData);
+      else process.stdout.write("");
+    };
+    rl.output.write(prompt);
+    rl._writeToOutput = () => {};
+    process.stdin.on("data", onData);
+    rl.question("", (answer) => { rl.close(); process.stdout.write("\n"); resolve(answer.trim()); });
+  });
+}
+
 // A HARNESS MUST NOT DIE ON THE FIRST THING THAT IS NOT THERE.
 //
 // `fetch` REJECTS on a refused connection, and an emulator that is simply not
@@ -159,7 +179,7 @@ const SEARCH = liveHas("prospect");
     const b = r.json ?? {};
     if (b.idToken) { bearer = b.idToken; localId = b.localId; signedInEmail = email; rec("Sign in", "pass", `Registered ${email} and carried its ID token.`); }
     else if (r.ok) rec("Sign in", "fail", `The auth emulator refused to register a user: ${JSON.stringify(b).slice(0, 200)}`);
-  } else if (process.env.MW_DRIVE_EMAIL && process.env.MW_DRIVE_PASSWORD) {
+  } else if (process.env.MW_DRIVE_EMAIL) {
     // SIGN IN THE WAY THE BROWSER DOES, so a live run needs no hand-minted token.
     //
     // THIS IS THE FRICTION THAT WAS ACTUALLY BLOCKING THE LIVE RUN. Every module
@@ -182,9 +202,20 @@ const SEARCH = liveHas("prospect");
     if (!apiKey) {
       rec("Sign in", "skip", "MW_DRIVE_EMAIL is set but no Firebase web API key is available. Supply NEXT_PUBLIC_FIREBASE_API_KEY — it is public by design, the same value the login page already ships to every browser.");
     } else {
-      const r = await tryFetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
+      // ASKED FOR, NOT PUT ON THE COMMAND LINE.
+      //
+      // `MW_DRIVE_PASSWORD=hunter2 npm run drive:live` writes the password into
+      // ~/.bash_history, into the process list every other user on the machine
+      // can read, and into any shell-integration log. It still works, because
+      // scripting it has to be possible — but when it is absent the password is
+      // read from the terminal with echo off instead, which is what a person
+      // running this by hand should get by default.
+      const password = process.env.MW_DRIVE_PASSWORD || await askSecret(`Password for ${process.env.MW_DRIVE_EMAIL}: `);
+      const r = !password
+        ? { ok: false, json: null, status: 0, error: "no password was given, and this is not a terminal that can ask for one" }
+        : await tryFetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: process.env.MW_DRIVE_EMAIL, password: process.env.MW_DRIVE_PASSWORD, returnSecureToken: true }),
+        body: JSON.stringify({ email: process.env.MW_DRIVE_EMAIL, password, returnSecureToken: true }),
       });
       if (r.json?.idToken) {
         bearer = r.json.idToken;

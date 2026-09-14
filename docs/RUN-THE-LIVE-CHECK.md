@@ -9,14 +9,32 @@ git clone <this repo> && cd MarketWar-OS- && npm install
 
 BASE_URL=https://marketwaros.com \
 MW_DRIVE_EMAIL=you@marketwaros.com \
-MW_DRIVE_PASSWORD='<that account's password>' \
 npm run drive:live
 ```
 
-That is the whole thing. It signs in the way the login page does, so **no token
-has to be minted by hand** — the previous version of this asked you to dig one
-out of a browser's developer tools, which is the platform asking a person to do
-its job for it.
+It asks for the password with the typing hidden. **Do not put it on the command
+line** — `MW_DRIVE_PASSWORD=…` still works for scripting, but it writes the
+password into your shell history and into the process list every other user on
+that machine can read.
+
+It signs in the way the login page does, so **no token has to be minted by
+hand** — the first version of this asked you to dig one out of a browser's
+developer tools, which is the platform asking a person to do its job for it.
+
+**Windows PowerShell** — the `VAR=value command` form above is Unix-only and
+silently does nothing:
+
+```powershell
+$env:BASE_URL="https://marketwaros.com"
+$env:MW_DRIVE_EMAIL="you@marketwaros.com"
+npm run drive:live
+```
+
+Node must be **22.12 or newer** (`node -v`). Below that `firebase-admin` dies at
+module load — see STATE.md §5.0.
+
+**Everything else that is still outstanding, with the same level of detail, is in
+`docs/FINISH-IT.md`.**
 
 ## What it will tell you
 
