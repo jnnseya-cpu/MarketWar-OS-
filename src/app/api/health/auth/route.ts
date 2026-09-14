@@ -47,6 +47,22 @@ export async function GET(req: Request) {
   const key = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
   const continueUri = process.env.NEXT_PUBLIC_PRODUCTION_URL || "https://marketwaros.com";
 
+  // THE WEB API KEY, RETURNED IN FULL AND ON PURPOSE.
+  //
+  // It is not a secret and treating it as one costs something real. Every
+  // `NEXT_PUBLIC_*` value is compiled into the JavaScript this deployment serves
+  // to every visitor, so this exact string is already in the page source of the
+  // login form. It identifies the Firebase project; it authorises nothing on its
+  // own — access is decided by the security rules and by App Check.
+  //
+  // Returning it lets `npm run drive:modules` sign in against a live deployment
+  // with nothing but an account's email and password, instead of asking the
+  // owner to dig a token out of a browser's developer tools. Asking a person to
+  // do by hand what the platform can do itself is the rule this repository keeps
+  // having to relearn.
+  //
+  // The Admin credentials are the secrets and none of them appears here.
+
   let probe: Record<string, unknown> = { ran: false, note: "No NEXT_PUBLIC_FIREBASE_API_KEY in this build — auth runs in demo mode." };
   if (key) {
     try {
@@ -126,6 +142,7 @@ export async function GET(req: Request) {
   };
 
   return NextResponse.json({
+    webApiKey: key,
     service: "MarketWar OS — auth diagnostic",
     // Whether anything is actually keeping scripted signups out, and which half
     // of the problem each control covers.

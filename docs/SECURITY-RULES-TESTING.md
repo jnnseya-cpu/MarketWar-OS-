@@ -107,9 +107,16 @@ side effect of a review.
 ## 3. What this still does not prove
 
 - **The rules DEPLOYED to the live project.** These prove the files in this
-  repository. If the deployed rules have drifted from the repository, only
-  `firebase deploy --only firestore:rules` reconciles them. Deploy from this repo
-  and the two are the same thing.
+  repository, which is the artefact — but only if the project is running them.
+
+  ```bash
+  npm run deploy:rules     # firestore:rules + storage:rules, from this repo
+  ```
+
+  That is now one command rather than a remembered incantation, and it is the
+  only thing that makes the files and the project the same. Run the tests, then
+  deploy: proving a file and then shipping a different one is the drift this
+  warns about.
 - **Real indexes, real quota, real latency.** The emulator has none of these.
 - **Inbox placement — this is no longer true and the sentence that said so is
   gone.** It read "nothing in this repository can answer that". It can now:

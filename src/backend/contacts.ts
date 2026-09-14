@@ -14,6 +14,7 @@ if (typeof window !== "undefined") {
 import { createHash } from "crypto";
 import { FieldPath } from "firebase-admin/firestore";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
+import { mustNotEscalate } from "@/shared/store-failure";
 import type { CustomerRecord } from "@/backend/segments";
 import { normaliseGroupName } from "@/shared/contact-groups";
 
@@ -176,8 +177,20 @@ export async function countContacts(brandId: string): Promise<number> {
     try {
       const snap = await adminDb.collection("contacts").where("brandId", "==", brandId).count().get();
       return snap.data().count;
-    } catch {
-      // Aggregation unavailable → fall back to a full paged count.
+    } catch (e) {
+      // THE FALLBACK IS AN OPTIMISATION, NOT A CURE.
+      //
+      // This catch was bare and its comment named one cause — "aggregation
+      // unavailable" — while swallowing every cause. The one that matters is
+      // RESOURCE_EXHAUSTED: the project is out of Firestore quota, and the
+      // response was to run the most expensive operation available, a full paged
+      // scan of every contact this brand has, at the exact moment there are no
+      // reads left. It then failed again from `listContacts`, which has no catch
+      // at all, so the customer got a crash instead of a sentence.
+      //
+      // A failure that says "you are reading too much" is never answered by
+      // reading more. See shared/store-failure.ts.
+      if (mustNotEscalate(e)) throw e;
       return (await listContacts(brandId)).length;
     }
   }

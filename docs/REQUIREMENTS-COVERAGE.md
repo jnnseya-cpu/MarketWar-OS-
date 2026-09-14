@@ -7139,3 +7139,91 @@ domain to a STRANGER. That is the honest number for cold outreach and the
 pessimistic end for an engaged list.
 
 Runbook: `docs/INBOX-PLACEMENT.md`.
+
+## §141 — Closing the four, and three defects found on the way (2026-09-14)
+
+The owner asked what is working, what is outstanding, and to fix all of it.
+Reachability was re-checked first: **still blocked** for marketwaros.com, still
+zero of nine keys in this container. Worth recording, because it is not total —
+`identitytoolkit.googleapis.com` IS reachable, proved by driving the new sign-in
+path and getting Google's own "API key not valid" back. It is the deployment
+that is unreachable, not the internet.
+
+### 1. AI writing, scraping, video, Stripe — the blocker was never the keys
+
+It was that `MW_DRIVE_TOKEN` had to be dug out of a browser's developer tools.
+**Asking a person to do by hand what the platform can do itself** is the rule
+this repository keeps relearning, and it was standing between the owner and the
+answer to four questions.
+
+`drive-modules` now signs in the way the login page does — `MW_DRIVE_EMAIL` and
+`MW_DRIVE_PASSWORD` against Identity Toolkit — so a live run is one command
+(`docs/RUN-THE-LIVE-CHECK.md`). The public web API key is returned by
+`/api/health/auth`, in full and on purpose: every `NEXT_PUBLIC_*` value is
+already compiled into the JavaScript served to every visitor, so this exact
+string is in the login page's source. It identifies the project and authorises
+nothing; the Admin credentials are the secrets and none of them appears there.
+
+Both failure paths were driven, not assumed: no key available gives an honest
+skip naming what to supply, and a bad key gives Google's verbatim reason rather
+than "sign-in failed".
+
+### 2. The deployed rules
+
+`npm run deploy:rules` — one command for `firestore:rules` and `storage:rules`
+from this repository. The tests prove the FILES; deploying is what makes the
+files and the project the same thing. Proving one artefact and shipping another
+is the drift, and a remembered incantation is how it happens.
+
+### 3. Quota — and this one was a real, expensive defect
+
+`countContacts` caught every store error under a comment naming one cause
+("aggregation unavailable") and answered it with a **full paged scan of every
+contact the brand has** — the most expensive operation available, run at the
+exact moment the project is out of Firestore quota. It then failed again from
+`listContacts`, which has no catch, so the customer got a crash instead of a
+sentence. **A failure that says "you are reading too much" is never answered by
+reading more.**
+
+`shared/store-failure.ts` classifies from the gRPC code — numbers, because
+message text is localised and reworded — and carries `costly`, the flag that
+says a caller must not escalate. A missing index is read from the text on
+purpose, because Firestore puts the console URL that creates it in the message
+and that URL is the entire remedy. An unrecognised failure keeps the driver's
+own words and offers **no** remedy, for the reason `provider-failure.ts` already
+gives: a confident guess in the shape of an instruction sends somebody to fix
+the wrong thing, and the next honest message from that screen is discounted.
+
+**Latency is not fixed and is not claimed to be.** One run is one run; real
+latency needs real load.
+
+### Two more found while looking
+
+**A SUPPRESSION LIST THAT IS TRUNCATED IS NOT A SUPPRESSION LIST.**
+`suppressedEmails` defaulted to `limit = 5000` and the campaign send filters
+against exactly that set. A brand with six thousand unsubscribes got five
+thousand back and **the other thousand were mailed** — people who had asked not
+to be contacted, contacted, because a default argument truncated the list that
+exists to prevent it. Nothing said the set was partial, and it gets worse as a
+customer's list gets better. It pages the whole collection now, and there is no
+limit argument left for a caller to get wrong.
+
+**AND MY OWN FIX FROM §138 HAD PUT A HOLE IN THE SAME WALL.** The preview read
+suppressions with `.catch(() => new Set())`, so a refused read became "nobody is
+suppressed" — putting the preview and the send back out of step, which is the
+one thing that panel must never do, and in the direction that mails people who
+opted out. Both paths fail closed now.
+
+**Four mutations, four killed:** quota no longer blocking escalation, the bare
+catch returning to `countContacts`, the suppression cap returning, and an
+unrecognised failure being given a confident remedy.
+
+### What is still genuinely open
+
+- **One live run** answers AI, scraping, video and Stripe. It cannot be done from
+  this session; the command is in `docs/RUN-THE-LIVE-CHECK.md`.
+- **Quota and latency under real load.** Unmeasurable anywhere but production.
+- **Inbox placement needs `MW_SEED_MAILBOXES`** — the feature is built (§140);
+  the mailboxes are not.
+- **Postmaster Tools ingestion** — domain reputation and spam rate across real
+  volume — is the other half of placement and is not built.

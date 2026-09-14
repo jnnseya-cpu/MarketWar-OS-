@@ -16,6 +16,10 @@ if (typeof window !== "undefined") {
 // be forged to poison a brand's stats or suppress a rival's list.
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { FieldPath } from "firebase-admin/firestore";
+
+/** One page of suppressions. The COMPLETE set is always returned; this is only how it is fetched. */
+const SUPPRESSION_PAGE = 1000;
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { suppress } from "@/backend/email";
 import { siteOrigin } from "@/shared/site";
@@ -100,12 +104,44 @@ export async function isSuppressed(brandId: string, email: string): Promise<bool
   return memSuppress.has(key);
 }
 
-export async function suppressedEmails(brandId: string, limit = 5000): Promise<Set<string>> {
+/**
+ * EVERY suppressed address for this brand. All of them, always.
+ *
+ * THIS WAS CAPPED AT 5,000 AND THE CAP WAS SILENT. A brand with six thousand
+ * unsubscribes got a set of five thousand, and the send path — which filters
+ * against exactly this set — then mailed the other thousand. People who had
+ * asked not to be contacted, contacted, because a default argument truncated the
+ * list that exists to stop it. Nothing anywhere said the set was partial.
+ *
+ * That is not a performance trade-off, it is a compliance failure with a number
+ * on it, and it gets worse as a customer's list gets better. So it pages the
+ * whole collection the way `listContacts` does, and there is no limit argument
+ * left for a caller to get wrong.
+ *
+ * No try/catch ON PURPOSE: if this read fails, the caller must NOT proceed as
+ * though nobody is suppressed. The send path already relies on that — it has no
+ * catch either, so a refused read fails the campaign instead of mailing people
+ * who opted out. Fail closed; see shared/store-failure.ts.
+ */
+export async function suppressedEmails(brandId: string): Promise<Set<string>> {
   if (adminConfigured && adminDb) {
-    const snap = await adminDb.collection("email_suppressions").where("brandId", "==", brandId).limit(limit).get();
-    return new Set(snap.docs.map((d) => (d.data() as { email: string }).email));
+    const out = new Set<string>();
+    const base = adminDb.collection("email_suppressions").where("brandId", "==", brandId).orderBy(FieldPath.documentId());
+    let cursor: string | undefined;
+    for (;;) {
+      const page = cursor ? base.startAfter(cursor).limit(SUPPRESSION_PAGE) : base.limit(SUPPRESSION_PAGE);
+      const snap = await page.get();
+      if (snap.empty) break;
+      for (const d of snap.docs) {
+        const email = (d.data() as { email?: string }).email;
+        if (email) out.add(String(email).toLowerCase());
+      }
+      if (snap.size < SUPPRESSION_PAGE) break;
+      cursor = snap.docs[snap.docs.length - 1].id;
+    }
+    return out;
   }
-  return new Set([...memSuppress].filter((k) => k.startsWith(`${brandId}::`)).map((k) => k.split("::")[1]));
+  return new Set([...memSuppress].filter((k) => k.startsWith(`${brandId}::`)).map((k) => k.split("::")[1].toLowerCase()));
 }
 
 // Aggregated engagement stats for a brand (for the Email Center dashboard).

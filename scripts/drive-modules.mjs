@@ -44,6 +44,9 @@
 //   BASE_URL                     default http://localhost:3000
 //   FIREBASE_AUTH_EMULATOR_HOST  sign a real user in against an emulator
 //   MW_DRIVE_TOKEN               a real Firebase ID token, for a live deployment
+//   MW_DRIVE_EMAIL / _PASSWORD   an account on the live project — signs in the
+//                                way the login page does, so no token has to be
+//                                minted by hand
 //   MW_DRIVE_MAILBOX             a JSONL file a local SMTP server appends to,
 //                                so a sent campaign can be read back
 //   MW_DRIVE_PROBE=1             actually SEND an inbox-placement probe. Off by
@@ -156,8 +159,48 @@ const SEARCH = liveHas("prospect");
     const b = r.json ?? {};
     if (b.idToken) { bearer = b.idToken; localId = b.localId; signedInEmail = email; rec("Sign in", "pass", `Registered ${email} and carried its ID token.`); }
     else if (r.ok) rec("Sign in", "fail", `The auth emulator refused to register a user: ${JSON.stringify(b).slice(0, 200)}`);
+  } else if (process.env.MW_DRIVE_EMAIL && process.env.MW_DRIVE_PASSWORD) {
+    // SIGN IN THE WAY THE BROWSER DOES, so a live run needs no hand-minted token.
+    //
+    // THIS IS THE FRICTION THAT WAS ACTUALLY BLOCKING THE LIVE RUN. Every module
+    // that needs a real provider — AI writing, scraping, video, Stripe — is
+    // answerable in one run against the real deployment, and the only thing
+    // standing in the way was that `MW_DRIVE_TOKEN` had to be minted by hand out
+    // of a browser's developer tools. A Firebase ID token is obtainable from the
+    // PUBLIC web API key and a password, which is exactly what the login form
+    // does; asking an owner to do by hand what the platform can do itself is the
+    // rule this repository keeps having to relearn.
+    //
+    // The web API key is public by design (it identifies the project, it does not
+    // authorise anything), so it is read from the deployment's own health report
+    // when it is not supplied.
+    let apiKey = (process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "").trim();
+    if (!apiKey) {
+      const h = await get("/api/health/auth");
+      apiKey = String(h.json?.webApiKey || "").trim();
+    }
+    if (!apiKey) {
+      rec("Sign in", "skip", "MW_DRIVE_EMAIL is set but no Firebase web API key is available. Supply NEXT_PUBLIC_FIREBASE_API_KEY — it is public by design, the same value the login page already ships to every browser.");
+    } else {
+      const r = await tryFetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: process.env.MW_DRIVE_EMAIL, password: process.env.MW_DRIVE_PASSWORD, returnSecureToken: true }),
+      });
+      if (r.json?.idToken) {
+        bearer = r.json.idToken;
+        signedInEmail = process.env.MW_DRIVE_EMAIL;
+        rec("Sign in", "pass", `Signed in as ${signedInEmail} against the live project, the same way the login page does.`);
+      } else {
+        // NAME WHAT FIREBASE SAID. "Sign-in failed" sends somebody to check the
+        // wrong thing; EMAIL_NOT_FOUND and INVALID_PASSWORD have different fixes.
+        const why = r.json?.error?.message || r.error || `HTTP ${r.status}`;
+        rec("Sign in", "fail", `Firebase refused the sign-in: ${why}. The account must exist on THIS project, and for the admin-only steps it needs to be in PLATFORM_ADMIN_EMAILS with a verified address.`);
+      }
+    }
   } else {
-    rec("Sign in", "skip", "No MW_DRIVE_TOKEN and no auth emulator — the run carries no identity, so brand-scoped steps are skipped.");
+    rec("Sign in", "skip",
+      "No identity for this run, so every brand-scoped step is skipped. Against a LIVE deployment set BASE_URL plus either "
+      + "MW_DRIVE_EMAIL and MW_DRIVE_PASSWORD (an account on that project), or MW_DRIVE_TOKEN. Locally, start the Firebase auth emulator instead.");
   }
 }
 
