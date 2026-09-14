@@ -17,6 +17,7 @@ if (typeof window !== "undefined") {
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { FieldPath } from "firebase-admin/firestore";
+import { timed } from "@/backend/store-health";
 
 /** One page of suppressions. The COMPLETE set is always returned; this is only how it is fetched. */
 const SUPPRESSION_PAGE = 1000;
@@ -130,7 +131,7 @@ export async function suppressedEmails(brandId: string): Promise<Set<string>> {
     let cursor: string | undefined;
     for (;;) {
       const page = cursor ? base.startAfter(cursor).limit(SUPPRESSION_PAGE) : base.limit(SUPPRESSION_PAGE);
-      const snap = await page.get();
+      const snap = await timed("suppressions.page", () => page.get());
       if (snap.empty) break;
       for (const d of snap.docs) {
         const email = (d.data() as { email?: string }).email;

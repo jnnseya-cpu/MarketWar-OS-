@@ -7227,3 +7227,92 @@ unrecognised failure being given a confident remedy.
   the mailboxes are not.
 - **Postmaster Tools ingestion** — domain reputation and spam rate across real
   volume — is the other half of placement and is not built.
+
+## §142 — Two of the three "cannot be finished" were builds after all (2026-09-14)
+
+The owner reported the **site audit email is now working** — the report a visitor
+asks for arrives. That is the first half of outstanding item 1 closing, from the
+owner's own observation rather than a check here, and it is recorded as that.
+
+Then: build and test the three things the last summary said nobody could finish.
+Two were builds. The third is a run, and saying so is the whole point of the
+distinction.
+
+### Built: Google Postmaster Tools ingestion
+
+The other half of inbox placement. The seed probe (§140) measures where ONE
+message landed in mailboxes we own — it works at any volume and measures how
+Gmail treats a **stranger**, because a seed mailbox has no history with us.
+Postmaster measures what Gmail concluded about the **domain** from everything it
+actually delivered to real people who did real things with it. Both are needed
+and neither substitutes for the other.
+
+`shared/postmaster.ts` normalises and judges, `backend/postmaster.ts` fetches
+using the Google credential Search Console already uses — **no second way to
+obtain a Google token** — and `/api/postmaster` reports it.
+
+**THE RULE THE WHOLE THING TURNS ON.** Postmaster publishes nothing below roughly
+a few hundred authenticated messages a day: the API returns no rows, not zeros.
+Rendering that as "0% complaints, LOW reputation" would manufacture the most
+alarming reading available out of an empty response — the identical defect the
+placement report had in its first version and was fixed for. An absence is
+reported as an absence, with what would end it, and every surface says the seed
+probe still answers at any volume.
+
+Two further honesty rules fell out of writing it. A **missing field is null, not
+zero**: a DMARC ratio Google did not send is not a DMARC failure. And **"latest"
+means the latest day with figures in it**, because a run of empty recent days is
+the normal shape of the response and reading the last row would report an
+absence as today's reputation.
+
+A missing REGISTRATION is reported as such, with the page that fixes it —
+Google has no API for registering a domain, so 404 and 403 have different causes
+and different remedies, and collapsing them is the wrong-remedy defect this
+repository keeps paying for.
+
+**Five mutations, five killed.** An absent field becoming 0; no-data reported as
+a real reading; the last day winning whether or not it is empty; an unknown
+reputation defaulting to BAD; 404 and 403 sharing a message.
+
+### Built: quota and latency, measured where they exist
+
+"They only exist under real load" was true and was being used as a reason not to
+**know**. It is a reason not to simulate them; it is the opposite of a reason not
+to measure them.
+
+`backend/store-health.ts` times every store operation it wraps and classifies
+every failure through `shared/store-failure.ts` — so "out of quota", "refused by
+rules" and "missing index" are three counts with three remedies rather than one
+undifferentiated `errors: 14`. It is wired around the two reads that will meet a
+quota ceiling first: the whole vault and the whole suppression list.
+
+`timed` **never changes the outcome** — the error is re-thrown exactly as it
+arrived. A measurement that swallows what it measures is how "no data" came to
+mean seven different things here.
+
+And it refuses to flatter itself twice: **no percentile below twenty samples**
+(a p95 over three is one number wearing a statistic's clothes — the same rule as
+`eventStats` and the placement report, third time), and it **states its scope
+every time**: one instance, in memory, last fifteen minutes. A number without its
+scope gets read as the fleet's and acted on as if it were.
+
+`/api/health/store` refuses a signed-out caller rather than redacting like its
+siblings, because it reports whether this deployment is being refused for quota —
+of no use to a visitor and of some use to somebody probing. **The lane audit
+caught it as newly anonymous and made that a decision instead of an accident**,
+which is exactly what that test is for.
+
+**Four mutations, four killed:** the timer swallowing the error, percentiles over
+any sample, failures lumped into one count, and the scope disclaimer dropped.
+
+Driven against a real server with real Firestore traffic: four operations timed,
+percentiles correctly withheld, the slowest operation named, and Postmaster
+correctly refusing a non-admin.
+
+### Not built, because it is a run: the commercial loop
+
+It needs a real checkout. `npm run drive:loop` already walks every part it can
+and reports the rest as not exercisable rather than passing it. Nothing further
+can be written that would change that — what closes it is the Stripe webhook
+(outstanding item 2) and one test purchase. Building something here to make the
+list look shorter would be the padding this file exists to prevent.

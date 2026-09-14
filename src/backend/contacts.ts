@@ -15,6 +15,7 @@ import { createHash } from "crypto";
 import { FieldPath } from "firebase-admin/firestore";
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { mustNotEscalate } from "@/shared/store-failure";
+import { timed } from "@/backend/store-health";
 import type { CustomerRecord } from "@/backend/segments";
 import { normaliseGroupName } from "@/shared/contact-groups";
 
@@ -156,7 +157,10 @@ export async function listContacts(brandId: string, limit?: number): Promise<Con
     let cursor: string | undefined;
     for (;;) {
       const page = cursor ? base.startAfter(cursor).limit(PAGE_SIZE) : base.limit(PAGE_SIZE);
-      const snap = await page.get();
+      // TIMED, NOT CHANGED. `timed` re-throws exactly what it caught; it is here
+      // so that "the vault is slow" and "the vault is being refused for quota"
+      // become answerable from inside, instead of from a customer's complaint.
+      const snap = await timed("contacts.listPage", () => page.get());
       if (snap.empty) break;
       for (const d of snap.docs) {
         out.push(d.data() as Contact);
