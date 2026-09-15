@@ -2120,8 +2120,14 @@ try { const { status, body } = await jpost("/api/warroom", { business: "Acme" })
 try { const { status, body } = await jpost("/api/local", { business: "Acme", location: "London" });
   if (status === 200 && Array.isArray(body.actions)) ok("Local Domination (/api/local → map-pack + prioritized actions)");
   else bad("Local Domination /api/local", `HTTP ${status}`); } catch (e) { bad("Local Domination", e.message); }
+// LIST HEALTH IS NOW TENANT-SCOPED AND READS A REAL LIST, so an anonymous
+// smoke call must be REFUSED rather than answered. This check used to pass on a
+// 200 carrying `isEstimate` — a report generated from a hash of "Acme" that
+// needed no account, because inventing one tenant's list health needs no
+// permission and counting it does. A 200 here now would be the finding.
 try { const { status, body } = await jpost("/api/email-metrics", { business: "Acme" });
-  if (status === 200 && (body.isEstimate || body.estimateNote || body.series)) ok("Email Center (/api/email-metrics → labelled deliverability estimate)");
+  if (status === 400 || status === 401 || status === 403) ok(`Email Center (/api/email-metrics → refuses an unscoped caller, ${status})`);
+  else if (status === 200 && body.isEstimate === false && body.health) bad("Email Center /api/email-metrics", "answered a caller with no brand access");
   else bad("Email Center /api/email-metrics", `HTTP ${status}`); } catch (e) { bad("Email Center", e.message); }
 try { const { status, body } = await jpost("/api/budget", { business: "Acme", monthlyBudget: 2000 });
   if (status === 200 && (body.note || body.isEstimate)) ok("Budget Protection (/api/budget → Stop/Fix/Scale protection board)");

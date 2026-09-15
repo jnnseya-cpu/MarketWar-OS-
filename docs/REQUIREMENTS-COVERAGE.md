@@ -7443,3 +7443,153 @@ cover on any key are: a human typing a card number into the hosted page, and —
 on a live key — the wallet credit, which needs money to move.
 
 The blocker's fix text no longer ends in a click.
+
+## §144 — The Email Command Center was inventing its own headline figures (2026-09-15)
+
+The owner opened the Email Command Center and said "not good to see". They were
+right, and it is the worst thing found in this codebase since the wallet that
+credited nothing: **every headline number on that page was manufactured from a
+hash of the brand's name.**
+
+### What it was doing
+
+`backend/email-metrics.ts` ran an FNV-1a hash over `business` — the brand's
+NAME — and bit-shifted it into a mailing list's composition:
+
+```
+const invalidPct     = round2(1.4 + ((s >> 2)  % 240) / 100); // 1.40–3.79%
+const disposablePct  = round2(0.5 + ((s >> 6)  % 130) / 100); // 0.50–1.79%
+const rolePct        = round2(1.0 + ((s >> 9)  % 200) / 100); // 1.00–2.99%
+const suppressedPct  = round2(0.6 + ((s >> 12) % 180) / 100); // 0.60–2.39%
+```
+
+From those came "Projected inbox rate 96.8%", "Projected bounce rate 0.39%",
+"Projected complaint rate 0.1%", "List health 93%", and a 14-day "Delivered vs
+filtered projection" whose every point was `peakSend * weekdayWeight[dow] *
+jitter`, the jitter from the same hash. `DEFAULT_LIST_SIZE = 1240` stood in when
+no size was supplied. The only real input anywhere was the contact count, which
+the BROWSER fetched and handed to the route.
+
+It defended itself in its own header: *"Every figure here is a clearly-labelled
+ESTIMATE derived deterministically from the inputs."* Deterministic is not
+derived. A hash is perfectly deterministic and carries no information about the
+thing it names, and `96.8%` is a three-significant-figure precision claim on a
+number with none. The page's own empty state promised **"computed per brand —
+never a fake number"** and **"no fabricated list"**.
+
+### Why it was indefensible rather than merely wrong
+
+**The true numbers were already on the same screen.** The send preview computes
+the real audience with the send's own `filterList` + `suppressedEmails` (§116).
+On the owner's vault the two panels, one above the other, said:
+
+| | Fabricated panel | Real preview |
+|---|---|---|
+| List | 88 | 87 consented |
+| Refused | **6** | **17** |
+| Mailable | 82 | **70** |
+| List health | **93%** | **80%** |
+
+The invented figure understated the problem nearly threefold, and list health is
+precisely the number somebody uses to decide whether a list is fit to mail.
+
+**`demo.ts` was stripped of invented fixtures and a test holds that boundary.**
+This engine walked straight past it, because it was not `demo.ts` and because it
+GENERATED its fabrications rather than storing them. A boundary that names one
+file guards one file.
+
+### What replaced it
+
+`shared/list-health.ts` (pure) + a rewritten `backend/email-metrics.ts`:
+
+- **Counted, not modelled.** `validateAddress` — the send's own verdict, and
+  what `filterList` is built from — runs over the brand's actual addresses, the
+  real Firestore suppression ledger is applied on top, and the composition is
+  the result. There is **no brand name in the signature**; a test asserts the
+  module cannot even accept one.
+- **Consent is applied, and applied FIRST**, because the send applies it first.
+  Found by driving it: without it the panel said 3 of 4 mailable while the send
+  button beneath offered 2 — the same headline/send disagreement, reintroduced
+  by the fix for it.
+- **No projected inbox, spam or complaint rate at all.** Not because they do not
+  matter but because nothing reading a contact list can compute one. Where
+  placement IS measurable this platform measures it — `/api/placement` (§140)
+  and `/api/postmaster` (§142) — and the tile now points at those.
+- **An empty list scores `null`, never 0 and never 100**, the same rule the
+  placement report and `eventStats` already follow.
+- **The chart is the send ledger.** Real events bucketed by real day; when
+  nothing was sent there is no chart, just the sentence saying so. A brand that
+  had never sent a message previously showed a confident fortnight of traffic.
+- **The route is authenticated and tenant-scoped** (`resolveBrandAccess`) and no
+  longer accepts `listSize` from the browser. Inventing one tenant's list health
+  needed no permission; counting it does.
+
+### Three more contradictions on the same screen, all fixed
+
+1. **"Capacity is unlimited"** on a card directly above "warm-up day 1 · today's
+   safe limit 50 emails". Both cannot be true and the one the reader acts on is
+   the governor.
+2. **"Zero bounces"** as the page title, above a card targeting "< 0.5%". A
+   headline that guarantees what the body only targets is the shape of claim
+   this platform's own site audit marks other people down for.
+3. **The same address called authenticated and unauthenticated, one panel
+   apart.** `fromAddressWarning` checked only the tenant's Sending Domains, so
+   it reported MarketWar's own sending address as "not authenticated — will land
+   in spam or bounce" directly beneath a note saying that exact address "is
+   authenticated and does reach the inbox". Neither sentence was lying:
+   *authenticated* meant "on our pool" on one side and "verified in this
+   tenant's table" on the other, and a customer cannot add MarketWar's domain to
+   their own list. The fact existed on one side of a boundary and was never
+   carried across — the oldest defect class here. A related sentence told the
+   owner to authenticate MarketWar's domain in their Sending Domains, which they
+   cannot do.
+4. **"that needs no DNS from you and always works"** about the MarketWar reply
+   address, which is only issued when `MW_REPLY_HOST` is configured — it is not
+   on this deployment. A fixed sentence was overriding `replyCheck`, a real MX
+   lookup printing the true answer one line above it. The help now defers to the
+   measurement.
+
+### Verified
+
+`npm run verify` green: 1,964 tests, 0 failures. **Fourteen mutations on
+`list-health.ts`, all fourteen killed.** Two survived the first pass and both
+were real gaps: "consent checked AFTER hygiene" survived because no test used an
+address failing consent AND syntax (the only case that separates the orders), and
+"complaints not counted as failures" survived because the series test used only a
+bounce.
+
+**Driven against a real running build with real Firestore**, via the module
+harness, which writes four contacts — one without consent, one on a disposable
+domain:
+
+```
+PASS  List health is counted, not modelled
+      4 contacts written, 4 counted: 2 mailable, 1 refused for consent,
+      1 for a disposable domain — the exact list this harness wrote,
+      and no projected rate anywhere in the response.
+PASS  Campaign preview
+      2 eligible of 4 written (consent and hygiene applied)
+```
+
+The panel and the send agree, which is the whole point. The harness step asserts
+the counts against the list it just wrote — the one assertion a fabricated engine
+could not satisfy, and the reason the old smoke check (`body.isEstimate ||
+body.series` → pass) stayed green for the entire life of the fabrication.
+
+### Gaps — recorded per the additive-only law
+
+Removing the projected rates and the projection chart removes content this repo
+previously delivered. It is recorded here rather than done silently: the
+non-negotiable against faked data inside anything represented as finished
+outranks the additive law, which CLAUDE.md states explicitly. Nothing real was
+lost — the list composition, the health score and the daily chart all survive as
+measurements. What was removed is four numbers that could not be computed.
+
+**Recommended follow-up, not done here:** the open-tracking and unsubscribe
+tokens carry the recipient's address as `base64url(brandId|email|campaign)`. The
+HMAC prevents forgery but not reading: every tracking URL in every message body
+contains a trivially decodable email address, which reaches server logs, proxies
+and anyone forwarded the mail. That sits oddly beside `FIELD_ENCRYPTION_MASTER_KEY`
+protecting the same addresses at rest. With one message sent in the platform's
+life, now is the cheapest moment to change the format to an opaque id. It needs
+an owner decision because links already in the wild would stop resolving.

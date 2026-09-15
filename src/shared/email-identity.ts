@@ -134,12 +134,41 @@ export function applyDefaults(
 export function fromAddressWarning(
   fromEmail: string,
   domains: SendingDomainLike[] | null | undefined,
+  /**
+   * The address the platform itself sends as — the fallback this file's own
+   * header calls "authenticated, and does reach the inbox".
+   *
+   * THE CONTRADICTION THIS CLOSES. On the live Email Centre, one paragraph read
+   * "Mail goes out as MarketWar OS <info@marketwaros.com> instead, which is
+   * authenticated and does reach the inbox", and directly beneath it this
+   * function said "marketwaros.com is not authenticated for sending here, so
+   * mail from it will land in spam or bounce." Same address, opposite claims,
+   * one panel.
+   *
+   * Neither sentence was lying: "authenticated" meant two different things on
+   * the two sides of the boundary — authenticated on OUR sending pool, versus
+   * verified in this tenant's Sending Domains table. The platform address is
+   * the first and can never be the second, because a customer cannot add
+   * MarketWar's domain to their own list. The fact existed on one side and was
+   * never carried across, which is this codebase's oldest defect class.
+   */
+  platformFrom?: string | null,
 ): string {
   const value = String(fromEmail ?? "").trim().toLowerCase();
   if (!value) return "";
   const at = value.lastIndexOf("@");
   if (at < 1 || at === value.length - 1) return "That does not look like an email address.";
   const domain = value.slice(at + 1);
+
+  // Compared as a DOMAIN, not as a whole address: `EMAIL_FROM` carries a display
+  // name ("MarketWar OS <info@marketwaros.com>"), and a customer typing the bare
+  // address is naming the same authenticated sender. Matching the strings would
+  // warn about the platform's own address whenever it was typed rather than left
+  // blank — which is the exact state the owner was looking at.
+  const platform = String(platformFrom ?? "").trim().toLowerCase();
+  const platformDomain = platform.slice(platform.lastIndexOf("@") + 1).replace(/[>\s]+$/, "");
+  if (platformDomain && domain === platformDomain) return "";
+
   const list = domains ?? [];
   if (list.some((d) => String(d.domain).toLowerCase() === domain && d.status === "verified")) return "";
   if (list.some((d) => String(d.domain).toLowerCase() === domain)) {

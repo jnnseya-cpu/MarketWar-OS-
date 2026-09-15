@@ -328,6 +328,47 @@ if (!signedIn || !PERSIST) {
 }
 
 // ---------------------------------------------------------------------------
+// LIST HEALTH — and it must AGREE with the four contacts just written.
+//
+// The panel this drives used to compute its figures from an FNV-1a hash of the
+// brand's NAME and print "Projected inbox rate 96.8%". Asserting that the route
+// answers 200 with a well-formed body is what the old smoke check did, and it
+// passed the entire time the numbers were invented. So this asserts the counts
+// against the list the harness itself just wrote, which is the only assertion a
+// fabricated engine could not satisfy: four contacts, one without consent, one
+// on a disposable domain, leaving exactly two mailable.
+// ---------------------------------------------------------------------------
+if (!vaultOk) {
+  rec("List health is counted, not modelled", "skip", "No vault to count.");
+} else {
+  const h = await call("/api/email-metrics", { body: { brandId: BRAND, business: "Leeds Plumbing" } });
+  const health = h.json?.health;
+  if (h.status !== 200 || !health) {
+    rec("List health is counted, not modelled", "fail", `HTTP ${h.status}: ${JSON.stringify(h.json).slice(0, 200)}`);
+  } else {
+    const want = { total: 4, sendable: 2, no_consent: 1, disposable: 1 };
+    const got = {
+      total: health.total, sendable: health.sendable,
+      no_consent: health.refusedBy?.no_consent ?? 0, disposable: health.refusedBy?.disposable ?? 0,
+    };
+    const agrees = JSON.stringify(got) === JSON.stringify(want);
+    // A projected rate reappearing is the regression this step exists to catch.
+    const invented = ["projectedInboxRatePct", "projectedBounceRatePct", "projectedComplaintRatePct", "estimateNote"]
+      .filter((k) => h.json?.[k] !== undefined);
+    if (agrees && !invented.length && h.json.isEstimate === false) {
+      rec("List health is counted, not modelled", "pass",
+        `4 contacts written, 4 counted: 2 mailable, 1 refused for consent, 1 for a disposable domain — the exact list `
+        + `this harness wrote, and no projected rate anywhere in the response.`);
+    } else {
+      rec("List health is counted, not modelled", "fail",
+        invented.length
+          ? `The response carries invented field(s): ${invented.join(", ")}.`
+          : `Counted ${JSON.stringify(got)} but the harness wrote ${JSON.stringify(want)}.`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 4. TENANT ISOLATION. The one that matters most, and the one a green suite is
 //    least likely to cover: a SECOND real account must not reach the first's
 //    brand. Driven with a second real token, not reasoned about.
