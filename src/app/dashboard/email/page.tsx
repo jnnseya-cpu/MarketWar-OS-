@@ -31,25 +31,34 @@ import { useAuthUser } from "@/frontend/use-auth-user";
 import { applyDefaults, emailIdentityDefaults, fromAddressWarning, type SendingDomainLike, type SenderFields } from "@/shared/email-identity";
 import { type GroupSummary } from "@/shared/contact-groups";
 
-// Headline deliverability posture is COMPUTED per brand by the Email
-// Deliverability Posture Engine (/api/email-metrics) — every figure is a
-// clearly-labelled ESTIMATE / projection, never booked send history. Real
-// provider telemetry replaces the estimates in place once sends go live.
+// LIST HEALTH, COUNTED (/api/email-metrics).
+//
+// This block used to render a "Projected inbox rate" of 96.8%, a projected
+// bounce rate and a 14-day delivery projection, all computed from a hash of the
+// brand's NAME. The real split was on this same page, twenty lines down, in the
+// send preview — and disagreed with it threefold. Every figure here is now a
+// count of the brand's actual addresses through the send's own hygiene verdict.
+//
+// There is deliberately NO projected inbox rate. Nothing that reads a contact
+// list can know where a message lands; the platform measures that elsewhere and
+// this panel says where instead of inventing a number.
 type Posture = {
   business: string;
   listSize: number;
-  composition: { label: string; count: number; kind: "healthy" | "filtered" }[];
-  sendableCount: number;
-  filteredCount: number;
-  listHealthPct: number;
-  projectedInboxRatePct: number;
-  projectedSpamRatePct: number;
-  projectedBounceRatePct: number;
-  projectedComplaintRatePct: number;
-  days: number;
-  series: { label: string; delivered: number; filtered: number }[];
-  estimateNote: string;
-  isEstimate: true;
+  withoutEmail: number;
+  health: {
+    total: number;
+    sendable: number;
+    refused: number;
+    /** NULL on an empty list — never 0 and never 100. */
+    healthPct: number | null;
+    composition: { label: string; count: number; kind: "healthy" | "filtered" }[];
+    refusedBy: Partial<Record<"no_consent" | "invalid" | "disposable" | "suppressed" | "role", number>>;
+    verdict: string;
+  };
+  series: { days: { date: string; label: string; sent: number; failed: number }[]; empty: boolean; note: string };
+  placement: { measured: false; where: string };
+  isEstimate: false;
 };
 
 const PIPELINE = [
@@ -61,8 +70,16 @@ const PIPELINE = [
 
 const CAPABILITIES = [
   { icon: Inbox, title: "Inbox placement, earned", desc: "SPF + DKIM + DMARC (+ BIMI) on an isolated sending subdomain, engagement-first warm-up, RFC 8058 one-click unsubscribe — the mechanics that actually beat the spam folder." },
-  { icon: Flame, title: "Massive scale, governed ramp", desc: "Your own sending infrastructure with automatic failover — no third-party email provider. Capacity is unlimited; the AI governs the warm-up ramp so reputation never breaks." },
-  { icon: MailCheck, title: "Zero-bounce doctrine", desc: "Bounces are prevented before send (hygiene pipeline) and never repeated (suppression ledger). Target bounce rate < 0.5% — 6× inside the Gmail/Yahoo bulk-sender threshold." },
+  // "CAPACITY IS UNLIMITED" WAS ON THIS CARD, above a panel on the same screen
+  // reading "warm-up day 1 · today's safe limit 50 emails". Both cannot be true,
+  // and the one the reader acts on is the governor. What is actually unbounded
+  // is the infrastructure; what decides how much mail leaves today is
+  // reputation, and saying so is the more useful claim as well as the true one.
+  { icon: Flame, title: "Scale governed by reputation", desc: "Your own sending infrastructure with automatic failover — no third-party email provider. The hardware is not the limit; the warm-up ramp is, and today's limit is on the send panel below. It rises as clean sends land." },
+  // "ZERO-BOUNCE DOCTRINE" against a "< 0.5%" target in its own second sentence.
+  // A doctrine named after a number the same card declines to promise reads as
+  // a guarantee to anyone who stops at the title.
+  { icon: MailCheck, title: "Bounces prevented, then never repeated", desc: "Bad addresses are refused before a send is attempted (hygiene pipeline), and any address that does hard-fail goes on the suppression ledger and is never mailed again. The bar to stay under is Gmail and Yahoo's: bounces below 0.5%, complaints below 0.1%." },
 ];
 
 // A rate is graded on the server against published operating lines; the tile
@@ -397,21 +414,19 @@ export default function EmailPage() {
     // and the whole page crashes into the error boundary.
     const isPosture = (x: unknown): x is Posture => {
       const p = x as Partial<Posture> | null;
-      return !!p && typeof p.listSize === "number" && Array.isArray(p.series) && Array.isArray(p.composition);
+      return !!p && typeof p.listSize === "number"
+        && !!p.health && Array.isArray(p.health.composition)
+        && !!p.series && Array.isArray(p.series.days);
     };
     (async () => {
-      let listSize = 0;
-      try {
-        const vr = await authedFetch(`/api/contacts?brandId=${encodeURIComponent(activeBrand.id)}&business=${encodeURIComponent(activeBrand.name)}`);
-        const vd = await vr.json().catch(() => null);
-        listSize = typeof vd?.contactCount === "number" ? vd.contactCount : 0;
-      } catch { /* treat as empty */ }
-      if (cancelled) return;
-      if (listSize === 0) { setPosture(null); return; }
+      // NO PRE-FLIGHT CONTACT COUNT. It used to fetch the count first and hand
+      // it to the metrics route, which is exactly how a real number went out and
+      // a modelled one came back. The route reads the list itself now, so there
+      // is nothing for the browser to supply and nothing for it to get wrong.
       try {
         const r = await authedFetch("/api/email-metrics", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ business: activeBrand.name, listSize, days: 14 }),
+          body: JSON.stringify({ brandId: activeBrand.id, business: activeBrand.name, days: 14 }),
         });
         const json = await r.json().catch(() => null);
         if (!cancelled) setPosture(isPosture(json) ? json : null);
@@ -434,12 +449,15 @@ export default function EmailPage() {
     }
   }
 
+  // THE HEADLINE PROMISED "ZERO BOUNCES" while the card beneath it targeted
+  // "< 0.5%". A headline that guarantees what the body only targets is the shape
+  // of claim this platform's own site audit marks other people down for.
   return (
     <div>
       <PageHeader
         kicker="AI Email Command Center"
-        title="Massive email. Earned inboxing. Zero bounces."
-        subtitle="The M-34 transactional engine: every address passes the hygiene pipeline before a send is attempted, every send rides authenticated warmed reputation, and every hard failure is suppressed forever — volume scales with the provider pool, deliverability scales with discipline."
+        title="Bulk email that earns its way into the inbox"
+        subtitle="Every address passes the hygiene pipeline before a send is attempted, every send goes out on authenticated infrastructure under a warm-up ramp, and every hard failure is suppressed for good. Volume is governed by reputation, not by hardware."
         actions={
           activeBrand ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-ink-900/60 px-3 py-1.5 text-xs text-slate-300">
@@ -457,23 +475,53 @@ export default function EmailPage() {
           <>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-sm font-bold text-slate-300">
-                Deliverability posture · {posture.listSize.toLocaleString()} contacts in your vault
+                List health · {posture.listSize.toLocaleString()} address{posture.listSize === 1 ? "" : "es"} in your vault
               </h2>
-              <Pill tone="warn">hygiene split estimated on your real list · not booked send history</Pill>
+              <Pill tone="good">counted from your real list · not modelled</Pill>
             </div>
             <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Projected inbox rate" value={`${posture.projectedInboxRatePct}%`} sub="estimate — earned via hygiene + auth" tone="good" />
-              <StatCard label="Projected bounce rate" value={`${posture.projectedBounceRatePct}%`} sub="target < 0.5% — bounces prevented pre-send" tone={posture.projectedBounceRatePct < 0.5 ? "good" : "warn"} />
-              <StatCard label="Projected complaint rate" value={`${posture.projectedComplaintRatePct}%`} sub="target < 0.1% (estimate)" tone={posture.projectedComplaintRatePct < 0.1 ? "good" : "warn"} />
-              <StatCard label="Filtered pre-send (est.)" value={posture.filteredCount.toLocaleString()} sub={`of ${posture.listSize.toLocaleString()} — never sent to, never bounced`} tone="warn" />
+              <StatCard
+                label="Can be mailed now"
+                value={posture.health.sendable.toLocaleString()}
+                sub={`of ${posture.health.total.toLocaleString()} — through the send's own hygiene filter`}
+                tone={posture.health.healthPct !== null && posture.health.healthPct >= 90 ? "good" : "warn"}
+              />
+              <StatCard
+                label="Refused before sending"
+                value={posture.health.refused.toLocaleString()}
+                sub={posture.health.refused ? "bounces that will not happen — and people you cannot reach" : "every address passes"}
+                tone={posture.health.refused ? "warn" : "good"}
+              />
+              <StatCard
+                label="Already suppressed"
+                value={(posture.health.refusedBy.suppressed ?? 0).toLocaleString()}
+                sub="bounced, complained or unsubscribed — never mailed again"
+                tone={posture.health.refusedBy.suppressed ? "warn" : "good"}
+              />
+              {/* WHERE THE MAIL LANDS IS MEASURED, NOT MODELLED. This tile used
+                  to read "Projected inbox rate 96.8%", computed from a hash of
+                  the brand name. Nothing that reads a contact list can know
+                  where a message lands, so this says which surface does. */}
+              <StatCard
+                label="Inbox placement"
+                value="measured, not here"
+                sub="seed probe + Gmail Postmaster — see below"
+                tone="neutral"
+              />
             </div>
+            <p className="-mt-6 mb-8 text-xs leading-relaxed text-slate-500">
+              {posture.health.verdict}{posture.withoutEmail > 0 && ` A further ${posture.withoutEmail.toLocaleString()} vault row${posture.withoutEmail === 1 ? " has" : "s have"} no email address at all, so ${posture.withoutEmail === 1 ? "it is" : "they are"} not counted above and cannot be mailed either.`}{" "}
+              <span className="text-slate-400">{posture.placement.where}</span>
+            </p>
           </>
         ) : (
           <div className="mb-8 card border-emerald-500/20 p-6 text-center">
             <Building2 className="mx-auto mb-2 h-7 w-7 text-emerald-500/60" />
-            <h3 className="font-display font-bold text-white">No contacts yet — nothing to model</h3>
+            <h3 className="font-display font-bold text-white">No list to count yet</h3>
             <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
-              Deliverability posture is keyed off your real Customer Vault — no fabricated list. Import contacts and the inbox/bounce/list-health figures compute from your actual list. You can still run the live hygiene filter below right now.
+              List health is counted from your real Customer Vault — there is no modelled list and no sample data. Import
+              contacts and every figure here is the result of running the send&rsquo;s own hygiene filter over your actual
+              addresses. You can still run that filter by hand below right now.
             </p>
           </div>
         )
@@ -503,28 +551,40 @@ export default function EmailPage() {
         <div className="mb-8 grid gap-6 lg:grid-cols-5">
           <div className="card p-5 lg:col-span-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-display font-bold text-white">Delivered vs filtered — {posture.days}-day projection</h2>
-              <Pill tone="warn">estimate — not booked history</Pill>
+              <h2 className="font-display font-bold text-white">Sent in the last {posture.series.days.length} days</h2>
+              <Pill tone={posture.series.empty ? "warn" : "good"}>{posture.series.empty ? "nothing sent yet" : "send ledger"}</Pill>
             </div>
-            <AreaChart
-              labels={posture.series.map((p) => p.label)}
-              series={[
-                { name: "Delivered (projected)", data: posture.series.map((p) => p.delivered) },
-                { name: "Filtered pre-send (projected)", data: posture.series.map((p) => p.filtered) },
-              ]}
-              height={230}
-            />
-            <p className="mt-2 text-xs text-slate-500">{posture.estimateNote}</p>
+            {/* AN EMPTY LEDGER DRAWS NOTHING. The chart this replaces plotted a
+                weekday-shaped curve scaled by a hash of the brand name and
+                called it a projection — so a brand that had never sent a message
+                still showed a fortnight of confident traffic. A flat line of
+                real zeroes would be almost as misleading, so when nothing was
+                sent there is no chart at all, just the sentence saying so. */}
+            {posture.series.empty ? (
+              <p className="py-10 text-center text-sm text-slate-400">{posture.series.note}</p>
+            ) : (
+              <>
+                <AreaChart
+                  labels={posture.series.days.map((p) => p.label)}
+                  series={[
+                    { name: "Sent", data: posture.series.days.map((p) => p.sent) },
+                    { name: "Bounced or complained", data: posture.series.days.map((p) => p.failed) },
+                  ]}
+                  height={230}
+                />
+                <p className="mt-2 text-xs text-slate-500">{posture.series.note}</p>
+              </>
+            )}
           </div>
           <div className="card p-5 lg:col-span-2">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="font-display font-bold text-white">List health</h2>
-              <Pill tone="warn">estimate</Pill>
+              <h2 className="font-display font-bold text-white">Why addresses are refused</h2>
+              <Pill tone="good">counted</Pill>
             </div>
             <DonutChart
-              data={posture.composition.filter((c) => c.count > 0).map((c) => ({ label: c.label, value: c.count }))}
-              centerValue={`${posture.listHealthPct}%`}
-              centerLabel="list health (est.)"
+              data={posture.health.composition.filter((c) => c.count > 0).map((c) => ({ label: c.label, value: c.count }))}
+              centerValue={posture.health.healthPct === null ? "—" : `${posture.health.healthPct}%`}
+              centerLabel={posture.health.healthPct === null ? "no addresses" : "can be mailed"}
               size={185}
             />
           </div>
@@ -647,8 +707,16 @@ export default function EmailPage() {
         {engineMode === "live" && (
           <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-xs text-emerald-200">
             <span className="font-bold">Live sending is connected{engineInfo.provider ? ` via ${engineInfo.provider.toUpperCase()}` : ""}.</span> Emails leave through your provider pool. Send a test to yourself first, confirm it lands, then send to the vault.
+            {/* THIS USED TO TELL THE OWNER TO AUTHENTICATE MARKETWAR'S OWN
+                DOMAIN in their Sending Domains — which they cannot do, and which
+                contradicted the note beside it saying that exact address is
+                authenticated and reaches the inbox. `engineInfo.from` IS the
+                platform's sending identity, authenticated on our pool by
+                definition. What is worth saying is the thing that is both true
+                and costly to them: recipients see MarketWar's name, not theirs,
+                until they add a domain. */}
             {engineInfo.from && (
-              <span className="mt-1 block text-emerald-300/80">Sending as <span className="font-mono">{engineInfo.from}</span>. This address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM) or mail will be rejected or spam-foldered. Set <span className="font-mono">EMAIL_FROM</span> to change it.</span>
+              <span className="mt-1 block text-emerald-300/80">Sending as <span className="font-mono">{engineInfo.from}</span> — MarketWar&rsquo;s own authenticated address, so it reaches the inbox. Recipients see that name rather than yours; add and verify your own domain in <span className="text-emerald-300">Sending Domains</span> to send as yourself.</span>
             )}
           </div>
         )}
@@ -662,8 +730,12 @@ export default function EmailPage() {
               unless it says it was left blank on purpose. */}
           {fromNote && <p className="text-[11px] leading-relaxed text-slate-500">{fromNote}</p>}
           {/* A hand-typed address gets the check the prefilled one never needed. */}
-          {fromAddressWarning(fromEmail, domains) && (
-            <p className="rounded-md bg-amber-500/[0.07] px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-200">{fromAddressWarning(fromEmail, domains)}</p>
+          {/* THE PLATFORM SENDER IS PASSED IN. Without it this warned that
+              MarketWar's own authenticated address "will land in spam or
+              bounce", two lines under a note saying that same address is
+              authenticated and does reach the inbox. */}
+          {fromAddressWarning(fromEmail, domains, engineInfo.from ?? "") && (
+            <p className="rounded-md bg-amber-500/[0.07] px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-200">{fromAddressWarning(fromEmail, domains, engineInfo.from ?? "")}</p>
           )}
           <p className="text-[11px] text-slate-500">Send as your <span className="text-slate-300">own domain</span> — the address&rsquo;s domain must be authenticated in <span className="text-emerald-300">Sending Domains</span> (DKIM), or mail won&rsquo;t reach the inbox. Leave blank to use the platform sender.</p>
           <div className="flex flex-wrap items-center gap-2">
@@ -675,7 +747,13 @@ export default function EmailPage() {
               </p>
             )}
           </div>
-          <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave it blank and replies come to your own MarketWar reply address instead, where they appear in your Inbox here; that needs no DNS from you and always works. Bounce notifications never reach you — they&rsquo;re handled by the platform and only the address that actually failed is suppressed.</p>
+          {/* "ALWAYS WORKS" WAS NOT TRUE AND THE LIVE CHECK ABOVE ALREADY SAID SO.
+              A MarketWar reply address is only issued when MW_REPLY_HOST is
+              configured with an MX record behind it; on a deployment without it
+              no reply address exists and Reply-to falls back to the From. The
+              panel is a fixed sentence, `replyCheck` is the measurement, and the
+              fixed sentence was overriding it. It now defers. */}
+          <p className="text-[11px] text-slate-500">When someone <span className="text-slate-300">replies</span>, it goes to this address — set it to an inbox you actually read (your Gmail/Outlook/work email). Leave it blank and the line above says exactly where replies will land on this deployment; it is checked, not assumed. Bounce notifications never reach you — they&rsquo;re handled by the platform and only the address that actually failed is suppressed.</p>
           {templates.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <select className="input max-w-[280px]" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>

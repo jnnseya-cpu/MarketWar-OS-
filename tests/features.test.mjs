@@ -9895,12 +9895,28 @@ test("the panels survive a response shape they did not expect", async () => {
   assert.match(growth, /Array\.isArray\(d\.windows\)/);
 });
 
-test("the Reply-to help no longer promises what the fix removed", () => {
-  // It said "Leave blank to receive replies at the From address above" — which
-  // is precisely the default that lost every reply.
+test("the Reply-to help promises nothing it cannot check", () => {
+  // TWO THINGS THIS HAS HAD TO STOP PROMISING.
+  //
+  // First: "Leave blank to receive replies at the From address above" — the
+  // default that lost every reply, removed when that was fixed.
+  //
+  // Second, and it replaced the first: "replies come to your own MarketWar
+  // reply address instead, where they appear in your Inbox here; that needs no
+  // DNS from you and always works." A MarketWar reply address is only issued
+  // when MW_REPLY_HOST is configured with an MX record behind it. On a
+  // deployment without it — which is this one — no reply address exists and
+  // Reply-to falls back to the From, so the sentence promised the very thing
+  // the first fix removed, one rewrite later. `replyCheck` does a real MX
+  // lookup and prints the answer directly above; a fixed sentence asserting the
+  // outcome was overriding the measurement standing next to it.
   const page = readFileSync(new URL("../src/app/dashboard/email/page.tsx", import.meta.url), "utf8");
   assert.ok(!/Leave blank to receive replies at the From address/.test(page));
-  assert.match(page, /Leave it blank and replies come to your own MarketWar reply address/);
+  assert.ok(!/always works/.test(page),
+    "a reply address that depends on MW_REPLY_HOST cannot be described as always working");
+  assert.match(page, /the line above says exactly where replies will land/,
+    "the help must defer to the live MX check rather than assert an outcome of its own");
+  assert.match(page, /setReplyCheck/, "and that check must actually run");
 });
 
 test("the crash report route records what the boundary sends it", async () => {

@@ -1868,6 +1868,19 @@ test("a hand-typed address gets the check the prefilled one never needed", () =>
   assert.match(ident.fromAddressWarning("hi@half.com", domains), /added but not verified yet/);
   assert.match(ident.fromAddressWarning("hi@stranger.com", domains), /not authenticated for sending here/);
   assert.match(ident.fromAddressWarning("not-an-address", domains), /does not look like an email address/);
+
+  // THE PLATFORM'S OWN SENDING ADDRESS IS NOT A STRANGER'S DOMAIN. A customer
+  // cannot add MarketWar's domain to their Sending Domains, so checking it
+  // against that list could only ever fail — and it did, on the live page,
+  // directly under a note calling the same address authenticated. Compared by
+  // DOMAIN because EMAIL_FROM carries a display name.
+  const platform = "MarketWar OS <info@marketwaros.com>";
+  assert.equal(ident.fromAddressWarning("info@marketwaros.com", domains, platform), "",
+    "the platform's own authenticated address must never be flagged as unauthenticated");
+  assert.equal(ident.fromAddressWarning("anything@marketwaros.com", domains, platform), "",
+    "matched on the domain, because EMAIL_FROM carries a display name and a local part");
+  assert.match(ident.fromAddressWarning("hi@stranger.com", domains, platform), /not authenticated for sending here/,
+    "and a genuinely unauthenticated domain is still caught");
 });
 
 test("the Email Centre actually applies the defaults, and shows the reason", async () => {
@@ -1881,7 +1894,11 @@ test("the Email Centre actually applies the defaults, and shows the reason", asy
   assert.match(page, /userEmail: user\?\.email/, "the reply-to comes from the signed-in account");
   assert.match(page, /brandName: activeBrand\.name/);
   assert.match(page, /\{fromNote &&/, "a blank field must say it was left blank on purpose");
-  assert.match(page, /fromAddressWarning\(fromEmail, domains\)/);
+  // THE PLATFORM SENDER MUST BE PASSED IN. Without the third argument this
+  // warned that MarketWar's own authenticated address "will land in spam or
+  // bounce", two lines beneath a note saying that exact address is authenticated
+  // and does reach the inbox — the same address, opposite claims, one panel.
+  assert.match(page, /fromAddressWarning\(fromEmail, domains, engineInfo\.from/);
 });
 
 test("switching brand clears every panel that belonged to the previous one", async () => {
