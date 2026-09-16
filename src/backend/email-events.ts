@@ -16,6 +16,7 @@ if (typeof window !== "undefined") {
 // be forged to poison a brand's stats or suppress a rival's list.
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { sealToken, openToken, isOpaqueToken } from "@/backend/opaque-token";
 import { FieldPath } from "firebase-admin/firestore";
 import { timed } from "@/backend/store-health";
 
@@ -43,15 +44,50 @@ const MEM_CAP = 5000;
 
 const SECRET = () => process.env.EMAIL_TRACKING_SECRET || process.env.CRON_SECRET || "mw-dev-tracking-secret";
 
-// --- signed tracking token: brandId|email|campaign, HMAC-truncated ---
+// --- OPAQUE TRACKING TOKEN ---------------------------------------------------
+//
+// This used to be `base64url("brandId|email|campaign") + "." + hmac`. The HMAC
+// stopped forgery and did nothing about reading: base64 is an encoding, not a
+// cipher, so the recipient's address travelled in cleartext inside every open
+// pixel, every wrapped link and every unsubscribe URL — into our access logs,
+// into every proxy on the way, into the Referer of anything the click
+// redirector forwarded to, and into the body of any message that got forwarded
+// on. `backend/crypto.ts` encrypts those same addresses at rest per tenant,
+// which the query string then undid for anyone who could read a log.
+//
+// Now it is sealed with AES-256-GCM (`backend/opaque-token.ts`). The tag
+// authenticates, so the separate HMAC is gone rather than kept alongside.
+/** Purpose label — binds these tokens to this endpoint family and no other. */
+const TRACKING_PURPOSE = "email-tracking";
+
 export function signToken(brandId: string, email: string, campaign = ""): string {
-  const payload = `${brandId}|${email.toLowerCase()}|${campaign}`;
-  const b64 = Buffer.from(payload).toString("base64url");
-  const sig = createHmac("sha256", SECRET()).update(b64).digest("base64url").slice(0, 24);
-  return `${b64}.${sig}`;
+  return sealToken([brandId, email.toLowerCase(), campaign], TRACKING_PURPOSE, SECRET());
 }
 
+/**
+ * Read a tracking token, sealed or legacy.
+ *
+ * THE LEGACY READER STAYS, AND IT IS NOT LAZINESS. Messages already delivered
+ * carry the old format, and one of the things those links do is UNSUBSCRIBE.
+ * Refusing them would mean a recipient who asks to be removed is told the link
+ * is invalid — which is a worse outcome than the disclosure being fixed, and
+ * under the Gmail and Yahoo bulk-sender rules a working one-click unsubscribe is
+ * not optional. Nothing new is ever minted in the old format, so the exposure
+ * stops immediately and the mail already in people's inboxes keeps working.
+ */
 export function verifyToken(token: string): { brandId: string; email: string; campaign: string } | null {
+  if (isOpaqueToken(token)) {
+    const parts = openToken(token, TRACKING_PURPOSE, SECRET());
+    if (!parts) return null;
+    const [brandId, email, ...rest] = parts;
+    if (!brandId || !email) return null;
+    // The remainder is rejoined rather than indexed, so a campaign containing
+    // the separator survives — the legacy parser dropped everything past the
+    // third field.
+    return { brandId, email, campaign: rest.join("") };
+  }
+
+  // --- legacy: base64url(brandId|email|campaign).hmac24 ---
   const [b64, sig] = (token || "").split(".");
   if (!b64 || !sig) return null;
   const expected = createHmac("sha256", SECRET()).update(b64).digest("base64url").slice(0, 24);

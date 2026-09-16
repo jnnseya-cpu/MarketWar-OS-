@@ -7593,3 +7593,120 @@ and anyone forwarded the mail. That sits oddly beside `FIELD_ENCRYPTION_MASTER_K
 protecting the same addresses at rest. With one message sent in the platform's
 life, now is the cheapest moment to change the format to an opaque id. It needs
 an owner decision because links already in the wild would stop resolving.
+
+## §145 — The address is out of the URL (2026-09-16)
+
+Owner: "Do it." §144 closed with a finding left for a decision — every tracking
+and unsubscribe link carried the recipient's address as cleartext base64:
+
+```
+/api/track/open?t=bWFya2V0d2F0fHNvbWVib2R5QGV4YW1wbGUuY29tfA.LOCYMglv…
+                  └─ base64url("brandId|somebody@example.com|campaign")
+```
+
+The HMAC after the dot is real and stops FORGERY. It does nothing about READING,
+because base64 is an encoding and not a cipher. So the address went into our own
+access logs, every proxy between the reader and us, the Referer of anything the
+click redirector forwarded to, and the plain text of any message forwarded on —
+while `backend/crypto.ts` encrypts those same addresses at rest, per tenant,
+because the Terms promise it.
+
+### Both of them, not one
+
+**The newsletter had the identical defect in its own function**
+(`b64url(Buffer.from(e))`). Fixing one instance and leaving its twin is a failure
+already catalogued twice here (`/api/health/email` vs `/api/health/stripe`), so
+both went through one new primitive in one change.
+
+### `backend/opaque-token.ts`
+
+AES-256-GCM, key derived by HKDF from the caller's secret and a PURPOSE label —
+the same primitives and idioms as `backend/crypto.ts`, because a second way of
+doing encryption in one codebase is how one of them ends up unreviewed.
+
+- **Opaque.** The URL carries ciphertext; nothing reads out of it without the key.
+- **Unforgeable.** The GCM tag authenticates. The separate HMAC is *replaced*,
+  not kept alongside.
+- **Purpose-bound.** A newsletter unsubscribe token cannot be replayed at the
+  open-tracking endpoint — different purpose, different derived key.
+- **Non-correlatable.** A random IV per token, so the same address in two
+  messages yields two unrelated strings. Nobody can tell from the URLs that two
+  sends went to the same person. (A deterministic seal would have given that
+  away and is the easy mistake here.)
+- **Never throws.** These arrive from URLs anybody can type.
+
+### What it honestly is not
+
+**Not a stored random id.** The ciphertext still *contains* the address, so an
+attacker holding both the deployment's secret and old logs could read them
+retroactively. A stored id would not have that property — and would cost one
+datastore write per recipient per send, which on a bulk platform is a real cost
+and a real failure mode: a write that fails leaves a dead unsubscribe link.
+Stateless was the right trade, and saying so plainly is part of making it.
+
+### The legacy reader stays, deliberately
+
+Messages already delivered carry the old token, and one of the things those links
+do is **unsubscribe**. Refusing them to tidy up a format would tell somebody
+asking to be removed that their link is invalid — worse than the disclosure it
+tidies, and not permitted under the Gmail/Yahoo bulk-sender rules this platform
+sells against. **Nothing new is minted in the old format**, so the exposure stops
+immediately and the mail already in people's inboxes keeps working. Proven both
+ways against a live server.
+
+### `tracking-secret-default` — a new launch finding
+
+Sealing is only as good as the secret. With `EMAIL_TRACKING_SECRET` unset the key
+derives from `CRON_SECRET` or a default published in this repository, and a token
+sealed under a published default is opaque to a log reader and not to a determined
+one. Raised as a **warning, and only where mail actually leaves** — a deployment
+that sends nothing mints no tokens, and a permanent red light nobody can clear is
+one people learn to ignore. It is a combination, not a variable check.
+
+### Verified
+
+`npm run verify` green: 1,977 tests, 0 failures. **Thirteen mutations across the
+four files, all killed** — including "mints the legacy cleartext format again",
+"newsletter mints cleartext again", "legacy links stop working", "fixed IV", "no
+purpose binding" and "auth tag never checked".
+
+**Two equivalent mutants, recorded in the source rather than left to look like
+coverage:** `"base64url"` → `"base64"` in `openToken` survives because Node's
+base64 decoder also accepts the URL-safe alphabet (it does NOT survive in
+`sealToken`, which is the direction that matters), and the length guard survives
+because the crypto primitives throw on a short buffer anyway.
+
+**Driven against a real running build, a real Firestore and a real TLS SMTP
+server** — two campaign messages actually delivered, then the bytes off the wire
+read back:
+
+- 4 tracking URLs in the delivered message, **0 whose token decodes to an address**
+  under base64url, base64, hex or latin1.
+- `List-Unsubscribe` and `List-Unsubscribe-Post` present and sealed (RFC 8058).
+- The sealed unsubscribe link **taken from the delivered message** POSTed
+  one-click → `{"ok":true}`, and the correct address appears in
+  `email_suppressions` with `reason: "unsubscribe"`. Opaque *and* working.
+- A legacy token minted with the same secret → also `{"ok":true}`. Its payload
+  visibly decodes to `drive-…|bob@example.org|`, which is the defect being fixed.
+
+A harness step now guards it repeatably: **"Tracking links do not carry the
+address"** pulls every token out of the rendered body the preview produces and
+tries the obvious decodings. 12 proven, 0 broken.
+
+### Found while driving it, NOT fixed — needs an owner decision
+
+**The in-memory suppression ledger is global; the durable one is per-tenant.**
+`email-events.suppressedEmails` filters `where("brandId","==",brandId)` — correct.
+`email.ts`'s `suppressionLedger` is a bare `Set<string>` with no brand key, and
+`validateAddress` consults it for every brand. On a long-lived process, one
+tenant's unsubscribe makes that address unsendable for **every other tenant**
+until restart, and it shows up on the new List Health panel as this tenant's
+suppression. Surfaced by the harness failing on a second run in the same process.
+
+It over-suppresses, so nobody is mailed who opted out — the safe direction, which
+is why it has gone unnoticed. **Not fixed here on purpose:** the remedy is to key
+the in-memory set by brand, and the newsletter deliberately wants a
+platform-wide opt-out under a reserved id (its own comment says so). Getting that
+split wrong turns an over-suppression into an UNDER-suppression, which means
+mailing somebody who asked not to be — strictly worse. It wants a decision about
+which opt-outs are platform-wide, not a quick patch.

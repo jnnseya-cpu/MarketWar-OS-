@@ -45,6 +45,7 @@ import { siteUrl } from "@/shared/site";
 import { validateAddress, suppress } from "@/backend/email";
 import { addSuppression } from "@/backend/email-events";
 import { record as auditRecord } from "@/backend/audit-log";
+import { sealToken, openToken, isOpaqueToken } from "@/backend/opaque-token";
 
 const hid = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
@@ -63,6 +64,7 @@ const memOptOuts = new Set<string>();
 const memSent = new Map<string, string>();
 
 const norm = (e: string) => (e || "").trim().toLowerCase();
+
 
 function secret(env: NodeJS.ProcessEnv = process.env): string {
   return (env.NEWSLETTER_SECRET || env.PORTAL_LINK_SECRET || env.HUMAN_CHECK_SECRET || "").trim();
@@ -83,12 +85,23 @@ export function newsletterConfigured(env: NodeJS.ProcessEnv = process.env): bool
 
 const b64url = (b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-/** A signed, permanent unsubscribe token for one address. */
+/** Purpose label — a newsletter token cannot be replayed at a campaign endpoint. */
+const NEWSLETTER_PURPOSE = "newsletter-unsubscribe";
+
+/**
+ * A sealed, permanent unsubscribe token for one address.
+ *
+ * THIS WAS THE TWIN. The campaign tracking token carried the recipient's address
+ * as cleartext base64 in the URL, and so did this one — `b64url(Buffer.from(e))`
+ * decodes straight back to the address. Fixing one instance of a defect and
+ * leaving its twin is a failure this repository has catalogued twice already, so
+ * both went through the same primitive in the same change.
+ *
+ * The HMAC is gone rather than kept beside the cipher: AES-256-GCM's tag
+ * authenticates, which is what the HMAC was for.
+ */
 export function unsubscribeToken(email: string, env: NodeJS.ProcessEnv = process.env): string {
-  const e = norm(email);
-  const payload = b64url(Buffer.from(e));
-  const sig = b64url(createHmac("sha256", secret(env)).update(e).digest());
-  return `${payload}.${sig}`;
+  return sealToken([norm(email)], NEWSLETTER_PURPOSE, secret(env));
 }
 
 export function unsubscribeUrl(email: string, env: NodeJS.ProcessEnv = process.env): string {
@@ -107,14 +120,29 @@ export type UnsubResult = { ok: false; error: string } | { ok: true; email: stri
  */
 export async function unsubscribe(token: string, env: NodeJS.ProcessEnv = process.env): Promise<UnsubResult> {
   if (!newsletterConfigured(env)) return { ok: false, error: "Unsubscribe links are not configured on this deployment." };
-  const parts = (token || "").split(".");
-  if (parts.length !== 2) return { ok: false, error: "That unsubscribe link is not valid." };
+  // SEALED FIRST, LEGACY SECOND — and the legacy reader is kept deliberately.
+  // Newsletters already delivered carry the old token, and the thing those links
+  // do is let somebody LEAVE. Refusing them to tidy up a format would tell a
+  // person asking to be removed that their link is invalid, which is worse than
+  // the disclosure being closed and is not allowed under the bulk-sender rules
+  // this file's own header is built around. Nothing new is minted in the old
+  // format, so the exposure stops today and nobody loses their way out.
+  let email = "";
+  const sealed = openToken(token || "", NEWSLETTER_PURPOSE, secret(env));
+  if (sealed) {
+    email = norm(sealed[0] || "");
+    if (!email) return { ok: false, error: "That unsubscribe link is not valid." };
+  } else {
+    if (isOpaqueToken(token || "")) return { ok: false, error: "That unsubscribe link is not valid." };
+    const parts = (token || "").split(".");
+    if (parts.length !== 2) return { ok: false, error: "That unsubscribe link is not valid." };
 
-  const email = norm(Buffer.from(parts[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
-  const expected = Buffer.from(b64url(createHmac("sha256", secret(env)).update(email).digest()));
-  const given = Buffer.from(parts[1]);
-  if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
-    return { ok: false, error: "That unsubscribe link is not valid." };
+    email = norm(Buffer.from(parts[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+    const expected = Buffer.from(b64url(createHmac("sha256", secret(env)).update(email).digest()));
+    const given = Buffer.from(parts[1]);
+    if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
+      return { ok: false, error: "That unsubscribe link is not valid." };
+    }
   }
 
   memOptOuts.add(email);
