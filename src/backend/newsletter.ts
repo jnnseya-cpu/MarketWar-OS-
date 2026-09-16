@@ -147,21 +147,30 @@ export async function unsubscribe(token: string, env: NodeJS.ProcessEnv = proces
 
   memOptOuts.add(email);
 
-  // THERE IS ALREADY A SUPPRESSION LEDGER AND THIS FEEDS IT.
+  // THIS BLOCK USED TO CALL THE GLOBAL `suppress()`, AND ITS OWN COMMENT SAID
+  // WHY IT SHOULD NOT.
   //
-  // `/api/track/unsubscribe` has handled brand-campaign opt-outs since long
-  // before this file, and it works through `email-events.recordEvent`, which
-  // calls `suppress()` and writes a durable row. Two mailing lists genuinely do
-  // exist — a customer leaving AxionOS's campaigns must not stop MarketWar
-  // writing to the AxionOS OWNER, and the reverse — so the LISTS are separate.
+  // The reasoning above this line read: "Two mailing lists genuinely do exist —
+  // a customer leaving AxionOS's campaigns must not stop MarketWar writing to
+  // the AxionOS OWNER, and the reverse — so the LISTS are separate." Correct.
+  // The next statement was `suppress(email)`, which is brandless, so somebody
+  // unsubscribing from MarketWar's newsletter was silently removed from every
+  // CUSTOMER's campaign list too: exactly "the reverse" the comment forbade.
   //
-  // But "never mail this address again" must have one answer, not two. So this
-  // writes to the same in-memory ledger AND the same durable collection the
-  // campaign path uses, under the reserved platform id. Without that, an opt-out
-  // here would survive a restart in its own collection and be invisible to every
-  // other send path in the platform.
-  suppress(email);
-  await addSuppression(PLATFORM_LIST, email, "newsletter unsubscribe").catch(() => { /* the fast path already holds it */ });
+  // It was justified by "'never mail this address again' must have one answer,
+  // not two" — but that answer was kept in a process-local Set, on serverless
+  // instances that come and go, so it was gone by the next cold start. The one
+  // answer was never delivered; the cross-tenant damage was the only durable
+  // effect.
+  //
+  // NOTHING IS WEAKENED BY REMOVING IT. This opt-out is enforced by
+  // `hasOptedOut`, which `resolveRecipients` consults before every newsletter
+  // send, and which reads `memOptOuts` AND the durable `newsletter_optouts`
+  // collection written below. The `PLATFORM_LIST` row keeps it visible to the
+  // shared suppression surfaces. A person who leaves the newsletter stays gone
+  // from the newsletter — and stays reachable by the business they actually
+  // asked to hear from.
+  await addSuppression(PLATFORM_LIST, email, "newsletter unsubscribe").catch(() => { /* memOptOuts + the durable opt-out row already hold it */ });
   if (useDb()) {
     try { await adminDb!.collection(OPTOUTS).doc(hid(email)).set({ email, at: new Date().toISOString() }); } catch { /* memory holds it */ }
   }

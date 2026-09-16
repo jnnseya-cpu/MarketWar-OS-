@@ -16541,22 +16541,41 @@ test("newsletter: with no user register it sends to nobody and says so", async (
     "an empty register is reported as a failure rather than as the truth about the deployment");
 });
 
-test("newsletter: leaving feeds the ONE suppression ledger, not a second one", async () => {
-  // /api/track/unsubscribe has handled brand-campaign opt-outs since long before
-  // the newsletter existed. The lists are genuinely separate — a customer
-  // leaving a brand's campaigns must not stop us writing to that brand's OWNER —
-  // but "never mail this address again" must have one answer, not two.
+test("newsletter: leaving OUR list does not remove you from a CUSTOMER's list", async () => {
+  // THIS TEST ASSERTED THE OPPOSITE AND THE OPPOSITE WAS THE DEFECT.
+  //
+  // It required a brandless `suppress(email)` on the reasoning that "never mail
+  // this address again must have one answer, not two". But the lists ARE two —
+  // this file's own comment said so: "a customer leaving a brand's campaigns
+  // must not stop us writing to that brand's OWNER, and the reverse". The
+  // brandless call did precisely "the reverse": somebody unsubscribing from
+  // MarketWar's newsletter was silently dropped from every customer's campaign
+  // list, because `validateAddress` consults that global set for every tenant.
+  //
+  // And the "one answer" was never delivered anyway — the set is process-local,
+  // on serverless instances that come and go, so it was gone by the next cold
+  // start. The cross-tenant damage was the only durable effect.
+  //
+  // What replaced it is unchanged in the direction that matters: the newsletter
+  // opt-out is still honoured, durably, by the newsletter's own send path.
   const src = readFileSync(new URL("../src/backend/newsletter.ts", import.meta.url), "utf8");
-  assert.match(src, /from "@\/backend\/email-events"/,
-    "the newsletter keeps its own suppression list, invisible to every other send path in the platform");
-  assert.match(src, /addSuppression\(PLATFORM_LIST/, "opt-outs are not written to the durable shared ledger");
-  assert.match(src, /suppress\(email\)/, "opt-outs do not reach the fast in-memory ledger");
+  assert.match(src, /addSuppression\(PLATFORM_LIST/,
+    "the opt-out is still written to the durable shared ledger under the platform id");
+  assert.doesNotMatch(src.replace(/^\s*\/\/.*$/gm, ""), /\n\s*suppress\(email\);/,
+    "but never to the brandless in-memory ledger, which silences every other tenant");
 
   news.__resetNewsletter();
-  const { suppress: _s, validateAddress: check } = await import("../src/backend/email.ts");
+  const { validateAddress: check } = await import("../src/backend/email.ts");
   await news.unsubscribe(news.unsubscribeToken("gone@example.com", NENV), NENV);
-  assert.equal(check("gone@example.com").sendable, false,
-    "an address that left the newsletter is still sendable by the rest of the platform");
+
+  // STILL GONE FROM THE NEWSLETTER — the under-suppression direction, and the
+  // one that would actually hurt somebody if it broke.
+  assert.equal(await news.hasOptedOut("gone@example.com"), true,
+    "a person who left the newsletter must never receive another one");
+
+  // AND STILL REACHABLE by the business they genuinely subscribed to.
+  assert.equal(check("gone@example.com").sendable, true,
+    "leaving MarketWar's newsletter must not empty a customer's own mailing list");
 });
 
 test("newsletter: the unsubscribe page is never indexed", () => {

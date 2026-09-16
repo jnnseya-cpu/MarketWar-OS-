@@ -144,6 +144,35 @@ export async function POST(req: NextRequest) {
     if (!to || !subject || !html) {
       return NextResponse.json({ error: "to, subject and html required" }, { status: 400 });
     }
+
+    // HONOUR THE BRAND'S OWN UNSUBSCRIBES WHEN A BRAND IS NAMED.
+    //
+    // Unsubscribes are per-brand and durable; they are no longer mirrored into
+    // the process-global hard-failure set, which is what used to make one
+    // tenant's opt-out silence every other tenant. `sendEmail` consults that
+    // global set (bounces and complaints) and cannot know about a brand it was
+    // never told about — so this path asks, whenever the caller names one.
+    //
+    // OPTIONAL, BECAUSE THIS IS THE TRANSACTIONAL DOOR. A receipt, a password
+    // reset or a test to yourself is not bound by a marketing opt-out, and
+    // refusing those would break things that must not break. Naming a brand is
+    // how a caller says "this is that brand's mail" — and then its opt-outs
+    // apply in full. The campaign path is unaffected: it has always loaded the
+    // per-brand set itself.
+    const scopeBrand = typeof body.brandId === "string" ? body.brandId.trim() : "";
+    if (scopeBrand) {
+      const access = await resolveBrandAccess(req, scopeBrand);
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+      const { suppressedEmails } = await import("@/backend/email-events");
+      const optedOut = await suppressedEmails(scopeBrand);
+      if (optedOut.has(to.trim().toLowerCase())) {
+        return NextResponse.json({
+          ok: false, mode: "blocked", provider: "suppression-ledger", id: null, filteredOut: [],
+          failure: "suppressed",
+          detail: "That address has unsubscribed from this brand, bounced, or reported its mail as spam. It is on the brand's suppression ledger and is never contacted again.",
+        }, { status: 422 });
+      }
+    }
     const result = await sendEmail({ to, subject, html, transactional: true, attachments: single.length ? single : undefined });
     return NextResponse.json(result, { status: result.ok ? 200 : 422 });
   }
