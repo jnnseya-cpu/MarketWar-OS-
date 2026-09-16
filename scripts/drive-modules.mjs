@@ -413,6 +413,37 @@ if (!vaultOk) {
     rec("Campaign preview", "pass",
       `${pv.recipients} eligible of 4 written (consent and hygiene applied), ${pv.samples.length} rendered samples, `
       + `${blockers.length} blocker(s), ${(pv.checks ?? []).length} check(s). First subject: "${pv.samples[0].subject}".`);
+
+    // THE TRACKING LINKS MUST NOT SPELL OUT WHO THEY ARE FOR.
+    //
+    // Every open pixel, wrapped link and unsubscribe URL used to carry
+    // `base64url("brandId|email|campaign")`, which decodes in one step — into our
+    // access logs, into every proxy in between, into the Referer of whatever the
+    // click redirector forwarded to, and into any forwarded copy of the message.
+    // This reads the ACTUAL rendered body the preview produces, pulls every
+    // token out of it, and tries the obvious decodings. Asserted here rather
+    // than only in a unit test because this is the HTML a recipient receives.
+    const html = pv.samples.map((x) => x.html || "").join("\n");
+    const tokens = [...html.matchAll(/[?&]t=([A-Za-z0-9._~-]+)/g)].map((m) => m[1]);
+    const leaked = [];
+    for (const t of tokens) {
+      const body = t.replace(/^v2\./, "");
+      for (const enc of ["base64url", "base64", "hex", "latin1"]) {
+        let out = "";
+        try { out = Buffer.from(body, enc).toString("utf8"); } catch { continue; }
+        if (/@/.test(out) && /example\.(com|org|net)/.test(out)) leaked.push(`${enc}: ${out.slice(0, 60)}`);
+      }
+    }
+    if (!tokens.length) {
+      rec("Tracking links do not carry the address", "fail", "No tracking token found in the rendered body at all.");
+    } else if (leaked.length) {
+      rec("Tracking links do not carry the address", "fail",
+        `${leaked.length} of ${tokens.length} token(s) decode straight back to an address: ${leaked[0]}`);
+    } else {
+      rec("Tracking links do not carry the address", "pass",
+        `${tokens.length} token(s) in the rendered body, none of them readable as an address under base64url, base64, `
+        + `hex or latin1. They are AES-256-GCM sealed.`);
+    }
   } else rec("Campaign preview", "fail", `HTTP ${p.status}: ${JSON.stringify(pv).slice(0, 250)}`);
 }
 

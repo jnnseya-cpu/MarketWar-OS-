@@ -102,6 +102,10 @@ export type LaunchEnv = {
   legalEntityAddress: string;
   /** "production" | "preview" | "development" | "" */
   vercelEnv: string;
+  /** The secret the open/click/unsubscribe tokens are sealed with. */
+  emailTrackingSecret: string;
+  /** TRUE when this deployment can actually send mail — a pool or SMTP credentials. */
+  sendingConfigured: boolean;
 };
 
 export function readLaunchEnv(
@@ -151,6 +155,11 @@ export function readLaunchEnv(
     // punished for having read the old instruction.
     legalEntityAddress: s("NEXT_PUBLIC_REGISTERED_ADDRESS") || s("NEXT_PUBLIC_LEGAL_ENTITY_REGISTERED_ADDRESS"),
     vercelEnv: s("VERCEL_ENV"),
+    // WHAT THE TRACKING TOKENS ARE SEALED WITH, and whether anything is
+    // configured to send in the first place. Read together because the finding
+    // only exists in the combination — see `tracking-secret-default` below.
+    emailTrackingSecret: s("EMAIL_TRACKING_SECRET"),
+    sendingConfigured: Boolean(s("MW_SENDING_POOL") || (s("SMTP_HOST") && s("SMTP_USER"))),
   };
 }
 
@@ -229,6 +238,29 @@ export function launchReport(env: LaunchEnv): LaunchReport {
   }
 
   // --- Data ----------------------------------------------------------------
+
+  // THE TOKENS ARE ONLY AS OPAQUE AS THE SECRET THAT SEALS THEM.
+  //
+  // Open, click and unsubscribe tokens no longer carry the recipient's address
+  // in cleartext — they are AES-256-GCM sealed. But with EMAIL_TRACKING_SECRET
+  // unset the key is derived from CRON_SECRET or, failing that, a default
+  // written in this repository, and a token sealed under a published default is
+  // opaque to somebody reading a log and not to somebody reading the source.
+  //
+  // ONLY WHERE MAIL ACTUALLY LEAVES. A deployment with no sending configured
+  // mints no tokens and puts no addresses anywhere, so demanding the variable
+  // there would be a permanent red light nobody can clear — the kind of check
+  // people learn to ignore. A WARNING rather than a blocker: nothing is broken
+  // and nobody is charged for nothing, but personal data is less protected in
+  // transit than the Terms' encryption claim implies.
+  if (env.sendingConfigured && env.emailTrackingSecret.length < 16) {
+    f.push({
+      id: "tracking-secret-default", severity: "warning",
+      title: "Tracking links are sealed with a fallback secret",
+      consequence: "This deployment sends mail, so every message carries open, click and unsubscribe links sealed with a key derived from CRON_SECRET or a default published in this repository. The recipient's address is inside that token. It is unreadable to anyone watching logs or proxies, which is the point — but not to anyone who knows the fallback, so the protection is weaker than the per-tenant field encryption applied to the same addresses at rest.",
+      fix: "Set EMAIL_TRACKING_SECRET to a long random string (32+ characters) and redeploy. Links already delivered keep working; new ones are sealed with the new key. Rotating it later invalidates outstanding links, so set it before a large send rather than after.",
+    });
+  }
 
   if (env.firebaseAdminConfigured && env.fieldEncryptionKey.length < 32) {
     f.push({
