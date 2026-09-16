@@ -7807,3 +7807,85 @@ brands that exist: drive-mu3o9x77, drive-mu3oa5hx
 ```
 
 She stays gone from the brand she left, and only that brand.
+
+## §147 — "Excluded by 'noindex' tag" was correct, and the obvious fix is wrong (2026-09-16)
+
+Search Console reported a NEW exclusion reason: **Excluded by 'noindex' tag.**
+
+### What is actually noindexed
+
+Four routes, and every one deliberate:
+
+| Route | Why |
+|---|---|
+| `/unsubscribe` | Acts on a token in the URL the moment it loads. No value to a searcher, every value to a crawler looking for links to fetch. |
+| `/verify-human` | A challenge page. Indexing it puts a dead end in the results where a landing page should be. |
+| `/diagnose` | An operator tool that reports this deployment's own configuration. |
+| `/portal/[token]` | A signed, expiring client link. Indexing it would publish one customer's approval view. |
+
+Nothing that sells carries it. None of the four is in the sitemap. There is no
+`X-Robots-Tag` anywhere. So **"Excluded by 'noindex'" is the healthy end state
+here, not a fault** — it is Google reporting that it found the tag and obeyed it.
+
+### The fix that would have made it worse
+
+The obvious move is to add those paths to `robots.txt`. It is wrong, and wrong
+in a way that is hard to undo: **Google has to CRAWL a page to see its noindex.**
+Disallow it and the crawler never reads the tag, so the URL can sit in the index
+with no content under it — "Indexed, though blocked by robots.txt", which is a
+worse report than the one being fixed. `noindex` and `Disallow` on the same URL
+work against each other; the correct combination for a page you want out of the
+index is **noindex + crawlable**, which is what is already deployed.
+
+### What was added: `tests/indexability.test.mjs`
+
+Nothing needed fixing, so what shipped is the guard for the two mistakes waiting
+on either side of this — both silent, both discovered weeks later through a
+traffic graph:
+
+1. **A marketing page acquiring `index: false` by accident.** `/` or `/audit`
+   going noindex would take the whole funnel off Google with nothing in the
+   build to notice. The noindex set is now an explicit list with a written
+   reason per entry; gaining or losing one fails the build.
+2. **A noindexed URL appearing in the sitemap** — telling Google to fetch
+   something you have told it not to index, which is the usual cause of exactly
+   this report.
+
+Plus: no noindexed page may also be Disallowed (the trap above), the pages that
+sell must be in the sitemap, and no blanket `X-Robots-Tag` may appear in
+`next.config.mjs` or `middleware.ts`.
+
+**Seven mutations, all seven killed** — including "a marketing page goes
+noindex", "the homepage goes noindex", "a noindexed page is also disallowed",
+"a noindexed page is put in the sitemap" and "a blanket X-Robots-Tag is added".
+
+`npm run verify` green: 1,990 tests, 0 failures.
+
+### Found while checking this — NOT fixed, because it trades against a deliberate decision
+
+**A GET on the unsubscribe endpoint mutates state.**
+`GET /api/track/unsubscribe?t=…` records the unsubscribe immediately, and
+`/unsubscribe` POSTs on page load from a `useEffect`. Both are the links placed
+in campaign mail.
+
+Googlebot specifically is protected by accident: `/api/` is Disallowed, so it
+will not fetch the tracking endpoint, and the rendered page's POST to
+`/api/unsubscribe` is a disallowed subresource. **That protection does not extend
+to anything else.** Mail-security scanners — Outlook Safe Links, Proofpoint,
+Mimecast, corporate antivirus — do not read robots.txt and routinely GET every
+link in a message before the recipient sees it. Each one of those is a silent
+unsubscribe of somebody who never clicked, on a customer's list, discovered by
+nobody.
+
+The standard remedy is to make the emailed link land on a page with one button
+that POSTs — scanners GET, they do not POST — while RFC 8058
+`List-Unsubscribe-Post` (already implemented) keeps the in-client one-click
+button working. It costs one click.
+
+**Not done unilaterally**, because `src/app/unsubscribe/page.tsx` argues the
+opposite in writing and argues it well: "One click, done… the reason people press
+'spam' instead of 'unsubscribe' is almost always that unsubscribe did not work
+last time," and a complaint earned on the shared pool is charged to every
+customer. That is a real trade — one extra click against automated
+unsubscribes — and it is the owner's to make, not a side effect of a Search
+Console ticket.
