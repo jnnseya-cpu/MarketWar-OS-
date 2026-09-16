@@ -7710,3 +7710,100 @@ platform-wide opt-out under a reserved id (its own comment says so). Getting tha
 split wrong turns an over-suppression into an UNDER-suppression, which means
 mailing somebody who asked not to be — strictly worse. It wants a decision about
 which opt-outs are platform-wide, not a quick patch.
+
+## §146 — One tenant's unsubscribe was silencing every other tenant (2026-09-16)
+
+Owner: "Do the right thing." §145 recorded this as found-not-fixed and asked for
+a decision. The decision follows, with the reasoning, because the reasoning is
+the part that makes it safe.
+
+### The defect
+
+`email.ts` kept ONE process-global `Set<string>` holding bounces, complaints AND
+unsubscribes, with no brand key, while the durable ledger keys every row by
+`brandId`. `validateAddress` consults the global one for every tenant. So on a
+warm process:
+
+- a person leaving AxionOS's campaigns became unsendable for VeryX and KODA too,
+  and the new List Health panel reported it as *their* suppression;
+- and somebody unsubscribing from **MarketWar's own newsletter** was dropped from
+  every customer's campaign list — which `newsletter.ts`'s own comment forbade in
+  words ("a customer leaving a brand's campaigns must not stop us writing to that
+  brand's OWNER, **and the reverse**") one line above the call that did it.
+
+It **over**-suppressed, which is why it survived: nobody ever received mail they
+had opted out of. It just quietly shrank other people's lists. Surfaced by the
+module harness failing on a second run inside one server process.
+
+### The rule that decides it
+
+Two genuinely different facts were sharing one set:
+
+| Fact | Scope | Why |
+|---|---|---|
+| **Hard bounce** | Global | The mailbox is dead. It is dead for everybody, and every tenant sends through the same pool, so the bounce rate is shared. |
+| **Spam complaint** | Global | Its owner reported mail from **our IPs** as spam. Those IPs are shared, and Gmail's 0.10% threshold is charged against them, so the damage is everyone's. |
+| **Unsubscribe** | Per-tenant | "Stop sending me *your* offers" says nothing about a different business the same person genuinely subscribed to. The durable row already was per-brand. |
+
+So the global set now holds the first two and never the third.
+
+### Why removing it cannot under-suppress
+
+This is the direction that would actually hurt somebody, so it was established
+before anything was changed, not after:
+
+- **Campaigns** — the send, the preview and list health each load
+  `suppressedEmails(brandId)` *independently* of the in-memory set. An
+  unsubscribe still writes that durable per-brand row for all three event types.
+- **The newsletter** — enforces its own opt-out through `hasOptedOut`, which
+  `resolveRecipients` consults before every send and which reads `memOptOuts`
+  **and** the durable `newsletter_optouts` collection. It never depended on the
+  global set.
+- **The one-off `action:"send"`** was the one real gap: it reads the global set
+  via `sendEmail` and took no brand. It now accepts an optional `brandId`,
+  checks the caller owns it, and applies that brand's durable opt-outs —
+  optional because this is the transactional door, and a receipt or a password
+  reset is not bound by a marketing opt-out.
+
+**And the "one answer" the old code claimed was never delivered anyway.** The set
+is process-local, on serverless instances that come and go, so an unsubscribe
+recorded there was gone by the next cold start. The protection was illusory; the
+cross-tenant damage was the only durable effect.
+
+### Verified
+
+`npm run verify` green: 1,985 tests, 0 failures. **Ten mutations, all ten
+killed** — five of them deliberately in the UNDER-suppression direction ("no
+durable row for an unsubscribe", "bounce no longer global", "complaint no longer
+global", "newsletter opt-out not remembered", "send path stops checking
+opt-outs"), because that is the direction that would mail somebody who asked not
+to be mailed.
+
+One existing test asserted the OLD behaviour (`assert.match(src, /suppress\(email\)/`,
+"opt-outs do not reach the fast in-memory ledger"). It was rewritten around the
+new property rather than deleted, and it now asserts both halves: still gone from
+the newsletter, still reachable by a customer.
+
+**Driven against a real build, real Firestore and a real TLS SMTP server —
+reproducing the original failure exactly.** Two full harness runs in ONE server
+process, with a real one-click unsubscribe between them:
+
+```
+RUN 1  → 12 proven, 0 broken. 2 messages delivered.
+         ann@example.com unsubscribes via the link taken off the wire → {"ok":true}
+RUN 2  (same process, new brand)
+       → List health: 4 counted, 2 mailable
+       → Bulk email send: 2 sent, 0 failed
+       → 12 proven, 0 broken
+```
+
+Before the fix this exact sequence gave `sendable: 0` and three broken steps.
+And the other direction, read out of Firestore afterwards:
+
+```
+suppression rows: 1
+  brand=drive-mu3o9x77  email=ann@example.com  reason=unsubscribe
+brands that exist: drive-mu3o9x77, drive-mu3oa5hx
+```
+
+She stays gone from the brand she left, and only that brand.

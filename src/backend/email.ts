@@ -153,13 +153,54 @@ export type EmailVerdict = {
   reason: string | null;
 };
 
-// In-memory suppression ledger for the running process; production reads
-// the `email_suppressions` collection (hard bounces, complaints, unsubs —
-// 0-tolerance: one hard failure and the address is never contacted again).
-const suppressionLedger = new Set<string>();
+// HARD FAILURES ONLY — AND THAT WORD IS THE WHOLE FIX.
+//
+// THE DEFECT. This set held bounces, complaints AND unsubscribes, with no brand
+// key, while the durable ledger (`email_suppressions`) keys every row by
+// `brandId`. `validateAddress` consults this one for every tenant, so on a warm
+// process ONE TENANT'S UNSUBSCRIBE MADE THAT ADDRESS UNSENDABLE FOR EVERY OTHER
+// TENANT. A person leaving AxionOS's list silently stopped VeryX mailing their
+// own customer, and the new List Health panel reported it as VeryX's own
+// suppression. Somebody unsubscribing from MarketWar's newsletter did the same
+// to every customer's campaigns.
+//
+// IT OVER-SUPPRESSED, WHICH IS WHY IT SURVIVED. Nobody got mail they had opted
+// out of, so nothing ever looked broken — it just quietly shrank other people's
+// lists. Found by the module harness failing on a second run in one process.
+//
+// TWO DIFFERENT FACTS WERE SHARING ONE SET:
+//
+//   • A HARD BOUNCE or a SPAM COMPLAINT is a property of the ADDRESS and of the
+//     shared sending pool. The mailbox is dead, or its owner is hostile to mail
+//     arriving from our IPs — and every tenant sends through those same IPs, so
+//     a complaint earned by one is charged to all. Global is CORRECT here.
+//   • AN UNSUBSCRIBE is a property of a RELATIONSHIP. "Stop sending me your
+//     plumbing offers" says nothing about a different business the same person
+//     may have genuinely subscribed to. Per-tenant, which the durable row
+//     already was.
+//
+// So this set now holds the first kind and never the second. Unsubscribes live
+// where they always durably lived: `email_suppressions`, keyed by brand, applied
+// by the campaign send, the preview and list health — all three of which already
+// load it separately, which is why removing unsubscribes from here cannot let a
+// campaign reach somebody who opted out.
+//
+// AND THE "ONE ANSWER" THIS PROMISED WAS NEVER DELIVERED ANYWAY. It is in
+// memory, so it dies with the process — and this platform runs on serverless
+// instances that come and go constantly. An unsubscribe recorded here was gone
+// by the next cold start. The protection was illusory; the cross-tenant damage
+// was real, and it was the only thing the set reliably did.
+const hardFailureLedger = new Set<string>();
 
+/**
+ * Never mail this address again, for ANY tenant.
+ *
+ * FOR HARD BOUNCES AND SPAM COMPLAINTS ONLY. Do not call this for an
+ * unsubscribe — write a per-brand row with `addSuppression(brandId, …)`
+ * instead. Passing an unsubscribe through here is the defect described above.
+ */
 export function suppress(email: string): void {
-  suppressionLedger.add(email.trim().toLowerCase());
+  hardFailureLedger.add(email.trim().toLowerCase());
 }
 
 export function validateAddress(raw: string): EmailVerdict {
@@ -169,12 +210,12 @@ export function validateAddress(raw: string): EmailVerdict {
   const localpart = syntax ? email.split("@")[0] : "";
   const disposable = DISPOSABLE_DOMAINS.has(domain);
   const role = ROLE_LOCALPARTS.has(localpart);
-  const suppressed = suppressionLedger.has(email);
+  const suppressed = hardFailureLedger.has(email);
 
   let reason: string | null = null;
   if (!syntax) reason = "invalid syntax — would hard-bounce";
   else if (disposable) reason = "disposable domain — bounce/spam-trap risk";
-  else if (suppressed) reason = "on the suppression ledger — never re-sent";
+  else if (suppressed) reason = "hard-bounced or marked as spam — never re-sent from any brand";
   else if (role) reason = "role address — excluded from marketing sends by default";
 
   return {

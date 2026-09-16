@@ -114,9 +114,25 @@ export async function recordEvent(ev: Omit<EmailEvent, "id">): Promise<void> {
     mem.push(e);
     if (mem.length > MEM_CAP) mem.splice(0, mem.length - MEM_CAP);
   }
-  // Hard signals suppress immediately — never send to this address again.
+  // WHO IS THIS SUPPRESSION FOR — this brand, or everybody?
+  //
+  // All three used to do both, and the global half is what made one tenant's
+  // unsubscribe silence every other tenant (see `hardFailureLedger` in
+  // `email.ts`). They are not the same fact:
+  //
+  //   • bounce / complaint — the mailbox is dead, or its owner reported mail
+  //     from our IPs as spam. Every tenant sends through those same IPs, so the
+  //     damage is shared and so is the suppression.
+  //   • unsubscribe — "stop sending me YOUR campaigns". It says nothing about a
+  //     different business the same person may have genuinely subscribed to.
+  //     Per-brand only, which is what the durable row already was.
+  //
+  // THE PER-BRAND ROW IS WRITTEN FOR ALL THREE, so nothing is weakened: the
+  // campaign send, the preview and list health each load `suppressedEmails(brandId)`
+  // separately and independently of the in-memory set, which is why an
+  // unsubscribe still cannot be mailed by the brand it was given to.
+  if (ev.type === "bounce" || ev.type === "complaint") suppress(e.email);
   if (ev.type === "bounce" || ev.type === "complaint" || ev.type === "unsubscribe") {
-    suppress(e.email);
     await addSuppression(e.brandId, e.email, ev.type);
   }
 }
