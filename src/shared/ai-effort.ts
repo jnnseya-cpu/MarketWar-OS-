@@ -39,10 +39,12 @@ import type { FailureKind } from "@/shared/provider-failure";
 
 /** The directive, in one place, so a surface can quote it rather than paraphrase. */
 export const EFFORT_LAW =
-  "AI work has no time limit and no cost limit. It runs until it produces the expected result, or until the "
-  + "request is one that cannot succeed however often it is tried. Running out of time, attempts, budget or "
-  + "balance is never a reason to stop — the work continues, and where an invocation cannot continue it, the work "
-  + "is handed on with its state intact.";
+  "AI work has no time limit and no attempt limit. It runs until it produces the expected result, or until the "
+  + "request is one that cannot succeed however often it is tried. Running out of time or attempts is never a "
+  + "reason to stop — the work continues, and where an invocation cannot continue it, the work is handed on with "
+  + "its state intact. ACUs are the exception and are not a cap but a requirement: sufficient credit must be "
+  + "available, and a pass that cannot be paid for does not run — the work waits for a top-up rather than "
+  + "failing, and nothing is charged while it waits.";
 
 export type EffortAct =
   /** Transient trouble. Go round again — a different provider, or the same one later. */

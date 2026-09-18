@@ -367,21 +367,26 @@ if (!signedIn || !PERSIST) {
     // gate charged" from a wallet read that returned undefined — a claim with no
     // measurement behind it, which is the defect this harness exists to catch in
     // other people's code.
-    const charged = typeof walletBefore === "number" && typeof walletAfter === "number"
+    const spent = typeof walletBefore === "number" && typeof walletAfter === "number"
       ? walletBefore - walletAfter
       : null;
-    const gateCharged = charged !== null && charged > 0;
+    // OWNER DIRECTIVE: the ACU charge is exactly what it was before any of this.
+    // The door CHECKS and does not charge; each pass charges once, before the
+    // provider call, and is refunded if no provider was reached. With no key
+    // configured that means the whole exchange must cost NOTHING — and a wallet
+    // that moved is the double-billing this was corrected for.
+    const costNothing = spent === 0;
 
-    if (survived && notFailed && freeWhileWaiting && keepsGoing && gateCharged) {
+    if (survived && notFailed && freeWhileWaiting && keepsGoing && costNothing) {
       rec("AI work survives the request that started it", "pass",
         `Job ${jobId} started, then carried forward by two separate requests and came back as the same job, `
-        + `status "${j.status}", ${j.attempts} pass(es). The START gate charged ${charged} ACU `
-        + `(wallet ${walletBefore} → ${walletAfter}); the two waiting passes charged ${j.chargedAcu}, because no `
-        + `provider is configured and a pass that called nobody is never billed. keepPolling: true — it is still going.`);
+        + `status "${j.status}", ${j.attempts} pass(es), ${j.chargedAcu} ACU on the job. `
+        + `Wallet ${walletBefore} → ${walletAfter}: the door only CHECKED, and the passes reached no provider so `
+        + `nothing was billed. keepPolling: true — it is still going.`);
     } else {
       rec("AI work survives the request that started it", "fail",
         `survived: ${survived}, notFailed: ${notFailed}, freeWhileWaiting: ${freeWhileWaiting}, `
-        + `keepPolling: ${keepsGoing}, gateCharged: ${gateCharged} (wallet ${walletBefore} → ${walletAfter}). `
+        + `keepPolling: ${keepsGoing}, wallet moved by ${spent} (${walletBefore} → ${walletAfter}, must be 0). `
         + `Job: ${JSON.stringify(j).slice(0, 250)}`);
     }
 

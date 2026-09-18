@@ -3,7 +3,7 @@ import { resolveBrandAccess } from "@/backend/brand-access";
 import { enqueueAiJob, getAiJob, listAiJobs, advanceAiJob } from "@/backend/ai-jobs";
 import { progressLine } from "@/shared/ai-job";
 import { EFFORT_LAW } from "@/shared/ai-effort";
-import { meterAction } from "@/backend/wallet";
+import { canAffordAction } from "@/backend/wallet";
 
 // AI WORK THAT OUTLIVES THE REQUEST THAT STARTED IT.
 //
@@ -51,17 +51,16 @@ export async function POST(req: NextRequest) {
     if (!["document", "campaign", "analysis", "rewrite"].includes(kind)) {
       return NextResponse.json({ error: `Unknown kind "${kind}".` }, { status: 400 });
     }
-    // THE GATE TO START, WHICH IS THE ONE LIMIT THE EFFORT LAW KEEPS.
+    // NO ACUs, NO AI. Owner directive, and it is the one limit the effort law
+    // keeps: "no time and ACUs limit" means SUFFICIENT ACUs MUST BE AVAILABLE.
     //
-    // Once a job is under way it is never abandoned for balance — each pass
-    // settles and any shortfall becomes owed. But STARTING must still pass the
-    // wallet, or an account with nothing in it could commission unbounded
-    // provider spend. This route shipped without it and the spend-graph guard
-    // caught it: a route that can call a paid provider with no charge in front
-    // of it. The resolution recorded in §148 says the start gate stays; it has
-    // to actually be here for that to be true.
-    const meter = await meterAction(access, "llm", 1, "ai-job");
-    if (!meter.allowed) return NextResponse.json({ error: meter.error }, { status: meter.status });
+    // CHECKED HERE, CHARGED AT THE PROVIDER CALL. An earlier version metered
+    // here as well, which billed a job twice for its first pass: once at the
+    // door and once when `advanceAiJob` actually called a provider. The charge
+    // belongs where it has always belonged — once per call that really happens,
+    // at the rate that was always in ACTION_COST_ACU — so this only refuses.
+    const afford = await canAffordAction(access, "llm", 1);
+    if (!afford.ok) return NextResponse.json({ error: afford.error }, { status: 402 });
 
     const job = await enqueueAiJob({ brandId, kind: kind as "document", system, prompt });
     return NextResponse.json({ job, progress: progressLine(job), law: EFFORT_LAW });

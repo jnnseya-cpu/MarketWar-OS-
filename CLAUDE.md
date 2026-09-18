@@ -104,25 +104,25 @@ only honest stop is a request that cannot succeed however often it is tried — 
 refused prompt, a malformed request. Policy in `src/shared/ai-effort.ts`;
 `EFFORT_LAW` is the sentence to quote rather than paraphrase.
 
-Three things this does NOT mean, because getting them wrong produces fewer
-results rather than more:
+Three things this does NOT mean, because getting them wrong yields fewer results:
 
-- **A single provider HTTP call keeps its timeout.** That timeout is not a limit
-  on effort, it is what makes effort possible: a provider that accepts a socket
-  and holds it forever otherwise consumes the whole invocation and the customer
-  gets nothing. The timeout is what lets the work move on and carry on.
-- **An invocation is not the work.** Serverless functions are killed at a fixed
-  ceiling and no configuration makes one run for an hour. "No time limit" is
-  delivered by CONTINUING — `AiWorkIncompleteError` is a hand-off, not a
-  failure, and must never be rendered to a customer as "your run failed".
-- **A truncated completion is not a result.** A model that stopped at its token
-  ceiling produced half a document. That is a reason to continue, never a reason
-  to finish.
+- **A provider HTTP call keeps its timeout.** Not a limit on effort — it is what
+  makes effort possible: a socket held open forever otherwise eats the whole
+  invocation and the customer gets nothing. The timeout lets the work move on.
+- **An invocation is not the work.** Serverless dies at a fixed ceiling; no
+  configuration runs one for an hour. "No time limit" is delivered by CONTINUING
+  (`ai-jobs.ts`) — `AiWorkIncompleteError` is a hand-off, never "your run failed".
+- **A truncated completion is not a result.** Half a document is a reason to
+  continue, never a reason to finish.
 
-Money: an action still passes the wallet gate to START. Once it is under way it
-is never abandoned for balance — `settleAcus` charges what it can and records the
-rest as `owedAcu`, which the next payment nets off. The margin floor survives
-because the charge is still made.
+**Money: NO ACUs MEANS NO AI.** "No limit" means no artificial cap on how long
+work runs — timeouts, attempt ceilings, budget windows. It does NOT put the
+platform on credit. The charge is unchanged: `ACTION_COST_ACU` at 4× provider
+cost, via `debitAcus`, **once per provider call that actually happens**. A door
+that starts long work only CHECKS (`canAffordAction`), or the first pass bills
+twice. A pass that cannot be paid for does not run and the job WAITS — nothing
+charged, no attempt counted, a top-up continues it. A pass that reached no
+provider is refunded.
 
 ## The sending law (owner directive — permanent)
 

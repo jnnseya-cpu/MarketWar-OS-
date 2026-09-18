@@ -97,10 +97,17 @@ test("with room and a transient failure, it simply goes again", () => {
   }
 });
 
-test("the law is stated once and says both halves out loud", () => {
+test("the law is stated once and says all three parts out loud", () => {
+  // It said "no cost limit", and the owner corrected that: ACUs are not a cap to
+  // be removed, they are a requirement. The sentence has to carry the
+  // distinction, because this constant is what surfaces quote.
   assert.match(EFFORT_LAW, /no time limit/i);
-  assert.match(EFFORT_LAW, /no cost limit/i);
+  assert.match(EFFORT_LAW, /no attempt limit/i);
   assert.match(EFFORT_LAW, /handed on/i);
+  assert.doesNotMatch(EFFORT_LAW, /no cost limit/i,
+    "ACUs are not a cap that was removed — sufficient credit is required");
+  assert.match(EFFORT_LAW, /sufficient credit must be\s+available/i);
+  assert.match(EFFORT_LAW, /waits for a top-up rather than\s+failing/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -149,47 +156,67 @@ test("the gateway asks the effort policy, rather than deciding on its own clock"
     "a pass that produced nothing is a reason to go round again, not to stop");
 });
 
-test("an accepted run is never abandoned for balance", () => {
-  const code = codeOf(readFileSync("src/backend/wallet.ts", "utf8"));
-  assert.match(code, /export async function settleAcus/,
-    "work already under way needs a charge that cannot refuse it");
-  assert.match(code, /owedAcu: Math\.max\(0, Math\.round\(cur\.owedAcu \|\| 0\)\) \+ short/,
-    "the shortfall is recorded as owed — the margin survives because the charge is still made");
+test("NO ACUs MEANS NO AI WORK — and nothing runs on credit", async () => {
+  // OWNER DIRECTIVE, correcting an earlier reading of the effort law. "No time
+  // and ACUs limit" means sufficient ACUs must be AVAILABLE; it does not put the
+  // platform on credit. An earlier version charged with a call that could not
+  // refuse and recorded the shortfall as owed — that is gone, and this is the
+  // test that fails if it comes back.
+  const wallet = codeOf(readFileSync("src/backend/wallet.ts", "utf8"));
+  assert.doesNotMatch(wallet, /export async function settleAcus/,
+    "a charge that cannot refuse would let work run with no ACUs behind it");
+  assert.doesNotMatch(wallet, /owedAcu: Math\.max\(0, Math\.round\(cur\.owedAcu \|\| 0\)\) \+ short/,
+    "an AI pass must never add to owed — owed is for refunds and chargebacks, which is what it was there for");
+
+  // The job path charges with the ORDINARY debit, which refuses when short.
+  const jobs = codeOf(readFileSync("src/backend/ai-jobs.ts", "utf8"));
+  assert.match(jobs, /const paid = await debitAcus\(walletId, cost\);/,
+    "the charge is the same debit every other spending path uses");
+  assert.match(jobs, /if \(!paid\.ok\) \{/, "and a pass that cannot be paid for does not run");
+  assert.doesNotMatch(jobs, /settleAcus/);
 });
 
-test("settleAcus takes what is there and owes the rest — driven, not read", async () => {
-  // THE SOURCE ASSERTION ABOVE WAS NOT ENOUGH. A mutation that made `settle`
-  // take NOTHING when the balance was short — charging 0 and owing the whole
-  // amount — left that assertion passing. That is money: the work runs, the
-  // providers are paid, and the customer is billed for none of it.
+test("the rate is the one that was always there, and the door only CHECKS", () => {
+  // Two things the owner asked to be left exactly as they were: the multiplier,
+  // and the number of times a piece of provider work is charged for.
+  const jobs = codeOf(readFileSync("src/backend/ai-jobs.ts", "utf8"));
+  assert.match(jobs, /const cost = ACTION_COST_ACU\.llm;/,
+    "the rate comes from the existing table, never from a new number");
+
+  // The start gate must not ALSO charge, or a job is billed twice for its first
+  // pass — once at the door and once when a provider is actually called.
+  const route = codeOf(readFileSync("src/app/api/ai-jobs/route.ts", "utf8"));
+  assert.match(route, /canAffordAction\(access, "llm", 1\)/);
+  // AND IT MUST ACT ON THE ANSWER. A structural check, and said to be one: the
+  // route needs brand access and a datastore, so the refusal is asserted here
+  // rather than driven. Removing this line let a wallet with nothing in it
+  // commission work, and every other test in the file still passed.
+  assert.match(route, /if \(!afford\.ok\) return NextResponse\.json\(\{ error: afford\.error \}, \{ status: 402 \}\);/,
+    "no ACUs must refuse at the door, not merely be noticed there");
+  assert.doesNotMatch(route, /meterAction\(/,
+    "checking and charging at the door double-bills the first pass");
+});
+
+test("canAffordAction refuses a short wallet without taking anything", async () => {
   const w = await import("../src/backend/wallet.ts");
-  const id = `settle-${Date.now()}`;
+  const id = `afford-${Date.now()}`;
+  const before = (await w.getWallet(id)).balanceAcu;
 
-  // READ THE OPENING BALANCE RATHER THAN ASSUME IT. With no Firebase Admin a
-  // fresh wallet opens with the free signup allowance, so a test that assumed
-  // zero measured the allowance instead of the shortfall — and passed for the
-  // wrong reason on the first run.
-  const opening = (await w.getWallet(id)).balanceAcu;
-  const short = await w.settleAcus(id, opening + 70);
-  assert.equal(short.charged, opening, "everything available must be taken");
-  assert.equal(short.owed, 70, "and only the genuine shortfall owed");
-  assert.equal(short.balanceAcu, 0, "a balance is never driven negative");
+  // `enforced: true` matters: without it `meteringExempt` correctly exempts the
+  // caller, because a deployment with no accounts enforced has no wallet to
+  // bill and zero-config demo mode must keep working. The first version of this
+  // test left it out and measured the exemption instead of the refusal.
+  const auth = { ok: true, uid: id, enforced: true, status: 200 };
+  const rich = await w.canAffordAction(auth, "llm", 1);
+  assert.equal(rich.ok, true, "a funded wallet can start");
+  assert.equal((await w.getWallet(id)).balanceAcu, before, "a CHECK must not move the balance");
 
-  // It never refuses, and it accumulates rather than replacing.
-  const again = await w.settleAcus(id, 25);
-  assert.equal(again.charged, 0);
-  assert.equal(again.owed, 25);
-  const wallet = await w.getWallet(id);
-  assert.equal(wallet.owedAcu, 95, "owed must accumulate across settlements");
-
-  // And a wallet that can cover it is simply charged.
-  const rich = `settle-rich-${Date.now()}`;
-  const richOpening = (await w.getWallet(rich)).balanceAcu;
-  await w.creditAcus(rich, 500);
-  const paid = await w.settleAcus(rich, 120);
-  assert.equal(paid.charged, 120);
-  assert.equal(paid.owed, 0);
-  assert.equal(paid.balanceAcu, richOpening + 500 - 120);
+  // Drain it, then ask again.
+  await w.debitAcus(id, before);
+  const broke = await w.canAffordAction(auth, "llm", 1);
+  assert.equal(broke.ok, false);
+  assert.match(broke.error, /Out of ACUs/);
+  assert.equal(broke.needed, w.ACTION_COST_ACU.llm, "it asks for the rate in the existing table");
 });
 
 test("the provider loop has no pass ceiling", () => {

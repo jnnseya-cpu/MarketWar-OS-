@@ -635,6 +635,32 @@ export function meteringExempt(who: Spender | null | undefined): { exempt: boole
  * still record more than the nothing they recorded before — a caller that names
  * itself simply gets a better answer.
  */
+/**
+ * CAN THIS ACCOUNT AFFORD THE ACTION — asked WITHOUT charging for it.
+ *
+ * OWNER DIRECTIVE, and it corrects an earlier reading of the effort law: "no
+ * time and ACUs limit" means SUFFICIENT ACUs MUST BE AVAILABLE. No ACUs means no
+ * AI-powered functions. The law removes artificial caps on how long work may run
+ * — it does not put the platform on credit.
+ *
+ * This exists so a long-running job can be REFUSED AT THE DOOR without being
+ * charged there: the charge belongs at the provider call, once per call, exactly
+ * where it has always been. Checking and charging in the same breath would bill
+ * a job twice for its first pass.
+ *
+ * Exempt callers can always afford it, for the same reason they are not metered.
+ */
+export async function canAffordAction(auth: AuthResult, kind: ActionKind, units = 1): Promise<{ ok: boolean; needed: number; balanceAcu: number; error?: string }> {
+  const needed = Math.max(0, Math.round(ACTION_COST_ACU[kind] * Math.max(1, units)));
+  if (!auth.ok || !auth.uid || meteringExempt(auth).exempt) return { ok: true, needed, balanceAcu: 0 };
+  const wallet = await getWallet(auth.uid);
+  if (wallet.balanceAcu >= needed) return { ok: true, needed, balanceAcu: wallet.balanceAcu };
+  return {
+    ok: false, needed, balanceAcu: wallet.balanceAcu,
+    error: `Out of ACUs — this needs ${needed} ACUs and your balance is ${wallet.balanceAcu}. Top up on the Billing page to continue.`,
+  };
+}
+
 export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1, agent?: string): Promise<MeterResult> {
   if (!auth.ok) return { allowed: false, status: auth.status, error: auth.error, metered: false };
   if (meteringExempt(auth).exempt) return { allowed: true, status: 200, metered: false };
@@ -677,71 +703,6 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1,
  * because the charge is still made, and the work survives because the charge
  * never stops it.
  */
-/**
- * A stored wallet, CHECKED rather than asserted.
- *
- * `scripts/check-casts.mjs` refused a sixth `snap.data() as WalletState` here
- * and was right to: a type assertion is a promise to the compiler that nobody
- * verified, and two production crashes in this codebase came from exactly that.
- * A wallet is money, so it is the last place to guess a shape. Anything missing
- * or the wrong type falls back to the fresh-wallet value, which is the safe
- * direction — a balance that reads as 0 refuses work, it never spends money
- * that is not there.
- */
-function walletFromStored(data: unknown, orgId: string): WalletState {
-  const base = freshWallet(orgId);
-  if (!data || typeof data !== "object") return base;
-  const d = data as Record<string, unknown>;
-  const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
-  const str = (v: unknown, fallback: string) => (typeof v === "string" ? v : fallback);
-  return {
-    ...base,
-    orgId: str(d.orgId, orgId),
-    balanceAcu: Math.max(0, Math.round(num(d.balanceAcu, 0))),
-    planId: str(d.planId, base.planId),
-    cycle: d.cycle === "monthly" || d.cycle === "annual" ? d.cycle : null,
-    lifetimeCreditedAcu: Math.max(0, Math.round(num(d.lifetimeCreditedAcu, 0))),
-    lifetimeDebitedAcu: Math.max(0, Math.round(num(d.lifetimeDebitedAcu, 0))),
-    owedAcu: Math.max(0, Math.round(num(d.owedAcu, 0))),
-    updatedAt: str(d.updatedAt, base.updatedAt),
-  };
-}
-
-export async function settleAcus(orgId: string, amountAcu: number): Promise<{ charged: number; owed: number; balanceAcu: number }> {
-  const id = (orgId || "").trim() || "anon";
-  const amount = Math.max(0, Math.round(amountAcu || 0));
-  const apply = (cur: WalletState) => {
-    const taken = Math.min(cur.balanceAcu, amount);
-    const short = amount - taken;
-    const next: WalletState = {
-      ...cur,
-      balanceAcu: cur.balanceAcu - taken,
-      owedAcu: Math.max(0, Math.round(cur.owedAcu || 0)) + short,
-      lifetimeDebitedAcu: cur.lifetimeDebitedAcu + taken,
-      updatedAt: nowIso(),
-    };
-    return { next, taken, short };
-  };
-
-  if (adminConfigured && adminDb) {
-    const ref = adminDb.collection(COLLECTION).doc(id);
-    return await adminDb.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const stored = snap.exists ? walletFromStored(snap.data(), id) : freshWallet(id);
-      // Instalments already paid for are released first, same as the debit path,
-      // so nothing is recorded as owed that the customer has in fact bought.
-      const { wallet: cur } = applyDueReleases(stored, nowIso());
-      const { next, taken, short } = apply(cur);
-      tx.set(ref, next, { merge: false });
-      return { charged: taken, owed: short, balanceAcu: next.balanceAcu };
-    });
-  }
-  const cur = await getWallet(id);
-  const { next, taken, short } = apply(cur);
-  mem.set(id, next);
-  return { charged: taken, owed: short, balanceAcu: next.balanceAcu };
-}
-
 export type SpendResult =
   | { ok: true; charged: number; exempt: boolean; why: string; balanceAcu?: number }
   | { ok: false; charged: 0; exempt: false; why: string; balanceAcu: number; error: string };
