@@ -8114,3 +8114,84 @@ PASS  Another tenant cannot carry on somebody else's job
 Owner confirmed: users are charged 4× provider cost and that stays. Each pass
 that actually calls a provider settles at the action rate, so a long job costs
 proportionally to the provider work it really does, and the margin floor holds.
+
+## §150 — No ACUs means no AI: the money half of the effort law, corrected (2026-09-18)
+
+Owner, correcting §148:
+
+> "Keep the ACUs charges as it was before doing this changes… Even no time and
+> ACUs limit, that's mean sufficient ACUs to be available and no ACUs mean no ai
+> powered functions and features."
+
+### What I had got wrong
+
+§148 read "no ACU limit" as *never stop for money* and built `settleAcus`: a
+charge that could not refuse, taking what was there and recording the rest as
+`owedAcu`. That put the platform on credit — work running for an account with
+nothing in it, with real provider money going out against a balance that might
+never arrive.
+
+The correct reading: **"no limit" is about artificial caps on how long work may
+run** — timeouts, attempt ceilings, budget windows. ACUs are not one of those.
+They are the requirement. Sufficient credit must be available, or the AI-powered
+functions do not run.
+
+### What changed
+
+- **`settleAcus` and `walletFromStored` removed.** They were added two commits
+  ago for this and encode a rule that is now overruled; leaving an unused charge
+  that cannot refuse is a footgun for whoever wires it up next. `owedAcu` itself
+  is untouched — it pre-dates this and belongs to refunds and chargebacks.
+- **`spend-graph`'s `METER_CALLS` reverted** to the four it had.
+- **`ai-jobs` charges with `debitAcus`**, at `ACTION_COST_ACU.llm`, resolved
+  through `walletIdForBrand` — the same mechanism `trends/scheduled` already
+  uses. Charged BEFORE the provider is asked, refunded when no provider was
+  reached ("only calls that ran AND returned are charged").
+- **A pass that cannot be paid for does not run, and the job WAITS.** Not failed,
+  not abandoned, nothing charged, no attempt counted, and a top-up continues it
+  on the next check — the same shape as waiting for a provider key.
+- **The door only CHECKS.** `canAffordAction` is a new read-only affordability
+  test beside `meterAction`. The start route metered as well, which billed a job
+  twice for its first pass: once at the door, once when a provider was actually
+  called. The charge belongs at the call, once per call.
+- **`CLAUDE.md` and `EFFORT_LAW` rewritten.** The law said "no cost limit"; it
+  now says sufficient credit is required and a pass that cannot be paid for
+  waits. `CLAUDE.md` came back under its 160-line cap by tightening this
+  section's own prose rather than raising the cap — a skimmed rule is not a rule.
+
+### Verified
+
+`npm run verify` green: 2,022 tests, 0 failures. **Eleven mutations, all
+killed** — "a pass runs without paying", "an unpayable pass FAILS the job",
+"charged after the call instead of before", "the door charges as well as checks
+(double bill)", "canAfford takes the money", "canAfford says yes when short".
+
+Two survived the first pass, both real:
+
+1. **"a pass that reached nobody is not refunded."** The test asserted
+   `chargedAcu === 0` on the JOB RECORD — bookkeeping, not the balance. The
+   charge happens before the provider is asked, so removing the refund left the
+   record saying zero while five ACUs a pass quietly left the wallet. It now
+   asserts the wallet is exactly as it was found.
+2. **"the door lets a broke account start."** No test drove the 402. A
+   structural assertion was added and labelled as one: the route needs brand
+   access and a datastore, so the refusal is asserted in source rather than
+   driven.
+
+**Driven against a real build with real Firestore:**
+
+```
+PASS  AI work survives the request that started it
+      Job aj_… carried forward by two separate requests, same job, 0 passes,
+      0 ACU on the job. Wallet 100 → 100: the door only CHECKED, and the passes
+      reached no provider so nothing was billed. keepPolling: true.
+```
+
+Wallet **100 → 100** across a start and two continuations is the whole
+correction in one line: the charge is what it always was, taken once per provider
+call that really happens, and nothing else bills.
+
+### The pricing law is unchanged
+
+4× provider cost, from `ACTION_COST_ACU`, exactly as before. Nothing in §148–§150
+altered a rate.

@@ -114,12 +114,23 @@ test("a job survives being handed from one invocation to the next", async () => 
   // called nobody is not a pass: charging for it is the charged-and-served-
   // nothing defect, and counting it would show "47 passes so far" on a
   // deployment that has never reached a provider, which reads as progress.
+  const w = await import("../src/backend/wallet.ts");
+  const balanceBefore = (await w.getWallet("brand-x")).balanceAcu;
+
   const after = await jobs.advanceAiJob(started.id, { budgetMs: 20_000, trigger: "user" });
   assert.ok(after);
   assert.notEqual(after.status, "done");
   assert.notEqual(after.status, "failed", "a missing key is not the request's fault");
   assert.equal(after.attempts, 0, "a pass that reached no provider is not a pass");
-  assert.equal(after.chargedAcu, 0, "and it is never charged for");
+  assert.equal(after.chargedAcu, 0, "and the job records no charge");
+
+  // AND THE WALLET IS WHOLE. The charge happens BEFORE the provider is asked, so
+  // a pass that reached nobody has already taken the money and must give it
+  // back. Asserting `chargedAcu === 0` on the record was not enough: it is the
+  // job's bookkeeping, not the balance, and a mutation that removed the refund
+  // left it passing while five ACUs a pass quietly disappeared.
+  assert.equal((await w.getWallet("brand-x")).balanceAcu, balanceBefore,
+    "a pass that called no provider must leave the balance exactly as it found it");
   assert.match(after.note, /Waiting for an AI provider/);
   assert.match(after.note, /resumes by itself/);
 
@@ -244,4 +255,38 @@ test("the drain's lane demands the scheduler's credential", async () => {
   // carries a customer's work and belongs behind the human gate.
   assert.equal(machineLaneFor("/api/ai-jobs"), null,
     "only the drain is a machine path — the job API itself is a customer surface");
+});
+
+test("a job with no ACUs WAITS — it does not run, and it does not fail", async () => {
+  // OWNER DIRECTIVE: "no time and ACUs limit" means sufficient ACUs must be
+  // AVAILABLE — no ACUs means no AI-powered functions. So a pass that cannot be
+  // paid for must not call a provider. But it must not kill the job either: the
+  // work waits, nothing is charged, no attempt is counted, and a top-up carries
+  // it on. Driven against the real wallet rather than asserted from source.
+  const jobs = await import("../src/backend/ai-jobs.ts");
+  const w = await import("../src/backend/wallet.ts");
+  jobs.__resetAiJobs();
+
+  const brandId = `poor-${Date.now()}`;
+  // Empty the wallet this brand's work would be charged to.
+  const walletId = brandId;
+  const opening = (await w.getWallet(walletId)).balanceAcu;
+  if (opening > 0) await w.debitAcus(walletId, opening);
+  assert.equal((await w.getWallet(walletId)).balanceAcu, 0, "the wallet must actually be empty for this to test anything");
+
+  const job = await jobs.enqueueAiJob({ brandId, kind: "document", system: "", prompt: "a long document" });
+  const after = await jobs.advanceAiJob(job.id, { budgetMs: 20_000, trigger: "user" });
+
+  assert.equal(after.status, "queued", "no ACUs is a wait, never a failure");
+  assert.equal(after.attempts, 0, "a pass that never ran is not a pass");
+  assert.equal(after.chargedAcu, 0, "and nothing is charged for it");
+  assert.match(after.note, /Waiting for ACUs/);
+  assert.match(after.note, /top up and it continues/i);
+  assert.equal((await w.getWallet(walletId)).balanceAcu, 0, "the balance must not go negative — nothing runs on credit");
+
+  // Top it up and the very next check carries it on.
+  await w.creditAcus(walletId, 500);
+  const resumed = await jobs.advanceAiJob(job.id, { budgetMs: 20_000, trigger: "user" });
+  assert.doesNotMatch(resumed.note ?? "", /Waiting for ACUs/,
+    "a funded wallet must let the job move past the money gate");
 });

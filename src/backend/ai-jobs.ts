@@ -33,7 +33,8 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { gatewayComplete, AiWorkIncompleteError, GatewayUnconfiguredError, DOCUMENT_DEEP } from "@/backend/gateway";
-import { settleAcus, ACTION_COST_ACU } from "@/backend/wallet";
+import { debitAcus, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
+import { walletIdForBrand } from "@/backend/brand-access";
 import { haltFor } from "@/backend/emergency-stop";
 import { timed } from "@/backend/store-health";
 import { isHopeless } from "@/shared/ai-effort";
@@ -188,6 +189,36 @@ export async function advanceAiJob(
   const claimed: StoredJob = { ...job, status: "running", claimedAt: nowIso(), attempts: job.attempts + 1 };
   await save(claimed);
 
+  // ---------------------------------------------------------------------
+  // PAID FOR BEFORE THE PROVIDER IS ASKED, exactly as every other spending
+  // path in this platform does it.
+  //
+  // OWNER DIRECTIVE, correcting an earlier reading of the effort law: "no time
+  // and ACUs limit" means SUFFICIENT ACUs MUST BE AVAILABLE — no ACUs means no
+  // AI-powered functions. The law removes artificial caps on how long work runs;
+  // it does not put the platform on credit. An earlier version of this file used
+  // a charge that could not refuse and recorded the shortfall as owed. That is
+  // gone: the charge is `debitAcus`, at the rate that was always in
+  // ACTION_COST_ACU, and a pass that cannot be paid for does not run.
+  //
+  // AND A JOB THAT CANNOT PAY IS NOT A FAILED JOB. It waits. Nothing is
+  // abandoned, nothing is charged, no attempt is counted, and a top-up makes it
+  // continue on the very next poll — the same shape as waiting for a provider
+  // key below.
+  // ---------------------------------------------------------------------
+  const cost = ACTION_COST_ACU.llm;
+  const walletId = await walletIdForBrand(job.brandId).catch(() => job.brandId);
+  const paid = await debitAcus(walletId, cost);
+  if (!paid.ok) {
+    const waiting: StoredJob = {
+      ...job, status: "queued", claimedAt: null,
+      note: `Waiting for ACUs: this pass needs ${cost} and the balance is ${paid.balanceAcu}. Nothing has been `
+        + "charged and no work has been lost — top up and it continues on the next check.",
+    };
+    await save(waiting);
+    return strip(waiting);
+  }
+
   let outcome: SliceOutcome;
   // Did this pass actually reach a provider? A pass that did not must not be
   // charged for — "only calls that ran AND returned are charged" is already the
@@ -230,20 +261,18 @@ export async function advanceAiJob(
     }
   }
 
-  // CHARGED PER PASS THAT ACTUALLY CALLED A PROVIDER, because each one is real
-  // provider cost and the pricing law is 4× provider cost. `settleAcus` cannot
-  // refuse, so a long job is never abandoned for balance — the shortfall becomes
-  // owed and the next payment nets it off.
-  const cost = ACTION_COST_ACU.llm;
-  const settled = calledAProvider
-    ? await settleAcus(job.brandId, cost).catch(() => ({ charged: 0, owed: 0, balanceAcu: 0 }))
-    : { charged: 0, owed: 0, balanceAcu: 0 };
+  // REFUNDED WHEN NO PROVIDER WAS REACHED. Charged before the call and given
+  // back when the call never happened — the same rule the image route follows,
+  // and the reason "only calls that ran AND returned are charged" survives on a
+  // path that charges per pass.
+  if (!calledAProvider) await creditAcus(walletId, paid.charged).catch(() => undefined);
 
   // AND IT IS NOT A PASS EITHER. Counting attempts that called nobody would show
   // "47 passes so far" on a deployment that has never once reached a provider,
   // which reads as progress and is the opposite of it.
   const attempts = calledAProvider ? claimed.attempts : job.attempts;
-  const next = applySlice({ ...claimed, attempts, chargedAcu: claimed.chargedAcu + settled.charged }, outcome, nowIso());
+  const charged = calledAProvider ? paid.charged : 0;
+  const next = applySlice({ ...claimed, attempts, chargedAcu: claimed.chargedAcu + charged }, outcome, nowIso());
   const stored: StoredJob = { ...next, system: job.system, prompt: job.prompt };
   await save(stored);
   return strip(stored);

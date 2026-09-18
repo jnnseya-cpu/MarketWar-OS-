@@ -30,12 +30,7 @@ export const SPEND_CALLS = [
 ];
 
 /** The wallet gate. Any of these means the caller charged for the work. */
-// `settleAcus` IS a charge — the one that cannot refuse. It exists because the
-// effort law forbids abandoning work already under way for balance: it takes
-// what is there and records the rest as owed, so the customer is still billed at
-// the 4x rate and the margin floor holds. Leaving it out of this list would have
-// reported a route that charges per pass as one that spends for free.
-export const METER_CALLS = ["meterAction", "debitAcus", "meterOrRefuse", "meteredRun", "settleAcus"];
+export const METER_CALLS = ["meterAction", "debitAcus", "meterOrRefuse", "meteredRun"];
 
 const srcCache = new Map();
 const read = (f) => {
