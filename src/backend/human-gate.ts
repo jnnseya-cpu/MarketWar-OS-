@@ -133,6 +133,32 @@ export const MACHINE_LANES: MachineLane[] = [
   { prefix: "/api/autopilot/nightly", credential: "cron_bearer", what: "The scheduler." },
   { prefix: "/api/blog/daily", credential: "cron_bearer", what: "The scheduler." },
   { prefix: "/api/seo-autopilot", credential: "cron_bearer", what: "The scheduler." },
+  // AI work that outgrew its invocation and is waiting to be carried on. Added
+  // when driving it showed the scheduler could never reach the drain at all: the
+  // route was written, the cron was scheduled, and the human gate answered the
+  // bearer with "No human session on this request." A cron route that is not in
+  // this list is a cron route that has never run.
+  { prefix: "/api/ai-jobs/drain", credential: "cron_bearer", what: "The scheduler, carrying on AI work nobody is watching." },
+  // FOUR MORE THE GUARD FOUND, and every one of them had never run.
+  //
+  // `/api/cron/collect-bounces`, `/api/cron/seo-gate`, `/api/cron/announce-urls`
+  // and `/api/newsletter` are all in `vercel.json`, all authorise the scheduler
+  // correctly in their own code, and all answered the scheduler's bearer with
+  // "No human session on this request" — because the gate runs before the route
+  // and none of them had a lane. Driven with a real CRON_SECRET against a
+  // running server: 403, four times.
+  //
+  // Bounce collection is the expensive one. STATE.md §5.1 names it as the thing
+  // that would confirm delivery, and it has been scheduled and dead the whole
+  // time — the platform could not read its own delivery failures no matter what
+  // was configured.
+  //
+  // The whole `/api/cron` NAMESPACE rather than three paths, so the next route
+  // added there does not repeat this. Everything under it uses `cronAuthorised`.
+  { prefix: "/api/cron", credential: "cron_bearer", what: "The scheduler: bounce collection, the SEO gate and URL announcements." },
+  // The newsletter accepts the scheduler OR an enforced admin; a human with a
+  // session still reaches it through the attributable-human branch below.
+  { prefix: "/api/newsletter", credential: "cron_bearer", what: "The weekly newsletter, sent by the scheduler." },
 ];
 
 /**

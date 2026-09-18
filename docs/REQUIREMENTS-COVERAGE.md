@@ -7988,3 +7988,129 @@ returning half — which is the improvement — but it does not yet resume by it
 The pattern to reuse is `backend/video-jobs.ts`, which already has queued/
 running/done/failed, claim-with-attempts and a worker. That work also needs
 `CRON_SECRET`, which is unset, so the drain would be dark on this deployment.
+
+## §149 — Cross-invocation continuation, and four crons that had never run (2026-09-18)
+
+§148 ended with the gap named rather than implied: `AiWorkIncompleteError` said
+the work should continue elsewhere and nothing picked it up. This is the thing
+that picks it up.
+
+### What was built
+
+- **`src/shared/ai-job.ts`** — the state machine, pure. Claim, lease, and what a
+  slice's outcome does to a job.
+- **`src/backend/ai-jobs.ts`** — the durable store (Firestore `ai_jobs` + an
+  in-memory fallback), modelled on `video-jobs.ts` deliberately: that store
+  already solved the claim two workers cannot both win, the lease that releases
+  a job when a process dies, and oldest-first ordering.
+- **`/api/ai-jobs`** — start, status, list. Tenant-scoped on the RECORD.
+- **`/api/ai-jobs/drain`** — the scheduler's half, plus a platform admin so the
+  queue can be drained by hand on a deployment with no scheduler.
+
+### The one place it diverges from `video-jobs`, and it is the point
+
+`video-jobs` retires a job after `MAX_ATTEMPTS = 3`: *"Gave up after 3
+attempts."* Copying that would have re-imposed the exact limit the effort law
+exists to remove, on the one path built to honour it. **Attempts here are counted
+to be shown and never spent.** A job stops for one reason: the request itself
+cannot succeed. A test asserts claimability at 0, 1, 3, 4, 50 and 5,000 attempts,
+and another forbids the strings `MAX_ATTEMPTS` and any branch on an attempt count
+anywhere in either file.
+
+The runaway that creates is named rather than capped: a job that cannot fail can
+loop. The law is explicit that cost is not a reason to stop, so the answer is
+that the loop is **visible** (every pass and note is on the job) and **stoppable**
+— the `autonomous` emergency-stop lane, whose published meaning is already
+"work the platform starts on its own… anything a person clicks in front of them
+still runs". So the cron drain is held by it and a customer waiting on the page
+is not. No new lane was invented.
+
+### What makes it work TODAY, on a deployment with no CRON_SECRET
+
+**The status poll advances the job.** The person waiting for their document
+drives their own work forward, so continuation needs no scheduler, no secret and
+no configuration. Building only the cron would have shipped a feature that has
+never run — which is precisely what was found next.
+
+### Found by driving it: FOUR SCHEDULED ROUTES THAT HAD NEVER RUN
+
+The drain was written, the cron was added to `vercel.json`, the route authorised
+the bearer correctly — and the scheduler got **"No human session on this
+request."** The human gate runs before the route, and a path with no entry in
+`MACHINE_LANES` has no way in.
+
+A guard was added for that, and it immediately found four more:
+
+| Route | Scheduled | Could the scheduler reach it? |
+|---|---|---|
+| `/api/cron/collect-bounces` | yes | **no — 403** |
+| `/api/cron/seo-gate` | yes | **no — 403** |
+| `/api/cron/announce-urls` | yes | **no — 403** |
+| `/api/newsletter` | yes | **no — 403** |
+
+All four authorise `cronAuthorised` correctly in their own code. All four were
+refused before reaching it. **Bounce collection is the expensive one**: STATE.md
+§5.1 names it as the thing that would confirm delivery, and it has been scheduled
+and dead the whole time — the platform could not read its own delivery failures
+no matter what was configured.
+
+Driven with a real `CRON_SECRET` against a running server, before and after:
+
+```
+BEFORE   collect-bounces 403 · seo-gate 403 · announce-urls 403 · newsletter 403
+AFTER    collect-bounces 503 "No bounce mailbox is configured"   (its own honest refusal)
+         seo-gate        200  checked 13 articles
+         announce-urls   503 "No INDEXNOW_KEY is set"            (its own honest refusal)
+         newsletter      200  sent 3
+         ai-jobs/drain   200  advanced 3
+```
+
+The whole `/api/cron` namespace got the lane rather than three paths, so the next
+route added there does not repeat it.
+
+### Verified
+
+`npm run verify` green: 2,020 tests, 0 failures. **Sixteen mutations, all
+killed** — including "an attempt ceiling comes back", "a stranded job is never
+reclaimed", "a fresh claim is stolen mid-run", "a pass with no provider is
+charged", "the drain loses its lane" and "the whole job API becomes a machine
+lane".
+
+One survived the first pass: "the lease is not released on hand-off". The test's
+base job already had `claimedAt: null`, so the assertion passed whether the code
+released the lease or not — and a job handed on with its lease still held is
+invisible to every other invocation until it expires, which is the one failure
+this vertical exists to prevent.
+
+**Driven against a real build with real Firestore**, across separate HTTP
+requests, which is the only way to show something surviving the end of a request:
+
+```
+PASS  AI work survives the request that started it
+      Job aj_… started, then carried forward by two separate requests and came
+      back as the same job. The START gate charged 5 ACU (wallet 100 → 95); the
+      two waiting passes charged 0. keepPolling: true.
+PASS  Another tenant cannot carry on somebody else's job
+      A second real account was refused with HTTP 403.
+14 proven · 0 broken
+```
+
+### Two defects fixed in the new code before it shipped
+
+1. **The start gate was missing.** §148 recorded the resolution — starting passes
+   the wallet, finishing is never prevented — and the route shipped without the
+   first half. The spend-graph guard caught it: a route that can call a paid
+   provider with no charge in front of it. `settleAcus` was also added to that
+   guard's list of charges, because it is one.
+2. **A pass that reached no provider was charged and counted.** With no key
+   configured, every pass called nobody, produced nothing, and billed 5 ACUs for
+   it — the charged-and-served-nothing defect on the one path designed to run for
+   a long time. A pass that reaches no provider is now neither charged nor
+   counted, and the job waits with a note saying it resumes the moment a key is
+   set.
+
+### The pricing law is untouched
+
+Owner confirmed: users are charged 4× provider cost and that stays. Each pass
+that actually calls a provider settles at the action rate, so a long job costs
+proportionally to the provider work it really does, and the margin floor holds.

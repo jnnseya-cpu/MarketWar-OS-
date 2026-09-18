@@ -328,6 +328,98 @@ if (!signedIn || !PERSIST) {
 }
 
 // ---------------------------------------------------------------------------
+// CROSS-INVOCATION CONTINUATION — a job that outlives the request that made it.
+//
+// The effort law says AI work runs until it produces the result. A serverless
+// invocation is killed at a fixed ceiling, so "no time limit" is delivered by
+// CONTINUING: the run becomes a job, and every later request carries it on.
+// This drives that across SEPARATE HTTP requests, which is the only way to show
+// it — a single call cannot demonstrate surviving the end of a call.
+// ---------------------------------------------------------------------------
+if (!signedIn || !PERSIST) {
+  rec("AI work survives the request that started it", "skip",
+    !signedIn ? "No identity to own a job." : "No persistence — a job has nowhere to live between requests.");
+} else {
+  const walletBefore = (await get("/api/billing/wallet"))?.json?.wallet?.balanceAcu;
+  const start = await call("/api/ai-jobs", { body: {
+    action: "start", brandId: BRAND, kind: "document",
+    system: "You write long documents.", prompt: "Write a 3000-word guide to boiler servicing.",
+  } });
+  const jobId = start.json?.job?.id;
+  if (start.status !== 200 || !jobId) {
+    rec("AI work survives the request that started it", "fail",
+      `start answered ${start.status}: ${JSON.stringify(start.json).slice(0, 200)}`);
+  } else {
+    // ASK TWICE, IN TWO SEPARATE REQUESTS. Each one is a different invocation as
+    // far as the platform is concerned, and the job must come back the same job.
+    const a = await call("/api/ai-jobs", { body: { action: "status", brandId: BRAND, jobId } });
+    const b = await call("/api/ai-jobs", { body: { action: "status", brandId: BRAND, jobId } });
+    const j = b.json?.job;
+    const walletAfter = (await get("/api/billing/wallet"))?.json?.wallet?.balanceAcu;
+
+    const survived = a.status === 200 && b.status === 200 && j?.id === jobId;
+    const notFailed = j && j.status !== "failed";
+    // No AI provider on this deployment, so no pass can reach one — and a pass
+    // that called nobody must cost nothing. The job waits instead of dying.
+    const freeWhileWaiting = j && j.chargedAcu === 0;
+    const keepsGoing = b.json?.keepPolling === true;
+    // MEASURED, NOT ASSERTED. The first version of this step printed "the start
+    // gate charged" from a wallet read that returned undefined — a claim with no
+    // measurement behind it, which is the defect this harness exists to catch in
+    // other people's code.
+    const charged = typeof walletBefore === "number" && typeof walletAfter === "number"
+      ? walletBefore - walletAfter
+      : null;
+    const gateCharged = charged !== null && charged > 0;
+
+    if (survived && notFailed && freeWhileWaiting && keepsGoing && gateCharged) {
+      rec("AI work survives the request that started it", "pass",
+        `Job ${jobId} started, then carried forward by two separate requests and came back as the same job, `
+        + `status "${j.status}", ${j.attempts} pass(es). The START gate charged ${charged} ACU `
+        + `(wallet ${walletBefore} → ${walletAfter}); the two waiting passes charged ${j.chargedAcu}, because no `
+        + `provider is configured and a pass that called nobody is never billed. keepPolling: true — it is still going.`);
+    } else {
+      rec("AI work survives the request that started it", "fail",
+        `survived: ${survived}, notFailed: ${notFailed}, freeWhileWaiting: ${freeWhileWaiting}, `
+        + `keepPolling: ${keepsGoing}, gateCharged: ${gateCharged} (wallet ${walletBefore} → ${walletAfter}). `
+        + `Job: ${JSON.stringify(j).slice(0, 250)}`);
+    }
+
+    // AND IT BELONGS TO ITS BRAND. A job id is not a capability: anybody who
+    // learns one must not be able to read the result or spend the owner's ACUs
+    // advancing it. Driven with a SECOND REAL ACCOUNT, the same way the vault's
+    // isolation step is, rather than reasoned about.
+    const host = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+    if (!host) {
+      rec("Another tenant cannot carry on somebody else's job", "skip", "Needs a second real identity.");
+    } else {
+      const reg = await tryFetch(`http://${host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=drive`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: `jobthief-${Date.now()}@elsewhere.test`, password: "Passw0rd!23", returnSecureToken: true }),
+      });
+      const other = reg.json?.idToken;
+      if (!other) {
+        rec("Another tenant cannot carry on somebody else's job", "skip", `Could not register a second account (${reg.error ?? "no token"}).`);
+      } else {
+        const stolen = await tryFetch(BASE + "/api/ai-jobs", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${other}`,
+            cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "),
+          },
+          body: JSON.stringify({ action: "status", brandId: BRAND, jobId }),
+        });
+        const got = stolen?.json?.job;
+        rec("Another tenant cannot carry on somebody else's job",
+          stolen && stolen.status >= 400 && !got ? "pass" : "fail",
+          stolen ? `A second real account was refused with HTTP ${stolen.status}${got ? " BUT RECEIVED THE JOB" : ""}.` : "The second identity could not be used.");
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // LIST HEALTH — and it must AGREE with the four contacts just written.
 //
 // The panel this drives used to compute its figures from an FNV-1a hash of the
