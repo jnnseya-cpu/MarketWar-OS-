@@ -108,6 +108,24 @@ export interface ProviderStatus {
 /** What the provider says it billed. Absent when a provider does not report it. */
 export type TokenUsage = { input: number; output: number };
 
+import { nextAction, EFFORT_LAW } from "@/shared/ai-effort";
+import { readProviderFailure, type FailureKind } from "@/shared/provider-failure";
+
+/**
+ * The most output this will ever ask one provider for while chasing a complete
+ * document. Not a limit on EFFORT — when this is reached and the model is still
+ * truncating, the work hands off to continue elsewhere rather than returning
+ * half or being called a failure.
+ */
+const MAX_CONTINUATION_TOKENS = 32_000;
+
+/** Classify a thrown provider error so the effort policy can tell hopeless from transient. */
+function failureKindOf(err: unknown, provider: string): FailureKind {
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = Number(/HTTP (\d{3})/.exec(msg)?.[1] ?? 0);
+  return readProviderFailure({ provider, status, body: msg }).kind;
+}
+
 const DEFAULT_MAX_TOKENS = 4096;
 const RETRIES_PER_PROVIDER = 3;
 
@@ -531,6 +549,29 @@ export function gatewayStatus(): { order: ProviderId[]; providers: ProviderStatu
 // Run a completion through the gateway. Throws only when every configured
 // provider fails; throws a specific error when none is configured so callers
 // can fall back to demo mode.
+/**
+ * The work is NOT finished and NOT failed — this invocation simply ran out of
+ * room to continue it.
+ *
+ * A DISTINCT TYPE BECAUSE THE DIFFERENCE MATTERS TO THE CUSTOMER. Under the
+ * owner's directive AI work has no time limit; a serverless invocation does. So
+ * "I could not fit the rest of this in the current run" is progress information,
+ * not a failure, and a surface that renders it as "your run failed" would be
+ * telling somebody their work died when it is simply continuing elsewhere.
+ * `isTerminal()` in `shared/ai-effort.ts` is the one function allowed to call a
+ * stop final, and it never calls this one.
+ */
+export class AiWorkIncompleteError extends Error {
+  readonly attemptsMade: number;
+  readonly askedFor: number;
+  constructor(message: string, info: { attemptsMade: number; askedFor: number }) {
+    super(message);
+    this.name = "AiWorkIncompleteError";
+    this.attemptsMade = info.attemptsMade;
+    this.askedFor = info.askedFor;
+  }
+}
+
 export class GatewayUnconfiguredError extends Error {
   constructor() {
     super("No AI provider configured");
@@ -709,15 +750,66 @@ export async function gatewayComplete(
     const perCallMs = Math.max(MIN_PROVIDER_MS, opts.perCallMs ?? PER_REQUEST_TIMEOUT_MS);
     const deadline = Date.now() + budgetMs;
     const attempts: { provider: ProviderId; error: string }[] = [];
+
+    // EFFORT IS UNLIMITED; AN INVOCATION IS NOT. See `shared/ai-effort.ts`.
+    //
+    // This used to be a SINGLE pass over the providers that ended in
+    // "All AI providers failed", and it returned a TRUNCATED completion as a
+    // success. Both are the opposite of the owner's directive: work stops
+    // running when the clock says so, and half a document goes back as if it
+    // were a whole one.
+    //
+    // Now the loop goes round for as long as this invocation can carry it,
+    // raising the output ask when a model stops at its ceiling, and it ends in
+    // exactly one of two ways: a request no provider could ever accept
+    // (`give_up`), or a hand-off that says the work continues elsewhere. Neither
+    // of them is "we ran out of time and gave you what we had".
+    let askFor = req.maxTokens ?? DEFAULT_MAX_TOKENS;
+    let sawTruncation = false;
+    let lastKind: FailureKind | null = null;
+
+    for (let pass = 0; ; pass++) {
     for (let i = 0; i < candidates.length; i++) {
       const adapter = candidates[i];
       const providersLeft = candidates.length - i;
       const remaining = deadline - Date.now();
 
-      // Out of budget — stop rather than starting a call that cannot finish.
-      if (remaining <= MIN_PROVIDER_MS) {
-        attempts.push({ provider: adapter.id, error: "skipped — overall gateway deadline reached" });
-        break;
+      const verdict = nextAction({
+        attemptsMade: attempts.length,
+        truncated: sawTruncation,
+        lastFailure: lastKind ? { kind: lastKind } : null,
+        invocationRemainingMs: remaining,
+        minAttemptMs: MIN_PROVIDER_MS,
+      });
+      const tried = () => attempts.map((a) => `${a.provider} (${a.error})`).join("; ");
+      if (verdict.act === "give_up") {
+        throw new Error(`AI work stopped: ${verdict.why} Tried: ${tried() || "nothing yet"}.`);
+      }
+      if (verdict.act === "hand_off") {
+        // Naming the keys that are absent is the one useful thing to say about a
+        // run that could not finish here: another configured provider is another
+        // place the work could have carried on.
+        const couldHaveHelped = unconfigured.length
+          ? ` Not configured, so never available to carry it: ${unconfigured.join(", ")}.`
+          : " Every configured provider was tried.";
+        throw new AiWorkIncompleteError(
+          `${verdict.why} ${EFFORT_LAW} Tried so far: ${tried() || "nothing yet"}.${couldHaveHelped}`,
+          { attemptsMade: attempts.length, askedFor: askFor },
+        );
+      }
+      if (verdict.act === "continue_output") {
+        // Ask for more and go again. A doubling rather than a fixed bump because
+        // a document that overran by a little and one that overran by a lot both
+        // need the same thing: enough room to finish.
+        if (askFor >= MAX_CONTINUATION_TOKENS) {
+          throw new AiWorkIncompleteError(
+            `The model is still stopping at its output ceiling with ${askFor} tokens requested, so this invocation `
+            + `cannot produce the whole document. It continues elsewhere rather than returning part of one. ${EFFORT_LAW}`,
+            { attemptsMade: attempts.length, askedFor: askFor },
+          );
+        }
+        askFor = Math.min(MAX_CONTINUATION_TOKENS, askFor * 2);
+        sawTruncation = false;
       }
 
       // RESERVE for the fallbacks — never divide the budget among them.
@@ -746,7 +838,17 @@ export async function gatewayComplete(
 
       const started = Date.now();
       try {
-        const out = await adapter.complete(req, providerDeadline);
+        const out = await adapter.complete({ ...req, maxTokens: askFor }, providerDeadline);
+        // A TRUNCATED COMPLETION IS NOT A RESULT. It used to be returned as one,
+        // with a `truncated: true` flag that callers were free to ignore — and
+        // at least one did, which is how a half-written document reached a
+        // customer. It is now a reason to continue, never a reason to finish.
+        if (out.truncated) {
+          sawTruncation = true;
+          lastKind = null;
+          attempts.push({ provider: adapter.id, error: `stopped at the ${askFor}-token ceiling — asking for the rest` });
+          continue;
+        }
         coolingUntil.delete(adapter.id);   // it works again — restore it at once
         // Recorded AFTER success, from the counts the provider returned. A failed
         // call that produced no tokens costs nothing; one that timed out mid-
@@ -761,7 +863,11 @@ export async function gatewayComplete(
         }
         return {
           text: out.text,
-          truncated: out.truncated,
+          // COMPLETE BY CONSTRUCTION. The truncation branch above `continue`s,
+          // so reaching here means the model finished of its own accord. This
+          // was `out.truncated`, which let a half-written document travel as a
+          // successful response carrying a flag the caller could ignore.
+          truncated: false,
           provider: adapter.id,
           model: adapter.model(),
           latencyMs: Date.now() - started,
@@ -770,20 +876,22 @@ export async function gatewayComplete(
       } catch (err) {
         // Demote it so the NEXT request does not spend its slice here first.
         markProviderCooling(adapter.id);
+        lastKind = failureKindOf(err, adapter.id);
         attempts.push({
           provider: adapter.id,
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
-
-    // The message matters: a customer seeing "nothing happened" cannot act, but
-    // "every provider timed out" tells them and us exactly what went wrong.
-    const tried = attempts.map((a) => `${a.provider} (${a.error})`).join("; ");
-    const notConfigured = unconfigured.length
-      ? ` Not configured, so never tried: ${unconfigured.join(", ")} — adding ${unconfigured.length === 1 ? "that key" : "one of those keys"} gives the gateway another provider to fall over to.`
-      : " Every configured provider was tried.";
-    throw new Error(`All AI providers failed: ${tried}.${notConfigured}`);
+    // A whole pass produced nothing. THAT IS NOT A REASON TO STOP — it is a
+    // reason to go round again, which the verdict at the top of the next
+    // iteration decides on the only grounds it is allowed to: whether the
+    // request is hopeless, and whether there is room left in this invocation.
+    // The unconfigured providers are named in the hand-off message, because
+    // "adding a key would have given the work somewhere else to run" is the one
+    // useful thing to say about a run that could not finish here.
+    void pass;
+    }
   };
 
   // §107 — a structured record of every AI execution.

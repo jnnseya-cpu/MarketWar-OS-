@@ -658,6 +658,90 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1,
   return { allowed: true, status: 200, metered: true, balanceAcu: res.balanceAcu, charged: res.charged };
 }
 
+/**
+ * CHARGE FOR WORK THAT IS ALREADY UNDER WAY, AND NEVER REFUSE IT.
+ *
+ * THE OWNER DIRECTIVE THIS EXISTS FOR: "Every AI powered work must have no time
+ * limit and ACUs limit… must work until produce the highly expected results."
+ *
+ * `debitAcus` answers "may this start" and is right to refuse when the balance
+ * cannot cover it. This answers a different question — "the work is running and
+ * has cost more than was reserved" — where refusing means ABANDONING A JOB
+ * HALF-DONE. The customer then has no result and has still paid for everything
+ * the providers were asked to do up to that point, which is the worst of both.
+ *
+ * So this always succeeds. It takes what is there, floors the balance at zero,
+ * and records the remainder as OWED — the field `applyWebhookOutcome` already
+ * nets off the next payment, exactly as it does for a refund it could not claw
+ * back. Nothing is given away and nothing is written off; the margin survives
+ * because the charge is still made, and the work survives because the charge
+ * never stops it.
+ */
+/**
+ * A stored wallet, CHECKED rather than asserted.
+ *
+ * `scripts/check-casts.mjs` refused a sixth `snap.data() as WalletState` here
+ * and was right to: a type assertion is a promise to the compiler that nobody
+ * verified, and two production crashes in this codebase came from exactly that.
+ * A wallet is money, so it is the last place to guess a shape. Anything missing
+ * or the wrong type falls back to the fresh-wallet value, which is the safe
+ * direction — a balance that reads as 0 refuses work, it never spends money
+ * that is not there.
+ */
+function walletFromStored(data: unknown, orgId: string): WalletState {
+  const base = freshWallet(orgId);
+  if (!data || typeof data !== "object") return base;
+  const d = data as Record<string, unknown>;
+  const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  const str = (v: unknown, fallback: string) => (typeof v === "string" ? v : fallback);
+  return {
+    ...base,
+    orgId: str(d.orgId, orgId),
+    balanceAcu: Math.max(0, Math.round(num(d.balanceAcu, 0))),
+    planId: str(d.planId, base.planId),
+    cycle: d.cycle === "monthly" || d.cycle === "annual" ? d.cycle : null,
+    lifetimeCreditedAcu: Math.max(0, Math.round(num(d.lifetimeCreditedAcu, 0))),
+    lifetimeDebitedAcu: Math.max(0, Math.round(num(d.lifetimeDebitedAcu, 0))),
+    owedAcu: Math.max(0, Math.round(num(d.owedAcu, 0))),
+    updatedAt: str(d.updatedAt, base.updatedAt),
+  };
+}
+
+export async function settleAcus(orgId: string, amountAcu: number): Promise<{ charged: number; owed: number; balanceAcu: number }> {
+  const id = (orgId || "").trim() || "anon";
+  const amount = Math.max(0, Math.round(amountAcu || 0));
+  const apply = (cur: WalletState) => {
+    const taken = Math.min(cur.balanceAcu, amount);
+    const short = amount - taken;
+    const next: WalletState = {
+      ...cur,
+      balanceAcu: cur.balanceAcu - taken,
+      owedAcu: Math.max(0, Math.round(cur.owedAcu || 0)) + short,
+      lifetimeDebitedAcu: cur.lifetimeDebitedAcu + taken,
+      updatedAt: nowIso(),
+    };
+    return { next, taken, short };
+  };
+
+  if (adminConfigured && adminDb) {
+    const ref = adminDb.collection(COLLECTION).doc(id);
+    return await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const stored = snap.exists ? walletFromStored(snap.data(), id) : freshWallet(id);
+      // Instalments already paid for are released first, same as the debit path,
+      // so nothing is recorded as owed that the customer has in fact bought.
+      const { wallet: cur } = applyDueReleases(stored, nowIso());
+      const { next, taken, short } = apply(cur);
+      tx.set(ref, next, { merge: false });
+      return { charged: taken, owed: short, balanceAcu: next.balanceAcu };
+    });
+  }
+  const cur = await getWallet(id);
+  const { next, taken, short } = apply(cur);
+  mem.set(id, next);
+  return { charged: taken, owed: short, balanceAcu: next.balanceAcu };
+}
+
 export type SpendResult =
   | { ok: true; charged: number; exempt: boolean; why: string; balanceAcu?: number }
   | { ok: false; charged: 0; exempt: false; why: string; balanceAcu: number; error: string };
