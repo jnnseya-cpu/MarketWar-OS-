@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/announce-urls",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/ai-jobs/drain",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
