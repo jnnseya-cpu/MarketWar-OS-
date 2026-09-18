@@ -3076,7 +3076,11 @@ test("gateway: the cooldown expires, so recovery does not need a redeploy", () =
 test("gateway: the budget is split so a fallback always gets a real attempt", () => {
   const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
   assert.match(src, /providersLeft/, "each provider must get a share, not the whole deadline");
-  assert.match(src, /adapter\.complete\(req, providerDeadline\)/,
+  // The call now carries a per-attempt output ask (`askFor`) so a truncated
+  // completion can be continued rather than returned as a finished document —
+  // but the property this test exists for is unchanged: the adapter is handed
+  // `providerDeadline`, its own slice, and never the overall deadline.
+  assert.match(src, /adapter\.complete\(\{ \.\.\.req, maxTokens: askFor \}, providerDeadline\)/,
     "handing the first adapter the overall deadline is exactly what starved the fallback");
   assert.match(src, /MIN_PROVIDER_MS/, "and a slice too small to succeed is not worth starting");
 });
@@ -3195,8 +3199,13 @@ test("search console: the empty state explains itself instead of showing zero", 
 
 test("gateway: the failure names every provider, including the ones never tried", () => {
   const src = readFileSync(new URL("../src/backend/gateway.ts", import.meta.url), "utf8");
-  assert.match(src, /Not configured, so never tried/,
-    '"All AI providers failed: anthropic…; openai…" invites the fair question "and what about Gemini?" — the error must answer it');
+  // The wording moved when the loop stopped ending in "All AI providers failed"
+  // — under the effort directive a run that cannot finish here HANDS OFF rather
+  // than failing. The obligation is the same: name the providers that were never
+  // available, because another configured key is another place the work could
+  // have carried on.
+  assert.match(src, /Not configured, so never available to carry it/,
+    '"anthropic…; openai…" invites the fair question "and what about Gemini?" — the message must answer it');
   assert.match(src, /unconfigured/, "the unconfigured set has to be computed before the loop filters it away");
 });
 

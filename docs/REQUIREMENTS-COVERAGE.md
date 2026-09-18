@@ -7889,3 +7889,102 @@ last time," and a complaint earned on the shared pool is charged to every
 customer. That is a real trade — one extra click against automated
 unsubscribes — and it is the owner's to make, not a side effect of a Search
 Console ticket.
+
+## §148 — The effort law: AI work runs until it is done (2026-09-18)
+
+Owner directive, now permanent in `CLAUDE.md`:
+
+> "Every AI powered work must have no time limit and ACUs limit, regardless how
+> long it can take and how much it will cost. The AI powered functions must work
+> until produce the highly expected results."
+
+### What was actually stopping work
+
+Three things, all of them the directive's opposite:
+
+1. **A truncated completion was returned as a success.** `gatewayComplete`
+   returned `truncated: out.truncated` — half a document, with a flag callers
+   were free to ignore, and at least one did (§STATE: "the gateway returned
+   `truncated` and the AI writer never read it").
+2. **One pass over the providers, then give up.** The loop ran each configured
+   provider once and threw `All AI providers failed`. Three transient timeouts
+   ended the work.
+3. **`OVERALL_TIMEOUT_MS` defaulted to 50s**, which its own comment admits is
+   "deliberately under the tightest route budget" — so a route with 120s of
+   headroom handed the gateway 50 and the rest went unused.
+
+### What replaced them
+
+**`src/shared/ai-effort.ts`** — pure, and the signature is the design: it takes
+no budget, no cost, no spend and no maximum attempt count, because none of them
+may influence the answer. Four verdicts:
+
+- `retry_provider` — transient. Go again.
+- `continue_output` — the model hit its ceiling; ask for the rest. **Half a
+  document is never an answer.**
+- `hand_off` — this invocation cannot fit another attempt, so the work continues
+  elsewhere. **Not a failure**, and `isTerminal()` says so.
+- `give_up` — the only honest stop, and it is about the REQUEST: a refused
+  prompt or a malformed one, which the ninth provider refuses exactly like the
+  first.
+
+**The gateway** now loops unbounded, doubles the output ask when a model
+truncates (to `MAX_CONTINUATION_TOKENS`), classifies failures through the
+existing `readProviderFailure`, and ends only in `give_up` or the new
+`AiWorkIncompleteError`. Its success path returns `truncated: false` because a
+response that reaches a caller is complete by construction.
+
+**`settleAcus`** charges work already under way and cannot refuse it: it takes
+what is there, floors the balance at zero, and records the rest as `owedAcu` —
+the field `applyWebhookOutcome` already nets off the next payment. Nothing is
+given away, so the margin floor survives; nothing is abandoned, so the work does.
+
+### Three things this deliberately does NOT do, because the opposite produces fewer results
+
+- **A single provider HTTP call keeps its timeout.** It is not a limit on effort,
+  it is what makes effort possible: a provider that accepts a socket and holds it
+  open otherwise consumes the whole invocation and the customer gets nothing.
+- **No timeout was set to a large number.** Serverless functions are killed at a
+  fixed ceiling; writing 3,600,000 into `maxDuration` would be obeying the letter
+  of the law and breaking it in fact. "No time limit" is delivered by continuing.
+- **The wallet gate to START an action stays.** Removing it means a balance of
+  zero can commission unbounded provider spend. See §Gaps below.
+
+### Verified
+
+`npm run verify` green: 2,003 tests, 0 failures. **Eleven mutations, all
+killed.** The central one is a sweep rather than a spot check: thousands of
+states across attempts (0 → 100,000), remaining time (8s → 24h) and every
+failure kind, asserting that **no resource state ever produces `give_up`**. A
+rule like "stop after 50 attempts" passes a spot check and dies here.
+
+Two mutations survived the first pass and both were real gaps — `pass < 1`
+(restoring the single-pass give-up, caught only by source assertions until a
+loop-shape check was added) and a `settle` that takes NOTHING when short,
+charging zero and owing everything, which the source assertion could not see.
+That one is money, so it now has a driven test: balance 30, charge 100 →
+charged 30, owed 70, balance 0, and owed accumulates.
+
+### Gaps — the conflict with the pricing law, recorded per the additive-only rule
+
+`CLAUDE.md`'s margin floor ("price ≥ 2× provider cost") and this directive pull
+in opposite directions at exactly one point: **an account with no balance
+commissioning unlimited work.**
+
+Implemented resolution: **starting** an action still passes the wallet gate;
+**finishing** one is never prevented. That keeps the margin (the charge is still
+made, and lands as `owedAcu` if it cannot be taken) and keeps the law (nothing in
+flight is ever abandoned). The alternative — no gate at all — makes provider
+spend unbounded against a zero balance, with real money leaving for a customer
+who may never pay it. **Recommended resolution: keep the start gate.** The owner
+can overrule; it is one condition in `meterAction`.
+
+### Not done, and named rather than implied
+
+**Cross-invocation continuation is not built.** `AiWorkIncompleteError` says the
+work should continue elsewhere and nothing yet picks it up, so today a run that
+exceeds its invocation reports honestly that it is unfinished instead of
+returning half — which is the improvement — but it does not yet resume by itself.
+The pattern to reuse is `backend/video-jobs.ts`, which already has queued/
+running/done/failed, claim-with-attempts and a worker. That work also needs
+`CRON_SECRET`, which is unset, so the drain would be dark on this deployment.

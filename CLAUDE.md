@@ -94,6 +94,36 @@ cost) while remaining **extremely competitive and attractive** — win on a
 lower cost base (caching, reuse, cheap-model routing, ACU recycling), never
 by breaching the floor. Detail: docs/ai-os/08 §A.1a.
 
+## The effort law (owner directive — permanent)
+
+**Every AI-powered function has NO time limit and NO ACU limit. It runs until it
+produces the expected result, however long that takes and whatever it costs.**
+
+Running out of time, attempts, budget or balance is never a reason to stop. The
+only honest stop is a request that cannot succeed however often it is tried — a
+refused prompt, a malformed request. Policy in `src/shared/ai-effort.ts`;
+`EFFORT_LAW` is the sentence to quote rather than paraphrase.
+
+Three things this does NOT mean, because getting them wrong produces fewer
+results rather than more:
+
+- **A single provider HTTP call keeps its timeout.** That timeout is not a limit
+  on effort, it is what makes effort possible: a provider that accepts a socket
+  and holds it forever otherwise consumes the whole invocation and the customer
+  gets nothing. The timeout is what lets the work move on and carry on.
+- **An invocation is not the work.** Serverless functions are killed at a fixed
+  ceiling and no configuration makes one run for an hour. "No time limit" is
+  delivered by CONTINUING — `AiWorkIncompleteError` is a hand-off, not a
+  failure, and must never be rendered to a customer as "your run failed".
+- **A truncated completion is not a result.** A model that stopped at its token
+  ceiling produced half a document. That is a reason to continue, never a reason
+  to finish.
+
+Money: an action still passes the wallet gate to START. Once it is under way it
+is never abandoned for balance — `settleAcus` charges what it can and records the
+rest as `owedAcu`, which the next payment nets off. The margin floor survives
+because the charge is still made.
+
 ## The sending law (owner directive — permanent)
 
 **MarketWar OS IS the email service provider. Never name, suggest, recommend,
