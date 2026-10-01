@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2, Cpu } from "lucide-react";
 import { authedFetch } from "@/frontend/api-client";
+import { track } from "@/frontend/analytics";
 import { BrandLockup } from "@/components/Logo";
 import { AGENT_LIST } from "@/shared/agents";
 import { SUPPORT_EMAIL } from "@/shared/site";
@@ -48,6 +49,11 @@ export default function ChoosePlanPage() {
 
   useEffect(() => {
     authedFetch("/api/subscription").then((r) => r.json()).then((d) => setPlans(d.plans)).catch(() => {});
+    // THE PRICE TABLE WAS ACTUALLY LOOKED AT. This is a destination in every
+    // advert, and until now it reported nothing at all — not the view, not the
+    // checkout, not the free activation — so a campaign could not tell a click
+    // that reached the prices from one that bounced off the audit.
+    track("view_pricing", { surface: "choose-plan" });
   }, []);
 
   const money = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
@@ -60,8 +66,25 @@ export default function ChoosePlanPage() {
         body: JSON.stringify({ planId: p.id, cycle }),
       });
       const d = await res.json();
-      if (d.free) { router.push("/dashboard?plan=free"); return; }
-      if (d.ok && d.url && d.mode === "live") { window.location.href = d.url; return; }
+      if (d.free) {
+        // Its own event, carrying no value — a £0 Purchase would teach the ad
+        // platform this platform's customers are worth nothing.
+        track("start_free_plan", { plan: p.id, cycle });
+        router.push("/dashboard?plan=free"); return;
+      }
+      if (d.ok && d.url && d.mode === "live") {
+        // begin_checkout, NOT a sale: Stripe has taken nothing yet and the
+        // customer may never finish. The sale is reported on the confirmed
+        // return by ConversionReporter, from the wallet the webhook credits.
+        // The amount comes from the plan the SERVER sent for this page, never
+        // from a price re-typed here — a second copy of the price table drifts
+        // from the real one and quietly reports the wrong revenue.
+        track("begin_checkout", {
+          plan: p.id, cycle, currency: "GBP",
+          value: cycle === "annual" ? p.annualGbp : p.monthlyGbp,
+        });
+        window.location.href = d.url; return;
+      }
       // Payments not enabled in a real deployment — never grant paid access for free.
       if (d.ok === false) { setMsg(d.error || "Payments aren't available right now — please try again shortly."); return; }
       // Demo/dev (no accounts, no entitlements): acknowledge + continue exploring.

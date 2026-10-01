@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { track } from "@/frontend/analytics";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2, Shield } from "lucide-react";
@@ -119,6 +120,16 @@ export default function OnboardingPage() {
       }
 
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      // SETUP FINISHED — the point at which the OS is actually usable, and the
+      // step between an account existing and an account being worth anything.
+      // Fired here rather than on the dashboard: arriving at the dashboard also
+      // happens on every later visit, and this must count once.
+      // NO PARAMETERS. The obvious dimension to add is the industry, and it is a
+      // FREE-TEXT field on this form — "Dave's Plumbing" is a person's name, and
+      // free text is exactly where one ends up. `sanitiseParams` would drop it
+      // (not on the allowlist), so passing it would have been a no-op that read
+      // like a feature.
+      track("onboarding_complete");
       router.push("/dashboard/audit?from=onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

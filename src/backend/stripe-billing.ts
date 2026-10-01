@@ -131,8 +131,39 @@ export type WebhookOutcome = {
   planId?: string;
   acusAllocated?: number;
   ledgerEntry?: { type: string; direction: "credit" | "debit"; amountAcu: number; idempotencyKey: string };
+  /**
+   * THE MONEY THAT ACTUALLY ARRIVED, in minor units, as Stripe reported it.
+   *
+   * Not the plan's list price. A coupon, a proration, a partial capture or a
+   * currency other than GBP all make the list price wrong, and the one place
+   * this is used — the conversion value sent to Meta and the GTM container — is
+   * the place where a wrong number trains an ad algorithm to bid for the wrong
+   * customers. The top-up path above already learnt this lesson for the ACU
+   * credit ("a wallet is credited from money that arrived, never from an
+   * intention"); the reported revenue gets the same treatment.
+   *
+   * Absent when the event carries no amount, and absent must never be read as
+   * zero: a zero-value Purchase is worse than no Purchase at all.
+   */
+  payment?: { amountMinor: number; currency: string };
   note: string;
 };
+
+/**
+ * What Stripe says was paid, across the three shapes that carry it.
+ *
+ * `checkout.session.completed` has `amount_total`, `invoice.paid` has
+ * `amount_paid`, `payment_intent.succeeded` has `amount_received`. Returns
+ * undefined rather than 0 when none of them is present or positive, because the
+ * caller must be able to tell "nothing arrived" from "we could not read it".
+ */
+function paymentFromEvent(obj: Record<string, unknown> | undefined): { amountMinor: number; currency: string } | undefined {
+  const raw = obj?.amount_paid ?? obj?.amount_total ?? obj?.amount_received ?? obj?.amount;
+  const amountMinor = Math.round(Number(raw) || 0);
+  if (!Number.isFinite(amountMinor) || amountMinor <= 0) return undefined;
+  const cur = typeof obj?.currency === "string" ? obj.currency.trim().toUpperCase() : "";
+  return { amountMinor, currency: cur || "GBP" };
+}
 
 /**
  * Which plan did this event pay for — or NOTHING, if it did not say.
@@ -203,6 +234,7 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
     return {
       ...base, handled: true, action: "allocate_acus", acusAllocated: acus,
       ledgerEntry: { type: "acu_topup", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
+      payment: paymentFromEvent(obj),
       note: acus < intended
         ? `Credit ${acus} top-up ACUs — the metadata asked for ${intended} but only ${paidPence}p was actually received (a discount code or a partial capture), and a wallet is credited from money that arrived, never from an intention.`
         : `Credit ${acus} top-up ACUs to the org wallet — append-only, idempotency key = event id. Top-ups carry no discount (4× recovery protected).`,
@@ -257,6 +289,7 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
         ? { scheduleRelease: { perMonth: econ.annualMonthlyReleaseAcus, months: 11 } }
         : {}),
       ledgerEntry: { type: "subscription_allocation", direction: "credit", amountAcu: acus, idempotencyKey: event.id },
+      payment: paymentFromEvent(obj),
       note: cycle === "annual"
         ? `Credit ${acus} ACUs now and schedule 11 more instalments of ${econ.annualMonthlyReleaseAcus} — an annual plan buys ${econ.annualAcus} ACUs for the year, released monthly. Idempotency key = event id.`
         : `Credit ${acus} ACUs (20% of the ${plan.name} price) to the org wallet — append-only, idempotency key = event id so a redelivered event never double-credits.`,

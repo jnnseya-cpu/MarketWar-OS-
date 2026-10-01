@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SUPPORT_EMAIL } from "@/shared/site";
 import { Mail, MessageCircle, Building2 } from "lucide-react";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
+import { track } from "@/frontend/analytics";
 
 
 // One source of truth — see shared/site.ts. Every page that offers a way to get
@@ -19,6 +20,12 @@ export default function ContactPage() {
     e.preventDefault();
     // Honest + functional: compose an email in the visitor's own client. No
     // hidden collection — nothing is stored until the message is actually sent.
+    // A real enquiry, and the only parameter that leaves is the topic — a short
+    // label from the fixed select below, never free text. The name, the address
+    // and the message go to our own mailbox and nowhere near an advertising
+    // network; `sanitiseParams` would drop them anyway, and not passing them is
+    // the belt to its braces.
+    track("contact_request", { kind: topic.toLowerCase().slice(0, 40) });
     const body = `Name: ${name}\nEmail: ${email}\nTopic: ${topic}\n\n${message}`;
     window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[${topic}] MarketWar OS enquiry`)}&body=${encodeURIComponent(body)}`;
   }
