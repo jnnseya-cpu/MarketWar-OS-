@@ -109,10 +109,50 @@ for (const route of ["audit", "choose-plan"]) {
 }
 console.log("destinations: /audit and /choose-plan both exist");
 
-// The audit must need no account, because six adverts say so in those words.
-if (/requireUser|requireAuth|getSession/.test(auditRoute)) {
-  fail("\nThe audit route now looks authenticated — every advert in this bundle promises no account is needed");
-} else console.log("free audit: still public, no signup gate");
+// THE AUDIT MUST NEED NO ACCOUNT, because six adverts say so in those words.
+//
+// THIS USED TO GREP FOR `requireUser|requireAuth|getSession` AND FAILED THE ADS
+// BUILD WHILE EVERY ADVERT WAS TRUE. The route now READS auth when a bearer
+// happens to be present — to attribute the run and to decide whether the caller
+// is on a paid plan for quota — and carries on without one. Mentioning
+// `requireAuth` and being gated behind it are different facts, and a grep cannot
+// tell them apart: a check failing for a reason unrelated to what it tests,
+// which is this repository's second catalogued defect class.
+//
+// So the check is now about the ANONYMOUS PATH, which is the thing the adverts
+// actually promise: a caller with no bearer must be handed `accountId: null` and
+// allowed to continue. The behaviour itself is driven in
+// `tests/audit-open.test.mjs`, which POSTs to the real handler with no
+// credential at all and asserts it is not refused for lack of one — because
+// source can lie about whether a line is reached and a request cannot.
+const anonymousAllowed =
+  /startsWith\("Bearer "\)\) return \{ accountId: null, paid: false \}/.test(auditRoute);
+if (!anonymousAllowed) {
+  fail("\nThe audit route no longer has an explicit anonymous path — every advert in this bundle promises no account is needed. Check src/app/api/audit/route.ts and tests/audit-open.test.mjs.");
+} else console.log("free audit: still public — a caller with no bearer is allowed through");
+
+// ------------------------------------------- 2b. the picture prompts' facts
+//
+// `docs/FACEBOOK-AD-PROMPTS.md` carries the same claims into the five image
+// prompts and the ad-copy prompt, so it is checked against src/ exactly as the
+// .docx is. The number of checks is the one that drifted: the first draft said
+// 32, counted off the `AUDIT_COPY` keys, while the platform's own
+// `auditCheckCount()` says 31 — it excludes the single CONDITIONAL check,
+// because a number printed in an advert has to be the number that is true of
+// every visitor, which is the reason written above that function. A picture is
+// harder to correct than a paragraph: once five images are generated with a
+// wrong number burnt into the pixels, the number is in the ad account.
+const { auditCheckCount, conditionalChecks } = await import("../src/shared/audit-copy.ts");
+const prompts = readFileSync(root("docs", "FACEBOOK-AD-PROMPTS.md"), "utf8");
+const trueCount = auditCheckCount();
+const countsClaimed = [...new Set((prompts.match(/\b(\d{1,3}) checks\b/g) || []).map((m) => Number(m.match(/\d+/)[0])))];
+const wrongCounts = countsClaimed.filter((n) => n !== trueCount);
+if (!countsClaimed.length) {
+  fail("\nFACEBOOK-AD-PROMPTS.md names no check count at all — the prompts are built on it, so a silent removal is a silent change of claim.");
+} else if (wrongCounts.length) {
+  fail(`\nFACEBOOK-AD-PROMPTS.md claims ${wrongCounts.join(" and ")} checks; auditCheckCount() is ${trueCount}`
+    + ` (${conditionalChecks().length} conditional check(s) are excluded on purpose). These numbers end up inside generated images.`);
+} else console.log(`image prompts: "${trueCount} checks" matches auditCheckCount() everywhere it appears`);
 
 // ---------------------------------------------------------------- 3. hygiene
 
@@ -124,6 +164,17 @@ const forbidden = [
 const claimHits = forbidden.filter((re) => re.test(docx));
 if (claimHits.length) fail(`\nThe bundle makes ${claimHits.length} claim(s) of a result or customer base that does not exist yet: ${claimHits.map(String).join(", ")}`);
 else console.log("claims: no results, customer counts or testimonials asserted");
+
+// THE SAME RULE OVER THE PICTURE PROMPTS, because an image asserts as loudly as
+// a sentence and a generated one cannot be edited afterwards. The prompts file
+// also DISCUSSES these patterns in order to forbid them, so only the prompt
+// bodies are scanned — the blockquotes, which is what gets pasted into an image
+// model — and not the prose explaining why they are banned. A check that fails
+// on its own warning label is this repository's second defect class.
+const promptBodies = prompts.split("\n").filter((l) => l.startsWith("> ")).join("\n");
+const promptHits = forbidden.filter((re) => re.test(promptBodies));
+if (promptHits.length) fail(`\nA picture or copy prompt asks for ${promptHits.length} claim(s) there is no basis for: ${promptHits.map(String).join(", ")}`);
+else console.log(`image prompts: ${promptBodies.split("\n").length} prompt lines, no result or customer claim requested`);
 
 // The bullet character must never be literal text — docx numbering draws it.
 const literalBullets = (docx.match(/•/g) || []).length;

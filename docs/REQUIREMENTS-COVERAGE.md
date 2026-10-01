@@ -8195,3 +8195,172 @@ call that really happens, and nothing else bills.
 
 4× provider cost, from `ACTION_COST_ACU`, exactly as before. Nothing in §148–§150
 altered a rate.
+
+---
+
+## §151 — Facebook ad prompts, and a number typed instead of derived (2026-10-01)
+
+**Owner request.** *"I want to create a Facebook ads and I need a very deep dive
+and deep thinking and deep search to create 5 prompts which I will create
+pictures with and 1 prompt for the ads. These all prompts must be what will
+trigger someone to get it card out and buy."*
+
+### What was built
+
+`docs/FACEBOOK-AD-PROMPTS.md` — five image-generation prompts and one ad-copy
+prompt. ✅ code-adjacent: every quotable fact in it is read out of `src/` and
+re-derived by `npm run ads:verify`, which now covers this file as well as the
+`.docx` bundle.
+
+The five are deliberately **not five versions of one idea**. Each attacks a
+different buying trigger, so the audience can tell the owner which lever moves
+their market rather than the owner guessing:
+
+| # | Trigger | Why it moves money |
+|---|---|---|
+| 1 | A loss already incurred | Loss aversion beats gain; for trades the unchased quote is a specific, remembered loss. |
+| 2 | Specific personal evidence | "Your site, 31 checks, 3 free" is falsifiable and about *them*. |
+| 3 | Control / risk removal | The top objection to AI marketing here is "it will say something stupid as me". |
+| 4 | Price anchored against the alternative | £19 is not cheap in the abstract; against a retainer it is obvious. |
+| 5 | Identity | "This is for tech startups, not me" kills more sales here than price does. |
+
+**Where the card actually comes out, stated in the document because it changes
+what the images are for:** a cold viewer does not buy a £19/month subscription
+from a picture. The picture buys the click; **the audit result is the
+salesperson** — their own site, 31 checks, three real problems named with what
+each costs. All five therefore drive to `/audit`.
+
+**Forbidden, and enforced:** no testimonial, no "trusted by", no customer count,
+no result claim, no before-and-after, no fake urgency. Not squeamishness —
+customers acquired is zero (`STATE.md` §2), Meta's review checks claims and the
+ASA acts on them.
+
+### The defect in it, found by the verifier it was written alongside
+
+**"32 checks" was typed, counted off the `AUDIT_COPY` keys. `auditCheckCount()`
+says 31** — it excludes the one `conditional` check, and the comment above it
+says why: *"a number on a page that promises nothing is inflated has to be the
+number that is true of every visitor."* This is the third defect class (a value
+hard-coded where it should be derived) and `STATE.md` itself carried the same
+fault in the other direction a month ago, saying 30 while the code said 31.
+
+Corrected to 31 and **derived**: `ads:verify` imports `auditCheckCount()` and
+fails on any disagreement. A wrong number inside a generated image cannot be
+edited afterwards — it is in the pixels, and then in the ad account.
+
+**Left to the owner, flagged inside Prompt 4:** the struck-through **£800**
+agency figure is a comparative claim. £19 and £49 are read from
+`subscription.ts` and are true; £800 is the owner's to substantiate or drop. The
+prompt is written so dropping it does not break the composition.
+
+### The second defect: `ads:verify` was failing for a reason unrelated to what it tested
+
+`npm run ads:verify` exited 1 with *"The audit route now looks authenticated —
+every advert in this bundle promises no account is needed"*, while all six
+adverts were entirely truthful. It grepped `src/app/api/audit/route.ts` for
+`requireUser|requireAuth|getSession`. The route now **reads** auth when a bearer
+happens to be present — to attribute the run and to decide paid quota — and
+carries on without one:
+
+```ts
+if (!(req.headers.get("authorization") || "").startsWith("Bearer "))
+  return { accountId: null, paid: false };
+```
+
+**Mentioning `requireAuth` and being gated behind it are different facts, and a
+grep cannot tell them apart.** Second defect class, in the FAILING direction,
+which is the more dangerous one: a check that cries wolf gets deleted, and then a
+real guard is gone.
+
+Replaced by the behaviour, in `tests/audit-open.test.mjs`:
+
+- **Test 1 drives the real handler** with no authorization header, no cookie,
+  nothing, and asserts it is not refused *for lack of an account* — not 401, not
+  403, and no "sign in" anywhere in the body. A refusal about the CRAWL is the
+  route working; a refusal about the CALLER is six adverts becoming false.
+- **Test 2 asserts the source line** that makes it true, so somebody tidying
+  `callerFor` can see what the early return is load-bearing for.
+- The verifier's own check now looks for the **anonymous path** rather than the
+  absence of the word `requireAuth`.
+
+### Mutation testing
+
+Seven mutants against the real route and the real documents; all killed. Which
+test killed which is recorded **in the test file**, because the two tests look
+redundant and are not:
+
+| Mutant | Killed by | Survived |
+|---|---|---|
+| A. `callerFor` throws instead of returning the anonymous caller | test 2, `ads:verify` | **test 1 — EQUIVALENT MUTANT** |
+| B. `POST` returns 401 when there is no bearer | test 1 | test 2 |
+| C. `POST` returns 200 with `note: "Sign in to see your findings."` | test 1 (body assertion) | test 2 |
+| D. one "31 checks" drifts back to 32 in a prompt body | `ads:verify` | — |
+| E. every check count removed from the prompts | `ads:verify` | — |
+| F. `conditional: true` → `false` in `audit-copy.ts` (count becomes 32) | `ads:verify` | — |
+| G. a prompt body asks for "Trusted by 400 UK trades" | `ads:verify` | — |
+
+**Mutant A is an equivalent mutant and is recorded as one rather than left to
+look like a coverage gap.** `callerFor` is called inside the quota `try/catch`
+whose documented behaviour is to ALLOW when the quota cannot be evaluated
+(*"closing the acquisition front door because a counter is unavailable costs more
+than the handful of free crawls it would save"*), so the throw is swallowed and
+the anonymous caller still gets their audit. The mutant changes no behaviour and
+test 1 is right to pass.
+
+Mutants B and C prove the two tests do not subsume each other: **test 2 catches a
+refactor that removes the anonymous path, test 1 catches a gate added in front of
+it.** F proves the count is read from the source and not from a constant.
+
+### Not done here
+
+No images were generated — this container has no image model and the owner
+generates them. Nothing was posted to Meta. The ad account settings remain in
+`FACEBOOK-LAUNCH-CAMPAIGN.docx` (Traffic, not Awareness; five custom audiences
+built first), which this file is a companion to, not a replacement for.
+
+---
+
+## §152 — Five HIGH advisories arrived upstream, patched at the package that carries the fix (2026-10-01)
+
+`npm run check:advisories` went red on five HIGH rows that no commit in this
+repository caused; they were published upstream since the last green gate. The
+gate working as designed — it was added in §121 precisely because two CRITICALs
+had sat under a green build.
+
+**npm's own suggested remedy was `{"name":"firebase","version":"9.14.0",
+"isSemVerMajor":true}`** — a major downgrade of the entire Firebase SDK to fix a
+transitive socket library. Three of the five rows (`firebase`,
+`@firebase/firestore`, `@firebase/firestore-compat`) carried **no advisory of
+their own**; they were reported only because `@grpc/grpc-js` sits underneath
+them. Taking npm's advice would have downgraded the SDK and left the actual
+vulnerable package in the tree twice.
+
+Fixed at the two packages that carry the patches:
+
+| Override | Advisories | Why this version |
+|---|---|---|
+| `@grpc/grpc-js: ^1.14.5` | GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4 | firebase-admin's google-gax pinned 1.14.4 and the client SDK pinned 1.9.16 — both in range. 1.14.5 is the patch release. |
+| `brace-expansion: ^2.1.7` | GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p | Affected range is 2.0.0–2.1.6; **2.1.7 is the same major, so a patch and not a migration.** 3.x exists and 4.x is ESM-only, which minimatch 9 cannot load. |
+
+Both carry their reason in `package.json` (`//overrides-grpc`), following the
+existing convention — *"an override that outlives its reason is how a build
+starts silently disagreeing with its own lockfile."*
+
+### Verified by driving it, not by a passing typecheck
+
+The override replaces the gRPC transport **underneath firebase-admin**, so
+`tsc --noEmit` says nothing useful about it. Against a real Firestore emulator:
+
+- `require("@grpc/grpc-js/package.json").version` → **1.14.5** (the override is
+  in effect, not merely requested)
+- **Commit, Get, RunQuery and Delete all round-tripped** — a write, a
+  document read, a `where` query and a delete, which are different RPCs
+- the five `tests/security-rules.test.mjs` checks passed against the live
+  emulator through the **client** SDK, whose grpc copy was also moved (1.9.16 →
+  1.14.5)
+
+Gate green end to end afterwards: layers, casts, advisories (0 high or critical,
+the 2 `KNOWN_UNFIXABLE` gaxios/uuid moderates on the record), indexes, lint,
+typecheck, **2,024 tests (2,018 pass, 6 skip loudly)**, `next build`. The
+`next/font` build failure seen earlier in the session was transient network and
+did not recur.
