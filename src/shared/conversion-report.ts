@@ -19,6 +19,7 @@
 // transaction as the credit.
 
 import type { EventParams } from "@/shared/analytics-events";
+import { conversionEventId } from "@/shared/capi";
 
 /** The wallet's record of the last payment that actually credited it. */
 export type LastCredit = {
@@ -35,8 +36,15 @@ export type LastCredit = {
 export type ReportDecision = {
   /** The de-duplication key to store once reported. Stripe's event id. */
   key: string;
-  /** The events to fire, in order. */
-  events: { name: string; params: EventParams }[];
+  /**
+   * The events to fire, in order.
+   *
+   * `eventId` is the one Meta matches this browser event against its server-side
+   * twin on — see `shared/capi.ts`. It is DERIVED from Stripe's event id, not
+   * generated, because a random id can never match the one the webhook derives
+   * and the payment would then be counted twice.
+   */
+  events: { name: string; params: EventParams; eventId: string }[];
   /** Why — for the console line, and so a person can tell nothing from silence. */
   why: string;
 };
@@ -91,7 +99,11 @@ export function conversionsFor(
   if (last.kind === "topup") {
     return {
       key: last.eventId,
-      events: [{ name: "topup", params: { value, currency, count: last.acu } }],
+      events: [{
+        name: "topup",
+        params: { value, currency, count: last.acu },
+        eventId: conversionEventId(last.eventId, "topup"),
+      }],
       why: `top-up of ${currency} ${value} confirmed on the wallet (${last.acu} ACUs, Stripe event ${last.eventId})`,
     };
   }
@@ -106,6 +118,7 @@ export function conversionsFor(
         ...(last.planId ? { plan: last.planId } : {}),
         ...(last.cycle ? { cycle: last.cycle } : {}),
       },
+      eventId: conversionEventId(last.eventId, "subscribe"),
     }],
     why: `${last.planId || "plan"} ${last.cycle || ""} payment of ${currency} ${value} confirmed on the wallet (Stripe event ${last.eventId})`.replace(/\s+/g, " "),
   };

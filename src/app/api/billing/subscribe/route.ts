@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSubscriptionCheckout, checkoutConfigured } from "@/backend/checkout";
 import { PLANS, planEconomics } from "@/backend/subscription";
 import { rateLimit, clientKey, requireAuth, requireAuthEnforced } from "@/backend/guard";
+import { clickIdsFromCookie } from "@/shared/click-attribution";
 
 // Choose-a-plan checkout — POST { planId, cycle: "monthly"|"annual" }.
 // Free → no checkout (activate immediately). Paid → a Stripe subscription
@@ -44,6 +45,12 @@ export async function POST(req: NextRequest) {
   // Thread the authenticated user's uid as the org id so the webhook credits the
   // right wallet on payment. In demo (no Admin) uid is null — the checkout still
   // works; the wallet only activates once accounts are enforced.
-  const result = await createSubscriptionCheckout({ planId: plan.id, planName: plan.name, cycle, amountGbp, orgId: auth.uid ?? undefined });
+  // THE ADVERT CLICK, READ WHERE IT IS STILL AVAILABLE. `_fbp` and `_fbc` are
+  // Meta's own cookies and they exist only in a browser — the Stripe webhook that
+  // confirms this payment later has none. Reading them here and stamping them on
+  // the session is what lets the server-side conversion be attributed to the
+  // click that caused it, instead of only to an email address.
+  const click = clickIdsFromCookie(req.headers.get("cookie"));
+  const result = await createSubscriptionCheckout({ planId: plan.id, planName: plan.name, cycle, amountGbp, orgId: auth.uid ?? undefined, click });
   return NextResponse.json({ ...result, free: false, amountGbp }, { status: result.ok ? 200 : 400 });
 }

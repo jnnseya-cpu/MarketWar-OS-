@@ -7,6 +7,10 @@ import { recordEvent } from "@/backend/ledger";
 import { applyWebhookOutcome } from "@/backend/wallet";
 import { commissionForPayment, type CommissionOutcome } from "@/backend/marketwar-commission";
 import { recordVerifiedDelivery } from "@/backend/webhook-receipt";
+import { sendCapiConversion } from "@/backend/meta-capi";
+import { getWallet } from "@/backend/wallet";
+import { adminAuth, adminConfigured } from "@/backend/firebase-admin";
+import { clickIdsFromMetadata } from "@/shared/click-attribution";
 
 // Locate the org whose wallet a payment credits. MarketWar-created checkouts stamp
 // the id three ways (client_reference_id + metadata.orgId + metadata.marketwar_org_id)
@@ -168,6 +172,80 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // REPORT THE CONVERSION FROM THE SERVER — the half the browser can never send.
+  //
+  // WHY THIS IS HERE AND NOT IN THE BROWSER. `ConversionReporter` only runs if
+  // the customer's browser comes back to the success_url. An ad blocker, Safari's
+  // tracking prevention, a closed tab, or a RENEWAL — which has no browser
+  // involved at all — and the Pixel reports nothing while the money is in the
+  // bank. This is the copy that covers those.
+  //
+  // IT CANNOT DOUBLE-COUNT. Meta de-duplicates on `event_name` + `event_id`, and
+  // `conversionEventId` derives that id from THIS Stripe event id on both sides,
+  // so when the browser did report it the pair counts once.
+  //
+  // IT CANNOT MAKE THE WEBHOOK FAIL. The money is already credited by the time
+  // this runs. A conversion report is the least important thing on this path, so
+  // every failure is captured and reported in the body — never a 500, which would
+  // make Stripe redeliver a payment that landed perfectly.
+  //
+  // IT SENDS NOTHING WITHOUT CONSENT. `sendCapiConversion` checks a durable
+  // record first; see `backend/analytics-consent.ts` for why a server-side pixel
+  // without that check is the one tracking path a person cannot refuse.
+  let conversion: { sent: boolean; why?: string; eventId?: string } | null = null;
+  if (outcome.handled && walletApplied?.applied) {
+    try {
+      const orgId = orgIdFromEvent(event);
+      // The STAMP, not the event: `applyWebhookOutcome` writes `lastCredit` in the
+      // same transaction as the credit, so its presence is the proof the money
+      // landed, and its absence means this event was not a sale (a grace period,
+      // a downgrade, a refund, or a subscription start whose invoice pays).
+      const wallet = await getWallet(orgId);
+      const credit = wallet.lastCredit;
+      if (!credit || credit.eventId !== event.id) {
+        conversion = { sent: false, why: "this event credited no money, so there is no conversion to report" };
+      } else {
+        // The identifier Meta matches on. Read from Firebase Auth rather than
+        // from the Stripe event: the Stripe customer email is whatever was typed
+        // at checkout, and the account email is who this actually is. Hashed
+        // inside `sendCapiConversion` and never logged in either form.
+        let email: string | null = null;
+        if (adminConfigured && adminAuth) {
+          email = await adminAuth.getUser(orgId).then((u) => u.email ?? null).catch(() => null);
+        }
+        // The click ids stamped on the session when checkout started. For a
+        // RENEWAL the invoice carries the subscription's metadata, which is where
+        // the original click survives — so a customer who came from an advert in
+        // January is still attributed to it when they renew in June.
+        const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+        const subMeta = (obj.subscription_details as { metadata?: Record<string, unknown> } | undefined)?.metadata;
+        const click = clickIdsFromMetadata({
+          ...(subMeta ?? {}),
+          ...((obj.metadata as Record<string, unknown> | undefined) ?? {}),
+        });
+
+        const res = await sendCapiConversion({
+          name: credit.kind === "topup" ? "topup" : "subscribe",
+          stripeEventId: event.id,
+          uid: orgId,
+          value: typeof credit.amountMinor === "number" ? credit.amountMinor / 100 : undefined,
+          currency: credit.currency,
+          plan: credit.planId,
+          atMs: Date.parse(credit.at) || Date.now(),
+          user: { email, fbp: click.fbp, fbc: click.fbc },
+        });
+        conversion = res.sent
+          ? { sent: true, eventId: res.eventId }
+          : { sent: false, why: res.why };
+      }
+    } catch (e) {
+      // Including a thrown error, which `sendCapiConversion` promises not to do —
+      // belt and braces, because this must never be the reason a payment is
+      // redelivered.
+      conversion = { sent: false, why: `conversion reporting failed: ${e instanceof Error ? e.message : "unknown"}` };
+    }
+  }
+
   // Automatic revenue attribution: if this is a payment on a MarketWar-created
   // checkout (metadata.marketwar_brand_id), record it as attributed revenue for
   // that brand — idempotent by event id. Never blocks the 200 response.
@@ -182,7 +260,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed, commission });
+  // `conversion` is reported in the body and never in the status — a conversion
+  // that could not be sent is not a payment that failed, and Stripe reads a
+  // non-200 as "send it again".
+  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed, commission, conversion });
 }
 
 export async function GET(req: NextRequest) {

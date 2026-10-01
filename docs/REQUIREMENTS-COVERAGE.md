@@ -8584,3 +8584,242 @@ rather than giving up on the first read.
 **The server-side Conversions API.** The browser event already carries a shared
 `eventID` per event, which is what lets a server-side copy be deduplicated
 against it later, so adding it cannot double-count. Separate, larger piece.
+
+---
+
+## §154 — The server-side Conversions API (2026-10-01)
+
+**Owner request.** *"Build the server-side Conversions API"* — the one thing §153
+listed as not built.
+
+### What it adds
+
+✅ code: `backend/meta-capi.ts`, `shared/capi.ts`, `backend/analytics-consent.ts`,
+`shared/click-attribution.ts`, `api/analytics/consent`, and the send wired into
+the Stripe webhook.
+
+The browser Pixel misses conversions it can never see: an ad blocker, Safari's
+tracking prevention, a customer who closes the tab before Stripe redirects them
+back, and **every renewal, which has no browser involved at all.** The server sees
+all of those, because the money arrived here.
+
+### The two ways this is WORSE than not having it
+
+**1. IT DOUBLE-COUNTS.** Meta de-duplicates a Pixel event against a Conversions
+API event when `event_name` **and** `event_id` both match, within 48 hours. Get
+the id wrong and every payment is two conversions: revenue in Ads Manager twice
+what the bank says, ROAS twice what it is, and the bidding trained on it.
+
+`conversionEventId(stripeEventId, name)` **derives** the id from the one value both
+sides already hold — Stripe's event id, which the browser gets from
+`wallet.lastCredit` and the webhook from the event it is processing. The first test
+in the suite asserts the browser's id and the server's are the identical string,
+and `npm run drive:capi` asserts it again through the real webhook.
+
+`track()` gained an optional `eventId` for this. A random UUID stays the default
+everywhere else, where there is no server-side counterpart.
+
+**2. IT SENDS WITHOUT CONSENT.** A server-to-server call bypasses the cookie
+banner, Consent Mode, the ad blocker and the browser's own tracking prevention. It
+is **the one tracking path a person cannot refuse by any means available to them**,
+and nothing in the page would tell them it happened while the banner told them the
+opposite. That is a plain UK GDPR Article 6 problem made worse by being invisible,
+and the ICO has fined for this shape of thing.
+
+The browser's choice lives in `localStorage`, which the server cannot read. So
+`backend/analytics-consent.ts` stores it durably per account:
+
+- the banner POSTs to `/api/analytics/consent` on every choice — **once per
+  session** unless the choice is new, because `pushConsent` also runs on mount for
+  a returning visitor and a write per page view is a store write for no new
+  information;
+- **no record means no send.** Not "assume yes", not "assume the browser handled
+  it";
+- **no durable store in production means no send** — the in-memory map is a
+  development convenience, and a serverless instance's memory is empty on every
+  cold start, so "nothing in the map" cannot be allowed to mean anything;
+- **an old yes does not cover a new use.** The gate bumps `STORAGE_KEY` when the
+  purposes change; `CONSENT_VERSION` must move with it, and a test asserts the two
+  are the same string. Otherwise the bump applies to half the platform;
+- a stored document is read through `consentFromStored`, which **checks** rather
+  than casts — the thing being promised is "this person agreed to have their data
+  sent to Meta", and a half-written document must read as no consent. `check:casts`
+  caught the first version doing exactly that;
+- the sender checks consent **before it assembles anything**, and a test asserts
+  the ordering, because checking last leaves the function one edit from sending.
+
+Signed-in accounts only, deliberately: a signed-out visitor has no account to key a
+record by, and their choice is enforced where it already is — in the browser, by
+the gate that decides whether a tag loads at all. The server reports for PAYING
+customers, who are signed in by definition.
+
+### The advert click survives the gap
+
+A webhook has no browser: no cookies, no IP, no user agent. The best it can match
+on is the account's email — and **an email match tells Meta that a customer bought
+without telling it which click they came from**, which is the one question an ad
+campaign is paying to answer.
+
+Meta's identifiers for that are two cookies its own Pixel sets:
+
+| Cookie | What it is |
+|---|---|
+| `_fbp` | the browser id, set on first visit, no click required |
+| `_fbc` | the **click** id, set when somebody lands with `?fbclid=…` — so it exists only for a visitor who actually came from a Meta advert |
+
+`shared/click-attribution.ts` reads them off the request when checkout **starts**
+(the browser is present then), `checkout.ts` stamps them into the Stripe session
+metadata, and the webhook reads them back hours or weeks later. **Validated on the
+way in and again on the way out** — metadata is a free-text store that is editable
+in the Stripe dashboard, and trusting a round trip is how a checked value becomes
+an unchecked one.
+
+**A renewal finds the original click on the SUBSCRIPTION's metadata**, not the
+invoice's, so a customer who came from an advert in January is still attributed to
+it when they renew in June.
+
+They are **not hashed**: they are Meta's own opaque identifiers in Meta's own
+format, and hashing them would simply break the match. A test asserts
+`hashUserData` leaves them alone.
+
+### What never leaves in plaintext
+
+- the email is SHA-256'd, normalised Meta's way (trim + lowercase) — **not
+  cosmetic**: Meta normalises its own copy identically, so a case difference drops
+  the match rate to zero and nothing reports an error;
+- **a digest of rubbish is still a disclosure.** An invalid address is dropped
+  rather than hashed, and so is a LOCAL phone number — "07700900123" is a different
+  string from the "447700900123" Meta holds, and guessing the country code is
+  inventing data about a person;
+- **the sender contains no `console` call at all**, and a test asserts it. A
+  failure line quoting the address it failed on is the leak the hashing was for;
+- the webhook's response body carries the outcome and never the address.
+
+### It cannot stall a payment
+
+The money is already credited by the time this runs. So: a **6s per-call timeout**
+(the effort law's own note — a socket held open forever eats the invocation and the
+customer gets nothing; the timeout is what makes effort possible), every failure
+captured, and **never a 500** — Stripe reads a non-200 as "send it again", and a
+failed conversion report must not redeliver a payment that landed perfectly. The
+outcome goes in the response body instead.
+
+Two independent guards stop a redelivery double-reporting: `applyWebhookOutcome` is
+idempotent by event id and returns `applied: false`, and the send sits behind that
+gate — before Meta's own de-duplication is even considered.
+
+**It reports from the wallet stamp, not the Stripe event.** `lastCredit.eventId !==
+event.id` means this event is not this sale. §143 is the precedent: the
+commercial-loop driver claimed a credit from the event TYPE and printed "PROVEN END
+TO END" for a delivery that credited nothing.
+
+### Two design faults fixed mid-build
+
+**The config was snapshotted at module load.** `META_CAPI_TEST_CODE` is a switch an
+operator flips while watching Events Manager → Test Events and unsets twenty
+minutes later — with a module-level `const` it would have taken effect only on the
+next cold start, and **a toggle that needs a redeploy is not a toggle.** It also
+made the ON and OFF states untestable in one process: `import("…?x=1")` resolves to
+the **same** module under tsx, so the first version of that test set the variable,
+re-imported, and measured the original instance. That is how the "a test code is
+actually sent" branch went unproven and **mutant 10 survived**. Everything is read
+at call time now.
+
+**The identity was email-only**, which is what the click attribution above fixes.
+Found by driving the end-to-end script, where the event was correctly refused for
+having nothing to match on — a true answer to the wrong question.
+
+### Mutation testing — 18 mutants, all killed
+
+| Mutant | Killed by |
+|---|---|
+| 1. the event id is generated, not derived | the de-duplication test |
+| 2. the reporter stops passing the derived id | the transport-structure test |
+| 3. a caller-supplied id is ignored | same |
+| 4. consent checked, answer ignored | the ordering test |
+| 5. an absent consent record reads as a grant | the consent-refusal test |
+| 6. a document missing its version reads as a consent | `consentFromStored` test |
+| 7. rubbish is hashed and sent | the hashing test |
+| 8. a local phone number is sent | same |
+| 9. an event with no identifier is sent | the refusals test |
+| **10. 200-with-0-counted reported as sent** | **survived first — see below** |
+| 11. the webhook reports from the Stripe event, not the stamp | the webhook test |
+| 12. click ids not re-validated out of metadata | the metadata test |
+| 13. the click ids get hashed | the not-hashed test |
+| 14. the sender logs the plaintext address | the no-logging test |
+| 15. the test code is dropped from the body | the wire test |
+| 16. the token moves into the URL | the wire test |
+| 17. the per-call timeout is removed | the hanging-Meta test |
+| 18. a 400 is marked retriable | the refusal-reading test |
+
+**Mutant 10 survived the first pass**, and that is the useful part of this section.
+`if (received < events.length)` → `if (false)` reports "sent" for a request Meta
+accepted and counted **zero** events from — the "a 200 means it worked" confusion
+this platform has already shipped once on a money path — and every structural
+assertion still passed, because the branch was only exercised by a throwaway drive
+script. The fix was `tests/meta-capi-wire.test.mjs`: a local server plays Meta, and
+the response reading, the error reading and the timeout are driven over a real
+socket. Permanent coverage out of throwaway coverage.
+
+(That file is separate from `tests/meta-capi.test.mjs` because `capiConfigured` and
+the pixel id are read per process and the other file asserts the **OFF** state —
+that a deployment with no token says so rather than failing. The split is
+deliberate and says so in the file, or a reader merges them and one suite measures
+the wrong configuration.)
+
+### Driven, not read
+
+**Against a stand-in Meta over a real socket: 17 proven / 0 broken.** No consent →
+nothing leaves the process. Consent refused → nothing leaves. Consent granted →
+posted to the pixel's events edge, token in a bearer header and never in the URL,
+`event_id` derived from Stripe's, `Subscribe` with the real £49, the address hashed
+and in an array, **the plaintext address nowhere in the serialised body**, no test
+code. Meta refuses 400 → not retried; 500 → retried; 200-with-0 → not reported as
+sent. Meta hangs → gave up at 6s rather than holding the payment path open.
+
+**End to end through the real signed webhook (`npm run drive:capi`): 13 proven / 0
+broken.** A payment from an account that never chose is credited (200, 980 ACUs)
+and **not** reported, with the reason naming consent rather than a fault. A
+consented payment reports with the money, the hashed account email, **the advert
+click carried from checkout**, and an `event_id` identical to the one
+`conversionsFor` would hand the browser. A Stripe redelivery is an idempotent skip
+and sends nothing. A failed payment reports no sale.
+
+**NOT PROVEN HERE: Meta's own servers.** `graph.facebook.com` is refused by this
+container's egress policy. Meta is stood in for, `fetch` is intercepted only to
+rewrite the host so the request is byte-for-byte what Meta would receive, and the
+script's own header says nothing in it may be read as having reached Meta.
+`META_CAPI_TEST_CODE` plus Events Manager → Test Events is what proves the real
+endpoint.
+
+### Three of my own harness faults, recorded because they cost real time
+
+1. The REST read named `projects/marketwar-local` while the admin SDK wrote to
+   `demo-marketwar` (§153, same session).
+2. Fixed event ids made a second run a **replay**, and `processed_events` correctly
+   skipped every delivery — idempotency working durably, read as a failure.
+3. `route.POST` hung for 30s and I was one step from calling it a defect in the new
+   code. It was the Firestore emulator, SIGKILLed by **my own earlier cleanup**;
+   gRPC retries for a long time before the try/catch can fire. Bounding each
+   suspect call named it in one run instead of three guesses.
+
+All three were my verification being wrong, not the platform. The rule they
+illustrate is the one in STATE §6: inspect the thing that runs, from where it is
+called — and check the harness before the code.
+
+### One owner action
+
+**`META_CAPI_ACCESS_TOKEN`** — Events Manager → Settings → Conversions API →
+Generate access token. Set **`META_CAPI_TEST_CODE`** first, watch the events arrive
+in Test Events, then unset it to go live. While it is set nothing counts as a real
+conversion, and `capiStatus()` says so in those words rather than reporting a green
+"conversions are on".
+
+### Observed and NOT fixed, because it is out of scope for this change
+
+`recordVerifiedDelivery` (`backend/webhook-receipt.ts`) blocks for a long time when
+Firestore is unreachable — its `try/catch` cannot fire until the gRPC client has
+finished retrying, and it runs on the Stripe webhook path, where a stall means
+Stripe times out and redelivers. Pre-existing, unrelated to this work, and noted
+here rather than touched: rule 9 of the directive. Worth a bounded deadline next
+time that file is open for a reason.
