@@ -9,7 +9,9 @@
     "postcss": "^8.5.26",
     "sharp": "^0.35.4",
     "jose": "^5.10.0",
-    "browserslist": "^4.28.7"
+    "browserslist": "^4.28.7",
+    "@grpc/grpc-js": "^1.14.5",
+    "brace-expansion": "^2.1.7"
   },
   "description": "MarketWar OS — AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
@@ -55,6 +57,7 @@
     "sharp": "^0.35.4"
   },
   "//overrides": "Next 15.5 pins postcss 8.4.31 and sharp 0.34.5 inside its own tree; both carry advisories that our direct copies do not. Only Next itself can bump them, and the next fixed release is another major. These force the nested copies up to the versions this project already uses everywhere else. Remove an entry the day Next ships it — an override that outlives its reason is how a build starts silently disagreeing with its own lockfile.",
+  "//overrides-grpc": "@grpc/grpc-js: GHSA-m9gg-hp2v-232j and GHSA-f596-whhp-79r4, both patched in 1.14.5. firebase-admin's google-gax pinned 1.14.4 and the firebase client SDK pinned 1.9.16 — in range for both. npm's own suggested remedy was 'downgrade firebase to 9.14.0', which is a major downgrade of the whole SDK to fix a transitive socket library; this forces the one package that actually carries the fix instead. brace-expansion: GHSA-q2hr-2g5m-vwhr / GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p, range 2.0.0-2.1.6, patched in 2.1.7 — same major, so it is a patch and not a migration (3.x and 4.x exist and 4.x is ESM-only, which minimatch 9 cannot load).",
   "devDependencies": {
     "@next/eslint-plugin-next": "^15.5.24",
     "@types/node": "^20",
