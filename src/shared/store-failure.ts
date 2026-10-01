@@ -193,3 +193,78 @@ export function storeFailureNote(e: unknown): string {
   const f = readStoreFailure(e);
   return f.fix ? `${f.why} ${f.fix}` : f.why;
 }
+
+// ---------------------------------------------------------------------------
+// A DEADLINE, BECAUSE THE DRIVER'S OWN RETRY IS NOT ONE.
+// ---------------------------------------------------------------------------
+//
+// MEASURED, NOT ASSUMED. With Firebase Admin configured and Firestore
+// unreachable, a single-document transaction in `webhook-receipt.ts` blocked for
+// **over 75 seconds** and a single-document read for **41 seconds**. The function
+// wrapping it had a `try/catch` with an honest comment promising that a failed
+// bookkeeping write could never affect the response — and that promise could not
+// be kept, because the catch cannot run until the gRPC client has finished
+// retrying UNAVAILABLE, and that is far longer than any serverless invocation
+// lives. The route is killed first, so Stripe gets no answer at all.
+//
+// So a `try/catch` around a store call is NOT a bound on how long it takes. This
+// is the bound. It is in `shared/` with the classifier because it is pure timing
+// and a test must be able to drive it without a database.
+//
+// WHAT IT DOES NOT DO: cancel the underlying call. Firestore's client offers no
+// cancellation, so the original promise is left to finish or fail on its own with
+// its rejection swallowed — the alternative is an unhandled rejection crashing the
+// process minutes after the caller gave up. On serverless the invocation ends
+// first and the attempt dies with it, which is exactly what should happen to a
+// bookkeeping write nobody is waiting for.
+
+/** The outcome of a bounded store call. A timeout is a `deadline` failure. */
+export type Deadlined<T> =
+  | { ok: true; value: T }
+  | { ok: false; failure: StoreFailure; timedOut: boolean };
+
+/**
+ * Run a store call with a hard ceiling on how long the CALLER waits.
+ *
+ * @param what  the operation, for the explanation — e.g. "the webhook receipt"
+ * @param ms    the ceiling. Pick it from measured healthy latency, with headroom
+ *              for a cold connection: a deadline under the real cold-start cost
+ *              silently drops work on a store that is working perfectly.
+ */
+export async function withStoreDeadline<T>(
+  what: string,
+  ms: number,
+  run: () => Promise<T>,
+): Promise<Deadlined<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const TIMED_OUT = Symbol("store-deadline");
+  try {
+    // Started before the race so a rejection arriving AFTER the deadline is
+    // already handled and cannot surface as an unhandled rejection.
+    const attempt = run();
+    const settled = attempt.then((v) => ({ v }), (e) => ({ e }));
+    const raced = await Promise.race([
+      settled,
+      new Promise<typeof TIMED_OUT>((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), Math.max(1, ms)); }),
+    ]);
+    if (raced === TIMED_OUT) {
+      return {
+        ok: false,
+        timedOut: true,
+        failure: {
+          kind: "deadline",
+          retryable: true,
+          costly: true,
+          why: `${what} did not complete within ${ms}ms. The datastore is not answering; this is a bound the caller imposed, not an error the datastore reported.`,
+          fix: "Check the Firestore status and the service account's network path. Nothing was lost that the caller could not do without — a bounded wait is what stops one slow write taking the whole request down with it.",
+        },
+      };
+    }
+    if ("e" in raced) return { ok: false, timedOut: false, failure: readStoreFailure(raced.e) };
+    return { ok: true, value: raced.v };
+  } finally {
+    // Or the pending timer keeps the event loop alive for the full `ms` after a
+    // call that already returned in 18.
+    if (timer) clearTimeout(timer);
+  }
+}

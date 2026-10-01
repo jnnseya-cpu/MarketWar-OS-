@@ -8823,3 +8823,161 @@ finished retrying, and it runs on the Stripe webhook path, where a stall means
 Stripe times out and redelivers. Pre-existing, unrelated to this work, and noted
 here rather than touched: rule 9 of the directive. Worth a bounded deadline next
 time that file is open for a reason.
+
+**CLOSED the same day — the owner asked for it next, and the real numbers were
+worse than "a long time". See §155.**
+
+---
+
+## §155 — A `try/catch` is not a bound, and it was on the money path (2026-10-01)
+
+**Owner request.** *"Fix the webhook-receipt hang too"* — the thing §154 observed
+and deliberately left.
+
+### What was actually wrong
+
+`webhook-receipt.ts` answers one question: *did a real Stripe delivery ever verify
+against the signing secret this deployment holds?* It is the finding that cost this
+platform the most — a present-but-wrong secret passes every shape check and fails
+every delivery — so the receipt is written the instant a signature verifies, from
+the webhook route.
+
+It carried this promise in writing:
+
+> IT MUST NEVER AFFECT THE RESPONSE. Stripe retries anything that is not a 2xx, so
+> a bookkeeping write that throws would turn a healthy endpoint into a retry storm.
+> Every function here swallows its own failure and the caller does not await a
+> result it needs.
+
+Two things were wrong with that. The caller **did** `await` it. And the `try/catch`
+could not deliver the guarantee.
+
+**Measured** — Firebase Admin configured, Firestore unreachable:
+
+| | Unbounded | Healthy |
+|---|---|---|
+| `recordVerifiedDelivery` (single-doc transaction) | **> 75,000 ms** | 2,547 ms cold, then 18–46 ms |
+| `lastVerifiedDelivery` (single-doc read) | **41,459 ms** | 31 ms cold, then 9–15 ms |
+
+**Catching an error bounds what happens when a call FAILS, never how long it takes
+to fail.** The catch cannot run until the gRPC client has finished retrying
+UNAVAILABLE, and that is longer than the webhook invocation lives — the route has
+no `maxDuration`, so Vercel's default applies and the function is killed first.
+Stripe receives no answer at all and redelivers.
+
+The money survives, because the credit is idempotent and lands on the retry. What
+did not survive was the platform's account of itself: a comment asserting a
+property the code could not deliver, which stops the next reader looking.
+
+### The fix
+
+`withStoreDeadline(what, ms, run)` in `shared/store-failure.ts` — with the
+classifier, because it is pure timing and must be drivable without a database.
+
+- a timeout is a **`kind: "deadline"`** failure whose text says **the bound was
+  OURS**. "The datastore timed out" sends somebody to check Firestore's status page
+  for a limit this code imposed;
+- marked **`costly`**, so no caller answers a deadline by escalating to a bigger
+  read — the defect `store-failure.ts` was written for in the first place;
+- the attempt is **settled before the race**, so a rejection arriving a minute after
+  the caller gave up cannot surface as an unhandled rejection and take the process
+  down long after the request it belonged to was answered;
+- the timer is **cleared in a `finally`**, or a 6 s deadline on an 18 ms write holds
+  a serverless invocation open for the other 5,982 ms — a bound costing more than
+  it saves;
+- it does **not** cancel the underlying call, because Firestore's client offers no
+  cancellation. The original promise finishes or fails on its own with its rejection
+  swallowed; on serverless the invocation ends first and the attempt dies with it,
+  which is the right fate for a bookkeeping write nobody is waiting for.
+
+**The deadlines come from the measurements above, not from taste:** 6 s for the
+write (≈2.4× the measured cold path) and 5 s for the read. A deadline under the real
+cold-start cost would silently drop the first receipt after every deploy — the one
+that matters most, because it is the first delivery after a change.
+
+**Result, measured:**
+
+| | Before | After |
+|---|---|---|
+| write, dead store | > 75,000 ms | **6,002 ms** |
+| read, dead store | 41,459 ms | **5,002 ms** |
+| write / read, live store | 2,547 / 31 ms | **324 / 11 ms** (unchanged) |
+
+### Two more defects fixed on the way
+
+**Two casts replaced by checked readers.** `snap.data() as WebhookReceipt` was the
+programmer promising the compiler something nobody verified, and the thing being
+promised is *the money path is proven*. `receiptFromStored` requires a timestamp: a
+document carrying every other field but no `lastVerifiedAt` is **not** a receipt,
+and "not proven" is the safe direction the launch report depends on.
+
+**The memory fallback was WRITE-ONLY, and driving a dead store is what found it.**
+`recordVerifiedDelivery` falls back to memory when the store cannot be reached — and
+`lastVerifiedDelivery` returned `EMPTY` over the top of it. So inside a single
+invocation the write landed and the read said "never verified". The original comment
+justified `EMPTY` as *"the safe direction, because the alternative is telling
+somebody their money path is fine on the strength of a database error"* — right
+about the database, wrong about `mem`: a receipt in memory is not a database error,
+it is a delivery **this process verified**, which is the one fact the file exists to
+record. The read now prefers the store, falls back to memory, and treats a store
+that answers "nothing here" while this instance holds a verified delivery as a store
+that lost the write.
+
+Still safe in the direction that matters: `mem` starts empty, so a store outage on a
+deployment that has never had a verified delivery reads as not proven exactly as
+before. And `receiptStoreNote()` now separates **"nothing has ever verified"** from
+**"we could not ask"** — two readings that look identical in a report and want
+different actions.
+
+### What was deliberately NOT bounded
+
+`applyWebhookOutcome` — the credit. Its failure **must** produce a 500 so Stripe
+redelivers, and the invocation ceiling already delivers that. Bounding it would mean
+choosing a deadline for the money, which is a different decision from choosing one
+for bookkeeping, and this change did not need to make it.
+
+### Mutation testing — 9 mutants killed, and one vacuous mutation recorded
+
+| Mutant | Killed by |
+|---|---|
+| 1. the deadline never fires (back to the 75 s block) | the dead-store child-process test |
+| 2. the write goes back to an unwrapped transaction | the structural + fallback tests |
+| 3. the timeout blames the datastore instead of naming our bound | the bound-is-ours assertion |
+| 4. the pending timer is never cleared | the event-loop test |
+| 5. the attempt is raced un-settled | the late-rejection test |
+| 6. the write deadline drops below the measured cold start | the deadline-floor assertion |
+| 7. a failed read returns `EMPTY` again | the fallback tests |
+| 8. a document with no timestamp reads as a receipt | the checked-reader test |
+| 9. the store failure reason is swallowed | the store-note tests |
+
+**One mutation changed nothing and proved nothing, and is recorded as such.** The
+replacement string for mutant 3 capitalised "This" where the source has "this", so
+the file was untouched and the suite passed — a green run that measured an unmutated
+file. Caught by grepping for the mutated text afterwards rather than trusting the
+result, and redone correctly. `STATE.md` has carried the rule for months: *a
+mutation that changes nothing proves nothing.*
+
+Mutant 1 kills test 10 and then leaves the suite waiting on its own 10-minute
+pending timer before the process exits. That is the mutant's behaviour, not the
+test's, and the kill is recorded in the TAP output before the stall.
+
+### Three test faults of my own, fixed rather than worked around
+
+1. A test called "a store that cannot be reached…" made nothing unreachable, and
+   asserted `verifiedCount === 1`, which is only true of the in-memory fallback — it
+   failed against a live store for a reason unrelated to what it tests. Rewritten to
+   assert the counter **advances by one** in either configuration.
+2. Setting `FIRESTORE_EMULATOR_HOST` in-process after `firebase-admin.ts` has
+   initialised redirects nothing, so the "dead store" test wrote to the **live**
+   emulator and succeeded. The unreachable case needs a fresh process; it now spawns
+   one against a port found by opening and closing a socket (a hard-coded number may
+   be in use, and a test that measures a live service measures the wrong thing).
+3. `node --import tsx --input-type=module -e` does not transform TypeScript imported
+   from an eval'd module — twice reported `recordVerifiedDelivery is not a function`.
+   The child is written to a temp directory and run as a real file.
+
+The dead-store test **skips loudly** without Firebase Admin, because it is the only
+one that reproduces the original fault and a silent skip on that case is how a
+regression ships. Tests that could stall carry explicit `{ timeout }` values, so a
+broken bound **fails** instead of hanging — a CI kill reads as an infrastructure
+problem rather than a defect.
