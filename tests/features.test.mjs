@@ -19863,9 +19863,21 @@ test("manychat register: what it calls absent is still absent", () => {
   // If one of these gets built, the register must be updated in the same change.
   // A doc that says "no inbound social webhook" while one exists is how the same
   // work gets done twice.
-  const absent = [
-    ["src/backend/meta-capi.ts", "Meta Conversions API now exists — update §13"],
-  ];
+  // §154 BUILT `meta-capi.ts`, and this test is what made sure the register was
+  // updated in the same change rather than a month later. It stays, inverted: the
+  // register now CLAIMS the Conversions API exists, so the claim is checked the
+  // other way round, and a deletion of that module makes the doc wrong again.
+  const absent = [];
+  const register = readFileSync(new URL("../docs/MANYCHAT-GAP-COVERAGE.md", import.meta.url), "utf8");
+  for (const [rel, why] of [
+    ["src/backend/meta-capi.ts", "the register says the Conversions API is BUILT — §13 and the Realistic-lead-time table are now wrong"],
+    ["src/backend/analytics-consent.ts", "the Conversions API's consent gate is gone, and §13 claims it is what makes the server-side send lawful"],
+  ]) {
+    let exists = true;
+    try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); } catch { exists = false; }
+    assert.equal(exists, true, why);
+  }
+  assert.match(register, /BUILT 2026-10-01/, "the lead-time table must record that CAPI shipped");
   for (const [rel, why] of absent) {
     let exists = true;
     try { readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"); } catch { exists = false; }

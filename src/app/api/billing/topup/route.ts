@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createTopupCheckout } from "@/backend/checkout";
 import { MIN_TOPUP_GBP } from "@/backend/subscription";
 import { rateLimit, clientKey, requireAuth, requireAuthEnforced } from "@/backend/guard";
+import { clickIdsFromCookie } from "@/shared/click-attribution";
 
 // ACU top-up — POST { amountGbp, acus?, orgId?, planId? } → a Stripe Checkout
 // link that credits ACUs to the wallet on payment (via the webhook). If acus is
@@ -42,10 +43,17 @@ export async function POST(req: NextRequest) {
   // authenticated uid is the only identity we have actually verified. (In demo
   // there is no Admin SDK and uid is null; the checkout still works, and the
   // wallet only activates once accounts are enforced.)
+  // THE ADVERT CLICK, READ WHERE IT IS STILL AVAILABLE. `_fbp` and `_fbc` are
+  // Meta's own cookies and they exist only in a browser — the Stripe webhook that
+  // confirms this payment later has none. Reading them here and stamping them on
+  // the session is what lets the server-side conversion be attributed to the
+  // click that caused it, instead of only to an email address.
+  const click = clickIdsFromCookie(req.headers.get("cookie"));
   const result = await createTopupCheckout({
     amountGbp,
     orgId: auth.uid ?? undefined,
     planId: typeof body.planId === "string" ? body.planId : undefined,
+    click,
   });
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

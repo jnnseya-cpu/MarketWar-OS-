@@ -3,6 +3,8 @@ if (typeof window !== "undefined") {
   throw new Error("MarketWar OS layer violation: a backend module was imported in the browser");
 }
 
+import { clickMetadata, type ClickIds } from "@/shared/click-attribution";
+
 // Tagged checkout links — closes the money loop so payments self-attribute.
 //
 // MarketWar creates a Stripe Checkout Session pre-stamped with
@@ -58,6 +60,16 @@ function formEncode(params: Record<string, string>): string {
   return Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
 }
 
+/**
+ * `{a: "1"}` → `{"metadata[a]": "1"}`, so a map of keys can be spread into the
+ * form body Stripe wants without writing each one out by hand.
+ */
+function prefixed(scope: string, map: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(map)) out[`${scope}[${k}]`] = v;
+  return out;
+}
+
 // ACU top-up checkout — the platform selling ACUs to the customer. Creates a
 // Stripe Checkout Session stamped with metadata.marketwar_topup + the ACU
 // quantity, so the webhook credits the customer's ACU wallet on payment. No
@@ -66,7 +78,7 @@ function formEncode(params: Record<string, string>): string {
 // stamped into the metadata, so a caller cannot ask for more ACUs than they are
 // paying for. It used to be accepted and then ignored, which is a loaded gun
 // left for whoever next "fixes" the unused argument by honouring it.
-export async function createTopupCheckout(input: { amountGbp: number; orgId?: string; planId?: string }): Promise<CheckoutResult & { acus: number }> {
+export async function createTopupCheckout(input: { amountGbp: number; orgId?: string; planId?: string; click?: ClickIds }): Promise<CheckoutResult & { acus: number }> {
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
   // SERVER-AUTHORITATIVE ACU quantity: never trust the client's `acus` (it can be
   // decoupled from the charge → pay £1, claim 1,000,000 ACUs). £1 = 100 ACUs.
@@ -93,6 +105,7 @@ export async function createTopupCheckout(input: { amountGbp: number; orgId?: st
     "line_items[0][quantity]": "1",
     "metadata[marketwar_topup]": "true",
     "metadata[marketwar_acus]": String(acus),
+    ...prefixed("metadata", clickMetadata(input.click ?? {})),
     "metadata[marketwar_org_id]": input.orgId ?? "",
     "metadata[orgId]": input.orgId ?? "",
     "metadata[marketwar_plan]": input.planId ?? "",
@@ -114,7 +127,7 @@ export async function createTopupCheckout(input: { amountGbp: number; orgId?: st
 // Checkout Session in `subscription` mode with a recurring price (monthly or
 // annual), stamped with metadata.planId so the webhook activates the plan +
 // allocates ACUs. Annual applies the 30% discount at the amount passed in.
-export async function createSubscriptionCheckout(input: { planId: string; planName: string; cycle: "monthly" | "annual"; amountGbp: number; orgId?: string }): Promise<CheckoutResult & { planId: string; cycle: "monthly" | "annual" }> {
+export async function createSubscriptionCheckout(input: { planId: string; planName: string; cycle: "monthly" | "annual"; amountGbp: number; orgId?: string; click?: ClickIds }): Promise<CheckoutResult & { planId: string; cycle: "monthly" | "annual" }> {
   const cycle = input.cycle === "annual" ? "annual" : "monthly";
   const interval = cycle === "annual" ? "year" : "month";
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
@@ -141,6 +154,10 @@ export async function createSubscriptionCheckout(input: { planId: string; planNa
     "line_items[0][quantity]": "1",
     "metadata[planId]": input.planId,
     "metadata[cycle]": cycle,
+    // WHICH ADVERT CLICK THIS IS, carried across the gap between the browser and
+    // the webhook. Without it a server-side conversion can say a customer bought
+    // and not which click they came from — see shared/click-attribution.ts.
+    ...prefixed("metadata", clickMetadata(input.click ?? {})),
     // Who to credit: stamp the org id on the session AND the subscription so both
     // checkout.session.completed and every future invoice.paid can find the wallet.
     ...(orgId ? {

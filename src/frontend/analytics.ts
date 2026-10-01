@@ -72,7 +72,7 @@ function eventId(): string {
  * @param name   a name from `MW_EVENTS` — anything else is ignored
  * @param params allowlisted parameters only; everything else is dropped
  */
-export function track(name: string, params?: EventParams): void {
+export function track(name: string, params?: EventParams, opts?: { eventId?: string }): void {
   if (typeof window === "undefined") return;
   if (consentNow() !== "granted") return;
 
@@ -83,7 +83,19 @@ export function track(name: string, params?: EventParams): void {
   if (!payload) return;
 
   const w = window as W;
-  const id = eventId();
+  // A CALLER MAY SUPPLY THE ID, AND FOR THE MONEY EVENTS IT MUST.
+  //
+  // Meta deduplicates a browser event against the server-side copy of the same
+  // event when `event_name` AND `event_id` both match. A random UUID minted here
+  // can never match one the server minted, so a Conversions API event for the
+  // same payment would be counted TWICE — the exact fault a CAPI implementation
+  // is supposed to avoid, and invisible until the revenue in Ads Manager is
+  // double what the bank says.
+  //
+  // So `ConversionReporter` passes an id derived from Stripe's own event id, and
+  // the server derives the identical one from the same place. A random id stays
+  // the default for everything else, where there is no server-side counterpart.
+  const id = opts?.eventId || eventId();
 
   // Google Tag. Pushed to dataLayer rather than calling gtag directly: the
   // container is what is loaded on consent, and a trigger inside it is how a

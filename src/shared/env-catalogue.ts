@@ -161,6 +161,8 @@ export const ENV_CATALOGUE: EnvVar[] = [
   { name: "MW_NODE_DAILY_CAP", group: "Site", secret: false, unlocks: "Caps how much one sending node may send per day, protecting its reputation.", where: "Your choice - start low on a new IP and raise it as reputation builds." },
   { name: "NEXT_PUBLIC_GTM_ID", group: "Site", secret: false, unlocks: "Loads Google Tag Manager, so your own analytics and tags run on the site.", where: "Google Tag Manager - your container id (GTM-XXXXXXX)." },
   { name: "NEXT_PUBLIC_META_PIXEL_ID", group: "Site", secret: false, unlocks: "Loads the Meta Pixel, so Facebook campaigns can measure conversions.", where: "Meta Events Manager - your pixel id." },
+  { name: "META_CAPI_ACCESS_TOKEN", group: "Site", secret: true, unlocks: "Server-side conversion reporting, so a payment still counts when an ad blocker, Safari or a closed tab stopped the browser reporting it - and so renewals count at all, since no browser is involved. De-duplicated against the Pixel, and sent only for accounts that consented.", where: "Meta Events Manager - Settings - Conversions API - Generate access token." },
+  { name: "META_CAPI_TEST_CODE", group: "Site", secret: false, unlocks: "Tags server-side conversions as TEST, so they appear in Events Manager - Test Events and do NOT count as real conversions. Unset it to go live.", where: "Meta Events Manager - Test Events - the code shown on that screen. Remove it when you are done testing." },
 ];
 
 /**

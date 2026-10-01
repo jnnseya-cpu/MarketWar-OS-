@@ -21,7 +21,7 @@ Verdicts: ✅ built · 🟡 partial (named, with what is missing) · ❌ absent
 | Instagram comment → DM, DM keyword, story reply, live comment | A Meta app with `instagram_manage_messages`, **Business Verification**, **App Review**, and for automation at scale a Tech Provider arrangement | Weeks to months; **can be refused** |
 | WhatsApp inbound/keyword/CTWA | A WhatsApp Business Account, Business Verification, a registered number, **pre-approved message templates** | Weeks |
 | TikTok DM triggers | Messaging is **not generally available** through TikTok's public API | Indefinite — cannot be committed to |
-| Meta Conversions API | An access token; no review needed | Days |
+| Meta Conversions API | An access token; no review needed | ~~Days~~ **BUILT 2026-10-01 (§154)** — `backend/meta-capi.ts`. One owner action: `META_CAPI_ACCESS_TOKEN`. |
 
 Writing the trigger engine before the app is approved produces code that cannot
 be tested against anything real. **Start the Meta app review and business
@@ -183,8 +183,18 @@ be "fixed" without thought.
   (`frontend/analytics.ts`, `shared/analytics-events.ts`).
 - `backend/paid-guardrails.ts` — stop-loss, scaling rules, computed ceilings.
 
-**Missing:** Meta Conversions API server-side, and click-to-DM/CTWA ingestion.
-**CAPI is the cheapest high-value item in the entire spec** — days, no approval.
+- **`backend/meta-capi.ts` — the Conversions API, BUILT (§154).** Reports a
+  confirmed payment from the server, so a conversion still counts when an ad
+  blocker, Safari's tracking prevention or a closed tab stopped the browser
+  reporting it — and so renewals count at all, since no browser is involved.
+  De-duplicated against the Pixel on an id derived from **Stripe's own event id**
+  on both sides, because a random id would make every payment two conversions.
+  Gated on a DURABLE consent record (`backend/analytics-consent.ts`): a
+  server-to-server send bypasses the cookie banner, Consent Mode, the ad blocker
+  and the browser's own tracking prevention, so it is the one tracking path a
+  person cannot refuse, and it sends nothing without a recorded yes.
+
+**Missing:** click-to-DM/CTWA ingestion.
 
 ### 14. Developer / integration layer — 🟡 partial
 
@@ -204,7 +214,7 @@ HTTP-request node, and third-party connectors (Zapier, HubSpot, Shopify…).
 4. Cross-channel identity resolution — ✅ rules and ladder built; **store and wiring missing**
 5. Conversational data capture
 6. A branching visual flow canvas
-7. Meta Conversions API server-side ← *the one with no approval blocker*
+7. ~~Meta Conversions API server-side~~ — **BUILT (§154)**, one env var from live
 8. Public API, customer-facing webhooks, third-party connectors
 
 ## Recommended order, and why
@@ -217,8 +227,10 @@ foundations".
 
 1. **Start Meta app review + business verification today.** Not code. It gates
    items 1 and 2 and takes the longest.
-2. **Meta Conversions API** (§13). Days, no approval, and it makes the ad spend
-   measurable — which is what turns £1 of spend into a decision instead of a guess.
+2. ~~**Meta Conversions API** (§13).~~ **DONE (§154).** One owner action left:
+   `META_CAPI_ACCESS_TOKEN` from Events Manager → Settings → Conversions API.
+   Set `META_CAPI_TEST_CODE` first and watch the events land in Test Events, then
+   unset it to go live.
 3. **Real inbox ingestion for the channel that already works: email.**
    `/api/inbound` and `reply-routing.ts` are live; wiring them into `inbox.ts` in
    place of `demoThreads()` turns a demo shell into a working product for one

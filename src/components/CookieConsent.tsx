@@ -105,7 +105,49 @@ function applyMetaConsent(choice: ConsentChoice): void {
   }
 }
 
-function pushConsent(choice: ConsentChoice): void {
+/**
+ * TELL THE SERVER TOO — because the server has a tracking path of its own.
+ *
+ * The Conversions API (`backend/meta-capi.ts`) reports a confirmed payment to
+ * Meta from the server, which bypasses this gate, Consent Mode, the ad blocker
+ * and the browser's own tracking prevention entirely. It is the one tracking path
+ * a person cannot refuse by any means available to them, so it is gated on a
+ * DURABLE record of this choice — and this is what writes it.
+ *
+ * FIRE AND FORGET, AND FAILING IS SAFE IN THE RIGHT DIRECTION. A signed-out
+ * visitor has no account to key a record by and the endpoint says so with a 200;
+ * a request that 401s, 403s or never arrives leaves NO record, and no record
+ * means the server sends nothing. The banner must never wait on it or report it:
+ * a cookie choice that appears not to have registered because an unrelated
+ * endpoint was slow is a worse outcome than a missed conversion.
+ *
+ * ONCE PER SESSION UNLESS THE CHOICE IS NEW. `pushConsent` also runs on mount for
+ * a returning visitor who already said yes, which is every page view they make —
+ * posting each one would be a store write per page view for no new information. A
+ * fresh decision always writes; a re-assertion of the same one writes once.
+ */
+const SENT_KEY = "mw-consent-sent-v1";
+
+function recordConsentServerSide(choice: ConsentChoice, explicit: boolean): void {
+  if (!explicit) {
+    try {
+      if (window.sessionStorage.getItem(SENT_KEY) === choice) return;
+    } catch { /* no session storage: fall through and post once per load */ }
+  }
+  try { window.sessionStorage.setItem(SENT_KEY, choice); } catch { /* ignore */ }
+  void (async () => {
+    try {
+      const { authedFetch } = await import("@/frontend/api-client");
+      await authedFetch("/api/analytics/consent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ choice, surface: "cookie-banner" }),
+      });
+    } catch { /* no record is the safe state — see above */ }
+  })();
+}
+
+function pushConsent(choice: ConsentChoice, explicit = false): void {
   const w = window as unknown as { dataLayer?: unknown[] };
   w.dataLayer = w.dataLayer || [];
   w.dataLayer.push({
@@ -116,6 +158,7 @@ function pushConsent(choice: ConsentChoice): void {
     ad_personalization: choice,
   });
   applyMetaConsent(choice);
+  recordConsentServerSide(choice, explicit);
   broadcast(choice);
 }
 
@@ -145,7 +188,7 @@ export default function CookieConsent() {
   const decide = useCallback((next: ConsentChoice) => {
     try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* choice still applies for this visit */ }
     setChoice(next);
-    pushConsent(next);
+    pushConsent(next, true);
   }, []);
 
   // Re-opened from the privacy page ("Cookie settings").

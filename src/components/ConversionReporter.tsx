@@ -92,7 +92,10 @@ export default function ConversionReporter() {
         // not there — the alternative is a loop that reports the same sale on
         // every attempt. One lost conversion beats eight duplicated ones.
         remember(decision.key);
-        for (const e of decision.events) track(e.name, e.params);
+        // THE EVENT ID IS PASSED, NOT MINTED. Meta matches this browser event
+        // against the Conversions API copy of the same payment on `event_name` +
+        // `event_id`; a random id here would make one payment two conversions.
+        for (const e of decision.events) track(e.name, e.params, { eventId: e.eventId });
         return;
       }
     })();
