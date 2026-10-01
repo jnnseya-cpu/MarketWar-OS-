@@ -8364,3 +8364,223 @@ the 2 `KNOWN_UNFIXABLE` gaxios/uuid moderates on the record), indexes, lint,
 typecheck, **2,024 tests (2,018 pass, 6 skip loudly)**, `next build`. The
 `next/font` build failure seen earlier in the session was transient network and
 did not recur.
+
+---
+
+## §153 — Both tags were installed; the campaign had nothing to bid on (2026-10-01)
+
+**Owner question.** *"do we have both GTM and meta pixel installed?"* — then, on the
+answer: *"Wire the funnel"*.
+
+### The answer to the question: yes, and correctly gated
+
+✅ code. One gate (`src/components/CookieConsent.tsx`) carries both tags, so they
+cannot disagree about whether consent exists. Measured in a real Chromium against
+a production build, not read:
+
+| | Before any choice | After Accept |
+|---|---|---|
+| Meta Pixel `1080646761094543` | script present, `fbq` defined, `fbevents.js` requested, **`consent revoke` before `init`**, no `/tr` PageView | granted, PageView queued |
+| GTM `GTM-MFF3H6F8` | **not requested at all** | `gtm.js?id=GTM-MFF3H6F8` requested, `gtm.start` in `dataLayer` |
+| Consent Mode v2 | `dataLayer[0]` = all four signals `denied` | raised on grant |
+
+Both hosts are in the CSP `script-src`. Refuse is the same size as Accept and
+silence resolves to denied (PECR regulation 6, ICO guidance — the reasoning is in
+the component).
+
+**Neither tag appears in the server-rendered HTML.** The gate returns `null` on
+the server and injects after hydration, so `curl` and view-source show nothing.
+Expected, and worth recording because it looks exactly like "not installed".
+
+**Two things stated plainly rather than implied:**
+
+- **The IDs are hardcoded defaults, not env-set.** `.env.example` leaves
+  `NEXT_PUBLIC_GTM_ID` and `NEXT_PUBLIC_META_PIXEL_ID` blank, so production ships
+  the two above from source. A Pixel ID is public by nature (it is in the page
+  source of every site that runs one) so this is not a secret in the repo — but
+  the owner must confirm they are the right container and pixel.
+- **NOT PROVEN HERE: that either tag's data arrives.** `connect.facebook.net` and
+  `googletagmanager.com` are refused by this container's egress policy. The
+  request is proved attempted with the right URL and nothing beyond that. Events
+  Manager → Test Events and GTM Preview on the live site close it.
+
+### My own wrong report, corrected in the same session
+
+Asked which events fire, I grepped `track("[a-z_]*"` — a pattern that requires a
+quote immediately after `track(`. It misses `track(withEmail ? "audit_lead" :
+"audit_started", …)`, and I told the owner those two never fire when they have
+fired all along. **Second defect class, and the damage was a false statement to
+the owner rather than a red build.** Corrected immediately and recorded here.
+
+The real picture, from the six call sites found by their import:
+
+| Fired | Status before this work |
+|---|---|
+| `page_view` | ✅ working (route tracker) |
+| `audit_started`, `audit_lead` | ✅ working — the Lead event on the advert destination |
+| `login`, `sign_up` | ✅ working (`AuthForm`) |
+| `begin_checkout`, `start_free_plan` | ✅ working, **but only on `/dashboard/billing`** |
+| `audit_report_downloaded`, `audit_cta_signup` | ❌ **fired and silently dropped** |
+| every money event | ❌ never fired at all |
+
+### Defect 1 — two events fired under names that did not exist
+
+`FreeAudit.tsx` has always called `track("audit_report_downloaded")` and
+`track("audit_cta_signup")`. Neither name was in `MW_EVENTS`, so `buildPayload`
+returned null and nothing reached either destination, for their entire life, on
+the page every advert points at. `analytics-events.ts` predicted it in its own
+header: *"an event invented at a call site is one nobody configured a conversion
+for at the other end, so it silently does nothing while looking like it works."*
+
+Both declared (not deleted from the call sites — they are real signals). **Custom,
+not standard**, so they do not compete with `audit_lead`'s standard `Lead` and
+split the conversion signal on one page.
+
+### Defect 2 — the other advert destination reported nothing
+
+`/choose-plan` is linked from the campaign and has its own checkout handler,
+separate from `/dashboard/billing`. It fired no event of any kind: not the view,
+not the checkout, not the free activation. So a campaign could not tell a click
+that reached the prices from one that bounced off the audit. Now fires
+`view_pricing` on load and `begin_checkout` / `start_free_plan` on its buttons,
+with the amount taken from the plan the **server** sent for that page.
+
+Also wired: `onboarding_complete` at the end of setup (fired there and not on
+dashboard arrival, which happens on every later visit), and `contact_request` on
+the enquiry form.
+
+**`onboarding_complete` carries NO parameters, deliberately.** The obvious
+dimension is the industry and it is a FREE-TEXT field — "Dave's Plumbing" is a
+person's name, and `sanitiseParams` would drop it anyway, so passing it would
+have been a no-op that read like a feature.
+
+### Defect 3 — no payment was ever reported, and the obvious fix is wrong
+
+The obvious fix is to fire `purchase` when the customer lands on the checkout
+`success_url`. That is wrong, and `billing/page.tsx` already said so in a comment
+nothing implemented: *"The purchase is recorded on the confirmed return, where the
+amount is known to be real."*
+
+**A `success_url` is a plain redirect.** Anyone can type
+`/dashboard?subscribed=growth`, a customer can bookmark it, and for several
+payment methods Stripe sends the browser there before the payment settles. §143 is
+the precedent: the commercial-loop driver read the Stripe event TYPE instead of
+the wallet and printed "PROVEN END TO END" for a delivery that credited nothing.
+
+So the vertical, server first:
+
+1. **`stripe-billing.ts`** — `paymentFromEvent(obj)` reads what Stripe says was
+   paid (`amount_paid` / `amount_total` / `amount_received`) into
+   `WebhookOutcome.payment`, and returns **undefined rather than 0** when there is
+   none, because absent must never arrive as a zero-value conversion.
+2. **`wallet.ts`** — `WalletState.lastCredit` ( `eventId`, `kind`, `acu`,
+   `planId`, `cycle`, `amountMinor`, `currency`, `at` ), written **inside the
+   existing credit transaction**, not as a second write that could fail alone. It
+   therefore exists only when the money genuinely landed — the same guarantee
+   `processed_events` gives, for the same reason.
+3. **`shared/conversion-report.ts`** (pure) — `conversionsFor(lastCredit,
+   alreadyReported)` decides what to report; `returnedFromCheckout(path, search)`
+   decides where to look.
+4. **`components/ConversionReporter.tsx`** — mounted in the root layout, no-ops
+   everywhere except the two confirmed-return landings, polls
+   `/api/billing/wallet` for up to 8 × 1.5s (the redirect regularly beats the
+   webhook), and reports what the wallet holds.
+
+**De-duplicated on Stripe's own event id**, stored per browser: a refresh finds
+the same id and reports nothing, next month's renewal is a different id and
+reports once. The key is stored **before** the events fire — a throwing tag would
+otherwise report the same sale on every poll.
+
+**The value is the money Stripe took, never the list price.** A discount code
+makes those differ: £49 list, £4.90 received. Reporting £49 trains the bidder on
+revenue nobody received. The top-up path had already learnt this for the ACU
+credit — *"a wallet is credited from money that arrived, never from an
+intention"* — and the reported revenue now gets the same treatment.
+
+**One money event per payment.** `purchase`, `subscribe` and `topup` all carry a
+value and all map to a Meta standard event, so two of them for one payment reports
+the revenue twice in the one report a decision gets made from. `subscribe` for a
+plan, `topup` for credits, `purchase` reserved for a one-off sale that is neither.
+GA4's own revenue event is `purchase`, and that mapping belongs in the **GTM
+container** — which is why these push to `dataLayer` rather than calling `gtag`.
+
+### Three further defects found while building it
+
+- **A subscription start would have been reported TWICE.** Stripe fires both
+  `checkout.session.completed` and `invoice.paid` when a plan begins. The existing
+  code already knew this for the ACU credit ("the invoice is the period"), so
+  `payment` is attached to the invoice and **not** to the session. Both carry
+  different event ids, so de-duplication could not have saved it.
+- **A refund and a grace period would both have stamped a sale.** Both reach
+  `applyWebhookOutcome`. A refund reported as a Purchase makes the bidder chase
+  customers who ask for their money back. The stamp requires `credit > 0 &&
+  reversal === 0 && outcome.payment`, and a refund must also not **erase** the
+  real payment before it.
+- **The first `returnedFromCheckout` matched all three `success_url`s.** The third
+  is `createBrandCheckout` — a MarketWar customer selling to **their** buyer, paid
+  into **their** Stripe account, which `sellerRoute` refuses outright if the money
+  would come to us. Counting it would put their revenue in our Ads Manager and
+  have the bidding chase a ROAS we never earned. They are all "a completed
+  checkout"; they are not all **our** completed checkout.
+
+### The root cause, guarded
+
+`tests/analytics-funnel.test.mjs` fails the build when a `track()` name is not in
+`MW_EVENTS`. **Scoped by the import**, so it cannot fail on
+`api/health/live/route.ts`'s own local `track(name, result)` probe helper — which
+is the mirror of the mistake that produced the wrong report above. It also asserts
+the scan found something (≥4 files, ≥6 names), so it cannot pass by seeing
+nothing.
+
+A fourth `success_url` in `checkout.ts` **fails** that test rather than being
+silently covered or silently missed: whether a new checkout is our money is a
+judgement, and a test that quietly guesses is how the wrong answer ships.
+
+### Mutation testing — 12 mutants, all killed
+
+| Mutant | Killed by |
+|---|---|
+| 1. an undeclared name fired from a real call site | the vocabulary guard |
+| 2. `audit_report_downloaded` removed from `MW_EVENTS` (the original defect) | guard + the audit-page test |
+| 3. a plan payment also reports `purchase` | the double-count test |
+| 4. the de-duplication check dropped | the refresh test |
+| 5. a missing amount becomes 0 | the zero-value test |
+| 6. the customer's own sale counted as ours | the landing-page test |
+| 7. a refund stamped as a sale | the refund test (driven against the store) |
+| 8. the subscription SESSION also carries `payment` | the double-stamp test |
+| 9. the amount read from a constant instead of the event | the discount-code test |
+| 10. events fired before the key is remembered | the ordering assertion |
+| 11. the reporter hard-codes the event name | the reporter structure test |
+| 12. the confirmation read from `/api/subscription` instead of the wallet | the reporter structure test |
+
+### Driven, not read
+
+**Against real Firestore (emulator + Firebase Admin): 8 proven / 0 broken** —
+the session activates the plan and stamps nothing; the invoice credits 980 ACUs
+and stamps the sale; the browser's decision is one `subscribe` at £49; a refresh
+is silent; a renewal reports once; a refund neither reports nor erases; a
+discounted top-up reports the £5 that arrived rather than the £20 asked for; and
+`lastCredit` is read back **out of the store** over REST.
+
+Two of my own verification scripts were wrong before the platform was:
+
+- The REST read named `projects/marketwar-local` while the admin SDK was writing
+  to `demo-marketwar`, so it reported "no lastCredit in the document" and the
+  platform was right the whole time. The project is now taken from the
+  environment the code under test is using.
+- Fixed event ids (`evt_inv_1`) made the second run a **replay** of the first, and
+  `processed_events` correctly skipped every delivery. Idempotency working
+  durably across processes, read as a failure. Ids are per-run now.
+
+**In a real browser: 10 proven / 0 broken** — the landing page never asks the
+wallet (0 calls, so no 401 for anonymous visitors); the confirmed return sends
+Meta `track:Subscribe` and the container `subscribe:49 GBP`, exactly once; a
+reload reports nothing; a visitor who refused cookies reports nothing at all; and
+a `success_url` with no credit behind it reports nothing while polling four times
+rather than giving up on the first read.
+
+### Not built
+
+**The server-side Conversions API.** The browser event already carries a shared
+`eventID` per event, which is what lets a server-side copy be deduplicated
+against it later, so adding it cannot double-count. Separate, larger piece.

@@ -8,6 +8,7 @@ import SiteJsonLd from "@/components/SiteJsonLd";
 import CookieConsent from "@/components/CookieConsent";
 import ReferralCapture from "@/components/ReferralCapture";
 import AnalyticsRouteTracker from "@/components/AnalyticsRouteTracker";
+import ConversionReporter from "@/components/ConversionReporter";
 import { splashLinks } from "@/shared/pwa-splash";
 import { siteOrigin } from "@/shared/site";
 
@@ -190,6 +191,13 @@ export default function RootLayout({
             visitor who said no. */}
         <Suspense fallback={null}>
           <AnalyticsRouteTracker />
+        </Suspense>
+        {/* Reports a confirmed sale — and only on the three routes a completed
+            checkout actually returns to, so it never asks an authenticated
+            endpoint on a public page view. It reads the wallet rather than the
+            address bar, because a success_url is a redirect anyone can type. */}
+        <Suspense fallback={null}>
+          <ConversionReporter />
         </Suspense>
         {/* Stores who sent this visitor, but only once they have accepted
             cookies — affiliate attribution is not a necessary cookie. Without

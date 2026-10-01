@@ -190,6 +190,38 @@ export type WalletState = {
    * to keep ACUs they already have.
    */
   signupGrantClaimed?: boolean;
+  /**
+   * THE LAST PAYMENT THAT ACTUALLY CREDITED THIS WALLET.
+   *
+   * Written in the SAME TRANSACTION as the credit, so it exists only when the
+   * money genuinely landed — the same guarantee `processed_events` gives, and
+   * for the same reason. It is what lets the browser report a conversion
+   * HONESTLY: Stripe's `success_url` is a redirect anyone can type, and for some
+   * payment methods it is reached before the payment settles, so a `purchase`
+   * fired because `?subscribed=growth` appeared in the address bar is a reported
+   * sale that may not exist. §143 is the precedent — the commercial-loop driver
+   * claimed the wallet credit from the event TYPE and printed "PROVEN END TO
+   * END" for a delivery that credited nothing. Read the wallet, not the URL.
+   *
+   * `eventId` is Stripe's, so it doubles as the de-duplication key: refreshing
+   * the landing page finds the same id and reports nothing a second time, while
+   * next month's renewal is a different id and reports once.
+   *
+   * `amountMinor` is absent when the event carried no readable amount, and
+   * absent must never be read as zero — a zero-value conversion teaches the ad
+   * platform this customer is worth nothing.
+   */
+  lastCredit?: {
+    eventId: string;
+    /** "subscription" for a plan payment, "topup" for bought credits. */
+    kind: "subscription" | "topup";
+    acu: number;
+    planId?: string | null;
+    cycle?: "monthly" | "annual" | null;
+    amountMinor?: number;
+    currency?: string;
+    at: string;
+  } | null;
 };
 
 const COLLECTION = "org_wallets";
@@ -470,6 +502,36 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   const changesEntitlement = outcome.action === "downgrade" || outcome.action === "grace_period";
   // Money going back out. Debits from a webhook are reversals, never charges.
   const reversal = outcome.ledgerEntry?.direction === "debit" ? Math.max(0, Math.round(outcome.ledgerEntry.amountAcu)) : 0;
+
+  /**
+   * The conversion stamp, or nothing.
+   *
+   * ONLY A CREDIT-BEARING PAYMENT COUNTS. A `grace_period`, a `downgrade` and a
+   * `reverse_credit` all reach this function and none of them is a sale — a
+   * refund reported as a Purchase is the worst version of this mistake, because
+   * the ad platform then bids harder for customers who ask for their money back.
+   *
+   * A SUBSCRIPTION START IS NOT STAMPED EITHER, deliberately. Stripe fires both
+   * `checkout.session.completed` and `invoice.paid` when a plan begins; the
+   * session activates the plan and the invoice is the payment, which is why
+   * `handleStripeEvent` attaches `payment` to the invoice and not to the
+   * session. Stamping both would report one subscription as two sales, and they
+   * carry different event ids so the de-duplication key would not catch it. The
+   * guard is `outcome.payment` being present, which is true of the invoice only.
+   */
+  const stamp = credit > 0 && reversal === 0 && outcome.payment
+    ? {
+        eventId,
+        kind: (outcome.ledgerEntry?.type === "acu_topup" ? "topup" : "subscription") as "topup" | "subscription",
+        acu: credit,
+        planId: outcome.planId ?? null,
+        cycle: outcome.cycle ?? null,
+        amountMinor: outcome.payment.amountMinor,
+        currency: outcome.payment.currency,
+        at: nowIso(),
+      }
+    : null;
+
   if (!id) return { applied: false, reason: "No org id on the event — cannot credit a wallet (checkout must stamp client_reference_id / metadata.orgId)." };
   if (credit <= 0 && reversal <= 0 && !activatesPlan && !changesEntitlement) return { applied: false, reason: `Outcome '${outcome.action}' carries no wallet credit.` };
 
@@ -505,6 +567,9 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
           ? { annualRelease: { perMonth: outcome.scheduleRelease.perMonth, remainingMonths: outcome.scheduleRelease.months, nextAt: new Date(Date.parse(now) + RELEASE_INTERVAL_MS).toISOString() } }
           : {}),
         ...entitlementPatch(outcome.action, now),
+        // Only overwritten when this event IS a sale; a grace period or a
+        // downgrade must not erase the last real payment.
+        ...(stamp ? { lastCredit: stamp } : {}),
         updatedAt: now,
       };
       tx.set(walletRef, next, { merge: false });
@@ -557,6 +622,10 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   const unrecovered = reversal - taken;
   const patch = {
     ...(activatesPlan ? { lapsedAt: null, graceUntil: null } : {}),
+    // The same stamp as the durable path, so demo mode exercises the conversion
+    // reporting end to end — the whole point of zero-config mode is that the
+    // path a customer takes is the path that was tested.
+    ...(stamp ? { lastCredit: stamp } : {}),
     ...(reversal > 0 || settled > 0 ? { balanceAcu: credited.balanceAcu - taken, owedAcu: owedBefore - settled + unrecovered } : {}),
     ...(outcome.scheduleRelease
       ? { annualRelease: { perMonth: outcome.scheduleRelease.perMonth, remainingMonths: outcome.scheduleRelease.months, nextAt: new Date(Date.now() + RELEASE_INTERVAL_MS).toISOString() } }

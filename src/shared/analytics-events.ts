@@ -50,6 +50,22 @@ export const MW_EVENTS: MwEvent[] = [
   // --- The free audit: the front door of the whole acquisition machine -----
   { name: "audit_started", means: "Somebody typed a website in and ran the free audit.", meta: { custom: "AuditStarted" } },
   { name: "audit_lead", means: "They gave an address to receive the full report. A real lead.", meta: "Lead" },
+  // THESE TWO WERE BEING FIRED AND DROPPED.
+  //
+  // `FreeAudit.tsx` has called `track("audit_report_downloaded")` and
+  // `track("audit_cta_signup")` all along; neither name was in this list, so
+  // `buildPayload` returned null and nothing reached either destination. The
+  // comment at the top of this file predicted exactly that — "an event invented
+  // at a call site silently does nothing while looking like it works" — and it
+  // happened on `/audit`, the page every advert points at.
+  //
+  // Declared rather than deleted from the call sites, because both are real
+  // signals: downloading the report is the strongest intent the free tool can
+  // produce, and the signup click is the step between the audit and an account.
+  // Custom, not standard: Meta optimises `Lead` on `audit_lead` above, and two
+  // competing standard events on one page split the conversion signal.
+  { name: "audit_report_downloaded", means: "They took the full report file away. The strongest intent the free tool produces.", meta: { custom: "AuditReportDownloaded" } },
+  { name: "audit_cta_signup", means: "They clicked through from the audit result towards creating an account.", meta: { custom: "AuditCtaSignup" } },
 
   // --- Account ------------------------------------------------------------
   { name: "sign_up", means: "An account was created.", meta: "CompleteRegistration" },
@@ -57,9 +73,21 @@ export const MW_EVENTS: MwEvent[] = [
   { name: "onboarding_complete", means: "A brand finished setup and the OS is usable.", meta: { custom: "OnboardingComplete" } },
 
   // --- Money --------------------------------------------------------------
+  //
+  // ONE MONEY EVENT PER PAYMENT. All three of `purchase`, `subscribe` and
+  // `topup` carry a value, and two of them firing for the same payment reports
+  // the revenue twice — inflating ROAS in the one report a decision gets made
+  // from. So `conversionsFor` (shared/conversion-report.ts) picks exactly one
+  // per confirmed payment: `subscribe` for a plan, `topup` for credits, and
+  // `purchase` is reserved for a one-off sale that is neither.
+  //
+  // GA4's own revenue event is `purchase`, and the mapping from `subscribe` or
+  // `topup` onto it belongs in the GTM container, not in a second call here —
+  // that is what the container is for, and it is why these push to `dataLayer`
+  // rather than calling `gtag` directly.
   { name: "begin_checkout", means: "A plan was chosen and checkout was opened.", meta: "InitiateCheckout", hasValue: true },
-  { name: "purchase", means: "Payment completed. Only ever fired on a confirmed payment.", meta: "Purchase", hasValue: true },
-  { name: "subscribe", means: "A recurring plan started.", meta: "Subscribe", hasValue: true },
+  { name: "purchase", means: "A one-off payment completed — not a plan and not a top-up, which have their own events. Only ever fired on a confirmed payment.", meta: "Purchase", hasValue: true },
+  { name: "subscribe", means: "A recurring plan was paid for. The money event for a plan; `purchase` is not also fired.", meta: "Subscribe", hasValue: true },
   { name: "start_free_plan", means: "The free plan was activated — no money, so no value.", meta: { custom: "StartFreePlan" } },
   { name: "topup", means: "Credits were bought outside a plan.", meta: "Purchase", hasValue: true },
 
