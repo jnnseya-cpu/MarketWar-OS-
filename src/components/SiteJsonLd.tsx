@@ -43,6 +43,29 @@ const SAME_AS: string[] = [
 const DESCRIPTION =
   "An AI customer-acquisition platform: audits a website, builds and runs campaigns, publishes content, and measures whether AI assistants recommend the business.";
 
+/**
+ * THE PRODUCT OFFER IS NOT IN HERE ANY MORE, AND THAT IS THE POINT.
+ *
+ * This component renders in the ROOT layout, so it renders on every page served
+ * from this domain — including `/b/{brandId}/{slug}`, where MarketWar hosts a
+ * landing page on a CUSTOMER'S behalf. The `Organization` and `WebSite` nodes
+ * below are true there: the site is operated by MarketWar, while the page's own
+ * `WebPage.publisher` correctly names the customer (see `backend/hosted-schema`).
+ * Those two statements sit together without contradicting each other.
+ *
+ * A `SoftwareApplication` with an `Offer` did not. It advertised MarketWar's
+ * subscription inside a bathroom fitter's landing page, where an assistant
+ * summarising "who fits bathrooms in Coventry" could fold our product and price
+ * into the answer about them. §156 recorded it as a conflict with a recommended
+ * fix of two root layouts via route groups; on building it, moving ONE node to
+ * the pages that sell the product turned out to be better than restructuring the
+ * whole `app/` tree — it fixes the actual harm, keeps 179 pages statically
+ * rendered, and puts a product offer on pages about the product, which is where
+ * it belonged all along.
+ *
+ * `ProductJsonLd` below carries it, and `tests/ai-findability.test.mjs` asserts
+ * it is on the pages that sell and on no customer page.
+ */
 export default function SiteJsonLd() {
   const graph: Record<string, unknown>[] = [
     {
@@ -91,6 +114,34 @@ export default function SiteJsonLd() {
       publisher: { "@id": `${SITE}/#organization` },
       inLanguage: "en-GB",
     },
+  ];
+
+  return (
+    <script
+      type="application/ld+json"
+      // Escaped so a future field containing "</script>" cannot close the tag
+      // early — the same rule the auto-deploy snippet follows.
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify({ "@context": "https://schema.org", "@graph": graph })
+          .replace(/</g, "\\u003c")
+          .replace(/>/g, "\\u003e"),
+      }}
+    />
+  );
+}
+
+/**
+ * MarketWar's own product, for the pages that actually sell it.
+ *
+ * Rendered by `/`, `/features`, `/how-it-works` and `/choose-plan` — never by the
+ * root layout, because a customer's hosted page must not carry our price.
+ *
+ * Every field is unchanged from when this lived in the graph above: the offer
+ * states a currency and the page where the real prices are, and no price, rating
+ * or review is invented.
+ */
+export function ProductJsonLd() {
+  const graph = [
     {
       "@type": "SoftwareApplication",
       name: "MarketWar OS",
@@ -109,12 +160,9 @@ export default function SiteJsonLd() {
       },
     },
   ];
-
   return (
     <script
       type="application/ld+json"
-      // Escaped so a future field containing "</script>" cannot close the tag
-      // early — the same rule the auto-deploy snippet follows.
       dangerouslySetInnerHTML={{
         __html: JSON.stringify({ "@context": "https://schema.org", "@graph": graph })
           .replace(/</g, "\\u003c")

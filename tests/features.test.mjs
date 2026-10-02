@@ -2549,7 +2549,10 @@ test("public copy: no unsubstantiated performance figures", () => {
 });
 
 test("public copy: the AI answer matches how billing actually works", () => {
-  const src = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  // THE FAQ MOVED to shared/site-faq.ts (§157) so the page and the FAQPage
+  // markup read one array — the answers are unchanged and this guard still
+  // applies to them, it just has to look where they live.
+  const src = readFileSync(new URL("../src/shared/site-faq.ts", import.meta.url), "utf8");
   const answer = /Which AI powers[^}]*?a: "([^"]+)"/s.exec(src)?.[1] || "";
   assert.ok(answer.length > 100, "the AI question must be answered properly");
   assert.match(answer, /included in your plan/i, "it must say the AI is included");
@@ -8620,11 +8623,15 @@ test("the public site describes the capabilities that actually shipped", () => {
   assert.match(how, /\{PHASES\.length\} phases/, "the phase count must come from the array, not from a number typed into the prose");
   assert.match(how, /only drafting steps run unattended/);
   assert.match(how, /daily ceiling per brand/);
-  assert.match(landing, /Will it email my customers or post publicly without me\?/);
-  assert.match(landing, /How much can it spend while I am not watching\?/);
+  // The FAQ moved to shared/site-faq.ts (§157); the promises are unchanged and
+  // are still required to be on the public page, which renders this array.
+  const faq = readFileSync(new URL("../src/shared/site-faq.ts", import.meta.url), "utf8");
+  assert.match(faq, /Will it email my customers or post publicly without me\?/);
+  assert.match(faq, /How much can it spend while I am not watching\?/);
+  assert.match(landing, /SITE_FAQ\.map/, "and the page must actually render it");
 
   // And the reviews answer, since that is the question the owner was asked.
-  assert.match(landing, /Supplied reviews and bought followers are not available here/);
+  assert.match(faq, /Supplied reviews and bought followers are not available here/);
   assert.match(how, /filtering for the happy ones first is a banned practice/);
 
   // The terms carry it too — this is a promise about money and customers, so

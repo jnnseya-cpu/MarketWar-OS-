@@ -289,3 +289,122 @@ test("our own robots.txt does not block what we sell measuring", async () => {
   assert.deepEqual(blockedAiCrawlers("User-agent: *\nAllow: /\nDisallow: /dashboard/\n"), [],
     "the shape our robots.txt produces must block no AI crawler");
 });
+
+// ---------------------------------------------------------------------------
+// 3. OUR OWN PAGE, WHICH WAS FAILING OUR OWN REPORT.
+//
+// Measured before this: marketwaros.com scored 80/100, grade B, and FAILED
+// "Answerable content (FAQ / Q&A)" at weight 20 — zero question-style headings.
+// Eight good answers were already on the page; the questions sat in a bare
+// `<summary>` and nothing machine-readable said they existed. The content a model
+// would quote was present and invisible.
+// ---------------------------------------------------------------------------
+
+test("every home-page question is a real heading our own check can count", async () => {
+  const { SITE_FAQ } = await import("../src/shared/site-faq.ts");
+  const page = readFileSync("src/app/page.tsx", "utf8");
+
+  // MEASURED ON A RUNNING BUILD: all 8 are counted by the check's own regex, and
+  // the report went 80/100 grade B with a FAIL here to 98/100 grade A with
+  // "8 question-style headings found, plus FAQPage schema".
+  assert.ok(SITE_FAQ.length >= 4, `the readiness check wants at least 4 questions, got ${SITE_FAQ.length}`);
+  assert.equal(SITE_FAQ.length, 8, "the count is pinned so a trim cannot quietly take the page back under the threshold");
+  // An <h3> with the question and NOTHING nested inside it, which is what the
+  // check, a crawler and a screen reader all look for.
+  assert.match(page, /<h3 className="text-sm font-semibold text-white">\{f\.q\}<\/h3>/,
+    "the question must be the whole content of a heading");
+
+  // THE CHECK'S OWN REGEX, run against what the headings will contain. Copied
+  // from geo-readiness.ts so this fails if the shape stops matching rather than
+  // inventing a looser rule of its own.
+  const counts = /<h[2-4][^>]*>[^<]{8,120}\?\s*<\/h[2-4]>/i;
+  for (const f of SITE_FAQ) {
+    const rendered = `<h3 className="x">${f.q.replace(/'/g, "&#x27;")}</h3>`;
+    assert.match(rendered, counts, `"${f.q}" will not be counted as a question heading`);
+  }
+});
+
+test("the FAQ markup is built from the array the page renders", async () => {
+  const { SITE_FAQ } = await import("../src/shared/site-faq.ts");
+  const page = readFileSync("src/app/page.tsx", "utf8");
+  const comp = readFileSync("src/components/FaqJsonLd.tsx", "utf8");
+
+  // ONE ARRAY, BOTH SIDES. The component takes what it is given and the page
+  // gives it exactly what it maps over, so markup cannot describe one list while
+  // the page shows another.
+  assert.match(page, /<FaqJsonLd items=\{SITE_FAQ\} \/>/);
+  assert.match(page, /\{SITE_FAQ\.map\(\(f\) => \(/);
+  assert.match(comp, /"@type": "FAQPage"/);
+  assert.match(comp, /acceptedAnswer: \{ "@type": "Answer", text: f\.a \}/);
+  // A question with no answer is a prompt with nothing behind it; schema.org
+  // requires an acceptedAnswer.
+  assert.match(comp, /items\.filter\(\(f\) => f\.q\.trim\(\) && f\.a\.trim\(\)\)/);
+  assert.match(comp, /replace\(\/</, "an answer containing </script> must not close the tag");
+
+  for (const f of SITE_FAQ) {
+    assert.ok(f.q.trim().endsWith("?"), `"${f.q}" is not a question`);
+    assert.ok(f.a.trim().length > 40, `the answer to "${f.q}" is too short to be quotable`);
+  }
+});
+
+test("the one number in the FAQ is counted, not typed", async () => {
+  const { SITE_FAQ } = await import("../src/shared/site-faq.ts");
+  const { INCLUDED_TOOLS } = await import("../src/shared/included-tools.ts");
+  const src = readFileSync("src/shared/site-faq.ts", "utf8");
+
+  // §151 was "32 checks" typed onto a public page where the code said 31. This is
+  // the same shape of claim, so it is read from the list it describes.
+  assert.match(src, /spell\(INCLUDED_TOOLS\.length\)/);
+  const joined = SITE_FAQ.map((f) => f.a).join(" ");
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+  assert.ok(joined.includes(`one weapon of ${words[INCLUDED_TOOLS.length]}`),
+    `the FAQ must say "one weapon of ${words[INCLUDED_TOOLS.length]}" — ${INCLUDED_TOOLS.length} tools are listed`);
+});
+
+test("no FAQ answer claims a result, a customer or a testimonial", async () => {
+  const { SITE_FAQ } = await import("../src/shared/site-faq.ts");
+  // Customers acquired is zero. The same rule `ads:verify` holds the adverts to,
+  // applied to the page an assistant is most likely to quote.
+  const joined = SITE_FAQ.map((f) => `${f.q} ${f.a}`).join(" ");
+  for (const re of [
+    /trusted by [0-9]/i, /[0-9,]+\+? (?:happy )?customers/i, /join [0-9,]+/i,
+    /guaranteed results/i, /[0-9]+% more (?:leads|sales|revenue)/i,
+  ]) {
+    assert.doesNotMatch(joined, re, `the FAQ makes a claim there is no basis for: ${re}`);
+  }
+});
+
+test("MarketWar's price is on the pages that sell it and on no customer page", () => {
+  // THE CONFLICT §156 RECORDED, now closed. The root layout renders on every page
+  // including /b/{brandId}/{slug}, so a SoftwareApplication with an Offer in that
+  // graph advertised our subscription inside a customer's landing page — where an
+  // assistant answering "who fits bathrooms in Coventry" could fold our product
+  // and price into the answer about them.
+  const site = codeOf(readFileSync("src/components/SiteJsonLd.tsx", "utf8"));
+  const layout = codeOf(readFileSync("src/app/layout.tsx", "utf8"));
+
+  // The site-wide graph keeps Organization and WebSite — both true on any page
+  // served from this domain — and no longer carries the offer.
+  const siteFn = site.slice(site.indexOf("export default function SiteJsonLd"), site.indexOf("export function ProductJsonLd"));
+  assert.match(siteFn, /"@type": "Organization"/);
+  assert.match(siteFn, /"@type": "WebSite"/);
+  assert.doesNotMatch(siteFn, /SoftwareApplication/,
+    "the product offer must not be in the graph that renders on every page");
+  assert.doesNotMatch(siteFn, /"@type": "Offer"/);
+
+  // The offer lives in its own component, and the root layout must not render it.
+  assert.match(site, /export function ProductJsonLd/);
+  assert.doesNotMatch(layout, /ProductJsonLd/,
+    "rendering it from the root layout would put it straight back on every customer page");
+
+  // It IS rendered by the pages that sell the product.
+  for (const rel of ["page.tsx", "features/page.tsx", "how-it-works/page.tsx", "choose-plan/page.tsx"]) {
+    const src = readFileSync(`src/app/${rel}`, "utf8");
+    assert.match(src, /<ProductJsonLd \/>/, `${rel} sells the product and should carry its offer`);
+  }
+
+  // And emphatically not by the hosted customer page.
+  const hosted = readFileSync("src/app/b/[brandId]/[slug]/page.tsx", "utf8");
+  assert.doesNotMatch(hosted, /ProductJsonLd/, "a customer's page must never carry MarketWar's price");
+});

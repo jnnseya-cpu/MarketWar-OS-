@@ -37,6 +37,9 @@ import { ARMY, DIVISIONS } from "@/shared/warlord-roster";
 import { INCLUDED_TOOLS, includedSummary } from "@/shared/included-tools";
 import { BrandLockup } from "@/components/Logo";
 import { auditCheckCount } from "@/shared/audit-copy";
+import { SITE_FAQ } from "@/shared/site-faq";
+import FaqJsonLd from "@/components/FaqJsonLd";
+import { ProductJsonLd } from "@/components/SiteJsonLd";
 
 // EVERY FIGURE ON THE FIRST SCREEN IS READ FROM THE THING THAT ENFORCES IT.
 // A price typed into a headline drifts from checkout the first time it changes,
@@ -174,44 +177,14 @@ const PLANS = [
   { name: "Global", price: priceOf("global"), period: "/mo", desc: "Custom at any scale.", features: [limitsOf("global"), acusOf("global"), "Unlimited campaigns", "Dedicated infrastructure", "White-glove implementation + SLAs"], cta: "Talk to us", href: "/contact", featured: false },
 ];
 
-const FAQS = [
-  {
-    q: "I'm not a marketer. Can I actually use this?",
-    a: "That's the operating principle of the whole platform. You tell the OS what you sell, who you want and where you operate — it handles diagnosis, strategy, campaigns, copy, landing pages, follow-up and budget decisions, then tells you exactly what to do each day in plain language.",
-  },
-  {
-    q: "How is this different from an AI content tool?",
-    a: "Content tools create posts. MarketWar OS diagnoses the business, rebuilds the offer, launches tracked experiments, qualifies leads in WhatsApp, protects the budget and attributes every pound to revenue. Content is one weapon of twelve, not the product.",
-  },
-  {
-    q: "What happens to campaigns that don't work?",
-    a: "They die fast. Every campaign launches with kill criteria agreed in advance — exact cost-per-lead and CTR thresholds. The Budget Protection agent pauses waste automatically and reroutes the budget to proven winners, with a weekly 'money saved' receipt.",
-  },
-  {
-    q: "Do I need a big ad budget?",
-    a: "No. The OS starts with money you already own: your existing customer list. Import it and dormant customers — people who bought before and stopped — are surfaced and ranked, which is the cheapest sale any business can make. Local SEO and referral loops cost nothing but time. If you do run paid ads, tests start small and only scale on evidence you can see.",
-  },
-  {
-    q: "Will it email my customers or post publicly without me?",
-    a: "No, and that is enforced in the code rather than promised in the copy. Agents can run in chains, on a schedule, overnight — but every step declares what it does, and only the ones that DRAFT are allowed to run on their own. Anything that would send a message, publish a page or spend money becomes an item waiting for your approval, with the draft attached. That holds for scheduled runs too: you wake up to work you can read, not to messages you did not see go out.",
-  },
-  {
-    q: "How much can it spend while I am not watching?",
-    a: "A fixed ceiling per brand per day, reserved before each step rather than counted afterwards, so a job that gets stuck cannot run up a bill on the grounds that failing is free. When the ceiling is reached the remaining steps stop and say so rather than disappearing quietly. It only limits what the platform does on its own initiative — anything you run yourself is governed by your own ACU balance, which is shown next to every action before you click it.",
-  },
-  {
-    q: "Can you get me more reviews and followers?",
-    a: "More reviews, yes — from people you actually served. The platform reads your customer list, works out who is eligible (a real order, finished long enough ago to have an opinion, not asked recently, consent intact), builds the correct review link for the platform you choose, and paces the sending so a sudden burst does not trip the filters. Everyone eligible gets the same link, because screening for the happy ones first is illegal under the UK DMCC Act 2024 and the US FTC rule. Supplied reviews and bought followers are not available here at any price: the penalty for them lands on your page, not ours, and bought followers make your reach worse because every feed ranks by engagement rate.",
-  },
-  {
-    q: "Which AI powers the agents, and do I need my own account?",
-    a: "You need no AI account of your own. The intelligence is included in your plan and priced in ACUs — the unit shown next to every action before you click it — so there is nothing to sign up for, no separate bill and no keys to manage. The agents run on frontier models, and the platform routes across more than one provider, so a single provider having a bad day does not stop your work. If you would rather use your own provider account you can connect it on higher tiers, but nobody has to.",
-  },
-];
+
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-ink-950">
+      {/* MarketWar's own product and price — on the pages that sell it, never
+          on a customer's hosted page. See SiteJsonLd. */}
+      <ProductJsonLd />
       {/* ============================== NAV ============================== */}
       <header className="fixed inset-x-0 top-0 z-50">
         <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/10 bg-ink-950/70 px-5 py-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:mx-6 lg:mx-auto">
@@ -843,14 +816,26 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ============================== FAQ ============================== */}
-      <section className="mx-auto max-w-3xl px-5 py-24">
+      {/* ============================== FAQ ==============================
+          THE ANSWERS WERE ALWAYS HERE; NOTHING COULD FIND THEM.
+          Two changes, and both are the reason our own report scored this page
+          80/100 with a FAIL on "Answerable content" at weight 20:
+            • each question is now an <h3>, because the check — and every
+              crawler — counts question-style HEADINGS, and these sat in a bare
+              <summary>;
+            • the FAQPage markup below is built from the same SITE_FAQ array, so
+              what a machine reads is what a person sees. Markup describing
+              questions a page does not show is a Google policy violation. */}
+      <section id="faq" className="mx-auto max-w-3xl px-5 py-24">
+        <FaqJsonLd items={SITE_FAQ} />
         <h2 className="text-center font-display text-3xl font-bold text-white sm:text-4xl">Questions, answered bluntly</h2>
         <div className="mt-10 space-y-3">
-          {FAQS.map((f) => (
+          {SITE_FAQ.map((f) => (
             <details key={f.q} className="group rounded-xl border border-white/10 bg-ink-900/70 px-5 transition open:border-emerald-500/30">
               <summary className="flex cursor-pointer list-none items-center justify-between py-4 text-sm font-semibold text-white [&::-webkit-details-marker]:hidden">
-                {f.q}
+                {/* A real heading with nothing nested inside it, which is what a
+                    crawler, a screen reader and our own check all look for. */}
+                <h3 className="text-sm font-semibold text-white">{f.q}</h3>
                 <span className="ml-4 shrink-0 text-emerald-400 transition group-open:rotate-45">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
                 </span>

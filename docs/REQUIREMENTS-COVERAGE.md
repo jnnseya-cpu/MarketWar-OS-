@@ -9193,3 +9193,107 @@ into each marketing page is a change to dozens of files. A route-group refactor 
 a structural change to the whole `app/` tree and was not taken unilaterally; per
 the additive-only law, the conflict is recorded here with the recommendation
 instead.
+
+---
+
+## §157 — Closing §156's two open items (2026-10-02)
+
+**Owner request.** *"Do and fix both."*
+
+### 1. The home page was failing our own report — and the content was already there
+
+`geo-readiness.ts` scored marketwaros.com **80/100, grade B**, with
+**"Answerable content (FAQ / Q&A)" FAILING at weight 20 — zero question-style
+headings.**
+
+I began writing a derived FAQ from `subscription.ts`, `included-tools.ts`,
+`audit-copy.ts` and `emergency-stop.ts`. Then I read the page. **Eight
+substantial, honest answers were already on it** — covering "will it email my
+customers without me", "how much can it spend while I am not watching", "can you
+get me more reviews and followers" (with the DMCC/FTC reasoning), "which AI powers
+the agents". Better than what I had drafted.
+
+So mine was **deleted**. Rule 1: never recreate what works. Rule 6: one source of
+truth. What was actually broken was narrow:
+
+- **the questions were not headings.** They sat inside a bare `<summary>`, and the
+  readiness check — like every crawler — counts `<h2>`–`<h4>` headings ending in a
+  question mark. The content a model would quote was present and invisible;
+- **nothing machine-readable said the FAQ existed.** No FAQPage markup.
+
+Shipped:
+
+| Change | Why |
+|---|---|
+| `FAQS` → `shared/site-faq.ts` as `SITE_FAQ` | so the page and the markup read ONE array; a second list is how markup starts describing a page that does not exist |
+| each question is an `<h3>` with nothing nested | what the check, a crawler and a screen reader all look for |
+| `components/FaqJsonLd.tsx` | FAQPage built from that same array, server-rendered because assistant crawlers do not run scripts |
+| `"one weapon of twelve"` → `spell(INCLUDED_TOOLS.length)` | the one typed number in the copy. §151 was a typed number that was wrong within a month |
+
+**Measured on a running build: 80/100 grade B → 98/100 grade A**, with
+*"8 question-style headings found, plus FAQPage schema"*. The count is pinned at 8
+in the test, so a trim cannot quietly take the page back under the threshold of
+four.
+
+A correction on the record: I said "nine good answers" in §156 and in two comments.
+There are **eight**. Counted from the array and fixed in both places.
+
+### 2. The product offer is off customer pages — by a better fix than the one I recommended
+
+§156 recommended **two root layouts via Next route groups**. Having designed it,
+that was the wrong call and I did not do it:
+
+- it requires moving every `page.tsx` in `app/` into a route group, because
+  multiple root layouts mean no top-level `layout.tsx` — a large mechanical change
+  to the whole tree for one node of JSON-LD;
+- the alternative of reading `headers()` in the shared root layout would force
+  **all 179 statically rendered pages to render dynamically.**
+
+What shipped instead: **`SoftwareApplication` + `Offer` moved out of the site-wide
+graph into `ProductJsonLd`**, rendered by `/`, `/features`, `/how-it-works` and
+`/choose-plan` — and **never by the root layout**.
+
+`Organization` and `WebSite` stay site-wide, deliberately: they are true on any
+page served from this domain, including a hosted customer page, where they say
+"this site is operated by MarketWar" alongside that page's own
+`WebPage.publisher` naming the customer. Those two statements sit together without
+contradicting each other. The `SoftwareApplication` offer did not — it advertised
+our subscription inside a bathroom fitter's landing page, where an assistant
+answering "who fits bathrooms in Coventry" could fold our product and price into
+the answer about them.
+
+So the fix targets the actual harm, keeps static generation, and puts a product
+offer on the pages about the product — which is where it belonged.
+
+**Confirmed on a running build.** The hosted page's structured-data types are now:
+`Organization, ContactPoint, WebSite, LocalBusiness, PostalAddress, Product,
+Brand, WebPage, FAQPage, Question, Answer` — no `SoftwareApplication`, no
+`Offer`.
+
+### Mutation testing — 7 more, all killed (17 across §§156–157)
+
+| Mutant | Killed by |
+|---|---|
+| 11. the question goes back into a bare `<summary>` | the heading test, using the check's own regex |
+| 12. the FAQPage markup is dropped | the markup test |
+| 13. the markup is built from a different list than the page renders | same |
+| 14. the tool count is typed again | the derived-number test |
+| 15. the product offer goes back into the site-wide graph | the scoping test |
+| 16. the root layout renders the product offer | same |
+| 17. an answer with no text is claimed as answered | the `acceptedAnswer` test |
+
+### Two existing guards failed, and were right to
+
+`"public copy: the AI answer matches how billing actually works"` and
+`"the public site describes the capabilities that actually shipped"` read the FAQ
+text out of `app/page.tsx`, which no longer holds it. The answers are unchanged
+and the guards still apply to them, so they were repointed at the module — and the
+second now also asserts the page **renders** that array, so moving the content
+somewhere the page does not use would still fail.
+
+### Still open
+
+Nothing from §156. The one remaining number worth watching: the hosted page's
+"Title + meta description" check WARNs at 75/100 because a generated page's
+headline is short — that is the customer's copy, derived from what they published,
+and padding it on their behalf would be writing their page for them.
