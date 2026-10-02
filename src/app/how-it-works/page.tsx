@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import type { Metadata } from "next";
 import { openGraphFor } from "@/shared/site";
+import { ProductJsonLd } from "@/components/SiteJsonLd";
 
 // Pages the product tells customers never to ship without a title and
 // description — while shipping several itself. The pricing page is the
@@ -85,6 +86,9 @@ const PHASES = [
 export default function HowItWorksPage() {
   return (
     <div className="min-h-screen bg-ink-950">
+      {/* MarketWar's own product and price — on the pages that sell it, never
+          on a customer's hosted page. See SiteJsonLd. */}
+      <ProductJsonLd />
       <div className="mx-auto max-w-3xl px-5 py-16">
         <Link href="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
           <ArrowLeft className="h-4 w-4" /> Back to MarketWar OS

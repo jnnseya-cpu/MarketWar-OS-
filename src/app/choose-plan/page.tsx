@@ -14,6 +14,7 @@ import { BrandLockup } from "@/components/Logo";
 import { AGENT_LIST } from "@/shared/agents";
 import { SUPPORT_EMAIL } from "@/shared/site";
 import { COMMISSION_BANDS, ratePct, RATE_PLATFORM } from "@/shared/creator-program";
+import { ProductJsonLd } from "@/components/SiteJsonLd";
 
 
 type Plan = {
@@ -97,6 +98,9 @@ export default function ChoosePlanPage() {
 
   return (
     <div className="min-h-screen px-4 py-14">
+      {/* MarketWar's own product and price — on the pages that sell it, never
+          on a customer's hosted page. See SiteJsonLd. */}
+      <ProductJsonLd />
       <div className="mx-auto max-w-6xl">
         <Link href="/" className="mb-8 flex items-center justify-center gap-2.5">
           <BrandLockup />

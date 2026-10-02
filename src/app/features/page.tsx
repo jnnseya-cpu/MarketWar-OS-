@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import { FEATURE_PAGES, FEATURE_CATEGORIES } from "@/shared/feature-pages";
+import { ProductJsonLd } from "@/components/SiteJsonLd";
 
 export const metadata: Metadata = {
   title: "How it works, question by question · MarketWar OS",
@@ -19,6 +20,9 @@ export default function FeaturesHub() {
       title="The questions, answered properly"
       subtitle="Each of these is something a small business owner actually asks, answered with the arithmetic rather than the adjectives — including the parts where the honest answer is that you cannot do the thing you wanted."
     >
+      {/* MarketWar's own product and price — on the pages that sell it, never
+          on a customer's hosted page. See SiteJsonLd. */}
+      <ProductJsonLd />
       <Prose>
         {FEATURE_CATEGORIES.map((cat) => (
           <section key={cat}>
