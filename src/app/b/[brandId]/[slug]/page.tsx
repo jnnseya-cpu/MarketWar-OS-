@@ -7,6 +7,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPage } from "@/backend/landing-store";
+import { getBrandById } from "@/backend/brand-store";
+import { hostedPageJsonLd } from "@/backend/hosted-schema";
+import { splitFaqItem } from "@/shared/faq-text";
+import { siteOrigin, openGraphFor } from "@/shared/site";
 import { recordPageEvent } from "@/backend/page-analytics";
 import PageTracker from "@/components/PageTracker";
 import LandingLeadForm from "@/components/LandingLeadForm";
@@ -20,7 +24,25 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const { brandId, slug } = await params;
   const page = await getPage(brandId, slug).catch(() => null);
   if (!page) return { title: "Page not found" };
-  return { title: page.headline, description: page.subheadline };
+  // A CANONICAL, because this page is reachable at one URL and assistants and
+  // search engines both use it to decide which address to cite. Without it a
+  // link arriving with tracking parameters on the end is a different page.
+  const canonical = `${siteOrigin()}/b/${encodeURIComponent(brandId)}/${encodeURIComponent(slug)}`;
+  return {
+    title: page.headline,
+    description: page.subheadline,
+    alternates: { canonical },
+    // THROUGH THE HELPER, which cannot omit the card image. Next merges metadata
+    // field by field but REPLACES `openGraph` wholesale, so a literal block here
+    // would drop the root layout's images and the page would share as a bare
+    // link — six pages had already done exactly that, which is why the helper
+    // and the test that enforces it exist.
+    openGraph: openGraphFor({
+      title: page.headline,
+      description: page.subheadline,
+      path: `/b/${encodeURIComponent(brandId)}/${encodeURIComponent(slug)}`,
+    }),
+  };
 }
 
 export default async function HostedLandingPage({ params }: { params: Promise<Params> }) {
@@ -33,6 +55,20 @@ export default async function HostedLandingPage({ params }: { params: Promise<Pa
   // failure here must never stop the page rendering — the customer is paying
   // for the page, not for the counter.
   await recordPageEvent(brandId, slug, "view").catch(() => {});
+
+  // THE MACHINE-READABLE VERSION OF THIS PAGE.
+  //
+  // A failure to load the brand must not stop the page rendering — the customer
+  // is paying for the page, not for the markup — so the graph is built from what
+  // is available and simply omits the business when the brand cannot be read.
+  const base = siteOrigin();
+  const brand = await getBrandById(brandId).catch(() => null);
+  const jsonLd = hostedPageJsonLd({
+    brand,
+    page,
+    pageUrl: `${base}/b/${encodeURIComponent(brandId)}/${encodeURIComponent(slug)}`,
+    brandUrl: `${base}/b/${encodeURIComponent(brandId)}`,
+  });
 
   const cols = page.brandColours && page.brandColours.length ? page.brandColours : ["#1F6FEB", "#0B7285"];
   const primary = cols[0];
@@ -49,6 +85,17 @@ export default async function HostedLandingPage({ params }: { params: Promise<Pa
 
   return (
     <main className="min-h-screen bg-white text-slate-900">
+      {/* WHAT AN ASSISTANT READS. Server-rendered, so it is in the HTML as it
+          arrives — most assistant crawlers do not run scripts, which is the
+          whole reason this is here rather than injected on the client. */}
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          // The value is JSON built in `hosted-schema.ts` from the brand and the
+          // page, with `<` escaped there so it cannot close this tag early.
+          dangerouslySetInnerHTML={{ __html: jsonLd }}
+        />
+      )}
       {/* Counts CTA clicks. Views are already counted server-side above. */}
       <PageTracker brandId={page.brandId} slug={page.slug} />
       {/* Hero — one promise, one price, one button. Everything else is below. */}
@@ -152,12 +199,17 @@ export default async function HostedLandingPage({ params }: { params: Promise<Pa
                   <h2 className="mb-5 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{sec.heading}</h2>
                   <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200">
                     {sec.items.map((it, j) => {
-                      const [q, ...rest] = it.split(/\s*[?]\s*/);
-                      const answer = rest.join("? ").trim();
+                      // THE SHARED SPLITTER, not a second copy of it. The FAQPage
+                      // schema on this page is built from the same function, and
+                      // markup describing questions the page does not show is a
+                      // policy violation at Google and a lie here.
+                      const pair = splitFaqItem(it);
+                      if (!pair) return null;
+                      const { question, answer } = pair;
                       return (
                         <details key={j} className="group bg-white open:bg-slate-50">
                           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-left font-bold text-slate-900">
-                            <span>{q}{answer ? "?" : ""}</span>
+                            <span>{question}</span>
                             <span className="shrink-0 text-xl leading-none transition group-open:rotate-45" style={{ color: primary }}>+</span>
                           </summary>
                           {answer && <p className="px-5 pb-5 leading-relaxed text-slate-600">{answer}</p>}

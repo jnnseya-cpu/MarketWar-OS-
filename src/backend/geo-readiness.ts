@@ -20,6 +20,7 @@ if (typeof window !== "undefined") {
 // "unknown", never filled in with a number.
 
 import { detectRenderGap } from "@/backend/render-gap";
+import { AI_CRAWLERS, blockedAiCrawlers } from "@/shared/ai-readability";
 
 const UA = "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)";
 
@@ -59,37 +60,28 @@ export type GeoReport = {
   note: string;
 };
 
-const AI_BOTS = ["GPTBot", "ClaudeBot", "anthropic-ai", "PerplexityBot", "Google-Extended", "CCBot"];
-
-// Parse robots.txt into per-agent disallow rules (enough to answer "are AI
-// crawlers allowed?" truthfully).
-function robotsVerdict(robots: string): { blocked: string[]; allowed: string[]; hasRules: boolean } {
-  const blocked: string[] = []; const allowed: string[] = [];
-  if (!robots.trim()) return { blocked, allowed, hasRules: false };
-  const lines = robots.split(/\r?\n/).map((l) => l.trim());
-  let current: string[] = [];
-  const groups: { agents: string[]; disallowAll: boolean; explicit: boolean }[] = [];
-  let disallowAll = false; let explicit = false;
-  const flush = () => { if (current.length) groups.push({ agents: [...current], disallowAll, explicit }); current = []; disallowAll = false; explicit = false; };
-  for (const line of lines) {
-    if (/^user-agent:/i.test(line)) {
-      if (current.length && explicit) flush();
-      current.push(line.split(":")[1].trim());
-    } else if (/^disallow:/i.test(line)) {
-      explicit = true;
-      const p = line.split(":").slice(1).join(":").trim();
-      if (p === "/") disallowAll = true;
-    } else if (/^allow:/i.test(line)) { explicit = true; }
-  }
-  flush();
-  for (const bot of AI_BOTS) {
-    const g = groups.find((x) => x.agents.some((a) => a.toLowerCase() === bot.toLowerCase()));
-    if (g) { if (g.disallowAll) blocked.push(bot); else allowed.push(bot); }
-  }
-  const star = groups.find((x) => x.agents.includes("*"));
-  if (star?.disallowAll) for (const bot of AI_BOTS) if (!blocked.includes(bot) && !allowed.includes(bot)) blocked.push(`${bot} (via *)`);
-  return { blocked, allowed, hasRules: groups.length > 0 };
-}
+// THE CRAWLER LIST AND THE ROBOTS PARSER BOTH COME FROM `shared/ai-readability`.
+//
+// THIS FILE USED TO CARRY ITS OWN OF EACH, and the two disagreed in the worst
+// possible direction. The free audit's list names ten crawlers; the one here
+// named six, and the four it was missing included **OAI-SearchBot — the crawler
+// that builds ChatGPT's search index** — plus ChatGPT-User, Bingbot (Copilot)
+// and Applebot-Extended.
+//
+// Demonstrated against real robots.txt bodies before it was changed: a site
+// whose robots.txt says `User-agent: OAI-SearchBot / Disallow: /` was told by
+// THIS report, the paid one, that "No AI crawler is blocked" — while the free
+// audit on the same bytes said "BLOCKED OAI-SearchBot". A customer paying for a
+// GEO report was being cleared on the single question that decides whether they
+// can appear in ChatGPT, and `ai-citation.ts` builds its action playbook from
+// this report, so the fix was never recommended either.
+//
+// The parser here was also the weaker of the two: it did not strip `#` comments
+// and did not apply the last-group-wins rule, so a file that blocks everything
+// and then re-allows one crawler was read wrongly. `blockedAiCrawlers` handles
+// both and has the tests.
+//
+// Rule 6 of the engineering directive: one source of truth per concept.
 
 // Collect JSON-LD @type values actually present in the HTML.
 function schemaTypes(html: string): string[] {
@@ -166,18 +158,27 @@ export async function geoReadiness(rawUrl: string): Promise<GeoReport> {
     autoFixable: true,
   });
 
-  // 3) AI crawler access (robots.txt) — measured, not assumed
-  const rv = robotsVerdict(robots.text);
+  // 3) AI crawler access (robots.txt) — measured, not assumed, and measured
+  //    against the SAME ten crawlers the free audit checks.
+  const blockedBots = robots.ok ? blockedAiCrawlers(robots.text) : [];
   checks.push({
     id: "crawlers", label: "AI crawler access (robots.txt)", weight: 20,
-    status: !robots.ok ? "unknown" : rv.blocked.length ? "fail" : "pass",
-    score: !robots.ok ? 50 : rv.blocked.length ? 0 : 100,
+    status: !robots.ok ? "unknown" : blockedBots.length ? "fail" : "pass",
+    score: !robots.ok ? 50 : blockedBots.length ? 0 : 100,
     evidence: !robots.ok
       ? `No robots.txt at ${origin}/robots.txt (HTTP ${robots.status || "no response"}) — crawlers are allowed by default.`
-      : rv.blocked.length ? `robots.txt BLOCKS: ${rv.blocked.join(", ")}.`
-      : rv.allowed.length ? `robots.txt explicitly allows: ${rv.allowed.join(", ")}. No AI crawler is blocked.`
-      : "robots.txt exists and blocks no AI crawler.",
-    fix: rv.blocked.length ? `Unblock ${rv.blocked.join(", ")} in robots.txt — while blocked you cannot appear in their answers.` : undefined,
+      // NAME WHAT WAS BLOCKED AND WHAT IT FEEDS. "GPTBot is blocked" means
+      // nothing to somebody who does not know GPTBot from Googlebot; "GPTBot,
+      // which feeds ChatGPT" is the same fact and a decision they can make.
+      : blockedBots.length
+      ? `robots.txt BLOCKS ${blockedBots.length} of ${AI_CRAWLERS.length} AI crawlers: ${blockedBots.map((b) => `${b.name} (${b.feeds})`).join(", ")}.`
+      // AND NAME THE COUNT THAT WAS CHECKED. The old line said "No AI crawler is
+      // blocked" without saying how many it looked at, which is how six could
+      // masquerade as all of them.
+      : `None of the ${AI_CRAWLERS.length} AI crawlers is blocked — checked by name: ${AI_CRAWLERS.map((c) => c.name).join(", ")}.`,
+    fix: blockedBots.length
+      ? `Unblock ${blockedBots.map((b) => b.name).join(", ")} in robots.txt — while blocked you cannot appear in ${blockedBots.map((b) => b.feeds).join(", ")}.`
+      : undefined,
   });
 
   // 4) Answerable content (FAQ / Q&A in plain text)
