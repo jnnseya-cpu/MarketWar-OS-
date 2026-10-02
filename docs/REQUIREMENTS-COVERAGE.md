@@ -8981,3 +8981,215 @@ one that reproduces the original fault and a silent skip on that case is how a
 regression ships. Tests that could stall carry explicit `{ timeout }` values, so a
 broken bound **fails** instead of hanging — a CI kill reads as an infrastructure
 problem rather than a defect.
+
+---
+
+## §156 — Getting found on ChatGPT: one crawler standard, and serving what we generate (2026-10-02)
+
+**Owner request.** *"we must have the mechanism to make both MarketWar itself and
+all businesses on the OS be able to be found on ChatGPT and AI search."*
+
+### What already existed, read before anything was written
+
+Most of it. ✅ code, all of it already shipped:
+
+| Module | What it does |
+|---|---|
+| `backend/ai-visibility.ts` | asks the assistants real buyer questions and measures whether the brand is named |
+| `backend/geo-readiness.ts` | audits a live URL for AI-answer readiness and scores it |
+| `backend/ai-citation.ts` | turns the two above into an action playbook |
+| `backend/citation-measure.ts`, `citation-sources.ts`, `citation-page.ts` | citation share, sources, the page that earns one |
+| `backend/organic-dominance.ts`, `programmatic-seo.ts`, `seo-autopilot.ts` | keyword/prompt opportunity and content at scale |
+| `backend/seo-artifacts.ts` | per-brand Organization/LocalBusiness JSON-LD, llms.txt, meta |
+| `shared/ai-readability.ts` | the ten AI crawlers and a correct robots.txt parser |
+| `app/llms.txt`, `components/SiteJsonLd.tsx`, `app/robots.ts` | MarketWar's own machine-readable surfaces |
+
+Rule 1 of the directive: never repeat completed work. Nothing above was rebuilt.
+Two things were actually wrong.
+
+### Defect 1 — two crawler lists for the same concept, and the paid one was short
+
+`shared/ai-readability.ts` names ten crawlers by the token they honour in
+robots.txt, each with what it feeds. It is used by `backend/crawler.ts` and
+`backend/seo.ts` — **the free audit**.
+
+`backend/geo-readiness.ts` carried its own: `["GPTBot", "ClaudeBot",
+"anthropic-ai", "PerplexityBot", "Google-Extended", "CCBot"]`. It is used by
+`/api/geo` — **the paid GEO report** — and by `ai-citation.ts`, which builds the
+action playbook from it.
+
+**Missing from the paid report:**
+
+| Crawler | What it feeds |
+|---|---|
+| **`OAI-SearchBot`** | **ChatGPT's search index** |
+| `ChatGPT-User` | ChatGPT browsing |
+| `Bingbot` | Copilot |
+| `Applebot-Extended` | Apple Intelligence |
+
+Demonstrated against real robots.txt bodies *before* anything was changed:
+
+| robots.txt | free audit | paid report |
+|---|---|---|
+| `User-agent: OAI-SearchBot` / `Disallow: /` | **BLOCKED OAI-SearchBot** | "No AI crawler is blocked" |
+| `User-agent: Bingbot` / `Disallow: /` | **BLOCKED Bingbot** | "No AI crawler is blocked" |
+| block `*`, then re-allow GPTBot | 9 blocked, GPTBot allowed | 5 blocked "(via \*)", wrong set |
+
+So a customer paying for a GEO report was being **cleared on the single question
+that decides whether they can appear in ChatGPT**, and because the playbook is
+built from this report, the fix was never recommended either.
+
+The parser was the weaker of the two as well: it did not strip `#` comments and
+did not apply the last-group-wins rule, so a file that blocks everything and then
+re-allows one crawler was read wrongly (row 3 above).
+
+**Fixed** by deleting both and importing `AI_CRAWLERS` + `blockedAiCrawlers`.
+Rule 6: one source of truth per concept.
+
+The evidence line changed too. It used to say *"No AI crawler is blocked"* with no
+count — which is precisely how six could masquerade as all of them. It now names
+the number checked and every name, and a block names **what it costs**: "GPTBot is
+blocked" means nothing to somebody who does not know GPTBot from Googlebot;
+"GPTBot, which feeds ChatGPT" is the same fact and a decision they can make.
+
+### Defect 2 — we generated the machine-readable surfaces and never served them
+
+`seo-artifacts.ts` builds per-brand JSON-LD and llms.txt **as artifacts the
+customer copies and pastes onto a site they host elsewhere.** Meanwhile MarketWar
+*hosts* pages for them at `/b/{brandId}/{slug}`, and those pages carried:
+
+- a `<title>` and a meta description, and
+- nothing else. No structured data. No canonical. No llms.txt. No sitemap.
+
+**Every page this platform serves on a customer's behalf was exactly as
+unreadable to an assistant as the sites the product marks them down for** — while
+`geo-readiness.ts`, which we sell, scores structured data at weight 25, FAQ
+content at 20 and llms.txt at 15. `STATE.md` §7 has carried the rule for months:
+point our own audit at our own pages.
+
+**Built, by reusing the existing generators rather than writing new content:**
+
+- `backend/hosted-schema.ts` — one `@graph` per page: Organization or
+  LocalBusiness (from `structuredDataJson`, so the business described on a page we
+  host and the artifact they paste elsewhere cannot disagree) + Product + WebPage
+  + **FAQPage**. A single graph rather than separate blocks, because that is what
+  lets `WebPage.publisher` point at the business by id — the relationship an
+  assistant needs to attribute a recommendation to anybody.
+- a **canonical** and an Open Graph block on the hosted page.
+- `/b/{brandId}/llms.txt` — the brand definition from `buildLlmsTxt`, plus the one
+  thing it cannot know: the list of pages MarketWar is actually hosting. A
+  definition with no URLs tells an assistant who the business is and gives it
+  nothing to cite.
+- `/b/{brandId}/sitemap.xml` — real `publishedAt` as `lastmod`. **This respects
+  the decision `app/robots.ts` already made** ("those pages are indexable, but
+  they are not ours to put in our sitemap"): the pages get a sitemap at the
+  *brand's* path, which the customer can submit themselves and which their own
+  llms.txt points at. Discovery without MarketWar claiming their content.
+
+**Drafts appear in none of it** — not the llms.txt, not the sitemap. A `live:
+false` page must never be exposed by the files that exist to get pages found.
+
+**Nothing is invented.** No price, no rating, no review, no availability.
+schema.org carries all four happily and a fabricated one is a lie a machine then
+repeats.
+
+### The FAQ split is one function, not two
+
+A generated page stores its FAQ as flat strings. The accordion split them inline;
+the schema would have needed the same split. **FAQPage markup that does not match
+the visible content is a Google policy violation**, and a value derived
+differently on two sides of a boundary is this codebase's oldest defect class — so
+`shared/faq-text.ts` holds the one splitter and the renderer was changed to call
+it. There is no second implementation to drift from.
+
+A question with no answer renders as a bare heading and is **not** put in the
+schema: schema.org requires an `acceptedAnswer`, and a Question with an empty one
+is a prompt with nothing behind it.
+
+### Three things fixed on the way
+
+1. **The brand's `WebSite` node was wrong on a page we host.**
+   `structuredDataJson` builds it with the brand's own domain, which is right for
+   the artifact they paste *there*. On a `marketwaros.com` page, a `WebSite` node
+   pointing at `acme-bathrooms.co.uk` asserts this page is part of that site. It
+   is not, and the domain already declares its own. Dropped; Organization and
+   Product are kept because they describe the business, which is the same business
+   wherever the page is served.
+2. **I added a partial Open Graph block and an existing guard caught it.** Next
+   merges metadata field by field but **replaces `openGraph` wholesale**, so a
+   literal `{ title, description }` drops the root layout's images and the page
+   shares as a bare link. Six pages had already done exactly that, which is why
+   `openGraphFor` and the test enforcing it exist. Routed through the helper.
+3. **My own test asserted on a comment it had just stripped**, then on a phrase
+   that wraps across two comment lines. Both fixed, and the `codeOf` exception is
+   now stated in the test rather than assumed — eight tests in this repo have
+   failed on their own prose.
+
+### Mutation testing — 10 mutants, all killed
+
+| Mutant | Killed by |
+|---|---|
+| 1. geo-readiness gets its own short crawler list back | the one-source-of-truth test |
+| 2. an unanswered question is claimed as answered | the FAQ-fidelity test |
+| 3. the schema keeps the separator dash (markup ≠ page) | same |
+| 4. the brand's `WebSite` node comes back | the graph-contents test |
+| 5. the page stops naming its publisher | the relationship test |
+| 6. `<` stops being escaped | the no-invention / escaping test |
+| 7. the renderer goes back to its own inline split | the shared-splitter test |
+| 8. drafts listed in the brand's llms.txt | the drafts test |
+| 9. drafts listed in the brand's sitemap | the sitemap test |
+| 10. `lastmod` becomes today's date on every entry | the real-dates test |
+
+Mutant 6's first run had a shell quoting fault in its own label, so it was
+re-applied with the mutation verified present before the suite ran — a mutation
+that was not applied proves nothing, and that has happened in this repository
+before.
+
+### Driven, not read
+
+A real brand, a real published page and a real **draft** were written to a
+Firestore emulator, the production build served them, and the surfaces were read
+back over HTTP:
+
+- the hosted page's `@graph`: `LocalBusiness` name=Acme Bathrooms,
+  `WebPage.publisher` → that LocalBusiness, `FAQPage` with the real Q&A,
+  canonical present
+- `/b/geo-proof/llms.txt`: the brand definition, the one live page, the sitemap
+  pointer — **and no sign of the draft**
+- `/b/geo-proof/sitemap.xml`: the live page with its real `lastmod`, draft absent
+
+**Then our own paid GEO report was pointed at our own hosted page: 97/100, grade
+A** — structured data 100/100, FAQ 100/100, crawler access 100/100 naming all ten
+crawlers. The same page previously carried no structured data at all.
+
+### Found and NOT fixed, with the measurement
+
+**`marketwaros.com`'s own homepage scores 80/100, grade B, and FAILS "Answerable
+content (FAQ / Q&A)" at weight 20 — zero question-style headings.** Our own home
+page fails our own report on the check that most decides whether an assistant can
+quote us. The remedy is content, not mechanism: real questions with answers
+derived from `audit-copy.ts`, `included-tools.ts` and `subscription.ts`. Which
+questions is an editorial choice, so it is recorded here with the number rather
+than guessed at.
+
+### Gaps — a conflict recorded rather than resolved unilaterally
+
+**The root layout's `SiteJsonLd` renders on customer-hosted pages.** A page at
+`/b/{brandId}/{slug}` therefore carries MarketWar's own `Organization`, `WebSite`
+and a `SoftwareApplication` with an `Offer`, alongside the customer's
+`LocalBusiness` and a `WebPage` whose publisher is correctly the customer.
+
+The site-level identity is arguably true — the page *is* served from
+marketwaros.com — and `WebPage.publisher` is the authoritative statement about the
+page. The part that is wrong for the context is the `SoftwareApplication` offer:
+it advertises MarketWar's product inside a bathroom fitter's page, where an
+assistant summarising it could conflate the two.
+
+**Recommended resolution, for the owner to decide:** two root layouts via Next
+route groups, so `/b/**` has its own root that omits `SiteJsonLd`. The
+alternatives are worse — reading `headers()` in the shared root layout would force
+every one of the 179 static pages to render dynamically, and moving `SiteJsonLd`
+into each marketing page is a change to dozens of files. A route-group refactor is
+a structural change to the whole `app/` tree and was not taken unilaterally; per
+the additive-only law, the conflict is recorded here with the recommendation
+instead.
