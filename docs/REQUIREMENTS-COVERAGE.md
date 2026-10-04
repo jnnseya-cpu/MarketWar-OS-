@@ -9527,3 +9527,153 @@ batch, or `wantPhone` on a single lookup, returns a mobile and a compliant
 one-click WhatsApp link. **Confirm the per-credit price first**: the margin
 arithmetic is derived from a figure read out of search results, not from the
 vendor's page.
+
+## §159 — The bulk sender was sending mail that fails Gmail's and Yahoo's rules (2026-10-04)
+
+**Owner request.** *"I created this OS to avoid paying £100s to Facebook ads and
+Google ads and brevo, but looks like it's failed and I will have to spend £100s on
+this tools now … Make sure bulk (with or with attached) email sender engine to us
+and signed up customers working and landed in the main mailbox."*
+
+### What already existed, read before anything was written
+
+**Attachments were already built, and correctly.** `EmailAttachment`,
+`validateAttachments`, `MAX_ATTACHMENTS` (10 per message), `MAX_ATTACHMENT_BYTES`
+(20 MB encoded), an executable refused outright, one set per batch rather than per
+recipient — the right model, because a campaign sends the same PDF to everybody.
+The MIME was right too: `multipart/mixed` wrapping `multipart/alternative`, so the
+plain-text alternative survives the attachment. None of it was rebuilt. Driven, the
+PDF came off the wire byte-for-byte identical to what went in.
+
+So the answer to "does the attachment half work" was **yes, already**. The defect
+was somewhere nobody had looked, because nobody had put a message on a wire and
+read the bytes.
+
+### The defect: the one header that decides placement was absent
+
+Driven over a real TLS SMTP server, a bulk message came out carrying `List-ID` and
+`Feedback-ID` and **no `List-Unsubscribe` at all.**
+
+Since **February 2024** Gmail and Yahoo require one-click unsubscribe (RFC 8058)
+from bulk senders; a message without it fails their published requirements
+outright, and that is the most direct way to keep a campaign out of the main inbox.
+An opt-out is **separately** required by PECR and CAN-SPAM, so this was never only
+a deliverability problem.
+
+**And the platform had been naming it for months.** `shared/message-shape.ts`
+pushes the string *"List-Unsubscribe — required on bulk mail by Google, Yahoo,
+Apple and Microsoft"* onto `missing` — and then the message went out anyway,
+because **nobody reads `missing`** and the header was set only when a CALLER
+remembered to pass a URL:
+
+| caller | passed a URL? |
+|---|---|
+| `/api/email` | yes |
+| `/api/newsletter` | yes |
+| `/api/review-requests` | **no** |
+| `backend/placement-probe.ts` | **no** |
+
+This is **defect class #2 in its purest form**: a check that reports a real fault
+into a field no code path consults. It is not a check; it is a comment with a type.
+
+And the probe is worse than the route, because the probe exists to **predict**
+placement. Without a `brandId` it could derive no link, so it measured a message
+shaped differently from the campaigns it predicts — **the §140 defect in that very
+file wearing new clothes** (a reachability check that measured an address Stripe
+never touched).
+
+### The root-cause fix: the mailer derives the link, and refuses without one
+
+The mailer is the **one place that knows a message is bulk**, so it is the one place
+that can guarantee the header. Same lesson as §135, where `transactional` reached
+the mailer and stopped there.
+
+- **`deriveListUnsubscribe(brandId, to, campaign)`** in `backend/email.ts` builds
+  the sealed per-recipient URL via `email-events.unsubscribeUrl` — one source of
+  truth for the token. Imported **lazily** because `email-events.ts` imports the
+  mailer; a static import would be a cycle.
+- **A supplied link still wins.** `v.item.listUnsubscribe ? … : derive(…)` — the
+  fix must not override a caller that already did the right thing.
+- **Bulk with no derivable opt-out is REFUSED, not sent malformed.** A new
+  `failure: "shape"`, deliberately **distinct from `hygiene`**: `hygiene` means
+  "these addresses were refused", `shape` means the addresses were fine and the
+  MESSAGE could not lawfully be sent. Collapsing them would send somebody to clean
+  a list with nothing wrong with it.
+- **Why refusing is the cheaper failure, stated in the refusal itself:** *"The
+  reputation of the sending pool is shared with every other customer on it, which
+  is why this refuses instead of sending."* One malformed campaign is charged
+  against every other tenant's inbox. The sentence also names its own remedy —
+  pass `brandId`, or supply `listUnsubscribe` per message.
+- **`placement-probe.ts` now passes `brandId: "placement-probe"`**, so the probe is
+  shaped like the campaigns it predicts.
+
+**The other half of the rule, which is why this cannot be fixed by always adding
+the header:** a one-to-one reply carrying an unsubscribe link tells the classifier
+it is bulk marketing, and it is filed accordingly. `messageShape` drops list
+headers on the `conversational` stream and says it dropped them. Both halves are
+asserted.
+
+### Mutation testing — 5 mutants, and one SURVIVED first
+
+| Mutant | Outcome |
+|---|---|
+| 1. the derived branch replaced with `Promise.resolve(undefined)` | **SURVIVED**, then killed |
+| 2. `if (noOptOut.length)` removed — notice but send anyway | killed |
+| 3. `failure: "shape"` collapsed into `"hygiene"` | killed |
+| 4. `listUnsubscribe: unsubFor[i]` reverted to `v.item.listUnsubscribe` | killed by the driver |
+| 5. the probe's `brandId` removed | killed |
+
+**Mutant 1 is the one worth recording.** My test asserted only the TRUE branch of
+the ternary — that a supplied link wins — so a mutation replacing the else with
+`undefined`, which is **exactly the old broken behaviour**, left the test green. It
+now asserts the false branch by name. **Half a ternary is half a check**, and a
+test that only covers the branch that was already working is coverage of the fix
+that was not needed.
+
+### Driven, not read — 31 proven / 0 broken (`npm run drive:bulk`)
+
+A real TLS SMTP server (`tests/helpers/fake-smtp.mjs`), every byte inspected.
+Everything on our side is real: hygiene, suppression, the stream decision, the MIME
+builder, DKIM signing, and the bytes on the wire.
+
+1. **bulk without an attachment** — both messages left; plain-text alternative
+   present; `List-Unsubscribe` set; `List-Unsubscribe-Post: List-Unsubscribe=One-Click`;
+   `List-ID` scopes the list not the domain; `Feedback-ID` names the campaign; no
+   attachment part when none was asked for.
+2. **bulk with an attachment** — `multipart/mixed` wrapping the alternative, the
+   attachment declared with its filename, **the PDF compared byte-for-byte**, and
+   the bulk headers still present on both messages.
+3. **one-to-one** — sent, **no `List-Unsubscribe`**, plain-text alternative still
+   there.
+4. **no opt-out → refused** — nothing left the machine, `failure === "shape"`, the
+   reason names the remedy, and it says the pool is shared.
+5. **two signed-up customers, same pool** — each tenant gets **its own `List-ID`
+   and `Feedback-ID`** (so a receiver can block one list without blocking the
+   domain), both carry one-click unsubscribe, and the **sealed token differs per
+   recipient** — a shared link would unsubscribe the wrong person.
+6. **reputation refusals** — executable, more than 10 attachments, over the size
+   cap.
+
+### What still cannot be promised, said plainly
+
+**The Primary tab.** Nobody can promise it — not Brevo, not any ESP — because that
+is Gmail's classifier, and it reads engagement history as well as message shape.
+What is now enforced is **the shape**, which is the part under our control.
+`/api/placement` with `MW_SEED_MAILBOXES` measures the folder for real, and bounce
+collection needs `MW_BOUNCE_IMAP_HOST` + `CRON_SECRET`. Those two remain owner
+actions, and they are the difference between "shaped correctly" and "measured".
+
+**And no third-party ESP is named anywhere in the fix.** The sending law holds: the
+remedy sentence points at `brandId` and our own pool, because the pool IS the
+product the owner built to avoid paying for.
+
+### `NODE_TLS_REJECT_UNAUTHORIZED`, catalogued rather than hidden
+
+`drive-bulk.mjs` sets it to talk to the local self-signed TLS server — the same
+thing `tests/critical.test.mjs` and `tests/message-shape.test.mjs` already do, for
+the same reason: without it Node refuses the handshake and the driver cannot put a
+byte on a wire. It is now in `ENV_TUNING` with a note that **nothing in `src/` reads
+it and nothing in `src/` should** — disabling certificate verification against a
+real mail host would mean handing SMTP credentials to whoever answered the
+connection. A security-relevant name is the last thing that should be invisible
+because it was uncatalogued.

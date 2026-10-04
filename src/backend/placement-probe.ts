@@ -159,7 +159,18 @@ export async function runPlacementProbe(opts: {
   const items = list.map((s) => ({ to: s.address, subject, html }));
   // The ordinary bulk path: same builder, same headers, same DKIM key. A probe
   // that is shaped differently from a campaign measures nothing about campaigns.
-  const sendResults = await sendEmailBatch(items, { from: opts.from, campaign: "placement-probe" });
+  //
+  // A brandId IS PART OF THAT SHAPE, and it was missing. Without one the mailer
+  // cannot derive the one-click unsubscribe URL, so the probe went out without a
+  // `List-Unsubscribe` header while a real campaign carries one — and since
+  // February 2024 that header is one of the strongest placement signals Gmail
+  // and Yahoo read. The probe was therefore measuring a message shaped
+  // differently from the campaigns it exists to predict, which is the §140
+  // defect in this very file wearing new clothes (the reachability check that
+  // measured an address Stripe never touched).
+  const sendResults = await sendEmailBatch(items, {
+    from: opts.from, campaign: "placement-probe", brandId: "placement-probe",
+  });
   const sent = sendResults.filter((r) => r.ok).length;
   const failed = sendResults.length - sent;
 
