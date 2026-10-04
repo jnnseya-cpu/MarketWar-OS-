@@ -170,6 +170,18 @@ export const USD_TO_GBP = 0.79;
 export const ENRICHMENT_PROVIDER_USD = {
   hunter: 0.05,   // one Hunter domain search or email-finder call
   apollo: 0.04,   // one Apollo export credit against a contact
+  // LeadMagic bills in credits at a published rate from $0.007 and charges ONLY
+  // for a result it actually found — which is what makes it the cheapest honest
+  // place to start a waterfall. An email is one credit; a mobile is five, so the
+  // two are listed separately and the adapter declares both.
+  //
+  // THESE ARE THE FIGURES TO RE-CHECK BEFORE RELYING ON THEM. They were read
+  // from search results, not from a vendor page this build could open — the
+  // environment's network policy blocks the pricing pages. A rate that has moved
+  // moves the margin floor with it, so `npm run check:margin`-style arithmetic
+  // below is derived rather than typed, and the owner confirms the input.
+  leadmagic: 0.007,
+  leadmagic_phone: 0.035,
 } as const;
 
 /** What the dearest paid supplier costs us for one lookup, in ACUs. */

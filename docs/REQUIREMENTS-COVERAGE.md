@@ -9297,3 +9297,233 @@ Nothing from §156. The one remaining number worth watching: the hosted page's
 "Title + meta description" check WARNs at 75/100 because a generated page's
 headline is short — that is the customer's copy, derived from what they published,
 and padding it on their behalf would be writing their page for them.
+
+---
+
+## §158 — Emails and mobiles from a simple list, and the claim nobody can make (2026-10-04)
+
+**Owner request.** *"Do everything recommended to be the most powerful. Also do an
+extremely deep dive … to see which is the most powerful but value for money that
+can be recommended to have so from a simple list it can find email address which
+we can use in a one click from the existing structure and the same for WhatsApp
+numbers too."*
+
+### What already existed, read before anything was written
+
+The **email half was already built.** `backend/enrichment-provider.ts` is a
+cost-ordered waterfall — free crawl → Companies House → Hunter → Apollo — with a
+provider registry, a budget gate, a charge-only-on-a-result rule and an ownership
+gate on the address. `enrichPaid`/`enrichPaidBatch` is the one-click batch path.
+None of it was rebuilt.
+
+What was genuinely missing: **the interface had no phone capability at all.**
+`PersonCandidate` carried no number, `EmailCandidate` was email-only, and
+`NOT_IMPLEMENTED` named carrier lookup as the gap — *"so a number can move from
+PUBLISHED_UNVERIFIED to verified, which nothing here can do today."* A phone is
+the only route to WhatsApp.
+
+### The research finding that decides the WhatsApp half
+
+**There is no longer any API that answers "is this phone number on WhatsApp".**
+
+- The On-Premises API's `/contacts` endpoint answered it until client **2.45.1**,
+  at which point it began returning `valid` with a WhatsApp ID for **every**
+  number regardless of registration — so it stopped being a check before it was
+  switched off.
+- The whole On-Premises API was **sunset on 23 October 2025**.
+- The **Cloud API**, now the only supported WhatsApp Business API, has no
+  equivalent endpoint.
+
+Every product that claims to bulk-check it is driving WhatsApp Web through an
+unofficial wrapper (WAHA, whapi.cloud and similar). That breaches WhatsApp's terms
+and the account that gets banned is **the sending one** — on this platform, the
+customer's own business number. **So it is not offered here at any price**, for
+the same reason supplied reviews and bought followers are not: the penalty lands
+on their page, not ours.
+
+**And opt-in is not optional.** WhatsApp's Business Messaging Policy requires that
+the person gave you their number *and* gave permission before any
+business-initiated message. A found number is not an opt-in.
+
+Sources (search results; the vendor and Meta pages themselves are blocked by this
+environment's network policy):
+[Meta On-Premises contacts reference](https://developers.facebook.com/docs/whatsapp/on-premises/reference/contacts/) ·
+[Turn.io on Cloud API migration](https://learn.turn.io/l/en/article/dh2od9dbbg-migration-to-the-cloud-api-capi) ·
+[Infobip on WhatsApp opt-in](https://www.infobip.com/blog/how-to-collect-whatsapp-business-opt-ins) ·
+[Genesys ValidateContact deprecation note](https://docs.genesys.com/Documentation/MSGA/latest/WhatsApp/ContactValid)
+
+### So what shipped: the honest version
+
+`src/shared/whatsapp-reach.ts` answers the narrower question it *can* answer —
+**is this a dialable mobile line, and what is the compliant way to open a
+conversation** — and never says anybody is on WhatsApp.
+
+- **`needsOptIn: true` on every verdict**, typed as the literal `true`, so no
+  surface can render a found number as a send list.
+- a **landline** and a **VoIP** number get `waLink: null` — a WhatsApp message to
+  a landline is delivered to nobody, and a failed send against a switchboard
+  still costs the sender's reputation.
+- an **unknown** line type is reported as unknown. A number off a customer's CSV
+  has no line type, and calling it a mobile because it starts `07` is how a
+  campaign reaches a switchboard.
+- a **mobile** says both halves out loud: a mobile is what WhatsApp needs, *and*
+  whether this person is on it cannot be checked.
+- `toE164` **refuses a national number with no country** rather than guessing.
+  "07700 900123" is a UK mobile and a Dutch landline; writing `44` on the front
+  because most customers are British produces a number that dials a real stranger.
+- the one-click action for a number with no opt-in is a **`wa.me` link the
+  prospect follows to message the business first** — which is also the only
+  version that works. Deliberately *not* `shared/social.ts`'s `wa.me/?text=`,
+  which is a share chooser and would open an empty chat.
+- `reachSummary` counts rather than estimates and ends with: *"the mobiles are
+  people you may invite to message you, not people you may message."*
+
+### The supplier: most powerful per pound, and why it goes in FRONT
+
+| | email | mobile | billing |
+|---|---|---|---|
+| **LeadMagic** | **~$0.007** (1 credit) | **~$0.035** (5 credits) | **only on a result** |
+| Hunter (already wired) | $0.05 | — | per call |
+| Apollo (already wired) | $0.04 | — | per credit |
+
+An email here is roughly **a seventh of a Hunter call**, and one key covers both
+capabilities. So it is registered at **`order: 1.5`** — after the free sources,
+**before** Hunter and Apollo — which makes every lookup in the chain cheaper
+*without removing either fallback*. A supplier that finds it is a supplier the
+dearer two are never asked.
+
+**Adding a cheaper provider did not move the margin floor**:
+`DEAREST_ENRICHMENT_COST_ACU` is still 4, computed from Hunter, so prices do not
+rise because a cheap option appeared. A test asserts it.
+
+**Why not a waterfall aggregator** (BetterContact, FullEnrich, Enrich.so): they
+are themselves waterfalls across many suppliers. This platform **already is one**,
+with its own cost ordering, ownership gate and provenance rules. Paying for
+somebody else's waterfall duplicates the architecture and gives up the thing that
+makes ours trustworthy — knowing which supplier said what.
+
+**Every price was read from SEARCH RESULTS, not from a vendor page this build
+could open.** The environment's network policy blocks `leadmagic.io` and the rest.
+The figures therefore live in `ENRICHMENT_PROVIDER_USD` with that caveat written
+beside them, every ACU figure is **derived** from them, and the env catalogue tells
+the owner to confirm the input before relying on the output.
+
+### Three defects prevented by design, each with its own test
+
+1. **`step()` hard-coded `p.costAcu`.** A phone lookup would have been charged at
+   the **email** rate — five times under at every supplier that sells both, on
+   every call, and invisible because the number still looks like a price. It takes
+   the capability's cost now, and `affordable()` prices the capability too, so the
+   budget gate cannot let a phone through on an email's allowance.
+2. **The phone is opt-in, never automatic.** `wantPhone` on the chain,
+   `wantMobile` on the batch path. Adding it to every lookup would quintuple the
+   cost of a chain whose entire design is to spend the cheapest credit that
+   answers the question. Every existing caller is unchanged: no flag, no call, no
+   charge.
+3. **A bought address is `provider`, never `confirmed`.** `confirmed` means WE
+   read it on a page; collapsing the two turns a bought guess into a fact
+   downstream. Same for a phone: `provider`, not `published`.
+
+A row that is only a company name is **told** that a mobile finder needs a named
+person, because "we did not look" and "we looked and found nothing" want different
+next actions. And a supplier refusal on the phone leaves the email the row already
+found untouched.
+
+### Mutation testing — 9 on the vertical, all killed
+
+| Mutant | Killed by |
+|---|---|
+| 1. `needsOptIn` becomes conditional | the opt-in sweep |
+| 2. an unknown line type is assumed to be a mobile | the unknown-line-type test |
+| 3. a landline gets a WhatsApp link | the landline test |
+| 4. `toE164` guesses the UK | the refuses-to-guess test |
+| 5. a bought address is relabelled `confirmed` | the provenance test |
+| 6. the phone is charged at the email rate | the capability-pricing test **and the driver** |
+| 7. `step()` ignores the capability cost | the same, **driven** |
+| 8. the phone becomes automatic | the opt-in test **and the driver** |
+| 9. the cheap supplier is moved behind the dear ones | the cost-order test |
+
+Mutants 6, 7 and 8 were re-run against `drive:contacts` specifically to prove the
+**driver** catches them, not only a source assertion — they are money mutants, and
+a structural check on a money path is the weakest kind of evidence.
+
+### Driven, not read — 22 proven / 0 broken (`npm run drive:contacts`)
+
+A simple list of three people in, over a real socket, with a local server standing
+in for the supplier (`api.leadmagic.io` is unreachable here; `fetch` is intercepted
+only to rewrite the host, so the request that arrives is byte-for-byte what
+LeadMagic would receive):
+
+- emails only by default — **no mobile bought without being asked for**
+- `wantPhone` → a mobile, normalised to E.164, **charged 3 ACUs not 1**
+- an email miss **and** a mobile miss are both free
+- the budget gate **refuses the phone by name**: *"3 ACUs for phones would take
+  this lookup past the 1-ACU limit"*
+- the key travels as a header, never in the URL
+- the verdict gives a one-click link to **one** number, insists on opt-in, and
+  never claims registration
+- the summary: *2 mobiles of 3*, and *"not people you may message"*
+
+**NOT proven: LeadMagic's own servers, hit rate or data quality.** Nothing in that
+run may be read as having tested them.
+
+### Three harness faults of my own, recorded
+
+1. A check tested `!/is on whatsapp/i` against the sentence *"Whether this person
+   is ON WhatsApp cannot be checked"* — matching the words of the claim inside a
+   denial of it, and calling correct text a violation. It reads the negation now.
+2. A "a miss is free" case used a row that missed only the **email**; the 3 ACUs
+   it saw were a mobile the supplier really did return. The email and the mobile
+   are independent lookups, which is correct — the fixture was wrong.
+3. `.pop()` took the last supplier call in the whole script rather than the one
+   belonging to that check, so the assertion failed on its own ordering.
+
+All three were my verification, not the platform. That is now four sessions
+running; the standing lesson is to check the harness before the code.
+
+### The ads doc: £800 replaced with something sourced
+
+Prompt 4 struck through **£800** as a stand-in agency retainer — a comparative
+claim, which Meta's review checks and the ASA acts on, and a number nobody here
+could defend. It now anchors £19 against **the twelve tool categories read out of
+`src/shared/included-tools.ts`**. Sourced, needs no substantiation, and more
+persuasive: the reader prices their own stack, and their figure beats one we
+picked.
+
+Two retargeting prompts added, both explicitly **not for cold traffic** — 1–5
+answer "who are you", these answer "is there enough here" and "will it do
+something stupid as me":
+
+- **Prompt 7 — scope.** 39 agents from `AGENT_LIST`, 12 tools / 9 keyless from
+  `INCLUDED_TOOLS`. Capability counts are facts, not result claims.
+- **Prompt 8 — the brake, close up.** Five switches, from `LANES` in
+  `emergency-stop.ts`, with all five named.
+
+**Extending the guard immediately found two live errors the §151 32→31 fix had
+missed.** `ads:verify` matched digits only, so two spelled claims survived: a
+heading reading *"Thirty-two checks"*, and — worse — a line **inside the ad-copy
+prompt body** instructing the model to write *"Thirty-two checks"*. Both corrected.
+The guard now reads spelled numbers, derives the agent count and the lane count,
+and fails when the count is right but the list of lane names beside it is short.
+
+Its first version then failed on the advert's own **stage directions** ("four
+switches are plainly up", "the nearest two switches are sharp") — a check firing
+on prose it was not asked about. It reads only the bolded overlay text now. 3
+mutants killed on these checks.
+
+### A new HIGH advisory, patched at the package that carries the fix
+
+`@fastify/busboy` — GHSA-xjh9-v7x6-24jw and GHSA-x8mw-p69m-v3mx, two
+denial-of-service advisories affecting 1.0.0–3.2.0 — arrives under `firebase-admin`,
+which pins 3.2.0. Overridden to `^3.2.1`: same major, so a patch and not a
+migration. **Driven**, because the override replaces a multipart parser inside
+firebase-admin and a passing typecheck says nothing about that: a real Firestore
+write, read and delete round-tripped on 3.2.2.
+
+### One owner action
+
+**`LEADMAGIC_API_KEY`** — leadmagic.io → Settings → API. Then `wantMobile` on a
+batch, or `wantPhone` on a single lookup, returns a mobile and a compliant
+one-click WhatsApp link. **Confirm the per-credit price first**: the margin
+arithmetic is derived from a figure read out of search results, not from the
+vendor's page.

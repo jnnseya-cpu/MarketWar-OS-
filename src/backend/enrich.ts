@@ -25,6 +25,20 @@ export type EnrichResult = {
   phone: string | null;
   contactName?: string | null;
   contactTitle?: string | null;
+  /**
+   * A MOBILE NUMBER FOR THE NAMED CONTACT — the WhatsApp half.
+   *
+   * Separate from `phone`, which is the business's published switchboard read off
+   * their own page. The two are different evidence and different use: you cannot
+   * open a WhatsApp conversation with a landline, and a mobile is not a number to
+   * print on an invoice. Only filled when the caller asked (`wantMobile`) —
+   * a mobile costs roughly five times an email at every supplier that sells both.
+   *
+   * E.164 digits, no plus. Null is the normal case.
+   */
+  mobile?: string | null;
+  /** What `whatsapp-reach` concluded. NEVER "they are on WhatsApp" — see that file. */
+  whatsapp?: { dialable: boolean; mobile: boolean; needsOptIn: true; waLink: string | null; why: string } | null;
   source: "apollo" | "site" | "search" | "hunter" | "none";
   mode: "live" | "demo";
   note: string;

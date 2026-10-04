@@ -29364,10 +29364,19 @@ test("the vault and Contact Hunter now run the SAME chain, Apollo and Hunter in 
   __resetRegistration();
   registerBuiltInProviders();
   const ids = providers().map((p) => p.id);
-  assert.deepEqual(ids.filter((id) => !["marketwar-web", "companies-house", "hunter", "apollo"].includes(id)), [],
+  assert.deepEqual(ids.filter((id) => !["marketwar-web", "companies-house", "leadmagic", "hunter", "apollo"].includes(id)), [],
     "a provider from another test is still in the registry, so this chain is not the one that ships");
   assert.ok(ids.includes("hunter"), "Hunter is not registered on the waterfall");
   assert.ok(ids.includes("apollo"), "Apollo is not registered on the waterfall");
+  assert.ok(ids.includes("leadmagic"), "LeadMagic is not registered on the waterfall");
+
+  // THE COST ORDER IS THE PRODUCT DECISION, so it is pinned rather than left to
+  // whoever edits the list next: free sources, then the cheapest paid supplier,
+  // then the dearer two. LeadMagic's email is about a seventh of a Hunter call,
+  // so putting it after Hunter would mean paying seven times over for an answer
+  // the cheaper supplier already had.
+  assert.deepEqual(ids, ["marketwar-web", "companies-house", "leadmagic", "hunter", "apollo"],
+    "the waterfall must run cheapest-first — that ordering is what makes a paid chain affordable");
 
   // COST ORDER IS THE PRODUCT DECISION. Free sources first; a paid credit buys
   // only what they could not answer. Apollo used to run FIRST in the vault,

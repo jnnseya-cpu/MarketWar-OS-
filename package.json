@@ -11,7 +11,8 @@
     "jose": "^5.10.0",
     "browserslist": "^4.28.7",
     "@grpc/grpc-js": "^1.14.5",
-    "brace-expansion": "^2.1.7"
+    "brace-expansion": "^2.1.7",
+    "@fastify/busboy": "^3.2.1"
   },
   "description": "MarketWar OS \u2014 AI-powered growth and commerce operating system: discover opportunities, create and market products, acquire customers, automate operations, optimise revenue, and scale from one unified platform.",
   "scripts": {
@@ -46,7 +47,8 @@
     "drive:live": "node --import tsx scripts/drive-modules.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules,storage:rules",
     "drive:commerce": "node --import tsx scripts/drive-commerce.mjs",
-    "drive:capi": "node --import tsx scripts/drive-capi.mjs"
+    "drive:capi": "node --import tsx scripts/drive-capi.mjs",
+    "drive:contacts": "node --import tsx scripts/drive-contacts.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
@@ -76,5 +78,6 @@
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "@firebase/rules-unit-testing": "^5.0.2"
-  }
+  },
+  "//overrides-busboy": "@fastify/busboy: GHSA-xjh9-v7x6-24jw and GHSA-x8mw-p69m-v3mx, two denial-of-service advisories affecting 1.0.0-3.2.0. 3.2.1 is the patch inside the same major, so it is a patch and not a migration. It arrives under firebase-admin, which pins 3.2.0; only firebase-admin can bump its own pin, so this forces the nested copy up. Remove it the day firebase-admin ships it."
 }
