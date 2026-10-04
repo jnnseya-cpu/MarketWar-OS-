@@ -35,7 +35,9 @@ import {
   registerProvider,
   type EnrichmentProvider, type CompanyCandidate, type PersonCandidate,
   type EmailCandidate, type EmailVerification, type ProviderHealth,
+  type PhoneCandidate,
 } from "@/backend/enrichment-provider";
+import { toE164 } from "@/shared/whatsapp-reach";
 
 const HOST = (u: string) => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
@@ -385,6 +387,154 @@ export const hunter: EnrichmentProvider = {
 };
 
 // ---------------------------------------------------------------------------
+// 3b. LeadMagic — the cheapest paid email, and the ONLY source of a mobile
+// ---------------------------------------------------------------------------
+//
+// WHY IT GOES IN FRONT OF HUNTER AND APOLLO RATHER THAN REPLACING THEM. This
+// file's whole design is a cost-ordered waterfall: a paid credit is spent only
+// on what the free sources missed, cheapest paid supplier first. At a published
+// $0.007 a credit, an email here costs about a seventh of a Hunter call ($0.05)
+// and a sixth of an Apollo credit ($0.04) — so inserting it at order 1.5 makes
+// every lookup in the chain cheaper without removing either fallback. A provider
+// that finds it is a provider the dearer two are never asked.
+//
+// AND IT CHARGES ONLY FOR A RESULT. That matters more here than the headline
+// rate, because this platform's own rule is that only calls which ran AND
+// returned are charged — a supplier that bills for a miss breaks the arithmetic
+// the margin floor is computed from.
+//
+// THE PHONE IS THE PART NOTHING ELSE COULD DO. `NOT_IMPLEMENTED` named carrier
+// lookup as the gap and no registered provider implemented `findPhones` at all,
+// because the interface had no such capability until now. A mobile number is the
+// only route to WhatsApp, and `shared/whatsapp-reach.ts` is explicit about what
+// may and may not be concluded from one: it is a PRECONDITION for WhatsApp, and
+// no API Meta offers can confirm a number is registered on it.
+//
+// PRICES WERE READ FROM SEARCH RESULTS, NOT FROM A PAGE THIS BUILD COULD OPEN —
+// the environment's network policy blocks the vendor's pricing page. They are in
+// `ENRICHMENT_PROVIDER_USD` so the ACU cost is DERIVED from them, and the note in
+// that table says to confirm the input before relying on the output.
+
+const LEADMAGIC_EMAIL_USD = ENRICHMENT_PROVIDER_USD.leadmagic;
+const LEADMAGIC_PHONE_USD = ENRICHMENT_PROVIDER_USD.leadmagic_phone;
+/** Rounded UP, like Hunter's and Apollo's, so rounding cannot undercut the floor. */
+export const LEADMAGIC_COST_ACU = Math.ceil(LEADMAGIC_EMAIL_USD * USD_TO_GBP * ACU_PER_GBP);
+export const LEADMAGIC_PHONE_COST_ACU = Math.ceil(LEADMAGIC_PHONE_USD * USD_TO_GBP * ACU_PER_GBP);
+
+const leadmagicKey = (): string => (process.env.LEADMAGIC_API_KEY || "").trim();
+
+const LEADMAGIC_BASE = "https://api.leadmagic.io";
+
+async function leadmagicPost(
+  path: string,
+  body: Record<string, string>,
+  signal: AbortSignal,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; why: string }> {
+  const key = leadmagicKey();
+  if (!key) return { ok: false, why: "Not configured." };
+  let res: Response;
+  try {
+    res = await fetch(`${LEADMAGIC_BASE}/${path}`, {
+      method: "POST", signal,
+      headers: { "content-type": "application/json", "X-API-Key": key },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    // A network failure is the supplier's, not the caller's. Reported, never
+    // swallowed into "found nothing" — the two want different next actions.
+    return { ok: false, why: `could not be reached (${e instanceof Error ? e.message : "network error"})` };
+  }
+  const text = await res.text().catch(() => "");
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(text); } catch { /* keep the words */ }
+  const data = asRecord(parsed);
+  if (!res.ok) {
+    // READ THE REFUSAL. A dead key, an exhausted balance and a malformed request
+    // arrive as different statuses and want three different remedies — the same
+    // rule `provider-failure.ts` applies to the AI providers.
+    const message = asString(data.message) || asString(data.error) || text.slice(0, 200);
+    if (res.status === 401 || res.status === 403) return { ok: false, why: `refused the key (${res.status}) — ${message || "check LEADMAGIC_API_KEY"}` };
+    if (res.status === 402) return { ok: false, why: `out of credit (402) — ${message || "top up the LeadMagic balance"}` };
+    if (res.status === 429) return { ok: false, why: `rate limited (429) — ${message || "too many lookups at once"}` };
+    return { ok: false, why: `returned ${res.status}${message ? ` — ${message}` : ""}` };
+  }
+  return { ok: true, data };
+}
+
+/** `not_found` is a NORMAL answer, not a failure. */
+const notFound = (data: Record<string, unknown>): boolean => {
+  const status = asString(data.status).toLowerCase();
+  return status === "not_found" || status === "no_result";
+};
+
+export const leadmagic: EnrichmentProvider = {
+  id: "leadmagic",
+  costAcu: LEADMAGIC_COST_ACU,
+  phoneCostAcu: LEADMAGIC_PHONE_COST_ACU,
+  // 1.5: after both free sources, BEFORE Hunter (2) and Apollo. See the note
+  // above — this is the cost ordering, which is the product decision.
+  order: 1.5,
+
+  health(): ProviderHealth {
+    const key = leadmagicKey();
+    return {
+      id: this.id,
+      configured: Boolean(key),
+      note: key
+        ? `Email finder at ${LEADMAGIC_COST_ACU} ACU${LEADMAGIC_COST_ACU === 1 ? "" : "s"} a call and mobile finder at ${LEADMAGIC_PHONE_COST_ACU}, charged only when something is returned, and run before the dearer suppliers. The mobile is the only route this platform has to WhatsApp.`
+        : "Not configured. Set LEADMAGIC_API_KEY for the cheapest email lookup in the chain AND the only source of a mobile number — nothing else here can find a phone, which is what WhatsApp needs.",
+    };
+  },
+
+  async findEmails(input, signal): Promise<EmailCandidate[]> {
+    const domain = HOST(input.domain || "");
+    const first = (input.firstName || "").trim();
+    const last = (input.lastName || "").trim();
+    // THIS SUPPLIER ANSWERS ONE PERSON AT A DOMAIN. Without both halves there is
+    // nothing to ask, and asking anyway spends a credit on a guaranteed miss.
+    if (!domain || !first || !last) return [];
+
+    const got = await leadmagicPost("email-finder", { first_name: first, last_name: last, domain }, signal);
+    if (!got.ok) { if (got.why === "Not configured.") return []; throw new SupplierRefusal("leadmagic", got.why); }
+    if (notFound(got.data)) return [];
+
+    const value = asString(got.data.email).trim().toLowerCase();
+    if (!value.includes("@")) return [];
+    return [{
+      value,
+      // BOUGHT, NEVER CONFIRMED. `confirmed` means WE read it on a page; a
+      // supplier's answer is `provider` however confident the supplier sounds.
+      provenance: "provider",
+    }];
+  },
+
+  async findPhones(input, signal): Promise<PhoneCandidate[]> {
+    const domain = HOST(input.domain || "");
+    const name = (input.fullName || "").trim();
+    const [first, ...restName] = name.split(/\s+/);
+    const last = restName.join(" ");
+    if (!domain || !first || !last) return [];
+
+    const got = await leadmagicPost("mobile-finder", { first_name: first, last_name: last, domain }, signal);
+    if (!got.ok) { if (got.why === "Not configured.") return []; throw new SupplierRefusal("leadmagic", got.why); }
+    if (notFound(got.data)) return [];
+
+    const raw = asString(got.data.mobile_number) || asString(got.data.phone) || asString(got.data.mobile);
+    // E.164 WITHOUT GUESSING A COUNTRY. `toE164` refuses a national number with
+    // no country rather than putting a dialling code on the front of it — a
+    // guessed prefix produces a number that dials a real stranger.
+    const e164 = toE164(raw, input.country);
+    if (!e164) return [];
+
+    // THE LINE TYPE IS ONLY `mobile` IF THE SUPPLIER SAID SO. This endpoint is a
+    // mobile finder, so a result it returns is a mobile by its own account — but
+    // that is the supplier's claim and is recorded as such, not upgraded to a
+    // measurement. `whatsapp-reach` is what decides what may be said next.
+    return [{ e164, lineType: "mobile", provenance: "provider" }];
+  },
+};
+
+// ---------------------------------------------------------------------------
 // 4. Apollo — licensed people data, paid, and last
 // ---------------------------------------------------------------------------
 
@@ -528,7 +678,13 @@ export const apollo: EnrichmentProvider = {
  */
 export const NOT_IMPLEMENTED: { id: string; needs: string; wouldProvide: string }[] = [
   { id: "people-data-labs", needs: "PDL_API_KEY", wouldProvide: "Person enrichment from a name plus an employer, which is what fills in the people our crawl cannot find on a team page." },
-  { id: "abstract-phone", needs: "ABSTRACT_PHONE_KEY", wouldProvide: "Carrier lookup, so a number can move from PUBLISHED_UNVERIFIED to verified — which nothing here can do today." },
+  // `abstract-phone` used to be listed here for carrier lookup. The gap it named
+  // was "nothing here can find or type a phone number at all", and `leadmagic`
+  // above now answers the finding half. An independent line-type check is still
+  // worth having for numbers that arrive from a CSV rather than from a mobile
+  // finder — those carry `lineType: "unknown"`, which `whatsapp-reach` reports as
+  // unknown rather than assuming.
+  { id: "line-type-check", needs: "A carrier-lookup key (Twilio Lookup line_type_intelligence is ~$0.008 a request)", wouldProvide: "Independent line typing for a number that came from a customer's own list, so an uploaded column of numbers can be sorted into mobiles and landlines instead of being reported as unknown." },
 ];
 
 let registered = false;
@@ -542,6 +698,10 @@ export function registerBuiltInProviders(): void {
   // exactly as it did before — and one that adds the key needs no redeploy of
   // this list. Registering only when configured would read the environment at
   // module load, which is the thing that makes a variable set later invisible.
+  // Cheapest paid supplier, so it is asked first of the paid ones — and it is the
+  // only one that can answer `findPhones` at all. Registered unconditionally for
+  // the same reason as the two below.
+  registerProvider(leadmagic);
   registerProvider(hunter);
   // Same rule as Hunter: registered whatever the environment says, because
   // reading a key at module load is what makes one set later invisible.

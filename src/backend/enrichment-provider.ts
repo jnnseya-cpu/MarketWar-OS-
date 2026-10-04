@@ -84,6 +84,31 @@ export type EmailCandidate = {
   pattern?: string;
 };
 
+/**
+ * A PHONE NUMBER, WITH THE SAME HONESTY RULES AS AN EMAIL.
+ *
+ * `provenance` mirrors `EmailCandidate`'s and never converts: `published` means
+ * we read it off the business's own page, `provider` means a supplier sold it to
+ * us. The two are not the same evidence and a surface must not print them the
+ * same way.
+ *
+ * `lineType` is what makes this useful for WhatsApp and is also the field most
+ * easily faked. It is `unknown` unless a source actually stated it — a mobile
+ * that is only assumed to be a mobile is how a campaign gets sent to a
+ * switchboard. See `shared/whatsapp-reach.ts` for what may and may not be
+ * concluded from it, and in particular for why nothing here claims a number is
+ * registered on WhatsApp.
+ */
+export type PhoneCandidate = {
+  /** E.164 digits, no plus. Null-safe callers use `shared/whatsapp-reach`. */
+  e164: string;
+  lineType: "mobile" | "landline" | "voip" | "unknown";
+  provenance: "published" | "provider";
+  sourceUrl?: string;
+  /** Which providers returned it. Agreement is evidence, as with people. */
+  agreedBy?: string[];
+};
+
 export type EmailVerification = {
   email: string;
   deliverable: boolean | null;   // null = could not be determined
@@ -105,18 +130,36 @@ export interface EnrichmentProvider {
   readonly id: string;
   /** ACUs a single call costs. Zero for our own crawl and free registers. */
   readonly costAcu: number;
+  /**
+   * ACUs a PHONE lookup costs, when it differs from `costAcu`.
+   *
+   * It usually does, and by a lot: a supplier that sells an email for one credit
+   * commonly charges five for a mobile. Charging the email rate for a phone call
+   * would breach the margin floor on every one, and charging the phone rate for
+   * an email would overcharge for the cheap half. Omitted means "the same".
+   */
+  readonly phoneCostAcu?: number;
   /** Lower runs first. Free sources are cheapest AND better evidence. */
   readonly order: number;
   health(): ProviderHealth;
   findCompany?(input: CompanyInput, signal: AbortSignal): Promise<CompanyCandidate[]>;
   findPeople?(input: PersonInput, signal: AbortSignal): Promise<PersonCandidate[]>;
   findEmails?(input: EmailInput, signal: AbortSignal): Promise<EmailCandidate[]>;
+  /**
+   * A MOBILE NUMBER FOR A NAMED PERSON AT A COMPANY.
+   *
+   * Optional like the rest: every provider registered before this existed
+   * returns nothing, which is a normal state and not an error. Nothing in the
+   * tree could answer this at all — `NOT_IMPLEMENTED` named carrier lookup as
+   * the gap, and a phone is the only route to WhatsApp.
+   */
+  findPhones?(input: PersonInput, signal: AbortSignal): Promise<PhoneCandidate[]>;
   verifyEmail?(email: string, signal: AbortSignal): Promise<EmailVerification>;
 }
 
 export type WaterfallStep = {
   provider: string;
-  capability: "company" | "people" | "emails" | "verify";
+  capability: "company" | "people" | "emails" | "phones" | "verify";
   ran: boolean;
   ms: number;
   found: number;
@@ -128,6 +171,8 @@ export type WaterfallResult = {
   company: CompanyCandidate | null;
   people: PersonCandidate[];
   emails: EmailCandidate[];
+  /** Empty unless the caller asked for a phone — see `findPerson`'s `wantPhone`. */
+  phones: PhoneCandidate[];
   verification: EmailVerification | null;
   confidence: Partial<Confidences>;
   steps: WaterfallStep[];
@@ -167,6 +212,15 @@ async function step<T>(
   capability: WaterfallStep["capability"],
   remainingMs: number,
   fn: (signal: AbortSignal) => Promise<T[]>,
+  /**
+   * What this CAPABILITY costs, when it is not the provider's default.
+   *
+   * Hard-coding `p.costAcu` here charged a phone lookup at the email rate — five
+   * times under at every supplier that sells both, which breaches the margin
+   * floor on every call and is invisible because the number still looks like a
+   * price. The caller that knows which capability it asked for passes the cost.
+   */
+  costWhenFound = p.costAcu,
 ): Promise<{ items: T[]; step: WaterfallStep }> {
   const t0 = now();
   if (remainingMs <= 0) {
@@ -182,7 +236,7 @@ async function step<T>(
         provider: p.id, capability, ran: true, ms: now() - t0, found: items.length,
         // CHARGED ONLY WHEN IT ANSWERED. A provider that timed out or returned
         // nothing has not earned a credit, whatever its price list says.
-        costAcu: items.length > 0 ? p.costAcu : 0,
+        costAcu: items.length > 0 ? costWhenFound : 0,
         outcome: items.length > 0 ? `${items.length} result${items.length === 1 ? "" : "s"}.` : "Nothing found. Not charged.",
       },
     };
@@ -227,6 +281,12 @@ export async function findPerson(input: {
   maxCostAcu?: number;
   /** Evidence already held, so a re-run does not re-buy what is known. */
   known?: Partial<Confidences>;
+  /**
+   * Also look for a MOBILE NUMBER. Off by default, and the default is the point:
+   * a phone costs roughly five times an email, so it is never added to a lookup
+   * that did not ask for it.
+   */
+  wantPhone?: boolean;
 }): Promise<WaterfallResult> {
   const budget = Math.max(1_000, Math.min(input.deadlineMs ?? 14_000, 60_000));
   const started = now();
@@ -237,6 +297,7 @@ export async function findPerson(input: {
   let company: CompanyCandidate | null = null;
   let people: PersonCandidate[] = [];
   let emails: EmailCandidate[] = [];
+  const phones: PhoneCandidate[] = [];
   let verification: EmailVerification | null = null;
   const confidence: Partial<Confidences> = { ...input.known };
 
@@ -294,15 +355,28 @@ export async function findPerson(input: {
    * skipped, because "we did not call the provider that would have found this"
    * is something the person reading the result needs to know.
    */
+  /**
+   * PRICED BY CAPABILITY, not by provider.
+   *
+   * A supplier that sells an email for one credit commonly charges five for a
+   * mobile, so a single `costAcu` per provider would let a phone lookup through
+   * a budget that only covered an email — and charge the email rate for it,
+   * which breaches the margin floor on every one. `phoneCostAcu` is the
+   * provider's own statement of the difference.
+   */
+  const needFor = (p: EnrichmentProvider, capability: WaterfallStep["capability"]): number =>
+    capability === "phones" ? (p.phoneCostAcu ?? p.costAcu) : p.costAcu;
+
   const affordable = (p: EnrichmentProvider, capability: WaterfallStep["capability"]): boolean => {
-    if (p.costAcu === 0) return true;
-    if (spent() + p.costAcu <= maxCost) return true;
+    const need = needFor(p, capability);
+    if (need === 0) return true;
+    if (spent() + need <= maxCost) return true;
     budgetStopped = true;
     steps.push({
       provider: p.id, capability, ran: false, ms: 0, found: 0, costAcu: 0,
       outcome: maxCost === 0
-        ? `Not called — this lookup was allowed no paid providers, and ${p.id} costs ${p.costAcu} ACUs.`
-        : `Not called — ${p.costAcu} ACUs would take this lookup past the ${maxCost}-ACU limit it was given (${spent()} already spent).`,
+        ? `Not called — this lookup was allowed no paid providers, and ${p.id} costs ${need} ACUs for ${capability}.`
+        : `Not called — ${need} ACUs for ${capability} would take this lookup past the ${maxCost}-ACU limit it was given (${spent()} already spent).`,
     });
     return false;
   };
@@ -388,6 +462,45 @@ export async function findPerson(input: {
     }
   }
 
+  // 3b. A MOBILE NUMBER — ONLY WHEN ASKED FOR, AND THAT IS DELIBERATE.
+  //
+  //     A mobile costs about five times an email at every supplier that sells
+  //     both, so adding it to every lookup would quintuple the cost of a chain
+  //     whose entire design is "spend the cheapest credit that answers the
+  //     question". Every existing caller is therefore unchanged: no `wantPhone`,
+  //     no phone call, no charge. The surfaces that want WhatsApp ask for it.
+  //
+  //     What may be concluded from the result is `shared/whatsapp-reach.ts`'s
+  //     job, and the short version is: a mobile is a PRECONDITION for WhatsApp
+  //     and not proof of it, because no API Meta offers can confirm a number is
+  //     registered there any more.
+  if (input.wantPhone && !stoppedEarly) {
+    for (const p of registry) {
+      if (!p.findPhones || !p.health().configured) continue;
+      if (remaining() <= 0) break;
+      if (!affordable(p, "phones")) continue;
+      const r = await step(p, "phones", remaining(), (sig) => p.findPhones!({
+        fullName: target?.fullName || input.person.fullName,
+        company: target?.company || input.person.company,
+        domain,
+        country: input.person.country,
+      }, sig), needFor(p, "phones"));
+      record(r.step);
+      for (const found of r.items) {
+        const seen = phones.find((x: PhoneCandidate) => x.e164 === found.e164);
+        // AGREEMENT IS EVIDENCE, as with people: a second supplier arriving at
+        // the same number independently is the most valuable thing it can say,
+        // and dropping the duplicate throws that away.
+        if (seen) seen.agreedBy = [...new Set([...(seen.agreedBy ?? [p.id]), p.id])];
+        else phones.push({ ...found, agreedBy: [p.id] });
+      }
+      if (r.items.length > 0) {
+        progress.push(`✓ ${phones.length} mobile number${phones.length === 1 ? "" : "s"} found — a WhatsApp conversation needs their permission before a message`);
+        break;   // one is enough; a second supplier is spending to confirm a number
+      }
+    }
+  }
+
   // 4. Verify — but ONLY the strongest candidate, and only if there is time.
   //    Verifying six generated addresses to find one that works is how the
   //    per-contact cost quietly triples; the pattern engine exists so that the
@@ -422,7 +535,7 @@ export async function findPerson(input: {
   const skipped = steps.filter((s) => !s.ran).length;
 
   return {
-    company, people, emails, verification, confidence, steps, costAcu, deadlineHit, progress,
+    company, people, emails, phones, verification, confidence, steps, costAcu, deadlineHit, progress,
     note: deadlineHit
       ? `The ${Math.round(budget / 1000)}-second budget ran out with ${skipped} step${skipped === 1 ? "" : "s"} unrun. What is above is what was actually established — nothing has been filled in to make it look complete. ${enough.why}`
       : budgetStopped

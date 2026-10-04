@@ -10,6 +10,8 @@ if (typeof window !== "undefined") {
 // register, then Hunter. Two implementations of "find this company's email",
 // neither screen able to use the other's supplier, and the owner holding keys
 // for both. The vault could not even import the Hunter adapter: the module
+import { findPerson } from "@/backend/enrichment-provider";
+import { whatsappReach, toE164 } from "@/shared/whatsapp-reach";
 // holding it imports the vault's scraper, so the cycle decided it.
 //
 // THE FREE PASS IS NOT ROUTED THROUGH HERE, AND THAT IS DELIBERATE. The vault's
@@ -48,7 +50,21 @@ const hostOf = (v: string): string => {
  */
 export async function enrichPaid(
   input: EnrichInput,
-  opts: { maxCostAcu: number; deadlineMs?: number } = { maxCostAcu: 0 },
+  opts: {
+    maxCostAcu: number;
+    deadlineMs?: number;
+    /**
+     * Also buy a MOBILE NUMBER for the named contact, for WhatsApp.
+     *
+     * OFF BY DEFAULT, and that default is a money decision: a mobile costs about
+     * five times an email at every supplier that sells both, so a list of 2,000
+     * rows would quintuple in price if this were implied. The surface that wants
+     * WhatsApp asks for it, row by row or for the batch.
+     */
+    wantMobile?: boolean;
+    /** ISO-2 of the CONTACT's country, so a national number can be made E.164. */
+    country?: string;
+  } = { maxCostAcu: 0 },
 ): Promise<EnrichResult> {
   registerBuiltInProviders();
 
@@ -110,17 +126,66 @@ export async function enrichPaid(
   const website = base.website || (run.domain ? `https://${run.domain}` : null);
   const person = run.person;
 
+  // THE WHATSAPP HALF, and it needs a PERSON. A mobile finder answers "the mobile
+  // for this named human at this domain" — a row that is only a company name has
+  // nobody to ask about, and spending a credit to be told so is waste. Said in
+  // the note rather than returned as a silent null, because "we did not look" and
+  // "we looked and found nothing" want different next actions.
+  let mobile: string | null = null;
+  let waVerdict: EnrichResult["whatsapp"] = null;
+  let mobileNote = "";
+  const companyDomainForPhone = run.domain || domain;
+  if (opts.wantMobile) {
+    if (!person?.fullName || !companyDomainForPhone) {
+      mobileNote = person?.fullName
+        ? " No mobile looked for: there is no domain to ask a supplier about."
+        : " No mobile looked for: a mobile finder needs a named person, and this row resolved to a company only.";
+    } else {
+      try {
+        const pr = await findPerson({
+          person: { fullName: person.fullName, company: input.company, domain: companyDomainForPhone, country: opts.country },
+          maxCostAcu: Math.max(0, opts.maxCostAcu),
+          deadlineMs: opts.deadlineMs ?? 14_000,
+          wantPhone: true,
+        });
+        const found = pr.phones[0];
+        if (found) {
+          mobile = found.e164;
+          const verdict = whatsappReach({
+            phone: { e164: found.e164, display: `+${found.e164}`, lineType: found.lineType, provenance: found.provenance },
+          });
+          waVerdict = {
+            dialable: verdict.dialable, mobile: verdict.mobile,
+            needsOptIn: verdict.needsOptIn, waLink: verdict.waLink, why: verdict.why,
+          };
+          mobileNote = ` Mobile +${found.e164} found; WhatsApp needs their permission before a message.`;
+        } else {
+          mobileNote = " No mobile found for the named contact.";
+        }
+      } catch (e) {
+        // A supplier refusal must not lose the EMAIL this row already found.
+        mobileNote = ` The mobile lookup failed (${e instanceof Error ? e.message : "supplier error"}); the address above is unaffected.`;
+      }
+    }
+  }
+
+  // A number the CRAWL published is a different fact from a bought mobile, so it
+  // is normalised but never relabelled as a mobile — its line type is unknown.
+  const publishedPhone = base.phone ? toE164(base.phone, opts.country) : null;
+
   if (!picked) {
     return {
       ...base,
       website,
       contactName: person?.fullName ?? null,
       contactTitle: person?.jobTitle ?? null,
+      mobile, whatsapp: waVerdict,
+      phone: publishedPhone ? `+${publishedPhone}` : base.phone,
       supplierRefusals: run.refusals,
       stage: "site_no_email",
       note: spent > 0
         ? `${who || "A paid supplier"} was asked and returned no address that belongs to ${input.company}. ${spent} ACU(s) of supplier cost.`
-        : run.note || "No paid supplier was affordable or configured, so only the free sources ran.",
+        : `${run.note || "No paid supplier was affordable or configured, so only the free sources ran."}${mobileNote}`,
     };
   }
 
@@ -133,6 +198,8 @@ export async function enrichPaid(
     emailConfidence: picked.provenance === "confirmed" ? "high" : "medium",
     contactName: person?.fullName ?? null,
     contactTitle: person?.jobTitle ?? null,
+    mobile, whatsapp: waVerdict,
+    phone: publishedPhone ? `+${publishedPhone}` : base.phone,
     // THE SUPPLIER THAT FOUND THE ADDRESS, not merely one that was paid on this
     // row. Apollo resolving a domain and Hunter finding the address on it is the
     // ordinary case now, and crediting Apollo for it is the field somebody reads
@@ -142,7 +209,7 @@ export async function enrichPaid(
       : "search",
     stage: "found",
     supplierRefusals: run.refusals,
-    note: `${picked.value} via ${who || "the free sources"}${spent ? ` — ${spent} ACU(s) of supplier cost` : ""}.`,
+    note: `${picked.value} via ${who || "the free sources"}${spent ? ` — ${spent} ACU(s) of supplier cost` : ""}.${mobileNote}`,
   };
 }
 

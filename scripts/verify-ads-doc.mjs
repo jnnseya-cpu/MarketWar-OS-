@@ -145,7 +145,24 @@ if (!anonymousAllowed) {
 const { auditCheckCount, conditionalChecks } = await import("../src/shared/audit-copy.ts");
 const prompts = readFileSync(root("docs", "FACEBOOK-AD-PROMPTS.md"), "utf8");
 const trueCount = auditCheckCount();
-const countsClaimed = [...new Set((prompts.match(/\b(\d{1,3}) checks\b/g) || []).map((m) => Number(m.match(/\d+/)[0])))];
+// DIGITS AND WORDS. The first version matched `\d+ checks` only, so when 32 was
+// corrected to 31 a HEADING reading "Thirty-two checks" survived: the body was
+// right, the title was wrong, and this check passed. A number spelled out is the
+// same claim to a reader, and the heading is what they see first.
+const WORD_NUMBERS = {
+  twenty: 20, "twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24,
+  "twenty-five": 25, "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29,
+  thirty: 30, "thirty-one": 31, "thirty-two": 32, "thirty-three": 33, "thirty-four": 34,
+  "thirty-five": 35, "thirty-six": 36, "thirty-seven": 37, "thirty-eight": 38, "thirty-nine": 39,
+  forty: 40,
+};
+const spelledCounts = [...prompts.matchAll(/\b([A-Za-z]+(?:-[a-z]+)?) checks\b/g)]
+  .map((m) => WORD_NUMBERS[m[1].toLowerCase()])
+  .filter((n) => typeof n === "number");
+const countsClaimed = [...new Set([
+  ...(prompts.match(/\b(\d{1,3}) checks\b/g) || []).map((m) => Number(m.match(/\d+/)[0])),
+  ...spelledCounts,
+])];
 const wrongCounts = countsClaimed.filter((n) => n !== trueCount);
 if (!countsClaimed.length) {
   fail("\nFACEBOOK-AD-PROMPTS.md names no check count at all — the prompts are built on it, so a silent removal is a silent change of claim.");
@@ -153,6 +170,49 @@ if (!countsClaimed.length) {
   fail(`\nFACEBOOK-AD-PROMPTS.md claims ${wrongCounts.join(" and ")} checks; auditCheckCount() is ${trueCount}`
     + ` (${conditionalChecks().length} conditional check(s) are excluded on purpose). These numbers end up inside generated images.`);
 } else console.log(`image prompts: "${trueCount} checks" matches auditCheckCount() everywhere it appears`);
+
+// THE SAME RULE FOR EVERY OTHER COUNT THE PROMPTS ASSERT.
+//
+// Prompts 7 and 8 claim an agent count and a number of emergency-stop lanes.
+// They are exactly the shape of claim that was wrong before — a number typed into
+// public copy — so each is read from the file that owns it. A count in a
+// generated image cannot be corrected after the fact.
+const { AGENT_LIST } = await import("../src/shared/agents.ts");
+const { LANES } = await import("../src/backend/emergency-stop.ts");
+const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+const agentsClaimed = [...new Set([...prompts.matchAll(/\b(\d{1,3}) agents\b/g)].map((m) => Number(m[1])))];
+const wrongAgents = agentsClaimed.filter((n) => n !== AGENT_LIST.length);
+if (wrongAgents.length) {
+  fail(`\nFACEBOOK-AD-PROMPTS.md claims ${wrongAgents.join(" and ")} agents; AGENT_LIST has ${AGENT_LIST.length}.`);
+} else if (agentsClaimed.length) {
+  console.log(`image prompts: "${AGENT_LIST.length} agents" matches AGENT_LIST`);
+}
+
+// The lane count is spelled out in the advert ("Five switches."), so the word is
+// what has to match — and the prompt also names them, so the NAMES are checked
+// too. A count that is right while the list beside it is wrong is still a false
+// advert.
+// ONLY THE OVERLAY TEXT, which is the part that becomes a claim. The prompt also
+// DESCRIBES the scene — "five identical toggle switches", "four switches are
+// plainly up", "the nearest two switches are sharp" — and the first version of
+// this check read those as competing counts and failed on the advert's own stage
+// directions. A check that fires on prose it was not asked about is this
+// repository's second defect class; the asserted text is the bolded overlay.
+const switchClaims = [...new Set(
+  [...prompts.matchAll(/\*\*"([A-Za-z]+) switches\.?"\*\*/g)].map((m) => m[1].toLowerCase()),
+)];
+const expectedWord = WORDS[LANES.length] ?? String(LANES.length);
+const wrongSwitches = switchClaims.filter((w) => w !== expectedWord && w !== String(LANES.length));
+if (wrongSwitches.length) {
+  fail(`\nFACEBOOK-AD-PROMPTS.md says "${wrongSwitches.join('", "')} switches"; emergency-stop has ${LANES.length} lanes (${expectedWord}): ${LANES.join(", ")}.`);
+} else if (switchClaims.length) {
+  // Every lane it names must be a real lane.
+  const named = LANES.filter((l) => new RegExp(`\\b${l}`, "i").test(prompts));
+  if (named.length !== LANES.length) {
+    fail(`\nThe switches advert names ${named.length} of the ${LANES.length} emergency-stop lanes — a count that is right beside a list that is short is still false. Missing: ${LANES.filter((l) => !named.includes(l)).join(", ")}.`);
+  } else console.log(`image prompts: "${expectedWord} switches" matches the ${LANES.length} emergency-stop lanes, all named`);
+}
 
 // ---------------------------------------------------------------- 3. hygiene
 

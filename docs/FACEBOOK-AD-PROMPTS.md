@@ -1,4 +1,4 @@
-# Facebook ads — five image prompts and one copy prompt
+# Facebook ads — seven image prompts and one copy prompt
 
 Built 2026-10-01. Companion to `FACEBOOK-LAUNCH-CAMPAIGN.docx` (`npm run ads:doc`),
 which holds the campaign settings, ad sets and audiences. This file holds the
@@ -49,16 +49,23 @@ So every one of these drives to `/audit`, and the purchase happens on the other
 side of a free thing that was genuinely useful. That is the highest-converting
 honest path available to a product with no reputation yet.
 
-Each of the five attacks a **different** buying trigger. They are not five
-versions of one idea — run them against each other and let the audience tell you
-which lever moves your market.
+Each of the first five attacks a **different** buying trigger, and they are not
+five versions of one idea — run them against each other and let the audience tell
+you which lever moves your market.
+
+**Prompts 7 and 8 are for a WARM audience and will waste money on a cold one.**
+They are retargeting: for somebody who ran an audit or looked at the prices and
+did not start, the question is no longer "who are you" but "is there enough here"
+and "will it do something stupid as me". 1–5 answer the first question; 7 and 8
+answer the second two, and both are built only from counts that exist in the
+code.
 
 | # | Trigger | Why it moves money |
 |---|---|---|
 | 1 | Loss already incurred | Loss aversion beats gain. For trades, the unchased quote is a real, remembered, specific loss. |
 | 2 | Specific personal evidence | "Your site, 31 checks, 3 free" is falsifiable and about *them*. Generic benefit claims are not. |
 | 3 | Control / risk removal | The top objection to AI marketing from this audience is "it will say something stupid as me". |
-| 4 | Price anchored against the alternative | £19 is not cheap in the abstract. Against an agency retainer it is obvious. |
+| 4 | Price anchored against what it replaces | £19 is not cheap in the abstract. Against twelve named tools they already pay for, the reader does the arithmetic themselves — and their number is more convincing than one we picked. |
 | 5 | Identity | "This is for tech startups, not me" kills more sales here than price does. |
 
 ---
@@ -94,7 +101,7 @@ precisely why it survives review and why it stops the scroll.
 
 ---
 
-## Prompt 2 — Thirty-two checks (specific personal evidence)
+## Prompt 2 — Thirty-one checks (specific personal evidence)
 
 > Clean, high-contrast graphic composition. Not a photograph. A dark charcoal
 > background (#0B1020) with a single column of 31 small horizontal bars arranged
@@ -115,7 +122,7 @@ precisely why it survives review and why it stops the scroll.
 > Render at 1080×1080 and 1080×1920 (in the vertical, stack the 31 bars in two
 > columns of 16 so the type stays large).
 
-**Why it works.** Thirty-two is a strange, specific number, and strange specific
+**Why it works.** Thirty-one is a strange, specific number, and strange specific
 numbers read as true in a feed full of round ones. The three amber bars tell the
 whole story before a single word is read. Nothing here is invented: the number is
 the real check count and the three are the real free findings.
@@ -151,34 +158,50 @@ checkable.
 
 ---
 
-## Prompt 4 — Nineteen pounds (price against the alternative)
+## Prompt 4 — Nineteen pounds, against what it replaces (price anchoring)
+
+**This one changed, and the reason is the honest version of the trigger.** The
+first draft struck through **£800** as a stand-in agency retainer. That is a
+comparative claim: Meta's review checks them and the ASA acts on them, and it was
+a number nobody here could defend. The anchor is now the **list of tools the
+platform replaces**, which is read out of `src/shared/included-tools.ts` — twelve
+of them, nine working with no keys at all. It is sourced, it needs nothing
+substantiated, and it is *more* persuasive than a number we picked: the reader
+prices their own stack in their head, and their figure is always more convincing
+than ours.
 
 > Pure typographic composition, no photograph, no illustration. Off-white paper
-> background (#F7F6F3) with a faint letterpress tooth. Two figures in a stark
-> vertical comparison, enormous and confident, set in a tight grotesque with
-> near-zero tracking. Upper figure, very large and in a flat muted red, with a
-> single clean strike-through rule across it: **"£800"**. Beneath it, in solid
-> near-black, roughly twice the size of the struck figure: **"£19"**. Beneath
-> that, small and quiet, lowercase: **"a month"**. Enormous margins. Nothing is
-> centred — the whole block sits slightly left and slightly above optical centre.
-> One thin hairline rule, full width, 80 pixels from the bottom edge, with
-> **"marketwaros.com"** small beneath it.
+> background (#F7F6F3) with a faint letterpress tooth. At the optical top, set
+> small, in lowercase, in a muted warm grey: **"replaces"**. Beneath it, a
+> single tight column of twelve short lines in a condensed grotesque at modest
+> size, solid near-black, each line a tool category, generously leaded, left
+> aligned, nothing bulleted and nothing numbered:
+> **"a screen recorder"**, **"a video clipper"**, **"an email platform"**,
+> **"an ad-creative design tool"**, **"a social scheduler"**,
+> **"a client-approval tool"**, **"an A/B testing tool"**,
+> **"an ad-spend monitor"**, **"a website audit tool"**,
+> **"a reporting dashboard"**, **"an audit log"**,
+> **"a workflow automator"**.
+> Then a single thin hairline rule, full width. Beneath the rule, enormous and
+> confident in solid near-black, roughly four times the height of one list line:
+> **"£19"**. Immediately beneath it, small and quiet, lowercase:
+> **"a month"**. Enormous margins. The whole block sits slightly left of optical
+> centre. **"marketwaros.com"** small at the very bottom edge.
 >
-> Negative: no currency symbols other than £, no coins, no wallets, no credit
-> cards, no percentage-off badges, no starbursts, no drop shadows, no gradients,
-> no logos other than the wordmark, no photographs of any kind.
+> Negative: no struck-through prices, no "was/now", no percentage-off badges, no
+> competitor names, no logos of other products, no currency symbols other than £,
+> no coins, no wallets, no credit cards, no starbursts, no drop shadows, no
+> gradients, no photographs of any kind, no icons beside the list lines.
 >
-> Render at 1080×1080 and 1080×1920. This advert lives or dies on whether the
-> typography looks assured, so give it the most attention and the least
-> decoration.
+> Render at 1080×1080 and 1080×1920. In the vertical, split the list into two
+> columns of six beneath the word "replaces" so the £19 still sits on the lower
+> third. This advert lives or dies on whether the typography looks assured, so
+> give it the most attention and the least decoration.
 
-**Before you run this one — one number is yours to set.** £19 is read from
-`subscription.ts` and is true. The **£800** is a stand-in for the monthly agency
-retainer you are positioning against; put in a figure you can defend if asked,
-because a struck-through price is a comparative claim and both Meta and the ASA
-treat it as one. If you would rather not defend a number, drop the £800 line
-entirely and run **"£19 a month"** alone — it still works, it just works less
-hard.
+**Nothing in this one needs defending.** Every line is a category from
+`included-tools.ts` and £19 is `subscription.ts`. `npm run ads:verify` checks the
+count against the file, so if a tool is added or removed the advert stops matching
+and the build says so.
 
 ---
 
@@ -211,6 +234,81 @@ first" is true — the platform has been run live against AxionOS (UK trades),
 VeryX and KODA. It is a statement about *testing*, not about results, and it must
 stay that way: "tested on" survives review, "worked for" does not, because there
 is no measured outcome to point at yet.
+
+---
+
+## Prompt 7 — The scope (for people who already know who you are)
+
+**Why this one is separate, and why it is NOT for cold traffic.** Prompts 1–5 all
+drive to `/audit`, which is right for a stranger: small, specific, about them.
+This one is the opposite and is wasted on a cold audience — **run it as
+retargeting**, to people who ran an audit or visited `/choose-plan` and did not
+start. They already know what the product is; what they have not grasped is how
+much of it there is, and scope is the one impressive thing here that is a FACT
+rather than a result claim. Nothing below is a testimonial, a customer count or
+an outcome — it is a count of what exists in the code.
+
+> Flat vector infographic, no photograph, no 3D, no isometric. Deep ink
+> background (#0B1020). A single dense grid of thirty-nine small identical
+> rounded-square tiles, nine across, arranged with generous even gutters and
+> perfect alignment — the grid itself is the image. Each tile is a flat muted
+> slate with a 1px lighter edge; **four** tiles, scattered not clustered, are a
+> confident emerald (#10B981). No icons inside the tiles, no labels, no numbers.
+> Above the grid, small, in lowercase letterspaced grey: **"what you get"**.
+> Below the grid, large and solid white in a tight grotesque:
+> **"39 agents. One subscription."** Beneath that, small and quiet in grey:
+> **"nine of the twelve tools work before you add a single key."** A hairline
+> rule at the very bottom with **"marketwaros.com"** small beneath it.
+>
+> Negative: no human faces, no robots, no brains, no circuit-board motifs, no
+> glowing nodes, no network webs, no gradients behind the grid, no drop shadows,
+> no logos other than the wordmark, no percentage figures, no charts.
+>
+> Render at 1080×1080 and 1080×1350. The grid must look deliberately counted, not
+> decorative — if a viewer cannot count the tiles, the advert has failed.
+
+**Every number is read from the code**, which is why this is safe to put on a
+paid advert: `AGENT_LIST.length` is 39, `INCLUDED_TOOLS.length` is 12 and nine of
+them carry `keyless: true`. `npm run ads:verify` holds the doc to the files, so
+if an agent is added the advert stops matching and the build says so.
+
+---
+
+## Prompt 8 — The brake, close up (retargeting on the real objection)
+
+**The objection this answers is the one that actually stops this audience**, and
+Prompt 3 only gestures at it. "It will send something stupid as me" is not a
+price objection and no discount answers it. For a warm audience the answer is
+mechanical and checkable: **five separate switches**, and only drafting steps run
+unattended.
+
+> Photorealistic macro photograph, 100mm lens at f/4, single hard light source
+> from the upper left, deep falloff into near-black. A human thumb and forefinger
+> resting — not pressing — on one of five identical small industrial toggle
+> switches set into a brushed-steel panel, shot from a low three-quarter angle so
+> the row recedes. Four switches are plainly in the up position; the one under the
+> fingers is mid-throw. No labels are legible on the panel — the metal is bare and
+> slightly scuffed from use. Shallow depth of field: the fingers and the nearest
+> two switches are sharp, the rest falls away. Cool steel tones, one warm
+> highlight on the knuckle. The composition leaves the entire right third dark and
+> empty for text.
+>
+> Overlay text, right third, set in a tight grotesque, solid white, left aligned:
+> large — **"Five switches."** Beneath it, medium —
+> **"Sending. Publishing. Overnight work. Spending. Payouts."** Beneath that,
+> small and grey — **"Only drafting runs while you are not there."**
+>
+> Negative: no faces, no full hands, no laptops, no phones, no screens, no red
+> emergency-stop mushroom buttons, no warning triangles, no sparks, no text on the
+> metal panel itself, no logos other than a small wordmark bottom-left.
+>
+> Render at 1080×1350 and 1080×1920. Five switches exactly — the number is the
+> claim, and four or six makes the advert false.
+
+**Five is `LANES` in `src/backend/emergency-stop.ts`**: send, publish,
+autonomous, spend, payout. The second line names them in that order. The third
+line is the autonomy contract that is already on `/how-it-works` and in the
+home-page FAQ, so the advert is promising something the site then confirms.
 
 ---
 
@@ -276,7 +374,7 @@ rejected ad.
 >
 > **The six variants must attack different angles, one each:**
 > 1. **The unchased quote** — work already won and lost to silence.
-> 2. **Thirty-two checks** — their own website, three problems named free.
+> 2. **Thirty-one checks** — their own website, three problems named free.
 > 3. **You keep control** — it writes, they approve, there is a stop button.
 > 4. **The price against the alternative** — what an agency charges per month
 >    versus £19, without inventing an agency's price if you cannot support it.
