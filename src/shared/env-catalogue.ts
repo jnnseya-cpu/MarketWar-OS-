@@ -172,6 +172,20 @@ export const ENV_CATALOGUE: EnvVar[] = [
  * a readiness report would bury the fourteen that actually gate a feature.
  */
 export const ENV_TUNING: string[] = [
+  // A TEST-HARNESS VARIABLE, AND LISTED RATHER THAN HIDDEN because of what it
+  // does. `scripts/drive-bulk.mjs` sets it to talk to the LOCAL self-signed TLS
+  // SMTP server in `tests/helpers/fake-smtp.mjs` — the same thing
+  // `tests/critical.test.mjs` and `tests/message-shape.test.mjs` already do, for
+  // the same reason: without it Node refuses the handshake and the driver cannot
+  // put a byte on a wire.
+  //
+  // THE PLATFORM NEVER SETS IT. Nothing in `src/` reads it and nothing in `src/`
+  // should: disabling certificate verification on a real mail host would mean
+  // handing credentials to whoever answered the connection. It is in this list
+  // so that it is VISIBLE as a harness-only variable rather than invisible as an
+  // uncatalogued one — a security-relevant name is the last thing that should be
+  // hidden by an exclusion.
+  "NODE_TLS_REJECT_UNAUTHORIZED",
   // Read ONLY by `scripts/drive-modules.mjs`, the end-to-end module driver. None
   // of them changes how the platform behaves; they tell the harness where to
   // sign in and where to read the messages a driven campaign actually sent.

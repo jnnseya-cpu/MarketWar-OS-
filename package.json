@@ -48,7 +48,8 @@
     "deploy:rules": "firebase deploy --only firestore:rules,storage:rules",
     "drive:commerce": "node --import tsx scripts/drive-commerce.mjs",
     "drive:capi": "node --import tsx scripts/drive-capi.mjs",
-    "drive:contacts": "node --import tsx scripts/drive-contacts.mjs"
+    "drive:contacts": "node --import tsx scripts/drive-contacts.mjs",
+    "drive:bulk": "node --import tsx scripts/drive-bulk.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",

@@ -846,7 +846,18 @@ export type SendResult = {
    * the mail settings, so the settings were checked over and over while the
    * actual fault was somewhere else entirely.
    */
-  failure?: "not_configured" | "halted" | "hygiene" | "provider" | "crashed";
+  failure?: "not_configured" | "halted" | "hygiene" | "provider" | "crashed" | "shape";
+
+  /**
+   * `shape` is about the MESSAGE, not the recipients.
+   *
+   * `hygiene` already means "these addresses were refused". `shape` means the
+   * addresses were fine and the message itself could not lawfully or safely be
+   * sent as bulk — today that is exactly one thing: no one-click unsubscribe
+   * link, which fails Gmail's and Yahoo's sender rules and the opt-out PECR
+   * requires. Collapsing it into `hygiene` would send somebody to clean a list
+   * that has nothing wrong with it.
+   */
 };
 
 /**
@@ -886,6 +897,43 @@ export async function sendEmailBatch(
       failure: "crashed" as const,
       detail: `The sending code failed before any message was handed to a provider: ${err.message}. Nothing was sent, so this batch is safe to retry once the fault is fixed.`,
     }));
+  }
+}
+
+/**
+ * THE ONE-CLICK UNSUBSCRIBE URL FOR A BULK MESSAGE, DERIVED HERE.
+ *
+ * WHY IT MOVED INTO THE MAILER. `message-shape.ts` has always NAMED the absence
+ * — it pushes "List-Unsubscribe — required on bulk mail by Google, Yahoo, Apple
+ * and Microsoft" onto `missing` — and then the message went out anyway, because
+ * nobody reads `missing`. The header was set only when a CALLER remembered to
+ * pass a URL. `/api/email` and `/api/newsletter` do; `sendEmailBatch` called from
+ * anywhere else sent bulk mail with no unsubscribe header at all.
+ *
+ * Driven against a real SMTP server, that is what came out: `List-ID` present,
+ * `Feedback-ID` present, `List-Unsubscribe` absent. Since February 2024 that
+ * fails Gmail's and Yahoo's bulk-sender requirements outright, which is the
+ * single most direct way to keep a campaign out of the main inbox — and an
+ * opt-out is also what PECR and CAN-SPAM require, so it is not only a
+ * deliverability problem.
+ *
+ * The mailer is the ONE place that knows a message is bulk, so it is the one
+ * place that can guarantee the header. Same lesson as §135, where
+ * `transactional` reached the mailer and stopped there.
+ *
+ * Imported lazily because `email-events.ts` imports this module — a static
+ * import would be a cycle. One source of truth for the sealed token either way.
+ */
+async function deriveListUnsubscribe(brandId: string, to: string, campaign: string): Promise<string | undefined> {
+  if (!brandId || !to) return undefined;
+  try {
+    const { unsubscribeUrl } = await import("@/backend/email-events");
+    return unsubscribeUrl(brandId, to, campaign);
+  } catch {
+    // A failure to build the link must not lose the send — but it must not
+    // silently produce bulk mail with no opt-out either. The caller refuses
+    // below when nothing could be derived.
+    return undefined;
   }
 }
 
@@ -940,12 +988,45 @@ async function sendEmailBatchInner(
 
   if (node && sendableItems.length) {
     try {
-      const prepared = sendableItems.map((v) => ({
+      // DERIVED FOR EVERY RECIPIENT THAT DID NOT BRING ONE. A caller that passes
+      // a URL keeps it; one that forgot gets a correct sealed link instead of a
+      // message that fails every large receiver's rules.
+      const unsubFor = await Promise.all(sendableItems.map((v) =>
+        v.item.listUnsubscribe
+          ? Promise.resolve(v.item.listUnsubscribe)
+          : deriveListUnsubscribe(common.brandId || "", v.verdict.email, common.campaign || "")));
+
+      // BULK MAIL WITH NO OPT-OUT IS NOT SENT.
+      //
+      // Not a style rule. Since February 2024 a bulk sender without one-click
+      // unsubscribe fails Google's and Yahoo's requirements, and an opt-out is
+      // separately required by PECR and CAN-SPAM. Worse, the cost is shared: the
+      // sending pool's reputation belongs to every tenant on it, so one campaign
+      // that goes out malformed is charged against everybody else's inbox.
+      //
+      // Refusing is therefore the cheaper failure, and it names its own remedy
+      // rather than leaving somebody to wonder why a campaign vanished.
+      const noOptOut = sendableItems
+        .map((v, i) => (unsubFor[i] ? null : v.verdict.email))
+        .filter((e): e is string => Boolean(e));
+      if (noOptOut.length) {
+        return items.map(() => ({
+          ok: false, mode: emailIsConfigured() ? ("live" as const) : ("demo" as const),
+          provider: "refused", id: null, filteredOut: [],
+          failure: "shape" as const,
+          detail: `Nothing was sent: ${noOptOut.length} of ${sendableItems.length} recipients had no one-click unsubscribe link, `
+            + `and bulk mail without one fails Gmail's and Yahoo's sender rules and the opt-out that PECR requires. `
+            + `Pass \`brandId\` so the link can be built, or supply \`listUnsubscribe\` per message. `
+            + `The reputation of the sending pool is shared with every other customer on it, which is why this refuses instead of sending.`,
+        }));
+      }
+
+      const prepared = sendableItems.map((v, i) => ({
         to: v.verdict.email,
         subject: v.item.subject,
         html: v.item.html,
         extra: {
-          replyTo: common.replyTo, dkim: common.dkim, listUnsubscribe: v.item.listUnsubscribe,
+          replyTo: common.replyTo, dkim: common.dkim, listUnsubscribe: unsubFor[i],
           // Per recipient, so a failure says whose it was and which address died
           // instead of the intake guessing from the text of the notice — but
           // ONLY once MW_BOUNCE_HOST names a domain that can actually receive.
