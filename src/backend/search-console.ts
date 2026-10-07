@@ -68,3 +68,124 @@ export async function searchAnalytics(siteUrl: string, opts?: { days?: number; d
     return { mode: "live", site: siteUrl, rows, totals: { clicks, impressions, avgPosition: Math.round(avgPosition * 10) / 10 }, note: `Live Search Console data — last ${days} days, by ${dimension}.` };
   } catch (e) { return { mode: "not_connected", site: siteUrl, rows: [], note: `Couldn't reach Search Console: ${(e as Error).message}` }; }
 }
+
+// ---------------------------------------------------------------------------
+// GOOGLE'S OWN VERDICT, PER URL — the URL Inspection API.
+// ---------------------------------------------------------------------------
+//
+// WHY THIS IS THE ONLY API THAT ANSWERS THE QUESTION. Search Console emails
+// "Blocked by robots.txt" and names no URLs, and the Coverage report it refers
+// to has never been exposed through any API — there is no endpoint that lists
+// the affected pages. What Google DOES expose is this: ask about ONE url and it
+// returns the index status it holds, including `robotsTxtState` (ALLOWED /
+// DISALLOWED), `coverageState` in Google's own words, `indexingState`, and the
+// canonical it chose versus the one we declared.
+//
+// So the platform asks about the pages it publishes rather than sending the
+// owner to read a console. `backend/indexability.ts` finds the contradictions
+// with no credential at all; this confirms them against Google.
+//
+// THE QUOTA IS REAL AND IT IS SMALL: 2,000 queries per property per day, 600 per
+// minute. A caller must pass the URLs it cares about — this will not walk a
+// sitemap on its own, because a 2,000-URL site would spend the day's quota in
+// one call and the next question would get nothing.
+//
+// SCOPE: `webmasters.readonly` covers inspection, which is why nothing here asks
+// for a wider grant than the rank data already uses.
+
+const INSPECT_URL = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect";
+
+export type UrlVerdict = {
+  url: string;
+  /** Google's own words: "Submitted and indexed", "Blocked by robots.txt", … */
+  coverageState: string;
+  /** ALLOWED | DISALLOWED — the answer to the email. */
+  robotsTxtState: string;
+  indexingState: string;
+  /** PASS | PARTIAL | FAIL | NEUTRAL. */
+  verdict: string;
+  googleCanonical: string;
+  userCanonical: string;
+  lastCrawlTime: string;
+  /** TRUE when Google says our robots.txt is what is keeping this page out. */
+  blockedByRobots: boolean;
+};
+
+export type InspectionReport = {
+  mode: "live" | "not_connected";
+  site?: string;
+  results: UrlVerdict[];
+  /** URLs that could not be inspected, with the reason. Never silently dropped. */
+  failed: { url: string; reason: string }[];
+  blocked: number;
+  note: string;
+};
+
+/**
+ * Ask Google what it thinks of these URLs.
+ *
+ * `siteUrl` must be the property exactly as Search Console holds it — including
+ * the `sc-domain:` form for a domain property. `listSites()` returns them in
+ * that form, which is why it exists.
+ */
+export async function inspectUrls(siteUrl: string, urls: readonly string[], opts?: { max?: number }): Promise<InspectionReport> {
+  const wanted = [...new Set(urls.map((u) => String(u || "").trim()).filter(Boolean))].slice(0, Math.max(1, Math.min(50, opts?.max ?? 20)));
+  if (!searchConsoleConfigured()) {
+    return { mode: "not_connected", results: [], failed: [], blocked: 0,
+      note: "Search Console is not connected, so Google's own verdict cannot be read. `auditIndexability` answers the same question from our own robots.txt and links, with no credential." };
+  }
+  const token = await getGoogleAccessToken(GOOGLE_SCOPES.searchConsole);
+  if (!token) {
+    return { mode: "not_connected", site: siteUrl, results: [], failed: [], blocked: 0,
+      note: "Google token exchange failed — check the credential." };
+  }
+
+  const results: UrlVerdict[] = [];
+  const failed: { url: string; reason: string }[] = [];
+  for (const url of wanted) {
+    try {
+      const res = await fetch(INSPECT_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionUrl: url, siteUrl }),
+      });
+      if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 140);
+        // A FAILURE IS RECORDED, NOT DROPPED. A quota refusal looks exactly like
+        // "this page is fine" to any caller that only reads `results`.
+        failed.push({ url, reason: `HTTP ${res.status}${body ? ` — ${body}` : ""}` });
+        continue;
+      }
+      const d = (await res.json().catch(() => ({}))) as {
+        inspectionResult?: {
+          indexStatusResult?: {
+            verdict?: string; coverageState?: string; robotsTxtState?: string; indexingState?: string;
+            googleCanonical?: string; userCanonical?: string; lastCrawlTime?: string;
+          };
+        };
+      };
+      const r = d.inspectionResult?.indexStatusResult || {};
+      results.push({
+        url,
+        coverageState: r.coverageState || "",
+        robotsTxtState: r.robotsTxtState || "",
+        indexingState: r.indexingState || "",
+        verdict: r.verdict || "",
+        googleCanonical: r.googleCanonical || "",
+        userCanonical: r.userCanonical || "",
+        lastCrawlTime: r.lastCrawlTime || "",
+        blockedByRobots: r.robotsTxtState === "DISALLOWED",
+      });
+    } catch (e) {
+      failed.push({ url, reason: (e as Error).message });
+    }
+  }
+
+  const blocked = results.filter((r) => r.blockedByRobots).length;
+  return {
+    mode: "live", site: siteUrl, results, failed, blocked,
+    note: `${results.length} of ${wanted.length} URL(s) inspected`
+      + (failed.length ? `, ${failed.length} could not be (${failed[0].reason})` : "")
+      + `. ${blocked === 0 ? "Google reports none of them as blocked by robots.txt." : `Google reports ${blocked} as DISALLOWED by robots.txt — ${results.filter((r) => r.blockedByRobots).map((r) => r.url).slice(0, 5).join(", ")}.`}`,
+  };
+}

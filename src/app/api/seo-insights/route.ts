@@ -125,5 +125,56 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "Unknown action — use search-console or business-profile" }, { status: 400 });
+  // WHY A PAGE IS NOT BEING INDEXED, ANSWERED HERE INSTEAD OF IN A CONSOLE.
+  //
+  // Search Console emails "Blocked by robots.txt" and names no URLs, and the
+  // Coverage report has never been exposed through any API. So this does the
+  // looking: it reads the robots.txt the site actually publishes, walks the
+  // pages the sitemap actually offers, and reports every URL that is linked from
+  // an indexable page AND refused by robots — which is the condition that
+  // produces that email. NO CREDENTIAL IS NEEDED, which is the point: it works
+  // on a deployment with no Google connection at all.
+  if (action === "indexability") {
+    const { auditIndexability } = await import("@/backend/indexability");
+    const { siteOrigin } = await import("@/shared/site");
+    // OURS when the caller can act for the platform; otherwise the brand's own
+    // registered website, which is the site SiteRaid already crawls for them.
+    // Never an origin typed into the request body — that would make this an
+    // open crawler pointed at anybody.
+    const { hasScope } = await import("@/shared/roles");
+    const operator = Boolean(access.role && hasScope(access.role, "platform_admin"));
+    const site = (stored?.website || "").trim();
+    const origin = operator && body.scope === "platform"
+      ? siteOrigin()
+      : site
+        ? (/^https?:\/\//i.test(site) ? site : `https://${site}`)
+        : "";
+    if (!origin) {
+      return NextResponse.json({
+        error: "This brand has no website on record, so there is nothing to audit. Add the website in brand settings.",
+      }, { status: 400 });
+    }
+    let base = "";
+    try { base = new URL(origin).origin; } catch {
+      return NextResponse.json({ error: `"${origin}" is not an address this can audit.` }, { status: 400 });
+    }
+    const report = await auditIndexability({ origin: base, maxPages: 25, budgetMs: 40_000 });
+    return NextResponse.json(report);
+  }
+
+  // AND GOOGLE'S OWN VERDICT, when a credential exists. The audit above finds
+  // the contradiction; this confirms what Google actually did about it.
+  if (action === "url-inspection") {
+    const urls = Array.isArray(body.urls) ? body.urls.map(String).filter(Boolean) : [];
+    if (!urls.length) return NextResponse.json({ error: "urls[] required — the URL Inspection quota is 2,000 a day per property, so the caller names the pages it cares about." }, { status: 400 });
+    const mapping = await getGoogleMapping(brandId);
+    const property = typeof body.siteUrl === "string" && body.siteUrl.trim() ? body.siteUrl.trim() : (mapping?.siteUrl || "");
+    if (!property) {
+      return NextResponse.json({ error: "No Search Console property is mapped to this brand. Pick one with action \"search-console\" first — inspecting against the wrong property returns another site's index status." }, { status: 400 });
+    }
+    const { inspectUrls } = await import("@/backend/search-console");
+    return NextResponse.json(await inspectUrls(property, urls, { max: 20 }));
+  }
+
+  return NextResponse.json({ error: "Unknown action — use search-console, business-profile, indexability or url-inspection" }, { status: 400 });
 }

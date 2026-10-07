@@ -51,7 +51,8 @@
     "drive:capi": "node --import tsx scripts/drive-capi.mjs",
     "drive:contacts": "node --import tsx scripts/drive-contacts.mjs",
     "drive:bulk": "node --import tsx scripts/drive-bulk.mjs",
-    "drive:deliver": "node --import tsx scripts/drive-deliverability.mjs"
+    "drive:deliver": "node --import tsx scripts/drive-deliverability.mjs",
+    "drive:index": "node --import tsx scripts/drive-indexability.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",

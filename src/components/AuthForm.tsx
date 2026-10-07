@@ -406,7 +406,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                         for genuine configuration/outage errors, never for a normal wrong
                         password (a customer must never see internal diagnostics). */}
                     {/(configuration|internal|api[- ]?key|operation-not-allowed|not enabled|unavailable|temporarily|network)/i.test(error) && (
-                      <a href="/api/health/auth" target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-block font-semibold text-rose-200 underline hover:text-white">
+                      <a href="/api/health/auth" target="_blank" rel="noopener noreferrer nofollow" className="mt-1.5 inline-block font-semibold text-rose-200 underline hover:text-white">
                         Run the auth diagnostic →
                       </a>
                     )}

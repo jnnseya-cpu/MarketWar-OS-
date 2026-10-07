@@ -14,6 +14,17 @@ import { siteOrigin } from "@/shared/site";
 //   CUSTOMER-HOSTED PAGES ARE NOT LISTED HERE. /b/<brand>/<slug> belongs to the
 //   customer; those pages are indexable, but they are not ours to put in our
 //   sitemap.
+//
+//   THE DISALLOW LIST IS NOT WRITTEN HERE ANY MORE. It lives in
+//   `shared/robots-policy.ts` with a reason beside every line, because the audit
+//   that checks our own indexability has to read the same rules this file
+//   publishes — and because three of the lines that used to be here were a
+//   reported defect: `/login`, `/signup` and `/onboarding` are linked from the
+//   marketing header and six landing pages, so blocking them told Google to
+//   crawl a page the same site then refused to serve. They carry `noindex,
+//   follow` now, which is the state that actually means "do not index this".
+import { ROBOTS_DISALLOW } from "@/shared/robots-policy";
+
 const SITE = siteOrigin();
 
 export default function robots(): MetadataRoute.Robots {
@@ -22,9 +33,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        // Private surfaces and anything that would waste crawl budget or leak a
-        // signed-in view into the index.
-        disallow: ["/dashboard/", "/api/", "/onboarding", "/login", "/signup", "/r/"],
+        disallow: ROBOTS_DISALLOW.map((r) => r.path),
       },
     ],
     sitemap: `${SITE}/sitemap.xml`,

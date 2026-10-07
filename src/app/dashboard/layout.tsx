@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/shared/robots-policy";
 import Link from "next/link";
 import { BrandLockup } from "@/components/Logo";
 import Sidebar from "@/components/Sidebar";
@@ -14,6 +16,20 @@ import InstallPrompt from "@/components/InstallPrompt";
 import { BrandProvider } from "@/frontend/brand-context";
 import { ResultsProvider } from "@/frontend/results-context";
 import { LocaleProvider } from "@/frontend/locale-context";
+
+// NOINDEX ON THE WHOLE DASHBOARD, and the reason is a gap `Disallow: /dashboard/`
+// does not close.
+//
+// A robots prefix ending in a slash matches sub-paths ONLY: `/dashboard/` never
+// matched `/dashboard` itself. So the index page — the signed-in command centre
+// — was crawlable and indexable the entire time, and `/choose-plan` links to it
+// on purpose ("Explore the demo first"). Found by the audit, not by reading the
+// rule.
+//
+// The inner pages stay robots-blocked for crawl budget; this is what keeps the
+// index page out of the index, and it would also hold if the block were ever
+// removed. `follow` so the links out of it still count.
+export const metadata: Metadata = { robots: NOINDEX_METADATA };
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
