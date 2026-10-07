@@ -9738,17 +9738,34 @@ test("only a delivery failure may suppress an address", () => {
   assert.match(routing, /auto: kind === "auto-reply"/, "an auto-reply is shown, flagged");
 });
 
-test("the send never sets Reply-To to a host that cannot receive", () => {
+test("the send never sets Reply-To to a host that cannot receive", async () => {
   const route = readFileSync(new URL("../src/app/api/email/route.ts", import.meta.url), "utf8");
-  assert.match(route, /const replyTo = replyToRaw \|\| replyAddressFor\(brandId\) \|\| fromEmail/);
-  // The line above is only safe because the middle term is itself gated. That is
-  // the property worth asserting — the source text alone was equally true while
-  // every reply was bouncing.
+
+  // THE CHAIN THIS USED TO PIN ENDED IN `undefined`, and that was the defect the
+  // owner reported: with no Reply-to typed, no MW_REPLY_HOST and no
+  // authenticated brand domain — which is the live deployment — the header was
+  // omitted and the reply followed `From`, the PLATFORM's shared sender. This
+  // test asserted the chain faithfully and the chain was wrong, so the test
+  // certified it. It now pins the resolver and the term that was missing.
+  assert.match(route, /const reply = replyTarget\(\{/);
+  assert.match(route, /accountEmail: access\.email \|\| ""/,
+    "the last resort must be the account's own verified email, which needs no DNS from anybody");
+  assert.match(route, /const replyTo = reply\.address \|\| undefined/);
+
   const had = process.env.MW_REPLY_HOST;
   try {
     delete process.env.MW_REPLY_HOST;
     assert.equal(reply.replyAddressFor("veryx"), "",
-      "with no reply host stated the middle term must vanish, leaving the customer's own From address");
+      "with no reply host stated the platform term must vanish rather than name a host with no MX");
+    const { replyTarget } = await import("../src/shared/sender-identity.ts");
+    // And what fills the gap it leaves.
+    const t = replyTarget({
+      brandReplyAddress: reply.replyAddressFor("veryx"),
+      accountEmail: "owner@veryxjnn.com",
+      platformFrom: "info@marketwaros.com",
+    });
+    assert.equal(t.address, "owner@veryxjnn.com");
+    assert.equal(t.toPlatform, false, "a customer's campaign must never reply to the platform");
   } finally {
     if (had === undefined) delete process.env.MW_REPLY_HOST; else process.env.MW_REPLY_HOST = had;
   }

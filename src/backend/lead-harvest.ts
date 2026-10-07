@@ -20,17 +20,24 @@ if (typeof window !== "undefined") {
 // Pure + deterministic (seeded, no randomness) so it runs in demo mode and
 // unit-checks. Live MX/blacklist lookups refine it post-launch.
 
+import {
+  BUSINESS_LOCALPARTS, DISPOSABLE_MAILBOX_DOMAINS, mailboxRole, subscriberType,
+} from "@/shared/mailbox-class";
+import { softOptInApplies, type LegitimateInterestAssessment } from "@/shared/lia";
+
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
 const seed = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); };
 
 // ---------------------------------------------------------------------------
 // 1. Email classification — generic corporate vs personal (= personal data).
 // ---------------------------------------------------------------------------
-export const GENERIC_MAILBOXES = [
-  "info", "sales", "hello", "contact", "enquiries", "enquiry", "partnerships",
-  "marketing", "press", "procurement", "business", "support",
-];
-const DISPOSABLE_DOMAINS = ["mailinator.com", "guerrillamail.com", "10minutemail.com", "tempmail.com", "trashmail.com", "yopmail.com"];
+// THE LIST MOVED TO `shared/mailbox-class.ts` and this is now a view onto it.
+//
+// It had its own twelve words while `backend/email.ts` had nineteen different
+// ones, and the two disagreed about `info@`: lowest-risk and most lawful here,
+// refused outright there. One source of truth per concept.
+export const GENERIC_MAILBOXES: string[] = [...BUSINESS_LOCALPARTS].sort();
+const DISPOSABLE_DOMAINS = [...DISPOSABLE_MAILBOX_DOMAINS];
 
 export type EmailClass = {
   email: string; local: string; domain: string;
@@ -41,12 +48,17 @@ export type EmailClass = {
 
 export function classifyEmail(email: string): EmailClass {
   const [local = "", domain = ""] = String(email).toLowerCase().split("@");
-  const isGeneric = GENERIC_MAILBOXES.includes(local);
+  // Via the shared classifier, so `info-uk@` and `sales2@` are the same kind of
+  // mailbox as the bare word — a membership test on a flat list said otherwise.
+  const isGeneric = mailboxRole(email) !== "person";
   return {
     email: String(email).toLowerCase(), local, domain,
     contactType: isGeneric ? "generic" : "personal",
     riskCategory: isGeneric ? "low" : "higher",
-    personalData: !isGeneric, // a named-person mailbox is personal data even at a company
+    // PERSONAL DATA, NOT "UNMAILABLE". A named mailbox at a company identifies a
+    // person, so the UK GDPR applies to processing it — see `assessCompliance`,
+    // which no longer confuses that with needing the person's permission.
+    personalData: !isGeneric,
   };
 }
 
@@ -221,8 +233,27 @@ export const CANSPAM_REQUIREMENTS = [
 export type ComplianceInput = {
   record: ContactRecord;
   consentOnFile?: boolean;
+  /**
+   * A COMPLETED ASSESSMENT, not a promise to do one.
+   *
+   * Pass the record `shared/lia.ts` produces. `liaCompleted` is kept for the
+   * callers that only hold a boolean; an assessment supersedes it, because the
+   * verdict should say what the assessment found rather than that one exists.
+   */
+  lia?: LegitimateInterestAssessment;
   liaCompleted?: boolean;     // Legitimate Interest Assessment done + passed
   doNotContact?: boolean;
+  /**
+   * TRUE when this contact is a sole trader or unincorporated partnership. PECR
+   * treats them as INDIVIDUAL subscribers even on their own domain, and nothing
+   * about an address reveals which they are — so it is an input, flagged on
+   * every corporate verdict rather than assumed away.
+   */
+  soleTrader?: boolean;
+  /** For PECR's soft opt-in — an existing sale, enquiry or negotiation. */
+  relationship?: "purchase" | "enquiry" | "negotiation" | "none";
+  similarProducts?: boolean;
+  optOutOfferedAtCollection?: boolean;
 };
 export type ComplianceVerdict = {
   region: "UK_EU" | "US" | "OTHER";
@@ -255,24 +286,89 @@ export function assessCompliance(input: ComplianceInput): ComplianceVerdict {
     return { region, personalData: cls.personalData, lawfulBasis: "legitimate_interest", liaRequired: false, canContact: true, requirements, reasons };
   }
 
-  // UK/EU: corporate generic mailbox → legitimate interests (PECR softer for
-  // corporate subscribers). Personal data → consent OR LI backed by a passed LIA.
+  // UK/EU — AND THE DISTINCTION THAT DECIDES IT IS SUBSCRIBER TYPE, NOT WHETHER
+  // THE MAILBOX HAS A NAME ON IT.
+  //
+  // WHAT THIS REPLACES, AND WHY IT WAS WRONG. The previous version asked only
+  // "is this a generic mailbox"; a named mailbox at a company was `personal
+  // data` and, with no consent and no LIA, `canContact: false` with the reason
+  // "cannot contact until a lawful basis is established". `readiness()` turned
+  // that into an absolute block. So `dave@acme-plumbing.co.uk` — a published
+  // business address at a limited company — was unmailable, and the platform
+  // told its customer the contact had not consented.
+  //
+  // PECR regulation 22, the rule that requires consent before unsolicited
+  // marketing email, applies to an INDIVIDUAL SUBSCRIBER. A limited company,
+  // LLP, Scottish partnership or public body is a CORPORATE subscriber and
+  // regulation 22 does not apply to it — which is why B2B email marketing is
+  // lawful in the UK without consent, subject to truthful identification, an
+  // opt-out and the right to object. `info@company.co.uk` and
+  // `dave@company.co.uk` are BOTH corporate subscribers.
+  //
+  // The named one is additionally personal data under the UK GDPR, so the
+  // PROCESSING needs a lawful basis: Article 6(1)(f), legitimate interests, with
+  // the balancing test recorded. That is a document the sender writes, and
+  // `shared/lia.ts` writes it — the platform does not send the owner away to
+  // produce a GDPR assessment by hand.
+  //
+  // A CONSUMER MAILBOX IS THE OTHER WAY ROUND. `dave@gmail.com` is a person's
+  // own mailbox and an individual subscriber, so it needs consent or PECR's soft
+  // opt-in from a real sale or enquiry. That refusal is kept, because it is the
+  // one that is actually unlawful.
   if (region === "UK_EU") {
-    if (cls.contactType === "generic") {
-      reasons.push("UK/EU: generic corporate mailbox — legitimate interests is available (PECR B2B).");
-      return { region, personalData: false, lawfulBasis: "legitimate_interest", liaRequired: false, canContact: true, requirements, reasons };
-    }
-    // personal data
-    if (input.consentOnFile) {
-      reasons.push("UK/EU: personal data with consent on file — lawful.");
-      return { region, personalData: true, lawfulBasis: "consent", liaRequired: false, canContact: true, requirements, reasons };
-    }
-    if (input.liaCompleted) {
-      reasons.push("UK/EU: personal data — legitimate interests with a completed, passed LIA.");
+    const sub = subscriberType(rec.email, { soleTrader: input.soleTrader });
+
+    if (sub.type === "corporate") {
+      requirements.push("Right to object honoured on request", "Sender identified as a business");
+      if (sub.soleTraderRisk) {
+        requirements.push("Confirm the recipient is not a sole trader or unincorporated partnership");
+      }
+      reasons.push(`UK/EU: ${sub.why}`);
+      if (!sub.personalData) {
+        // A shared mailbox identifies nobody, so there is no personal data to
+        // find a basis for and no assessment to make.
+        return { region, personalData: false, lawfulBasis: "legitimate_interest", liaRequired: false, canContact: true, requirements, reasons };
+      }
+      if (input.consentOnFile) {
+        reasons.push("Consent is also on file, which is the stronger basis of the two.");
+        return { region, personalData: true, lawfulBasis: "consent", liaRequired: false, canContact: true, requirements, reasons };
+      }
+      // THE ASSESSMENT IS THE BASIS. A supplied one that FAILED is a refusal
+      // with a reason — a missing input, which is fixable — and not a blanket
+      // "no lawful basis".
+      if (input.lia) {
+        if (!input.lia.passed) {
+          reasons.push(`The legitimate-interest assessment did not pass: ${input.lia.outcome}`);
+          return { region, personalData: true, lawfulBasis: "none", liaRequired: true, canContact: false, requirements, reasons };
+        }
+        reasons.push(input.lia.outcome);
+        return { region, personalData: true, lawfulBasis: "legitimate_interest", liaRequired: true, canContact: true, requirements, reasons };
+      }
+      reasons.push(
+        input.liaCompleted
+          ? "A completed legitimate-interest assessment is recorded for this send."
+          : "Legitimate interests is the basis; the balancing test is recorded with the send by the platform rather than being asked of the sender.",
+      );
       return { region, personalData: true, lawfulBasis: "legitimate_interest", liaRequired: true, canContact: true, requirements, reasons };
     }
-    reasons.push("UK/EU: personal data with no consent and no completed LIA — cannot contact until a lawful basis is established.");
-    return { region, personalData: true, lawfulBasis: "none", liaRequired: true, canContact: false, requirements, reasons };
+
+    // INDIVIDUAL SUBSCRIBER — consent, or PECR's soft opt-in.
+    reasons.push(`UK/EU: ${sub.why}`);
+    if (input.consentOnFile) {
+      reasons.push("Consent is on file, so this is lawful.");
+      return { region, personalData: true, lawfulBasis: "consent", liaRequired: false, canContact: true, requirements, reasons };
+    }
+    const soft = softOptInApplies({
+      relationship: input.relationship ?? "none",
+      similarProducts: input.similarProducts ?? false,
+      optOutOfferedAtCollection: input.optOutOfferedAtCollection ?? false,
+    });
+    if (soft.applies) {
+      reasons.push(soft.why);
+      return { region, personalData: true, lawfulBasis: "consent", liaRequired: false, canContact: true, requirements, reasons };
+    }
+    reasons.push(soft.why);
+    return { region, personalData: true, lawfulBasis: "none", liaRequired: false, canContact: false, requirements, reasons };
   }
 
   // Other regions — default to the strict path.

@@ -27,6 +27,8 @@ if (typeof window !== "undefined") {
 import { mergeTemplate } from "@/backend/email-templates";
 import { injectTracking, unsubscribeUrl, trackingBaseFor, suppressedEmails } from "@/backend/email-events";
 import { filterList } from "@/backend/email";
+import { verifyRecipients } from "@/backend/address-verify";
+import { bulkEligibility } from "@/shared/mailbox-class";
 import { fixTokens, tokenWarnings, usedTokens } from "@/shared/merge-tokens";
 import type { Contact } from "@/backend/contacts";
 import { selectByGroups } from "@/shared/contact-groups";
@@ -322,9 +324,15 @@ export async function buildEmailPreview(input: {
   // to disagree in the first place.
   const groupFilter = (input.groups ?? []).filter((g) => typeof g === "string" && g.trim().length > 0);
   const pool = groupFilter.length ? selectByGroups(byStatus, groupFilter) : byStatus;
+  // THE SEND'S OWN ELIGIBILITY RULE, not `consent !== false`. See
+  // `shared/mailbox-class.ts`: a contact saved by the First Customer sprint
+  // carries `consent: false` meaning "no opt-in on file", and reading that as a
+  // refusal excluded every business found in a public listing. An opt-out is
+  // still excluded; a corporate subscriber is mailable; a personal mailbox with
+  // nothing recorded is not.
   const consented = input.statusFilter
     ? pool.filter((c) => c.email)
-    : pool.filter((c) => c.email && c.consent !== false);
+    : pool.filter((c) => c.email && bulkEligibility({ email: String(c.email), consent: c.consent }).mailable);
 
   // THE SAME TWO FILTERS THE SEND APPLIES, IN THE SAME ORDER — because until
   // now the preview stopped at consent and the send went on to reject the
@@ -346,11 +354,21 @@ export async function buildEmailPreview(input: {
   // reason: proceeding as though nobody opted out is how a platform mails people
   // who asked it not to.
   const suppressed = await suppressedEmails(input.brandId);
-  const eligible = consented.filter((c) => {
+  // AND THE THIRD FILTER THE SEND APPLIES — the one that was added after this
+  // comment block was written, which is exactly when a preview drifts. The send
+  // resolves every domain's mail route and removes the addresses nothing accepts
+  // mail for; a preview that skipped it would count guaranteed bounces as
+  // recipients and print a larger number than the button delivers. Same
+  // function, not a second implementation.
+  const afterLedger = consented.filter((c) => {
     const e = String(c.email).toLowerCase();
     return hygienic.has(e) && !suppressed.has(e);
   });
+  const dns = await verifyRecipients(afterLedger.map((c) => String(c.email)));
+  const deliverable = new Set(dns.deliverable);
+  const eligible = afterLedger.filter((c) => deliverable.has(String(c.email).toLowerCase()));
   const refusedByHygiene = consented.length - eligible.length;
+  const undeliverable = dns.removed.length;
 
   const wanted = Math.max(1, Math.min(5, input.samples ?? 3));
   // Prefer contacts with a MISSING first name in the sample. Those are the ones
@@ -424,7 +442,12 @@ export async function buildEmailPreview(input: {
       // hygiene and suppression filters, the count can be lower than "everyone
       // who consented" — and a number that quietly shrinks is its own puzzle.
       refusedByHygiene
-        ? `${refusedByHygiene} more consented, but ${refusedByHygiene === 1 ? "that address is" : "those addresses are"} disposable, a role mailbox, or already unsubscribed, so the send will refuse ${refusedByHygiene === 1 ? "it" : "them"}.`
+        ? `${refusedByHygiene} more consented, but ${refusedByHygiene === 1 ? "that address is" : "those addresses are"} disposable, an abuse-desk mailbox, already unsubscribed, or at a domain that accepts no mail, so the send will refuse ${refusedByHygiene === 1 ? "it" : "them"}.`
+        : "",
+      // NAMED SEPARATELY, because it is the one with a fix the customer can
+      // make: a mistyped domain is correctable, an unsubscribe is not.
+      undeliverable
+        ? `${undeliverable} of those ${undeliverable === 1 ? "is" : "are"} at a domain with no mail route at all — ${dns.removed.slice(0, 2).map((r) => r.suggestion ? `${r.email} (did you mean ${r.suggestion}?)` : r.email).join(", ")}${undeliverable > 2 ? ` and ${undeliverable - 2} more` : ""}. Every one of them would have hard-bounced.`
         : "",
     ].filter(Boolean).join(" "),
   };

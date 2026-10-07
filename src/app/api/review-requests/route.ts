@@ -8,6 +8,8 @@ import { listContacts } from "@/backend/contacts";
 import { recordAsks, askedDaysAgo } from "@/backend/review-asks";
 import { sendEmailBatch } from "@/backend/email";
 import { resolveBrandAccess } from "@/backend/brand-access";
+import { replyTarget } from "@/shared/sender-identity";
+import { replyAddressFor } from "@/backend/reply-routing";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { meterAction } from "@/backend/wallet";
 
@@ -89,9 +91,17 @@ export async function POST(req: NextRequest) {
   // records elsewhere.
   let candidates: RequestCandidate[] = [];
   const brandId = str("brandId");
+  // THE ADDRESS REPLIES COME BACK TO. A review request asks "how was it?", so a
+  // reply is the most valuable thing it can produce — and with no `Reply-To` the
+  // answer follows the `From`, which for a brand without its own authenticated
+  // domain is the PLATFORM's shared sender. The customer's own happy customer
+  // ends up writing to MarketWar. The account's verified email needs no DNS and
+  // is a mailbox they already read.
+  let accountEmail = "";
   if (brandId) {
     const access = await resolveBrandAccess(req, brandId);
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    accountEmail = access.email || "";
     const contacts = await listContacts(brandId).catch(() => []);
     // Only the transactional fields cross this boundary — the eligibility
     // engine has nowhere to put an opinion even if one were supplied.
@@ -194,7 +204,13 @@ export async function POST(req: NextRequest) {
       };
     });
 
-  const sent = await sendEmailBatch(items, { brandId });
+  const reply = replyTarget({
+    stated: str("replyTo"),
+    brandReplyAddress: replyAddressFor(brandId),
+    accountEmail,
+    platformFrom: process.env.EMAIL_FROM || "",
+  });
+  const sent = await sendEmailBatch(items, { brandId, replyTo: reply.address || undefined });
   const delivered = batch.filter((c, i) => c.email && sent[i]?.ok);
   const rows = await recordAsks({ brandId, contactIds: delivered.map((c) => c.id), platformId, channel: "email", nowISO });
 
@@ -205,6 +221,9 @@ export async function POST(req: NextRequest) {
     remaining: Math.max(0, campaign.eligibility.eligible.length - batch.length),
     pacing: campaign.pacing,
     failures: sent.map((r, i) => (r.ok ? null : { to: items[i]?.to, detail: r.detail })).filter(Boolean),
+    // Where the answers will arrive. `toPlatform` true means they would reach
+    // MarketWar rather than the business that asked, which is a defect.
+    replyRouting: { address: reply.address, source: reply.source, toPlatform: reply.toPlatform, why: reply.why },
     doctrine: campaign.doctrine,
   });
 }

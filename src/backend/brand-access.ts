@@ -41,6 +41,21 @@ export type BrandAccess =
        * when isolation is not enforced (demo/CI).
        */
       workspaceRole?: WorkspaceRole;
+      /**
+       * THE SIGNED-IN ACCOUNT'S VERIFIED EMAIL, carried across this boundary
+       * because the one caller that needed it could not get at it.
+       *
+       * `requireAuth` decodes it from the Firebase ID token — verified, and a
+       * mailbox the customer demonstrably reads, since their own sign-in mail
+       * goes there. This function had it in hand on line one and dropped it, so
+       * `/api/email` had no address to route replies to and fell through to the
+       * platform's own sender: a customer's campaign got answered, and the reply
+       * arrived in MarketWar's mailbox instead of theirs.
+       *
+       * NULL in demo/CI, where there are no accounts. Never used for anything
+       * but routing a reply back to the person who sent the campaign.
+       */
+      email?: string | null;
     }
   | { ok: false; status: number; error: string };
 
@@ -64,7 +79,7 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
 
   // Zero-config demo / no Admin (dev/CI): nothing to enforce — pass through.
   if (!auth.enforced || !adminConfigured || !adminDb) {
-    return { ok: true, enforced: false, uid: auth.uid, role: auth.role };
+    return { ok: true, enforced: false, uid: auth.uid, role: auth.role, email: auth.email };
   }
 
   const uid = auth.uid;
@@ -93,7 +108,7 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
       // untouched, so no existing access changed.
       const granted = await roleFor(uid, brandId);
       if (granted) {
-        return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: granted };
+        return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: granted, email: auth.email };
       }
       // One of these is a stale tab. Five in half an hour is somebody trying ids,
       // which is exactly the shape Sentinel's tenant-probing rule looks for.
@@ -101,7 +116,7 @@ export async function resolveBrandAccess(req: Request, brandIdRaw: string): Prom
       return { ok: false, status: 403, error: "This brand belongs to another account" };
     }
     // The owner. Always the widest role, and no grant can take it away.
-    return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: "owner" };
+    return { ok: true, enforced: true, uid, role: auth.role, workspaceRole: "owner", email: auth.email };
   } catch {
     // Fail closed: never fall through to serving another brand's data.
     return { ok: false, status: 503, error: "Brand access check temporarily unavailable" };
