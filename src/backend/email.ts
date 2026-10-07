@@ -120,22 +120,33 @@ export const emailProvider: "smtp" | "demo" = poolConfigured() ? "smtp" : "demo"
 // 1. Address hygiene pipeline (the "filter" stage — runs before every send)
 // ---------------------------------------------------------------------------
 
-// Well-known disposable/burner domains — bounces and spam-trap risk. The
-// production list syncs from the hygiene service; this seed set catches the
-// most common offenders even in demo mode.
-const DISPOSABLE_DOMAINS = new Set([
-  "mailinator.com", "guerrillamail.com", "10minutemail.com", "tempmail.com",
-  "temp-mail.org", "throwaway.email", "yopmail.com", "sharklasers.com",
-  "getnada.com", "trashmail.com", "fakeinbox.com", "dispostable.com",
-]);
-
-// Role addresses depress engagement and attract complaints — flagged, and
-// excluded by default from marketing sends (transactional may override).
-const ROLE_LOCALPARTS = new Set([
-  "admin", "administrator", "webmaster", "postmaster", "hostmaster", "abuse",
-  "noreply", "no-reply", "info", "support", "sales", "contact", "office",
-  "billing", "help", "marketing", "newsletter", "spam", "security",
-]);
+// THE CLASSIFICATION LIVES IN ONE PLACE NOW — `shared/mailbox-class.ts`.
+//
+// WHAT WAS WRONG HERE, and it was the single most expensive line in the file.
+// This module held its own ROLE_LOCALPARTS containing `info`, `sales`,
+// `contact`, `office`, `support`, `billing`, `help` and `marketing`, and marked
+// every one of them UNSENDABLE — "role address — excluded from marketing sends
+// by default".
+//
+// For a platform that sells B2B outreach to trades and suppliers, those are THE
+// addresses. They are what a plumber publishes on their own contact page, and
+// very often the only address that exists. Meanwhile `backend/lead-harvest.ts`
+// held a SECOND list and called the same mailboxes the lowest-risk, most lawful
+// contact a business has, and the hunter's readiness model scored them 75/100.
+// So the platform found a business's front door, told the customer it was the
+// best address on the page, and then refused to mail it.
+//
+// The two lists did not even agree: `hello@` and `enquiries@` sent, `info@` and
+// `sales@` did not, because of which hand-written list a word had landed in.
+//
+// The refusal is now narrow and has a reason: an ABUSE-DESK mailbox
+// (`abuse@`, `postmaster@`) or a SEND-ONLY one (`noreply@`, `mailer-daemon@`).
+// Mail to the first reports you as a spammer to the one person who can act on
+// it; mail to the second is a bounce by construction. Everything else is a
+// business mailbox and is mailed.
+import {
+  DISPOSABLE_MAILBOX_DOMAINS, isSystemMailbox, isBusinessMailbox,
+} from "@/shared/mailbox-class";
 
 const EMAIL_RE =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
@@ -147,9 +158,22 @@ export type EmailVerdict = {
   checks: {
     syntax: boolean;
     disposable: boolean;
+    /**
+     * TRUE ONLY FOR A MAILBOX THAT MUST NEVER RECEIVE MARKETING MAIL — an abuse
+     * desk or a send-only address. The key keeps its name because `list-health`
+     * and the dashboard are shaped around it, but its MEANING changed: it used
+     * to be true for `info@` and `sales@`, which is why they were never mailed.
+     */
     role: boolean;
     suppressed: boolean;
   };
+  /**
+   * A shared business mailbox (`info@`, `sales@`, `office@`). SENDABLE — this is
+   * here so copy can avoid opening with a first name nobody owns, and so a
+   * surface can count the business front doors in a list. It is never a reason
+   * to refuse.
+   */
+  businessMailbox: boolean;
   reason: string | null;
 };
 
@@ -207,22 +231,26 @@ export function validateAddress(raw: string): EmailVerdict {
   const email = raw.trim().toLowerCase();
   const syntax = EMAIL_RE.test(email);
   const domain = syntax ? email.split("@")[1] : "";
-  const localpart = syntax ? email.split("@")[0] : "";
-  const disposable = DISPOSABLE_DOMAINS.has(domain);
-  const role = ROLE_LOCALPARTS.has(localpart);
+  const disposable = DISPOSABLE_MAILBOX_DOMAINS.has(domain);
+  // NOT "is this a role address". See the note at the top of the file: the only
+  // mailboxes refused here are the ones where arriving marketing mail harms the
+  // sender. `info@` and `sales@` are business front doors and are mailed.
+  const role = syntax && isSystemMailbox(email);
+  const businessMailbox = syntax && isBusinessMailbox(email);
   const suppressed = hardFailureLedger.has(email);
 
   let reason: string | null = null;
   if (!syntax) reason = "invalid syntax — would hard-bounce";
   else if (disposable) reason = "disposable domain — bounce/spam-trap risk";
   else if (suppressed) reason = "hard-bounced or marked as spam — never re-sent from any brand";
-  else if (role) reason = "role address — excluded from marketing sends by default";
+  else if (role) reason = "abuse-desk or send-only mailbox — marketing mail here is reported as spam or bounces";
 
   return {
     email,
     valid: syntax && !disposable,
     sendable: syntax && !disposable && !suppressed && !role,
     checks: { syntax, disposable, role, suppressed },
+    businessMailbox,
     reason,
   };
 }

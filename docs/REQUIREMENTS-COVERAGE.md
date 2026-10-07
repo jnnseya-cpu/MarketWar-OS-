@@ -8536,7 +8536,7 @@ A fourth `success_url` in `checkout.ts` **fails** that test rather than being
 silently covered or silently missed: whether a new checkout is our money is a
 judgement, and a test that quietly guesses is how the wrong answer ships.
 
-### Mutation testing — 12 mutants, all killed
+### Mutation testing — 19 mutants, all killed
 
 | Mutant | Killed by |
 |---|---|
@@ -9677,3 +9677,354 @@ it and nothing in `src/` should** — disabling certificate verification against
 real mail host would mean handing SMTP credentials to whoever answered the
 connection. A security-relevant name is the last thing that should be invisible
 because it was uncatalogued.
+
+## §160 — Four things the bulk sender got wrong, all four reported and all four real (2026-10-07)
+
+**Owner report, verbatim.** *"Bulk email is completely wrong. It's blocking email
+pretending that they were taking without consent (this has to stop). Email address
+which will be bouncing back are sent (wrong as brevo remove then before sending).
+Info@ and sales@ are excluded (wrong). User bulk emails sent bounced back in the
+platform email inbox, that's mean reply will follow the same route (wrong it must
+be to the use Inbox)."*
+
+Every one was measured before anything was written. `scripts/drive-deliverability.mjs`
+is that measurement, kept.
+
+### 1. `info@` and `sales@` were refused — while the harvester called them the best address on the page
+
+`backend/email.ts` held `ROLE_LOCALPARTS` and marked `info`, `sales`, `contact`,
+`office`, `support`, `billing`, `help`, `marketing` **unsendable**: *"role address
+— excluded from marketing sends by default"*.
+
+`backend/lead-harvest.ts` held a **second list** and called the same mailboxes the
+**lowest-risk, most lawful** contact a business can have — *"generic corporate
+mailbox — legitimate interests is available"* — and
+`shared/contact-hunter.ts` scored `ROLE_ACCOUNT` at **75 of 100**.
+
+**So the platform found a business's front door, told the customer it was the best
+address available, and then would not mail it.** For a product selling B2B
+outreach to trades and suppliers, that is the only published address most of the
+time.
+
+And the two lists did not even agree with each other. Measured:
+
+```
+  REFUSED   info@acme-plumbing.co.uk       role address — excluded …
+  REFUSED   sales@acme-plumbing.co.uk      role address — excluded …
+  SENDABLE  enquiries@acme-plumbing.co.uk
+  SENDABLE  hello@acme-plumbing.co.uk
+```
+
+`hello@` sent and `info@` did not, for no reason beyond which hand-written list a
+word had landed in.
+
+**One source of truth now: `src/shared/mailbox-class.ts`**, read by both. And the
+refusal is narrow, with a reason that is about harm rather than about tone:
+
+- **the abuse channel** — `abuse@`, `postmaster@`, `hostmaster@`, `spam@`. RFC 2142
+  mailboxes that route to a domain's mail administrators. Marketing mail arriving
+  there is reported and blocklisted: it is reporting yourself as a spammer to the
+  one person who can act on it.
+- **the send-only mailbox** — `noreply@`, `mailer-daemon@`, `bounce@`, `root@`.
+  Unread, or refused by the host, so a message there is a bounce by construction.
+
+Everything else is mailed. `mailboxRole` also strips a suffix or a digit, because
+a flat membership test mailed `info@` and refused `info-uk@` — the same
+list-shaped defect one character along.
+
+### 1b. Where the blocking actually came from: the platform's own prospecting
+
+The compliance engine (§2 below) was half of it. The other half was one line, and
+it is the one the owner was looking at.
+
+`src/app/dashboard/first-customer/page.tsx` — the First Customer sprint — finds
+real businesses in public listings and saves them to the Customer Vault with
+**`consent: false`**, under a comment that reads:
+
+> *Consent is deliberately NOT set. These are businesses found in public
+> listings, not people who opted in — marking them consented would be a lie that
+> later authorises a marketing send nobody agreed to.*
+
+**The reasoning is right.** The field was wrong. `/api/email` then filtered
+`c.consent !== false`, `email-preview.ts` did the same, and `list-health.ts`
+labelled the result *"No consent recorded — not mailable"*.
+
+**So the platform's own prospecting feature wrote the refusal its own sender
+enforced, about companies nobody had asked anything.** That is the
+"pretending they were taken without consent", and it is the same boundary defect
+as always: one side wrote `false` meaning *no opt-in on file*, the other read it
+meaning *no*.
+
+**Absence and refusal are opposite facts, and they were sharing one field.** Three
+states, not two:
+
+| `consent` | means | mailable |
+|---|---|---|
+| `false` | they asked not to be emailed | **never** — no basis overrides an objection |
+| `true` | opted in | yes |
+| `undefined` | **nothing is recorded** — not a refusal | depends on subscriber type |
+
+**And deleting the consent check — the obvious fix — would have been worse than
+the bug.** A found `dave@gmail.com` is an individual subscriber, and mailing it
+with nothing on file is the case that genuinely is unlawful. So the rule lives in
+one place, `bulkEligibility` in `shared/mailbox-class.ts`, and it is read by the
+send, the preview AND the list-health donut — three implementations of "who
+receives this" is how a preview comes to disagree with the button underneath it,
+which this codebase has already paid for twice.
+
+The sprint now records the truth (nothing on file), and the donut separates
+**"asked not to be emailed"** from **"personal mailbox with no consent, sale or
+enquiry on file"** — different facts, different fixes, and only one of them is
+somebody's decision.
+
+### 2. A UK company contact was blocked as though the person had refused
+
+`assessCompliance` for UK/EU asked only *"is this a generic mailbox"*. A **named**
+mailbox at a limited company was `personalData: true` and, with no consent and no
+LIA, returned:
+
+```
+  lawfulBasis=none  canContact=false
+  "UK/EU: personal data with no consent and no completed LIA —
+   cannot contact until a lawful basis is established."
+```
+
+`readiness()` turned that into an **absolute block**, in a function whose own
+comment says *"each is absolute: no score clears them, and there is no parameter
+anywhere in this function that lets a caller override one."*
+
+**That is wrong in law and wrong as a product.**
+
+**In law:** PECR regulation 22 — the rule requiring consent before unsolicited
+marketing email — applies to an **individual subscriber**. A limited company, LLP,
+Scottish partnership or public body is a **corporate subscriber**, and regulation
+22 does not apply to it. That is why B2B email marketing is lawful in the UK
+without consent, subject to truthful identification, an opt-out and the right to
+object. `info@company.co.uk` and `dave@company.co.uk` are **both** corporate
+subscribers. The named one is additionally personal data under the UK GDPR, so the
+**processing** needs a basis — Article 6(1)(f), legitimate interests, with the
+balancing test recorded. **That is a document the sender writes, not permission
+the recipient grants.** The old code conflated the two, which is how "no consent"
+became "no lawful basis".
+
+**As a product:** the remedy was a GDPR document, and nothing told the customer
+how to produce one. Telling the owner to go and write it by hand is precisely what
+this platform exists not to do.
+
+**So `src/shared/lia.ts` writes it.** The ICO's three-part test — purpose,
+necessity, balancing — answered from inputs the platform already holds: who is
+sending, what they sell, who the recipient is, where the address was published,
+and what the message is for. Dated, naming the controller and the subject, with
+the safeguards listed.
+
+**And it can fail, which is what makes it worth having.** Nothing in it is
+invented: a missing input fails the part it belongs to rather than being filled in
+with a plausible sentence, because a fabricated balancing test is worse than none
+— it is the document that would be produced to a regulator. No provenance fails
+necessity; no purpose or no recipient context fails balancing. A failed assessment
+refuses the contact, naming the **missing input** rather than claiming the
+recipient withheld something.
+
+**The refusal that is kept, because this one really is unlawful:** a consumer
+mailbox (`dave@gmail.com`) is an individual subscriber and needs consent, or
+PECR's **soft opt-in** — details obtained in the course of a sale or negotiation,
+similar products, and an opt-out offered at collection. **All three, or none**; a
+bought list has none of them, and calling that a soft opt-in is the most common
+route to an ICO letter.
+
+**The one thing an address cannot reveal, carried rather than assumed away:** a
+**sole trader or unincorporated partnership is an individual subscriber under
+PECR even on their own domain**, and no parsing shows which companies those are.
+Every corporate verdict therefore carries `soleTraderRisk: true` and a requirement
+to confirm it; marking a contact as a sole trader moves it to the individual rule.
+
+### 3. Addresses that were always going to bounce went out
+
+Hygiene checked three things: syntax, a list of twelve disposable domains, and the
+in-process suppression set. **It never asked whether the domain could receive mail
+at all.** Measured:
+
+```
+  dave@gmial.com                               hygiene=SENDABLE   real MX=NONE
+  dave@acme-plumbing-does-not-exist-xyz.co.uk  hygiene=SENDABLE   real MX=NONE
+```
+
+Worse, the Email Command Center's own pipeline card had been promising *"real
+domain with MX records — dead addresses never reach a provider"* for months. **A
+described check that does not exist** is this codebase's second defect class
+inverted, on the screen the customer reads before pressing send.
+
+`src/backend/address-verify.ts` now does it: one query per **domain** (a
+250-address list at 40 companies is 40 lookups, cached, so the next campaign to
+the same list is nearly free), in the **send and the preview**, from the same
+function, because a preview that counts people the send removes is the fault this
+platform has already paid for twice.
+
+**THE FINDING THAT CHANGED THE DESIGN, and my own fixture was wrong first.** I
+expected a typo domain to bounce. Measured:
+
+```
+  gmial.com   MX:ENODATA              A=51.79.68.169
+  gnail.com   MX=mx1.oweb.cn,mx2…     A=156.241.15.30
+```
+
+**A mistyped consumer domain usually does not bounce — it DELIVERS.** `gmial.com`
+resolves to a live host and `gnail.com` publishes **real MX records at a
+squatter**, because collecting misdirected mail is the reason it was registered.
+So the campaign, and the fact that one is being sent, is delivered to a stranger,
+and spam traps live at exactly these domains. That is worse than a bounce, so the
+typo check runs **before and independently of** the mail route, and costs no DNS
+query at all. The correction is **offered, never applied** — rewriting an address
+somebody typed is a guess about their intent, and a wrong guess mails a stranger.
+
+Two more rules, both of which prevent a worse failure than the one being fixed:
+
+- **RFC 5321 §5.1 — an A record with no MX is an implicit mail exchanger**, and
+  small business domains still rely on it. Checking only MX would delete
+  deliverable addresses. RFC 7505's null MX (`MX 0 .`) is honoured as the explicit
+  refusal it is.
+- **AN UNANSWERED LOOKUP KEEPS THE ADDRESS.** A timeout or a SERVFAIL means we do
+  not know, and silently dropping a real customer because a resolver was slow is
+  the worse failure, because nobody ever finds out it happened. Only a definite
+  negative removes. Driven against `dnssec-failed.org`, which answers ESERVFAIL
+  from any validating resolver.
+
+Only a **non-existent domain** is remembered on the suppression ledger. A domain
+with no mail route today may be mid-setup, so it is skipped for this send and
+asked again next time rather than written off.
+
+### 4. Replies were coming to us
+
+```
+  replyToRaw || replyAddressFor(brandId) || fromEmail || undefined
+```
+
+On the live deployment **every term but the last is empty**: no Reply-to typed,
+`MW_REPLY_HOST` unset so the brand's platform reply address is `""` by design, and
+a brand with no authenticated domain has no `fromEmail`. So `Reply-To` was
+**absent**, and a message with no Reply-To is replied to at its `From` — the
+platform's shared sender. Confirmed by DNS rather than by reading:
+`marketwaros.com` has MX at Hostinger, `reply.marketwaros.com` and
+`bounces.marketwaros.com` have none.
+
+**A signed-up customer sent a campaign, a prospect answered it, and the answer
+arrived in MarketWar's mailbox.** The one message worth the whole campaign,
+delivered to the wrong company.
+
+**And the fix needed no DNS from anybody.** The customer has a **verified account
+email** — Firebase checked it at sign-up, and it is demonstrably a mailbox they
+read, because that is where their own sign-in mail goes. It was one call away:
+`requireAuth` decodes it and **`resolveBrandAccess` threw it away** before the
+route could use it. The oldest defect class in this repository: a value that
+exists on one side of a boundary and never crosses it. All three success returns
+carry it now, and a test counts all three, because one path still losing it loses
+the reply.
+
+`shared/sender-identity.ts` gained `replyTarget` — pure, so the pre-send check and
+the send cannot disagree — with the precedence **stated → the brand's own platform
+reply address → the brand's authenticated From → the account's verified email**,
+and `toPlatform` reported as the **defect** it is rather than a setting. Applied on
+the campaign path, the single-send transactional door when a brand is named, and
+review requests (where a reply is the entire point of asking "how was it?").
+`replyRouting` is in every send's response.
+
+**BOUNCES STAY OURS, DELIBERATELY, and that distinction is the fix.** A delivery
+failure must come back to the platform: it is the platform that parses it,
+suppresses the dead address and protects a pool whose reputation is shared by every
+tenant. Every sending service works this way. What the customer needs is not the
+failure notice in their inbox — it is to be **told**, and the dashboard already
+shows each brand its own bounce, complaint and suppression counts. **Reply-To and
+Return-Path are not two settings of one thing.**
+
+### Mutation testing — 19 mutants, all killed
+
+| Mutant | Killed by |
+|---|---|
+| 1. `info@` back on the system list | the front-door sweep |
+| 2. `sendable` stops consulting the system check | the same, from the other side |
+| 3. a consumer mailbox treated as corporate | the PECR subscriber test |
+| 4. a corporate subscriber refused | the lawful-basis test |
+| 5. a relationship alone counted as a soft opt-in | the three-conditions test |
+| 6. the necessity test passes with no provenance | the LIA test |
+| 7. the typo check moved after the mail-route verdict | the squatter test |
+| 8. a failed lookup removes the address | the keeps-the-address test |
+| 9. the account email dropped as a reply fallback | the reply test |
+| 10. one of brand-access's three returns loses it | the boundary count |
+| 11. the route sends the unverified list | the preview/send agreement test |
+| 12. the mailbox stem left unstripped | the `info-uk@` test |
+
+| 13. an unrecorded consent read as a refusal again | the eligibility test |
+| 14. an explicit opt-out overridden by legitimate interests | the same |
+| 15. an individual subscriber with nothing on file made mailable | the same |
+| 16. the donut folding a missing record into the opt-out row | the donut test |
+| 17. the sprint writing `consent: false` again | the sprint test |
+| 18. the route going back to its own consent test | the one-rule test |
+| 19. the preview going back to its own consent test | the one-rule test |
+
+**TWO VACUOUS ATTEMPTS OF MY OWN, both recorded rather than left looking like
+coverage.**
+
+1. Mutant 8's first version added a nonsense property (`accepts2`) instead of
+   changing `accepts`, so it altered nothing and "survived" a check that was in
+   fact sound. A mutant that changes no behaviour is evidence of nothing.
+2. **Mutant 17 genuinely survived, and the test was the reason.** It asserted
+   `doesNotMatch(codeOf(page), /consent: false/)` — and `codeOf` strips
+   `/* … */`, while a `.tsx` file is full of `{/* … */}` JSX comments, so the
+   span it removed **swallowed the code being asserted on**. The check passed
+   with the defect reinstated. It now uses an anchored line pattern
+   (`^\s+consent: false,$`) against the raw source, which needs no stripping and
+   cannot match a commented mention because that line starts with `//`.
+
+   This is the eighth time a test in this repository has failed on its own prose,
+   and the first time `codeOf` — the helper written to prevent exactly that — was
+   itself the cause. **`codeOf` is unsafe on `.tsx`.** Only mutation testing
+   found it; the suite was green.
+
+### Driven — 57 proven / 0 broken (`npm run drive:deliver`)
+
+Real DNS over the network, a real TLS SMTP server, the real hygiene pipeline, the
+real compliance engine, the real MIME builder and the real bytes on the wire. Only
+the receiving mail host is stood in for.
+
+**NOT PROVEN, and the claim is deliberately narrower than a competitor's would
+be:** whether a particular MAILBOX exists. That needs an SMTP conversation with
+the receiving host, and this platform will not do it — most hosts accept-all and
+answer `250` for everything, Gmail and Microsoft refuse callouts from addresses
+they do not know, and the probe goes out **from our sending IP**, so a
+verification run would spend the reputation it exists to protect. A domain that
+accepts mail is reported as exactly that, and a test asserts the wording never
+widens.
+
+### Four existing tests failed, and each failure was correct
+
+1. **two preview tests** — their fixtures use `example.com`, which publishes a
+   **null MX**: RFC 7505 for "this domain accepts no mail". The new check was
+   right and the fixture meant something else.
+2. **"the preview counts who will RECEIVE it"** asserted `wouldReceive === 2` with
+   the comment *"the disposable and the role mailbox are both refused at send
+   time"* — the defect, pinned. Now 3, with `info@` asserted by name so a future
+   list cannot quietly put it back. It also modelled the send with ONE of its two
+   filters, which would have certified a preview/send gap.
+3. **"the send never sets Reply-To to a host that cannot receive"** pinned the old
+   chain faithfully — *and the chain ended in `undefined`*. The test certified the
+   bug. It pins the resolver and the account-email term now.
+4. **"every process.env variable in the source is catalogued"** caught
+   `MW_DNS_TIMEOUT_MS`. Catalogued in `ENV_TUNING` with what moving it in either
+   direction does, and the note that neither direction can delete a contact.
+
+**A new helper exists because of #1: `primeMailRoute`.** The suite must not depend
+on DNS — a test whose result changes with network availability is not a test. It
+writes the same cache production reads, so it cannot change behaviour, only skip a
+lookup; nothing in `src/` calls it, and the real resolver is driven for real.
+
+### Two new HIGH advisories, patched at the packages carrying the fixes
+
+- **`sharp`** — GHSA-wq5f-xc86-pv6w, a vulnerability in its bundled librsvg
+  (CVE-2026-96889). `^0.35.4` → `^0.35.5`, a patch of a direct dependency.
+  **Driven**, because sharp is a native module and a typecheck says nothing about
+  it: PNG create, metadata, JPEG and WebP re-encode, and **SVG → PNG** — the
+  librsvg path the CVE is about — all correct on 0.35.5 / libvips 8.18.7.
+- **`source-map-js`** — GHSA-68fv-2mgg-jv7q, an event-loop denial of service
+  through indexed source-map section offsets, affecting 1.0.0–1.2.1. Patched in
+  1.2.2; it arrives only under `postcss`, which pins 1.2.1. Same major, so a patch
+  and not a migration.

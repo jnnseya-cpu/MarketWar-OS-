@@ -179,3 +179,129 @@ export function alignmentRemedy(id: SenderIdentity): string {
   }
   return `There is no authenticated account, so nothing proves this deployment may send as <${from}>.`;
 }
+
+// ---------------------------------------------------------------------------
+// THE FOURTH ADDRESS: WHERE A REPLY GOES
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT, MEASURED. `/api/email` resolved the reply address as
+//
+//   replyToRaw || replyAddressFor(brandId) || fromEmail || undefined
+//
+// and on the live deployment every term but the last is empty: the customer has
+// not typed a Reply-to, `MW_REPLY_HOST` is unset so the brand's platform reply
+// address is "" by design, and a brand that has not authenticated its own domain
+// has no `fromEmail`. So `Reply-To` was ABSENT — and a message with no Reply-To
+// is replied to at its `From`, which is the platform's own shared sender.
+//
+// The consequence the owner reported: a signed-up customer sends a campaign, the
+// prospect hits Reply, and the reply arrives in MARKETWAR'S mailbox. The
+// customer never sees the one message that was worth the whole campaign.
+//
+// AND THE FIX NEEDED NO DNS FROM ANYBODY. The signed-up customer has a verified
+// account email — Firebase verified it at sign-up, and it is a mailbox they
+// demonstrably read, because that is where their own sign-in mail goes. It was
+// sitting one function call away: `requireAuth` decodes it and
+// `resolveBrandAccess` threw it away before the route could use it. The oldest
+// defect class in this codebase — a value that exists on one side of a boundary
+// and never crosses it.
+//
+// BOUNCES ARE A DIFFERENT QUESTION AND THE ANSWER IS DIFFERENT. A delivery
+// failure must come back to the PLATFORM: it is the platform that has to parse
+// it, suppress the dead address and keep the pool's reputation intact. Every
+// sending service works this way. What the customer needs is not the bounce
+// notice in their inbox — it is to be TOLD, in their own dashboard, that the
+// address is dead. Reply-To and Return-Path are not two settings of one thing.
+
+export type ReplySource =
+  /** The customer typed it. Always wins. */
+  | "stated"
+  /** The brand's own address on the platform reply host (needs MW_REPLY_HOST). */
+  | "platform-reply-host"
+  /** The brand's authenticated sending address. */
+  | "brand-from"
+  /** The signed-up customer's verified account email. The universal fallback. */
+  | "account"
+  /** Nothing was available. Only possible when no account email was supplied. */
+  | "none";
+
+export type ReplyTarget = {
+  /** What goes in `Reply-To`. "" means the header is omitted. */
+  address: string;
+  source: ReplySource;
+  /**
+   * TRUE when a reply to this campaign would land in the PLATFORM'S shared
+   * mailbox rather than anywhere the customer reads.
+   *
+   * The brand's address on the platform reply host is NOT this: it is scoped to
+   * one brand and routes into that brand's own Inbox. This flag is about the
+   * shared sender — the case where the customer's prospect ends up talking to us.
+   */
+  toPlatform: boolean;
+  why: string;
+};
+
+/**
+ * WHERE A REPLY TO A CUSTOMER'S CAMPAIGN GOES.
+ *
+ * Pure, so both the pre-send check and the send itself get the same answer from
+ * the same inputs — a preview that disagrees with the send is this codebase's
+ * second-oldest defect, and the reply address is precisely the kind of value
+ * that gets computed twice.
+ */
+export function replyTarget(input: {
+  /** `body.replyTo` — what the customer typed. */
+  stated?: string;
+  /** `replyAddressFor(brandId)` — "" unless MW_REPLY_HOST is configured. */
+  brandReplyAddress?: string;
+  /** The brand's own authenticated From, when it has a verified domain. */
+  fromEmail?: string;
+  /** The signed-in customer's verified account address. */
+  accountEmail?: string;
+  /** The platform's shared sender — what `From` falls back to. */
+  platformFrom?: string;
+}): ReplyTarget {
+  const stated = mailboxOf(input.stated || "");
+  const brandReply = mailboxOf(input.brandReplyAddress || "");
+  const from = mailboxOf(input.fromEmail || "");
+  const account = mailboxOf(input.accountEmail || "");
+  const platform = mailboxOf(input.platformFrom || "");
+
+  const landsOnPlatform = (addr: string): boolean =>
+    Boolean(addr) && Boolean(platform) && sameOrganisation(addr, platform);
+
+  if (stated && isAddress(stated)) {
+    return {
+      address: stated, source: "stated", toPlatform: false,
+      why: `Replies go to ${stated} because that is the Reply-to on this campaign.`,
+    };
+  }
+  if (brandReply && isAddress(brandReply)) {
+    return {
+      address: brandReply, source: "platform-reply-host", toPlatform: false,
+      why: `Replies go to this brand's own MarketWar reply address and appear in its Inbox here.`,
+    };
+  }
+  if (from && isAddress(from) && !landsOnPlatform(from)) {
+    return {
+      address: from, source: "brand-from", toPlatform: false,
+      why: `Replies go to ${from}, the authenticated address this campaign is sent from.`,
+    };
+  }
+  if (account && isAddress(account)) {
+    return {
+      address: account, source: "account", toPlatform: false,
+      why: `Replies go to ${account} — the account's own verified email, because no other reply mailbox is set up yet. `
+        + `It needs no DNS and it is a mailbox already being read.`,
+    };
+  }
+  // NO ACCOUNT EMAIL. The header is omitted, which means replies follow `From`.
+  // Named as the fault it is rather than returning an empty string quietly.
+  return {
+    address: "", source: "none",
+    toPlatform: landsOnPlatform(from) || (!from && Boolean(platform)),
+    why: from && landsOnPlatform(from)
+      ? `This campaign is sent from ${from}, which is the platform's own sending address, and no reply mailbox was supplied — so replies would come to MarketWar rather than to the sender.`
+      : `No reply address could be resolved, so replies would follow the From header. Supply a Reply-to, or sign in so the account's verified email can be used.`,
+  };
+}

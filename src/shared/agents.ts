@@ -1031,7 +1031,7 @@ Bounces are prevented pre-send (hygiene pipeline) and never repeated
 
 ## List Hygiene Report
 Described list (~1,240 contacts imported from the vault):
-- **Projected filter-out: ~9%** — 3% invalid syntax/dead domains (would hard-bounce), 2% disposable (spam-trap risk), 2% role addresses (info@/sales@ — excluded from marketing by default), 2% already-suppressed or unsubscribed.
+- **Projected filter-out: ~7%** — 3% invalid syntax or a domain with no mail route at all (removed before the send; every one is a guaranteed hard bounce), 2% disposable or a mistyped consumer domain (a typo-squatter DELIVERS rather than bounces, which is worse), 2% already-suppressed or unsubscribed. \`info@\` and \`sales@\` are NOT filtered — they are the published front door, and for B2B usually the only address there is; only abuse@/postmaster@/noreply@ are refused.
 - **Sendable core: ~1,128 consent-verified contacts.** Projected bounce rate after filtering: **0.3%** (target < 0.5% — Gmail/Yahoo bulk-sender threshold is 2%; we operate at 6× safety margin).
 
 ## Warm-up Plan

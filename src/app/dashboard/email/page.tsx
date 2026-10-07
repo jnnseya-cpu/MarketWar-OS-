@@ -53,7 +53,7 @@ type Posture = {
     /** NULL on an empty list — never 0 and never 100. */
     healthPct: number | null;
     composition: { label: string; count: number; kind: "healthy" | "filtered" }[];
-    refusedBy: Partial<Record<"no_consent" | "invalid" | "disposable" | "suppressed" | "role", number>>;
+    refusedBy: Partial<Record<"no_consent" | "needs_consent" | "invalid" | "disposable" | "suppressed" | "role", number>>;
     verdict: string;
   };
   series: { days: { date: string; label: string; sent: number; failed: number }[]; empty: boolean; note: string };
@@ -61,10 +61,25 @@ type Posture = {
   isEstimate: false;
 };
 
+// THREE OF THESE FOUR CARDS DESCRIBED SOMETHING THE CODE DID NOT DO.
+//
+// Card 1 promised "real domain with MX records — dead addresses never reach a
+// provider" and nothing anywhere resolved an MX: `dave@gmial.com` passed hygiene
+// and was sent. The check described here now exists (`backend/address-verify.ts`)
+// and runs before every campaign.
+//
+// Card 2 described `info@` and `sales@` as excluded, which they were — the
+// defect, not the feature. They are business front doors and for B2B usually the
+// only published address.
+//
+// Card 3 said "no granted consent = technically unsendable", which is the
+// sentence that told a customer their lawfully found UK business contacts had
+// not consented. PECR regulation 22 applies to individual subscribers; a company
+// mailbox is a corporate subscriber and needs no consent.
 const PIPELINE = [
-  { icon: ListChecks, title: "1 · Syntax & domain", desc: "RFC-valid address, real domain with MX records — dead addresses never reach a provider." },
-  { icon: Filter, title: "2 · Disposable & role filter", desc: "Burner domains (spam-trap risk) blocked; role addresses (info@, sales@) excluded from marketing sends by default." },
-  { icon: ShieldCheck, title: "3 · Consent & suppression", desc: "No granted consent = technically unsendable. Hard bounces, complaints and unsubs live on the suppression ledger — never re-sent, ever." },
+  { icon: ListChecks, title: "1 · Syntax & live domain", desc: "RFC-valid address, and a real DNS lookup per domain: anything with no MX and no address record is removed before the send, because every message to it is a guaranteed hard bounce." },
+  { icon: Filter, title: "2 · Disposable & abuse-desk filter", desc: "Burner domains blocked, and the only mailboxes refused are abuse@/postmaster@ (marketing there reports you as a spammer) and noreply@ (nobody reads it). info@ and sales@ are sent to — they are the front door." },
+  { icon: ShieldCheck, title: "3 · Lawful basis & suppression", desc: "A company mailbox is a corporate subscriber: lawful without consent, with identification and one-click opt-out. A personal mailbox needs consent or a soft opt-in. Bounces, complaints and unsubscribes live on the suppression ledger — never re-sent, ever." },
   { icon: Thermometer, title: "4 · Reputation governor", desc: "Warm-up ramps, per-domain throttles (Gmail/Outlook/Yahoo) and complaint monitoring keep the sending reputation that keeps you in the inbox." },
 ];
 

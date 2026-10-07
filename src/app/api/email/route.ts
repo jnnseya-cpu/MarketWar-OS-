@@ -4,6 +4,7 @@ import { requireAuth, requireAuthEnforced, rateLimit, clientKey } from "@/backen
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { replyAddressFor, replyVerdict } from "@/backend/reply-routing";
 import { sendFailureOf, publicSendFailure, operatorFix, isRecipientRejection, redactSmtpLine, readSmtpRefusal, type SendFailure } from "@/shared/send-failure";
+import { replyTarget } from "@/shared/sender-identity";
 import { hasScope } from "@/shared/roles";
 
 // M-34 email engine API.
@@ -160,9 +161,20 @@ export async function POST(req: NextRequest) {
     // apply in full. The campaign path is unaffected: it has always loaded the
     // per-brand set itself.
     const scopeBrand = typeof body.brandId === "string" ? body.brandId.trim() : "";
+    // WHERE A REPLY TO THIS ONE GOES, for the same reason as the campaign path:
+    // naming a brand says "this is that brand's mail", and a reply to a brand's
+    // mail belongs to the brand. Empty when no brand is named, which is the
+    // platform's own transactional door and correctly replies to the platform.
+    let singleReplyTo = "";
     if (scopeBrand) {
       const access = await resolveBrandAccess(req, scopeBrand);
       if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+      singleReplyTo = replyTarget({
+        stated: typeof body.replyTo === "string" ? body.replyTo : "",
+        brandReplyAddress: replyAddressFor(scopeBrand),
+        accountEmail: access.email || "",
+        platformFrom: process.env.EMAIL_FROM || "",
+      }).address;
       const { suppressedEmails } = await import("@/backend/email-events");
       const optedOut = await suppressedEmails(scopeBrand);
       if (optedOut.has(to.trim().toLowerCase())) {
@@ -173,7 +185,7 @@ export async function POST(req: NextRequest) {
         }, { status: 422 });
       }
     }
-    const result = await sendEmail({ to, subject, html, transactional: true, attachments: single.length ? single : undefined });
+    const result = await sendEmail({ to, subject, html, transactional: true, attachments: single.length ? single : undefined, replyTo: singleReplyTo || undefined });
     return NextResponse.json(result, { status: result.ok ? 200 : 422 });
   }
 
@@ -248,19 +260,44 @@ export async function POST(req: NextRequest) {
     // explicit opt-out is excluded. For a status-targeted B2B prospect segment,
     // company addresses are eligible under legitimate interest. Either way an
     // EMAIL is mandatory — we can't send without one.
+    //
+    // AND `consent !== false` WAS THE DEFECT THE OWNER REPORTED. The First
+    // Customer sprint saves businesses found in public listings with
+    // `consent: false` — deliberately, because marking them consented would be
+    // a lie — and this line then read that same `false` as "they asked not to be
+    // emailed" and excluded every one of them. The platform's own prospecting
+    // wrote the refusal its own sender enforced, about companies nobody had
+    // asked anything. Absence and refusal are opposite facts.
+    //
+    // `bulkEligibility` draws the distinction once, for the send, the preview and
+    // the list-health panel: an explicit opt-out is always excluded, a corporate
+    // subscriber is mailable under legitimate interests, and an individual
+    // subscriber with nothing on file still needs consent or a soft opt-in —
+    // which is the refusal that really is unlawful, so it stays.
+    const { bulkEligibility } = await import("@/shared/mailbox-class");
+    const verdictFor = new Map(pool.filter((c) => c.email).map((c) => [c.id, bulkEligibility({
+      email: String(c.email), consent: c.consent,
+    })]));
     const eligible = statusFilter
       ? pool.filter((c) => c.email)
-      : pool.filter((c) => c.email && c.consent !== false);
+      : pool.filter((c) => c.email && verdictFor.get(c.id)?.mailable !== false);
     const consented = eligible.map((c) => c.email as string);
     if (consented.length === 0) {
       const haveEmail = pool.filter((c) => c.email).length;
-      const optedOut = pool.filter((c) => c.email && c.consent === false).length;
+      const optedOut = pool.filter((c) => c.email && verdictFor.get(c.id)?.basis === "opted_out").length;
+      const needConsent = pool.filter((c) => c.email && verdictFor.get(c.id)?.basis === "needs_consent").length;
       const msg = statusFilter
         ? `${pool.length} contact(s) match status "${statusFilter}", but ${haveEmail} have an email address. To email them the list needs an email column (or connect an enrichment provider). Nothing was sent.`
         : haveEmail === 0
           ? `Your vault has ${pool.length} contact(s) but none have an email address, so there's nothing to send to. Import a list that includes an email column.`
-          : `All ${haveEmail} contact(s) with an email have opted out (${optedOut} suppressed), so nothing can be sent. Import contacts who haven't unsubscribed.`;
-      return NextResponse.json({ error: msg, sent: 0, sendable: 0, matched: pool.length, withEmail: haveEmail }, { status: 400 });
+          : optedOut === haveEmail
+            ? `All ${haveEmail} contact(s) with an email have asked not to be emailed, so nothing can be sent. An objection is not overridable by any lawful basis.`
+            : `None of the ${haveEmail} contact(s) with an email can be sent to yet: ${optedOut} asked not to be emailed`
+              + (needConsent ? `, and ${needConsent} are personal mailboxes (gmail, hotmail and the like) with no consent, sale or enquiry recorded — PECR treats those as individual subscribers, so they need consent or a soft opt-in. A business address at the company's own domain needs neither.` : ".");
+      return NextResponse.json({
+        error: msg, sent: 0, sendable: 0, matched: pool.length, withEmail: haveEmail,
+        optedOut, needConsent,
+      }, { status: 400 });
     }
     // Hygiene pass (removes disposable/role/invalid before any send).
     const hygienic = filterList(consented).sendable.map((v) => v.email);
@@ -274,7 +311,50 @@ export async function POST(req: NextRequest) {
     // no longer poison the click reputation of every other customer.
     const trackBase = await trackingBaseFor(brandId).catch(() => undefined);
     const suppressedSet = await suppressedEmails(brandId);
-    const sendable = hygienic.filter((e) => !suppressedSet.has(e.toLowerCase()));
+    const afterSuppression = hygienic.filter((e) => !suppressedSet.has(e.toLowerCase()));
+
+    // REMOVE THE GUARANTEED BOUNCES BEFORE SENDING, NOT AFTER.
+    //
+    // Hygiene checked syntax, a disposable list and the suppression ledger, and
+    // never asked whether the DOMAIN could receive mail at all — so
+    // `dave@gmial.com` and every address at a dead company domain went out and
+    // hard-bounced. A hard bounce is the most expensive thing a sender can do,
+    // and the cost is SHARED: the pool's reputation belongs to every tenant on
+    // it, so one list of mistyped addresses degrades everybody's placement.
+    //
+    // One DNS query per DOMAIN, not per address, cached — a 250-address list at
+    // 40 companies is 40 lookups and the next campaign to the same list is free.
+    // An UNANSWERED lookup keeps the address: a slow resolver is not evidence
+    // against a customer.
+    const { verifyRecipients } = await import("@/backend/address-verify");
+    const dns = await verifyRecipients(afterSuppression);
+    const sendable = dns.deliverable;
+    // Remembered only when the domain DOES NOT EXIST — that can never start
+    // working. A domain with no mail route today may be mid-setup, so it is
+    // skipped for this send and asked again next time rather than written off.
+    if (dns.removed.some((r) => r.permanent)) {
+      const { addSuppression } = await import("@/backend/email-events");
+      await Promise.all(dns.removed.filter((r) => r.permanent).map((r) =>
+        addSuppression(brandId, r.email, `removed before sending, never attempted — ${r.reason}`).catch(() => undefined)));
+    }
+    // EVERY ADDRESS REMOVED IS NOT A SILENT ZERO. Without this the campaign ran
+    // with an empty batch and reported "0 sent · 0 failed", which looks like the
+    // platform doing nothing rather than the list being undeliverable.
+    if (sendable.length === 0 && dns.removed.length > 0) {
+      return NextResponse.json({
+        error: `Nothing was sent, and nothing was charged: all ${dns.removed.length} remaining address(es) are at domains that accept no mail, so every one of them was a guaranteed hard bounce. `
+          + `${dns.removed.slice(0, 3).map((r) => r.email).join(", ")}${dns.removed.length > 3 ? ` and ${dns.removed.length - 3} more` : ""}. `
+          + `Fix or remove them and run this again — this is the bounce that did not happen.`,
+        sent: 0, attempted: 0, failed: 0, sendable: 0, consented: consented.length, remaining: 0,
+        undeliverableRemoved: dns.removed.length,
+        undeliverable: dns.removed.slice(0, 20).map((r) => ({
+          email: r.email, reason: r.reason, permanent: r.permanent,
+          ...(r.suggestion ? { suggestion: r.suggestion } : {}),
+        })),
+        mode: emailConfigured ? "live" : "demo", note: "",
+      }, { status: 400 });
+    }
+
     // Cap per call: a test send (first 1) or a bounded batch so a runaway blast
     // can't torch the sending reputation. Larger lists send in repeated calls.
     const isTest = body.test === true;
@@ -377,7 +457,28 @@ export async function POST(req: NextRequest) {
     // this falls through to the customer's own From address — which at least
     // reaches them whenever their domain accepts mail, and `reply-check` runs
     // the real MX lookup and says so before the send when it does not.
-    const replyTo = replyToRaw || replyAddressFor(brandId) || fromEmail || undefined;
+    //
+    // AND THE CHAIN NOW ENDS SOMEWHERE REAL. On the live deployment every term
+    // above is empty — no Reply-to typed, MW_REPLY_HOST unset so the brand's
+    // platform reply address is "" by design, and a brand with no authenticated
+    // domain has no `fromEmail` — so this resolved to `undefined`, the header
+    // was omitted, and a reply follows `From`: the PLATFORM's shared sender. A
+    // customer's campaign got answered and the answer arrived in MarketWar's
+    // mailbox. The one message worth the whole campaign, delivered to the wrong
+    // company.
+    //
+    // The last resort is now the signed-in account's VERIFIED email, which
+    // Firebase checked at sign-up and which the customer demonstrably reads.
+    // It needs no DNS from anybody and it was one function call away:
+    // `requireAuth` decodes it and `resolveBrandAccess` was dropping it.
+    const reply = replyTarget({
+      stated: replyToRaw,
+      brandReplyAddress: replyAddressFor(brandId),
+      fromEmail,
+      accountEmail: access.email || "",
+      platformFrom: process.env.EMAIL_FROM || "",
+    });
+    const replyTo = reply.address || undefined;
 
     // Per-recipient personalisation: look up each address's contact row and merge
     // {{ variables }} into the subject + body so every email is individual.
@@ -555,8 +656,24 @@ export async function POST(req: NextRequest) {
       // The whole pass then rests on the DKIM signature surviving every relay in
       // between. That is worth knowing BEFORE a campaign, not after it vanishes.
       ...(senderIdentity ? { senderAlignment: { aligned: senderIdentity.aligned, why: senderIdentity.why } } : {}),
+      // WHERE THE REPLIES WILL GO, reported with every send rather than
+      // discovered a month later by a customer who got none. `toPlatform` true
+      // is a defect, not a setting: it means this campaign's answers would reach
+      // MarketWar instead of the business that sent it.
+      replyRouting: { address: reply.address, source: reply.source, toPlatform: reply.toPlatform, why: reply.why },
+      // WHAT WAS REMOVED BEFORE ANYTHING WAS SENT — the bounces that did not
+      // happen. Capped at twenty in the payload so a bad import cannot return a
+      // megabyte, with the full count beside it.
+      ...(dns.removed.length ? {
+        undeliverableRemoved: dns.removed.length,
+        undeliverable: dns.removed.slice(0, 20).map((r) => ({
+          email: r.email, reason: r.reason, permanent: r.permanent,
+          ...(r.suggestion ? { suggestion: r.suggestion } : {}),
+        })),
+        undeliverableNote: dns.note,
+      } : {}),
       note: live
-        ? `${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}.${worstLine ? ` The server said: “${worstLine}”.` : ""}${worstMeaning ? ` ${worstMeaning}` : ""}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
+        ? `${dns.removed.length ? `${dns.removed.length} address(es) were removed before sending — nothing accepts mail for their domain, so they were guaranteed bounces. ` : ""}${stoppedEarly ? `Time ran out part-way through: ${sent} of ${batch.length} were sent and ${notReached} were not reached. Nobody was sent to twice — run again to continue from where it stopped. ` : ""}Sent ${sent} of ${attempted || batch.length}. ${worst ? `${worst[1]} failed because ${publicSendFailure(worst[0])}.${worstLine ? ` The server said: “${worstLine}”.` : ""}${worstMeaning ? ` ${worstMeaning}` : ""}${isOperator ? ` ${operatorFix(worst[0])}` : ""} ` : ""}${dailyRemaining > 0 && sendable.length - batch.length > 0 ? `Run again to send the next batch (${dailyRemaining} left in today's warm-up limit). ` : dailyRemaining <= 0 ? `That's today's warm-up limit (day ${warm.day}: ${warm.dailyCap}/day) — the rest sends tomorrow. ` : ""}Inbox placement depends on your domain's SPF/DKIM/DMARC + IP reputation.`
         : `Nothing was sent. This deployment has no sending server, so all ${notConfigured} ${notConfigured === 1 ? "address was" : "addresses were"} left uncontacted — none of them failed, and none of them was used up. Set our own sending pool — MW_SENDING_POOL, or SMTP_HOST/SMTP_USER/SMTP_PASS on our own domain — then run this again and they all still go.`,
     });
   }

@@ -27,6 +27,8 @@
 // So this counts. Pure, so it is tested against constructed lists rather than
 // only ever running against whatever the vault happens to hold.
 
+import { bulkEligibility } from "@/shared/mailbox-class";
+
 /**
  * One address's hygiene verdict, shaped exactly like `backend/email.ts`'s
  * `EmailVerdict` but declared structurally — a shared module must never import
@@ -36,8 +38,9 @@ export type HygieneVerdictLike = {
   email: string;
   checks: { syntax: boolean; disposable: boolean; role: boolean; suppressed: boolean };
   /**
-   * Has this contact consented? Defaults to TRUE when absent, matching the
-   * preview's `consent !== false`.
+   * The contact's recorded consent. `undefined` means NOTHING IS RECORDED,
+   * which is not a refusal — see `bulkEligibility` in `shared/mailbox-class.ts`.
+   * `false` means an explicit opt-out, exactly as it does on a Contact.
    *
    * WITHOUT THIS THE COUNT DISAGREES WITH THE SEND, which is the whole defect
    * being fixed rather than a refinement of it. The send applies consent FIRST
@@ -50,7 +53,7 @@ export type HygieneVerdictLike = {
 };
 
 /** Why an address cannot be mailed. Ordered worst-first; see `reasonFor`. */
-export type RefusalReason = "no_consent" | "invalid" | "disposable" | "suppressed" | "role";
+export type RefusalReason = "no_consent" | "needs_consent" | "invalid" | "disposable" | "suppressed" | "role";
 
 export type CompositionRow = {
   label: string;
@@ -80,11 +83,25 @@ export type ListHealth = {
 };
 
 const LABELS: Record<RefusalReason, string> = {
-  no_consent: "No consent recorded — not mailable",
+  // NOT "no consent recorded", which is what it used to say and which was the
+  // wording the owner reported as the platform "pretending they were taken
+  // without consent". This row only ever counts a contact whose `consent` is
+  // EXPLICITLY false — somebody who opted out. An absent consent field is
+  // mailable, and for a company mailbox needs no consent at all (PECR
+  // regulation 22 applies to individual subscribers). Absence and refusal are
+  // opposite facts and they were sharing one label.
+  no_consent: "Opted out — this person asked not to be emailed",
+  // THE ROW THAT USED TO BE FOLDED INTO THE ONE ABOVE, which is how a business
+  // found in a public listing came to be reported as having refused. A personal
+  // mailbox with nothing on file is a missing record; an opt-out is a refusal.
+  needs_consent: "Personal mailbox with no consent, sale or enquiry on file",
   invalid: "Invalid syntax — would hard-bounce",
   disposable: "Disposable / burner domain",
   suppressed: "Suppressed (bounce, complaint or unsubscribe)",
-  role: "Role address (info@, sales@) — excluded by default",
+  // NOT "info@ and sales@" any more, and the label had to change with the rule.
+  // Those are business front doors and are mailed; see `shared/mailbox-class.ts`
+  // for why only the abuse desk and send-only mailboxes are refused.
+  role: "Abuse-desk or send-only mailbox (postmaster@, noreply@) — never mailable",
 };
 
 /**
@@ -99,10 +116,16 @@ const LABELS: Record<RefusalReason, string> = {
  * separately.
  */
 export function reasonFor(v: HygieneVerdictLike, suppressed: ReadonlySet<string>): RefusalReason | null {
-  // CONSENT FIRST, because the send applies it first. Ordering it after hygiene
-  // would classify a non-consented disposable address as "disposable", and the
-  // donut would then disagree with the send about why somebody was dropped.
-  if (v.consented === false) return "no_consent";
+  // ELIGIBILITY FIRST, because the send applies it first. Ordering it after
+  // hygiene would classify an opted-out disposable address as "disposable", and
+  // the donut would then disagree with the send about why somebody was dropped.
+  //
+  // AND IT IS THE SEND'S OWN RULE, not `consented === false`. That test reported
+  // every business the First Customer sprint had found — saved with
+  // `consent: false` meaning "no opt-in on file" — as having refused.
+  const eligibility = bulkEligibility({ email: v.email, consent: v.consented });
+  if (eligibility.basis === "opted_out") return "no_consent";
+  if (!eligibility.mailable) return "needs_consent";
   if (!v.checks.syntax) return "invalid";
   if (v.checks.disposable) return "disposable";
   if (v.checks.suppressed || suppressed.has(v.email.trim().toLowerCase())) return "suppressed";
@@ -126,7 +149,7 @@ export function listHealth(
 
   const composition: CompositionRow[] = [
     { label: "Sendable", count: sendable, kind: "healthy" as const },
-    ...(["no_consent", "invalid", "disposable", "suppressed", "role"] as RefusalReason[])
+    ...(["no_consent", "needs_consent", "invalid", "disposable", "suppressed", "role"] as RefusalReason[])
       .filter((r) => (refusedBy[r] ?? 0) > 0)
       .map((r) => ({ label: LABELS[r], count: refusedBy[r] as number, kind: "filtered" as const, reason: r })),
   ];

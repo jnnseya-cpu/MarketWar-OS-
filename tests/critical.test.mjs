@@ -1566,6 +1566,18 @@ const CONTACTS = [
   { id: "3", brandId: "b", email: "opted@example.com", name: "Opted Out", consent: false },
 ];
 
+// NO DNS IN THIS SUITE. The preview now resolves every recipient domain, the
+// same way the send does, so without this these fixtures would get a different
+// answer with the network than without it — and `example.com` publishes a NULL
+// MX (RFC 7505: "accepts no mail"), which is a correct verdict and not what
+// these fixtures are about. Priming writes the cache production reads, so it
+// skips a lookup and changes no behaviour. The real resolver is driven in
+// `npm run drive:deliver`.
+const { primeMailRoute } = await import("../src/backend/address-verify.ts");
+for (const d of ["rawbank.cd", "example.com", "example.org", "example.net"]) {
+  primeMailRoute(d, { accepts: true });
+}
+
 test("the preview shows a contact with a MISSING name first", async () => {
   // A made-up "John Smith" has every field filled in, which is the one case
   // that never goes wrong. The contact with no name is where the fallback
@@ -4701,14 +4713,26 @@ test("the preview counts who will RECEIVE it, not who consented", async () => {
 
   // What the SEND would do, using the send's own function.
   const consented = contacts.filter((c) => c.email && c.consent !== false);
-  const wouldReceive = filterList(consented.map((c) => c.email)).sendable.length;
+  // BOTH of the send's filters, because `filterList` alone stopped being the
+  // whole of it: the send also resolves every domain's mail route. A test that
+  // models the send with one of its two filters is a test that will certify a
+  // preview/send gap, which is the exact fault this test exists to catch.
+  const { verifyRecipients } = await import("../src/backend/address-verify.ts");
+  const hygienic = filterList(consented.map((c) => c.email)).sendable.map((v) => v.email);
+  const wouldReceive = (await verifyRecipients(hygienic)).deliverable.length;
 
-  assert.equal(wouldReceive, 2, "the disposable and the role mailbox are both refused at send time");
+  // THREE, NOT TWO, AND THE THIRD IS THE POINT. This asserted 2 — "the
+  // disposable and the role mailbox are both refused at send time" — which was
+  // the defect the owner reported: `info@` is a business front door and for B2B
+  // usually the only published address. Only the burner is refused now.
+  assert.equal(wouldReceive, 3, "only the disposable is refused — info@ is the front door, not a problem");
+  assert.ok(filterList(["info@example.com"]).sendable.length === 1,
+    "and it is sendable by name, so a future list cannot quietly put it back");
   assert.equal(preview.recipients, wouldReceive,
     `the preview says ${preview.recipients} and the send would deliver ${wouldReceive} — that gap is what the customer presses send on`);
 
   // AND IT SAYS WHY, because a number that quietly shrinks is its own puzzle.
-  assert.match(preview.note, /disposable|role mailbox|unsubscribed/i,
+  assert.match(preview.note, /disposable|abuse-desk|unsubscribed|accepts no mail/i,
     "a count lower than 'everyone who consented' has to explain itself");
   assert.ok(preview.samples.every((s) => !/mailinator|^info@/.test(s.to)),
     "and nobody the send will refuse may appear as a preview sample");

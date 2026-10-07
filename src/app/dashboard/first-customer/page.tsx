@@ -126,9 +126,22 @@ export default function FirstCustomerPage() {
   // sprint, ready for the outreach sequence, and any that convert show up in
   // the Return Ledger against this campaign.
   //
-  // Consent is deliberately NOT set. These are businesses found in public
-  // listings, not people who opted in — marking them consented would be a lie
-  // that later authorises a marketing send nobody agreed to.
+  // CONSENT IS LEFT UNRECORDED, WHICH IS NOT THE SAME AS SETTING IT FALSE — and
+  // that difference was a live defect. This block wrote `consent: false`, with
+  // the sound reasoning that marking a found business "consented" would be a
+  // lie. But the SENDER read `false` as "this person asked not to be emailed"
+  // and excluded every one of them, and the list-health panel labelled them
+  // "No consent recorded — not mailable". The platform's own prospecting wrote
+  // the refusal its own sender enforced, about companies nobody had asked
+  // anything — the owner reported it as the platform "pretending they were taken
+  // without consent".
+  //
+  // Leaving it UNDEFINED records the truth: nothing is on file. `bulkEligibility`
+  // then decides lawfully rather than crudely — a business address at the
+  // company's own domain is a corporate subscriber and needs no consent (PECR
+  // regulation 22 applies to individual subscribers), while a personal mailbox
+  // found in a listing still needs consent or a soft opt-in. So nothing unlawful
+  // became sendable, and everything lawful stopped being blocked.
   async function saveProspects() {
     if (!activeBrand || !leadRows.length) return;
     setBusy("save");
@@ -140,7 +153,6 @@ export default function FirstCustomerPage() {
         company: l.name,
         website: l.website || undefined,
         town: form.location || undefined,
-        consent: false,
         source: `sprint:${(form.targetCustomer || form.product || "prospects").slice(0, 40)}`,
         notes: [l.rating ? `Google rating ${l.rating}` : "", ...(l.flags || [])].filter(Boolean).join(" · "),
       }));
@@ -150,7 +162,7 @@ export default function FirstCustomerPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d?.error || "Could not save to the vault.");
-      setSaved(`${d.imported ?? contacts.length} prospects saved to your Customer Vault, tagged with this sprint. They are marked NOT consented — these came from public listings, so reach out one to one first and record consent before any bulk send.`);
+      setSaved(`${d.imported ?? contacts.length} prospects saved to your Customer Vault, tagged with this sprint. No consent is recorded against them, which is the truth — they came from public listings. A business address at the company\u2019s own domain can be emailed on legitimate interests (one-click opt-out, sender identified); a personal mailbox among them needs consent or an existing enquiry first, and the Email Centre says which is which before you send.`);
     } catch (e) {
       setSaved(`⚠️ ${e instanceof Error ? e.message : "Could not save."}`);
     } finally { setBusy(null); }

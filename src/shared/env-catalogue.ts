@@ -172,6 +172,15 @@ export const ENV_CATALOGUE: EnvVar[] = [
  * a readiness report would bury the fourteen that actually gate a feature.
  */
 export const ENV_TUNING: string[] = [
+  // How long one DNS query may take while a campaign waits on it, default 4s
+  // with a single try. `backend/address-verify.ts` resolves every recipient
+  // domain before a send, and the DEFAULT Node resolver retries for several
+  // seconds per name — on a 250-address list that is minutes of a 45-second
+  // send budget spent waiting for domains that do not exist. Raising it makes a
+  // slow resolver hold up a send; lowering it makes more lookups come back
+  // "unknown", which KEEPS those addresses rather than dropping them. Neither
+  // direction can delete a customer's contact, which is why it is tuning.
+  "MW_DNS_TIMEOUT_MS",
   // A TEST-HARNESS VARIABLE, AND LISTED RATHER THAN HIDDEN because of what it
   // does. `scripts/drive-bulk.mjs` sets it to talk to the LOCAL self-signed TLS
   // SMTP server in `tests/helpers/fake-smtp.mjs` — the same thing
