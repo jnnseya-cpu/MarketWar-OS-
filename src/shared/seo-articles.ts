@@ -123,7 +123,7 @@ The programmes are the money. [The Gen-Z layer](/blog/gen-z-growth-features) is 
 
 ## Start
 
-Creators apply on the [growth programme page](/growth). Brands run it from [Partner Network](/dashboard/partner-network), and creators track their own money on [My Earnings](/dashboard/earnings). The [pricing page](/choose-plan) covers what the platform itself costs, and [how it works](/how-it-works) walks the whole system end to end.`,
+Creators apply on the [growth programme page](/growth). Brands run it from Partner Network in the dashboard, and creators track their own money on My Earnings — both behind the account, with [SHARE2EARN explained in full here](/share2earn). The [pricing page](/choose-plan) covers what the platform itself costs, and [how it works](/how-it-works) walks the whole system end to end.`,
   },
 
   // ──────────────────────────────────────────────────────────────── SPOKE ──
@@ -453,7 +453,7 @@ So without a holdout, every figure says **attributed** — the campaign was cred
 
 Creator rates sit at [0.5% on SHARE2EARN](/blog/share2earn-earn-from-your-audience) and [0.75% or 1% on the influencer bands](/blog/influencer-commission-bands) — all of them bounded by the ceilings above. Where 0.5% would make a product lose money, that product is marked ineligible rather than the creator's advertised rate being quietly cut.
 
-Run it from [Partner Network](/dashboard/partner-network). [The full picture of how creators earn is here](/blog/creator-earning-programmes), and [the Gen-Z layer](/blog/gen-z-growth-features) covers what keeps creators active once the economics are safe.`,
+Run it from Partner Network, inside the account — [SHARE2EARN is explained in full here](/share2earn). [The full picture of how creators earn is here](/blog/creator-earning-programmes), and [the Gen-Z layer](/blog/gen-z-growth-features) covers what keeps creators active once the economics are safe.`,
   },
 
   {
@@ -514,7 +514,7 @@ Fraud checks are a list of things that either happened or did not, each saying w
 
 All of this sits on [the commission ladder](/blog/creator-earning-programmes): [0.5% with no gate](/blog/share2earn-earn-from-your-audience), [0.75% and 1% on the verified bands](/blog/influencer-commission-bands), and [payouts that reach a phone in Kinshasa as easily as a bank in Leeds](/blog/creator-payout-economics).
 
-Creators start at [the growth programme page](/growth) and track their own money on [My Earnings](/dashboard/earnings).`,
+Creators start at [the growth programme page](/growth) and track their own money on My Earnings once they are in, [which SHARE2EARN sets out here](/share2earn).`,
   },
 
   // ──────────────────────────────────────────── BUYER CLUSTER · PILLAR ──

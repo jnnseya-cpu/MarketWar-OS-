@@ -7817,7 +7817,22 @@ test("public site: it publishes the files it scores customers on", () => {
   assert.match(robots, /sitemap:/, "robots.txt must point at the sitemap");
   assert.doesNotMatch(robots, /GPTBot|ClaudeBot|PerplexityBot/,
     "we must not block the AI crawlers the visibility product measures");
-  assert.match(robots, /disallow: \[[^\]]*"\/dashboard\/"/, "signed-in surfaces stay out of the index");
+  // THE LIST MOVED, AND THE RULE CHANGED WITH IT. This asserted the literal
+  // array in robots.ts, which no longer holds it — the disallow list is
+  // `shared/robots-policy.ts` so the audit and the published file cannot
+  // disagree. More importantly, three of the paths that used to be in that array
+  // were a reported defect: `/login`, `/signup` and `/onboarding` are linked from
+  // the marketing header and six landing pages, so blocking them is what Search
+  // Console reports as "Blocked by robots.txt". They carry `noindex, follow` now.
+  assert.match(robots, /disallow: ROBOTS_DISALLOW\.map/, "the published file must read the one policy");
+  const policy = codeOnly(readFileSync(new URL("../src/shared/robots-policy.ts", import.meta.url), "utf8"));
+  assert.match(policy, /path: "\/dashboard\/"/, "signed-in surfaces stay out of the index");
+  assert.match(policy, /path: "\/api\/"/);
+  // And the paths that are linked must NOT be blocked — the whole fix.
+  for (const p of ['path: "/login"', 'path: "/signup"', 'path: "/onboarding"']) {
+    const inDisallow = policy.slice(policy.indexOf("ROBOTS_DISALLOW"), policy.indexOf("NOINDEX_PATHS"));
+    assert.ok(!inDisallow.includes(p), `${p} must not be robots-blocked: it is linked from indexable pages`);
+  }
 
   const llms = readFileSync(new URL("../src/app/llms.txt/route.ts", import.meta.url), "utf8");
   assert.match(llms, /publishes no customer results/,

@@ -10028,3 +10028,217 @@ lookup; nothing in `src/` calls it, and the real resolver is driven for real.
   through indexed source-map section offsets, affecting 1.0.0–1.2.1. Patched in
   1.2.2; it arrives only under `postcss`, which pins 1.2.1. Same major, so a patch
   and not a migration.
+
+## §161 — "Blocked by robots.txt": the site invited Google to pages it then refused (2026-10-07)
+
+**Owner report.** Search Console: *"Search Console has identified that some pages
+on your site are not being indexed due to the following new reason: Blocked by
+robots.txt. If this reason is not intentional, we recommend that you fix it."*
+
+### It was not intentional, and the measurement came first
+
+`src/app/robots.ts` held:
+
+```
+disallow: ["/dashboard/", "/api/", "/onboarding", "/login", "/signup", "/r/"]
+```
+
+Counted in the source before anything was changed:
+
+| link | from |
+|---|---|
+| `href="/signup"` | **7 times** — the home page, `/audit`, `/features`, `/how-it-works`, `/get-started`, `/developers` |
+| `href="/login"` | `SiteAuthLinks`, which the home-page header renders |
+
+So the home page invited Google to a page the same site then refused to serve it,
+on every crawl, forever. And neither page carried any `robots` metadata — the
+only thing keeping them out of the index was the block that was being reported.
+
+### A disallow is the wrong instruction for a page you link to
+
+This is the part worth writing down, because the obvious reading of robots.txt is
+wrong. **`Disallow` does not mean "keep this out of the index". It means "do not
+fetch this".** The consequences, all three of them bad:
+
+- Google may still index the **bare URL** from the anchor text alone, with no
+  title and no description — the "Indexed, though blocked by robots.txt" state,
+  under our own brand name.
+- The **link equity** pointing at it is dropped rather than passed on.
+- A `noindex` on the page **can never be read**, because reading it requires the
+  fetch that was just refused.
+
+**So the rule now encoded in `src/shared/robots-policy.ts`:**
+
+> A path that an indexable page LINKS TO is crawlable and carries `noindex,
+> follow`. A path nothing public links to is robots-blocked, because then the
+> block is free — it saves crawl budget and generates no report, since Google has
+> no way to discover it.
+
+`/login`, `/signup` and `/onboarding` moved to the second category's opposite:
+crawlable, `noindex, follow`. `/dashboard/`, `/api/` and `/r/` stay blocked, each
+with its reason recorded beside it — including the one that matters most: a
+crawler walking `/api/` would reach the one-click unsubscribe endpoint and opt
+people out of their own lists.
+
+**`/onboarding` needed a `layout.tsx`** because its page is `"use client"` and a
+client component cannot export `metadata`.
+
+### The list is one list now
+
+The disallow array moved out of `app/robots.ts` into the policy module, which
+`robots.ts` maps over. Two copies of one list is the defect this codebase
+produces most often, and here it would have been worse than usual: an audit
+reading a stale copy of the policy would certify a robots.txt it had never seen.
+
+### The platform looks, instead of sending the owner to a console
+
+**Search Console's Coverage report has never been exposed through any API.** The
+email names no URLs, so the only way to see the list was for a person to open the
+console and read it — which is exactly the answer this platform is not allowed to
+give.
+
+`src/backend/indexability.ts` does the looking, reusing the RFC 9309 parser
+`backend/robots.ts` already had. It fetches the robots.txt the deployment
+publishes, walks the pages the sitemap offers, reads the real `<a href>` elements
+off the rendered HTML, and reports five contradictions:
+
+| fault | what it means |
+|---|---|
+| `blocked_but_linked` | **the reported one** — an indexable page links to it, robots refuses it |
+| `blocked_noindex` | blocked AND noindex, so the noindex can never be read |
+| `noindex_missing` | declared noindex in policy, absent on the page |
+| `sitemap_blocked` | in our sitemap and blocked by our own robots.txt |
+| `sitemap_noindex` | in our sitemap and carrying a noindex |
+
+It needs **no credential**, which is the point: it runs on any deployment,
+including a customer's. Exposed as `action: "indexability"` on
+`/api/seo-insights`, scoped to the brand's own registered website — never an
+origin typed into the request body, which would make it an open crawler.
+
+**And `inspectUrls` asks Google directly** (the URL Inspection API —
+`robotsTxtState`, `coverageState`, `verdict`, the canonical Google chose) for the
+deployments where a Google credential exists. Its quota is 2,000 a day per
+property, so the caller names the URLs; it will not walk a sitemap on its own. A
+quota refusal is recorded in `failed[]` with its reason, never dropped — a
+refusal that only shows up as a missing row looks exactly like "this page is
+fine".
+
+**Wired to run by itself:** `/api/cron/seo-gate` (daily, already authorised) now
+runs the audit on our own origin and **emails the first `PLATFORM_ADMIN_EMAILS`
+address when it finds something**, silent when clean. A finding in a cron response
+nobody reads is the same defect as a console nobody opens.
+
+### Driving it found two more instances, and a rule I had read wrongly
+
+**Two more pages, which the source grep had missed.** The audit, against a real
+`next build` on `next start`, reported `/dashboard/partner-network` and
+`/dashboard/earnings` as blocked-but-linked — from **blog posts**. Three links in
+the evergreen cluster's own body copy (`src/shared/seo-articles.ts`) pointed at
+signed-in screens from pages that are in the sitemap. They now name the screen
+and link to `/share2earn` and `/growth`, which are public, indexable and in the
+sitemap: the information is kept, the dead end is not.
+
+**And `Disallow: /dashboard/` never covered `/dashboard`.** A robots prefix ending
+in a slash matches sub-paths only, so the command centre's index page has been
+crawlable and indexable for as long as the rule has existed — while
+`/choose-plan` links to it deliberately ("Explore the demo first"). The dashboard
+**layout** carries `noindex, follow` now, which covers every dashboard page
+whether or not the robots block is there. Found by the audit; reading the rule did
+not find it.
+
+### Three defects in my own new code, all found by driving it
+
+1. **The audit read almost nothing and reported a clean result.** The sitemap a
+   build publishes carries the *canonical* origin, so every URL in it was
+   rejected as off-origin when the audit ran against `127.0.0.1` — 0 pages read,
+   0 links seen, and "nothing is both offered to Google and refused" passed
+   because nothing had been examined. Defect class #2 in the module written to
+   end it. Sitemap paths are now rehosted onto the origin under audit with the
+   mismatch reported, a site with **no** sitemap falls back to the home page's
+   own links, and `pagesRead === 0` is stated as *"not a clean result"*.
+2. **A truncated walk reported complete.** `toRead = sitemapUrls.slice(0,
+   maxPages)` made the length comparison that sets `partial` unsatisfiable, so a
+   44-page sitemap audited 30 pages and said so nowhere.
+3. **The driver audited the wrong server.** A leftover `next start` from an
+   earlier run answered on the same port, so the new `next start` failed quietly
+   and the audit measured the OLD build — two already-fixed pages were reported
+   broken for a full cycle while the code was correct. The driver now refuses to
+   run when the port is busy, and names `fuser -k`.
+
+### I overwrote §160's own test file, and `git status` is what caught it
+
+`tests/indexability.test.mjs` **already existed** — 133 lines written for the
+previous Search Console report ("Excluded by 'noindex' tag"), guarding the three
+ways that goes wrong. A `Write` replaced it wholesale. The additive-only law is
+the first thing in `CLAUDE.md` and I broke it.
+
+**What caught it:** `git status` showed ` M` against a path I believed I had
+created. A new file is `??`. Nothing else would have — the suite was green,
+because my replacement passed on its own terms.
+
+**Restored and MERGED, not reverted.** Its five tests stand unchanged except where
+§161 legitimately moved the ground under them, and each of those three changes is
+load-bearing:
+
+1. **`noindexRoutes()` now also matches `robots: NOINDEX_METADATA`.** It scanned
+   for the inline `index: false` literal, and §161 moved that literal into the
+   policy module — so the scan would have silently stopped seeing every page that
+   uses the shared constant. That scan is the guard against a *marketing* page
+   acquiring a noindex by accident, which is the expensive direction. Mutant 15
+   proves the blind spot is now caught.
+2. **The disallow list is read from `shared/robots-policy.ts`**, not from the
+   literal array in `robots.ts` that no longer exists — otherwise the test would
+   have examined an empty list and passed, which is the failure mode it exists to
+   prevent, one level up.
+3. **The four un-blocked paths are recorded in `INTENTIONALLY_NOINDEX`** with
+   their reasons, which is what that structure is for: adding a noindex fails the
+   test until somebody writes down why.
+
+And its own comment had already recorded the insight §161 is built on — *"Google
+has to CRAWL a page to see its noindex. Disallow it and the crawler never reads
+the tag"*. The analysis was in the repository before this session; what was
+missing was applying it to `/login` and `/signup`.
+
+### Mutation testing — 15 mutants, all killed
+
+the noindex detector no longer recognising the shared constant · `/signup` back on the disallow list · the published file no longer reading the
+policy · `/signup` losing its noindex · the dashboard layout losing its noindex ·
+`follow` flipped to `nofollow` · the audit counting one link instead of all ·
+the rule dropped from the finding · a nofollowed link reported as fixed · links
+from a noindex page counted anyway · a truncated walk reported complete ·
+nothing-read reported as nothing-wrong · a quota refusal dropped · `none` no
+longer implying noindex · any meta tag's content searched instead of only
+`robots`.
+
+**ONE SURVIVED FIRST, and it is the second time this session.** The noindex check
+asserted `NOINDEX_METADATA` appeared anywhere in the file — which the **import
+line** satisfies — so deleting the metadata and leaving the import behind left it
+green. It matches `robots: NOINDEX_METADATA` now. Both of this session's survivals
+were presence assertions satisfied by something other than the code: one by a JSX
+comment that `codeOf` had swallowed, one by an import.
+
+### Two existing tests failed, and both failures were right
+
+1. **"public site: it publishes the files it scores customers on"** asserted the
+   literal `disallow: [` array in `robots.ts`, which no longer holds the list. It
+   reads the policy now — and additionally asserts that `/login`, `/signup` and
+   `/onboarding` are **not** in it, so the defect cannot be reinstated.
+2. **"every process.env variable in the source is catalogued"** caught
+   `DRIVE_PORT`. Catalogued in `ENV_TUNING` as harness-only: an exclusion that
+   hides one name hides the next one too.
+
+### What this does NOT claim
+
+It does not claim to know what Google has already done — only what the site is
+currently telling it. `inspectUrls` is the half that asks Google, and it needs a
+credential this container does not have, so it is **built and typechecked but not
+exercised against the live API**. Said plainly rather than implied.
+
+### Driven — 35 proven / 0 broken (`npm run drive:index`)
+
+Against a real production build on `next start`: the robots.txt that build
+actually publishes (3 rules, matching the policy exactly), `noindex, follow` read
+off the rendered `<meta>` on all four declared paths, **48 pages read and the
+whole sitemap covered with 0 findings** — and then the old state replayed through
+a stub so the audit is shown to catch the defect it was written for, because a
+check that has never failed is not evidence.

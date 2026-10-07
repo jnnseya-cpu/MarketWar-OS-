@@ -181,6 +181,11 @@ export const ENV_TUNING: string[] = [
   // "unknown", which KEEPS those addresses rather than dropping them. Neither
   // direction can delete a customer's contact, which is why it is tuning.
   "MW_DNS_TIMEOUT_MS",
+  // The port `scripts/drive-indexability.mjs` starts its own production server
+  // on, default 3123. Harness-only: nothing in `src/` reads it. Listed because
+  // the catalogue's own guard is what found it, and an exclusion that hides one
+  // name hides the next one too.
+  "DRIVE_PORT",
   // A TEST-HARNESS VARIABLE, AND LISTED RATHER THAN HIDDEN because of what it
   // does. `scripts/drive-bulk.mjs` sets it to talk to the LOCAL self-signed TLS
   // SMTP server in `tests/helpers/fake-smtp.mjs` — the same thing

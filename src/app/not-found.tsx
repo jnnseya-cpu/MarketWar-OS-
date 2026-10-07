@@ -11,7 +11,7 @@ export default function NotFound() {
       <p className="mt-2 max-w-md text-sm text-slate-400">
         The route doesn&apos;t exist — but the command centre does.
       </p>
-      <Link href="/dashboard" className="btn-primary mt-6">
+      <Link href="/dashboard" rel="nofollow" className="btn-primary mt-6">
         Back to the Command Center
       </Link>
     </div>
