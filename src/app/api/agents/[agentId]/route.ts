@@ -198,6 +198,13 @@ export async function POST(
     return NextResponse.json({ ...result, ...(domainAuth ? { domainAuth } : {}), ...(nextStep ? { nextStep } : {}) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Agent execution failed";
+    // A CREDENTIAL IN THE PROMPT IS NOT AN OUTAGE. 502 reads as "the platform
+    // broke"; this is the request being wrong and nothing having been sent, so
+    // it is a 400 and the message — which names the vendor, where the key
+    // belongs and where to rotate it — is what the person needs to act on.
+    if (err instanceof Error && err.name === "CredentialInPromptError") {
+      return NextResponse.json({ error: message, credentialRefused: true }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

@@ -10242,3 +10242,160 @@ off the rendered `<meta>` on all four declared paths, **48 pages read and the
 whole sitemap covered with 0 findings** — and then the old state replayed through
 a stub so the audit is shown to catch the defect it was written for, because a
 check that has never failed is not evidence.
+
+## §162 — A credential pasted where it should never go (2026-10-13)
+
+**Owner request.** A live Meta Graph API access token was pasted into chat — for
+the second time in the session — and the owner asked for the mechanism: *"Build
+it."*
+
+### What already existed, read before anything was written
+
+`backend/audit-log.ts` has had `looksSecret()` for months: seven value shapes
+including Meta's `EAA…`, and the audit log redacts on it. **The detection was not
+missing.** Three other things were.
+
+**ONE: it lived in a BACKEND module.** A shared module may not import a backend
+one, so the rule was available to the audit log and to nothing else — not the AI
+gateway, not a form, not a validator. `api-key-hygiene.ts` says it about itself
+one file away: *"a hygiene rule that lives in one provider's adapter is a rule
+the next provider does not get."*
+
+**TWO: it said `"provider key"`.** Enough to redact, useless to act on. `EAA…` is
+Meta, `sk_live_` is Stripe, `AIza` is Google, `ghp_` is GitHub — and the remedy,
+which dashboard to rotate it in, is different for every one.
+
+**THREE: nothing stopped a secret being SENT anywhere.** Redacting a log entry
+protects the log. A key pasted into an agent field is **transmitted to Anthropic
+or OpenAI** and written into the results ledger and the generation cache, and no
+redaction afterwards recalls any of that.
+
+### Confidence is the whole design
+
+`src/shared/secret-shapes.ts` splits the shapes in two, and the split is the
+difference between a guard and an obstacle:
+
+| | what it is | what may be done with it |
+|---|---|---|
+| **`certain`** | a vendor PREFIX nothing else produces — `sk_live_`, `AIza`, `ghp_`, `xoxb-`, `EAA…`, a PEM header, a DB URL with a password | **refuse** |
+| **`likely`** | a shape that is usually a secret and sometimes is not — 40 hex characters is a credential *and* every git commit SHA in existence | **redact only** |
+
+**A platform that refuses an agent prompt because it mentions a commit hash has
+not been made more secure.** It has been made unusable, and the person will work
+around it in a way nobody can see. So `refuseIfSecret` reads `certain` only, and
+`redactSecrets` reads both — over-redacting a log costs one diagnostic line,
+under-redacting it stores a live key.
+
+**And documentation placeholders are detected but never refused.** `Bearer
+YOUR_TOKEN_HERE`, AWS's own `AKIAIOSFODNN7EXAMPLE`, a row of X's — docs get
+pasted into agent fields constantly, and refusing those teaches people the guard
+is noise. `looksLikePlaceholder` downgrades them on the refusal path only, so a
+log still redacts them.
+
+### Nothing ever hands back the value
+
+A finding carries the shape, a **six-character prefix** and a **length** — enough
+for a person to recognise which key it was, not enough for anybody to use it. A
+detector that returns what it found has moved the problem rather than solved it,
+and its own error messages become the next place the credential leaks. Asserted
+on the finding, on the refusal message **and** on the security event's detail.
+
+### Where it is enforced, and why the answer differs per door
+
+- **The AI gateway (`gatewayComplete`) REFUSES.** It is the one door every AI call
+  goes through, so a check there covers all 39 agents at once. It sits **before
+  the cache lookup and before the instruction firewall** — order is a security
+  property here exactly as it already was for the firewall: a cache hit must not
+  be able to route around it. New `CredentialInPromptError`, and a new
+  `credential_refused` Sentinel kind whose catalogue entry says the event records
+  the shape and never the value.
+- **Third-party text is SCRUBBED, not refused.** A crawled page carrying somebody
+  else's key is not the customer's mistake, so refusing would stop their agent
+  over a stranger's error — while forwarding it would hand that stranger's key to
+  a model. Neither is acceptable; removing it is, and the redaction is *named*
+  (`[redacted] (Google)`) so the model knows something was taken out.
+- **`/api/agents/[agentId]` returns 400, not 502.** A credential in the prompt is
+  not an outage. 502 reads as "the platform broke"; this is the request being
+  wrong with nothing sent, and the message — vendor, where the key belongs, where
+  to rotate it — is what the person needs.
+- **`/api/client-error` REDACTS.** A browser stack can carry a token out of a URL
+  and this is a store, but losing the crash report is the worse failure here: the
+  one on the sign-up page is exactly the one worth hearing about.
+
+### One list, and a bound that mattered
+
+`audit-log.ts` now reads the shared shapes; its own copy is gone, not merely
+unused. Behaviour is preserved and improved where it was vague — `looksSecret`
+returns *"Stripe secret API key"* rather than *"provider key"*, because the audit
+trail is read by a person deciding what to rotate.
+
+**The Meta rule is `{60,}` and the old one was `{20,}`.** `src/backend/font-data.ts`
+is a base64 blob containing runs that begin `EAA`, so a 20-character rule reports
+the embedded typeface as a credential — which is what the first sweep of this
+session's work actually did when looking for the pasted token. 60 clears ordinary
+base64 while staying far below the ~200 characters a real Meta token runs to. A
+test pins it against a real slice of that font data.
+
+**Every `envVar` a shape names is asserted to exist in `ENV_CATALOGUE`.** A remedy
+that names a variable the platform does not read sends somebody to set the wrong
+thing.
+
+### Mutation testing — 13 mutants, all killed
+
+The gateway no longer consulting the detector · the refusal recorded but not
+thrown · the check moved after the instruction firewall · third-party text
+forwarded unscrubbed · `likely` shapes made refusable so a git SHA is rejected ·
+the finding carrying the whole match · the Meta rule back to 20 characters · the
+OpenAI shape read before the Anthropic one · redaction replacing only the first
+occurrence · the placeholder rule swallowing real tokens · the audit log keeping
+its own copy · the agent route reporting 502 · the client-error log storing the
+stack unredacted.
+
+**TWO SURVIVED FIRST, and together they are the lesson.** A mutant that replaced
+`refuseIfSecret(...)` with `null` left **every source assertion passing**, because
+the `throw` was still written and merely unreachable — source text proves the
+text. The fix is a **behavioural** test that calls the real `gatewayComplete` and
+demands the real refusal; it needs no network and no provider key, because the
+credential check runs before anything else. (The second survivor was my own
+vacuous mutant: it edited a comment rather than the order the comment described.)
+
+That is the third presence-style assertion this session to be satisfied by
+something other than the code it was about — after a JSX comment `codeOf` had
+swallowed, and an import line.
+
+### Driven — 35 proven / 0 broken (`npm run drive:secrets`)
+
+A real HTTP server standing in for Anthropic, with `fetch` intercepted only to
+rewrite the host, so the request that arrives is byte-for-byte what the provider
+would have received. The claim is "the key never reaches a provider", and the only
+way to check it is to stand a provider up and look at what arrived: **0 requests**
+for a prompt carrying a token, the token absent from the refusal message and from
+the security event, a commit SHA sent through intact, and a stranger's key removed
+from third-party text while the agent still ran.
+
+**Every credential in the driver and the tests is fake**, assembled from a vendor
+prefix plus filler. A driver that needs a live key to prove a guard is a driver
+that leaks one.
+
+### The owner's token
+
+Verified absent from tracked files, from the working tree and from **every commit
+on every branch** (`git log --all -S`). The exposure was the paste itself, so the
+remedy is rotation in Meta Business Settings → Users → System Users, which the
+refusal message now states verbatim for anybody who hits it.
+
+### THE GATE DID NOT FULLY RUN, AND THAT IS NOT A CODE FAULT
+
+This container has **no DNS**: `/etc/resolv.conf` points at 8.8.8.8, UDP 53 is
+blocked, and `resolve4` returns `ENOTFOUND` for every name including `google.com`.
+Outbound HTTPS works only through the agent proxy, which resolves names itself.
+
+**14 tests fail as a result** — the crawler and deep-crawl suites, the audit route,
+and the §160 preview test, all of which need a real lookup (`crawlSite` refuses a
+host that does not resolve publicly, which is its SSRF guard working correctly).
+
+**Proven not to be mine:** the failing set was captured on a clean tree
+(`git stash -u`), captured again with the changes applied, and the two sets are
+**identical, all 14 by name**. The same suite returned 0 failures in the previous
+container. Everything that does not need DNS passed: layers, casts, advisories,
+indexes, lint, typecheck, `next build`, the 14 new tests, and the driver.

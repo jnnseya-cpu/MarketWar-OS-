@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey, requireAuth } from "@/backend/guard";
 import { recordClientError, recentClientErrors } from "@/backend/client-errors";
+import { redactSecrets } from "@/shared/secret-shapes";
 
 // Where a crash in the browser goes.
 //
@@ -27,16 +28,23 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const str = (k: string, max: number) => (typeof body[k] === "string" ? (body[k] as string).slice(0, max) : "");
 
-  const message = str("message", 500);
+  // REDACTED, NOT REFUSED, and the direction is deliberate. A browser error
+  // message or stack can carry a token out of a URL or a request body, and this
+  // is a STORE — whatever arrives outlives the request. But losing the crash
+  // report is the worse failure here: the one on the sign-up page is exactly the
+  // one worth hearing about. So the credential is removed and the report is kept.
+  // (Refusing is right at the AI gateway, where the alternative is transmitting
+  // the key to a third party. Different stakes, different answer.)
+  const message = redactSecrets(str("message", 500));
   if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
 
   const ref = await recordClientError({
     message,
-    route: str("route", 200),
+    route: redactSecrets(str("route", 200)),
     digest: str("digest", 64),
     // Capped hard: a stack is for us, and an unbounded field from the browser
     // is somewhere to put things that are not stacks.
-    stack: str("stack", 4000),
+    stack: redactSecrets(str("stack", 4000)),
     userAgent: (req.headers.get("user-agent") || "").slice(0, 200),
     at: new Date().toISOString(),
   });
