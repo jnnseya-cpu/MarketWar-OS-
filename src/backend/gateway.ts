@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 import { spendVerdict, recordSpend, estimateCost } from "@/backend/ai-spend";
 
 import { guardPrompt, harden, type Untrusted, type Finding } from "@/backend/instruction-firewall";
+import { refuseIfSecret, redactSecrets } from "@/shared/secret-shapes";
 import { record as recordSecurityEvent } from "@/backend/sentinel";
 
 export type ProviderId = "anthropic" | "openai" | "gemini";
@@ -638,6 +639,31 @@ export const LIVE_AI_UNAVAILABLE =
  * document, rather than reporting a generic failure for something that was not
  * a failure at all — the system worked exactly as intended.
  */
+/**
+ * A CREDENTIAL WAS ABOUT TO BE SENT TO AN AI PROVIDER, AND WAS NOT.
+ *
+ * Why this belongs at this exact line, next to the instruction firewall: the
+ * gateway is the one door every AI call goes through, so a check here covers all
+ * 39 agents at once and a check anywhere else covers one caller.
+ *
+ * And the stakes are higher than a log entry. A key pasted into an agent field
+ * is TRANSMITTED to Anthropic or OpenAI, and the prompt is stored in the results
+ * ledger and the generation cache. Redaction afterwards recalls none of that, so
+ * the only version that helps is a refusal before the call.
+ *
+ * `message` is written for the person who pasted it: it names the vendor, says
+ * where the key belongs on this platform, and says where to rotate it. It never
+ * contains the value.
+ */
+export class CredentialInPromptError extends Error {
+  readonly shapeId: string;
+  constructor(message: string, shapeId: string) {
+    super(message);
+    this.name = "CredentialInPromptError";
+    this.shapeId = shapeId;
+  }
+}
+
 export class UntrustedInstructionError extends Error {
   readonly findings: Finding[];
   constructor(message: string, findings: Finding[]) {
@@ -673,6 +699,34 @@ export async function gatewayComplete(
     ? { ...reqIn, system: `${reqIn.system}\n\nIMPORTANT: Write your entire response in ${lang}. Use natural, native ${lang} — not a literal translation. Keep proper nouns, product names and URLs as-is.` }
     : reqIn;
 
+  // THE CREDENTIAL FIREWALL — before the instruction one, and before anything
+  // is sent, cached or stored.
+  //
+  // A key pasted into an agent field would otherwise be transmitted to a third
+  // party and written into the results ledger and the generation cache, where no
+  // later redaction reaches it. `certain` shapes only: refusing on a `likely`
+  // one would reject a prompt that merely mentions a commit hash, and a guard
+  // people route around is worse than no guard. See `shared/secret-shapes.ts`.
+  for (const [field, text] of [["the system instruction", localised.system], ["your prompt", localised.prompt]] as const) {
+    const refusal = refuseIfSecret(text || "", field);
+    if (refusal) {
+      // The event carries the SHAPE and never the value — an audit trail that
+      // records the credential is one more place the credential lives.
+      recordSecurityEvent({
+        at: new Date().toISOString(), kind: "credential_refused",
+        actor: "system:gateway", detail: refusal.detail,
+      });
+      throw new CredentialInPromptError(refusal.message, refusal.finding.shape.id);
+    }
+  }
+  // Third-party text is REDACTED rather than refused. It is not the customer's
+  // paste — it is a page somebody else wrote — so refusing would stop the agent
+  // over a stranger's mistake, while sending it would hand that stranger's key
+  // to a model. Neither is acceptable; removing it is.
+  const scrubbed: Untrusted[] | undefined = localised.untrusted?.map((u) => ({
+    ...u, text: redactSecrets(u.text || ""),
+  }));
+
   // THE INSTRUCTION FIREWALL — the second half of "block all non-human
   // instructions", and the half that matters in a platform with nineteen agents
   // reading other people's text.
@@ -682,7 +736,7 @@ export async function gatewayComplete(
   // prompt, so a rule that only applied to the declared cases would protect the
   // careful callers and leave the rest exactly as exposed as before. It costs
   // about a hundred input tokens; a hijacked agent costs the brand.
-  const guarded = guardPrompt({ system: localised.system, prompt: localised.prompt, untrusted: localised.untrusted || [] });
+  const guarded = guardPrompt({ system: localised.system, prompt: localised.prompt, untrusted: scrubbed || [] });
   if (!guarded.ok) {
     recordSecurityEvent({ at: new Date().toISOString(), kind: "injection_refused", actor: "system:gateway", detail: guarded.findings.map((f) => f.id).join(", ") });
     throw new UntrustedInstructionError(guarded.error, guarded.findings);

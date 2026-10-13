@@ -84,18 +84,19 @@ const COLLECTION = "audit_logs";
 /** Field names that never carry a value worth keeping. */
 const SECRET_KEY = /(token|secret|password|passwd|credential|api[-_]?key|\bkey\b|authorization|auth|cookie|session|private|dkim|signature|salt|otp|pin|cvv|iban|account[-_]?number)/i;
 
-/** Value shapes that are credentials regardless of what the field is called. */
-const SECRET_VALUE: { re: RegExp; what: string }[] = [
-  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, what: "private key" },
-  { re: /\bsk-[A-Za-z0-9_-]{16,}/, what: "provider key" },
-  { re: /\b(?:AIza|ghp_|gho_|github_pat_|xox[baprs]-|EAA[A-Za-z0-9]{20,})/, what: "provider key" },
-  { re: /\bBearer\s+[A-Za-z0-9._~+/-]{16,}/i, what: "bearer token" },
-  { re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./, what: "signed token" },
-  { re: /\b[a-f0-9]{40,}\b/i, what: "hex secret" },
-  { re: /(?:postgres|mysql|mongodb(?:\+srv)?|redis|amqp)s?:\/\/[^\s:@/]+:[^\s@/]+@/i, what: "connection string with a password" },
-];
-
-export const REDACTED = "[redacted]";
+// THE SHAPES MOVED TO `shared/secret-shapes.ts`, and this is now a view onto it.
+//
+// They were declared here, in a BACKEND module — so a shared module could not
+// import them and the rule was available to this log and to nothing else. Not
+// the AI gateway, which sends prompts to a third party; not a form; not a
+// validator. `api-key-hygiene.ts` says it about itself one file away: a hygiene
+// rule that lives in one adapter is a rule the next one does not get.
+//
+// Nothing about this log's behaviour changed. The shared list is a superset of
+// the seven shapes that were here — the vendors are NAMED now, which is the
+// difference between "provider key" and a sentence somebody can act on.
+export { REDACTED } from "@/shared/secret-shapes";
+import { firstSecret, REDACTED } from "@/shared/secret-shapes";
 
 /**
  * Is this value a credential, whatever it is called?
@@ -105,13 +106,11 @@ export const REDACTED = "[redacted]";
  * string is a rule nobody can check.
  */
 export function looksSecret(value: string): string | null {
-  const v = String(value || "");
-  for (const { re, what } of SECRET_VALUE) if (re.test(v)) return what;
-  // A long unbroken run of base64-ish characters with no spaces is a token in
-  // practice. Bounded away from ordinary prose by requiring no whitespace and
-  // a mix of cases or digits.
-  if (/^[A-Za-z0-9_\-+/=.]{40,}$/.test(v) && /[0-9]/.test(v) && /[A-Za-z]/.test(v)) return "opaque token";
-  return null;
+  const found = firstSecret(String(value || ""));
+  // The vendor's name where there is one, so the log says "Stripe secret API
+  // key" rather than "provider key" — the audit trail is read by a person
+  // deciding what to rotate.
+  return found ? (found.shape.provider === "unidentified" ? found.shape.what : `${found.shape.provider} ${found.shape.what}`) : null;
 }
 
 /** One value, made safe to keep. Long prose is truncated; credentials are replaced. */

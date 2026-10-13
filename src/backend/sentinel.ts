@@ -40,6 +40,7 @@ export type EventKind =
   | "rate_limited"
   | "injection_flagged"
   | "injection_refused"
+  | "credential_refused"
   | "payout_refused"
   | "identity_rejected"
   | "disposable_email";
@@ -53,6 +54,7 @@ export const EVENT_KINDS: { kind: EventKind; what: string }[] = [
   { kind: "rate_limited", what: "A caller exceeded a route's rate limit." },
   { kind: "injection_flagged", what: "Third-party text contained something that reads as an instruction; it was processed as data and flagged." },
   { kind: "injection_refused", what: "Third-party text contained an unambiguous attempt to instruct the assistant; it was refused." },
+  { kind: "credential_refused", what: "A prompt or a field carried something shaped like an API key or token, and was refused before it reached a provider. The event records the SHAPE and never the value." },
   { kind: "payout_refused", what: "A withdrawal was refused by the identity gate, the balance check or the fee guard." },
   { kind: "identity_rejected", what: "An identity submission failed validation." },
   { kind: "disposable_email", what: "A signup used a throwaway mailbox." },
