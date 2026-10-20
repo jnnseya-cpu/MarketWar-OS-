@@ -10553,3 +10553,175 @@ The same **14** tests fail as in §162, for the same reason, and the failing set
 was diffed against the clean-tree capture again: **identical**. Everything that
 does not need DNS passed — layers, casts, advisories, lint, typecheck,
 `next build`, the 12 new tests, and the driver.
+
+## §164 — Two defects on the money path, found before the keys were bought (2026-10-20)
+
+**Owner request.** *"Build and test these and I will add keys… It must not only
+crawl and find but to be in a position to send email and land in the inbox."*
+
+So the whole chain was driven end to end — a company name in, a message on the
+wire out — with stand-ins for serper.dev, api.leadmagic.io, the company's own
+website and the receiving mail host, and `fetch` intercepted only to rewrite the
+HOST, so each supplier receives byte-for-byte what the real one would.
+
+**It found two defects, both on the money path, and one of them would have made
+the key he is about to pay for nearly worthless.**
+
+### 1. The cheapest paid supplier was unreachable on the only rows it is for
+
+`findCompanyEmail`'s second phase required **`findPeople` AND `findEmails` on the
+same provider**. `leadmagic` has `findEmails` and `findPhones` and no
+`findPeople` — it is a finder, not a directory — so it was skipped. And in phase
+1 it had already been asked with no name, which is the one question it cannot
+answer. Measured on a company that publishes no address and names its director on
+its own About page — exactly the row a paid lookup exists for:
+
+```
+step marketwar-web emails  ran: true  cost: 0
+step leadmagic     emails  ran: true  cost: 0   <- asked BEFORE the name was known
+step marketwar-web people  ran: true  cost: 0   <- name found HERE (Dave Smith)
+step marketwar-web emails  ran: true  cost: 0   <- and leadmagic never re-asked
+```
+
+**The supplier whose entire purpose is "the address for THIS person at THIS
+domain" was asked before the person was known, and never again.**
+
+**Fixed as two phases, because they are two different questions.** 2a: whoever
+can name a person does so, cheapest first, with the pair-affordability check kept
+for a *paid* people-finder. 2b: **every** email finder is asked about that
+person, cheapest first, whether or not it could have found them itself. After:
+
+```
+step leadmagic     emails  ran: true  cost: 1   <- and charged, because it found one
+→ dave.smith@quiet-trades.co.uk, provenance "provider"
+```
+
+Everything that was right stays right: a published address still ends the chain
+(nothing is bought to improve on the best evidence there is), no person found
+means the paid finder is not asked at all, and a budget that cannot cover it
+refuses it **by name**.
+
+### 2. A blocked resolver would have suppressed a customer's entire list
+
+The same run, in a container whose DNS is blocked:
+
+```
+REMOVED a@acme-plumbing.co.uk | nxdomain | permanent: true
+REMOVED b@bbc.co.uk           | nxdomain | permanent: true
+REMOVED c@gmail.com           | nxdomain | permanent: true
+REMOVED d@nhs.uk              | nxdomain | permanent: true
+```
+
+**`gmail.com` and `nhs.uk` reported as non-existent, removed, and marked
+PERMANENT** — which in `/api/email` writes a suppression row. A deployment whose
+DNS broke would have **permanently suppressed a customer's whole list in one
+send**, and it would have stayed suppressed after the resolver recovered. The
+worst failure available to a mailing platform.
+
+It is this codebase's signature defect in new clothes: a check that fails for a
+reason unrelated to what it tests. **NXDOMAIN from a healthy resolver is
+definitive. NXDOMAIN for every domain in a batch is a broken resolver, not a
+thousand dead companies.**
+
+**`resolverHealthy()`** asks three controls on three TLDs run by three different
+organisations (`gmail.com`, `cloudflare.com`, `bbc.co.uk`); one answering is
+enough, because the question is the resolver's health rather than theirs. If none
+answers, every negative verdict in the run degrades to `unknown` — which already
+KEEPS the address — and the note says so:
+
+> *THE RESOLVER ON THIS HOST IS NOT ANSWERING. 4 address(es) came back as "domain
+> does not exist" and every control domain failed too — gmail.com and bbc.co.uk do
+> not stop existing, so the fault is DNS here, not the list. Nothing was removed
+> and nothing was suppressed; all 4 address(es) were KEPT.*
+
+It **returns `true` when it cannot tell**, and that asymmetry is deliberate: the
+function exists to VETO removals, so a wrong `false` keeps addresses that should
+have gone (they bounce once) while a wrong `true` deletes a live list (silently).
+It costs **one lookup, and only when something came back negative** — a clean run
+asks nothing extra.
+
+### My own fix was too broad, and an existing test caught it
+
+The first veto was indiscriminate, so with the resolver dark it also kept
+`a@localhost` and `b@notadomain` — refusals that involve **no lookup at all**,
+because a string with no dot is not a domain and no amount of DNS trouble makes
+it one. §160's own test *"a name nothing can accept mail for is removed, with no
+lookup needed"* started failing.
+
+`MailRoute` now carries **`fromResolver`**, false for a syntactic refusal, and the
+veto applies only to resolver verdicts. The distinction is the point: the
+resolver's health has no bearing on a fact about the string.
+
+**And the fix repaired a pre-existing failure.** The DNS-blocked set went from 14
+to **13**: *"the preview counts the SAME audience the send will use"* now passes,
+because the veto keeps addresses the broken resolver was wrongly removing.
+
+### What the send half proves, measured on the wire
+
+A real TLS SMTP server, a real 2048-bit key generated for the run, and the bytes
+inspected: **DKIM-Signature** over this body (`d=acmebathrooms.co.uk`),
+**List-Unsubscribe** with **`List-Unsubscribe-Post: List-Unsubscribe=One-Click`**
+(RFC 8058, required of bulk senders since Feb 2024), a **plain-text alternative**
+inside `multipart/alternative`, **List-ID** scoping the list so a receiver can
+block it without blocking the domain, **Feedback-ID** naming the campaign, and
+**Reply-To the customer's own mailbox** rather than the platform's — with the
+unsubscribe token differing per recipient, so one link cannot opt out another.
+
+And before any of it: `bulkEligibility` clears a company mailbox on legitimate
+interests with no consent on file, clears a **named** mailbox at a company for the
+same reason, refuses a personal gmail with nothing recorded, and refuses anybody
+who has objected whatever basis exists.
+
+### Mutation testing — 9 mutants, all killed
+
+Phase 2b requiring `findPeople` again · the named pass dropped · the name not
+passed to the finder · a published address no longer ending it · the budget
+refusal no longer recorded · the resolver veto removed · the veto running on
+every send · an unanswerable resolver reported as healthy · the veto covering a
+syntactic refusal again.
+
+**One near-vacuous attempt of my own, recorded.** A mutant that changed only the
+*cached* health value — leaving `return healthy` alone — slipped past a test that
+looked only at the removals. The real mutant changes the return, and the test now
+asserts the answer itself rather than only its effect.
+
+### Three harness faults of mine in this run, all recorded
+
+1. A fixture expected `0161 496 1111`; the platform normalises to `01614961111`.
+2. The driver passed `fullName` to `enrichPaid`, which takes no such input — the
+   chain discovers the person itself. Reported the waterfall as broken for
+   declining to spend a credit on a row with nobody to ask about.
+3. The About-page fixture read *"About Quiet Trades Ltd — Dave Smith, Managing
+   Director"* and `extractDecisionMaker` returned null: greedy name matching
+   reached back and produced "Ltd Dave Smith", which `looksLikeCompany` then
+   rejected. **That is the safety net working** — no name beats a wrong name — and
+   it is worth knowing that a page putting the legal name immediately before a
+   person's loses the person.
+
+### `drive:deliver` now skips its DNS sections instead of reporting them broken
+
+Six of its checks were failing in a container with no resolver, while the code was
+right — a driver reporting BROKEN for an environment fact is the very defect it
+exists to catch. It asks `resolverHealthy()` first and prints what cannot be
+measured here, naming `drive:chain` as where the designed behaviour IS proven.
+**43 proven / 0 broken.**
+
+### Driven — 35 proven / 0 broken (`npm run drive:chain`)
+
+```
+1. a NAME and TOWN      → Serper → the company's own domain (Yell refused)
+2. the free crawl       → info@acme-plumbing.co.uk, high confidence, £0
+3. the row with none    → LeadMagic → dave.smith@quiet-trades.co.uk, 1 ACU
+4. lawful basis         → corporate yes, consumer no, objection always no
+5. hygiene              → info@ sends, abuse@ refused, gmial.com removed
+6. a dark resolver      → nothing removed, nothing suppressed
+7. a real TLS SMTP send → every header a receiver reads, on the wire
+```
+
+**WHAT THIS CANNOT PROVE, printed by the driver itself rather than left to the
+pass count:** which FOLDER a message lands in (that is Gmail's classifier, and it
+reads engagement history as well as shape — `MW_SEED_MAILBOXES` measures it for
+real); Serper's and LeadMagic's own hit rate, data quality or current prices; and
+the share of real company sites that publish an address at all, which decides how
+many rows need a paid lookup and is a property of the web rather than of this
+code.

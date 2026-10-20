@@ -246,6 +246,29 @@ say("\n2b. THE VAULT ROW THE SPRINT SAVED IS NOW MAILABLE — one rule, three re
 }
 
 // ---------------------------------------------------------------------------
+// DOES THIS HOST HAVE A RESOLVER AT ALL?
+//
+// Asked before the DNS sections rather than after, because a driver that reports
+// BROKEN for an environment fact is the exact defect it exists to catch: a check
+// failing for a reason unrelated to what it tests. In a container with no DNS
+// every lookup is ENOTFOUND, §164's resolver veto correctly keeps every address,
+// and these checks — written when this host HAD a resolver — would all report
+// broken while the code was right.
+// ---------------------------------------------------------------------------
+const dnsLive = await verify.resolverHealthy();
+
+if (!dnsLive) {
+  say("\n3. THE BOUNCES ARE REMOVED BEFORE THE SEND — SKIPPED, NO RESOLVER ON THIS HOST");
+  say("     Every control domain (gmail.com, cloudflare.com, bbc.co.uk) failed to resolve,");
+  say("     so §164's veto keeps every address and nothing here can be measured. That is");
+  say("     the designed behaviour, proven in `npm run drive:chain`; what CANNOT be checked");
+  say("     from here is the removal of a genuinely dead domain. Run this where DNS works.");
+  check("the veto keeps every address when the resolver is dark",
+    (await verify.verifyRecipients(["a@gmail.com", "b@nhs.uk"])).removed.length === 0);
+}
+
+// ---------------------------------------------------------------------------
+if (dnsLive) {
 say("\n3. THE BOUNCES ARE REMOVED BEFORE THE SEND — over real DNS");
 // ---------------------------------------------------------------------------
 {
@@ -335,6 +358,8 @@ say("\n3b. AN UNANSWERED LOOKUP KEEPS THE ADDRESS (a slow resolver is not eviden
     /FAILURE_TTL_MS/.test(fs.readFileSync(R("src/backend/address-verify.ts"), "utf8")));
   verify.clearMailRouteCache();
 }
+
+}  // end of the DNS-dependent sections
 
 // ---------------------------------------------------------------------------
 say("\n4. A REPLY GOES TO THE CUSTOMER, NOT TO MARKETWAR");
