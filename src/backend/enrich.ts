@@ -16,7 +16,21 @@ if (typeof window !== "undefined") {
 
 import { webSearch } from "@/backend/search";
 
-export type EnrichInput = { company: string; town?: string; area?: string; trade?: string; website?: string };
+import { isSocialProfileUrl } from "@/shared/social-profile";
+
+export type EnrichInput = {
+  company: string; town?: string; area?: string; trade?: string; website?: string;
+  /**
+   * The company's Facebook or LinkedIn page, when the list has one.
+   *
+   * A LEAD TO A WEBSITE, NOT A WEBSITE. A list bought off either network has
+   * these where the website should be, and `findWebsite` refused them as
+   * aggregators — correctly, since the page is not the company's site, but the
+   * row then died at "needs live Google data" when the page states the site
+   * right there. `backend/social-website.ts` follows it for free.
+   */
+  socialUrl?: string;
+};
 export type EnrichResult = {
   company: string;
   website: string | null;
@@ -270,6 +284,21 @@ async function fetchText(url: string, timeoutMs = 9_000, maxBytes = 600_000): Pr
   return rawFetchText(url, timeoutMs, maxBytes);
 }
 
+/**
+ * The same fetch the email crawl uses, for the social-page reader.
+ *
+ * EXPORTED RATHER THAN REIMPLEMENTED so a deployment with `SCRAPER_API_URL` set
+ * gets the same hit rate on a Facebook page as it does on a company's own site.
+ * That matters more on the social path than anywhere else: it is the difference
+ * between reading the page and being shown a sign-in wall.
+ */
+export function fetchTextForSocial(url: string): Promise<string> {
+  return fetchText(url, 12_000, 800_000);
+}
+
+/** Is this URL a directory or a social network rather than a company's own site? */
+export function isAggregatorUrl(url: string): boolean { return isAggregator(url); }
+
 async function rawFetchText(url: string, timeoutMs: number, maxBytes: number): Promise<string> {
   try {
     const ctrl = new AbortController();
@@ -347,9 +376,34 @@ function normalisePhone(s: string): string {
 // Now every result is scanned and only a domain that plausibly belongs to the
 // company is accepted; if none does, we say so rather than handing back a
 // stranger's website to be scraped.
-async function findWebsite(input: EnrichInput): Promise<{ website: string | null; mode: "live" | "demo"; rejected: number; providerError?: string }> {
+async function findWebsite(input: EnrichInput): Promise<{ website: string | null; mode: "live" | "demo"; rejected: number; providerError?: string; socialNote?: string }> {
+  // Carries WHY a social page did not answer, so the final note can tell a wall
+  // apart from a page that genuinely names no site.
+  let socialOutcome = "";
+
   if (input.website && /^https?:\/\//i.test(input.website) && !isAggregator(input.website)) {
     return { website: input.website, mode: "live", rejected: 0 };
+  }
+
+  // A SOCIAL PAGE IS FOLLOWED BEFORE ANY SEARCH IS PAID FOR.
+  //
+  // `socialUrl` when the caller has one, and otherwise the `website` column
+  // itself — because a list bought off LinkedIn or Facebook puts the page there,
+  // and the branch above has just refused it as an aggregator. That refusal is
+  // right about what the page IS and wrong about what it is WORTH: the page
+  // states the company's website, and reading it costs nothing.
+  const social = [input.socialUrl, input.website]
+    .map((u) => String(u ?? "").trim())
+    .find((u) => u && isSocialProfileUrl(u));
+  if (social) {
+    const { websiteFromSocialPage } = await import("@/backend/social-website");
+    const v = await websiteFromSocialPage({ url: social, company: input.company });
+    if (v.website) return { website: v.website, mode: "live", rejected: v.rejected.length, socialNote: v.why };
+    // NOT FOUND THERE IS NOT THE END — the search fallback still runs. But the
+    // reason travels with it, so "nothing was found" can say whether the page
+    // was read and named nothing, or whether we were shown a wall. Those are
+    // different facts and they want different next actions.
+    socialOutcome = v.why;
   }
   // Companies-House names are formal and punctuated ("M.C.B. AND SON LTD").
   // Forcing them into an exact-phrase query returns almost nothing, because the
@@ -358,7 +412,7 @@ async function findWebsite(input: EnrichInput): Promise<{ website: string | null
   const trading = (input.company || "").replace(/\b(LIMITED|LTD|PLC|LLP|CIC)\b\.?/gi, " ").replace(/\s{2,}/g, " ").trim();
   const q = [trading, input.town, input.trade].filter(Boolean).join(" ");
   const res = await webSearch({ query: q, type: "search", gl: "uk" });
-  if (res.mode === "demo") return { website: null, mode: "demo", rejected: 0, providerError: res.providerError?.reason };
+  if (res.mode === "demo") return { website: null, mode: "demo", rejected: 0, providerError: res.providerError?.reason, socialNote: socialOutcome || undefined };
 
   let rejected = 0;
   for (const r of res.results) {
@@ -368,7 +422,7 @@ async function findWebsite(input: EnrichInput): Promise<{ website: string | null
     if (!domainMatchesCompany(input.company, host)) { rejected++; continue; }
     try { return { website: new URL(r.link).origin, mode: "live", rejected }; } catch { /* keep looking */ }
   }
-  return { website: null, mode: "live", rejected };
+  return { website: null, mode: "live", rejected, socialNote: socialOutcome || undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -433,25 +487,37 @@ export async function enrichContact(input: EnrichInput): Promise<EnrichResult> {
 // and reads a genuine email off it. Never fabricates.
 export async function scrapeEnrich(input: EnrichInput): Promise<EnrichResult> {
   const base: EnrichResult = { company: input.company, website: null, email: null, emailConfidence: "none", phone: null, source: "none", mode: "live", note: "" };
-  const { website, mode, rejected, providerError } = await findWebsite(input);
+  const { website, mode, rejected, providerError, socialNote } = await findWebsite(input);
   if (mode === "demo") {
     return {
       ...base, mode: "demo", stage: "search_unavailable", providerError,
       // A key that is set but out of credit is NOT a missing key, and saying so
       // sends the owner looking for environment variables that never moved.
-      note: providerError || "Enrichment needs live Google data — set SERPER_API_KEY. No email invented.",
+      //
+      // AND IF A SOCIAL PAGE WAS TRIED, WHAT IT SAID COMES FIRST. "Set
+      // SERPER_API_KEY" is useless advice to somebody whose row had a Facebook
+      // link that turned out to be a sign-in wall — the key would not have
+      // helped. The social sentence names the actual obstacle.
+      note: [socialNote, providerError || "Enrichment needs live Google data — set SERPER_API_KEY. No email invented."]
+        .filter(Boolean).join(" "),
     };
   }
   if (!website) {
     return {
       ...base,
       stage: "no_own_site",
-      note: rejected
-        ? `No website of their own. ${rejected} result${rejected === 1 ? " was" : "s were"} directory or third-party pages about this company — scraping those would have attached someone else's inbox to this row.`
-        : "No independent website found for this company (only directory listings). Can't extract an email without inventing one.",
+      note: [
+        socialNote,
+        rejected
+          ? `No website of their own. ${rejected} result${rejected === 1 ? " was" : "s were"} directory or third-party pages about this company — scraping those would have attached someone else's inbox to this row.`
+          : "No independent website found for this company (only directory listings). Can't extract an email without inventing one.",
+      ].filter(Boolean).join(" "),
     };
   }
   const host = hostOf(website);
+  // Carried into the final note: a row solved from a social page cost nothing,
+  // and the customer should be able to see which rows those were.
+  const origin = socialNote ? `${socialNote} ` : "";
   // Read home + likely contact pages; stop as soon as we have a high-confidence hit.
   const paths = ["", "/contact", "/contact-us", "/contact.html", "/about", "/about-us"];
   let picked: { email: string; confidence: "high" | "medium" | "low" } | null = null;
@@ -466,12 +532,12 @@ export async function scrapeEnrich(input: EnrichInput): Promise<EnrichResult> {
   }
   if (!picked) {
     return { ...base, website, phone, source: phone ? "site" : "none", stage: "site_no_email",
-      note: phone ? `Found the site (${host}) and a phone, but no email published — call, or use the site contact form.` : `Found the site (${host}) but no public email/phone — use the site's contact form.` };
+      note: `${origin}${phone ? `Found the site (${host}) and a phone, but no email published — call, or use the site contact form.` : `Found the site (${host}) but no public email/phone — use the site's contact form.`}` };
   }
   return {
     company: input.company, website, email: picked.email, emailConfidence: picked.confidence, phone,
     source: "site", mode: "live", stage: "found",
-    note: `Real email read from ${host}${picked.confidence === "high" ? " (company-domain inbox)" : picked.confidence === "medium" ? " (company domain)" : " (published on the site)"}.`,
+    note: `${origin}Real email read from ${host}${picked.confidence === "high" ? " (company-domain inbox)" : picked.confidence === "medium" ? " (company domain)" : " (published on the site)"}.`,
   };
 }
 function rank(c: "high" | "medium" | "low"): number { return c === "high" ? 3 : c === "medium" ? 2 : 1; }
