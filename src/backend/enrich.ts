@@ -53,7 +53,12 @@ export type EnrichResult = {
   mobile?: string | null;
   /** What `whatsapp-reach` concluded. NEVER "they are on WhatsApp" — see that file. */
   whatsapp?: { dialable: boolean; mobile: boolean; needsOptIn: true; waLink: string | null; why: string } | null;
-  source: "apollo" | "site" | "search" | "hunter" | "none";
+  /**
+   * WHICH SUPPLIER THE ADDRESS CAME FROM. Read when deciding which key is worth
+   * renewing, so a supplier missing from this union is a supplier whose work is
+   * invisible — `leadmagic` was, and its finds were credited to "search".
+   */
+  source: "apollo" | "site" | "search" | "hunter" | "leadmagic" | "none";
   mode: "live" | "demo";
   note: string;
   /**

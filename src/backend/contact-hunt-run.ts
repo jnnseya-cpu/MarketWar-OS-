@@ -346,6 +346,8 @@ export async function huntCompany(input: {
   town?: string;
   trade?: string;
   website?: string;
+  /** Their Facebook or LinkedIn page. Followed to the company's own site, free. */
+  socialUrl?: string;
   country?: string;
   wantedTitles?: string[];
   suppressions?: Suppression[];
@@ -354,6 +356,7 @@ export async function huntCompany(input: {
   const asOf = new Date().toISOString();
   const enriched = await scrapeEnrich({
     company: input.company, town: input.town, trade: input.trade, website: input.website,
+    socialUrl: input.socialUrl,
   });
 
   const evidence: SourceEvidence[] = [];

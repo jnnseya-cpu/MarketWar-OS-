@@ -355,7 +355,10 @@ export default function CustomerVaultPage() {
               <h2 className="font-display text-sm font-bold text-white">Import contacts (CSV)</h2>
             </div>
             <p className="mb-3 text-xs text-slate-400">
-              Columns detected automatically: <span className="text-slate-300">email, name, phone, company, spend, orders, last-order-days, consent</span>. Email is enough. Re-importing the same email merges (no duplicates).
+              Columns detected automatically: <span className="text-slate-300">email, name, phone, company, website, Facebook/LinkedIn page, town, trade, spend, orders, last-order-days, consent</span>. Email is enough. Re-importing the same email merges (no duplicates).
+            </p>
+            <p className="mb-3 text-xs text-slate-400">
+              <span className="font-semibold text-slate-300">Keep your website and Facebook/LinkedIn columns in the file.</span> A row that already states its website costs no search at all, and a row with a Facebook or LinkedIn page has that page read for the company&apos;s own site free — no key, no credit. Both are cheaper and better evidence than anything bought.
             </p>
             {diagnosis && (
               <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${diagnosis.actionable ? "border-amber-500/40 bg-amber-500/10 text-amber-100" : "border-slate-600/40 bg-slate-700/20 text-slate-200"}`}>

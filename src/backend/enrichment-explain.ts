@@ -45,7 +45,20 @@ export type ExplainResult = {
   company: string;
   /** Which code is answering. A fix that is not deployed is the commonest cause of "still not working". */
   build: BuildIdentity;
-  keys: { serper: boolean; hunter: boolean; apollo: boolean; apolloBreakerTripped: boolean };
+  keys: {
+    serper: boolean; hunter: boolean; apollo: boolean; apolloBreakerTripped: boolean;
+    /**
+     * WHETHER THE RUNNING BUILD SAW THE LEADMAGIC KEY.
+     *
+     * It was absent, and this is the one report whose stated job is to answer
+     * "did the deployment get the variable I just set?". LeadMagic is the
+     * cheapest email in the waterfall and the platform's only route to a mobile
+     * number, so a deployment holding that key and not showing it here reads as
+     * the key being ignored — which is exactly the conclusion that gets a
+     * working subscription cancelled.
+     */
+    leadmagic: boolean;
+  };
   steps: ExplainStep[];
   email: string | null;
   website: string | null;
@@ -59,9 +72,18 @@ export type ExplainResult = {
  * a diagnostic that spends money every time somebody opens it is one nobody is
  * allowed to run twice.
  */
-export async function explainEnrichment(company: string, allowPaid = 0): Promise<ExplainResult> {
+export async function explainEnrichment(company: string, allowPaid = 0, socialUrl = ""): Promise<ExplainResult> {
   const steps: ExplainStep[] = [];
   const name = String(company || "").trim();
+  const social = String(socialUrl || "").trim();
+
+  // ASKED OF THE REGISTRY, NOT OF `process.env` AGAIN. The suppliers already
+  // report their own configured state, and a second reader of the same variable
+  // is how two parts of one screen come to disagree about whether a key is set.
+  const { registerBuiltInProviders } = await import("@/backend/enrichment-adapters");
+  const { providerHealth } = await import("@/backend/enrichment-provider");
+  registerBuiltInProviders();
+  const configured = new Set(providerHealth().filter((p) => p.configured).map((p) => p.id));
 
   const out: ExplainResult = {
     company: name,
@@ -76,6 +98,7 @@ export async function explainEnrichment(company: string, allowPaid = 0): Promise
       // deployment in that state reports the key as present and Apollo as doing
       // nothing, which reads as the platform ignoring it.
       apolloBreakerTripped: apolloConfigured() && !apolloUsable(),
+      leadmagic: configured.has("leadmagic"),
     },
     steps, email: null, website: null, verdict: "",
   };
@@ -85,10 +108,44 @@ export async function explainEnrichment(company: string, allowPaid = 0): Promise
     return out;
   }
 
+  // 0. THE FREE SOCIAL FOLLOW, WHEN A PAGE WAS GIVEN — and it runs BEFORE the
+  //    search key is even discussed, because it is the one step that needs no
+  //    key at all. A list bought off Facebook or LinkedIn arrives as social
+  //    URLs, and this says whether the page named the company's own site, named
+  //    somebody else's, named none, or was withheld behind a sign-in. Those are
+  //    four different facts and only one of them is about the company.
+  if (social) {
+    const { websiteFromSocialPage } = await import("@/backend/social-website");
+    const v = await websiteFromSocialPage({ url: social, company: name });
+    steps.push({
+      stage: "social page", ok: Boolean(v.website),
+      detail: v.why,
+      fix: v.website ? undefined
+        : v.outcome === "walled"
+          ? "A wall is OUR side of the connection, not a company without a website. Set SCRAPER_API_URL to raise the share of these pages that can be read, or supply the website column and skip the problem."
+          : v.outcome === "rejected"
+            ? `The page named ${v.rejected.length} site(s) that could not be tied to "${name}". Refusing them is correct: a wrong domain here produces a real email at a real stranger's company.`
+            : undefined,
+    });
+    // CARRIED INTO THE CRAWL BELOW, which is the whole point of this step
+    // existing. A diagnostic that follows the page and then runs the crawl
+    // without the answer is reporting on a different row than the one it ran.
+    if (v.website) out.website = v.website;
+  }
+
   // 1. THE SEARCH KEY, ASKED RATHER THAN ASSUMED. A key that is present and
   //    rejected is the single likeliest cause of a whole list finding nothing,
   //    and it is indistinguishable from a missing key in every existing report.
-  if (!out.keys.serper) {
+  //
+  //    SKIPPED ENTIRELY WHEN THE SOCIAL PAGE ALREADY ANSWERED, because the
+  //    search is then not needed and probing it would spend a real credit to
+  //    report on a step this row never takes.
+  if (out.website) {
+    steps.push({
+      stage: "search key", ok: true,
+      detail: `Not needed: the website was already known (${out.website}), so no search was spent. This is the cheapest shape a row can have.`,
+    });
+  } else if (!out.keys.serper) {
     steps.push({
       stage: "search key", ok: false,
       detail: "SERPER_API_KEY is not set on this deployment, so no business name can be turned into a website.",
@@ -109,8 +166,17 @@ export async function explainEnrichment(company: string, allowPaid = 0): Promise
 
   // 2. THE FREE PASS, RUN FOR REAL. This is the same call the vault makes, so
   //    its `stage` is the row's real stopping point rather than a re-enactment.
-  const free = await scrapeEnrich({ company: name });
-  out.website = free.website;
+  //    PASSED EXACTLY WHAT THE VAULT PASSES, including the social URL. Handing
+  //    it a narrower input would make `stage` a re-enactment of a different row:
+  //    the row this reports on must be the row that runs. When the step above
+  //    already resolved the site, `findWebsite` returns it without a second
+  //    fetch, so fidelity here costs nothing.
+  const free = await scrapeEnrich({
+    company: name,
+    website: out.website || undefined,
+    socialUrl: social || undefined,
+  });
+  out.website = free.website || out.website;
   out.email = free.email;
   const STAGE_MEANING: Record<string, { detail: string; fix?: string }> = {
     found: { detail: "The company's own website published an address and it passed the ownership check." },
@@ -120,7 +186,7 @@ export async function explainEnrichment(company: string, allowPaid = 0): Promise
     },
     no_own_site: {
       detail: "No website of this company's own was found — only directory pages about it.",
-      fix: "This is normal for very small businesses. A paid supplier can still resolve a domain; run this with ?paid=1 to see whether one does.",
+      fix: "This is normal for very small businesses. If your list has a Facebook or LinkedIn column, add &social=<that page URL> here: the page is read for the company's own site with no key and no credit. Failing that, a paid supplier can still resolve a domain — run with &paid=1 to see whether one does.",
     },
     site_no_email: {
       detail: "A website was found and it publishes no email address anywhere the crawler could read — usually a contact form only.",
@@ -237,7 +303,11 @@ export function diagnoseRun(input: {
     return {
       headline: "These businesses publish no address a crawler can read, and the paid suppliers were not asked.",
       fix: input.paidRefusedReason
-        || "Top up the ACU balance. Rows the free crawl cannot answer go to Hunter and then Apollo, charged only for the rows that reach them.",
+        // NAMED BY THE CHAIN, NOT BY THIS SENTENCE. It read "Hunter and then
+        // Apollo", which stopped being the order when LeadMagic joined as the
+        // cheapest of the three — and a fix line that names the wrong suppliers
+        // in the wrong order is read as the platform not knowing what it runs.
+        || "Top up the ACU balance. Rows the free crawl cannot answer go to the paid suppliers in cost order, cheapest first, charged only for the rows that actually reach one.",
       actionable: true,
     };
   }

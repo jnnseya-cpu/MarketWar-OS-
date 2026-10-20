@@ -10725,3 +10725,130 @@ real); Serper's and LeadMagic's own hit rate, data quality or current prices; an
 the share of real company sites that publish an address at all, which decides how
 many rows need a paid lookup and is a property of the web rather than of this
 code.
+
+---
+
+## §165 — The columns a bought list arrives with, carried instead of discarded
+
+**Why this exists.** §163 built the free Facebook/LinkedIn follow: read a
+company's own website off its social page, no key and no credit, and hand it to
+the crawl that already finds a published address. It was written, unit-tested and
+driven end to end. Then, tracing the path the owner's £70 list actually takes:
+
+```
+$ grep -rn "socialUrl" src/ | grep -v "src/backend/enrich.ts" | wc -l
+0
+```
+
+**Its only input had no producer anywhere in the platform.** On the one list it
+was built for, it could never run. Underneath that, a second missing carry with a
+price attached: the vault's CSV parser had **no website column at all** — not
+mapped, not detected, not stored. A bought list states the domain, the parser
+dropped it, and the platform then paid for a live search to rediscover what the
+customer had already handed over, on every row, every time.
+
+Both are this repository's recurring defect #1 — a value read on one side of a
+boundary and never carried across — and neither is visible in a unit test of
+either side, because both sides pass and the chain does nothing.
+
+### What was carried
+
+| Boundary | Before | Now |
+| --- | --- | --- |
+| CSV → `ParsedContact` | no website, no social column | both, routed by CONTENT not by heading |
+| `ParsedContact` → `Contact` | dropped at the store | `website` + `socialUrl` stored when supplied |
+| `Contact` → `EnrichInput` | `socialUrl` absent from the mapping | carried, so the free follow runs |
+| `huntCompany` / `/api/contact-hunter` | `website` only | `socialUrl` too |
+| `/api/health/enrichment` | could not take a social URL | `&social=<page>` runs the real chain, free |
+
+**Content beats the heading, and that is the load-bearing rule.** "Website" is
+the column a list bought off Facebook puts its Facebook page under, because that
+is the only link the network gave the broker. Trust the heading and the page is
+stored as the company's own site, where `findWebsite` correctly refuses it as an
+aggregator and the row dies with the answer sitting in the cell.
+
+### Four more defects, all found by driving rather than by reading
+
+1. **A column headed "Business Name" filed every business as a PERSON.** It
+   matched the name synonyms and none of the company ones. Enrichment survived it
+   (`company || name`), which is exactly why it went unnoticed — but the vault
+   held businesses recorded as people, and every screen, export and salutation
+   that reads `name` as a human said "Dear Quiet Trades Ltd". A column the file
+   itself calls "Business Name" is a business column even when every value looks
+   like a person, because a sole trader trades under their own name.
+2. **A re-import erased what enrichment had found — on one storage backend and
+   not the other.** Firestore is initialised with `ignoreUndefinedProperties`, so
+   `email: undefined` leaves the stored address alone. The in-memory store (the
+   zero-config default) merges with a spread, and an explicitly-undefined key
+   wins a spread. So re-importing the original prospect list — exactly what
+   somebody does after enriching it — wiped every email, phone and website the
+   platform had discovered. One rule now drops absent fields once, before any
+   merge, and the two stores agree.
+3. **LeadMagic's finds were credited to "search".** `enrichPaid` named Apollo and
+   Hunter and sent everything else to our own free search — so the cheapest
+   supplier in the waterfall, and the only route to a mobile number, appeared to
+   have done nothing in the one field read when deciding which key to renew.
+   `PROVIDER_SOURCE` is now a table asserted COMPLETE against the live registry,
+   so adding a supplier without crediting it fails rather than mislabels.
+4. **Every curly quote Excel writes was stored as an invisible control
+   character.** Measured on this runtime: `new TextDecoder("windows-1252")`
+   reports `encoding === "windows-1252"` and decodes 0x92 to U+0092 — a C1
+   control — instead of U+2019. That range is precisely what Excel writes (curly
+   quotes, en and em dashes, ellipsis, bullet), so "Sneaky Pete’s" became
+   "Sneaky Pete\u0092s" in a prospect's business name, and then went into an
+   email greeting, a subject line and a JSON payload. A control character in a
+   header is a hard send failure. **The suite had been failing this assertion
+   before this section started** — a live defect, not a regression, and the
+   reason the count was 13 rather than 12.
+
+### A defect I introduced, and how it was caught
+
+Widening the header vocabulary to the headings bought lists really use —
+"business", "facebook", "trade" — made a DATA row match, because `looksHeader`
+tested by substring: "Quiet Trades Ltd" contains "trade", and the URL beside it
+contains "facebook". A headerless export therefore had its first company
+consumed as column names and **the row silently vanished**. An importer that
+discards a row without saying so is the worst class of bug that file can have.
+It was caught by `drive:import`, not by any assertion I had written. The header
+test now matches whole words and never looks at a cell that is itself data.
+
+### Mutation tested — 13 mutants, all killed, and three survived first
+
+| Survived first | Why it mattered more than the kill |
+| --- | --- |
+| Removing the "business name" synonyms | Changed nothing: the column-majority rule rescued the fixture. The sole-trader case separates them. |
+| The store's wipe | Could not be killed at all — THREE overlapping guards each prevented it single-handed, so no one mutant could fail the test and no reader could tell which was load-bearing. Collapsed to one rule in one place. |
+| My own mutant set | Incomplete: I mutated two merge points and missed the third, which was the one doing the work. |
+
+### Driven — 33 proven / 0 broken (`npm run drive:import`)
+
+```
+1. the file        → a Facebook page in its own column; one filed under
+                     "Website"; a bare domain; a LinkedIn page that walls us
+2. headerless      → a URL cell is never read as the company's name
+3. the store       → links survive, and a re-import wipes nothing
+4. the real route  → POST /api/contacts action=enrich, in process
+                     → Facebook page → quiettrades.co.uk → info@quiettrades.co.uk
+                     → the web designer's address on the same page refused
+5. the money       → one search for four rows: only the walled one
+6. the diagnostic  → &social=<page> reports the step, free, and names the wall
+```
+
+**Two faults in my own harness, found before anything in the code.** The money
+check was wrong twice: first it counted a walled row as free, when falling
+through to the search is the designed behaviour for a page that told us nothing;
+then it forgot that step 3 had given the linkless row a website of its own. Both
+corrections are written into the driver beside the check, because an assertion
+that was wrong twice is worth more as a record than as a silent fix.
+
+**WHAT THIS CANNOT PROVE, printed by the driver itself:** Facebook's and
+LinkedIn's real markup and their real wall rate, Serper's real results, and what
+share of real small businesses publish an address. Those need the live hosts.
+What is proven is that every value the file supplies now reaches the code that
+can use it, and that a row arriving with a usable link costs no search at all.
+
+### Behaviour change, recorded as the law requires
+
+A re-import can no longer blank a stored field by leaving its column empty. On
+Firestore it never could; the memory store now matches. Nothing else about import
+or merge changed, and no capability was removed.

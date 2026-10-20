@@ -44,7 +44,7 @@ export const GET = jsonRoute(async (req: Request) => {
     providers,
     notConfigured: adapters.NOT_IMPLEMENTED,
     order: "Free sources run first and are better evidence: our own crawl, then the company register, then any paid finder. A paid credit is only spent on what the free ones missed.",
-    whyDidARowFindNothing: "Add ?company=<a business name> to run ONE row through the real chain and see every step, free. Add &paid=1 (platform admin or scheduler bearer) to let Hunter and Apollo answer too.",
+    whyDidARowFindNothing: "Add ?company=<a business name> to run ONE row through the real chain and see every step, free. Add &social=<their Facebook or LinkedIn page> to follow that page to the company's own website first — no key, no credit, and it is the step a list bought off either network depends on. Add &paid=1 (platform admin or scheduler bearer) to let the paid suppliers answer too.",
     howToProve: "Add ?probe=1 (platform admin or the scheduler bearer) to make three real Hunter calls and check every field the adapter reads. That spends about $0.11.",
   };
   // WHY DID THIS ROW FIND NOTHING? The question the key list cannot answer.
@@ -71,7 +71,7 @@ export const GET = jsonRoute(async (req: Request) => {
       if (ok) budget = Math.floor(wallet.ACTION_COST_ACU.enrich_paid / 2);
       else paidNote = "&paid=1 spends real supplier credit, so it needs a platform-admin session or the scheduler bearer. The free half below ran anyway.";
     }
-    const result = await explain.explainEnrichment(company, budget);
+    const result = await explain.explainEnrichment(company, budget, (url.searchParams.get("social") || "").trim());
     return NextResponse.json({ ...free, explain: result, ...(paidNote ? { paidNote } : {}) });
   }
 

@@ -12,11 +12,34 @@
 // A parser this central with no test is how that ships. So it is pure, it is
 // here, and every rule below is driven by the real file that failed.
 
+import { isSocialProfileUrl } from "@/shared/social-profile";
+
 export type ParsedContact = {
   email: string; name: string; phone: string; company: string;
   totalSpendGbp: string; orderCount: string; lastOrderDaysAgo: string;
   consent?: boolean; trade?: string; town?: string; area?: string;
   status?: string; score?: string;
+  /**
+   * THE DOMAIN THE FILE ALREADY STATED, which this parser used to throw away.
+   *
+   * There was no website column here at all — not mapped, not detected, not
+   * carried. Every bought list has one, and discarding it has a price in two
+   * currencies: the row loses the one input the free crawl needs, and the
+   * platform then PAYS for a live search to rediscover a domain the customer
+   * had already handed over. A column the customer supplied is better evidence
+   * than a search result and costs nothing.
+   */
+  website?: string;
+  /**
+   * THE COMPANY'S FACEBOOK OR LINKEDIN PAGE.
+   *
+   * This is the column a list bought off either network actually comes with,
+   * and `backend/social-website.ts` turns it into the company's own site for
+   * free. That module existed before this field did, with NOTHING anywhere in
+   * the platform able to supply it an input — written, tested, and unreachable.
+   * Recognising the column is what connects the two.
+   */
+  socialUrl?: string;
 };
 
 export type ParseResult = {
@@ -60,8 +83,37 @@ export function decodeCsvBytes(bytes: ArrayBuffer | Uint8Array): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buf);
   } catch {
-    return new TextDecoder("windows-1252").decode(buf);
+    return fixC1(new TextDecoder("windows-1252").decode(buf));
   }
+}
+
+/**
+ * THE 32 BYTES THIS RUNTIME GETS WRONG, AND THEY ARE THE COMMON ONES.
+ *
+ * `new TextDecoder("windows-1252")` REPORTS `encoding === "windows-1252"` and
+ * then decodes 0x80–0x9F as raw C1 control characters — 0x92 arrives as U+0092
+ * instead of U+2019 — which is ISO-8859-1 behaviour, not what the Encoding
+ * Standard specifies. Measured on this runtime, not assumed: the venue fixture
+ * holds "Sneaky Pete" + 0x92 + "s", and the decoded string contained an
+ * INVISIBLE control character where the apostrophe belongs.
+ *
+ * WHY IT MATTERS MORE THAN A WRONG GLYPH. That range is exactly what Excel
+ * writes: curly quotes, en and em dashes, the ellipsis, the bullet. So a control
+ * character was being stored in a prospect's business name and then put into an
+ * email greeting, a subject line and a JSON payload. A control character in a
+ * header is a hard send failure, and in a greeting it reads as a broken sender —
+ * from a file that was perfectly well formed.
+ *
+ * The 0x81/0x8D/0x8F/0x90/0x9D slots are genuinely unassigned in windows-1252,
+ * so those keep the character they decoded to rather than being invented.
+ */
+const C1_TO_CP1252 = "€\u0081‚ƒ„…†‡"
+  + "ˆ‰Š‹Œ\u008DŽ\u008F"
+  + "\u0090‘’“”•–—"
+  + "˜™š›œ\u009DžŸ";
+
+export function fixC1(s: string): string {
+  return String(s ?? "").replace(/[\u0080-\u009F]/g, (ch) => C1_TO_CP1252[ch.charCodeAt(0) - 0x80] ?? ch);
 }
 
 /**
@@ -124,7 +176,47 @@ function makeLineParser(delim: string) {
 }
 
 const TRUTHY = new Set(["yes", "true", "1", "y", "subscribed", "opt-in", "opted in", "opted-in", "consented", "oui"]);
-const KNOWN_HEADERS = ["email", "e-mail", "name", "phone", "mobile", "tel", "company", "organisation", "organization", "spend", "revenue", "ltv", "orders", "consent", "opt", "first", "last", "contact"];
+// A FILE WHOSE HEADINGS ARE ALL UNKNOWN IS READ AS DATA, heading row and all.
+// `looksHeader` needs one of these to fire, and a list exported off LinkedIn or
+// Facebook Ads is commonly "Business, Facebook Page, Location" — not one word of
+// which was listed, so the headings became a prospect called "Business" and
+// every column was then mapped by position. The additions are the headings those
+// exports actually use.
+const KNOWN_HEADERS = [
+  "email", "e-mail", "name", "phone", "mobile", "tel", "company", "organisation", "organization",
+  "spend", "revenue", "ltv", "orders", "consent", "opt", "first", "last", "contact",
+  "website", "web site", "url", "domain", "homepage", "business",
+  "facebook", "linkedin", "social", "profile", "page",
+  "town", "city", "trade", "sector", "category", "status", "score",
+];
+
+/**
+ * A URL CELL, CLASSIFIED BY WHAT IT HOLDS RATHER THAN BY ITS HEADING.
+ *
+ * WHY CONTENT WINS. "Website" is the heading a bought list puts its Facebook
+ * page under, because that is the only link the network gave the broker. Trust
+ * the heading and the social URL is stored as the company's own site, where
+ * `findWebsite` correctly refuses it as an aggregator and the row dies — the
+ * exact failure this whole path exists to end. Trust the content and the same
+ * value lands in the field that knows how to follow it.
+ *
+ * It is the same lesson as `looksLikePersonName`: the venue list proved a column
+ * heading is a hint and the cell is the evidence.
+ *
+ * Returns "" for anything that is not a URL or bare domain, so a cell of prose
+ * is never promoted to a website.
+ */
+export function classifyUrlCell(value: string): { kind: "social" | "website" | ""; url: string } {
+  const raw = String(value ?? "").trim().replace(/^<|>$/g, "");
+  if (!raw || /\s/.test(raw) || firstEmail(raw)) return { kind: "", url: "" };
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, "")}`;
+  let host = "";
+  try { host = new URL(withScheme).hostname.replace(/^www\./, "").toLowerCase(); } catch { return { kind: "", url: "" }; }
+  // A real hostname: at least one dot and a plausible TLD. "Acme Ltd" never
+  // reaches here (it has a space), but "Acme" and "N/A" would.
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) || !/\.[a-z]{2,}$/.test(host)) return { kind: "", url: "" };
+  return { kind: isSocialProfileUrl(withScheme) ? "social" : "website", url: withScheme };
+}
 
 /**
  * Parse a CSV or a paste. Handles real-world exports:
@@ -147,26 +239,76 @@ export function parseCsvDetailed(text: string): ParseResult {
   const parseLine = makeLineParser(delim);
   const first = parseLine(lines[0]);
   const firstHasEmail = first.some((c) => firstEmail(c));
-  const looksHeader = !firstHasEmail && first.some((c) => KNOWN_HEADERS.some((k) => c.toLowerCase().includes(k)));
+  // A HEADING IS A WORD, AND IT IS NOT A URL.
+  //
+  // THE DEFECT THIS FIXES, AND IT WAS MINE. Widening `KNOWN_HEADERS` to cover
+  // the headings bought lists actually use ("business", "facebook", "trade")
+  // made a DATA row match: "Quiet Trades Ltd,https://facebook.com/quiettrades"
+  // contains "trade" by substring and "facebook" inside the URL, so a headerless
+  // export was read as a heading row and its first company was consumed as
+  // column names — one row silently gone. A row quietly discarded by the
+  // importer is the worst class of bug this file can have.
+  //
+  // Two rules, both narrow: match whole WORDS so "Trades" is not "trade", and
+  // never look at a cell that is itself data — a URL, an address, a number.
+  const headerish = (cell: string): boolean => {
+    const c = String(cell ?? "").trim();
+    if (!c || firstEmail(c) || classifyUrlCell(c).kind) return false;
+    const n = c.toLowerCase().replace(/[_\-./\\]+/g, " ").replace(/\s+/g, " ").trim();
+    return KNOWN_HEADERS.some((k) => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(n));
+  };
+  const looksHeader = !firstHasEmail && first.some(headerish);
 
   // ---- Header path: map columns by name ----
   if (looksHeader) {
     const headers = first.map((h) => h.toLowerCase());
     const find = (...names: string[]) => headers.findIndex((h) => names.some((x) => h === x || h.includes(x)));
-    const iEmail = find("email", "e-mail"), iName = find("full name", "name", "contact");
+    const iEmail = find("email", "e-mail");
     const iFirst = headers.findIndex((h) => ["first name", "firstname", "first", "given name"].includes(h));
     const iLast = headers.findIndex((h) => ["last name", "lastname", "surname", "family name"].includes(h));
-    const iPhone = find("phone", "mobile", "tel", "cell"), iCompany = find("company", "organisation", "organization", "account");
+    const iPhone = find("phone", "mobile", "tel", "cell");
+    // "BUSINESS NAME" IS A COMPANY COLUMN, and it is the commonest heading on a
+    // bought B2B list. It matched none of the company synonyms, while matching
+    // "name" — so every business name on such a file was filed as a PERSON's
+    // name with the company column left empty. That is the venue-list defect in
+    // a different costume: enrichment searches `company || name`, so the rows
+    // survived, but the vault then held 2,000 businesses recorded as people,
+    // and every screen, export and salutation that reads `name` as a human got
+    // "Dear Quiet Trades Ltd".
+    const iCompany = find("company", "organisation", "organization", "account",
+      "business", "business name", "trading name", "firm", "practice", "venue", "employer", "client");
+    // THE COMPANY COLUMN IS NEVER ALSO THE NAME COLUMN. "Business Name" matches
+    // both lists by substring, and a row carrying the same text in `name` and
+    // `company` is a row that claims a person and a company with one value.
+    const iName = headers.findIndex((h, idx) =>
+      idx !== iCompany && ["full name", "name", "contact"].some((x) => h === x || h.includes(x)));
     const iSpend = find("spend", "revenue", "ltv", "total value", "value", "amount"), iOrders = find("orders", "order count", "purchases", "transactions");
     const iRecency = find("last order days", "days since", "recency", "days ago"), iConsent = find("consent", "opt-in", "optin", "subscribed", "marketing");
     const iTrade = find("trade", "sector", "category"), iTown = find("town", "city"), iArea = find("area", "region", "postcode area");
     const iStatus = find("status", "stage"), iScore = find("score", "rating");
+    // THE SOCIAL HEADING IS LOOKED FOR FIRST AND EXCLUDED FROM THE WEBSITE ONE.
+    // `find` matches on `includes`, so "facebook url" and "linkedin page" both
+    // satisfy "url" and "page" — and a website column claimed by the Facebook
+    // heading is how the social link ends up in the field that refuses it.
+    const iSocial = headers.findIndex((h) => /facebook|linkedin|\bfb\b|social|instagram/.test(h));
+    const iWebsite = headers.findIndex((h, idx) =>
+      idx !== iSocial && /website|web site|^web$|url|^site$|domain|homepage/.test(h));
     const g = (c: string[], i: number) => (i >= 0 && i < c.length ? c[i] : "");
     const rows: ParsedContact[] = [];
     for (let r = 1; r < lines.length; r++) {
       const c = parseLine(lines[r]);
       let name = g(c, iName);
       if (!name && (iFirst >= 0 || iLast >= 0)) name = [g(c, iFirst), g(c, iLast)].filter(Boolean).join(" ");
+      // EACH URL CELL GOES WHERE ITS CONTENT BELONGS, not where its heading
+      // says. A "Website" column holding facebook.com/acme is the ordinary
+      // shape of a list bought off Facebook, and the two fields are read by
+      // different code for different reasons.
+      let website = "", socialUrl = "";
+      for (const cell of [g(c, iWebsite), g(c, iSocial)]) {
+        const v = classifyUrlCell(cell);
+        if (v.kind === "social" && !socialUrl) socialUrl = v.url;
+        else if (v.kind === "website" && !website) website = v.url;
+      }
       rows.push({
         email: firstEmail(g(c, iEmail)) || (iEmail < 0 ? firstEmail(c.join(" ")) : ""),
         name, phone: g(c, iPhone), company: g(c, iCompany),
@@ -174,12 +316,32 @@ export function parseCsvDetailed(text: string): ParseResult {
         consent: iConsent >= 0 ? TRUTHY.has(g(c, iConsent).toLowerCase()) : undefined,
         trade: g(c, iTrade) || undefined, town: g(c, iTown) || undefined, area: g(c, iArea) || undefined,
         status: g(c, iStatus) || undefined, score: g(c, iScore) || undefined,
+        website: website || undefined, socialUrl: socialUrl || undefined,
       });
     }
+    // A "NAME" COLUMN FULL OF BUSINESSES IS A COMPANY COLUMN — THE COLUMN
+    // DECIDES, NOT THE ROW. This is the same rule the single-column path below
+    // argues for at length, and the reason is identical: a file headed only
+    // "Name" is one kind of thing, and judging row by row filed 22% of a real
+    // venue list as people. It applies only when the file has NO company column
+    // of its own, so a list with both keeps both exactly as supplied.
+    if (iCompany < 0 && iName >= 0) {
+      const named = rows.filter((r) => r.name);
+      const orgLike = named.filter((r) => !looksLikePersonName(r.name)).length;
+      if (named.length > 0 && orgLike * 2 >= named.length) {
+        for (const r of rows) if (r.name && !r.company) { r.company = r.name; r.name = ""; }
+      }
+    }
+
+    // THE KEEP RULE IS UNCHANGED ON PURPOSE. A row whose only content is a URL
+    // is not kept, because `contactId` keys on email, phone, name or company —
+    // every such row would collapse onto one id and overwrite the last. Parsing
+    // a row the store then drops is the same boundary fault this section fixes.
+    const kept = rows.filter((r) => r.email || r.phone || r.name || r.company);
     return {
-      rows: rows.filter((r) => r.email || r.phone || r.name || r.company),
+      rows: kept,
       headingsSkipped: [],
-      note: `Mapped ${rows.length} row(s) from the header row.`,
+      note: `Mapped ${rows.length} row(s) from the header row.${linkNote(kept)}`,
     };
   }
 
@@ -269,7 +431,19 @@ export function parseCsvDetailed(text: string): ParseResult {
     const email = emailCol >= 0 && firstEmail(c[emailCol] || "") ? firstEmail(c[emailCol]) : firstEmail(c.join(" "));
     const others = c.map((s) => s.trim()).filter((s, i) => s && i !== emailCol && !firstEmail(s));
     const phone = c.map((s) => firstPhone(s)).find(Boolean) || "";
-    const textOthers = others.filter((s) => !firstPhone(s));
+    // URL CELLS ARE PULLED OUT BEFORE ANYTHING IS READ AS A NAME. With no
+    // header row the first text cell became the company, so a headerless
+    // "Acme Plumbing, facebook.com/acmeplumbing, Leeds" export produced a
+    // company called facebook.com/acmeplumbing on half its rows — searched for
+    // by name, found as nothing, and the link that would have answered the row
+    // consumed as the thing to search for.
+    let website = "", socialUrl = "";
+    for (const s of others) {
+      const v = classifyUrlCell(s);
+      if (v.kind === "social" && !socialUrl) socialUrl = v.url;
+      else if (v.kind === "website" && !website) website = v.url;
+    }
+    const textOthers = others.filter((s) => !firstPhone(s) && !classifyUrlCell(s).kind);
     // THE SAME RULE, APPLIED PER CELL rather than by position. Two text cells
     // used to mean "person, then company" whatever they contained, so a
     // "Venue, Town" export produced a person called Wembley Stadium.
@@ -281,13 +455,30 @@ export function parseCsvDetailed(text: string): ParseResult {
       phone,
       company: aIsPerson ? b : a,
       totalSpendGbp: "", orderCount: "", lastOrderDaysAgo: "", consent: undefined,
+      website: website || undefined, socialUrl: socialUrl || undefined,
     });
   }
+  const keptRows = rows.filter((r) => r.email || r.phone || r.name || r.company);
   return {
-    rows: rows.filter((r) => r.email || r.phone || r.name || r.company),
+    rows: keptRows,
     headingsSkipped: [],
-    note: `Read ${rows.length} row(s) across ${colCount} columns.`,
+    note: `Read ${rows.length} row(s) across ${colCount} columns.${linkNote(keptRows)}`,
   };
+}
+
+/**
+ * Say what links the file supplied, because the money difference is large and
+ * invisible otherwise: a row that arrives with a domain costs no search at all,
+ * and a row that arrives with a Facebook page is followed for free.
+ */
+function linkNote(rows: ParsedContact[]): string {
+  const sites = rows.filter((r) => r.website).length;
+  const social = rows.filter((r) => r.socialUrl).length;
+  if (!sites && !social) return "";
+  const parts: string[] = [];
+  if (sites) parts.push(`${sites} already state a website, so no search is spent finding one`);
+  if (social) parts.push(`${social} carry a Facebook or LinkedIn page, which is read for the company's own site for free`);
+  return ` ${parts.join("; ")}.`;
 }
 
 function blank(patch: Partial<ParsedContact>): ParsedContact {
