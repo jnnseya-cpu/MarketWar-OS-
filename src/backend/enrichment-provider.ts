@@ -698,24 +698,56 @@ export async function findCompanyEmail(input: {
     if (emails.some((e) => e.provenance === "confirmed")) break;
   }
 
-  // 2. ONLY IF THAT FOUND NOTHING: identify somebody, then ask for their
-  //    address. Two calls, so the pair is affordability-checked as a PAIR —
-  //    buying the name and then being refused the address is the exact waste
-  //    this function was written to stop.
+  // 2. ONLY IF THAT FOUND NOTHING: identify somebody, then ask for their address.
+  //
+  // THE DEFECT THIS REPLACES, AND IT MADE ONE KEY WORTHLESS. The loop below used
+  // to require `p.findPeople && p.findEmails` ON THE SAME PROVIDER. `leadmagic`
+  // has `findEmails` and `findPhones` and NO `findPeople` — it is a finder, not a
+  // directory — so it was skipped here entirely. And in step 1 it had already
+  // been asked with no name, which is the one question it cannot answer:
+  //
+  //   step marketwar-web emails  ran: true  cost: 0
+  //   step leadmagic     emails  ran: true  cost: 0   <- asked before the name
+  //   step marketwar-web people  ran: true  cost: 0   <- name found HERE
+  //   step marketwar-web emails  ran: true  cost: 0   <- and never re-asked
+  //
+  // So the supplier whose entire purpose is "the address for THIS person at THIS
+  // domain" was asked before the person was known and never again. Measured on a
+  // company that publishes no address and names its director on its own About
+  // page — which is the row a paid lookup exists for, and the row the owner was
+  // buying by hand.
+  //
+  // TWO PHASES NOW, because they are two different questions. Whoever can name a
+  // person does so; then EVERY email finder is asked about that person, cheapest
+  // first, whether or not it could have found them itself.
   if (!emails.length) {
+    // 2a. WHO. Cost-checked as a PAIR for a paid people-finder, because buying a
+    //     name and then being refused the address is the waste this function
+    //     exists to stop. A free one (the crawl) is checked as itself.
     for (const p of registry) {
-      if (!p.findPeople || !p.findEmails || !p.health().configured) continue;
+      if (!p.findPeople || !p.health().configured) continue;
       if (remaining() <= 0) break;
       if (!affordable(p, "people", p.costAcu * 2)) continue;
       const found = await run(p, "people", (sig) => p.findPeople!({ company: input.company, domain }, sig));
-      if (!found.length) continue;
-      person = found[0];
+      if (found.length) { person = found[0]; break; }
+    }
+
+    // 2b. THEIR ADDRESS, from anybody who sells one. No `findPeople` required —
+    //     that requirement is what made the cheapest supplier in the chain
+    //     unreachable on the only rows it is for.
+    if (person) {
       const parts = person.fullName.split(/\s+/);
-      const got = await run(p, "emails", (sig) => p.findEmails!({
-        fullName: person!.fullName, firstName: parts[0], lastName: parts.slice(1).join(" "), domain,
-      }, sig));
-      for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) { emails.push(c); emailProvider[c.value.toLowerCase()] = p.id; }
-      if (emails.length) break;
+      const named = {
+        fullName: person.fullName, firstName: parts[0], lastName: parts.slice(1).join(" "), domain,
+      };
+      for (const p of registry) {
+        if (!p.findEmails || !p.health().configured) continue;
+        if (remaining() <= 0) break;
+        if (!affordable(p, "emails")) continue;
+        const got = await run(p, "emails", (sig) => p.findEmails!(named, sig));
+        for (const c of got) if (!emails.some((x) => x.value.toLowerCase() === c.value.toLowerCase())) { emails.push(c); emailProvider[c.value.toLowerCase()] = p.id; }
+        if (emails.length) break;
+      }
     }
   }
 

@@ -64,6 +64,17 @@ export type MailRoute = {
   certainty: "certain" | "unknown";
   kind: MailRouteKind;
   hosts: string[];
+  /**
+   * TRUE when this verdict came from the RESOLVER, so the resolver's own health
+   * decides whether it can be trusted.
+   *
+   * FALSE for a syntactic refusal — `notadomain` has no dot and `""` is not a
+   * name, and no amount of DNS trouble makes either of them a domain. The veto
+   * below applies only to resolver verdicts, because vetoing a fact about the
+   * string would keep an address that can never work. My first version of the
+   * veto did exactly that and an existing test caught it.
+   */
+  fromResolver: boolean;
   note: string;
 };
 
@@ -109,6 +120,9 @@ export function primeMailRoute(domain: string, route: Partial<MailRoute> & { acc
       certainty: route.certainty ?? "certain",
       kind: route.kind ?? (route.accepts ? "mx" : "no-mail-route"),
       hosts: route.hosts ?? [],
+      // A SUPPLIED ANSWER IS NOT THE RESOLVER'S, so the resolver's health has no
+      // bearing on it and the veto must not touch it.
+      fromResolver: route.fromResolver ?? false,
       note: route.note ?? (route.accepts
         ? `Mail for ${d} is accepted (a known answer, supplied rather than looked up).`
         : `${d} accepts no mail (a known answer, supplied rather than looked up).`),
@@ -119,7 +133,7 @@ export function primeMailRoute(domain: string, route: Partial<MailRoute> & { acc
 async function lookup(domain: string): Promise<MailRoute> {
   const d = domain.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
   if (!d || !d.includes(".")) {
-    return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [],
+    return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [], fromResolver: false,
       note: `"${d}" is not a domain, so nothing can accept mail for it.` };
   }
 
@@ -136,21 +150,21 @@ async function lookup(domain: string): Promise<MailRoute> {
       .sort((a, b) => a.priority - b.priority)
       .map((m) => m.exchange.replace(/\.$/, ""));
     if (hosts.length) {
-      return { domain: d, accepts: true, certainty: "certain", kind: "mx", hosts,
+      return { domain: d, accepts: true, certainty: "certain", kind: "mx", hosts, fromResolver: true,
         note: `Mail for ${d} is delivered to ${hosts[0]}.` };
     }
     // RFC 7505: a single "." MX means the domain explicitly accepts no mail.
-    return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [],
+    return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [], fromResolver: true,
       note: `${d} publishes a null MX record, which means it accepts no mail by design.` };
   } catch (err) {
     const code = (err as { code?: string }).code || "";
     if (code === "ENOTFOUND" || code === "NXDOMAIN") {
-      return { domain: d, accepts: false, certainty: "certain", kind: "nxdomain", hosts: [],
+      return { domain: d, accepts: false, certainty: "certain", kind: "nxdomain", hosts: [], fromResolver: true,
         note: `${d} does not exist. Every address at it hard-bounces.` };
     }
     if (code !== "ENODATA" && code !== "ENOTIMP") {
       // TIMEOUT, SERVFAIL, REFUSED, a rate limit — we do not know.
-      return { domain: d, accepts: true, certainty: "unknown", kind: "lookup-failed", hosts: [],
+      return { domain: d, accepts: true, certainty: "unknown", kind: "lookup-failed", hosts: [], fromResolver: true,
         note: `The DNS lookup for ${d} failed (${code || "no code"}), so whether it accepts mail is unknown. The address is kept — a slow resolver is not evidence against a customer.` };
     }
   }
@@ -162,13 +176,90 @@ async function lookup(domain: string): Promise<MailRoute> {
   try {
     const a = await resolver.resolve4(d).catch(() => resolver.resolve6(d));
     if (a && a.length) {
-      return { domain: d, accepts: true, certainty: "certain", kind: "implicit-a", hosts: a.slice(0, 2),
+      return { domain: d, accepts: true, certainty: "certain", kind: "implicit-a", hosts: a.slice(0, 2), fromResolver: true,
         note: `${d} publishes no MX but does publish an address record, which RFC 5321 treats as an implicit mail exchanger. Deliverable, though a domain in this state is often misconfigured.` };
     }
   } catch { /* falls through to the definite negative below */ }
 
-  return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [],
+  return { domain: d, accepts: false, certainty: "certain", kind: "no-mail-route", hosts: [], fromResolver: true,
     note: `${d} exists but publishes no MX and no address record, so nothing anywhere accepts mail addressed to it.` };
+}
+
+// ---------------------------------------------------------------------------
+// IS THE RESOLVER ITSELF WORKING? — the check that stops this module deleting a
+// customer's entire list.
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT THIS CLOSES, FOUND BY DRIVING THE WHOLE CHAIN IN A CONTAINER WHOSE
+// DNS IS BLOCKED. Every lookup returned ENOTFOUND, which `lookup()` correctly
+// reads as "this domain does not exist" — so:
+//
+//   REMOVED a@acme-plumbing.co.uk | nxdomain | permanent: true
+//   REMOVED b@bbc.co.uk           | nxdomain | permanent: true
+//   REMOVED c@gmail.com           | nxdomain | permanent: true
+//   REMOVED d@nhs.uk              | nxdomain | permanent: true
+//
+// `gmail.com` and `nhs.uk` reported as non-existent, removed, and marked
+// PERMANENT — which in `/api/email` writes a suppression row. **A deployment
+// whose DNS broke would permanently suppress a customer's whole list in one
+// send**, and the list would stay suppressed after the resolver recovered.
+//
+// It is this codebase's signature defect wearing a new coat: a check that fails
+// for a reason unrelated to what it tests. NXDOMAIN from a healthy resolver is
+// definitive. NXDOMAIN for EVERY domain in a batch is a broken resolver, not a
+// thousand dead companies.
+//
+// So before a single negative verdict is acted on, the resolver is asked about
+// domains that cannot plausibly be gone. If it cannot answer for those either,
+// every negative in the run degrades to `unknown` — and `unknown` already KEEPS
+// the address, which is the rule this module was built on.
+//
+// COSTS ONE LOOKUP, AND ONLY WHEN SOMETHING WAS NEGATIVE. A run where every
+// domain resolved asks nothing extra.
+
+/**
+ * Domains used only to ask "is DNS working at all".
+ *
+ * Chosen because each is operated by a different organisation on a different
+ * TLD, and all three disappearing at once is not a thing that happens. One
+ * answering is enough: the question is the resolver's health, not theirs.
+ */
+const RESOLVER_CONTROLS = ["gmail.com", "cloudflare.com", "bbc.co.uk"] as const;
+
+let resolverHealth: { at: number; healthy: boolean } | null = null;
+/** Short, because a resolver outage is usually brief and must not be cached past it. */
+const RESOLVER_TTL_MS = 60_000;
+
+/** Exposed so the tests and the drivers can force the measured case. */
+export function clearResolverHealth(): void { resolverHealth = null; }
+
+/**
+ * Can this host resolve anything at all?
+ *
+ * TRUE is also the answer when we cannot tell, and that asymmetry is on purpose:
+ * this function exists to VETO removals, so a wrong `false` keeps addresses that
+ * should have gone (harmless, they bounce once) while a wrong `true` deletes a
+ * live list (not harmless, and silent).
+ */
+export async function resolverHealthy(): Promise<boolean> {
+  const hit = resolverHealth;
+  if (hit && Date.now() - hit.at < RESOLVER_TTL_MS) return hit.healthy;
+  const { Resolver } = await import("dns/promises");
+  const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: 1 });
+  let healthy = false;
+  for (const control of RESOLVER_CONTROLS) {
+    try {
+      const mx = await resolver.resolveMx(control);
+      if (mx && mx.length) { healthy = true; break; }
+    } catch {
+      try {
+        const a = await resolver.resolve4(control);
+        if (a && a.length) { healthy = true; break; }
+      } catch { /* try the next control */ }
+    }
+  }
+  resolverHealth = { at: Date.now(), healthy };
+  return healthy;
 }
 
 /** One domain's mail route, cached. */
@@ -260,9 +351,18 @@ export async function verifyRecipients(emails: readonly string[]): Promise<Verif
     slice.forEach((d, n) => routes.set(d, got[n]));
   }
 
+  // NOTHING IS REMOVED ON A RESOLVER'S WORD UNTIL THE RESOLVER IS KNOWN TO WORK.
+  // Asked only when something actually came back negative, so a clean run pays
+  // nothing for it. See the note above `RESOLVER_CONTROLS`: without this, a
+  // blocked resolver removed gmail.com and nhs.uk as non-existent and marked
+  // them permanent.
+  const anyNegative = [...routes.values()].some((r) => r.certainty === "certain" && !r.accepts && r.fromResolver);
+  const dnsTrustworthy = anyNegative ? await resolverHealthy() : true;
+
   const deliverable: string[] = [];
   const removed: RemovedAddress[] = [];
   let unknown = 0;
+  let vetoed = 0;
 
   for (const a of addresses) {
     const d = domainOf(a);
@@ -287,11 +387,28 @@ export async function verifyRecipients(emails: readonly string[]): Promise<Verif
     if (!route) { deliverable.push(a); continue; }
     if (route.certainty === "unknown") { unknown++; deliverable.push(a); continue; }
     if (route.accepts) { deliverable.push(a); continue; }
+    // THE VETO. The lookup said "no", and the resolver cannot be trusted to have
+    // meant it, so this is an `unknown` and the address is KEPT.
+    // ONLY A RESOLVER VERDICT IS VETOED. `notadomain` has no dot and no amount
+    // of DNS trouble makes it a domain, so keeping it would keep an address that
+    // can never work — which an existing test caught when the first version of
+    // this veto was indiscriminate.
+    if (!dnsTrustworthy && route.fromResolver) { vetoed++; unknown++; deliverable.push(a); continue; }
     removed.push({
       email: a, domain: d, kind: route.kind,
       reason: route.note,
       permanent: route.kind === "nxdomain",
     });
+  }
+
+  if (vetoed) {
+    return {
+      deliverable, removed, domainsChecked: domains.length, unknown,
+      note: `THE RESOLVER ON THIS HOST IS NOT ANSWERING. ${vetoed} address(es) came back as "domain does not exist" `
+        + `and every control domain failed too — gmail.com and bbc.co.uk do not stop existing, so the fault is DNS here, not the list. `
+        + `Nothing was removed and nothing was suppressed; all ${deliverable.length} address(es) were KEPT. `
+        + `Fix DNS on this host and run it again to get a real answer.`,
+    };
   }
 
   return {

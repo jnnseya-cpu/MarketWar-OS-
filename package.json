@@ -54,7 +54,8 @@
     "drive:deliver": "node --import tsx scripts/drive-deliverability.mjs",
     "drive:index": "node --import tsx scripts/drive-indexability.mjs",
     "drive:secrets": "node --import tsx scripts/drive-credential-guard.mjs",
-    "drive:social": "node --import tsx scripts/drive-social-website.mjs"
+    "drive:social": "node --import tsx scripts/drive-social-website.mjs",
+    "drive:chain": "node --import tsx scripts/drive-cold-chain.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
