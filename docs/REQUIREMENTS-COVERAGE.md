@@ -10399,3 +10399,157 @@ host that does not resolve publicly, which is its SSRF guard working correctly).
 **identical, all 14 by name**. The same suite returned 0 failures in the previous
 container. Everything that does not need DNS passed: layers, casts, advisories,
 indexes, lint, typecheck, `next build`, the 14 new tests, and the driver.
+
+## §163 — A social page is a lead to a website, not a dead end (2026-10-20)
+
+**Owner report.** *"I spent £70 to get contact email from linkedin and Facebook
+ads as my own system is not working. This money could be put to get paid Apollo
+or hunter subscription to crawl emails and users could also use and I can make
+money but you are not able to materialise these features and functionalities."*
+
+### The diagnosis came from driving it with every key deleted
+
+```
+A. A ROW THAT ALREADY HAS A WEBSITE — no keys, no pence
+   email      : info@acme-plumbing.co.uk
+   confidence : high        source : site
+   pages read : /, /contact
+   >> FOUND the published address, and REFUSED the web designer's
+
+B. THE SAME ROW WITH NO WEBSITE — name and town only
+   email : (none)   mode : demo   stage : search_unavailable
+   note  : Enrichment needs live Google data — set SERPER_API_KEY. No email invented.
+```
+
+**The email finder was never broken. It was never given a domain.** The free
+crawl reads a company's own `/contact`, returns the published address and is
+careful enough to throw away the agency's — all with no key and no credit. What
+it could not do is turn a name into a domain.
+
+**And the list the owner bought made that worse, not better.** `enrich.ts` holds
+an `AGGREGATOR` list and `findWebsite` refuses a `website` value that matches
+it — correctly, because `facebook.com/acmeplumbing` is not Acme Plumbing's
+website. But a list bought off LinkedIn or Facebook puts the **social URL in the
+website column**, because that is what those platforms give you. So every row was
+discarded and fell through to *"needs live Google data"* — while the page stated
+the website right there, for free.
+
+**That refusal was right about what the page IS and wrong about what it is
+WORTH.**
+
+### What shipped
+
+`src/shared/social-profile.ts` — **pure**, so the awkward half is testable with
+no network:
+
+- `socialNetworkOf` / `isSocialProfileUrl` across six networks, matching on the
+  host rather than a substring, so `facebook-marketing-agency.co.uk` is not
+  Facebook.
+- **`unwrapRedirect`** — neither network publishes an outbound link as a plain
+  href; both wrap it in a click tracker (`l.facebook.com/l.php?u=…`,
+  `linkedin.com/redir/redirect?url=…`). Unwrapping is not a trick, it is reading
+  the URL the page itself put in the query string. Bounded to three hops.
+- **`websiteCandidatesFrom`**, in order of how much the evidence is worth:
+  JSON-LD `sameAs`/`url` (the company stating its own site) → the link shim →
+  meta tags → plain hrefs → a bare domain in the page text. **Order is evidence,
+  not preference**, because the caller takes the first that passes the gate.
+- **`authWallSigns`** — including the one that catches most of them: a body under
+  2,000 characters is a wall, not a page, since the giveaway phrases are usually
+  inside the JavaScript a wall ships instead of content.
+
+`src/backend/social-website.ts` — the fetch and the gate:
+
+- Every candidate goes through **`domainMatchesCompany`**, imported from
+  `enrich.ts`. The same ownership rule the email crawl already uses. **Not
+  rebuilt** — a second ownership rule is two rules that disagree the first time
+  either is edited, and a test asserts this module grows no copy of its own.
+- **Six distinct outcomes**, because collapsing them is how a good lead gets
+  deleted: `found`, `rejected` (it named sites, none provably theirs), `none`
+  (readable, names no site — a fact about the company), `walled` (**a fact about
+  us**), `unfetchable`, `not-social`.
+- **No company name means no answer.** Without a name there is no gate, and
+  returning the first outbound link would hand back a booking platform, a
+  franchise head office or whoever built the site.
+- **Nothing is guessed from the handle.** `facebook.com/acmeplumbing` does not
+  mean `acmeplumbing.co.uk` exists, and a guessed domain that resolves belongs to
+  somebody. There is no inference in the module at all.
+- `costAcu: 0`, asserted, and no key is read anywhere on the path.
+
+Wired into `findWebsite` **before** the paid search, trying `socialUrl` and then
+the `website` column itself. When the social page does not answer, the reason
+travels into the note — so a row whose Facebook link was a sign-in wall leads
+with that, instead of *"set SERPER_API_KEY"*, which would not have helped.
+
+### A wall blames us, and it does not offer a workaround
+
+`render-gap.ts` already carries the rule that the platform must not offer to
+defeat a control somebody deliberately put up, and this path is the obvious place
+to break it. It does not: the remedy named is `SCRAPER_API_URL` or supplying the
+website column, and a test asserts the sentence never mentions signing in as
+somebody, replaying a cookie, or rotating around a block.
+
+### The arithmetic the owner raised, computed from his own code
+
+| | |
+|---|---|
+| our cost per email found (LeadMagic) | **£0.00553** — charged only on a result |
+| our cost per email found (Hunter) | £0.03950 |
+| **what £70 buys at LeadMagic's rate** | **12,658 emails** |
+| what £70 buys at Hunter's rate | 1,772 |
+| charged to the customer (`enrich_paid`) | **£0.16/row = 28.9× provider cost** |
+| 1,000 rows | £160 revenue on £5.53 cost |
+
+**His instinct was right and understated.** The resale engine — metered per row,
+charged only on a result, margin floor enforced in `wallet.ts` — was already
+built. The gap was never the business model; it was that the free half could not
+be reached without a paid key, and now, for a list bought off either network, it
+can.
+
+### Mutation testing — 12 mutants, all killed
+
+The enricher no longer following a social URL · only `socialUrl` tried and not
+the website column · the whole social branch disabled · the ownership gate
+skipped · a missing company name no longer stopping it · a wall reported as "no
+website" · a short body no longer read as a wall · the click shim not unwrapped ·
+the page's own network allowed as a candidate · structured data losing its place
+at the front · the social reason dropped from the note · the module growing its
+own ownership rule.
+
+**ONE SURVIVED FIRST, and it is the same shape as §162's.** Wrapping the
+enricher's entire social branch in `if (false)` left the source-order assertion
+passing, because `websiteFromSocialPage` was still *written* — merely
+unreachable. Closed by a **behavioural** test that runs the real `scrapeEnrich`
+over a stubbed `fetch`. **Fourth presence-style assertion this session satisfied
+by something other than the code it was about**, after a JSX comment `codeOf` had
+swallowed, an import line, and an unreachable `throw`.
+
+### One of my own driver checks was wrong, and it is worth recording
+
+*"The web designer's domain was REFUSED, not returned"* reported BROKEN with
+`(none rejected)` — because the gate returns on the first candidate that
+**passes**, so with the company's own domain first the agency is never examined
+and `rejected` stays empty. The code was right; the check was asserting a
+side-effect rather than the outcome. It now asserts the outcome, **and** a second
+fixture puts the agency's link first so the refusal path is genuinely exercised.
+
+### Driven — 30 proven / 0 broken (`npm run drive:social`)
+
+Local servers standing in for Facebook, LinkedIn and the company's own site, with
+`fetch` intercepted only to rewrite the host. End to end, with every key deleted:
+**a Facebook URL in the website column becomes `info@acme-plumbing.co.uk` at a
+cost of £0**, the agency's address is not taken, and no search provider is called
+because none is needed.
+
+**NOT PROVEN, and it is the number that decides the yield:** what share of REAL
+Facebook and LinkedIn pages answer a signed-out reader rather than a sign-in
+wall. This container has no DNS — `resolve4` fails for `google.com` — so no live
+page could be read. The driver says so in its own output rather than letting a
+pass rate imply it. That has to be measured on a deployment with network access,
+against a real list.
+
+### The pre-existing DNS failures, re-confirmed
+
+The same **14** tests fail as in §162, for the same reason, and the failing set
+was diffed against the clean-tree capture again: **identical**. Everything that
+does not need DNS passed — layers, casts, advisories, lint, typecheck,
+`next build`, the 12 new tests, and the driver.
