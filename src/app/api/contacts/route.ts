@@ -279,7 +279,16 @@ export async function POST(req: NextRequest) {
     // rows left pays for eleven.
     const meter = await meterAction(access, "enrich", batch.length);
     if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu }, { status: meter.status });
-    const inputs = batch.map((c) => ({ company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade, website: c.website }));
+    // `socialUrl` IS CARRIED, and leaving it out is what made the free social
+    // follow unreachable. `backend/social-website.ts` reads a company's own site
+    // off its Facebook or LinkedIn page for no key and no credit, and the field
+    // that feeds it had no producer anywhere in the platform — so the one list
+    // it was built for (bought off those networks, social URL where the domain
+    // should be) still reached the suppliers with nothing but a name.
+    const inputs = batch.map((c) => ({
+      company: c.company || c.name || "", town: c.town, area: c.area, trade: c.trade,
+      website: c.website, socialUrl: c.socialUrl,
+    }));
     const raw = await enrichBatch(inputs, 8);
 
     // ---- PASS TWO: THE PAID SUPPLIERS, ON THE ONE WATERFALL ----------------

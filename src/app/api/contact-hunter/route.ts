@@ -380,6 +380,9 @@ export async function POST(req: NextRequest) {
         town: typeof body.where === "string" ? body.where : undefined,
         trade: typeof body.what === "string" ? body.what : undefined,
         website: typeof body.website === "string" ? body.website : undefined,
+        // Their Facebook or LinkedIn page, when the caller has one instead of a
+        // domain — which is what a list bought off either network consists of.
+        socialUrl: typeof body.socialUrl === "string" ? body.socialUrl : undefined,
         country: typeof body.country === "string" ? body.country : "GB",
         wantedTitles: Array.isArray(body.titles) ? body.titles.map((t) => String(t)) : [],
         suppressions, tenantId: brandId,

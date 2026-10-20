@@ -44,8 +44,18 @@ export type Contact = {
   area?: string;
   status?: string;         // e.g. "new" | "contacted" | "contactable"
   score?: number;
-  // Enrichment (discovered from the company's own website via live search).
+  // Enrichment (discovered from the company's own website via live search) —
+  // OR supplied by the imported file, which is better evidence and free.
   website?: string;
+  /**
+   * The company's Facebook or LinkedIn page, as the imported list gave it.
+   *
+   * Carried so enrichment can follow it to the company's own site for nothing.
+   * A list bought off either network has this and no domain, and until this
+   * field existed the column was parsed and then dropped at the store, so the
+   * row reached enrichment with only a name — the dearest possible input.
+   */
+  socialUrl?: string;
   emailConfidence?: string; // "high" | "medium" | "low"
   // NAMED GROUPS — the labels a person put on this contact on purpose, so a
   // campaign can go to one list rather than the whole vault. Absent means
@@ -60,6 +70,27 @@ export type Contact = {
 const mem = new Map<string, Map<string, Contact>>(); // brandId → (contactId → Contact)
 
 const lc = (s: string) => s.trim().toLowerCase();
+
+/**
+ * A FIELD THE ROW SAYS NOTHING ABOUT, DROPPED BEFORE ANY MERGE.
+ *
+ * THE DEFECT THIS FIXES, AND THE TWO STORES DISAGREED ABOUT IT. Firestore is
+ * initialised with `ignoreUndefinedProperties`, so a `set(…, { merge: true })`
+ * carrying `email: undefined` leaves the stored address alone. The in-memory
+ * store — the zero-config default, which must always keep working — merges with
+ * a spread, and an explicitly-undefined key WINS a spread. So re-importing the
+ * original prospect list, which is exactly what somebody does after enriching
+ * it, ERASED every email, phone and website the platform had found: on one
+ * storage backend and not the other, which is the worse half of the bug.
+ *
+ * The memory path now does what Firestore already does. A re-import adds and
+ * updates; it never blanks a field by not mentioning it.
+ */
+const defined = <T extends object>(o: T): Partial<T> => {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v;
+  return out as Partial<T>;
+};
 // SHA-256 (128-bit) — 32-bit FNV collided at ~65k entities, silently MERGING two
 // different customers onto one doc (data loss). A vault can hold far more, so use
 // the same wide hash the money engine uses.
@@ -87,7 +118,12 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
     if (!email && !r.phone && !r.name && !r.company) continue;
     const id = contactId(brandId, { email, name: r.name, phone: r.phone, company: r.company });
     const scoreNum = typeof r.score === "number" ? r.score : Number(r.score) || undefined;
-    const c: Contact = {
+    // ONE PLACE DROPS THE FIELDS THIS ROW SAYS NOTHING ABOUT, and it is here,
+    // before any merge. Three overlapping guards (one per merge point) each
+    // prevented the wipe on their own, which meant no single mutant could fail
+    // the test and no reader could tell which one was load-bearing. One rule,
+    // applied once: a key is never present with an undefined value.
+    const c = defined({
       id, brandId, email, name: r.name?.trim() || undefined, phone: r.phone?.trim() || undefined,
       company: r.company?.trim() || undefined,
       totalSpendGbp: num(r.totalSpendGbp), orderCount: num(r.orderCount), lastOrderDaysAgo: num(r.lastOrderDaysAgo),
@@ -98,7 +134,7 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
       status: r.status?.toString().trim().toLowerCase() || undefined,
       score: scoreNum,
       source: r.source || "csv-import", importedAt: nowISO,
-    };
+    }) as Contact;
     // GROUPS ARE ONLY WRITTEN WHEN THE ROW ACTUALLY CARRIES THEM.
     //
     // Both save paths below merge onto the existing record, so an import that
@@ -110,6 +146,19 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
       ? r.groups.map((g) => normaliseGroupName(g)).filter(Boolean)
       : [];
     if (groups.length) c.groups = [...new Set(groups)];
+
+    // THE LINKS THE FILE SUPPLIED, AND ONLY WHEN IT SUPPLIED THEM. Guarded for
+    // the same reason as groups, and because these are assigned AFTER the drop
+    // above — an unguarded `c.website = website || undefined` here would put the
+    // key back, and `website` is the field ENRICHMENT writes. Re-importing the
+    // original CSV, which has no website column precisely because that is why
+    // enrichment ran, would then erase every domain the platform paid to find.
+    const website = String(r.website ?? "").trim();
+    const socialUrl = String(r.socialUrl ?? "").trim();
+    if (website) c.website = website;
+    if (socialUrl) c.socialUrl = socialUrl;
+    // Two rows for the same company in ONE file merge the same way: the second
+    // adds what it knows and blanks nothing the first supplied.
     byId.set(id, { ...byId.get(id), ...c });
   }
   const list = [...byId.values()];
@@ -124,6 +173,10 @@ export async function saveContacts(brandId: string, rows: Partial<Contact>[], no
     }
   } else {
     const m = mem.get(brandId) ?? new Map<string, Contact>();
+    // Every record in `list` was built by `defined` above, so this spread
+    // cannot carry an undefined key — which is what makes this store agree
+    // with Firestore's `ignoreUndefinedProperties`: a re-import updates and
+    // never erases.
     for (const c of list) m.set(c.id, { ...m.get(c.id), ...c });
     mem.set(brandId, m);
   }

@@ -36,6 +36,21 @@ import type { EnrichInput, EnrichResult } from "@/backend/enrich";
 /** Role mailboxes a business publishes to be written to. */
 const ROLE = /^(info|hello|enquiries|enquiry|contact|sales|bookings|admin|office|reception|events)@/;
 
+/**
+ * Provider id → the `source` an `EnrichResult` reports.
+ *
+ * EVERY SUPPLIER THAT CAN SELL AN EMAIL NEEDS A LINE HERE, and
+ * `tests/cold-chain.test.mjs` asserts exactly that against the live registry —
+ * because the failure mode of omission is not an error, it is a quiet
+ * misattribution to "search", which is the platform taking credit for a
+ * supplier the customer is paying for.
+ */
+export const PROVIDER_SOURCE: Record<string, EnrichResult["source"]> = {
+  apollo: "apollo",
+  hunter: "hunter",
+  leadmagic: "leadmagic",
+};
+
 const hostOf = (v: string): string => {
   try { return new URL(v.startsWith("http") ? v : `https://${v}`).hostname.replace(/^www\./, "").toLowerCase(); }
   catch { return ""; }
@@ -204,9 +219,14 @@ export async function enrichPaid(
     // row. Apollo resolving a domain and Hunter finding the address on it is the
     // ordinary case now, and crediting Apollo for it is the field somebody reads
     // when deciding which key is worth renewing.
-    source: run.emailProvider[picked.value] === "apollo" ? "apollo"
-      : run.emailProvider[picked.value] === "hunter" ? "hunter"
-      : "search",
+    // IT IS A LOOKUP, NOT A CHAIN OF TWO NAMES. The chain named Apollo and
+    // Hunter and sent everything else to "search" — so LeadMagic, the CHEAPEST
+    // supplier in the waterfall and the one a bought list most often needs,
+    // found addresses that were then credited to our own free search. Reading
+    // this field, the owner would conclude the key he was paying for had done
+    // nothing. `PROVIDER_SOURCE` is asserted complete by a test, so adding a
+    // supplier without crediting it fails rather than mislabels.
+    source: PROVIDER_SOURCE[run.emailProvider[picked.value] || ""] ?? "search",
     stage: "found",
     supplierRefusals: run.refusals,
     note: `${picked.value} via ${who || "the free sources"}${spent ? ` — ${spent} ACU(s) of supplier cost` : ""}.${mobileNote}`,
