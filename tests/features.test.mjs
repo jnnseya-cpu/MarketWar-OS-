@@ -14566,6 +14566,37 @@ test("feature pages: each one answers a question and says something only we can 
   }
 });
 
+test("feature pages: no page uses markdown the renderer cannot render", async () => {
+  // THE DEFECT, AND TWO PAGES HAD ALREADY SHIPPED WITH IT. `renderBody` in
+  // `app/features/[slug]/page.tsx` supports exactly four things: `## ` headings,
+  // `- ` lists, `[text](link)` and `**bold**`. I wrote a markdown TABLE into the
+  // intent page and an ordered list into the gateway page, and both reached a
+  // real build: the table renders as a wall of pipes in a paragraph, and the
+  // list renders as one paragraph starting "1.".
+  //
+  // The driver did not catch it because it checked status, schema, canonical
+  // and lengths — everything except whether the page READS. "Render it and look
+  // at it" is in this repository's own rules, and a check for syntax the
+  // renderer cannot handle is how that becomes automatic rather than a habit.
+  const renderer = readFileSync(new URL("../src/app/features/[slug]/page.tsx", import.meta.url), "utf8");
+  // Derived from the renderer, so adding table support there retires the rule
+  // here rather than leaving a guard that outlived its reason.
+  const supportsTables = /\|/.test(renderer.split("function renderBody")[1]?.split("function inline")[0] ?? "");
+  const supportsCode = /`[^`]*`/.test(renderer.split("function inline")[1] ?? "");
+
+  for (const p of feat.FEATURE_PAGES) {
+    if (!supportsTables) {
+      assert.ok(!/^\s*\|/m.test(p.body), `${p.slug} uses a markdown table and the renderer has no table support — it renders as pipes`);
+    }
+    if (!supportsCode) {
+      assert.ok(!p.body.includes("`"), `${p.slug} uses a backtick code span the renderer does not support — the backtick reaches the reader`);
+    }
+    assert.ok(!/^\s*\d+\.\s/m.test(p.body), `${p.slug} uses an ordered list, which renders as one paragraph beginning with a number`);
+    assert.ok(!/^#(?!#)/m.test(p.body), `${p.slug} uses an H1; the page already has one and only "## " is rendered`);
+    assert.ok(!/^#{3,}/m.test(p.body), `${p.slug} uses an H3 or deeper, which renders as a literal row of hashes`);
+  }
+});
+
 test("feature pages: we pass the title and description check we sell", async () => {
   // THE THIRD TIME THIS EXACT DEFECT HAS SHIPPED, and the file that was created
   // to end it names the first two in its own header: §109 found eight marketing
@@ -14594,7 +14625,15 @@ test("feature pages: we pass the title and description check we sell", async () 
   // crawler reads the served HTML, so 189 was the real length and the page was
   // over DESC_MAX while the array said it was fine. A string length is not the
   // length of what a search engine receives.
-  const asServed = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").length;
+  // THE FORMULA MATTERS AND MINE WAS INCOMPLETE. It escaped & < > and the
+  // double quote, and React also escapes the APOSTROPHE as &#x27; — five extra
+  // characters for one. A 161-character description with one apostrophe served
+  // at 166, over the bound, and passed this test until the driver read the real
+  // HTML. The fix for the copy is a typographic apostrophe, which is one
+  // character and is not escaped at all.
+  const asServed = (s) => s
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#x27;").length;
 
   for (const p of feat.FEATURE_PAGES) {
     assert.ok(titleOk(p.title),
@@ -14703,7 +14742,8 @@ test("every engine is either sold by a page or has a recorded reason it is not",
   assert.equal(c.total, engines.length);
   assert.match(c.line, new RegExp(`${trulyCovered.length} of ${engines.length} engines`),
     "the summary sentence disagrees with the pages that exist");
-  assert.ok(trulyCovered.length >= 21, `${trulyCovered.length} engines sold — coverage went backwards`);
+  assert.ok(trulyCovered.length >= 52,
+    `${trulyCovered.length} engines sold — coverage went backwards. Like the cast count, this floor only ever rises: every customer-facing engine has a page, and the 6 that do not are operator-only.`);
 
   // And the three buckets partition the rest: no engine counted twice, none lost.
   const accounted = new Set([...c.covered, ...c.ownerOnly, ...c.pending, ...c.noProof]);

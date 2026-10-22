@@ -3902,7 +3902,7 @@ test("the commission rates and guardrail thresholds in the copy are the engine's
   // What matters is the PROPERTY, so that is what is asserted: the libraries
   // only grow, and the count stays DERIVED wherever it is shown. A typed total
   // in prose is the §151 defect ("32 checks" against a code that said 31).
-  assert.ok(pages.FEATURE_PAGES.length >= 22, `${pages.FEATURE_PAGES.length} answer pages — the cluster shrank, which needs an explicit reason`);
+  assert.ok(pages.FEATURE_PAGES.length >= 53, `${pages.FEATURE_PAGES.length} answer pages — the cluster shrank, which needs an explicit reason`);
   assert.ok(arts.SEO_ARTICLES.length >= 13, `${arts.SEO_ARTICLES.length} articles — the cluster shrank`);
 
   for (const f of ["src/app/features/page.tsx", "src/app/blog/page.tsx", "src/app/page.tsx", "src/app/how-it-works/page.tsx"]) {
